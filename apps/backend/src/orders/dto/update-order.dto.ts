@@ -1,9 +1,10 @@
 import { ValidationError, validateOptionalNumber, validateString } from "../../common/validation";
 
 export type UpdateOrderDto = {
-  companyId?: string;
-  clientId?: string;
-  comment?: string;
+  // Разрешаем null, чтобы можно было "очистить" поле
+  companyId?: string | null;
+  clientId?: string | null;
+  comment?: string | null; // Комментарий тоже можно стереть
   discountAmount?: number;
 };
 
@@ -12,15 +13,16 @@ export const validateUpdateOrderDto = (
 ): ValidationError[] => {
   const errors: ValidationError[] = [];
 
-  if (payload.companyId !== undefined) {
+  // Проверяем: если значение есть и оно НЕ null, то это должна быть строка
+  if (payload.companyId !== undefined && payload.companyId !== null) {
     validateString(payload.companyId, "companyId", errors, { allowEmpty: false });
   }
 
-  if (payload.clientId !== undefined) {
+  if (payload.clientId !== undefined && payload.clientId !== null) {
     validateString(payload.clientId, "clientId", errors, { allowEmpty: false });
   }
 
-  if (payload.comment !== undefined && typeof payload.comment !== "string") {
+  if (payload.comment !== undefined && payload.comment !== null && typeof payload.comment !== "string") {
     errors.push({ field: "comment", message: "must be a string" });
   }
 

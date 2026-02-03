@@ -301,7 +301,6 @@ export class OrdersService {
   }
 
   async updateOrder(orderId: string, dto: UpdateOrderDto): Promise<Order> {
-    // Validate that order exists
     const existingOrder = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
@@ -310,53 +309,62 @@ export class OrdersService {
       throw new NotFoundException("Order not found");
     }
 
-    // Validate companyId exists (if provided)
-    if (dto.companyId !== undefined) {
-      const company = await this.prisma.company.findUnique({
-        where: { id: dto.companyId },
-      });
-      if (!company) {
-        throw new BadRequestException("Company not found");
-      }
+    // --- ЛОГИКА ОПРЕДЕЛЕНИЯ COMPANY И CLIENT ---
+
+    // 1. Определяем желаемого клиента (из DTO или оставляем старого)
+    let targetClientId = dto.clientId;
+    // Если в DTO пришел undefined, значит поле не меняли — берем из базы. 
+    // Если пришел null, значит очищаем — оставляем null.
+    if (targetClientId === undefined) {
+      targetClientId = existingOrder.clientId;
     }
 
-    // Validate clientId exists (if provided)
-    if (dto.clientId !== undefined) {
+    // 2. Определяем желаемую компанию (предварительно)
+    let targetCompanyId = dto.companyId;
+    if (targetCompanyId === undefined) {
+      targetCompanyId = existingOrder.companyId;
+    }
+
+    // 3. Если в итоге задан клиент (targetClientId не null), проверяем его данные
+    if (targetClientId) {
       const contact = await this.prisma.contact.findUnique({
-        where: { id: dto.clientId },
+        where: { id: targetClientId },
       });
+
       if (!contact) {
         throw new BadRequestException("Contact not found");
       }
 
-      // Validate client.companyId === order.companyId (if both are set)
-      const targetCompanyId = dto.companyId !== undefined ? dto.companyId : existingOrder.companyId;
-      if (targetCompanyId && contact.companyId && contact.companyId !== targetCompanyId) {
-        throw new BadRequestException("Contact must belong to the same company as the order");
+      // ГЛАВНОЕ: Если у контакта есть компания, она ПРИНУДИТЕЛЬНО становится компанией заказа
+      if (contact.companyId) {
+        targetCompanyId = contact.companyId;
       }
+      
+      // Если у контакта НЕТ компании (contact.companyId === null), 
+      // то мы позволяем targetCompanyId быть любым (null или тем, что выбрал пользователь/было в заказе).
+      // Это разрешает сценарий "Частный контакт + Без компании" или "Частный контакт (консультант) + Компания".
     }
 
-    // Update order
+    // --- СОХРАНЕНИЕ ---
+
     const needsRecalculation = dto.discountAmount !== undefined;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
         data: {
-          companyId: dto.companyId,
-          clientId: dto.clientId,
+          companyId: targetCompanyId, // Используем вычисленный ID (с учетом авто-подстановки)
+          clientId: targetClientId,   // Используем вычисленный ID
           comment: dto.comment,
           discountAmount: dto.discountAmount,
         },
       });
 
-      // Recalculate totals if discount changed
       if (needsRecalculation) {
         await this.recalculateTotals(orderId, tx);
       }
     });
 
-    // Return updated order
     return this.getOrder(orderId);
   }
 }

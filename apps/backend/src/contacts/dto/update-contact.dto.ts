@@ -1,12 +1,12 @@
-import { ValidationError, validateString } from "../../common/validation";
+import { ValidationError, validateString, validateBoolean } from "../../common/validation";
 
 export type UpdateContactDto = {
-  companyId?: string;
+  companyId?: string | null; // Разрешаем null
   firstName?: string;
   lastName?: string;
   phone?: string;
-  email?: string;
-  position?: string;
+  email?: string | null;
+  position?: string | null;
   isPrimary?: boolean;
 };
 
@@ -27,16 +27,21 @@ export const validateUpdateContactDto = (
     validateString(payload.phone, "phone", errors);
   }
 
-  if (payload.companyId !== undefined) {
+  // ВАЖНО: Проверяем строку, только если значение НЕ null
+  if (payload.companyId !== undefined && payload.companyId !== null) {
     validateString(payload.companyId, "companyId", errors);
   }
 
-  if (payload.email !== undefined) {
+  if (payload.email !== undefined && payload.email !== null) {
     validateString(payload.email, "email", errors, { allowEmpty: false });
   }
 
-  if (payload.position !== undefined) {
+  if (payload.position !== undefined && payload.position !== null) {
     validateString(payload.position, "position", errors, { allowEmpty: false });
+  }
+
+  if (payload.isPrimary !== undefined) {
+    validateBoolean(payload.isPrimary, "isPrimary", errors);
   }
 
   if (
