@@ -1,0 +1,3 @@
+ALTER TABLE "Order"
+  ALTER COLUMN "companyId" DROP NOT NULL,
+  ALTER COLUMN "clientId" DROP NOT NULL;

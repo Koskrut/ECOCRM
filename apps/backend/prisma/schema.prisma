@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+
+}
+
+enum OrderStatus {
+  NEW
+  SHIPPING_CREATED
+  SHIPPED
+  DELIVERED
+  CANCELED
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  edrpou    String?
+  taxId     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts Contact[]
+  orders   Order[]
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  companyId String?
+  firstName String
+  lastName  String
+  phone     String
+  email     String?
+  position  String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  orders  Order[]
+
+  @@index([companyId])
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  sku       String
+  name      String
+  unit      String
+  basePrice Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items OrderItem[]
+}
+
+model Order {
+  id             String   @id @default(cuid())
+  orderNumber    String   @unique
+  companyId      String?
+  clientId       String?
+  ownerId        String
+  status         OrderStatus
+  currency       String
+  subtotalAmount Float
+  discountAmount Float
+  totalAmount    Float
+  paidAmount     Float
+  debtAmount     Float
+  comment        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company       Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  client        Contact? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+
+  @@index([companyId])
+  @@index([clientId])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  productId String
+  qty       Int
+  price     Float
+  lineTotal Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@unique([orderId, productId], name: "orderId_productId")
+}
+
+model OrderStatusHistory {
+  id         String       @id @default(cuid())
+  orderId    String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  changedBy  String
+  reason     String?
+  createdAt  DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}

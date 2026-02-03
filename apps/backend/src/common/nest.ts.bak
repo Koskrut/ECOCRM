@@ -1,0 +1,60 @@
+export type ClassDecoratorFactory = (...args: unknown[]) => ClassDecorator;
+export type MethodDecoratorFactory = (...args: unknown[]) => MethodDecorator;
+export type ParameterDecoratorFactory = (...args: unknown[]) => ParameterDecorator;
+
+const createClassDecorator =
+  (): ClassDecorator =>
+  (_target: Function) => {};
+
+const createMethodDecorator =
+  (): MethodDecorator =>
+  (_target, _propertyKey, _descriptor) => {};
+
+const createParameterDecorator =
+  (): ParameterDecorator =>
+  (_target, _propertyKey, _parameterIndex) => {};
+
+export const Controller: ClassDecoratorFactory = (_path?: string) =>
+  createClassDecorator();
+
+export const Module: ClassDecoratorFactory = (_metadata?: unknown) =>
+  createClassDecorator();
+
+export const Injectable: ClassDecoratorFactory = () => createClassDecorator();
+
+export const Get: MethodDecoratorFactory = (_path?: string) =>
+  createMethodDecorator();
+
+export const Post: MethodDecoratorFactory = (_path?: string) =>
+  createMethodDecorator();
+
+export const Patch: MethodDecoratorFactory = (_path?: string) =>
+  createMethodDecorator();
+
+export const Delete: MethodDecoratorFactory = (_path?: string) =>
+  createMethodDecorator();
+
+export const Body: ParameterDecoratorFactory = () => createParameterDecorator();
+export const Param: ParameterDecoratorFactory = () => createParameterDecorator();
+export const Query: ParameterDecoratorFactory = () => createParameterDecorator();
+
+export class HttpException extends Error {
+  public readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export class BadRequestException extends HttpException {
+  constructor(message: string) {
+    super(400, message);
+  }
+}
+
+export class NotFoundException extends HttpException {
+  constructor(message: string) {
+    super(404, message);
+  }
+}
