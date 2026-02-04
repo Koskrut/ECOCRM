@@ -7,6 +7,8 @@ datasource db {
 
 }
 
+// --- ENUMS ---
+
 enum OrderStatus {
   NEW
   SHIPPING_CREATED
@@ -14,6 +16,18 @@ enum OrderStatus {
   DELIVERED
   CANCELED
 }
+
+enum DeliveryMethod {
+  PICKUP
+  NOVA_POSHTA
+}
+
+enum PaymentMethod {
+  FOP
+  CASH
+}
+
+// --- MODELS ---
 
 model Company {
   id        String   @id @default(cuid())
@@ -41,8 +55,28 @@ model Contact {
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   orders  Order[]
+  
+  recipients ContactRecipient[]
 
   @@index([companyId])
+}
+
+model ContactRecipient {
+  id        String   @id @default(cuid())
+  contactId String
+  
+  firstName String
+  lastName  String
+  phone     String
+  city      String
+  warehouse String
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
 }
 
 model Product {
@@ -75,8 +109,12 @@ model Order {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  company       Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  client        Contact? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  deliveryMethod DeliveryMethod?
+  paymentMethod  PaymentMethod?
+  deliveryData   Json?
+
+  company       Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  client        Contact?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
 

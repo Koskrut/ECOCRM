@@ -1,111 +1,79 @@
 import {
-  BadRequestException,
-  Body,
   Controller,
-  Delete,
   Get,
-  Param,
-  Patch,
   Post,
+  Put,
+  Delete,
+  Body,
+  Param,
   Query,
+  BadRequestException,
 } from "@nestjs/common";
-import { normalizePagination } from "../common/pagination";
-import { ValidationError, validateString } from "../common/validation";
-import { AddOrderItemDto, validateAddOrderItemDto } from "./dto/add-order-item.dto";
-import {
-  CreateOrderDto,
-  validateCreateOrderDto,
-} from "./dto/create-order.dto";
-import {
-  UpdateOrderDto,
-  validateUpdateOrderDto,
-} from "./dto/update-order.dto";
-import {
-  UpdateOrderItemDto,
-  validateUpdateOrderItemDto,
-} from "./dto/update-order-item.dto";
 import { OrdersService } from "./orders.service";
+import { CreateOrderDto, validateCreateOrderDto } from "./dto/create-order.dto";
+import { UpdateOrderDto } from "./dto/update-order.dto";
+import { OrderStatus } from "@prisma/client";
 
-const assertValid = (errors: ValidationError[]): void => {
-  if (errors.length === 0) {
-    return;
-  }
-  const detail = errors.map((error) => `${error.field}: ${error.message}`).join(", ");
-  throw new BadRequestException(`Validation failed: ${detail}`);
-};
-
-@Controller("/orders")
+@Controller("orders")
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  public async create(@Body() body: CreateOrderDto) {
+  async create(@Body() body: CreateOrderDto) {
     const errors = validateCreateOrderDto(body);
-    assertValid(errors);
-    return this.ordersService.createOrder(body);
+    if (errors.length > 0) {
+      throw new BadRequestException({ errors });
+    }
+    return this.ordersService.create(body);
   }
 
   @Get()
-  public async list(@Query() query: { page?: string; pageSize?: string }) {
-    const pagination = normalizePagination({
-      page: query.page,
-      pageSize: query.pageSize,
-    });
-    return this.ordersService.listOrders(pagination);
-  }
-
-  @Get("/:id")
-  public async getOne(@Param() params: { id: string }) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    assertValid(errors);
-    return this.ordersService.getOrder(params.id);
-  }
-
-  @Patch("/:id")
-  public async update(
-    @Param() params: { id: string },
-    @Body() body: UpdateOrderDto,
+  async list(
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+    @Query("status") status?: OrderStatus,
+    @Query("search") search?: string,
   ) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    errors.push(...validateUpdateOrderDto(body));
-    assertValid(errors);
-    return this.ordersService.updateOrder(params.id, body);
+    // Вместо new Pagination создаем объект вручную
+    const p = Number(page) || 1;
+    const ps = Number(pageSize) || 10;
+    
+    const pagination = {
+      page: p,
+      pageSize: ps,
+      limit: ps,
+      offset: (p - 1) * ps,
+    };
+
+    return this.ordersService.list(pagination as any, { status, search });
   }
 
-  @Post("/:id/items")
-  public addItem(
-    @Param() params: { id: string },
-    @Body() body: AddOrderItemDto,
+  @Get(":id")
+  async findOne(@Param("id") id: string) {
+    return this.ordersService.findOne(id);
+  }
+
+  @Put(":id")
+  async update(@Param("id") id: string, @Body() body: UpdateOrderDto) {
+    return (this.ordersService as any).update(id, body);
+  }
+
+  @Post(":id/items")
+  async addItem(@Param("id") id: string, @Body() body: any) {
+    return (this.ordersService as any).addItem(id, body);
+  }
+
+  @Put(":id/items/:itemId")
+  async updateItem(
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+    @Body() body: any,
   ) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    errors.push(...validateAddOrderItemDto(body));
-    assertValid(errors);
-    return this.ordersService.addItem(params.id, body);
+    return (this.ordersService as any).updateItem(id, itemId, body);
   }
 
-  @Patch("/:id/items/:itemId")
-  public updateItem(
-    @Param() params: { id: string; itemId: string },
-    @Body() body: UpdateOrderItemDto,
-  ) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    validateString(params.itemId, "itemId", errors);
-    errors.push(...validateUpdateOrderItemDto(body));
-    assertValid(errors);
-    return this.ordersService.updateItem(params.id, params.itemId, body);
-  }
-
-  @Delete("/:id/items/:itemId")
-  public async removeItem(@Param() params: { id: string; itemId: string }) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    validateString(params.itemId, "itemId", errors);
-    assertValid(errors);
-    await this.ordersService.removeItem(params.id, params.itemId);
-    return { ok: true };
+  @Delete(":id/items/:itemId")
+  async removeItem(@Param("id") id: string, @Param("itemId") itemId: string) {
+    return (this.ordersService as any).removeItem(id, itemId);
   }
 }

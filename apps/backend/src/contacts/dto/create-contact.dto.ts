@@ -1,12 +1,12 @@
-import { ValidationError, validateString, validateBoolean } from "../../common/validation";
+import { ValidationError, validateString } from "../../common/validation";
 
 export type CreateContactDto = {
   companyId?: string | null;
   firstName: string;
   lastName: string;
   phone: string;
-  email?: string;
-  position?: string;
+  email?: string | null;
+  position?: string | null;
   isPrimary?: boolean;
 };
 
@@ -14,25 +14,23 @@ export const validateCreateContactDto = (
   payload: CreateContactDto,
 ): ValidationError[] => {
   const errors: ValidationError[] = [];
+
+  // Обязательные строковые поля
   validateString(payload.firstName, "firstName", errors);
   validateString(payload.lastName, "lastName", errors);
   validateString(payload.phone, "phone", errors);
 
-  // --- ВАЖНО: Добавляем ту же проверку здесь ---
-  if (payload.companyId !== undefined && payload.companyId !== null) {
+  // Опциональные поля (проверяем, если они переданы и не null)
+  if (payload.companyId) {
     validateString(payload.companyId, "companyId", errors);
   }
-
-  if (payload.email !== undefined && payload.email !== null) {
-    validateString(payload.email, "email", errors, { allowEmpty: false });
+  
+  if (payload.email) {
+    validateString(payload.email, "email", errors);
   }
 
-  if (payload.position !== undefined && payload.position !== null) {
-    validateString(payload.position, "position", errors, { allowEmpty: false });
-  }
-
-  if (payload.isPrimary !== undefined) {
-    validateBoolean(payload.isPrimary, "isPrimary", errors);
+  if (payload.position) {
+    validateString(payload.position, "position", errors);
   }
 
   return errors;

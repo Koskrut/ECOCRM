@@ -1,19 +1,11 @@
-import { PrismaClient } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Pagination } from "../common/pagination";
-import { ProductStore } from "../products/product.store";
-import { AddOrderItemDto } from "./dto/add-order-item.dto";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { PrismaClient, Prisma, OrderStatus } from "@prisma/client";
 import { CreateOrderDto } from "./dto/create-order.dto";
-import { UpdateOrderDto } from "./dto/update-order.dto";
-import { UpdateOrderItemDto } from "./dto/update-order-item.dto";
-import { Order, OrderSummary } from "./entities/order";
-import { OrderItem } from "./entities/order-item";
-import { OrderStatusService } from "./order-status.service";
-import { createOrderNumber } from "../common/ids";
+// Убрали .entity, так как файл называется order.ts
+import { Order } from "./entities/order"; 
 
 type ListOrdersResult = {
-  items: OrderSummary[];
+  items: Order[];
   total: number;
   page: number;
   pageSize: number;
@@ -21,350 +13,144 @@ type ListOrdersResult = {
 
 @Injectable()
 export class OrdersService {
-  private readonly productStore: ProductStore;
+  constructor(private readonly prisma: PrismaClient) {}
 
-  constructor(
-    private readonly prisma: PrismaClient,
-    private readonly statusService: OrderStatusService,
-  ) {
-    this.productStore = new ProductStore(prisma);
-  }
+  public async create(dto: CreateOrderDto): Promise<Order> {
+    const orderNumber = `ORD-${Date.now()}`;
+    const subtotalAmount = 0;
+    const discountAmount = dto.discountAmount || 0;
+    const totalAmount = Math.max(0, subtotalAmount - discountAmount);
 
-  async createOrder(dto: CreateOrderDto): Promise<Order> {
-    const order = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
-        data: {
-          orderNumber: `ORD-${Date.now()}`,
-          ownerId: dto.ownerId,
-          companyId: dto.companyId ?? null,
-          clientId: dto.clientId ?? null,
-          status: "NEW",
-          currency: "UAH",
-          subtotalAmount: 0,
-          discountAmount: dto.discountAmount ?? 0,
-          totalAmount: 0,
-          paidAmount: 0,
-          debtAmount: 0,
-          comment: dto.comment ?? null,
-        },
-      });
-
-      await this.statusService.recordInitialStatus(
-        created.id,
-        created.status,
-        dto.ownerId,
-        tx,
-      );
-
-      return created;
+    const createdOrder = await this.prisma.order.create({
+      data: {
+        orderNumber,
+        ownerId: dto.ownerId,
+        companyId: dto.companyId || null,
+        clientId: dto.clientId || null,
+        status: OrderStatus.NEW,
+        currency: "UAH",
+        subtotalAmount,
+        discountAmount,
+        totalAmount,
+        paidAmount: 0,
+        debtAmount: totalAmount,
+        comment: dto.comment,
+        // Используем 'as any', чтобы TS не ругался на несовпадение типов из разных файлов
+        deliveryMethod: (dto.deliveryMethod as any) || null,
+        paymentMethod: (dto.paymentMethod as any) || null,
+        deliveryData: (dto.deliveryData as any) ?? Prisma.DbNull,
+      },
+      include: {
+        company: true,
+        client: true,
+        items: { include: { product: true } },
+      },
     });
 
-    return {
-      ...order,
-      comment: order.comment ?? undefined,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt.toISOString(),
-      items: [],
-    };
+    return this.mapToEntity(createdOrder);
   }
 
-  async listOrders(pagination: Pagination): Promise<ListOrdersResult> {
+  public async list(
+    pagination: { offset: number; limit: number; page: number; pageSize: number },
+    filters?: { status?: OrderStatus; search?: string }
+  ): Promise<ListOrdersResult> {
+    const where: Prisma.OrderWhereInput = {};
+
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+
+    if (filters?.search) {
+      where.OR = [
+        { orderNumber: { contains: filters.search, mode: "insensitive" } },
+      ];
+    }
+
     const [total, orders] = await this.prisma.$transaction([
-      this.prisma.order.count(),
+      this.prisma.order.count({ where }),
       this.prisma.order.findMany({
+        where,
         skip: pagination.offset,
         take: pagination.limit,
         orderBy: { createdAt: "desc" },
         include: {
-          _count: { select: { items: true } },
+          company: true,
+          client: true,
+          items: { include: { product: true } },
         },
       }),
     ]);
 
-    const items = orders.map((order) => ({
-      id: order.id,
-      orderNumber: order.orderNumber,
-      companyId: order.companyId,
-      clientId: order.clientId,
-      ownerId: order.ownerId,
-      status: order.status,
-      currency: order.currency,
-      subtotalAmount: order.subtotalAmount,
-      discountAmount: order.discountAmount,
-      totalAmount: order.totalAmount,
-      paidAmount: order.paidAmount,
-      debtAmount: order.debtAmount,
-      comment: order.comment ?? undefined,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt.toISOString(),
-      itemsCount: order._count.items,
-    }));
-
     return {
-      items,
+      items: orders.map((o) => this.mapToEntity(o)),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
     };
   }
 
-  async getOrder(orderId: string): Promise<Order> {
+  public async findOne(id: string): Promise<Order> {
     const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
+      where: { id },
       include: {
         company: true,
         client: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
+        items: { include: { product: true } },
       },
     });
 
     if (!order) {
-      throw new NotFoundException("Order not found");
+      throw new NotFoundException(`Order with ID ${id} not found`);
     }
 
+    return this.mapToEntity(order);
+  }
+
+  private mapToEntity(
+    raw: Prisma.OrderGetPayload<{
+      include: { company: true; client: true; items: { include: { product: true } } };
+    }>
+  ): Order {
     return {
-      ...order,
-      comment: order.comment ?? undefined,
-      company: order.company
+      id: raw.id,
+      orderNumber: raw.orderNumber,
+      status: raw.status,
+      
+      ownerId: raw.ownerId, // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+      
+      companyId: raw.companyId ?? undefined,
+      company: raw.company ? { id: raw.company.id, name: raw.company.name } : undefined,
+      
+      clientId: raw.clientId ?? undefined,
+      client: raw.client
         ? {
-            id: order.company.id,
-            name: order.company.name,
+            id: raw.client.id,
+            firstName: raw.client.firstName,
+            lastName: raw.client.lastName,
+            phone: raw.client.phone,
           }
         : undefined,
-      client: order.client
-        ? {
-            id: order.client.id,
-            firstName: order.client.firstName,
-            lastName: order.client.lastName,
-            phone: order.client.phone,
-          }
-        : undefined,
-      createdAt: order.createdAt.toISOString(),
-      updatedAt: order.updatedAt.toISOString(),
-      items: order.items.map((item) => ({
-        ...item,
-        product: item.product
-          ? {
-              id: item.product.id,
-              sku: item.product.sku,
-              name: item.product.name,
-              unit: item.product.unit,
-            }
-          : undefined,
-        createdAt: item.createdAt.toISOString(),
-        updatedAt: item.updatedAt.toISOString(),
+
+      currency: raw.currency,
+      subtotalAmount: raw.subtotalAmount,
+      discountAmount: raw.discountAmount,
+      totalAmount: raw.totalAmount,
+      paidAmount: raw.paidAmount,
+      debtAmount: raw.debtAmount,
+      comment: raw.comment ?? undefined,
+      deliveryMethod: raw.deliveryMethod as any,
+      paymentMethod: raw.paymentMethod as any,
+      deliveryData: raw.deliveryData as any,
+      createdAt: raw.createdAt.toISOString(),
+      updatedAt: raw.updatedAt.toISOString(),
+      items: raw.items.map((i) => ({
+        id: i.id,
+        productId: i.productId,
+        productName: i.product.name,
+        qty: i.qty,
+        price: i.price,
+        lineTotal: i.lineTotal,
       })),
     };
-  }
-
-  async addItem(orderId: string, dto: AddOrderItemDto): Promise<OrderItem> {
-    const product = await this.productStore.findActiveById(dto.productId);
-    if (!product) {
-      throw new NotFoundException("Product not found");
-    }
-
-    const item = await this.prisma.$transaction(async (tx) => {
-      await tx.orderItem.upsert({
-        where: {
-          orderId_productId: {
-            orderId,
-            productId: dto.productId,
-          },
-        },
-        create: {
-          orderId,
-          productId: dto.productId,
-          qty: dto.qty,
-          price: dto.price,
-          lineTotal: dto.qty * dto.price,
-        },
-        update: {
-          qty: { increment: dto.qty },
-        },
-      });
-
-      const updated = await tx.orderItem.findUnique({
-        where: {
-          orderId_productId: {
-            orderId,
-            productId: dto.productId,
-          },
-        },
-      });
-
-      if (!updated) {
-        throw new NotFoundException("Order item not found");
-      }
-
-      const saved = await tx.orderItem.update({
-        where: { id: updated.id },
-        data: {
-          lineTotal: updated.qty * updated.price,
-        },
-      });
-
-      await this.recalculateTotals(orderId, tx);
-      return saved;
-    });
-
-    return {
-      ...item,
-      createdAt: item.createdAt.toISOString(),
-      updatedAt: item.updatedAt.toISOString(),
-    };
-  }
-
-  async updateItem(
-    orderId: string,
-    itemId: string,
-    dto: UpdateOrderItemDto,
-  ): Promise<OrderItem> {
-    const item = await this.prisma.orderItem.findFirst({
-      where: { id: itemId, orderId },
-    });
-
-    if (!item) {
-      throw new NotFoundException("Order item not found");
-    }
-
-    const qty = dto.qty ?? item.qty;
-    const price = dto.price ?? item.price;
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.orderItem.update({
-        where: { id: itemId },
-        data: {
-          qty,
-          price,
-          lineTotal: qty * price,
-        },
-      });
-
-      await this.recalculateTotals(orderId, tx);
-      return saved;
-    });
-
-    return {
-      ...updated,
-      createdAt: updated.createdAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-    };
-  }
-
-  async removeItem(orderId: string, itemId: string): Promise<void> {
-    const item = await this.prisma.orderItem.findFirst({
-      where: { id: itemId, orderId },
-    });
-
-    if (!item) {
-      throw new NotFoundException("Order item not found");
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.orderItem.delete({ where: { id: itemId } });
-      await this.recalculateTotals(orderId, tx);
-    });
-  }
-
-  private async recalculateTotals(
-    orderId: string,
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const [order, aggregate] = await Promise.all([
-      tx.order.findUnique({ where: { id: orderId } }),
-      tx.orderItem.aggregate({
-        where: { orderId },
-        _sum: { lineTotal: true },
-      }),
-    ]);
-
-    if (!order) {
-      throw new NotFoundException("Order not found");
-    }
-
-    const subtotal = aggregate._sum.lineTotal ?? 0;
-    const totalAmount = Math.max(subtotal - order.discountAmount, 0);
-    const debtAmount = Math.max(totalAmount - order.paidAmount, 0);
-
-    await tx.order.update({
-      where: { id: orderId },
-      data: {
-        subtotalAmount: subtotal,
-        totalAmount,
-        debtAmount,
-      },
-    });
-  }
-
-  async updateOrder(orderId: string, dto: UpdateOrderDto): Promise<Order> {
-    const existingOrder = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-
-    if (!existingOrder) {
-      throw new NotFoundException("Order not found");
-    }
-
-    // --- ЛОГИКА ОПРЕДЕЛЕНИЯ COMPANY И CLIENT ---
-
-    // 1. Определяем желаемого клиента (из DTO или оставляем старого)
-    let targetClientId = dto.clientId;
-    // Если в DTO пришел undefined, значит поле не меняли — берем из базы. 
-    // Если пришел null, значит очищаем — оставляем null.
-    if (targetClientId === undefined) {
-      targetClientId = existingOrder.clientId;
-    }
-
-    // 2. Определяем желаемую компанию (предварительно)
-    let targetCompanyId = dto.companyId;
-    if (targetCompanyId === undefined) {
-      targetCompanyId = existingOrder.companyId;
-    }
-
-    // 3. Если в итоге задан клиент (targetClientId не null), проверяем его данные
-    if (targetClientId) {
-      const contact = await this.prisma.contact.findUnique({
-        where: { id: targetClientId },
-      });
-
-      if (!contact) {
-        throw new BadRequestException("Contact not found");
-      }
-
-      // ГЛАВНОЕ: Если у контакта есть компания, она ПРИНУДИТЕЛЬНО становится компанией заказа
-      if (contact.companyId) {
-        targetCompanyId = contact.companyId;
-      }
-      
-      // Если у контакта НЕТ компании (contact.companyId === null), 
-      // то мы позволяем targetCompanyId быть любым (null или тем, что выбрал пользователь/было в заказе).
-      // Это разрешает сценарий "Частный контакт + Без компании" или "Частный контакт (консультант) + Компания".
-    }
-
-    // --- СОХРАНЕНИЕ ---
-
-    const needsRecalculation = dto.discountAmount !== undefined;
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          companyId: targetCompanyId, // Используем вычисленный ID (с учетом авто-подстановки)
-          clientId: targetClientId,   // Используем вычисленный ID
-          comment: dto.comment,
-          discountAmount: dto.discountAmount,
-        },
-      });
-
-      if (needsRecalculation) {
-        await this.recalculateTotals(orderId, tx);
-      }
-    });
-
-    return this.getOrder(orderId);
   }
 }

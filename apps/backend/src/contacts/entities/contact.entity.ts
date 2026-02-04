@@ -13,4 +13,14 @@ export type Contact = {
   isPrimary: boolean;
   createdAt: string;
   updatedAt: string;
+  recipients?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    city: string;
+    warehouse: string;
+    createdAt: string;
+    updatedAt: string;
+  }[];
 };

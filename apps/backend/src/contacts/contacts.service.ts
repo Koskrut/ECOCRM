@@ -27,16 +27,10 @@ export class ContactsService {
         position: dto.position,
         isPrimary: dto.isPrimary ?? false,
       },
+      include: { recipients: true }, // На случай, если они появятся при создании
     });
 
-    return {
-      ...contact,
-      companyId: contact.companyId ?? undefined,
-      email: contact.email ?? undefined,
-      position: contact.position ?? undefined,
-      createdAt: contact.createdAt.toISOString(),
-      updatedAt: contact.updatedAt.toISOString(),
-    };
+    return this.mapToEntity(contact);
   }
 
   public async list(
@@ -66,17 +60,11 @@ export class ContactsService {
         orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
         skip: pagination.offset,
         take: pagination.limit,
+        include: { recipients: true }, // <-- Загружаем получателей для списка
       }),
     ]);
 
-    const items = contacts.map((contact) => ({
-      ...contact,
-      companyId: contact.companyId ?? undefined,
-      email: contact.email ?? undefined,
-      position: contact.position ?? undefined,
-      createdAt: contact.createdAt.toISOString(),
-      updatedAt: contact.updatedAt.toISOString(),
-    }));
+    const items = contacts.map((contact) => this.mapToEntity(contact));
 
     return {
       items,
@@ -89,27 +77,17 @@ export class ContactsService {
   public async findOne(id: string): Promise<Contact> {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
-      include: { company: true },
+      include: { 
+        company: true, 
+        recipients: true // <-- Загружаем получателей для одиночного просмотра
+      },
     });
 
     if (!contact) {
       throw new NotFoundException("Contact not found");
     }
 
-    return {
-      ...contact,
-      companyId: contact.companyId ?? undefined,
-      company: contact.company
-        ? {
-            id: contact.company.id,
-            name: contact.company.name,
-          }
-        : undefined,
-      email: contact.email ?? undefined,
-      position: contact.position ?? undefined,
-      createdAt: contact.createdAt.toISOString(),
-      updatedAt: contact.updatedAt.toISOString(),
-    };
+    return this.mapToEntity(contact);
   }
 
   public async update(id: string, dto: UpdateContactDto): Promise<Contact> {
@@ -132,13 +110,44 @@ export class ContactsService {
         position: dto.position,
         isPrimary: dto.isPrimary,
       },
+      include: { recipients: true },
     });
 
+    return this.mapToEntity(contact);
+  }
+
+  // Вспомогательный метод для преобразования Prisma объекта в Entity
+  private mapToEntity(
+    contact: Prisma.ContactGetPayload<{ include: { company: true; recipients: true } } | { include: { recipients: true } }>
+  ): Contact {
+    // Приводим recipients к нужному виду (если они есть)
+    const recipients = (contact.recipients || []).map((r) => ({
+      id: r.id,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      phone: r.phone,
+      city: r.city,
+      warehouse: r.warehouse,
+      createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
+    }));
+
     return {
-      ...contact,
+      id: contact.id,
       companyId: contact.companyId ?? undefined,
+      company: (contact as any).company
+        ? {
+            id: (contact as any).company.id,
+            name: (contact as any).company.name,
+          }
+        : undefined,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      phone: contact.phone,
       email: contact.email ?? undefined,
       position: contact.position ?? undefined,
+      isPrimary: contact.isPrimary,
+      recipients: recipients, // <-- Добавлено поле
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
     };
