@@ -9,15 +9,17 @@ import {
   Query,
   BadRequestException,
 } from "@nestjs/common";
+import { OrderStatus, UserRole } from "@prisma/client";
+import { Roles } from "../auth/roles.decorator";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto, validateCreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
-import { OrderStatus } from "@prisma/client";
 
 @Controller("orders")
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post()
   async create(@Body() body: CreateOrderDto) {
     const errors = validateCreateOrderDto(body);
@@ -53,16 +55,19 @@ export class OrdersController {
     return this.ordersService.findOne(id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Put(":id")
   async update(@Param("id") id: string, @Body() body: UpdateOrderDto) {
     return (this.ordersService as any).update(id, body);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post(":id/items")
   async addItem(@Param("id") id: string, @Body() body: any) {
     return (this.ordersService as any).addItem(id, body);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Put(":id/items/:itemId")
   async updateItem(
     @Param("id") id: string,
@@ -72,6 +77,7 @@ export class OrdersController {
     return (this.ordersService as any).updateItem(id, itemId, body);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Delete(":id/items/:itemId")
   async removeItem(@Param("id") id: string, @Param("itemId") itemId: string) {
     return (this.ordersService as any).removeItem(id, itemId);

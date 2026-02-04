@@ -8,6 +8,8 @@ import {
   Post,
   Query,
 } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
+import { Roles } from "../auth/roles.decorator";
 import { normalizePagination } from "../common/pagination";
 import { ValidationError, validateString } from "../common/validation";
 import { ContactsService } from "./contacts.service";
@@ -32,6 +34,7 @@ const assertValid = (errors: ValidationError[]): void => {
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post()
   public async create(@Body() body: CreateContactDto) {
     const errors = validateCreateContactDto(body);
@@ -58,6 +61,7 @@ export class ContactsController {
     return this.contactsService.findOne(params.id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Patch("/:id")
   public async update(
     @Param() params: { id: string },
