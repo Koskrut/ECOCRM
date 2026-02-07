@@ -4,20 +4,29 @@ import {
   Post,
   Put,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
+  Req,
   BadRequestException,
 } from "@nestjs/common";
-import { OrderStatus, UserRole } from "@prisma/client";
+import { OrderStatus, UserRole, ActivityType } from "@prisma/client";
+import { Request } from "express";
 import { Roles } from "../auth/roles.decorator";
+import { AuthUser } from "../auth/auth.types";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto, validateCreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
+import { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
+import { ActivitiesService } from "../activities/activities.service";
 
 @Controller("orders")
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly activitiesService: ActivitiesService,
+  ) {}
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post()
@@ -36,10 +45,9 @@ export class OrdersController {
     @Query("status") status?: OrderStatus,
     @Query("search") search?: string,
   ) {
-    // Вместо new Pagination создаем объект вручную
     const p = Number(page) || 1;
     const ps = Number(pageSize) || 10;
-    
+
     const pagination = {
       page: p,
       pageSize: ps,
@@ -49,7 +57,30 @@ export class OrdersController {
 
     return this.ordersService.list(pagination as any, { status, search });
   }
-
+    // --- KANBAN BOARD ---
+    @Get("board")
+    async getBoard(
+      @Query("search") search?: string,
+      @Query("companyId") companyId?: string,
+      @Query("ownerId") ownerId?: string,
+    ) {
+      const columns = await this.ordersService.board({ search, companyId, ownerId });
+      return { columns };
+    }
+  
+    // --- DnD STATUS CHANGE ---
+    @Patch(":id/status")
+    async patchStatus(
+      @Param("id") id: string,
+      @Body() body: { status: OrderStatus; reason?: string },
+      @Req() req: Request & { user?: AuthUser },
+    ) {
+      if (!req.user) {
+        throw new BadRequestException("User not found in request");
+      }
+      return this.ordersService.changeStatus(id, body, req.user.id);
+    }
+    
   @Get(":id")
   async findOne(@Param("id") id: string) {
     return this.ordersService.findOne(id);
@@ -64,7 +95,7 @@ export class OrdersController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post(":id/items")
   async addItem(@Param("id") id: string, @Body() body: any) {
-    return (this.ordersService as any).addItem(id, body);
+    return this.ordersService.addItem(id, body);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
@@ -82,4 +113,64 @@ export class OrdersController {
   async removeItem(@Param("id") id: string, @Param("itemId") itemId: string) {
     return (this.ordersService as any).removeItem(id, itemId);
   }
+
+  // --- TIMELINE (API-first, потом переиспользуем для компаний/контактов) ---
+
+  @Get(":id/timeline")
+  async timeline(@Param("id") id: string) {
+    const [activities, statusHistory] = await Promise.all([
+      this.activitiesService.listForOrder(id),
+      this.ordersService.getStatusHistory(id),
+    ]);
+
+    const activityEvents = activities.map((a) => ({
+      id: a.id,
+      source: "ACTIVITY" as const,
+      type: a.type,
+      title: a.title ?? a.type,
+      body: a.body,
+      occurredAt: (a.occurredAt ?? a.createdAt).toISOString(),
+      createdAt: a.createdAt.toISOString(),
+      createdBy: a.createdBy,
+    }));
+
+    const statusEvents = statusHistory.map((h) => ({
+      id: `status_${h.id}`,
+      source: "STATUS" as const,
+      type: "STATUS_CHANGE" as const,
+      title: "Status changed",
+      body: `${h.fromStatus ?? "—"} → ${h.toStatus}`,
+      occurredAt: h.createdAt.toISOString(),
+      createdAt: h.createdAt.toISOString(),
+      createdBy: h.changedBy,
+    }));
+
+    const items = [...activityEvents, ...statusEvents].sort(
+      (x, y) => new Date(y.occurredAt).getTime() - new Date(x.occurredAt).getTime(),
+    );
+
+    return { items };
+  }
+
+  @Post(":id/activities")
+  async addActivity(
+    @Param("id") id: string,
+    @Body() body: { type: ActivityType; title?: string; body: string; occurredAt?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) {
+      throw new BadRequestException("User not found in request");
+    }
+    const item = await this.activitiesService.createForOrder(id, body, req.user);
+    return { item };
+  }
+  @Patch(":id")
+  async updateOrder(
+    @Param("id") id: string,
+    @Body() body: { companyId?: string | null; clientId?: string | null; comment?: string | null; discountAmount?: number },
+  ) {
+    return this.ordersService.update(id, body);
+  }
+
+
 }

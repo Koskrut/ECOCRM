@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
 }
 
 // --- ENUMS ---
@@ -53,8 +52,9 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  contacts Contact[]
-  orders   Order[]
+  contacts   Contact[]
+  orders     Order[]
+  activities Activity[]
 }
 
 model Contact {
@@ -71,26 +71,27 @@ model Contact {
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   orders  Order[]
-  
+
   recipients ContactRecipient[]
+  activities Activity[]
 
   @@index([companyId])
 }
 
 model ContactRecipient {
-  id        String   @id @default(cuid())
+  id        String @id @default(cuid())
   contactId String
-  
+
   firstName String
   lastName  String
   phone     String
   city      String
   warehouse String
-  
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId])
 }
@@ -109,8 +110,8 @@ model Product {
 }
 
 model Order {
-  id             String   @id @default(cuid())
-  orderNumber    String   @unique
+  id             String      @id @default(cuid())
+  orderNumber    String      @unique
   companyId      String?
   clientId       String?
   ownerId        String
@@ -122,8 +123,8 @@ model Order {
   paidAmount     Float
   debtAmount     Float
   comment        String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   deliveryMethod DeliveryMethod?
   paymentMethod  PaymentMethod?
@@ -133,6 +134,7 @@ model Order {
   client        Contact?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
+  activities    Activity[]
 
   @@index([companyId])
   @@index([clientId])
@@ -151,9 +153,9 @@ model OrderItem {
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
+  @@unique([orderId, productId], name: "orderId_productId")
   @@index([orderId])
   @@index([productId])
-  @@unique([orderId, productId], name: "orderId_productId")
 }
 
 model OrderStatusHistory {
@@ -168,4 +170,35 @@ model OrderStatusHistory {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+}
+
+// --- ACTIVITIES / TIMELINE ---
+
+enum ActivityType {
+  COMMENT
+  CALL
+  MEETING
+}
+
+model Activity {
+  id         String       @id @default(cuid())
+  type       ActivityType
+  title      String?
+  body       String
+  occurredAt DateTime?
+  createdBy  String
+  createdAt  DateTime     @default(now())
+
+  orderId   String?
+  contactId String?
+  companyId String?
+
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([contactId])
+  @@index([companyId])
+  @@index([createdAt])
 }
