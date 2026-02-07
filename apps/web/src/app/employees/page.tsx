@@ -1,0 +1,96 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type Employee = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  createdAt: string;
+};
+
+export default function EmployeesPage() {
+  const [items, setItems] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/users");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || `Failed to load users (${res.status})`);
+      }
+      const data = await res.json();
+      setItems(data.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-zinc-50 p-6">
+      <div className="mx-auto max-w-6xl">
+        <h1 className="mb-6 text-2xl font-bold text-zinc-900">Employees</h1>
+
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700 border border-red-100">
+            {error}
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-50 text-xs font-medium uppercase text-zinc-500">
+              <tr>
+                <th className="px-6 py-3">Name</th>
+                <th className="px-6 py-3">Email</th>
+                <th className="px-6 py-3">Role</th>
+                <th className="px-6 py-3">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
+                    Loading...
+                  </td>
+                </tr>
+              ) : items.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
+                    No users found
+                  </td>
+                </tr>
+              ) : (
+                items.map((u) => (
+                  <tr key={u.id} className="hover:bg-zinc-50">
+                    <td className="px-6 py-4 font-medium text-zinc-900">{u.fullName}</td>
+                    <td className="px-6 py-4 text-zinc-600">{u.email}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-800 border border-zinc-200">
+                        {u.role}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-zinc-600">
+                      {new Date(u.createdAt).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

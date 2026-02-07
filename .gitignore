@@ -26,4 +26,6 @@ apps/web/.env.local
 package-lock.json
 
 # local env
-apps/backend/.env
+apps/backend/dev.db
+apps/backend/.env 
+# 08d84d3 (chore: stop tracking backend .env)
