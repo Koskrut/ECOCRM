@@ -1,2 +1,29 @@
 .DS_Store
 node_modules/
+
+# local env
+apps/backend/.env
+apps/web/.env
+apps/web/.env.local
+.env
+.env.local
+
+# Next / node
+**/node_modules/
+**/.next/
+**/.turbo/
+**/dist/
+**/.DS_Store
+
+# backups / temp
+*.bak
+*.bak.*
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+package-lock.json
+
+# local env
+apps/backend/.env
