@@ -1,400 +1,363 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CompanyTimeline } from "./CompanyTimeline";
+import { EntityOrdersList } from "@/components/EntityOrdersList";
+import { OrderModal } from "../orders/OrderModal";
 
 type Company = {
   id: string;
   name: string;
-  edrpou?: string;
-  taxId?: string;
+  edrpou?: string | null;
+  taxId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
-// Тип для контактов в списке
-type Contact = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  email?: string;
-  position?: string;
-};
-
-type CompanyModalProps = {
+type Props = {
   apiBaseUrl: string;
-  companyId: string | null;
+  companyId: string;
   onClose: () => void;
   onUpdate: () => void;
-  // Добавили возможность открывать контакт
-  onOpenContact?: (contactId: string) => void;
 };
 
-export function CompanyModal({
-  apiBaseUrl,
-  companyId,
-  onClose,
-  onUpdate,
-  onOpenContact,
-}: CompanyModalProps) {
+type TabKey = "general" | "orders";
+
+function Tabs({ value, onChange }: { value: TabKey; onChange: (v: TabKey) => void }) {
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "general", label: "General" },
+    { key: "orders", label: "Orders" },
+  ];
+
+  return (
+    <div className="border-b border-zinc-200 px-5">
+      <div className="flex gap-6">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            className={`-mb-px border-b-2 py-3 text-sm font-medium ${
+              value === t.key
+                ? "border-zinc-900 text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate }: Props) {
+  const [tab, setTab] = useState<TabKey>("general");
+
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
   const [isEditing, setIsEditing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  // Contacts list state
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [loadingContacts, setLoadingContacts] = useState(false);
-
-  // Form state
   const [name, setName] = useState("");
   const [edrpou, setEdrpou] = useState("");
   const [taxId, setTaxId] = useState("");
 
-  // Load company details + contacts
-  useEffect(() => {
-    if (!companyId) return;
+  // Orders
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [ordersReloadKey, setOrdersReloadKey] = useState(0);
 
-    const loadData = async () => {
-      setLoading(true);
-      setError(null);
-      setContacts([]); // Reset contacts
-      
-      try {
-        // 1. Load Company
-        const companyRes = await fetch(`${apiBaseUrl}/companies/${companyId}`);
-        if (companyRes.status === 404) {
-          throw new Error("Company not found");
-        }
-        if (!companyRes.ok) {
-          throw new Error(`Failed to load company: ${companyRes.statusText}`);
-        }
-        const companyData: Company = await companyRes.json();
-        
-        setCompany(companyData);
-        setName(companyData.name);
-        setEdrpou(companyData.edrpou || "");
-        setTaxId(companyData.taxId || "");
+  const canClose = !saving && !creatingOrder;
 
-        // 2. Load Contacts (параллельно, но после проверки компании, чтобы не грузить лишнее)
-        setLoadingContacts(true);
-        try {
-          // Используем существующий эндпоинт фильтрации по companyId
-          const contactsRes = await fetch(`${apiBaseUrl}/contacts?companyId=${companyId}&pageSize=100`);
-          if (contactsRes.ok) {
-             const contactsData = await contactsRes.json();
-             // contactsData может быть массивом или объектом { items: [] } в зависимости от пагинации
-             // Проверяем формат (в твоем коде контроллера это { items, total, ... })
-             setContacts(contactsData.items || []);
-          }
-        } catch (e) {
-          console.error("Failed to load company contacts", e);
-        } finally {
-          setLoadingContacts(false);
-        }
+  const title = useMemo(() => (isEditing ? "Edit company" : "Company"), [isEditing]);
 
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/companies/${companyId}`, { cache: "no-store" });
+      const t = await r.text();
+      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
+      const data = JSON.parse(t) as Company;
 
-    loadData();
+      setCompany(data);
+      setName(data.name ?? "");
+      setEdrpou((data.edrpou ?? "") as string);
+      setTaxId((data.taxId ?? "") as string);
+    } catch (e) {
+      setCompany(null);
+      setErr(e instanceof Error ? e.message : "Failed to load company");
+    } finally {
+      setLoading(false);
+    }
   }, [apiBaseUrl, companyId]);
 
-  // Close on Escape key
   useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !submitting) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [onClose, submitting]);
+    setIsEditing(false);
+    setTab("general");
+    void refresh();
+  }, [refresh]);
 
-  const handleSave = async () => {
-    if (!companyId || !company || submitting) return;
+  // ESC: если открыт заказ — закрываем его первым
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
 
-    try {
-      setSubmitting(true);
-      setSubmitError(null);
-
-      const updates: Record<string, unknown> = {};
-      if (name !== company.name) updates.name = name;
-      if (edrpou !== (company.edrpou || "")) updates.edrpou = edrpou || undefined;
-      if (taxId !== (company.taxId || "")) updates.taxId = taxId || undefined;
-
-      if (Object.keys(updates).length === 0) {
-        setIsEditing(false);
+      if (orderId) {
+        setOrderId(null);
         return;
       }
 
-      const response = await fetch(`${apiBaseUrl}/companies/${companyId}`, {
+      if (isEditing) setIsEditing(false);
+      else if (canClose) onClose();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isEditing, canClose, onClose, orderId]);
+
+  const startEdit = () => {
+    if (!company) return;
+    setIsEditing(true);
+    setName(company.name ?? "");
+    setEdrpou((company.edrpou ?? "") as string);
+    setTaxId((company.taxId ?? "") as string);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const payload = {
+        name: name.trim(),
+        edrpou: edrpou.trim() || null,
+        taxId: taxId.trim() || null,
+      };
+      if (!payload.name) throw new Error("Name is required");
+
+      const r = await fetch(`${apiBaseUrl}/companies/${companyId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(payload),
+        cache: "no-store",
       });
+      const t = await r.text();
+      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to update company: ${response.statusText}`);
-      }
-
-      const updatedCompany: Company = await response.json();
-      setCompany(updatedCompany);
-      setName(updatedCompany.name);
-      setEdrpou(updatedCompany.edrpou || "");
-      setTaxId(updatedCompany.taxId || "");
       setIsEditing(false);
+      await refresh();
       onUpdate();
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Unknown error");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const handleCancel = () => {
-    if (!company) return;
-    setName(company.name);
-    setEdrpou(company.edrpou || "");
-    setTaxId(company.taxId || "");
-    setIsEditing(false);
-    setSubmitError(null);
+  // ✅ Create order from company modal
+  const createOrder = async () => {
+    setCreatingOrder(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          companyId,
+          clientId: null,
+          comment: "",
+          discountAmount: 0,
+        }),
+      });
+
+      const t = await r.text();
+      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
+
+      const created = JSON.parse(t) as { id: string };
+      setTab("orders");
+      setOrdersReloadKey((x) => x + 1);
+      setOrderId(created.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to create order");
+    } finally {
+      setCreatingOrder(false);
+    }
   };
 
-  if (!companyId) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={() => {
-        if (!submitting) onClose();
-      }}
-      role="presentation"
-    >
+    <>
       <div
-        className="w-full max-w-2xl rounded-lg bg-white shadow-lg max-h-[90vh] overflow-y-auto"
-        onClick={(event) => event.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
         role="presentation"
+        onClick={() => canClose && onClose()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 sticky top-0 bg-white z-10">
-          <h2 className="text-lg font-semibold text-zinc-900">
-            {isEditing ? "Edit Company" : "Company Details"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="rounded-md p-1 text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="px-6 py-4">
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <p className="text-sm text-zinc-500">Loading...</p>
+        <div
+          className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-zinc-900">{title}</div>
+              {company?.name ? <div className="mt-0.5 text-sm text-zinc-500">{company.name}</div> : null}
             </div>
-          )}
 
-          {error && (
-            <div className="py-4">
-              <p className="text-sm text-red-600">{error}</p>
+            <div className="flex items-center gap-2">
+              {/* ✅ + Order moved to header */}
+              <button
+                type="button"
+                disabled={loading || !!err || creatingOrder}
+                onClick={() => void createOrder()}
+                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {creatingOrder ? "Creating…" : "+ Order"}
+              </button>
+
+              {!isEditing && !loading && !err ? (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+                >
+                  Edit
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
+                onClick={() => canClose && onClose()}
+              >
+                ✕
+              </button>
             </div>
-          )}
+          </div>
 
-          {!loading && !error && company && (
-            <div className="space-y-6">
-              {/* Basic Information Section */}
-              <div>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Basic Information
-                </h3>
-                <div className="space-y-4">
-                  {/* Name */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700">
-                      Name
-                    </label>
-                    {isEditing ? (
+          {/* Tabs */}
+          <Tabs value={tab} onChange={setTab} />
+
+          {/* Content */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {tab === "general" ? (
+              <div className="grid h-full grid-cols-1 gap-6 p-5 lg:grid-cols-2">
+                {/* Left */}
+                <div className="min-h-0 overflow-auto">
+                  {loading ? (
+                    <div className="text-sm text-zinc-500">Loading…</div>
+                  ) : err ? (
+                    <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+                  ) : !company ? (
+                    <div className="text-sm text-zinc-500">Not found</div>
+                  ) : isEditing ? (
+                    <>
+                      <label className="block text-sm font-medium text-zinc-700">Name</label>
                       <input
-                        type="text"
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
+                        placeholder="SUPREX"
+                        disabled={saving}
                       />
-                    ) : (
-                      <p className="text-sm text-zinc-900">{company.name}</p>
-                    )}
-                  </div>
 
-                  {/* EDRPOU */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700">
-                      EDRPOU
-                    </label>
-                    {isEditing ? (
+                      <label className="mt-3 block text-sm font-medium text-zinc-700">EDRPOU</label>
                       <input
-                        type="text"
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                         value={edrpou}
                         onChange={(e) => setEdrpou(e.target.value)}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
+                        placeholder="12345678"
+                        disabled={saving}
                       />
-                    ) : (
-                      <p className="text-sm text-zinc-900">{company.edrpou || "—"}</p>
-                    )}
-                  </div>
 
-                  {/* Tax ID */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700">
-                      Tax ID
-                    </label>
-                    {isEditing ? (
+                      <label className="mt-3 block text-sm font-medium text-zinc-700">Tax ID</label>
                       <input
-                        type="text"
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                         value={taxId}
                         onChange={(e) => setTaxId(e.target.value)}
-                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
+                        placeholder="UA…"
+                        disabled={saving}
                       />
-                    ) : (
-                      <p className="text-sm text-zinc-900">{company.taxId || "—"}</p>
-                    )}
+
+                      <div className="mt-5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void save()}
+                          disabled={saving}
+                          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-60"
+                        >
+                          {saving ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => !saving && setIsEditing(false)}
+                          className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-zinc-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-zinc-900">Details</div>
+
+                      <div className="mt-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-zinc-500">Name</div>
+                          <div className="text-zinc-900">{company.name || "—"}</div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-zinc-500">EDRPOU</div>
+                          <div className="text-zinc-900">{company.edrpou || "—"}</div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="text-zinc-500">Tax ID</div>
+                          <div className="text-zinc-900">{company.taxId || "—"}</div>
+                        </div>
+
+                        <div className="pt-2 text-xs text-zinc-500">
+                          Created: {new Date(company.createdAt).toLocaleString()}
+                          <br />
+                          Updated: {new Date(company.updatedAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: timeline */}
+                <div className="flex min-h-0 flex-col">
+                  <div className="text-sm font-semibold text-zinc-900">Timeline</div>
+                  <div className="mt-3 flex-1 min-h-0 overflow-auto">
+                    <CompanyTimeline apiBaseUrl={apiBaseUrl} companyId={companyId} />
                   </div>
                 </div>
               </div>
-
-              <hr className="border-zinc-200" />
-              
-              {/* Contacts Section */}
-              <div>
-                 <div className="mb-3 flex items-center justify-between">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                      Contacts ({contacts.length})
-                    </h3>
-                    {/* Кнопку "Add Contact" можно добавить позже, если нужно создание контакта с предзаполненной компанией */}
-                 </div>
-                 
-                 {loadingContacts ? (
-                   <p className="text-sm text-zinc-500">Loading contacts...</p>
-                 ) : contacts.length === 0 ? (
-                   <p className="text-sm text-zinc-500 italic">No contacts linked to this company.</p>
-                 ) : (
-                   <div className="overflow-hidden rounded-md border border-zinc-200">
-                     <table className="w-full text-sm text-left">
-                       <thead className="bg-zinc-50 text-xs text-zinc-500 uppercase">
-                         <tr>
-                            <th className="px-3 py-2 font-medium">Name</th>
-                            <th className="px-3 py-2 font-medium">Position</th>
-                            <th className="px-3 py-2 font-medium">Phone</th>
-                         </tr>
-                       </thead>
-                       <tbody className="divide-y divide-zinc-100">
-                         {contacts.map(contact => (
-                           <tr key={contact.id} className="hover:bg-zinc-50">
-                             <td className="px-3 py-2 font-medium text-zinc-900">
-                               {onOpenContact ? (
-                                 <button 
-                                   onClick={() => onOpenContact(contact.id)}
-                                   className="text-left hover:underline focus:outline-none"
-                                 >
-                                    {contact.firstName} {contact.lastName}
-                                 </button>
-                               ) : (
-                                 <span>{contact.firstName} {contact.lastName}</span>
-                               )}
-                             </td>
-                             <td className="px-3 py-2 text-zinc-600">{contact.position || "—"}</td>
-                             <td className="px-3 py-2 text-zinc-600">{contact.phone}</td>
-                           </tr>
-                         ))}
-                       </tbody>
-                     </table>
-                   </div>
-                 )}
-              </div>
-
-              <hr className="border-zinc-200" />
-
-              {/* Meta Section */}
-              <div>
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Metadata
-                </h3>
-                <div className="space-y-3">
-                  {/* Created */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700">
-                      Created
-                    </label>
-                    <p className="text-sm text-zinc-600">
-                      {new Date(company.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-
-                  {/* Updated */}
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-zinc-700">
-                      Last Updated
-                    </label>
-                    <p className="text-sm text-zinc-600">
-                      {new Date(company.updatedAt).toLocaleString()}
-                    </p>
-                  </div>
+            ) : (
+              // ✅ Orders tab: only list (no timeline)
+              <div className="h-full p-5">
+                <div className="min-h-0 h-full overflow-auto">
+                  <EntityOrdersList
+                    key={ordersReloadKey}
+                    apiBaseUrl={apiBaseUrl}
+                    query={`companyId=${companyId}&pageSize=50`}
+                    onOpenOrder={(id) => setOrderId(id)}
+                  />
                 </div>
               </div>
-
-              {/* Submit Error */}
-              {submitError && (
-                <div className="rounded-md bg-red-50 p-3">
-                  <p className="text-sm text-red-600">{submitError}</p>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2 border-t border-zinc-200 pt-4">
-                {!isEditing ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(true)}
-                    className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-                  >
-                    Edit
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleSave}
-                      disabled={submitting || !name.trim()}
-                      className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      {submitting ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCancel}
-                      disabled={submitting}
-                      className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* ✅ Nested OrderModal OUTSIDE overlay (must-have) */}
+      {orderId ? (
+        <OrderModal apiBaseUrl={apiBaseUrl} orderId={orderId} onClose={() => setOrderId(null)} />
+      ) : null}
+    </>
   );
 }

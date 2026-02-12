@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TimelineItem = {
   id: string;
-  source: "ACTIVITY" | "STATUS";
-  type: string;
+  source: "ACTIVITY";
+  type: string; // COMMENT | CALL | MEETING
   title: string;
   body: string;
   occurredAt: string;
@@ -16,11 +16,11 @@ type TimelineItem = {
 type TimelineResponse = { items: TimelineItem[] };
 
 type Props = {
-  apiBaseUrl: string;
-  orderId: string;
+  apiBaseUrl: string; // обычно "/api"
+  companyId: string;
 };
 
-export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
+export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -29,15 +29,8 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/timeline`,
-    [apiBaseUrl, orderId],
-  );
-
-  const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/activities`,
-    [apiBaseUrl, orderId],
-  );
+  const timelineUrl = useMemo(() => `${apiBaseUrl}/companies/${companyId}/timeline`, [apiBaseUrl, companyId]);
+  const activitiesUrl = useMemo(() => `${apiBaseUrl}/companies/${companyId}/activities`, [apiBaseUrl, companyId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,8 +63,8 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
         body: JSON.stringify({ type: mode, body: text.trim() }),
       });
       if (!r.ok) {
-        const t = await r.text();
-        throw new Error(t || `Failed to add activity (${r.status})`);
+        const data = (await r.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data?.message || `Failed to add activity (${r.status})`);
       }
       setText("");
       await load();
@@ -81,13 +74,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
       setSaving(false);
     }
   }, [activitiesUrl, load, mode, text]);
-
-  const placeholder =
-    mode === "CALL"
-      ? "Коротко: о чём был звонок?"
-      : mode === "MEETING"
-        ? "Коротко: итоги встречи?"
-        : "Написать комментарий...";
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -104,7 +90,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           >
             Звонок
           </button>
-
           <button
             type="button"
             onClick={() => setMode("MEETING")}
@@ -116,7 +101,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           >
             Встреча
           </button>
-
           <button
             type="button"
             onClick={() => setMode("COMMENT")}
@@ -134,11 +118,16 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           <textarea
             className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
             rows={3}
-            placeholder={placeholder}
+            placeholder={
+              mode === "CALL"
+                ? "Коротко: о чём был звонок?"
+                : mode === "MEETING"
+                  ? "Коротко: итоги встречи?"
+                  : "Написать комментарий..."
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-
           <div className="mt-2 flex items-center justify-between">
             <button
               type="button"
@@ -157,13 +146,11 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
               Обновить
             </button>
           </div>
-        </div>
 
-        {err ? (
-          <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
+          {err ? (
+            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -180,16 +167,12 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
                     <div className="text-sm font-semibold text-zinc-900">
                       {it.title}
                       <span className="ml-2 rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
-                        {it.source === "STATUS" ? "Статус" : it.type}
+                        {it.type}
                       </span>
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">
-                      {it.body}
-                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
-                  <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt).toLocaleString()}
-                  </div>
+                  <div className="whitespace-nowrap text-xs text-zinc-500">{new Date(it.occurredAt).toLocaleString()}</div>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
               </div>

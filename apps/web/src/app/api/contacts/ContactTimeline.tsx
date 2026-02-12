@@ -2,26 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type TimelineItem = {
+type ActivityItem = {
   id: string;
-  source: "ACTIVITY" | "STATUS";
   type: string;
-  title: string;
+  title?: string;
   body: string;
-  occurredAt: string;
+  occurredAt?: string;
   createdAt: string;
-  createdBy: string;
+  createdBy?: string;
 };
 
-type TimelineResponse = { items: TimelineItem[] };
+type ActivitiesResponse = { items: ActivityItem[] };
 
 type Props = {
-  apiBaseUrl: string;
-  orderId: string;
+  apiBaseUrl: string; // "/api"
+  contactId: string;
 };
 
-export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
-  const [items, setItems] = useState<TimelineItem[]>([]);
+export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
+  const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -29,23 +28,18 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/timeline`,
-    [apiBaseUrl, orderId],
-  );
-
   const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/activities`,
-    [apiBaseUrl, orderId],
+    () => `${apiBaseUrl}/contacts/${contactId}/activities`,
+    [apiBaseUrl, contactId],
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(timelineUrl, { cache: "no-store" });
+      const r = await fetch(activitiesUrl, { cache: "no-store" });
       if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
-      const data = (await r.json()) as TimelineResponse;
+      const data = (await r.json()) as ActivitiesResponse;
       setItems(data.items || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
@@ -53,7 +47,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [timelineUrl]);
+  }, [activitiesUrl]);
 
   useEffect(() => {
     void load();
@@ -69,10 +63,12 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: mode, body: text.trim() }),
       });
+
       if (!r.ok) {
-        const t = await r.text();
-        throw new Error(t || `Failed to add activity (${r.status})`);
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.message || `Failed to add activity (${r.status})`);
       }
+
       setText("");
       await load();
     } catch (e) {
@@ -81,13 +77,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
       setSaving(false);
     }
   }, [activitiesUrl, load, mode, text]);
-
-  const placeholder =
-    mode === "CALL"
-      ? "Коротко: о чём был звонок?"
-      : mode === "MEETING"
-        ? "Коротко: итоги встречи?"
-        : "Написать комментарий...";
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -104,7 +93,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           >
             Звонок
           </button>
-
           <button
             type="button"
             onClick={() => setMode("MEETING")}
@@ -116,7 +104,6 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           >
             Встреча
           </button>
-
           <button
             type="button"
             onClick={() => setMode("COMMENT")}
@@ -134,11 +121,16 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
           <textarea
             className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
             rows={3}
-            placeholder={placeholder}
+            placeholder={
+              mode === "CALL"
+                ? "Коротко: о чём был звонок?"
+                : mode === "MEETING"
+                  ? "Коротко: итоги встречи?"
+                  : "Написать комментарий..."
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-
           <div className="mt-2 flex items-center justify-between">
             <button
               type="button"
@@ -157,13 +149,13 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
               Обновить
             </button>
           </div>
-        </div>
 
-        {err ? (
-          <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
+          {err ? (
+            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-4">
@@ -178,9 +170,9 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-900">
-                      {it.title}
-                      <span className="ml-2 rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
-                        {it.source === "STATUS" ? "Статус" : it.type}
+                      {it.title || "Активность"}
+                      <span className="ml-2 rounded border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
+                        {it.type}
                       </span>
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">
@@ -188,10 +180,12 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
                     </div>
                   </div>
                   <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt).toLocaleString()}
+                    {new Date(it.occurredAt || it.createdAt).toLocaleString()}
                   </div>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
+                {it.createdBy ? (
+                  <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
+                ) : null}
               </div>
             ))}
           </div>

@@ -2,26 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type TimelineItem = {
+type ActivityItem = {
   id: string;
-  source: "ACTIVITY" | "STATUS";
-  type: string;
-  title: string;
+  type: string; // COMMENT | CALL | MEETING
+  title?: string;
   body: string;
-  occurredAt: string;
+  occurredAt?: string;
   createdAt: string;
-  createdBy: string;
+  createdBy?: string;
 };
 
-type TimelineResponse = { items: TimelineItem[] };
+type ActivitiesResponse = { items: ActivityItem[] };
 
 type Props = {
-  apiBaseUrl: string;
-  orderId: string;
+  apiBaseUrl: string; // "/api"
+  companyId: string;
 };
 
-export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
-  const [items, setItems] = useState<TimelineItem[]>([]);
+export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
+  const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -29,23 +28,18 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/timeline`,
-    [apiBaseUrl, orderId],
-  );
-
   const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/activities`,
-    [apiBaseUrl, orderId],
+    () => `${apiBaseUrl}/companies/${companyId}/activities`,
+    [apiBaseUrl, companyId],
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(timelineUrl, { cache: "no-store" });
+      const r = await fetch(activitiesUrl, { cache: "no-store" });
       if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
-      const data = (await r.json()) as TimelineResponse;
+      const data = (await r.json()) as ActivitiesResponse;
       setItems(data.items || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
@@ -53,7 +47,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [timelineUrl]);
+  }, [activitiesUrl]);
 
   useEffect(() => {
     void load();
@@ -69,10 +63,12 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: mode, body: text.trim() }),
       });
+
       if (!r.ok) {
-        const t = await r.text();
-        throw new Error(t || `Failed to add activity (${r.status})`);
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.message || `Failed to add activity (${r.status})`);
       }
+
       setText("");
       await load();
     } catch (e) {
@@ -82,63 +78,62 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
     }
   }, [activitiesUrl, load, mode, text]);
 
-  const placeholder =
-    mode === "CALL"
-      ? "Коротко: о чём был звонок?"
-      : mode === "MEETING"
-        ? "Коротко: итоги встречи?"
-        : "Написать комментарий...";
-
   return (
-    <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-200 p-4">
+    <div className="flex h-full min-h-0 flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
+      {/* Sticky header */}
+      <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white p-4">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setMode("CALL")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
               mode === "CALL"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
             }`}
           >
             Звонок
           </button>
-
+  
           <button
             type="button"
             onClick={() => setMode("MEETING")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
               mode === "MEETING"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
             }`}
           >
             Встреча
           </button>
-
+  
           <button
             type="button"
             onClick={() => setMode("COMMENT")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
               mode === "COMMENT"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
             }`}
           >
             Комментарий
           </button>
         </div>
-
+  
         <div className="mt-3">
           <textarea
             className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
             rows={3}
-            placeholder={placeholder}
+            placeholder={
+              mode === "CALL"
+                ? "Коротко: о чём был звонок?"
+                : mode === "MEETING"
+                ? "Коротко: итоги встречи?"
+                : "Написать комментарий..."
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
-
           <div className="mt-2 flex items-center justify-between">
             <button
               type="button"
@@ -148,7 +143,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
             >
               {saving ? "Сохраняю..." : "Добавить"}
             </button>
-
+  
             <button
               type="button"
               onClick={() => void load()}
@@ -157,16 +152,17 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
               Обновить
             </button>
           </div>
+  
+          {err ? (
+            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
+          ) : null}
         </div>
-
-        {err ? (
-          <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
       </div>
-
-      <div className="flex-1 overflow-auto p-4">
+  
+      {/* Scrollable list */}
+      <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading ? (
           <div className="text-sm text-zinc-500">Loading timeline...</div>
         ) : items.length === 0 ? (
@@ -179,16 +175,14 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-zinc-900">
                       {it.title}
-                      <span className="ml-2 rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
-                        {it.source === "STATUS" ? "Статус" : it.type}
+                      <span className="ml-2 rounded border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
+                        {it.type}
                       </span>
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">
-                      {it.body}
-                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
                   <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt).toLocaleString()}
+                    {new Date(it.occurredAt || "").toLocaleString()}
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
@@ -198,5 +192,5 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
         )}
       </div>
     </div>
-  );
+  );  
 }

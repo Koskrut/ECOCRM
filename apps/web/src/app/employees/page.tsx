@@ -1,96 +1,121 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Employee, EmployeeModal } from "./EmployeeModal";
 
-type Employee = {
-  id: string;
-  email: string;
-  fullName: string;
-  role: string;
-  createdAt: string;
+type UsersResponse = {
+  items?: Employee[];
+  // на всякий случай, если API возвращает просто массив
 };
 
 export default function EmployeesPage() {
   const [items, setItems] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  async function load() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [editing, setEditing] = useState<Employee | null>(null);
+
+  const load = async () => {
     setLoading(true);
-    setError(null);
+    setErr(null);
     try {
-      const res = await fetch("/api/users");
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.message || `Failed to load users (${res.status})`);
-      }
-      const data = await res.json();
-      setItems(data.items ?? []);
+      const r = await fetch("/api/users", { cache: "no-store" });
+      const text = await r.text();
+      if (!r.ok) throw new Error(text || `Failed (${r.status})`);
+
+      const data = JSON.parse(text) as UsersResponse | Employee[];
+      const list = Array.isArray(data) ? data : data.items ?? [];
+      setItems(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setErr(e instanceof Error ? e.message : "Failed to load employees");
+      setItems([]);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     void load();
   }, []);
 
+  const openCreate = () => {
+    setModalMode("create");
+    setEditing(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (u: Employee) => {
+    setModalMode("edit");
+    setEditing(u);
+    setModalOpen(true);
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="mb-6 text-2xl font-bold text-zinc-900">Employees</h1>
+    <div className="mx-auto max-w-6xl p-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-zinc-900">Employees</h1>
 
-        {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700 border border-red-100">
-            {error}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={openCreate}
+          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
+        >
+          + Add employee
+        </button>
+      </div>
 
-        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="mt-4 rounded-lg border border-zinc-200 bg-white">
+        {loading ? (
+          <div className="p-4 text-sm text-zinc-500">Loading…</div>
+        ) : err ? (
+          <div className="p-4 text-sm text-red-600">{err}</div>
+        ) : items.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-500">No employees</div>
+        ) : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-zinc-50 text-xs font-medium uppercase text-zinc-500">
+            <thead className="border-b border-zinc-200 text-xs text-zinc-500">
               <tr>
-                <th className="px-6 py-3">Name</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Role</th>
-                <th className="px-6 py-3">Created</th>
+                <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Role</th>
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
-                    Loading...
+            <tbody>
+              {items.map((u) => ( 
+                <tr key={u.id} className="border-b border-zinc-100 last:border-b-0">
+                  <td className="px-4 py-3 text-zinc-900">{u.fullName ?? "—"}</td>
+                  <td className="px-4 py-3 text-zinc-700">{u.email}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700">
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(u)}
+                      className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Edit
+                    </button>
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
-                    No users found
-                  </td>
-                </tr>
-              ) : (
-                items.map((u) => (
-                  <tr key={u.id} className="hover:bg-zinc-50">
-                    <td className="px-6 py-4 font-medium text-zinc-900">{u.fullName}</td>
-                    <td className="px-6 py-4 text-zinc-600">{u.email}</td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-800 border border-zinc-200">
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-zinc-600">
-                      {new Date(u.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
+
+      <EmployeeModal
+        open={modalOpen}
+        mode={modalMode}
+        initial={editing}
+        onClose={() => setModalOpen(false)}
+        onSaved={load}
+      />
     </div>
   );
 }

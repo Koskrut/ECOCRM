@@ -72,9 +72,11 @@ type TimelineItem = {
 type TimelineResponse = { items: TimelineItem[] };
 
 type OrderModalProps = {
-  apiBaseUrl: string; // у тебя это "/api"
-  orderId: string | null;
+  apiBaseUrl: string; // "/api"
+  orderId: string | null; // null => create mode
   onClose: () => void;
+  onSaved?: () => void;
+  prefill?: { companyId?: string | null; clientId?: string | null };
   onOpenCompany?: (companyId: string) => void;
   onOpenContact?: (contactId: string) => void;
 };
@@ -83,14 +85,18 @@ export function OrderModal({
   apiBaseUrl,
   orderId,
   onClose,
+  onSaved,
+  prefill,
   onOpenCompany,
   onOpenContact,
 }: OrderModalProps) {
+  const isCreate = orderId === null;
+
   const [order, setOrder] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- Edit Order ---
+  // --- Edit / Create form fields (shared) ---
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
   const [editClientId, setEditClientId] = useState<string | null>(null);
@@ -103,7 +109,7 @@ export function OrderModal({
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
 
-  // --- Add Item ---
+  // --- Add Item (only for existing orders) ---
   const [showAddForm, setShowAddForm] = useState(false);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
@@ -115,19 +121,54 @@ export function OrderModal({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittingItem, setSubmittingItem] = useState(false);
 
-  // --- Timeline ---
+  // --- Timeline (only for existing orders) ---
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
 
   const canClose = !submittingItem && !savingOrder;
 
+  const fetchCompanies = useCallback(async () => {
+    setLoadingCompanies(true);
+    try {
+      const r = await fetch(`${apiBaseUrl}/companies?page=1&pageSize=100`, { cache: "no-store" });
+      if (r.ok) {
+        const data = await r.json();
+        setCompanies(data.items || []);
+      } else {
+        setCompanies([]);
+      }
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, [apiBaseUrl]);
+
+  const fetchContacts = useCallback(
+    async (companyId: string | null) => {
+      setLoadingContacts(true);
+      setContacts([]);
+      const url = companyId
+        ? `${apiBaseUrl}/contacts?companyId=${companyId}&pageSize=100`
+        : `${apiBaseUrl}/contacts?pageSize=100`;
+      try {
+        const r = await fetch(url, { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          setContacts(data.items || []);
+        }
+      } finally {
+        setLoadingContacts(false);
+      }
+    },
+    [apiBaseUrl],
+  );
+
   const refreshOrder = useCallback(async () => {
     if (!orderId) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`);
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`Failed to load order (${r.status})`);
       const data = (await r.json()) as OrderDetails;
       setOrder(data);
@@ -144,7 +185,7 @@ export function OrderModal({
     setTimelineLoading(true);
     setTimelineError(null);
     try {
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/timeline`);
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/timeline`, { cache: "no-store" });
       if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
       const data = (await r.json()) as TimelineResponse;
       setTimeline(data.items || []);
@@ -156,78 +197,62 @@ export function OrderModal({
     }
   }, [apiBaseUrl, orderId]);
 
+  // init / switch mode
   useEffect(() => {
-    if (!orderId) {
+    setError(null);
+    setTimelineError(null);
+    setShowAddForm(false);
+    setSelectedProduct(null);
+    setSearch("");
+    setSearchResults([]);
+    setQty(1);
+    setPrice(0);
+    setSubmitError(null);
+
+    if (isCreate) {
+      // create mode => сразу открываем edit-форму
       setOrder(null);
       setTimeline([]);
-      setError(null);
-      setTimelineError(null);
-      setIsEditingOrder(false);
+      setIsEditingOrder(true);
+
+      const pCompanyId = prefill?.companyId ?? null;
+      const pClientId = prefill?.clientId ?? null;
+
+      setEditCompanyId(pCompanyId);
+      setEditClientId(pClientId);
+      setEditComment("");
+      setEditDiscount(0);
+
+      void fetchCompanies();
+      void fetchContacts(pCompanyId);
+
       return;
     }
+
+    // view mode
+    setIsEditingOrder(false);
     void refreshOrder();
     void refreshTimeline();
-  }, [orderId, refreshOrder, refreshTimeline]);
+  }, [isCreate, orderId, prefill?.companyId, prefill?.clientId, fetchCompanies, fetchContacts, refreshOrder, refreshTimeline]);
 
   // ESC
   useEffect(() => {
-    if (!orderId) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (isEditingOrder) setIsEditingOrder(false);
-        else if (canClose) onClose();
+      if (e.key !== "Escape") return;
+
+      if (isEditingOrder && !isCreate) {
+        setIsEditingOrder(false);
+        return;
       }
+      if (canClose) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [orderId, isEditingOrder, canClose, onClose]);
-
-  const fetchCompanies = useCallback(async () => {
-    setLoadingCompanies(true);
-    try {
-      const r = await fetch(`${apiBaseUrl}/companies?page=1&pageSize=100`);
-      if (r.ok) {
-        const data = await r.json();
-        setCompanies(data.items || []);
-      }
-    } finally {
-      setLoadingCompanies(false);
-    }
-  }, [apiBaseUrl]);
-
-  const fetchContacts = useCallback(
-    async (companyId: string | null) => {
-      setLoadingContacts(true);
-      setContacts([]);
-      const url = companyId
-        ? `${apiBaseUrl}/contacts?companyId=${companyId}&pageSize=100`
-        : `${apiBaseUrl}/contacts?pageSize=100`;
-      try {
-        const r = await fetch(url);
-        if (r.ok) {
-          const data = await r.json();
-          setContacts(data.items || []);
-        }
-      } finally {
-        setLoadingContacts(false);
-      }
-    },
-    [apiBaseUrl],
-  );
-
-  const handleStartEdit = () => {
-    if (!order) return;
-    setIsEditingOrder(true);
-    setEditCompanyId(order.companyId);
-    setEditClientId(order.clientId);
-    setEditComment(order.comment || "");
-    setEditDiscount(order.discountAmount || 0);
-    void fetchCompanies();
-    void fetchContacts(order.companyId);
-  };
+  }, [isEditingOrder, isCreate, canClose, onClose]);
 
   const handleCompanyChange = (newCompanyId: string | null) => {
     setEditCompanyId(newCompanyId);
+    // если компания поменялась — клиент сбрасываем
     setEditClientId(null);
     void fetchContacts(newCompanyId);
   };
@@ -240,10 +265,48 @@ export function OrderModal({
     }
   };
 
+  const handleStartEdit = () => {
+    if (!order) return;
+    setIsEditingOrder(true);
+    setEditCompanyId(order.companyId);
+    setEditClientId(order.clientId);
+    setEditComment(order.comment || "");
+    setEditDiscount(order.discountAmount || 0);
+    void fetchCompanies();
+    void fetchContacts(order.companyId);
+  };
+
   const handleSaveOrder = async () => {
-    if (!orderId) return;
     setSavingOrder(true);
     try {
+      // ✅ create mode
+      if (isCreate) {
+        const r = await fetch(`${apiBaseUrl}/orders`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: editCompanyId,
+            clientId: editClientId,
+            comment: editComment || null,
+            discountAmount: Number(editDiscount) || 0,
+            // ownerId будет автоматически добавлен на /api/orders (см. пункт 2)
+          }),
+          cache: "no-store",
+        });
+
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data?.message || `Failed to create order (${r.status})`);
+        }
+
+        onSaved?.();
+        onClose();
+        return;
+      }
+
+      // ✅ update mode
+      if (!orderId) return;
+
       const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -253,6 +316,7 @@ export function OrderModal({
           comment: editComment,
           discountAmount: Number(editDiscount),
         }),
+        cache: "no-store",
       });
 
       if (!r.ok) {
@@ -262,6 +326,7 @@ export function OrderModal({
 
       setIsEditingOrder(false);
       await Promise.all([refreshOrder(), refreshTimeline()]);
+      onSaved?.();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -269,7 +334,7 @@ export function OrderModal({
     }
   };
 
-  // product search debounce
+  // product search debounce (only existing order)
   useEffect(() => {
     if (!showAddForm || !orderId || selectedProduct) return;
     if (search.trim().length === 0) {
@@ -284,6 +349,7 @@ export function OrderModal({
       try {
         const r = await fetch(
           `${apiBaseUrl}/products?search=${encodeURIComponent(search)}&page=1&pageSize=10`,
+          { cache: "no-store" },
         );
         if (!r.ok) throw new Error(`Failed to load products (${r.status})`);
         const data = (await r.json()) as ProductsResponse;
@@ -330,6 +396,7 @@ export function OrderModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId: selectedProduct.id, qty, price }),
+        cache: "no-store",
       });
       if (!r.ok) throw new Error(`Failed to add item (${r.status})`);
 
@@ -341,6 +408,7 @@ export function OrderModal({
       setPrice(0);
 
       await Promise.all([refreshOrder(), refreshTimeline()]);
+      onSaved?.();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Failed to add item");
     } finally {
@@ -356,7 +424,10 @@ export function OrderModal({
     }
   };
 
-  if (!orderId) return null;
+  const headerTitle = useMemo(() => {
+    if (isCreate) return "Create order";
+    return order?.orderNumber ?? "…";
+  }, [isCreate, order?.orderNumber]);
 
   return (
     <div
@@ -374,11 +445,11 @@ export function OrderModal({
         {/* HEADER */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <div>
-            <p className="text-sm text-zinc-500">Order</p>
-            <h2 className="text-lg font-semibold text-zinc-900">{order?.orderNumber ?? "…"}</h2>
+            <p className="text-sm text-zinc-500">{isCreate ? "Order" : "Order"}</p>
+            <h2 className="text-lg font-semibold text-zinc-900">{headerTitle}</h2>
           </div>
           <div className="flex items-center gap-2">
-            {!loading && order && !isEditingOrder && (
+            {!isCreate && !loading && order && !isEditingOrder && (
               <button
                 type="button"
                 onClick={handleStartEdit}
@@ -387,6 +458,7 @@ export function OrderModal({
                 Edit
               </button>
             )}
+
             <button
               type="button"
               onClick={() => {
@@ -401,8 +473,86 @@ export function OrderModal({
         </div>
 
         {/* BODY */}
-        <div className="px-6 py-4 max-[calc(90vh-64px)] overflow-auto">
-          {loading ? (
+        <div className="px-6 py-4 max-h-[calc(90vh-64px)] overflow-auto">
+          {/* CREATE MODE = always show edit form */}
+          {isCreate ? (
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Company */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600 mb-1">Company</label>
+                  <SearchableSelect
+                    options={companies.map((c) => ({ id: c.id, label: c.name }))}
+                    value={editCompanyId}
+                    onChange={(val) => handleCompanyChange(val || null)}
+                    disabled={loadingCompanies}
+                    isLoading={loadingCompanies}
+                    placeholder="Select company…"
+                  />
+                </div>
+
+                {/* Client */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
+                  <SearchableSelect
+                    options={contacts.map((c) => ({
+                      id: c.id,
+                      label: `${c.firstName} ${c.lastName} — ${c.phone}${
+                        !editCompanyId && c.companyId ? " (Has Company)" : ""
+                      }`,
+                    }))}
+                    value={editClientId}
+                    onChange={(val) => handleClientChange(val || null)}
+                    disabled={loadingContacts}
+                    isLoading={loadingContacts}
+                    placeholder="Select client…"
+                  />
+                </div>
+
+                {/* Discount */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">Discount</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editDiscount}
+                    onChange={(e) => setEditDiscount(Math.max(0, Number(e.target.value)))}
+                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Comment */}
+              <div className="mt-4">
+                <label className="block text-xs font-medium text-zinc-600">Comment</label>
+                <textarea
+                  rows={3}
+                  value={editComment}
+                  onChange={(e) => setEditComment(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={savingOrder}
+                  className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveOrder}
+                  disabled={savingOrder}
+                  className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {savingOrder ? "Saving…" : "Create"}
+                </button>
+              </div>
+            </div>
+          ) : loading ? (
             <p className="text-sm text-zinc-500">Loading order…</p>
           ) : error ? (
             <p className="text-sm text-red-600">{error}</p>
@@ -423,7 +573,7 @@ export function OrderModal({
                             Company
                           </label>
                           <SearchableSelect
-                          options={companies.map((c) => ({ id: c.id, label: c.name }))}
+                            options={companies.map((c) => ({ id: c.id, label: c.name }))}
                             value={editCompanyId}
                             onChange={(val) => handleCompanyChange(val || null)}
                             disabled={loadingCompanies}
@@ -443,16 +593,13 @@ export function OrderModal({
                               label: `${c.firstName} ${c.lastName} — ${c.phone}${
                                 !editCompanyId && c.companyId ? " (Has Company)" : ""
                               }`,
-                        }))}
+                            }))}
                             value={editClientId}
                             onChange={(val) => handleClientChange(val || null)}
                             disabled={loadingContacts}
                             isLoading={loadingContacts}
                             placeholder="Select client…"
                           />
-                          {!editCompanyId && contacts.length === 0 && !loadingContacts && (
-                            <p className="mt-1 text-xs text-zinc-500">No contacts found</p>
-                          )}
                         </div>
 
                         {/* Discount */}
@@ -502,7 +649,7 @@ export function OrderModal({
                         >
                           {savingOrder ? "Saving…" : "Save"}
                         </button>
-                    </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="rounded-md border border-zinc-200 bg-white p-4">
@@ -526,7 +673,7 @@ export function OrderModal({
                           <div className="text-xs text-zinc-500">Client</div>
                           {order.client ? (
                             <button
-                              type="button" 
+                              type="button"
                               onClick={() => onOpenContact?.(order.client!.id)}
                               className="mt-1 text-left font-medium text-zinc-900 hover:underline"
                             >
@@ -544,7 +691,7 @@ export function OrderModal({
 
                         <div>
                           <div className="text-xs text-zinc-500">Created</div>
-                      <div className="mt-1 text-zinc-700">{formatDt(order.createdAt)}</div>
+                          <div className="mt-1 text-zinc-700">{formatDt(order.createdAt)}</div>
                         </div>
 
                         <div>
@@ -616,9 +763,7 @@ export function OrderModal({
                                     onClick={() => handleSelectProduct(p)}
                                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-50"
                                   >
-                                    <span className="font-medium text-zinc-900">
-                                      {p.name}
-                                    </span>
+                                    <span className="font-medium text-zinc-900">{p.name}</span>
                                     <span className="text-xs text-zinc-500">{p.sku}</span>
                                   </button>
                                 ))}
@@ -635,9 +780,7 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">
-                              Qty
-                            </label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
                             <input
                               type="number"
                               min={1}
@@ -648,9 +791,7 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">
-                              Price
-                            </label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
                             <input
                               type="number"
                               min={0}
@@ -661,9 +802,7 @@ export function OrderModal({
                           </div>
                         </div>
 
-                        {submitError && (
-                          <div className="mt-3 text-xs text-red-600">{submitError}</div>
-                        )}
+                        {submitError && <div className="mt-3 text-xs text-red-600">{submitError}</div>}
 
                         <div className="mt-3 flex justify-end">
                           <button
@@ -685,7 +824,7 @@ export function OrderModal({
                           <tr>
                             <th className="px-3 py-2 text-left">Product</th>
                             <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2 text-right">Price</th>
+                            <th className="px-3 py-2 text-right">Price</th>
                             <th className="px-3 py-2 text-right">Total</th>
                           </tr>
                         </thead>
@@ -708,9 +847,7 @@ export function OrderModal({
                                   ) : null}
                                 </td>
                                 <td className="px-3 py-2 text-right text-zinc-700">{it.qty}</td>
-                                <td className="px-3 py-2 text-right text-zinc-700">
-                                  {it.price.toFixed(2)}
-                                </td>
+                                <td className="px-3 py-2 text-right text-zinc-700">{it.price.toFixed(2)}</td>
                                 <td className="px-3 py-2 text-right font-medium text-zinc-900">
                                   {it.lineTotal.toFixed(2)}
                                 </td>
@@ -739,37 +876,12 @@ export function OrderModal({
                     </button>
                   </div>
 
-                  {/* actions */}
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      title="Call"
-                    >
-                      📞 Call
-                </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      title="Meeting"
-                    >
-                      📅 Meeting
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      title="Comment"
-                    >
-                      💬 Comment
-                    </button>
-                  </div>
-
                   <div className="mt-4">
                     {timelineError ? (
                       <div className="text-sm text-red-600">{timelineError}</div>
                     ) : timelineLoading ? (
                       <div className="text-sm text-zinc-500">Loading timeline…</div>
-                    ) : timeline.length === 0 ? (  
+                    ) : timeline.length === 0 ? (
                       <div className="text-sm text-zinc-500">No events yet</div>
                     ) : (
                       <div className="space-y-3">
@@ -786,12 +898,10 @@ export function OrderModal({
                                 {formatDt(t.occurredAt)}
                               </div>
                             </div>
-                            <div className="mt-2 text-sm text-zinc-800 whitespacere-wrap">
+                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">
                               {t.body}
                             </div>
-                            <div className="mt-2 text-xs text-zinc-500">
-                              by {t.createdBy}
-                            </div>
+                            <div className="mt-2 text-xs text-zinc-500">by {t.createdBy}</div>
                           </div>
                         ))}
                       </div>
