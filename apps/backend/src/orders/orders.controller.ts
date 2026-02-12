@@ -18,23 +18,34 @@ import { AuthUser } from "../auth/auth.types";
 import { OrdersService } from "./orders.service";
 import { CreateOrderDto, validateCreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
-import { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
 import { ActivitiesService } from "../activities/activities.service";
+
+// ✅ NP
+import { NpTtnService } from "../np/np-ttn.service";
+import { CreateNpTtnDto } from "../np/dto/create-np-ttn.dto";
 
 @Controller("orders")
 export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly activitiesService: ActivitiesService,
+    private readonly npTtnService: NpTtnService,
   ) {}
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post()
-  async create(@Body() body: CreateOrderDto) {
-    const errors = validateCreateOrderDto(body);
-    if (errors.length > 0) {
-      throw new BadRequestException({ errors });
+  async create(
+    @Body() body: CreateOrderDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!body.ownerId) {
+      if (!req.user) throw new BadRequestException("User not found in request");
+      (body as any).ownerId = req.user.id;
     }
+
+    const errors = validateCreateOrderDto(body);
+    if (errors.length > 0) throw new BadRequestException({ errors });
+
     return this.ordersService.create(body);
   }
 
@@ -44,6 +55,9 @@ export class OrdersController {
     @Query("pageSize") pageSize?: string,
     @Query("status") status?: OrderStatus,
     @Query("search") search?: string,
+    @Query("companyId") companyId?: string,
+    @Query("clientId") clientId?: string,
+    @Query("ownerId") ownerId?: string,
   ) {
     const p = Number(page) || 1;
     const ps = Number(pageSize) || 10;
@@ -55,35 +69,53 @@ export class OrdersController {
       offset: (p - 1) * ps,
     };
 
-    return this.ordersService.list(pagination as any, { status, search });
+    return this.ordersService.list(pagination as any, {
+      status,
+      search,
+      companyId,
+      clientId,
+      ownerId,
+    });
   }
-    // --- KANBAN BOARD ---
-    @Get("board")
-    async getBoard(
-      @Query("search") search?: string,
-      @Query("companyId") companyId?: string,
-      @Query("ownerId") ownerId?: string,
-    ) {
-      const columns = await this.ordersService.board({ search, companyId, ownerId });
-      return { columns };
-    }
-  
-    // --- DnD STATUS CHANGE ---
-    @Patch(":id/status")
-    async patchStatus(
-      @Param("id") id: string,
-      @Body() body: { status: OrderStatus; reason?: string },
-      @Req() req: Request & { user?: AuthUser },
-    ) {
-      if (!req.user) {
-        throw new BadRequestException("User not found in request");
-      }
-      return this.ordersService.changeStatus(id, body, req.user.id);
-    }
-    
+
+  @Get("board")
+  async getBoard(
+    @Query("search") search?: string,
+    @Query("companyId") companyId?: string,
+    @Query("ownerId") ownerId?: string,
+  ) {
+    const columns = await this.ordersService.board({ search, companyId, ownerId });
+    return { columns };
+  }
+
+  @Patch(":id/status")
+  async patchStatus(
+    @Param("id") id: string,
+    @Body() body: { status: OrderStatus; reason?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) throw new BadRequestException("User not found in request");
+    return this.ordersService.changeStatus(id, body, req.user.id);
+  }
+
   @Get(":id")
   async findOne(@Param("id") id: string) {
     return this.ordersService.findOne(id);
+  }
+
+  // ✅ Create NP TTN from Order (for UI button in Order card)
+  @Post(":orderId/np/ttn")
+  async createNpTtnFromOrder(
+    @Param("orderId") orderId: string,
+    @Body() dto: CreateNpTtnDto,
+  ) {
+    return this.npTtnService.createFromOrder(orderId, dto);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  @Delete(":id")
+  async remove(@Param("id") id: string) {
+    return this.ordersService.remove(id);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
@@ -114,8 +146,6 @@ export class OrdersController {
     return (this.ordersService as any).removeItem(id, itemId);
   }
 
-  // --- TIMELINE (API-first, потом переиспользуем для компаний/контактов) ---
-
   @Get(":id/timeline")
   async timeline(@Param("id") id: string) {
     const [activities, statusHistory] = await Promise.all([
@@ -123,7 +153,7 @@ export class OrdersController {
       this.ordersService.getStatusHistory(id),
     ]);
 
-    const activityEvents = activities.map((a) => ({
+    const activityEvents = activities.map((a: any) => ({
       id: a.id,
       source: "ACTIVITY" as const,
       type: a.type,
@@ -134,7 +164,7 @@ export class OrdersController {
       createdBy: a.createdBy,
     }));
 
-    const statusEvents = statusHistory.map((h) => ({
+    const statusEvents = statusHistory.map((h: any) => ({
       id: `status_${h.id}`,
       source: "STATUS" as const,
       type: "STATUS_CHANGE" as const,
@@ -158,19 +188,23 @@ export class OrdersController {
     @Body() body: { type: ActivityType; title?: string; body: string; occurredAt?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
-    if (!req.user) {
-      throw new BadRequestException("User not found in request");
-    }
+    if (!req.user) throw new BadRequestException("User not found in request");
     const item = await this.activitiesService.createForOrder(id, body, req.user);
     return { item };
   }
+
   @Patch(":id")
   async updateOrder(
     @Param("id") id: string,
-    @Body() body: { companyId?: string | null; clientId?: string | null; comment?: string | null; discountAmount?: number },
+    @Body()
+    body: {
+      contactId?: string | null;
+      companyId?: string | null;
+      clientId?: string | null;
+      comment?: string | null;
+      discountAmount?: number;
+    },
   ) {
     return this.ordersService.update(id, body);
   }
-
-
 }

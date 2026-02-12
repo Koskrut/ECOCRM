@@ -1,31 +1,51 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch } from "@nestjs/common";
-import { UserRole } from "@prisma/client";
-import { Roles } from "../auth/roles.decorator";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { UsersService } from "./users.service";
 
 @Controller("users")
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // Только админ видит список пользователей
-  @Roles(UserRole.ADMIN)
   @Get()
   async list() {
-    const items = await this.usersService.listUsers();
-    return { items };
+    return { items: await this.usersService.listUsers() };
   }
 
-  // Только админ может менять роль
-  @Roles(UserRole.ADMIN)
+  @Post()
+  async create(@Body() body: any) {
+    const user = await this.usersService.createUser({
+      email: body.email,
+      fullName: body.fullName ?? "",
+      firstName: body.firstName,
+      lastName: body.lastName,
+      password: body.password,   // ✅ теперь сервис принимает password
+      role: body.role,
+      isActive: body.isActive,
+    });
+
+    return { user };
+  }
+
+  @Patch(":id")
+  async update(@Param("id") id: string, @Body() body: any) {
+    const user = await this.usersService.updateUser(id, {
+      email: body.email,
+      fullName: body.fullName,
+      firstName: body.firstName,
+      password: body.password,
+      isActive: body.isActive,
+    });
+
+    return { user };
+  }
+
   @Patch(":id/role")
-  async updateRole(
-    @Param("id") id: string,
-    @Body() body: { role?: UserRole },
-  ) {
-    if (!body?.role) {
-      throw new BadRequestException("role is required");
-    }
+  async updateRole(@Param("id") id: string, @Body() body: any) {
     const user = await this.usersService.updateRole(id, body.role);
     return { user };
+  }
+
+  @Delete(":id")
+  async remove(@Param("id") id: string) {
+    return this.usersService.deleteUser(id);
   }
 }

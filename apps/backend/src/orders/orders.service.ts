@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { PrismaClient, Prisma, OrderStatus } from "@prisma/client";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma, OrderStatus } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
 import { CreateOrderDto } from "./dto/create-order.dto";
+
 // Убрали .entity, так как файл называется order.ts
-import { Order } from "./entities/order"; 
+import { Order } from "./entities/order";
 
 type ListOrdersResult = {
   items: Order[];
@@ -13,7 +15,7 @@ type ListOrdersResult = {
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   public async create(dto: CreateOrderDto): Promise<Order> {
     const orderNumber = `ORD-${Date.now()}`;
@@ -21,12 +23,21 @@ export class OrdersService {
     const discountAmount = dto.discountAmount || 0;
     const totalAmount = Math.max(0, subtotalAmount - discountAmount);
 
+    // ⚠️ CreateOrderDto может пока не иметь contactId — берём через any (опционально)
+    const contactId = (dto as any).contactId ?? null;
+
     const createdOrder = await this.prisma.order.create({
       data: {
         orderNumber,
         ownerId: dto.ownerId,
-        companyId: dto.companyId || null,
-        clientId: dto.clientId || null,
+        companyId: dto.companyId ?? null,
+    
+        // старое поле (если еще используешь)
+        clientId: dto.clientId ?? null,
+    
+        // новое поле для ТТН (если в create уже передаешь)
+        contactId: (dto as any).contactId ?? null,
+    
         status: OrderStatus.NEW,
         currency: "UAH",
         subtotalAmount,
@@ -34,37 +45,49 @@ export class OrdersService {
         totalAmount,
         paidAmount: 0,
         debtAmount: totalAmount,
-        comment: dto.comment,
-        // Используем 'as any', чтобы TS не ругался на несовпадение типов из разных файлов
-        deliveryMethod: (dto.deliveryMethod as any) || null,
-        paymentMethod: (dto.paymentMethod as any) || null,
+        comment: dto.comment ?? null,
+    
+        deliveryMethod: (dto.deliveryMethod as any) ?? null,
+        paymentMethod: (dto.paymentMethod as any) ?? null,
         deliveryData: (dto.deliveryData as any) ?? Prisma.DbNull,
       },
       include: {
         company: true,
         client: true,
+        contact: true,
         items: { include: { product: true } },
       },
     });
+    
 
     return this.mapToEntity(createdOrder);
   }
 
   public async list(
     pagination: { offset: number; limit: number; page: number; pageSize: number },
-    filters?: { status?: OrderStatus; search?: string }
+    filters?: {
+      status?: OrderStatus;
+      search?: string;
+      companyId?: string;
+      clientId?: string;
+      ownerId?: string;
+      contactId?: string;
+    },
   ): Promise<ListOrdersResult> {
     const where: Prisma.OrderWhereInput = {};
 
-    if (filters?.status) {
-      where.status = filters.status;
-    }
+    if (filters?.status) where.status = filters.status;
 
     if (filters?.search) {
-      where.OR = [
-        { orderNumber: { contains: filters.search, mode: "insensitive" } },
-      ];
+      where.OR = [{ orderNumber: { contains: filters.search, mode: "insensitive" } }];
     }
+
+    if (filters?.companyId) where.companyId = filters.companyId;
+    if (filters?.clientId) where.clientId = filters.clientId;
+    if (filters?.ownerId) where.ownerId = filters.ownerId;
+
+    // ✅ NEW optional filter
+    if (filters?.contactId) where.contactId = filters.contactId;
 
     const [total, orders] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),
@@ -76,13 +99,14 @@ export class OrdersService {
         include: {
           company: true,
           client: true,
+          contact: true, // ✅ NEW
           items: { include: { product: true } },
         },
       }),
     ]);
 
     return {
-      items: orders.map((o) => this.mapToEntity(o)),
+      items: orders.map((o: any) => this.mapToEntity(o)),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
@@ -94,6 +118,7 @@ export class OrdersService {
     dto: {
       companyId?: string | null;
       clientId?: string | null;
+      contactId?: string | null; // ✅ NEW
       comment?: string | null;
       discountAmount?: number;
     },
@@ -103,6 +128,7 @@ export class OrdersService {
       include: {
         company: true,
         client: true,
+        contact: true, // ✅ NEW
         items: { include: { product: true } },
       },
     });
@@ -111,9 +137,10 @@ export class OrdersService {
       throw new NotFoundException(`Order with ID ${id} not found`);
     }
 
-    const subtotalAmount = existing.items.reduce((sum, i) => sum + (i.lineTotal ?? 0), 0);
+    const subtotalAmount = existing.items.reduce((sum: number, i: any) => sum + (i.lineTotal ?? 0), 0);
 
-      const discountAmount = (dto.discountAmount !== undefined && dto.discountAmount !== null)
+    const discountAmount =
+      dto.discountAmount !== undefined && dto.discountAmount !== null
         ? Math.max(0, Number(dto.discountAmount))
         : (existing.discountAmount ?? 0);
 
@@ -126,6 +153,11 @@ export class OrdersService {
       data: {
         companyId: dto.companyId === undefined ? undefined : dto.companyId,
         clientId: dto.clientId === undefined ? undefined : dto.clientId,
+
+        // ✅ ВАЖНО: сохраняем contactId
+        // поддерживаем снятие (null)
+        contactId: dto.contactId === undefined ? undefined : dto.contactId,
+
         comment: dto.comment === undefined ? undefined : dto.comment,
         discountAmount,
         subtotalAmount,
@@ -135,6 +167,7 @@ export class OrdersService {
       include: {
         company: true,
         client: true,
+        contact: true, // ✅ NEW
         items: { include: { product: true } },
       },
     });
@@ -142,14 +175,13 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
-
-
   public async findOne(id: string): Promise<Order> {
     const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
         company: true,
         client: true,
+        contact: true, // ✅ NEW
         items: { include: { product: true } },
       },
     });
@@ -163,19 +195,24 @@ export class OrdersService {
 
   private mapToEntity(
     raw: Prisma.OrderGetPayload<{
-      include: { company: true; client: true; items: { include: { product: true } } };
-    }>
+      include: {
+        company: true;
+        client: true;
+        contact: true;
+        items: { include: { product: true } };
+      };
+    }>,
   ): Order {
     return {
       id: raw.id,
       orderNumber: raw.orderNumber,
       status: raw.status,
-      
-      ownerId: raw.ownerId, // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
-      
+  
+      ownerId: raw.ownerId,
+  
       companyId: raw.companyId ?? undefined,
       company: raw.company ? { id: raw.company.id, name: raw.company.name } : undefined,
-      
+  
       clientId: raw.clientId ?? undefined,
       client: raw.client
         ? {
@@ -185,20 +222,34 @@ export class OrdersService {
             phone: raw.client.phone,
           }
         : undefined,
-
+  
+      // ✅ NEW strict typed
+      contactId: raw.contactId ?? undefined,
+      contact: raw.contact
+        ? {
+            id: raw.contact.id,
+            firstName: raw.contact.firstName,
+            lastName: raw.contact.lastName,
+            phone: raw.contact.phone,
+          }
+        : undefined,
+  
       currency: raw.currency,
       subtotalAmount: raw.subtotalAmount,
       discountAmount: raw.discountAmount,
       totalAmount: raw.totalAmount,
       paidAmount: raw.paidAmount,
       debtAmount: raw.debtAmount,
+  
       comment: raw.comment ?? undefined,
       deliveryMethod: raw.deliveryMethod as any,
       paymentMethod: raw.paymentMethod as any,
       deliveryData: raw.deliveryData as any,
+  
       createdAt: raw.createdAt.toISOString(),
       updatedAt: raw.updatedAt.toISOString(),
-      items: raw.items.map((i) => ({
+  
+      items: raw.items.map((i: any) => ({
         id: i.id,
         productId: i.productId,
         productName: i.product.name,
@@ -208,34 +259,31 @@ export class OrdersService {
       })),
     };
   }
+  
+
   public async getStatusHistory(orderId: string) {
     return this.prisma.orderStatusHistory.findMany({
       where: { orderId },
       orderBy: { createdAt: "desc" },
     });
-  }  
-  public async updateStatus(
-    id: string,
-    dto: { toStatus: any; reason?: string },
-    actorId: string,
-  ): Promise<Order> {
+  }
+
+  public async updateStatus(id: string, dto: { toStatus: any; reason?: string }, actorId: string): Promise<Order> {
     const existing = await this.prisma.order.findUnique({
       where: { id },
-      include: { company: true, client: true, items: { include: { product: true } } },
+      include: { company: true, client: true, contact: true, items: { include: { product: true } } },
     });
 
     if (!existing) {
       throw new NotFoundException(`Order with ID ${id} not found`);
     }
 
-    // update order status
     const updated = await this.prisma.order.update({
       where: { id },
       data: { status: dto.toStatus },
-      include: { company: true, client: true, items: { include: { product: true } } },
+      include: { company: true, client: true, contact: true, items: { include: { product: true } } },
     });
 
-    // write status history
     await this.prisma.orderStatusHistory.create({
       data: {
         orderId: id,
@@ -248,6 +296,7 @@ export class OrdersService {
 
     return this.mapToEntity(updated);
   }
+
   public async board(filters?: { search?: string; companyId?: string; ownerId?: string }) {
     const where: Prisma.OrderWhereInput = {};
 
@@ -269,6 +318,8 @@ export class OrdersService {
         updatedAt: true,
         company: { select: { id: true, name: true } },
         client: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        contactId: true, // ✅ NEW (чтобы хотя бы id был доступен на доске)
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } }, // ✅ NEW
       },
     });
 
@@ -280,7 +331,6 @@ export class OrdersService {
       columns[key].push(o);
     }
 
-    // чтобы колонки были всегда (даже пустые)
     for (const st of Object.values(OrderStatus)) {
       const key = String(st);
       if (!columns[key]) columns[key] = [];
@@ -294,16 +344,11 @@ export class OrdersService {
         items: columns[key] ?? [],
       };
     });
-    
+
     return result;
-    
   }
 
-  public async changeStatus(
-    id: string,
-    dto: { status: OrderStatus; reason?: string },
-    userId: string,
-  ): Promise<Order> {
+  public async changeStatus(id: string, dto: { status: OrderStatus; reason?: string }, userId: string): Promise<Order> {
     const existing = await this.prisma.order.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Order with ID ${id} not found`);
 
@@ -314,6 +359,7 @@ export class OrdersService {
         include: {
           company: true,
           client: true,
+          contact: true, // ✅ NEW
           items: { include: { product: true } },
         },
       });
@@ -331,13 +377,10 @@ export class OrdersService {
       return order;
     });
 
-    return this.mapToEntity(updated);
+    return this.mapToEntity(updated as any);
   }
 
-  public async addItem(
-    id: string,
-    dto: { productId: string; qty: number; price: number },
-  ) {
+  public async addItem(id: string, dto: { productId: string; qty: number; price: number }) {
     const qty = Number(dto.qty);
     const price = Number(dto.price);
     if (!Number.isFinite(qty) || qty < 1) throw new BadRequestException("Qty must be at least 1");
@@ -393,6 +436,7 @@ export class OrdersService {
         include: {
           company: true,
           client: true,
+          contact: true, // ✅ NEW
           items: { include: { product: true } },
         },
       });
@@ -401,5 +445,15 @@ export class OrdersService {
     });
 
     return this.mapToEntity(updated as any);
+  }
+
+  public async remove(id: string): Promise<{ ok: true }> {
+    await this.prisma.$transaction([
+      this.prisma.orderItem.deleteMany({ where: { orderId: id } }),
+      this.prisma.orderStatusHistory.deleteMany({ where: { orderId: id } }),
+      this.prisma.order.delete({ where: { id } }),
+    ]);
+
+    return { ok: true };
   }
 }

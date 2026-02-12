@@ -92,6 +92,11 @@ export class CompaniesService {
     };
   }
 
+  public async remove(id: string): Promise<{ ok: true }> {
+    await this.prisma.company.delete({ where: { id } });
+    return { ok: true };
+  }
+
   public async update(id: string, dto: UpdateCompanyDto): Promise<Company> {
     const existing = await this.prisma.company.findUnique({
       where: { id },

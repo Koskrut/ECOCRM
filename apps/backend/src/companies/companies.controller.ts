@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -59,6 +60,12 @@ export class CompaniesController {
     return this.companiesService.findOne(params.id);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  @Delete(":id")
+  async remove(@Param("id") id: string) {
+    return this.companiesService.remove(id);
+  }
+  
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Patch("/:id")
   public async update(

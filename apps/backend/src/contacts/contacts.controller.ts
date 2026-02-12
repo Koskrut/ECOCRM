@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -8,69 +7,58 @@ import {
   Post,
   Query,
 } from "@nestjs/common";
-import { UserRole } from "@prisma/client";
-import { Roles } from "../auth/roles.decorator";
-import { normalizePagination } from "../common/pagination";
-import { ValidationError, validateString } from "../common/validation";
 import { ContactsService } from "./contacts.service";
-import {
-  CreateContactDto,
-  validateCreateContactDto,
-} from "./dto/create-contact.dto";
-import {
-  UpdateContactDto,
-  validateUpdateContactDto,
-} from "./dto/update-contact.dto";
 
-const assertValid = (errors: ValidationError[]): void => {
-  if (errors.length === 0) {
-    return;
-  }
-  const detail = errors.map((error) => `${error.field}: ${error.message}`).join(", ");
-  throw new BadRequestException(`Validation failed: ${detail}`);
-};
-
-@Controller("/contacts")
+@Controller("contacts")
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  // CREATE
   @Post()
-  public async create(@Body() body: CreateContactDto) {
-    const errors = validateCreateContactDto(body);
-    assertValid(errors);
-    return this.contactsService.create(body);
-  }
-
-  @Get()
-  public async list(
-    @Query() query: { search?: string; companyId?: string; page?: string; pageSize?: string },
-  ) {
-    const pagination = normalizePagination({
-      page: query.page,
-      pageSize: query.pageSize,
+  async create(@Body() body: any) {
+    return this.contactsService.create({
+      companyId: body.companyId ?? null,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      phone: body.phone,
+      email: body.email ?? null,
+      position: body.position ?? null,
+      isPrimary: body.isPrimary ?? false,
     });
-    return this.contactsService.list(query.search, query.companyId, pagination);
   }
 
-  @Get("/:id")
-  public async findOne(@Param() params: { id: string }) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    assertValid(errors);
-    return this.contactsService.findOne(params.id);
-  }
-
-  @Roles(UserRole.ADMIN, UserRole.LEAD)
-  @Patch("/:id")
-  public async update(
-    @Param() params: { id: string },
-    @Body() body: UpdateContactDto,
+  // LIST
+  // поддержка: ?companyId=...&page=1&pageSize=20
+  @Get()
+  async list(
+    @Query("companyId") companyId?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
   ) {
-    const errors: ValidationError[] = [];
-    validateString(params.id, "id", errors);
-    errors.push(...validateUpdateContactDto(body));
-    assertValid(errors);
-    return this.contactsService.update(params.id, body);
+    return this.contactsService.list({
+      companyId,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  // GET ONE
+  @Get(":id")
+  async getOne(@Param("id") id: string) {
+    return this.contactsService.getById(id);
+  }
+
+  // UPDATE
+  @Patch(":id")
+  async update(@Param("id") id: string, @Body() body: any) {
+    return this.contactsService.update(id, {
+      companyId: body.companyId ?? undefined,
+      firstName: body.firstName ?? undefined,
+      lastName: body.lastName ?? undefined,
+      phone: body.phone ?? undefined,
+      email: body.email ?? undefined,
+      position: body.position ?? undefined,
+      isPrimary: body.isPrimary ?? undefined,
+    });
   }
 }

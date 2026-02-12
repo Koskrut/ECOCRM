@@ -1,17 +1,12 @@
 import { Module } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { createPrismaClient } from "../common/prisma";
 import { ContactsController } from "./contacts.controller";
 import { ContactsService } from "./contacts.service";
+import { PrismaModule } from "../prisma/prisma.module";
 
 @Module({
+  imports: [PrismaModule],
   controllers: [ContactsController],
-  providers: [
-    ContactsService,
-    {
-      provide: PrismaClient,
-      useFactory: createPrismaClient,
-    },
-  ],
+  providers: [ContactsService],
+  exports: [ContactsService],
 })
 export class ContactsModule {}

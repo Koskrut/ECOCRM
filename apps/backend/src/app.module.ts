@@ -8,13 +8,15 @@ import { ContactsModule } from "./contacts/contacts.module";
 import { OrdersModule } from "./orders/orders.module";
 import { ProductsModule } from "./products/products.module";
 import { UsersModule } from "./users/users.module";
-import { PrismaModule } from "./common/prisma.module";
+import { PrismaModule } from "./prisma/prisma.module";
+import { NpModule } from "./np/np.module";
 
 
 
 @Module({
   imports: [
-    PrismaModule,
+    PrismaModule, 
+    NpModule,
     AuthModule,
     OrdersModule,
     ProductsModule,

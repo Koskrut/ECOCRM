@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -14,7 +16,16 @@ enum OrderStatus {
   SHIPPED
   DELIVERED
   CANCELED
+
+  // NEW business statuses (добавляем)
+  IN_WORK
+  READY_TO_SHIP
+  PAYMENT_CONTROL
+  RETURNING
+  SUCCESS
 }
+
+
 
 enum DeliveryMethod {
   PICKUP
@@ -30,6 +41,27 @@ enum UserRole {
   ADMIN
   LEAD
   MANAGER
+}
+
+enum NpRecipientType {
+  PERSON
+  COMPANY
+}
+
+enum NpDeliveryType {
+  WAREHOUSE
+  POSTOMAT
+  ADDRESS
+}
+
+enum Carrier {
+  NOVA_POSHTA
+}
+
+enum ActivityType {
+  COMMENT
+  CALL
+  MEETING
 }
 
 // --- MODELS ---
@@ -70,23 +102,63 @@ model Contact {
   updatedAt DateTime @updatedAt
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  orders  Order[]
 
-  recipients ContactRecipient[]
+  // связь для Order.clientId (старое поле clientId в Order)
+  ordersAsClient Order[] @relation("OrderClient")
+
+  // связь для Order.contactId (поле для ТТН)
+  ordersAsContact Order[] @relation("OrderContact")
+
+  // профили доставки НП (несколько на контакт)
+  shippingProfiles ContactShippingProfile[]
+
   activities Activity[]
 
   @@index([companyId])
 }
 
-model ContactRecipient {
-  id        String @id @default(cuid())
+model ContactShippingProfile {
+  id        String  @id @default(cuid())
   contactId String
+  label     String
+  isDefault Boolean @default(false)
 
-  firstName String
-  lastName  String
-  phone     String
-  city      String
-  warehouse String
+  recipientType NpRecipientType
+  deliveryType  NpDeliveryType
+
+  // PERSON fields
+  firstName  String?
+  lastName   String?
+  middleName String?
+  phone      String?
+
+  // COMPANY fields
+  companyName             String?
+  edrpou                  String?
+  contactPersonFirstName  String?
+  contactPersonLastName   String?
+  contactPersonMiddleName String?
+  contactPersonPhone      String?
+
+  // city
+  cityRef  String?
+  cityName String?
+
+  // warehouse / postomat
+  warehouseRef    String?
+  warehouseNumber String?
+  warehouseType   String?
+
+  // address
+  streetRef  String?
+  streetName String?
+  building   String?
+  flat       String?
+
+  // cached NP refs
+  npCounterpartyRef  String?
+  npContactPersonRef String?
+  npAddressRef       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -94,6 +166,7 @@ model ContactRecipient {
   contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@index([contactId])
+  @@index([contactId, isDefault])
 }
 
 model Product {
@@ -110,10 +183,16 @@ model Product {
 }
 
 model Order {
-  id             String      @id @default(cuid())
-  orderNumber    String      @unique
-  companyId      String?
-  clientId       String?
+  id          String @id @default(cuid())
+  orderNumber String @unique
+  companyId   String?
+
+  // старое поле (если используешь как "клиент заказа")
+  clientId String?
+
+  // поле — контакт для ТТН
+  contactId String?
+
   ownerId        String
   status         OrderStatus
   currency       String
@@ -123,21 +202,31 @@ model Order {
   paidAmount     Float
   debtAmount     Float
   comment        String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   deliveryMethod DeliveryMethod?
   paymentMethod  PaymentMethod?
   deliveryData   Json?
 
-  company       Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  client        Contact?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Order.clientId -> Contact
+  client Contact? @relation("OrderClient", fields: [clientId], references: [id], onDelete: SetNull)
+
+  // Order.contactId -> Contact (для ТТН)
+  contact Contact? @relation("OrderContact", fields: [contactId], references: [id], onDelete: SetNull)
+
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
   activities    Activity[]
 
+  ttns OrderTtn[]
+
   @@index([companyId])
   @@index([clientId])
+  @@index([contactId])
+  @@index([status])
 }
 
 model OrderItem {
@@ -147,11 +236,18 @@ model OrderItem {
   qty       Int
   price     Float
   lineTotal Float
+
+  // ✅ кеш для частичных отправок
+  qtyShipped Int @default(0)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
+
+  // ✅ связи с конкретными ТТН (частичная отгрузка)
+  ttnItems OrderTtnItem[]
 
   @@unique([orderId, productId], name: "orderId_productId")
   @@index([orderId])
@@ -170,14 +266,57 @@ model OrderStatusHistory {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([toStatus])
+  @@index([createdAt])
 }
 
-// --- ACTIVITIES / TIMELINE ---
+model OrderTtn {
+  id      String  @id @default(cuid())
+  orderId String
+  carrier Carrier @default(NOVA_POSHTA)
 
-enum ActivityType {
-  COMMENT
-  CALL
-  MEETING
+  documentNumber String
+  documentRef    String?
+
+  statusCode String?
+  statusText String?
+
+  cost                  Float?
+  estimatedDeliveryDate DateTime?
+
+  payloadSnapshot Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // ✅ позиции, которые уехали в этой ТТН
+  items OrderTtnItem[]
+
+  @@index([orderId])
+  @@index([documentNumber])
+  @@index([statusCode])
+  @@index([updatedAt])
+}
+
+//
+// ✅ строки отгрузки по TTN (частичная отгрузка)
+//
+model OrderTtnItem {
+  id          String @id @default(cuid())
+  ttnId       String
+  orderItemId String
+  qtyShipped  Int
+
+  ttn       OrderTtn  @relation(fields: [ttnId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([ttnId])
+  @@index([orderItemId])
+  @@unique([ttnId, orderItemId])
 }
 
 model Activity {
@@ -201,4 +340,61 @@ model Activity {
   @@index([contactId])
   @@index([companyId])
   @@index([createdAt])
+}
+
+// ===== NP Catalog cache (daily sync) =====
+
+model NpCity {
+  ref                       String   @id
+  description               String
+  area                      String?
+  areaDescription           String?
+  region                    String?
+  settlementTypeDescription String?
+  isActive                  Boolean  @default(true)
+  updatedAt                 DateTime @updatedAt
+
+  @@index([description])
+}
+
+model NpWarehouse {
+  ref             String   @id
+  cityRef         String
+  cityName        String
+  number          String?
+  description     String
+  shortAddress    String?
+  typeOfWarehouse String?
+  isPostomat      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+
+  @@index([cityRef])
+  @@index([description])
+  @@index([isPostomat])
+}
+
+model NpStreet {
+  ref       String   @id
+  cityRef   String
+  street    String
+  updatedAt DateTime @updatedAt
+
+  @@index([cityRef])
+  @@index([street])
+}
+
+// ===== NP Sender cache (singleton) =====
+
+model NpSenderSettings {
+  id String @id @default("default")
+
+  cityRef      String
+  warehouseRef String
+
+  counterpartyRef  String
+  contactPersonRef String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
