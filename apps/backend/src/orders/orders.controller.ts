@@ -140,8 +140,11 @@ export class OrdersController {
     // Маппим в DTO, который ожидает npTtnService
     const dto: any = {
       carrier: "NOVA_POSHTA",
-      profileId: body.profileId ?? null,
-      createProfile: body.createProfile ?? null,
+      profileId: body.profileId ?? undefined,
+      draft: body.draft ?? body.createProfile ?? undefined,
+      saveAsProfile: body.saveAsProfile ?? body.createProfile?.saveToContact ?? undefined,
+      profileLabel: body.profileLabel ?? body.createProfile?.label ?? undefined,
+      shippedItems: Array.isArray(body.shippedItems) ? body.shippedItems : undefined,
     };
 
     return this.npTtnService.createFromOrder(id, dto as CreateNpTtnDto);
