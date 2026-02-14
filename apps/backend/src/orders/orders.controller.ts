@@ -103,6 +103,11 @@ export class OrdersController {
     return this.ordersService.findOne(id);
   }
 
+  @Get(":id/items/remaining-to-ship")
+  async getRemainingToShip(@Param("id") id: string) {
+    return this.ordersService.getRemainingToShip(id);
+  }
+
   // ✅ Create NP TTN from Order (legacy route)
   @Post(":orderId/np/ttn")
   async createNpTtnFromOrder(

@@ -193,6 +193,50 @@ export class OrdersService {
     return this.mapToEntity(order);
   }
 
+  public async getRemainingToShip(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        items: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            productId: true,
+            qty: true,
+            qtyShipped: true,
+            product: {
+              select: {
+                name: true,
+                sku: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with ID ${orderId} not found`);
+    }
+
+    return {
+      orderId: order.id,
+      items: order.items.map((item) => {
+        const qtyRemaining = Math.max(item.qty - item.qtyShipped, 0);
+        return {
+          orderItemId: item.id,
+          productId: item.productId,
+          productName: item.product?.name ?? null,
+          productSku: item.product?.sku ?? null,
+          qtyOrdered: item.qty,
+          qtyShipped: item.qtyShipped,
+          qtyRemaining,
+        };
+      }),
+    };
+  }
+
   private mapToEntity(
     raw: Prisma.OrderGetPayload<{
       include: {

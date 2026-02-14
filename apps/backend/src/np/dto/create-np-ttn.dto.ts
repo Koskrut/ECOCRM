@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -45,6 +46,17 @@ export class NpParcelDto {
   @IsNumber()
   @Min(0)
   height?: number;
+}
+
+export class NpTtnShippedItemDto {
+  @IsNotEmpty()
+  @IsString()
+  orderItemId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  qtyShipped!: number;
 }
 
 export class CreateNpTtnDraftDto {
@@ -158,4 +170,9 @@ export class CreateNpTtnDto {
   @ValidateNested({ each: true })
   @Type(() => NpParcelDto)
   parcels?: NpParcelDto[];
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => NpTtnShippedItemDto)
+  shippedItems?: NpTtnShippedItemDto[];
 }

@@ -32,6 +32,17 @@ type OrderStatus =
   | "RETURNING"
   | "CANCELED";
 
+type ShipmentOrderItem = {
+  id: string;
+  qty: number;
+  qtyShipped: number;
+};
+
+type ShipmentPlanLine = {
+  orderItemId: string;
+  qtyShipped: number;
+};
+
 @Injectable()
 export class NpTtnService {
   private senderCache: SenderCache | null = null;
@@ -69,6 +80,18 @@ export class NpTtnService {
       });
     }
   
+    const orderItems = await this.prisma.orderItem.findMany({
+      where: { orderId: order.id },
+      select: {
+        id: true,
+        qty: true,
+        qtyShipped: true,
+      },
+    });
+
+    // Validate before NP API call so we don't create remote TTN for invalid shipment.
+    const precheckShipmentPlan = this.buildShipmentPlan(orderItems, dto.shippedItems);
+
     const resolved = await this.resolveRecipientData(contactId, dto);
   
 
@@ -98,16 +121,55 @@ export class NpTtnService {
       );
     }
 
-    // 4) save TTN record
-    const saved = await this.prisma.orderTtn.create({
-      data: {
-        orderId: order.id,
-        carrier: "NOVA_POSHTA" as any,
-        documentNumber: docData.IntDocNumber,
-        documentRef: docData.Ref || null,
-        cost: docData.CostOnSite ? Number(docData.CostOnSite) : null,
-        payloadSnapshot: { request: payload, response: doc },
-      },
+    // 4) save TTN + shipment rows atomically
+    const { saved, shipmentPlan } = await this.prisma.$transaction(async (tx) => {
+      const lockedOrderItems = await tx.$queryRaw<ShipmentOrderItem[]>`
+        SELECT "id", "qty", "qtyShipped"
+        FROM "OrderItem"
+        WHERE "orderId" = ${order.id}
+        FOR UPDATE
+      `;
+
+      const safeShipmentPlan = this.buildShipmentPlan(
+        lockedOrderItems,
+        dto.shippedItems ?? precheckShipmentPlan,
+      );
+
+      const createdTtn = await tx.orderTtn.create({
+        data: {
+          orderId: order.id,
+          carrier: "NOVA_POSHTA" as any,
+          documentNumber: docData.IntDocNumber,
+          documentRef: docData.Ref || null,
+          cost: docData.CostOnSite ? Number(docData.CostOnSite) : null,
+          payloadSnapshot: {
+            request: payload,
+            response: doc,
+            shippedItems: safeShipmentPlan,
+          },
+        },
+      });
+
+      await tx.orderTtnItem.createMany({
+        data: safeShipmentPlan.map((line) => ({
+          ttnId: createdTtn.id,
+          orderItemId: line.orderItemId,
+          qtyShipped: line.qtyShipped,
+        })),
+      });
+
+      for (const line of safeShipmentPlan) {
+        await tx.orderItem.update({
+          where: { id: line.orderItemId },
+          data: {
+            qtyShipped: {
+              increment: line.qtyShipped,
+            },
+          },
+        });
+      }
+
+      return { saved: createdTtn, shipmentPlan: safeShipmentPlan };
     });
 
     // 4.5) persist TTN into Order.deliveryData (+ move NEW -> IN_WORK)
@@ -121,6 +183,7 @@ export class NpTtnService {
       documentNumber: saved.documentNumber,
       documentRef: saved.documentRef,
       cost: saved.cost,
+      shippedItems: shipmentPlan,
     };
   }
 
@@ -453,6 +516,79 @@ export class NpTtnService {
     return String((w * l * h) / 1_000_000);
   }
 
+  private buildShipmentPlan(
+    orderItems: ShipmentOrderItem[],
+    requested: Array<{ orderItemId: string; qtyShipped: number }> | undefined,
+  ): ShipmentPlanLine[] {
+    if (!orderItems.length) {
+      throw new BadRequestException("Order has no items to ship");
+    }
+
+    const byId = new Map(orderItems.map((item) => [item.id, item]));
+    const normalizedRequested = this.normalizeRequestedShipmentItems(requested);
+
+    const shipmentPlan =
+      normalizedRequested.length > 0
+        ? normalizedRequested
+        : orderItems
+            .map((item) => ({
+              orderItemId: item.id,
+              qtyShipped: Math.max(item.qty - item.qtyShipped, 0),
+            }))
+            .filter((item) => item.qtyShipped > 0);
+
+    if (!shipmentPlan.length) {
+      throw new BadRequestException("Nothing left to ship for this order");
+    }
+
+    for (const line of shipmentPlan) {
+      const orderItem = byId.get(line.orderItemId);
+      if (!orderItem) {
+        throw new BadRequestException(`Order item ${line.orderItemId} is not part of this order`);
+      }
+
+      const remainingQty = Math.max(orderItem.qty - orderItem.qtyShipped, 0);
+      if (line.qtyShipped > remainingQty) {
+        throw new BadRequestException(
+          `qtyShipped for item ${line.orderItemId} exceeds remaining (${remainingQty})`,
+        );
+      }
+    }
+
+    return shipmentPlan;
+  }
+
+  private normalizeRequestedShipmentItems(
+    requested: Array<{ orderItemId: string; qtyShipped: number }> | undefined,
+  ): ShipmentPlanLine[] {
+    if (requested == null) return [];
+    if (!Array.isArray(requested)) {
+      throw new BadRequestException("shippedItems must be an array");
+    }
+
+    const merged = new Map<string, number>();
+    for (const raw of requested) {
+      const orderItemId = String(raw?.orderItemId ?? "").trim();
+      const qtyShipped = Number(raw?.qtyShipped);
+
+      if (!orderItemId) {
+        throw new BadRequestException("orderItemId is required in shippedItems");
+      }
+      if (!Number.isInteger(qtyShipped) || qtyShipped < 1) {
+        throw new BadRequestException(
+          `qtyShipped must be a positive integer for item ${orderItemId}`,
+        );
+      }
+
+      merged.set(orderItemId, (merged.get(orderItemId) ?? 0) + qtyShipped);
+    }
+
+    return Array.from(merged.entries()).map(([orderItemId, qtyShipped]) => ({
+      orderItemId,
+      qtyShipped,
+    }));
+  }
+
   // ======================
   // Save profile to contact
   // ======================
@@ -546,6 +682,25 @@ export class NpTtnService {
     const prev = (order as any).deliveryData ?? {};
     const prevNp = prev?.novaPoshta ?? {};
 
+    const previousTtnList = Array.isArray(prevNp?.ttns) ? [...prevNp.ttns] : [];
+    const legacySingleTtn = prevNp?.ttn;
+    const hasLegacyInList =
+      legacySingleTtn?.number &&
+      previousTtnList.some((ttn: any) => ttn?.number === legacySingleTtn.number);
+
+    if (legacySingleTtn?.number && !hasLegacyInList) {
+      previousTtnList.push(legacySingleTtn);
+    }
+
+    const nextTtnEntry = {
+      number: saved.documentNumber,
+      ref: saved.documentRef,
+      cost: saved.cost,
+      createdAt: saved.createdAt,
+    };
+
+    const nextTtnList = [...previousTtnList, nextTtnEntry];
+
     const nextDeliveryData = {
       ...prev,
       novaPoshta: {
@@ -566,12 +721,8 @@ export class NpTtnService {
         building: d.building ?? null,
         flat: d.flat ?? null,
 
-        ttn: {
-          number: saved.documentNumber,
-          ref: saved.documentRef,
-          cost: saved.cost,
-          createdAt: saved.createdAt,
-        },
+        ttn: nextTtnEntry,
+        ttns: nextTtnList,
       },
     };
 
