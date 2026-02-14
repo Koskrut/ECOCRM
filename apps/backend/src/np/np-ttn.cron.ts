@@ -11,7 +11,7 @@ export class NpTtnCron {
   @Cron("*/5 * * * *")
   async syncActiveTtns() {
     try {
-      const res = await this.ttn.syncActiveTtnStatuses({ limit: 100 });
+      const res = await this.ttn.syncActiveTtns({ limit: 100 });
       this.logger.log(
         `NP TTN sync done: checked=${res.checked}, updatedOrders=${res.updatedOrders}, skipped=${res.skipped}`,
       );

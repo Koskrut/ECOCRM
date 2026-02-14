@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SearchableSelect } from "../../components/SearchableSelect";
+import { TtnModal } from "./TtnModal";
+
 
 type OrderItem = {
   id: string;
@@ -23,9 +25,14 @@ type OrderDetails = {
   orderNumber: string;
   companyId: string | null;
   clientId: string | null;
+  contactId: string | null;
+  deliveryData?: any;
   company?: { id: string; name: string };
   client?: { id: string; firstName: string; lastName: string; phone: string };
+
   status: string;
+  deliveryMethod: string | null; // ✅ NEW
+
   discountAmount: number;
   totalAmount: number;
   comment: string | null;
@@ -100,6 +107,7 @@ export function OrderModal({
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
   const [editClientId, setEditClientId] = useState<string | null>(null);
+  const [editDeliveryMethod, setEditDeliveryMethod] = useState<string>("PICKUP"); // ✅ NEW
   const [editComment, setEditComment] = useState("");
   const [editDiscount, setEditDiscount] = useState(0);
   const [savingOrder, setSavingOrder] = useState(false);
@@ -127,6 +135,9 @@ export function OrderModal({
   const [timelineError, setTimelineError] = useState<string | null>(null);
 
   const canClose = !submittingItem && !savingOrder;
+
+
+  const [showTtnModal, setShowTtnModal] = useState(false);
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -220,6 +231,7 @@ export function OrderModal({
 
       setEditCompanyId(pCompanyId);
       setEditClientId(pClientId);
+      setEditDeliveryMethod("PICKUP"); // ✅ NEW default
       setEditComment("");
       setEditDiscount(0);
 
@@ -233,7 +245,16 @@ export function OrderModal({
     setIsEditingOrder(false);
     void refreshOrder();
     void refreshTimeline();
-  }, [isCreate, orderId, prefill?.companyId, prefill?.clientId, fetchCompanies, fetchContacts, refreshOrder, refreshTimeline]);
+  }, [
+    isCreate,
+    orderId,
+    prefill?.companyId,
+    prefill?.clientId,
+    fetchCompanies,
+    fetchContacts,
+    refreshOrder,
+    refreshTimeline,
+  ]);
 
   // ESC
   useEffect(() => {
@@ -270,6 +291,7 @@ export function OrderModal({
     setIsEditingOrder(true);
     setEditCompanyId(order.companyId);
     setEditClientId(order.clientId);
+    setEditDeliveryMethod(order.deliveryMethod ?? "PICKUP"); // ✅ NEW
     setEditComment(order.comment || "");
     setEditDiscount(order.discountAmount || 0);
     void fetchCompanies();
@@ -287,9 +309,9 @@ export function OrderModal({
           body: JSON.stringify({
             companyId: editCompanyId,
             clientId: editClientId,
+            deliveryMethod: editDeliveryMethod, // ✅ NEW
             comment: editComment || null,
             discountAmount: Number(editDiscount) || 0,
-            // ownerId будет автоматически добавлен на /api/orders (см. пункт 2)
           }),
           cache: "no-store",
         });
@@ -313,6 +335,7 @@ export function OrderModal({
         body: JSON.stringify({
           companyId: editCompanyId,
           clientId: editClientId,
+          deliveryMethod: editDeliveryMethod, // ✅ NEW
           comment: editComment,
           discountAmount: Number(editDiscount),
         }),
@@ -429,6 +452,20 @@ export function OrderModal({
     return order?.orderNumber ?? "…";
   }, [isCreate, order?.orderNumber]);
 
+  const np = (order as any)?.deliveryData?.novaPoshta;
+  const ttnNumber: string | null = np?.ttn?.number ?? null;
+  const ttnStatusText: string | null = np?.status?.Status ?? np?.status?.statusText ?? null;
+  const ttnStatusCode: string | null = np?.status?.StatusCode ?? np?.status?.statusCode ?? null;
+
+  const ttnStatusLabel =
+    ttnStatusText
+      ? (ttnStatusCode ? `${ttnStatusText} (code ${ttnStatusCode})` : ttnStatusText)
+      : null;
+
+  const canShowCreateTtnButton = useMemo(() => {
+    return !isCreate && !loading && !!order && !isEditingOrder && order.deliveryMethod === "NOVA_POSHTA";
+  }, [isCreate, loading, order, isEditingOrder]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
@@ -445,10 +482,20 @@ export function OrderModal({
         {/* HEADER */}
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <div>
-            <p className="text-sm text-zinc-500">{isCreate ? "Order" : "Order"}</p>
+            <p className="text-sm text-zinc-500">Order</p>
             <h2 className="text-lg font-semibold text-zinc-900">{headerTitle}</h2>
           </div>
           <div className="flex items-center gap-2">
+            {canShowCreateTtnButton && (
+              <button
+                type="button"
+                onClick={() => setShowTtnModal(true)}
+                className="rounded-md bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-500"
+              >
+                Create TTN (NP)
+              </button>
+            )}
+
             {!isCreate && !loading && order && !isEditingOrder && (
               <button
                 type="button"
@@ -497,9 +544,8 @@ export function OrderModal({
                   <SearchableSelect
                     options={contacts.map((c) => ({
                       id: c.id,
-                      label: `${c.firstName} ${c.lastName} — ${c.phone}${
-                        !editCompanyId && c.companyId ? " (Has Company)" : ""
-                      }`,
+                      label: `${c.firstName} ${c.lastName} — ${c.phone}${!editCompanyId && c.companyId ? " (Has Company)" : ""
+                        }`,
                     }))}
                     value={editClientId}
                     onChange={(val) => handleClientChange(val || null)}
@@ -507,6 +553,19 @@ export function OrderModal({
                     isLoading={loadingContacts}
                     placeholder="Select client…"
                   />
+                </div>
+
+                {/* Delivery */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">Delivery</label>
+                  <select
+                    value={editDeliveryMethod}
+                    onChange={(e) => setEditDeliveryMethod(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                  >
+                    <option value="PICKUP">Pickup</option>
+                    <option value="NOVA_POSHTA">Nova Poshta</option>
+                  </select>
                 </div>
 
                 {/* Discount */}
@@ -590,9 +649,8 @@ export function OrderModal({
                           <SearchableSelect
                             options={contacts.map((c) => ({
                               id: c.id,
-                              label: `${c.firstName} ${c.lastName} — ${c.phone}${
-                                !editCompanyId && c.companyId ? " (Has Company)" : ""
-                              }`,
+                              label: `${c.firstName} ${c.lastName} — ${c.phone}${!editCompanyId && c.companyId ? " (Has Company)" : ""
+                                }`,
                             }))}
                             value={editClientId}
                             onChange={(val) => handleClientChange(val || null)}
@@ -600,6 +658,19 @@ export function OrderModal({
                             isLoading={loadingContacts}
                             placeholder="Select client…"
                           />
+                        </div>
+
+                        {/* Delivery */}
+                        <div>
+                          <label className="block text-xs font-medium text-zinc-600">Delivery</label>
+                          <select
+                            value={editDeliveryMethod}
+                            onChange={(e) => setEditDeliveryMethod(e.target.value)}
+                            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                          >
+                            <option value="PICKUP">Pickup</option>
+                            <option value="NOVA_POSHTA">Nova Poshta</option>
+                          </select>
                         </div>
 
                         {/* Discount */}
@@ -682,6 +753,26 @@ export function OrderModal({
                           ) : (
                             <div className="mt-1 text-zinc-600">—</div>
                           )}
+                        </div>
+
+                        <div>
+                          <div className="text-xs text-zinc-500">Delivery</div>
+                          <div className="mt-1 font-medium text-zinc-900">
+                            {order.deliveryMethod ?? "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500">TTN</div>
+                          <div className="mt-1 font-medium text-zinc-900">
+                            {ttnNumber ? `№ ${ttnNumber}` : "—"}
+                          </div>
+                        </div>
+
+                        <div className="col-span-2">
+                          <div className="text-xs text-zinc-500">NP status</div>
+                          <div className="mt-1 text-zinc-700">
+                            {ttnStatusLabel ?? "—"}
+                          </div>
                         </div>
 
                         <div>
@@ -780,7 +871,9 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">
+                              Qty
+                            </label>
                             <input
                               type="number"
                               min={1}
@@ -791,7 +884,9 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">
+                              Price
+                            </label>
                             <input
                               type="number"
                               min={0}
@@ -898,9 +993,7 @@ export function OrderModal({
                                 {formatDt(t.occurredAt)}
                               </div>
                             </div>
-                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">
-                              {t.body}
-                            </div>
+                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">{t.body}</div>
                             <div className="mt-2 text-xs text-zinc-500">by {t.createdBy}</div>
                           </div>
                         ))}
@@ -911,6 +1004,30 @@ export function OrderModal({
               </div>
             </div>
           )}
+          {!isCreate && orderId && order ? (
+            <TtnModal
+              apiBaseUrl={apiBaseUrl}
+              open={showTtnModal}
+              onClose={() => setShowTtnModal(false)}
+              orderId={orderId}
+              // ✅ ВАЖНО: backend TTN требует order.contactId
+              // если contactId ещё не заполнен — используем clientId как fallback (временно)
+              contactId={(order as any).contactId ?? order.clientId ?? ""}
+              onCreated={async (res) => {
+                console.log("TTN created:", res);
+
+                // ✅ закрываем модалку
+                setShowTtnModal(false);
+
+                // ✅ подтягиваем изменения (deliveryData.novaPoshta.ttn.number + статус)
+                await Promise.all([refreshOrder(), refreshTimeline()]);
+
+                onSaved?.();
+              }}
+            />
+          ) : null}
+
+
         </div>
       </div>
     </div>

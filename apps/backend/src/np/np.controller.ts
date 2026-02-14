@@ -77,6 +77,6 @@ export class NpController {
   // POST /np/ttn/sync-active?limit=200
   @Post("ttn/sync-active")
   async syncActive(@Query("limit") limit?: string) {
-    return this.ttn.syncActiveTtnStatuses({ limit: limit ? Number(limit) : 200 });
+    return this.ttn.syncActiveTtns({ limit: limit ? Number(limit) : 200 });
   }
 }

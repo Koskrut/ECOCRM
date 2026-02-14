@@ -1,3 +1,4 @@
+// apps/backend/src/contacts/contacts.controller.ts
 import {
   Body,
   Controller,
@@ -40,6 +41,19 @@ export class ContactsController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  // ✅ NP shipping profiles (for TTN modal)
+  // GET /contacts/:id/shipping-profiles
+  @Get(":id/shipping-profiles")
+  async listShippingProfiles(@Param("id") id: string) {
+    return this.contactsService.listShippingProfiles(id);
+  }
+
+  // (optional) POST /contacts/:id/shipping-profiles
+  @Post(":id/shipping-profiles")
+  async createShippingProfile(@Param("id") id: string, @Body() body: any) {
+    return this.contactsService.createShippingProfile(id, body);
   }
 
   // GET ONE

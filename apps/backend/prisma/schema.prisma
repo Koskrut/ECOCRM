@@ -11,19 +11,16 @@ datasource db {
 // --- ENUMS ---
 
 enum OrderStatus {
-  NEW
-  SHIPPING_CREATED
-  SHIPPED
-  DELIVERED
-  CANCELED
-
-  // NEW business statuses (добавляем)
-  IN_WORK
-  READY_TO_SHIP
-  PAYMENT_CONTROL
-  RETURNING
-  SUCCESS
+  NEW               // создан, не утвержден
+  IN_WORK           // утвержден + есть ТТН (или начат в работе)
+  READY_TO_SHIP     // собран, готов к отправке
+  SHIPPED           // в пути / принято / едет
+  CONTROL_PAYMENT   // получено, но есть долг
+  SUCCESS           // получено и долг=0
+  RETURNING         // возврат / отказ / не вручено
+  CANCELED          // отмена
 }
+
 
 
 

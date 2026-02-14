@@ -103,13 +103,43 @@ export class OrdersController {
     return this.ordersService.findOne(id);
   }
 
-  // ✅ Create NP TTN from Order (for UI button in Order card)
+  // ✅ Create NP TTN from Order (legacy route)
   @Post(":orderId/np/ttn")
   async createNpTtnFromOrder(
     @Param("orderId") orderId: string,
     @Body() dto: CreateNpTtnDto,
   ) {
     return this.npTtnService.createFromOrder(orderId, dto);
+  }
+  // ✅ Get NP TTN status for order
+  // GET /orders/:id/np/status?sync=true|false
+  @Get(":id/np/status")
+  async getNpTtnStatus(
+    @Param("id") id: string,
+    @Query("sync") sync?: string,
+  ) {
+    const doSync = sync == null ? true : sync !== "false";
+    return this.npTtnService.getTtnStatusByOrderId(id, { sync: doSync });
+  }
+
+  // ✅ Create TTN from Order (new route for UI: /orders/:id/ttn)
+  // Фронт (TtnModal) шлёт:
+  // { carrier: "NOVA_POSHTA", profileId?: string, createProfile?: {...} }
+  // Мы маппим это в CreateNpTtnDto, который уже понимает NpTtnService.
+  @Post(":id/ttn")
+  async createTtnFromOrder(@Param("id") id: string, @Body() body: any) {
+    if (!body || body.carrier !== "NOVA_POSHTA") {
+      throw new BadRequestException("Only carrier NOVA_POSHTA is supported");
+    }
+
+    // Маппим в DTO, который ожидает npTtnService
+    const dto: any = {
+      carrier: "NOVA_POSHTA",
+      profileId: body.profileId ?? null,
+      createProfile: body.createProfile ?? null,
+    };
+
+    return this.npTtnService.createFromOrder(id, dto as CreateNpTtnDto);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)

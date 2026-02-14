@@ -1,3 +1,4 @@
+// src/auth/auth.service.ts
 import {
   ConflictException,
   Injectable,
@@ -7,7 +8,7 @@ import { PrismaClient, User, UserRole } from "@prisma/client";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { signJwt } from "./jwt";
-import { hashPassword, verifyPassword } from "./password";
+import { hashPassword, verifyPassword, needsRehash } from "./password"; // ✅
 
 export type AuthResponse = {
   token: string;
@@ -39,7 +40,7 @@ export class AuthService {
       data: {
         email: dto.email,
         fullName: dto.fullName,
-        passwordHash: hashPassword(dto.password),
+        passwordHash: hashPassword(dto.password), // ✅ уже scrypt:
         role,
       },
     });
@@ -54,6 +55,15 @@ export class AuthService {
 
     if (!user || !verifyPassword(dto.password, user.passwordHash)) {
       throw new UnauthorizedException("Invalid email or password");
+    }
+
+    // ✅ авто-апгрейд: если было plain:xxx → перехешируем в scrypt:
+    if (needsRehash(user.passwordHash)) {
+      const newHash = hashPassword(dto.password);
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: newHash },
+      });
     }
 
     return this.buildAuthResponse(user);

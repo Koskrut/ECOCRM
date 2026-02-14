@@ -22,6 +22,7 @@
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@prisma/config": "^7.3.0",
+    "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "cron": "^4.4.0",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.16",
+    "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.0",
     "@types/pg": "^8.16.0",

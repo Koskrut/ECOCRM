@@ -144,6 +144,16 @@ export class CreateNpTtnDto {
   @Min(1)
   seatsAmount?: number;
 
+  // ✅ добавили (используется в сервисе)
+  @IsOptional()
+  @IsString()
+  payerType?: string; // Recipient/Sender/ThirdPerson
+
+  // ✅ добавили (используется в сервисе)
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string; // Cash/NonCash
+
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => NpParcelDto)
