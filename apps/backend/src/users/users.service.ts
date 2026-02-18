@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaClient } from "@prisma/client";
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async listUsers() {
     return this.prisma.user.findMany({ orderBy: { createdAt: "desc" } });

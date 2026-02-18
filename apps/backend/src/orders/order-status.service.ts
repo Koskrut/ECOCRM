@@ -1,17 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import { OrderStatus } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 
 @Injectable()
 export class OrderStatusService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   public async recordInitialStatus(
     orderId: string,
     toStatus: OrderStatus,
     actor: string,
-    tx?: PrismaService,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     await this.writeHistory({
       orderId,
@@ -28,7 +28,7 @@ export class OrderStatusService {
     actor: string,
     fromStatus: OrderStatus,
     reason?: string,
-    tx?: PrismaService,
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
     const client = tx ?? this.prisma;
     await client.order.update({
@@ -51,7 +51,7 @@ export class OrderStatusService {
     toStatus: OrderStatus;
     actor: string;
     reason?: string;
-    tx?: PrismaService;
+    tx?: Prisma.TransactionClient;
   }): Promise<void> {
     const client = params.tx ?? this.prisma;
     await client.orderStatusHistory.create({

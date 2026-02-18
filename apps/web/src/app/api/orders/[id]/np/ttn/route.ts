@@ -34,7 +34,7 @@ export async function POST(
 
   const body = await req.json().catch(() => ({}));
 
-  const upstream = `${API_URL}/orders/${id}/np/ttn`;
+  const upstream = `${API_URL}/np/ttn/${id}`;
   const r = await fetch(upstream, {
     method: "POST",
     headers: {

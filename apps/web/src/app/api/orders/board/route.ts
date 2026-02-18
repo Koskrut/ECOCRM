@@ -1,19 +1,37 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
-export async function GET(_req: Request) {
-  const token = (await cookies()).get("token")?.value;
+function getBearer(req: NextRequest) {
+  const h = req.headers.get("authorization");
+  if (h && h.toLowerCase().startsWith("bearer ")) return h;
 
-  const r = await fetch(`${API_URL}/orders/board`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const token =
+    req.cookies.get("token")?.value ||
+    req.cookies.get("accessToken")?.value ||
+    req.cookies.get("auth_token")?.value;
+
+  if (token) return `Bearer ${token}`;
+  return null;
+}
+
+export async function GET(req: NextRequest) {
+  const auth = getBearer(req);
+  if (!auth) {
+    return NextResponse.json(
+      { message: "Missing Authorization header", error: "Unauthorized", statusCode: 401 },
+      { status: 401 },
+    );
+  }
+
+  const upstream = `${API_URL}/orders?page=1&pageSize=200`;
+
+  const r = await fetch(upstream, {
+    method: "GET",
+    headers: { Authorization: auth },
     cache: "no-store",
   });
 
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
+  const data = await r.json().catch(() => ({}));
+  return NextResponse.json(data, { status: r.status });
 }

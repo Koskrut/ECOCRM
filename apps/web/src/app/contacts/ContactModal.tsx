@@ -210,7 +210,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     return s || null;
   }, [contact]);
 
-  // ✅ "+ Order" в header: открываем create order modal
+  // "+ Order" в header: открываем create order modal
   const openCreateOrder = () => setCreateOrderOpen(true);
 
   return (
@@ -229,11 +229,12 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
             <div className="min-w-0 pr-1">
               <div className="text-base font-semibold text-zinc-900">{title}</div>
-              {!isCreate && fullName ? <div className="mt-0.5 text-sm text-zinc-500">{fullName}</div> : null}
+              {!isCreate && fullName ? (
+                <div className="mt-0.5 text-sm text-zinc-500">{fullName}</div>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
-              {/* ✅ + Order в Header только для существующего контакта + таб Orders */}
               {!isCreate && tab === "orders" ? (
                 <button
                   type="button"
@@ -269,7 +270,6 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
 
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {/* ✅ Orders tab: только список */}
             {tab === "orders" && !isCreate ? (
               <div className="h-full p-5">
                 <div className="min-h-0 h-full overflow-auto">
@@ -283,12 +283,14 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               </div>
             ) : (
               <div className="grid h-full grid-cols-1 gap-6 p-5 lg:grid-cols-2">
-                {/* Left: details */}
+                {/* Left */}
                 <div className="min-h-0 overflow-auto">
                   {loading ? (
                     <div className="text-sm text-zinc-500">Loading…</div>
                   ) : err ? (
-                    <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+                    <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                      {err}
+                    </div>
                   ) : isEditing ? (
                     <>
                       <label className="block text-sm font-medium text-zinc-700">First name</label>
@@ -409,7 +411,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                   )}
                 </div>
 
-                {/* Right: timeline */}
+                {/* Right */}
                 <div className="flex min-h-0 flex-col">
                   <div className="text-sm font-semibold text-zinc-900">Timeline</div>
                   <div className="mt-3 min-h-0 flex-1 overflow-auto">
@@ -426,7 +428,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         </div>
       </div>
 
-      {/* ✅ MUST: OrderModal OUTSIDE the contact modal DOM */}
+      {/* Order modal (open existing) */}
       {orderId ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
@@ -439,6 +441,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         />
       ) : null}
 
+      {/* Order modal (create) */}
       {createOrderOpen ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
@@ -457,3 +460,5 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     </>
   );
 }
+
+export default ContactModal;

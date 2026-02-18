@@ -1,26 +1,26 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { createPrismaClient } from "../common/prisma";
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
-  constructor() {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      // Prisma 7 требует adapter/accelerateUrl, а adapter требует строку подключения
-      throw new Error("DATABASE_URL is not set in apps/backend/.env");
-    }
+export class PrismaService implements OnModuleInit, OnModuleDestroy {
+  // TS сам выведет тип из createPrismaClient()
+  private readonly client = createPrismaClient();
 
-    super({
-      adapter: new PrismaPg({ connectionString }),
+  // Proxy: чтобы this.prisma.user.findMany работало как раньше
+  constructor() {
+    return new Proxy(this, {
+      get: (target, prop) => {
+        if (prop in target) return (target as any)[prop];
+        return (target.client as any)[prop];
+      },
     });
   }
 
   async onModuleInit() {
-    await this.$connect();
+    await this.client.$connect();
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
+    await this.client.$disconnect();
   }
 }

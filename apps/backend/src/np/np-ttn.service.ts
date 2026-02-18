@@ -3,10 +3,9 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaClient } from "@prisma/client";
 import { NpClient } from "./np-client.service";
 import {
   CreateNpTtnDto,
@@ -28,30 +27,17 @@ type OrderStatus =
   | "IN_WORK"
   | "READY_TO_SHIP"
   | "SHIPPED"
-  | "PAYMENT_CONTROL"
   | "CONTROL_PAYMENT"
   | "SUCCESS"
   | "RETURNING"
   | "CANCELED";
 
-type ShipmentOrderItem = {
-  id: string;
-  qty: number;
-  qtyShipped: number;
-};
-
-type ShipmentPlanLine = {
-  orderItemId: string;
-  qtyShipped: number;
-};
-
 @Injectable()
 export class NpTtnService {
-  private readonly logger = new Logger(NpTtnService.name);
   private senderCache: SenderCache | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma: PrismaClient,
     private readonly np: NpClient,
   ) { }
 
@@ -83,18 +69,6 @@ export class NpTtnService {
       });
     }
   
-    const orderItems = await this.prisma.orderItem.findMany({
-      where: { orderId: order.id },
-      select: {
-        id: true,
-        qty: true,
-        qtyShipped: true,
-      },
-    });
-
-    // Validate before NP API call so we don't create remote TTN for invalid shipment.
-    const precheckShipmentPlan = this.buildShipmentPlan(orderItems, dto.shippedItems);
-
     const resolved = await this.resolveRecipientData(contactId, dto);
   
 
@@ -124,55 +98,16 @@ export class NpTtnService {
       );
     }
 
-    // 4) save TTN + shipment rows atomically
-    const { saved, shipmentPlan } = await this.prisma.$transaction(async (tx) => {
-      const lockedOrderItems = await tx.$queryRaw<ShipmentOrderItem[]>`
-        SELECT "id", "qty", "qtyShipped"
-        FROM "OrderItem"
-        WHERE "orderId" = ${order.id}
-        FOR UPDATE
-      `;
-
-      const safeShipmentPlan = this.buildShipmentPlan(
-        lockedOrderItems,
-        dto.shippedItems ?? precheckShipmentPlan,
-      );
-
-      const createdTtn = await tx.orderTtn.create({
-        data: {
-          orderId: order.id,
-          carrier: "NOVA_POSHTA" as any,
-          documentNumber: docData.IntDocNumber,
-          documentRef: docData.Ref || null,
-          cost: docData.CostOnSite ? Number(docData.CostOnSite) : null,
-          payloadSnapshot: {
-            request: payload,
-            response: doc,
-            shippedItems: safeShipmentPlan,
-          },
-        },
-      });
-
-      await tx.orderTtnItem.createMany({
-        data: safeShipmentPlan.map((line) => ({
-          ttnId: createdTtn.id,
-          orderItemId: line.orderItemId,
-          qtyShipped: line.qtyShipped,
-        })),
-      });
-
-      for (const line of safeShipmentPlan) {
-        await tx.orderItem.update({
-          where: { id: line.orderItemId },
-          data: {
-            qtyShipped: {
-              increment: line.qtyShipped,
-            },
-          },
-        });
-      }
-
-      return { saved: createdTtn, shipmentPlan: safeShipmentPlan };
+    // 4) save TTN record
+    const saved = await this.prisma.orderTtn.create({
+      data: {
+        orderId: order.id,
+        carrier: "NOVA_POSHTA" as any,
+        documentNumber: docData.IntDocNumber,
+        documentRef: docData.Ref || null,
+        cost: docData.CostOnSite ? Number(docData.CostOnSite) : null,
+        payloadSnapshot: { request: payload, response: doc },
+      },
     });
 
     // 4.5) persist TTN into Order.deliveryData (+ move NEW -> IN_WORK)
@@ -186,7 +121,6 @@ export class NpTtnService {
       documentNumber: saved.documentNumber,
       documentRef: saved.documentRef,
       cost: saved.cost,
-      shippedItems: shipmentPlan,
     };
   }
 
@@ -519,79 +453,6 @@ export class NpTtnService {
     return String((w * l * h) / 1_000_000);
   }
 
-  private buildShipmentPlan(
-    orderItems: ShipmentOrderItem[],
-    requested: Array<{ orderItemId: string; qtyShipped: number }> | undefined,
-  ): ShipmentPlanLine[] {
-    if (!orderItems.length) {
-      throw new BadRequestException("Order has no items to ship");
-    }
-
-    const byId = new Map(orderItems.map((item) => [item.id, item]));
-    const normalizedRequested = this.normalizeRequestedShipmentItems(requested);
-
-    const shipmentPlan =
-      normalizedRequested.length > 0
-        ? normalizedRequested
-        : orderItems
-            .map((item) => ({
-              orderItemId: item.id,
-              qtyShipped: Math.max(item.qty - item.qtyShipped, 0),
-            }))
-            .filter((item) => item.qtyShipped > 0);
-
-    if (!shipmentPlan.length) {
-      throw new BadRequestException("Nothing left to ship for this order");
-    }
-
-    for (const line of shipmentPlan) {
-      const orderItem = byId.get(line.orderItemId);
-      if (!orderItem) {
-        throw new BadRequestException(`Order item ${line.orderItemId} is not part of this order`);
-      }
-
-      const remainingQty = Math.max(orderItem.qty - orderItem.qtyShipped, 0);
-      if (line.qtyShipped > remainingQty) {
-        throw new BadRequestException(
-          `qtyShipped for item ${line.orderItemId} exceeds remaining (${remainingQty})`,
-        );
-      }
-    }
-
-    return shipmentPlan;
-  }
-
-  private normalizeRequestedShipmentItems(
-    requested: Array<{ orderItemId: string; qtyShipped: number }> | undefined,
-  ): ShipmentPlanLine[] {
-    if (requested == null) return [];
-    if (!Array.isArray(requested)) {
-      throw new BadRequestException("shippedItems must be an array");
-    }
-
-    const merged = new Map<string, number>();
-    for (const raw of requested) {
-      const orderItemId = String(raw?.orderItemId ?? "").trim();
-      const qtyShipped = Number(raw?.qtyShipped);
-
-      if (!orderItemId) {
-        throw new BadRequestException("orderItemId is required in shippedItems");
-      }
-      if (!Number.isInteger(qtyShipped) || qtyShipped < 1) {
-        throw new BadRequestException(
-          `qtyShipped must be a positive integer for item ${orderItemId}`,
-        );
-      }
-
-      merged.set(orderItemId, (merged.get(orderItemId) ?? 0) + qtyShipped);
-    }
-
-    return Array.from(merged.entries()).map(([orderItemId, qtyShipped]) => ({
-      orderItemId,
-      qtyShipped,
-    }));
-  }
-
   // ======================
   // Save profile to contact
   // ======================
@@ -685,25 +546,6 @@ export class NpTtnService {
     const prev = (order as any).deliveryData ?? {};
     const prevNp = prev?.novaPoshta ?? {};
 
-    const previousTtnList = Array.isArray(prevNp?.ttns) ? [...prevNp.ttns] : [];
-    const legacySingleTtn = prevNp?.ttn;
-    const hasLegacyInList =
-      legacySingleTtn?.number &&
-      previousTtnList.some((ttn: any) => ttn?.number === legacySingleTtn.number);
-
-    if (legacySingleTtn?.number && !hasLegacyInList) {
-      previousTtnList.push(legacySingleTtn);
-    }
-
-    const nextTtnEntry = {
-      number: saved.documentNumber,
-      ref: saved.documentRef,
-      cost: saved.cost,
-      createdAt: saved.createdAt,
-    };
-
-    const nextTtnList = [...previousTtnList, nextTtnEntry];
-
     const nextDeliveryData = {
       ...prev,
       novaPoshta: {
@@ -724,8 +566,12 @@ export class NpTtnService {
         building: d.building ?? null,
         flat: d.flat ?? null,
 
-        ttn: nextTtnEntry,
-        ttns: nextTtnList,
+        ttn: {
+          number: saved.documentNumber,
+          ref: saved.documentRef,
+          cost: saved.cost,
+          createdAt: saved.createdAt,
+        },
       },
     };
 
@@ -808,16 +654,20 @@ export class NpTtnService {
   async syncActiveTtns(opts?: { limit?: number }) {
     const limit = Math.min(Math.max(Number(opts?.limit ?? 200), 1), 1000);
 
-    // Use raw query with status::text to avoid enum-mismatch crashes in cron.
-    const orders = await this.prisma.$queryRaw<Array<{ id: string; deliveryData: any }>>`
-      SELECT o."id", o."deliveryData"
-      FROM "Order" o
-      WHERE o."deliveryMethod"::text = 'NOVA_POSHTA'
-        AND COALESCE(o."status"::text, '') NOT IN ('SUCCESS', 'CANCELED', 'RETURNING')
-        AND (o."deliveryData" #>> '{novaPoshta,ttn,number}') IS NOT NULL
-      ORDER BY o."updatedAt" DESC
-      LIMIT ${limit}
-    `;
+    // Берем заказы с ТТН, которые еще не финальные
+    const orders = await this.prisma.order.findMany({
+      where: {
+        deliveryMethod: "NOVA_POSHTA" as any,
+        status: { notIn: ["SUCCESS", "CANCELED", "RETURNING"] as any },
+        deliveryData: {
+          path: ["novaPoshta", "ttn", "number"],
+          not: null,
+        } as any,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: limit,
+      select: { id: true, deliveryData: true },
+    });
 
     const docs = orders
       .map((o) => ({
@@ -861,15 +711,8 @@ export class NpTtnService {
           skipped++;
           continue;
         }
-        try {
-          const updated = await this.persistOrderNpStatus(item.orderId, status);
-          if (updated) updatedOrders++;
-        } catch (e: any) {
-          skipped++;
-          this.logger.warn(
-            `Skip order ${item.orderId} during TTN sync: ${e?.message || String(e)}`,
-          );
-        }
+        const updated = await this.persistOrderNpStatus(item.orderId, status);
+        if (updated) updatedOrders++;
       }
     }
 
@@ -911,7 +754,7 @@ export class NpTtnService {
       text.includes("отрим") ||
       text.includes("получено")
     ) {
-      return debt <= 0.00001 ? "SUCCESS" : "PAYMENT_CONTROL";
+      return debt <= 0.00001 ? "SUCCESS" : "CONTROL_PAYMENT";
     }
 
     // 4) в пути / принято / прибыло / перемещение
@@ -934,7 +777,7 @@ export class NpTtnService {
     return null;
   }
 
-  private shouldAdvanceOrderStatus(current: string, next: string) {
+  private shouldAdvanceOrderStatus(current: OrderStatus, next: OrderStatus) {
     // terminal guards
     if (current === "CANCELED") return false;
     if (current === "SUCCESS" && next !== "SUCCESS") return false;
@@ -943,12 +786,11 @@ export class NpTtnService {
     if (next === "CANCELED") return true;
     if (next === "RETURNING") return true;
 
-    const rank: Record<string, number> = {
+    const rank: Record<OrderStatus, number> = {
       NEW: 10,
       IN_WORK: 20,
       READY_TO_SHIP: 30,
       SHIPPED: 40,
-      PAYMENT_CONTROL: 50,
       CONTROL_PAYMENT: 50,
       SUCCESS: 60,
       RETURNING: 70,
@@ -962,38 +804,25 @@ export class NpTtnService {
   // PRIVATE: persist NP tracking status & map to order.status
   // ======================
   private async persistOrderNpStatus(orderId: string, status: any) {
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        id: string;
-        status: string;
-        debtAmount: number | null;
-        deliveryMethod: string | null;
-        deliveryData: any;
-        lastTtnId: string | null;
-      }>
-    >`
-      SELECT
-        o."id",
-        o."status"::text AS "status",
-        o."debtAmount",
-        o."deliveryMethod"::text AS "deliveryMethod",
-        o."deliveryData",
-        (
-          SELECT t."id"
-          FROM "OrderTtn" t
-          WHERE t."orderId" = o."id"
-          ORDER BY t."createdAt" DESC
-          LIMIT 1
-        ) AS "lastTtnId"
-      FROM "Order" o
-      WHERE o."id" = ${orderId}
-      LIMIT 1
-    `;
-    const order = rows[0];
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        status: true,
+        debtAmount: true,
+        deliveryMethod: true,
+        deliveryData: true,
+        ttns: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        },
+      },
+    });
     if (!order) return false;
 
     // Самовывоз: НП не трогаем (и не делаем auto SUCCESS тут)
-    if (order.deliveryMethod === "PICKUP") return true;
+    if ((order as any).deliveryMethod === "PICKUP") return true;
 
     const prev = (order as any).deliveryData ?? {};
     const prevNp = prev?.novaPoshta ?? {};
@@ -1006,7 +835,7 @@ export class NpTtnService {
       },
     };
 
-    const currentStatus = String(order.status);
+    const currentStatus = String(order.status) as OrderStatus;
     const mapped = this.mapNpToOrderStatus({
       npCode: status?.StatusCode,
       npText: status?.Status,
@@ -1020,39 +849,17 @@ export class NpTtnService {
       mapped !== currentStatus &&
       this.shouldAdvanceOrderStatus(currentStatus, mapped)
     ) {
-      updateData.status = this.resolveStatusForWrite(mapped, currentStatus) as any;
+      updateData.status = mapped as any;
     }
 
     await this.prisma.$transaction(async (tx) => {
-      try {
-        await tx.order.update({
-          where: { id: order.id },
-          data: updateData,
-          select: { id: true },
-        });
-      } catch (e: any) {
-        if (!this.isOrderStatusEnumMismatchError(e) || !updateData.status) {
-          throw e;
-        }
-
-        const fallbackStatus = this.resolveStatusAliasFallback(updateData.status);
-        if (fallbackStatus) {
-          await tx.order.update({
-            where: { id: order.id },
-            data: { ...updateData, status: fallbackStatus as any },
-            select: { id: true },
-          });
-        } else {
-          await tx.order.update({
-            where: { id: order.id },
-            data: { deliveryData: nextDeliveryData as any },
-            select: { id: true },
-          });
-        }
-      }
+      await tx.order.update({
+        where: { id: order.id },
+        data: updateData,
+      });
 
       // Обновим последнюю TTN полями статуса (если есть)
-      const lastTtnId = order.lastTtnId;
+      const lastTtnId = order.ttns?.[0]?.id;
       if (lastTtnId) {
         await tx.orderTtn.update({
           where: { id: lastTtnId },
@@ -1068,30 +875,6 @@ export class NpTtnService {
     });
 
     return true;
-  }
-
-  private resolveStatusForWrite(mapped: OrderStatus, currentStatus: string): OrderStatus {
-    if (mapped === "PAYMENT_CONTROL" && currentStatus === "CONTROL_PAYMENT") {
-      return "CONTROL_PAYMENT";
-    }
-    if (mapped === "CONTROL_PAYMENT" && currentStatus === "PAYMENT_CONTROL") {
-      return "PAYMENT_CONTROL";
-    }
-    return mapped;
-  }
-
-  private resolveStatusAliasFallback(status: string): OrderStatus | null {
-    if (status === "PAYMENT_CONTROL") return "CONTROL_PAYMENT";
-    if (status === "CONTROL_PAYMENT") return "PAYMENT_CONTROL";
-    return null;
-  }
-
-  private isOrderStatusEnumMismatchError(error: unknown) {
-    const msg = String((error as any)?.message ?? error ?? "");
-    return (
-      msg.includes("invalid input value for enum \"OrderStatus\"") ||
-      (msg.includes("Value") && msg.includes("not found in enum 'OrderStatus'"))
-    );
   }
 
   private tryParseNpDateTime(v: any): Date | null {

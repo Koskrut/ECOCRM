@@ -3,18 +3,13 @@ import { NextResponse } from "next/server";
 
 const API_URL = process.env.API_URL ?? "http://localhost:3001";
 
-export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-
-  const authHeader = req.headers.get("authorization");
   const token = (await cookies()).get("token")?.value;
 
   const r = await fetch(`${API_URL}/orders/${id}/timeline`, {
-    headers: authHeader
-      ? { Authorization: authHeader }
-      : token
-        ? { Authorization: `Bearer ${token}` }
-        : {},
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
   });
 
   const text = await r.text();

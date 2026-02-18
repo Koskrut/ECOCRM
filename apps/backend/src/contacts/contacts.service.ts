@@ -1,12 +1,12 @@
 // apps/backend/src/contacts/contacts.service.ts
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
+import { PrismaClient } from "@prisma/client";
 import { normalizePagination } from "../common/pagination";
 
 @Injectable()
 export class ContactsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   // ===== CREATE =====
   async create(data: {

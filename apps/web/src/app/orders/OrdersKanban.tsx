@@ -2,17 +2,33 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type OrderStatus = "NEW" | "SHIPPING_CREATED" | "SHIPPED" | "DELIVERED" | "CANCELED";
+type OrderStatus =
+  | "NEW"
+  | "IN_WORK"
+  | "READY_TO_SHIP"
+  | "SHIPPED"
+  | "CONTROL_PAYMENT"
+  | "SUCCESS"
+  | "RETURNING"
+  | "CANCELED";
 
 type BoardOrder = {
   id: string;
   orderNumber: string;
-  status: OrderStatus;
+  status: string;
   totalAmount: number;
   currency: string;
-  updatedAt: string;
+  updatedAt?: string;
+  createdAt?: string;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
+};
+
+type OrdersListResponse = {
+  items: BoardOrder[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
 };
 
 type BoardColumn = {
@@ -21,35 +37,66 @@ type BoardColumn = {
   items: BoardOrder[];
 };
 
-type BoardResponse = {
-  columns: BoardColumn[];
+const STATUS_ORDER: OrderStatus[] = [
+  "NEW",
+  "IN_WORK",
+  "READY_TO_SHIP",
+  "SHIPPED",
+  "CONTROL_PAYMENT",
+  "SUCCESS",
+  "RETURNING",
+  "CANCELED",
+];
+
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  NEW: "NEW",
+  IN_WORK: "IN_WORK",
+  READY_TO_SHIP: "READY_TO_SHIP",
+  SHIPPED: "SHIPPED",
+  CONTROL_PAYMENT: "CONTROL_PAYMENT",
+  SUCCESS: "SUCCESS",
+  RETURNING: "RETURNING",
+  CANCELED: "CANCELED",
 };
 
-const STATUS_ORDER: OrderStatus[] = ["NEW", "SHIPPING_CREATED", "SHIPPED", "DELIVERED", "CANCELED"];
+function isKnownStatus(s: string): s is OrderStatus {
+  return (STATUS_ORDER as string[]).includes(s);
+}
 
 export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => void }) {
-  const [data, setData] = useState<BoardResponse | null>(null);
+  const [list, setList] = useState<OrdersListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [dragging, setDragging] = useState<{ orderId: string; from: OrderStatus } | null>(null);
   const [dragOver, setDragOver] = useState<OrderStatus | null>(null);
 
-  const columnsByStatus = useMemo(() => {
+  const columns: BoardColumn[] = useMemo(() => {
+    const items = list?.items ?? [];
+
     const map: Record<OrderStatus, BoardOrder[]> = {
       NEW: [],
-      SHIPPING_CREATED: [],
+      IN_WORK: [],
+      READY_TO_SHIP: [],
       SHIPPED: [],
-      DELIVERED: [],
+      CONTROL_PAYMENT: [],
+      SUCCESS: [],
+      RETURNING: [],
       CANCELED: [],
     };
 
-    for (const c of data?.columns ?? []) {
-      map[c.id] = c.items ?? [];
+    for (const o of items) {
+      const st = String(o.status ?? "");
+      if (isKnownStatus(st)) map[st].push(o);
+      else map.NEW.push({ ...o, status: "NEW" }); // чтобы ничего не терялось
     }
 
-    return map;
-  }, [data]);
+    return STATUS_ORDER.map((st) => ({
+      id: st,
+      title: STATUS_LABELS[st],
+      items: map[st],
+    }));
+  }, [list]);
 
   const load = async () => {
     setLoading(true);
@@ -58,10 +105,10 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
       const r = await fetch(`/api/orders/board`, { cache: "no-store" });
       const text = await r.text();
       if (!r.ok) throw new Error(text || `Failed (${r.status})`);
-      setData(JSON.parse(text));
+      setList(text ? (JSON.parse(text) as OrdersListResponse) : { items: [] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load board");
-      setData(null);
+      setList(null);
     } finally {
       setLoading(false);
     }
@@ -84,54 +131,25 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
   };
 
   const moveLocal = (orderId: string, to: OrderStatus) => {
-    setData((prev) => {
+    setList((prev) => {
       if (!prev) return prev;
-
-      const map: Record<OrderStatus, BoardOrder[]> = {
-        NEW: [],
-        SHIPPING_CREATED: [],
-        SHIPPED: [],
-        DELIVERED: [],
-        CANCELED: [],
-      };
-
-      for (const c of prev.columns ?? []) {
-        map[c.id] = [...(c.items ?? [])];
-      }
-
-      let picked: BoardOrder | null = null;
-
-      for (const st of STATUS_ORDER) {
-        const next: BoardOrder[] = [];
-        for (const it of map[st]) {
-          if (it.id === orderId) picked = it;
-          else next.push(it);
-        }
-        map[st] = next;
-      }
-
-      if (picked) {
-        map[to] = [{ ...picked, status: to }, ...map[to]];
-      }
-
-      const nextColumns: BoardColumn[] = STATUS_ORDER.map((st) => ({
-        id: st,
-        title: st,
-        items: map[st],
-      }));
-
-      return { columns: nextColumns };
+      const next = [...(prev.items ?? [])];
+      const idx = next.findIndex((x) => x.id === orderId);
+      if (idx === -1) return prev;
+      next[idx] = { ...next[idx], status: to };
+      return { ...prev, items: next };
     });
   };
 
   if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
   if (err) return <div className="text-sm text-red-600">{err}</div>;
-  if (!data) return null;
+  if (!list) return null;
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      {STATUS_ORDER.map((st) => {
-        const items = columnsByStatus[st] ?? [];
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-8">
+      {columns.map((col) => {
+        const st = col.id;
+        const items = col.items ?? [];
         const isOver = dragOver === st;
 
         return (
@@ -143,7 +161,7 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
             ].join(" ")}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
-              <div className="text-sm font-semibold text-zinc-900">{st}</div>
+              <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
               <div className="text-xs text-zinc-500">{items.length}</div>
             </div>
 
@@ -195,7 +213,8 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
                     onClick={() => onOpenOrder(o.id)}
                     draggable
                     onDragStart={(e) => {
-                      setDragging({ orderId: o.id, from: o.status });
+                      const st0 = isKnownStatus(String(o.status)) ? (String(o.status) as OrderStatus) : "NEW";
+                      setDragging({ orderId: o.id, from: st0 });
                       e.dataTransfer.setData("text/plain", o.id);
                       e.dataTransfer.effectAllowed = "move";
                     }}

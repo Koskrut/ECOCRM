@@ -1,130 +1,176 @@
-import { useState, useEffect, useRef } from "react";
+"use client";
 
-type Option = {
+import { useEffect, useMemo, useRef, useState } from "react";
+
+export type SearchableSelectOption = {
   id: string;
   label: string;
+  hint?: string;
 };
 
-type SearchableSelectProps = {
-  options: Option[];
+type Props = {
+  options: SearchableSelectOption[];
   value: string | null;
-  onChange: (value: string | null) => void;
+  onChange: (id: string | null) => void;
+
   placeholder?: string;
   disabled?: boolean;
   isLoading?: boolean;
+
+  /** Если хочешь поведение “не нашёл — предложить создать нового” */
+  onCreateNew?: (typed: string) => void;
+  createLabel?: string; // например: "Create new contact"
 };
 
 export function SearchableSelect({
   options,
   value,
   onChange,
-  placeholder = "Select...",
-  disabled = false,
-  isLoading = false,
-}: SearchableSelectProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  placeholder = "Search…",
+  disabled,
+  isLoading,
+  onCreateNew,
+  createLabel = "Create new",
+}: Props) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
-  // Находим выбранную опцию для отображения
-  const selectedOption = options.find((opt) => opt.id === value);
+  const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
 
-  // Фильтруем опции по введенному тексту
-  const filteredOptions = options.filter((opt) =>
-    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  // Закрытие при клике снаружи
+  // синхроним инпут с текущим value
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        // Сбрасываем поиск при закрытии, чтобы при следующем открытии было чисто
-        setSearchTerm(""); 
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    setQuery(selected?.label ?? "");
+  }, [selected?.label]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options.slice(0, 50);
+    return options
+      .filter((o) => o.label.toLowerCase().includes(q) || (o.hint ?? "").toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [options, query]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (!el.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const handleSelect = (optionId: string | null) => {
-    onChange(optionId);
-    setIsOpen(false);
-    setSearchTerm("");
+  const commitSelect = (id: string | null) => {
+    onChange(id);
+    setOpen(false);
   };
 
   return (
-    <div className="relative w-full" ref={wrapperRef}>
-      {/* Поле ввода (оно же триггер) */}
-      <div
-        className={`flex w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-sm transition-colors 
-        ${disabled ? "cursor-not-allowed bg-zinc-100 text-zinc-400 border-zinc-200" : "cursor-text border-zinc-300 hover:border-zinc-400 focus-within:border-zinc-900 focus-within:ring-1 focus-within:ring-zinc-900"}`}
-        onClick={() => {
-          if (!disabled) {
-            setIsOpen(true);
-          }
-        }}
-      >
+    <div ref={rootRef} className="relative">
+      <div className="relative">
         <input
-          type="text"
-          className="w-full bg-transparent focus:outline-none disabled:cursor-not-allowed"
-          placeholder={selectedOption ? selectedOption.label : placeholder}
-          value={isOpen ? searchTerm : (selectedOption?.label || "")}
+          value={query}
           onChange={(e) => {
-            setSearchTerm(e.target.value);
-            if (!isOpen) setIsOpen(true);
+            setQuery(e.target.value);
+            setOpen(true);
           }}
-          onFocus={() => setIsOpen(true)}
+          onFocus={() => !disabled && setOpen(true)}
+          placeholder={placeholder}
           disabled={disabled}
-          // Когда инпут в фокусе, но мы не пишем — показываем placeholder или выбранное значение
-          // Хитрость: когда открыто, value=searchTerm. Когда закрыто — выбранный label.
+          className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 pr-10 text-sm outline-none focus:border-zinc-500 disabled:bg-zinc-100"
         />
-        
-        {/* Иконка стрелочки или загрузки */}
-        <div className="ml-2 flex shrink-0 items-center">
+
+        {/* right icon */}
+        <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
           {isLoading ? (
-             <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600"></span>
+            <span className="text-xs text-zinc-500">…</span>
           ) : (
-            <svg
-              className={`h-4 w-4 text-zinc-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <span className="text-xs text-zinc-500">▾</span>
           )}
         </div>
       </div>
 
-      {/* Выпадающий список */}
-      {isOpen && !disabled && (
-        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm">
-          {/* Опция сброса (если нужно) */}
-          <div
-            className="cursor-pointer select-none px-4 py-2 text-zinc-500 hover:bg-zinc-100 italic"
-            onClick={() => handleSelect(null)}
-          >
-            No selection
-          </div>
-
-          {filteredOptions.length === 0 ? (
-            <div className="px-4 py-2 text-zinc-500">No results found</div>
-          ) : (
-            filteredOptions.map((option) => (
-              <div
-                key={option.id}
-                className={`cursor-pointer select-none px-4 py-2 hover:bg-zinc-100 ${
-                  value === option.id ? "bg-zinc-50 font-medium text-zinc-900" : "text-zinc-700"
-                }`}
-                onClick={() => handleSelect(option.id)}
+      {open && !disabled ? (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg">
+          <div className="max-h-64 overflow-auto py-1">
+            {/* Clear */}
+            {value ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  commitSelect(null);
+                }}
+                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-50"
               >
-                {option.label}
+                <span className="text-zinc-700">— Clear</span>
+                <span className="text-xs text-zinc-400">Esc</span>
+              </button>
+            ) : null}
+
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-zinc-500">
+                Nothing found
+                {onCreateNew ? (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const typed = query.trim();
+                        setOpen(false);
+                        onCreateNew(typed);
+                      }}
+                      className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+                    >
+                      + {createLabel}
+                    </button>
+                  </div>
+                ) : null}
               </div>
-            ))
-          )}
+            ) : (
+              filtered.map((o) => {
+                const active = o.id === value;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => commitSelect(o.id)}
+                    className={`flex w-full items-start justify-between px-3 py-2 text-left text-sm hover:bg-zinc-50 ${
+                      active ? "bg-zinc-50" : ""
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className={`truncate ${active ? "font-medium text-zinc-900" : "text-zinc-900"}`}>
+                        {o.label}
+                      </div>
+                      {o.hint ? <div className="truncate text-xs text-zinc-500">{o.hint}</div> : null}
+                    </div>
+                    {active ? <div className="ml-3 text-xs text-emerald-600">✓</div> : null}
+                  </button>
+                );
+              })
+            )}
+
+            {filtered.length > 0 && onCreateNew ? (
+              <div className="border-t border-zinc-100 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const typed = query.trim();
+                    setOpen(false);
+                    onCreateNew(typed);
+                  }}
+                  className="w-full rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+                >
+                  + {createLabel}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

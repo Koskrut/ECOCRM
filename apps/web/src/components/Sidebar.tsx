@@ -94,6 +94,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           setCollapsed((prev) => {
             const newValue = !prev;
             localStorage.setItem("crm_sidebar_collapsed", String(newValue));
+            window.dispatchEvent(new CustomEvent("crm_sidebar", { detail: { collapsed: newValue } }));
+
             return newValue;
           });
         }
