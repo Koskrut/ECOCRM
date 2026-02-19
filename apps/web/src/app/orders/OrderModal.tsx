@@ -25,7 +25,7 @@ type OrderDetails = {
   companyId: string | null;
   clientId: string | null;
   contactId: string | null;
-  deliveryData?: any;
+  deliveryData?: unknown;
   company?: { id: string; name: string };
   client?: { id: string; firstName: string; lastName: string; phone: string };
 
@@ -101,7 +101,7 @@ type EditFieldKey =
   | "discount"
   | "comment";
 
-function safeJson<T = any>(text: string): T | null {
+function safeJson<T = unknown>(text: string): T | null {
   try {
     return text ? (JSON.parse(text) as T) : null;
   } catch {
@@ -154,7 +154,7 @@ function StatusStepper({ status }: { status: string }) {
     CANCELED: "bg-red-600",
   };
 
-  const idx = flow.indexOf(status as any);
+  const idx = flow.indexOf(status as unknown);
   const inFlow = idx !== -1;
 
   return (
@@ -292,11 +292,11 @@ function CreateContactModal(props: {
 
       const text = await r.text();
       if (!r.ok) {
-        const j = safeJson<any>(text);
+        const j = safeJson<{ message?: string }>(text);
         throw new Error(j?.message || text || `Failed (${r.status})`);
       }
 
-      const created = safeJson<any>(text);
+      const created = safeJson<{ message?: string }>(text);
       if (!created?.id) throw new Error("Contact created but response is empty");
 
       onCreated({
@@ -364,7 +364,7 @@ function CreateContactModal(props: {
               <label className="block text-sm font-medium text-zinc-700">Role *</label>
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as any)}
+                onChange={(e) => setRole(e.target.value as unknown)}
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 disabled={saving}
               >
@@ -616,7 +616,7 @@ export function OrderModal({
       setEditCompanyId(data.companyId ?? null);
       setEditClientId(data.clientId ?? null);
       setEditDeliveryMethod(data.deliveryMethod ?? "PICKUP");
-      setEditPaymentMethod((data as any).paymentMethod ?? "CASH");
+      setEditPaymentMethod((data as unknown).paymentMethod ?? "CASH");
       setEditComment(data.comment ?? "");
       setEditDiscount(Number(data.discountAmount ?? 0));
 
@@ -710,7 +710,7 @@ export function OrderModal({
           setEditCompanyId(order.companyId ?? null);
           setEditClientId(order.clientId ?? null);
           setEditDeliveryMethod(order.deliveryMethod ?? "PICKUP");
-          setEditPaymentMethod((order as any).paymentMethod ?? "CASH");
+          setEditPaymentMethod((order as unknown).paymentMethod ?? "CASH");
           setEditComment(order.comment ?? "");
           setEditDiscount(Number(order.discountAmount ?? 0));
         }
@@ -734,7 +734,7 @@ export function OrderModal({
   };
 
   const patchOrder = useCallback(
-    async (patch: any) => {
+    async (patch: unknown) => {
       if (!orderId) return;
       const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
         method: "PATCH",
@@ -744,7 +744,7 @@ export function OrderModal({
       });
       const text = await r.text();
       if (!r.ok) {
-        const j = safeJson<any>(text);
+        const j = safeJson<{ message?: string }>(text);
         throw new Error(j?.message || text || `Failed (${r.status})`);
       }
       const updated = safeJson<OrderDetails>(text);
@@ -789,7 +789,7 @@ export function OrderModal({
 
       const text = await r.text();
       if (!r.ok) {
-        const data = safeJson<any>(text);
+        const data = safeJson<{ message?: string }>(text);
         throw new Error(data?.message || text || `Failed to create order (${r.status})`);
       }
 
@@ -891,7 +891,7 @@ export function OrderModal({
     return order?.orderNumber ?? "…";
   }, [isCreate, order?.orderNumber]);
 
-  const np = (order as any)?.deliveryData?.novaPoshta;
+  const np = (order as unknown)?.deliveryData?.novaPoshta;
   const ttnNumber: string | null = np?.ttn?.number ?? null;
   const ttnStatusText: string | null = np?.status?.Status ?? np?.status?.statusText ?? null;
   const ttnStatusCode: string | null = np?.status?.StatusCode ?? np?.status?.statusCode ?? null;
@@ -919,13 +919,13 @@ export function OrderModal({
       setEditCompanyId(order.companyId ?? null);
       setEditClientId(order.clientId ?? null);
       setEditDeliveryMethod(order.deliveryMethod ?? "PICKUP");
-      setEditPaymentMethod((order as any).paymentMethod ?? "CASH");
+      setEditPaymentMethod((order as unknown).paymentMethod ?? "CASH");
       setEditComment(order.comment ?? "");
       setEditDiscount(Number(order.discountAmount ?? 0));
     }
   };
 
-  const saveInline = async (field: Exclude<EditFieldKey, null>, patch: any) => {
+  const saveInline = async (field: Exclude<EditFieldKey, null>, patch: unknown) => {
     setFieldSaving(field);
     try {
       await patchOrder(patch);
@@ -1300,7 +1300,7 @@ export function OrderModal({
                         ) : (
                           <div className="mt-1 flex items-center gap-2">
                             <div className="font-medium text-zinc-900">
-                              {(order as any).paymentMethod ?? "—"}
+                              {(order as unknown).paymentMethod ?? "—"}
                             </div>
                             <button
                               type="button"
@@ -1660,7 +1660,7 @@ export function OrderModal({
               open={showTtnModal}
               onClose={() => setShowTtnModal(false)}
               orderId={orderId}
-              contactId={(order as any).contactId ?? order.clientId ?? ""}
+              contactId={(order as unknown).contactId ?? order.clientId ?? ""}
               onCreated={async (res) => {
                 console.log("TTN created:", res);
                 setShowTtnModal(false);

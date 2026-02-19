@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CompanyModal } from "./CompanyModal";
 
@@ -31,7 +31,7 @@ export default function CompaniesPage() {
   const [error, setError] = useState<string | null>(null);
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
-  const loadCompanies = async () => {
+  const loadCompanies = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -46,11 +46,11 @@ export default function CompaniesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiBaseUrl]);
 
   useEffect(() => {
     loadCompanies();
-  }, [apiBaseUrl]);
+  }, [loadCompanies]);
 
   const openCompany = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());

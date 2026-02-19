@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ContactModal } from "./ContactModal";
 import { CompanyModal } from "../companies/CompanyModal";
@@ -37,7 +37,7 @@ export default function ContactsPage() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
-  const loadContacts = async () => {
+  const loadContacts = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -52,11 +52,11 @@ export default function ContactsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiBaseUrl]);
 
   useEffect(() => {
     loadContacts();
-  }, [apiBaseUrl]);
+  }, [loadContacts]);
 
   const openContact = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
