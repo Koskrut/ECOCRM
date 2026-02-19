@@ -94,7 +94,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
           >
             Звонок
           </button>
-  
+
           <button
             type="button"
             onClick={() => setMode("MEETING")}
@@ -106,7 +106,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
           >
             Встреча
           </button>
-  
+
           <button
             type="button"
             onClick={() => setMode("COMMENT")}
@@ -119,7 +119,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
             Комментарий
           </button>
         </div>
-  
+
         <div className="mt-3">
           <textarea
             className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
@@ -128,8 +128,8 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
               mode === "CALL"
                 ? "Коротко: о чём был звонок?"
                 : mode === "MEETING"
-                ? "Коротко: итоги встречи?"
-                : "Написать комментарий..."
+                  ? "Коротко: итоги встречи?"
+                  : "Написать комментарий..."
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -143,7 +143,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
             >
               {saving ? "Сохраняю..." : "Добавить"}
             </button>
-  
+
             <button
               type="button"
               onClick={() => void load()}
@@ -152,7 +152,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
               Обновить
             </button>
           </div>
-  
+
           {err ? (
             <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
               {err}
@@ -160,7 +160,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
           ) : null}
         </div>
       </div>
-  
+
       {/* Scrollable list */}
       <div className="min-h-0 flex-1 overflow-auto p-4">
         {loading ? (
@@ -192,5 +192,5 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
         )}
       </div>
     </div>
-  );  
+  );
 }

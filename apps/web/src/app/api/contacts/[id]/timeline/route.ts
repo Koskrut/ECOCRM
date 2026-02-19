@@ -43,7 +43,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const text = await r.text();
   if (!r.ok) {
-    return new NextResponse(text, { status: r.status, headers: { "Content-Type": "application/json" } });
+    return new NextResponse(text, {
+      status: r.status,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const data = JSON.parse(text) as ActivitiesResponse;

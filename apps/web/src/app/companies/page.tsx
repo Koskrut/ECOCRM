@@ -22,7 +22,6 @@ type CompaniesResponse = {
 
 const getApiBaseUrl = (): string => "/api";
 
-
 export default function CompaniesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -62,9 +61,7 @@ export default function CompaniesPage() {
   const closeModal = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("companyId");
-    const newUrl = params.toString()
-      ? `/companies?${params.toString()}`
-      : "/companies";
+    const newUrl = params.toString() ? `/companies?${params.toString()}` : "/companies";
     router.replace(newUrl);
   };
 

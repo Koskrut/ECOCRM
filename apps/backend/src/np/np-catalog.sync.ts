@@ -63,9 +63,16 @@ export class NpCatalogSync {
     await this.prisma.npWarehouse.updateMany({ data: { isActive: false } });
 
     for (const w of items) {
-      const isPostomat = String(w.CategoryOfWarehouse || "").toLowerCase().includes("postomat")
-        || String(w.TypeOfWarehouse || "").toLowerCase().includes("postomat")
-        || String(w.Description || "").toLowerCase().includes("поштомат");
+      const isPostomat =
+        String(w.CategoryOfWarehouse || "")
+          .toLowerCase()
+          .includes("postomat") ||
+        String(w.TypeOfWarehouse || "")
+          .toLowerCase()
+          .includes("postomat") ||
+        String(w.Description || "")
+          .toLowerCase()
+          .includes("поштомат");
 
       await this.prisma.npWarehouse.upsert({
         where: { ref: w.Ref },

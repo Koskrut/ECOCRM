@@ -10,9 +10,7 @@ export type UpdateContactDto = {
   isPrimary?: boolean;
 };
 
-export const validateUpdateContactDto = (
-  payload: UpdateContactDto,
-): ValidationError[] => {
+export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationError[] => {
   const errors: ValidationError[] = [];
 
   if (payload.firstName !== undefined) {

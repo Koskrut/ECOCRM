@@ -27,12 +27,32 @@ type StatusDef = {
 const FLOW: StatusDef[] = [
   { id: "NEW", label: "Нова", color: { bg: "bg-sky-500", border: "border-sky-500" } },
   { id: "IN_WORK", label: "В роботу", color: { bg: "bg-indigo-500", border: "border-indigo-500" } },
-  { id: "PROCESSING", label: "В обробці", color: { bg: "bg-violet-500", border: "border-violet-500" } },
-  { id: "READY_TO_SHIP", label: "Готово до відпр...", color: { bg: "bg-amber-500", border: "border-amber-500" } },
-  { id: "SHIPPED", label: "Відправленно", color: { bg: "bg-emerald-600", border: "border-emerald-600" } },
-  { id: "PAYMENT_CONTROL", label: "Контроль оплати", color: { bg: "bg-yellow-500", border: "border-yellow-500" } },
+  {
+    id: "PROCESSING",
+    label: "В обробці",
+    color: { bg: "bg-violet-500", border: "border-violet-500" },
+  },
+  {
+    id: "READY_TO_SHIP",
+    label: "Готово до відпр...",
+    color: { bg: "bg-amber-500", border: "border-amber-500" },
+  },
+  {
+    id: "SHIPPED",
+    label: "Відправленно",
+    color: { bg: "bg-emerald-600", border: "border-emerald-600" },
+  },
+  {
+    id: "PAYMENT_CONTROL",
+    label: "Контроль оплати",
+    color: { bg: "bg-yellow-500", border: "border-yellow-500" },
+  },
   { id: "PAID", label: "Оплачено", color: { bg: "bg-lime-600", border: "border-lime-600" } },
-  { id: "SUCCESS", label: "Завершити угоду", color: { bg: "bg-green-700", border: "border-green-700" } },
+  {
+    id: "SUCCESS",
+    label: "Завершити угоду",
+    color: { bg: "bg-green-700", border: "border-green-700" },
+  },
 ];
 
 // Если статус не в FLOW — считаем как NEW
@@ -72,16 +92,12 @@ export function OrderStatusBar(props: {
           const base =
             "relative h-10 px-4 rounded-md border text-sm font-medium whitespace-nowrap transition";
 
-          const grayStyle =
-            "bg-zinc-200 border-zinc-200 text-zinc-700 hover:bg-zinc-300";
+          const grayStyle = "bg-zinc-200 border-zinc-200 text-zinc-700 hover:bg-zinc-300";
 
           // Пройденный/активный — заливка цветом
-          const coloredStyle = [
-            s.color.bg,
-            s.color.border,
-            "text-white",
-            "hover:opacity-90",
-          ].join(" ");
+          const coloredStyle = [s.color.bg, s.color.border, "text-white", "hover:opacity-90"].join(
+            " ",
+          );
 
           // Итоговый стиль
           const cls = [
@@ -99,7 +115,7 @@ export function OrderStatusBar(props: {
               key={s.id}
               type={clickable ? "button" : undefined}
               className={cls}
-              title={blocked ? (check.reason || "Недоступно") : s.label}
+              title={blocked ? check.reason || "Недоступно" : s.label}
               disabled={clickable ? blocked : undefined}
               onClick={
                 clickable && !blocked

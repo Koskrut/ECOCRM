@@ -54,7 +54,8 @@ export class CreateTtnDto {
   @IsIn(["NOVA_POSHTA"])
   carrier!: "NOVA_POSHTA";
 
-  @IsOptional() @IsString()
+  @IsOptional()
+  @IsString()
   profileId?: string;
 
   @IsOptional()

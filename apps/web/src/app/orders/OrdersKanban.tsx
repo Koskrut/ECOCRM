@@ -213,7 +213,9 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
                     onClick={() => onOpenOrder(o.id)}
                     draggable
                     onDragStart={(e) => {
-                      const st0 = isKnownStatus(String(o.status)) ? (String(o.status) as OrderStatus) : "NEW";
+                      const st0 = isKnownStatus(String(o.status))
+                        ? (String(o.status) as OrderStatus)
+                        : "NEW";
                       setDragging({ orderId: o.id, from: st0 });
                       e.dataTransfer.setData("text/plain", o.id);
                       e.dataTransfer.effectAllowed = "move";

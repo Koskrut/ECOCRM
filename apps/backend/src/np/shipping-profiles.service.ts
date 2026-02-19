@@ -30,7 +30,9 @@ export class ShippingProfilesService {
   }
 
   async setDefault(profileId: string) {
-    const profile = await this.prisma.contactShippingProfile.findUnique({ where: { id: profileId } });
+    const profile = await this.prisma.contactShippingProfile.findUnique({
+      where: { id: profileId },
+    });
     if (!profile) throw new BadRequestException("profile not found");
 
     await this.prisma.contactShippingProfile.updateMany({

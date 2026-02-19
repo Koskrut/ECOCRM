@@ -58,7 +58,12 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
   }, [load]);
 
   if (loading) return <div className="text-sm text-zinc-500">Loading orders…</div>;
-  if (err) return <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>;
+  if (err)
+    return (
+      <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+        {err}
+      </div>
+    );
   if (items.length === 0) return <div className="text-sm text-zinc-500">No orders</div>;
 
   return (
@@ -66,11 +71,21 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
       <table className="w-full">
         <thead className="border-b border-zinc-200 bg-zinc-50">
           <tr>
-            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">Order</th>
-            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">Status</th>
-            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">Client</th>
-            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">Total</th>
-            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">Created</th>
+            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">
+              Order
+            </th>
+            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">
+              Status
+            </th>
+            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">
+              Client
+            </th>
+            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">
+              Total
+            </th>
+            <th className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-700">
+              Created
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-200 bg-white">

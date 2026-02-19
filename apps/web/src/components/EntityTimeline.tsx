@@ -28,7 +28,7 @@ export function EntityTimeline({ entity, id }: Props) {
       const t = await r.text();
       if (!r.ok) throw new Error(t || `Failed (${r.status})`);
       const data = JSON.parse(t) as { items?: TimelineItem[] } | TimelineItem[];
-      const list = Array.isArray(data) ? data : data.items ?? [];
+      const list = Array.isArray(data) ? data : (data.items ?? []);
       setItems(list);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
@@ -53,16 +53,12 @@ export function EntityTimeline({ entity, id }: Props) {
       {items.map((it) => (
         <div key={it.id} className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-zinc-500">{new Date(it.createdAt).toLocaleString()}</div>
             <div className="text-xs text-zinc-500">
-              {new Date(it.createdAt).toLocaleString()}
-            </div>
-            <div className="text-xs text-zinc-500">
-            {it.createdBy?.fullName || it.createdBy?.email || "System"}
+              {it.createdBy?.fullName || it.createdBy?.email || "System"}
             </div>
           </div>
-          <div className="mt-2 text-sm text-zinc-900">
-            {it.text || it.type || "—"}
-          </div>
+          <div className="mt-2 text-sm text-zinc-900">{it.text || it.type || "—"}</div>
         </div>
       ))}
     </div>

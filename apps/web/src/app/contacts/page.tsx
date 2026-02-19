@@ -27,7 +27,6 @@ type ContactsResponse = {
 
 const getApiBaseUrl = (): string => "/api";
 
-
 export default function ContactsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -68,9 +67,7 @@ export default function ContactsPage() {
   const closeModal = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("contactId");
-    const newUrl = params.toString()
-      ? `/contacts?${params.toString()}`
-      : "/contacts";
+    const newUrl = params.toString() ? `/contacts?${params.toString()}` : "/contacts";
     router.replace(newUrl);
   };
 

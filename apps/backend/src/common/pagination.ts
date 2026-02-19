@@ -17,12 +17,9 @@ export const normalizePagination = (
   const parsedPage = Number(params.page);
   const parsedPageSize = Number(params.pageSize);
 
-  const page =
-    Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : defaults.page;
+  const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : defaults.page;
   const pageSize =
-    Number.isFinite(parsedPageSize) && parsedPageSize > 0
-      ? parsedPageSize
-      : defaults.pageSize;
+    Number.isFinite(parsedPageSize) && parsedPageSize > 0 ? parsedPageSize : defaults.pageSize;
 
   const offset = (page - 1) * pageSize;
   return { page, pageSize, offset, limit: pageSize };

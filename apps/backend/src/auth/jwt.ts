@@ -1,11 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 const base64UrlEncode = (input: string): string =>
-  Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
 const base64UrlDecode = (input: string): string => {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
@@ -36,9 +32,7 @@ export const signJwt = (
   const body = {
     ...payload,
     iat: now,
-    ...(options?.expiresInSeconds
-      ? { exp: now + options.expiresInSeconds }
-      : {}),
+    ...(options?.expiresInSeconds ? { exp: now + options.expiresInSeconds } : {}),
   };
 
   const headerPart = base64UrlEncode(JSON.stringify(header));

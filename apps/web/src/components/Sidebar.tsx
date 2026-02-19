@@ -19,7 +19,6 @@ const baseMenuItems: MenuItem[] = [
 const employeesItem: MenuItem = { label: "Employees", icon: "EM", href: "/employees" };
 const settingsItem: MenuItem = { label: "Settings", icon: "SE", href: "/settings" };
 
-
 type SidebarProps = {
   mobileOpen: boolean;
   onMobileClose: () => void;
@@ -32,10 +31,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const [role, setRole] = useState<string | null>(null);
 
   const menuItems =
-  role === "ADMIN"
-    ? [...baseMenuItems, employeesItem, settingsItem]
-    : baseMenuItems;
-
+    role === "ADMIN" ? [...baseMenuItems, employeesItem, settingsItem] : baseMenuItems;
 
   // Detect mobile on mount
   useEffect(() => {
@@ -52,7 +48,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       .then((d) => setRole(d?.user?.role ?? null))
       .catch(() => setRole(null));
   }, []);
-  
+
   // Load collapsed state from localStorage (desktop only)
   useEffect(() => {
     if (typeof window !== "undefined" && !isMobile) {
@@ -94,7 +90,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           setCollapsed((prev) => {
             const newValue = !prev;
             localStorage.setItem("crm_sidebar_collapsed", String(newValue));
-            window.dispatchEvent(new CustomEvent("crm_sidebar", { detail: { collapsed: newValue } }));
+            window.dispatchEvent(
+              new CustomEvent("crm_sidebar", { detail: { collapsed: newValue } }),
+            );
 
             return newValue;
           });
@@ -148,9 +146,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                   href={item.href}
                   onClick={onMobileClose}
                   className={`mb-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-zinc-900 text-white"
-                      : "text-zinc-700 hover:bg-zinc-100"
+                    isActive ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
                   <span className="text-xs font-bold">{item.icon}</span>
@@ -196,9 +192,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               key={item.href}
               href={item.href}
               className={`mb-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-zinc-900 text-white"
-                  : "text-zinc-700 hover:bg-zinc-100"
+                isActive ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
               }`}
               title={collapsed ? item.label : undefined}
             >

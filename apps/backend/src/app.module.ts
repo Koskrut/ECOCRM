@@ -11,11 +11,9 @@ import { UsersModule } from "./users/users.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { NpModule } from "./np/np.module";
 
-
-
 @Module({
   imports: [
-    PrismaModule, 
+    PrismaModule,
     NpModule,
     AuthModule,
     OrdersModule,

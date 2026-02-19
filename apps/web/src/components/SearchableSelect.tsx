@@ -142,10 +142,14 @@ export function SearchableSelect({
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className={`truncate ${active ? "font-medium text-zinc-900" : "text-zinc-900"}`}>
+                      <div
+                        className={`truncate ${active ? "font-medium text-zinc-900" : "text-zinc-900"}`}
+                      >
                         {o.label}
                       </div>
-                      {o.hint ? <div className="truncate text-xs text-zinc-500">{o.hint}</div> : null}
+                      {o.hint ? (
+                        <div className="truncate text-xs text-zinc-500">{o.hint}</div>
+                      ) : null}
                     </div>
                     {active ? <div className="ml-3 text-xs text-emerald-600">✓</div> : null}
                   </button>

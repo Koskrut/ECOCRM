@@ -302,7 +302,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         disabled={saving}
                       />
 
-                      <label className="mt-3 block text-sm font-medium text-zinc-700">Last name</label>
+                      <label className="mt-3 block text-sm font-medium text-zinc-700">
+                        Last name
+                      </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                         value={lastName}
@@ -329,7 +331,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         disabled={saving}
                       />
 
-                      <label className="mt-3 block text-sm font-medium text-zinc-700">Position</label>
+                      <label className="mt-3 block text-sm font-medium text-zinc-700">
+                        Position
+                      </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                         value={position}
@@ -405,7 +409,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-3 text-sm text-zinc-500">Fill fields and save to create.</div>
+                        <div className="mt-3 text-sm text-zinc-500">
+                          Fill fields and save to create.
+                        </div>
                       )}
                     </div>
                   )}
@@ -418,7 +424,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                     {!isCreate ? (
                       <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={contactId} />
                     ) : (
-                      <div className="text-sm text-zinc-500">Timeline will appear after creation.</div>
+                      <div className="text-sm text-zinc-500">
+                        Timeline will appear after creation.
+                      </div>
                     )}
                   </div>
                 </div>

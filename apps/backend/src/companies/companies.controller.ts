@@ -14,14 +14,8 @@ import { Roles } from "../auth/roles.decorator";
 import { normalizePagination } from "../common/pagination";
 import { ValidationError, validateString } from "../common/validation";
 import { CompaniesService } from "./companies.service";
-import {
-  CreateCompanyDto,
-  validateCreateCompanyDto,
-} from "./dto/create-company.dto";
-import {
-  UpdateCompanyDto,
-  validateUpdateCompanyDto,
-} from "./dto/update-company.dto";
+import { CreateCompanyDto, validateCreateCompanyDto } from "./dto/create-company.dto";
+import { UpdateCompanyDto, validateUpdateCompanyDto } from "./dto/update-company.dto";
 
 const assertValid = (errors: ValidationError[]): void => {
   if (errors.length === 0) {
@@ -65,13 +59,10 @@ export class CompaniesController {
   async remove(@Param("id") id: string) {
     return this.companiesService.remove(id);
   }
-  
+
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Patch("/:id")
-  public async update(
-    @Param() params: { id: string },
-    @Body() body: UpdateCompanyDto,
-  ) {
+  public async update(@Param() params: { id: string }, @Body() body: UpdateCompanyDto) {
     const errors: ValidationError[] = [];
     validateString(params.id, "id", errors);
     errors.push(...validateUpdateCompanyDto(body));

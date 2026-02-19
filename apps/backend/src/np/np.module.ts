@@ -14,8 +14,8 @@ import { NpTtnController } from "./np-ttn.controller";
 @Module({
   imports: [PrismaModule, ScheduleModule.forRoot()],
   controllers: [
-    NpController,      // /np/cities /np/warehouses /np/streets /np/sync
-    NpTtnController,   // /np/ttn/:orderId + /np/sender/check
+    NpController, // /np/cities /np/warehouses /np/streets /np/sync
+    NpTtnController, // /np/ttn/:orderId + /np/sender/check
   ],
   providers: [NpClient, NpTtnService, NpSyncService, NpSyncCron, NpTtnCron],
   exports: [NpTtnService, NpSyncService],

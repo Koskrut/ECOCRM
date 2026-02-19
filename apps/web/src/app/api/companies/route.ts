@@ -15,7 +15,10 @@ export async function GET(req: Request) {
   });
 
   const text = await r.text();
-  return new NextResponse(text, { status: r.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function POST(req: Request) {
@@ -33,5 +36,8 @@ export async function POST(req: Request) {
   });
 
   const text = await r.text();
-  return new NextResponse(text, { status: r.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

@@ -26,7 +26,7 @@ export default function EmployeesPage() {
       if (!r.ok) throw new Error(text || `Failed (${r.status})`);
 
       const data = JSON.parse(text) as UsersResponse | Employee[];
-      const list = Array.isArray(data) ? data : data.items ?? [];
+      const list = Array.isArray(data) ? data : (data.items ?? []);
       setItems(list);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load employees");
@@ -84,7 +84,7 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((u) => ( 
+              {items.map((u) => (
                 <tr key={u.id} className="border-b border-zinc-100 last:border-b-0">
                   <td className="px-4 py-3 text-zinc-900">{u.fullName ?? "—"}</td>
                   <td className="px-4 py-3 text-zinc-700">{u.email}</td>

@@ -203,7 +203,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate }: Props
           <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
             <div className="min-w-0">
               <div className="text-base font-semibold text-zinc-900">{title}</div>
-              {company?.name ? <div className="mt-0.5 text-sm text-zinc-500">{company.name}</div> : null}
+              {company?.name ? (
+                <div className="mt-0.5 text-sm text-zinc-500">{company.name}</div>
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -249,7 +251,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate }: Props
                   {loading ? (
                     <div className="text-sm text-zinc-500">Loading…</div>
                   ) : err ? (
-                    <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+                    <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                      {err}
+                    </div>
                   ) : !company ? (
                     <div className="text-sm text-zinc-500">Not found</div>
                   ) : isEditing ? (

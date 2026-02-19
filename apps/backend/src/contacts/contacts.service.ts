@@ -240,5 +240,4 @@ export class ContactsService {
       updatedAt: contact.updatedAt,
     };
   }
-  
 }

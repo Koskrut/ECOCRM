@@ -19,10 +19,7 @@ export class ProductsController {
       pageSize: query.pageSize,
     });
 
-    const { items, total } = await this.productStore.listActive(
-      query.search,
-      pagination,
-    );
+    const { items, total } = await this.productStore.listActive(query.search, pagination);
 
     return {
       items,

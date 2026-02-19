@@ -1,13 +1,5 @@
 // apps/backend/src/contacts/contacts.controller.ts
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-} from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { ContactsService } from "./contacts.service";
 
 @Controller("contacts")

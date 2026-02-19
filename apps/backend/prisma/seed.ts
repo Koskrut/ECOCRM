@@ -139,17 +139,44 @@ async function main() {
     prisma.product.upsert({
       where: { id: "p-1" },
       update: { sku: "SKU-001", name: "Product A", unit: "pcs", basePrice: 100, isActive: true },
-      create: { id: "p-1", sku: "SKU-001", name: "Product A", unit: "pcs", basePrice: 100, isActive: true },
+      create: {
+        id: "p-1",
+        sku: "SKU-001",
+        name: "Product A",
+        unit: "pcs",
+        basePrice: 100,
+        isActive: true,
+      },
     }),
     prisma.product.upsert({
       where: { id: "p-2" },
       update: { sku: "SKU-002", name: "Product B", unit: "pcs", basePrice: 250, isActive: true },
-      create: { id: "p-2", sku: "SKU-002", name: "Product B", unit: "pcs", basePrice: 250, isActive: true },
+      create: {
+        id: "p-2",
+        sku: "SKU-002",
+        name: "Product B",
+        unit: "pcs",
+        basePrice: 250,
+        isActive: true,
+      },
     }),
     prisma.product.upsert({
       where: { id: "p-3" },
-      update: { sku: "SKU-003", name: "Service C", unit: "service", basePrice: 500, isActive: true },
-      create: { id: "p-3", sku: "SKU-003", name: "Service C", unit: "service", basePrice: 500, isActive: true },
+      update: {
+        sku: "SKU-003",
+        name: "Service C",
+        unit: "service",
+        basePrice: 500,
+        isActive: true,
+      },
+      create: {
+        id: "p-3",
+        sku: "SKU-003",
+        name: "Service C",
+        unit: "service",
+        basePrice: 500,
+        isActive: true,
+      },
     }),
   ]);
 
@@ -283,7 +310,14 @@ async function main() {
   console.log("LEAD:", "lead@ecocrm.local", "password: lead12345");
   console.log("MANAGER:", "manager@ecocrm.local", "password: manager12345");
   console.log("DEMO ORDER:", "DEMO-0001");
-  console.log("DEMO CONTACTS:", contact1.firstName, contact1.lastName, "and", contact2.firstName, contact2.lastName);
+  console.log(
+    "DEMO CONTACTS:",
+    contact1.firstName,
+    contact1.lastName,
+    "and",
+    contact2.firstName,
+    contact2.lastName,
+  );
 }
 
 main()

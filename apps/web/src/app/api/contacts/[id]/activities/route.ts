@@ -13,7 +13,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   });
 
   const text = await r.text();
-  return new NextResponse(text, { status: r.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -33,5 +36,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   });
 
   const text = await r.text();
-  return new NextResponse(text, { status: r.status, headers: { "Content-Type": "application/json" } });
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

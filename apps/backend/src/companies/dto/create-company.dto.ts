@@ -6,9 +6,7 @@ export type CreateCompanyDto = {
   taxId?: string;
 };
 
-export const validateCreateCompanyDto = (
-  payload: CreateCompanyDto,
-): ValidationError[] => {
+export const validateCreateCompanyDto = (payload: CreateCompanyDto): ValidationError[] => {
   const errors: ValidationError[] = [];
   validateString(payload.name, "name", errors);
 

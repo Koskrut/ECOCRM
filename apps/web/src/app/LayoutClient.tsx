@@ -17,7 +17,11 @@ const getPageTitle = (pathname: string): string => {
 
 export function LayoutClient({ children }: LayoutClientProps) {
   const pathname = usePathname();
-  const isAuthPage = pathname === "/login" || pathname.startsWith("/auth") || pathname === "/signin" || pathname === "/signup";
+  const isAuthPage =
+    pathname === "/login" ||
+    pathname.startsWith("/auth") ||
+    pathname === "/signin" ||
+    pathname === "/signup";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -88,8 +92,6 @@ export function LayoutClient({ children }: LayoutClientProps) {
     return <>{children}</>;
   }
 
-
-
   const sidebarWidthPx = isMobile ? 0 : collapsed ? 64 : 240;
 
   return (
@@ -111,9 +113,7 @@ export function LayoutClient({ children }: LayoutClientProps) {
             >
               ☰
             </button>
-            <h1 className="text-lg font-semibold text-zinc-900">
-              {getPageTitle(pathname)}
-            </h1>
+            <h1 className="text-lg font-semibold text-zinc-900">{getPageTitle(pathname)}</h1>
           </header>
         )}
 

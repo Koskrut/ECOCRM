@@ -40,13 +40,13 @@ export function ActivityTimeline({
 
   const load = async () => {
     setLoading(true);
-  setErr(null);
+    setErr(null);
     try {
       const r = await fetch(`/api/${entity}/${id}/activities`, { cache: "no-store" });
       const text = await r.text();
       if (!r.ok) throw new Error(text || `Failed (${r.status})`);
       const data = JSON.parse(text) as ActivitiesResponse | Activity[];
-      const list = Array.isArray(data) ? data : data.items ?? [];
+      const list = Array.isArray(data) ? data : (data.items ?? []);
       setItems(list);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
@@ -128,7 +128,7 @@ export function ActivityTimeline({
           ) : err ? (
             <div className="text-sm text-red-600">{err}</div>
           ) : items.length === 0 ? (
-        <div className="text-sm text-zinc-500">No activity yet</div>
+            <div className="text-sm text-zinc-500">No activity yet</div>
           ) : (
             <div className="space-y-3">
               {items.map((a) => (

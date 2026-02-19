@@ -24,21 +24,21 @@ export default [
 
   {
     files: ["**/*.{ts,tsx,js,jsx}"],
+    languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
       globals: { ...globals.node, ...globals.browser },
     },
-    plugins: { prettier: prettierPlugin },
+    plugins: {
+      prettier: prettierPlugin,
+    },
     rules: {
       "prettier/prettier": "warn",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/consistent-type-imports": [
-        "warn",
-        { prefer: "type-imports" },
-      ],
+      "@typescript-eslint/consistent-type-imports": ["warn", { prefer: "type-imports" }],
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },

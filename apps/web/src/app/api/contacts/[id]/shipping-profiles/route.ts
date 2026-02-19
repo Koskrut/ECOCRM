@@ -16,9 +16,7 @@ function getBearer(req: NextRequest) {
 }
 
 // ✅ совместимо: params может быть объектом или Promise
-async function getParamsId(
-  params: { id: string } | Promise<{ id: string }>,
-): Promise<string> {
+async function getParamsId(params: { id: string } | Promise<{ id: string }>): Promise<string> {
   const p: any = params as any;
   const resolved = typeof p?.then === "function" ? await p : p;
   return String(resolved?.id ?? "");

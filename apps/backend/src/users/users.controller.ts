@@ -17,7 +17,7 @@ export class UsersController {
       fullName: body.fullName ?? "",
       firstName: body.firstName,
       lastName: body.lastName,
-      password: body.password,   // ✅ теперь сервис принимает password
+      password: body.password, // ✅ теперь сервис принимает password
       role: body.role,
       isActive: body.isActive,
     });

@@ -46,7 +46,9 @@ export default function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/orders?page=${page}&pageSize=${pageSize}`, { cache: "no-store" });
+      const res = await fetch(`${API_URL}/orders?page=${page}&pageSize=${pageSize}`, {
+        cache: "no-store",
+      });
       if (!res.ok) throw new Error("Failed to fetch orders");
       const data: OrdersListResponse = await res.json();
       setOrders(data.items || []);

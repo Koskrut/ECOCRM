@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaClient, User, UserRole } from "@prisma/client";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
@@ -33,7 +29,7 @@ export class AuthService {
     }
 
     const usersCount = await this.prisma.user.count();
-    const role = usersCount === 0 ? dto.role ?? UserRole.ADMIN : UserRole.MANAGER;
+    const role = usersCount === 0 ? (dto.role ?? UserRole.ADMIN) : UserRole.MANAGER;
 
     const user = await this.prisma.user.create({
       data: {

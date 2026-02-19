@@ -28,7 +28,7 @@ export class UsersService {
 
     return this.prisma.user.create({
       data: {
-   passwordHashValue,
+        passwordHashValue,
         fullName: payload.fullName ?? null,
         firstName: payload.firstName ?? null,
         lastName: payload.lastName ?? null,

@@ -54,7 +54,12 @@ export function EntityOrdersList({
   }, [load]);
 
   if (loading) return <div className="text-sm text-zinc-500">Loading orders…</div>;
-  if (err) return <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>;
+  if (err)
+    return (
+      <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+        {err}
+      </div>
+    );
   if (items.length === 0) return <div className="text-sm text-zinc-500">No orders</div>;
 
   return (
@@ -86,7 +91,9 @@ export function EntityOrdersList({
 
               <div className="whitespace-nowrap text-sm text-zinc-900">
                 {Number.isFinite(o.totalAmount) ? o.totalAmount.toFixed(2) : o.totalAmount}
-                {o.currency ? <span className="ml-1 text-xs text-zinc-500">{o.currency}</span> : null}
+                {o.currency ? (
+                  <span className="ml-1 text-xs text-zinc-500">{o.currency}</span>
+                ) : null}
               </div>
             </div>
           </button>

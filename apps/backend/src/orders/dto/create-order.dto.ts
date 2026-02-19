@@ -1,9 +1,5 @@
 import { DeliveryMethod, PaymentMethod } from "@prisma/client";
-import {
-  ValidationError,
-  validateString,
-  validateOptionalNumber,
-} from "../../common/validation";
+import { ValidationError, validateString, validateOptionalNumber } from "../../common/validation";
 
 export type CreateOrderDto = {
   ownerId: string;
@@ -23,9 +19,7 @@ export type CreateOrderDto = {
   } | null;
 };
 
-export const validateCreateOrderDto = (
-  payload: CreateOrderDto,
-): ValidationError[] => {
+export const validateCreateOrderDto = (payload: CreateOrderDto): ValidationError[] => {
   const errors: ValidationError[] = [];
 
   // Базовая валидация
@@ -33,7 +27,7 @@ export const validateCreateOrderDto = (
 
   if (payload.companyId) validateString(payload.companyId, "companyId", errors);
   if (payload.clientId) validateString(payload.clientId, "clientId", errors);
-  
+
   validateOptionalNumber(payload.discountAmount, "discountAmount", errors, {
     min: 0,
   });

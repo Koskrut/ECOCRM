@@ -88,8 +88,7 @@ export class NpSyncService {
 
     for (const w of whs) {
       const number =
-        this.extractWarehouseNumber(w.Description) ??
-        (w.Number != null ? String(w.Number) : null);
+        this.extractWarehouseNumber(w.Description) ?? (w.Number != null ? String(w.Number) : null);
 
       const isPostomat =
         (w.TypeOfWarehouse ?? "").toLowerCase().includes("postomat") ||
@@ -190,19 +189,21 @@ export class NpSyncService {
     const cityRef = (args.cityRef ?? "").trim();
     const q = (args.q ?? "").trim();
     const limit = Number.isFinite(args.limit) ? Math.min(Math.max(Number(args.limit), 1), 50) : 20;
-  
+
     if (!cityRef) return { status: "BAD_REQUEST", items: [], message: "cityRef is required" };
     if (q.length < 1) return { status: "MIN_CHARS", items: [], message: "min 1 char" };
-  
+
     // ✅ type filtering:
     // - POSTOMAT => only postomats
     // - WAREHOUSE => only warehouses (exclude postomats)
     // - undefined => all
     const typeFilter =
-      args.type === "POSTOMAT" ? { isPostomat: true } :
-      args.type === "WAREHOUSE" ? { isPostomat: false } :
-      {};
-  
+      args.type === "POSTOMAT"
+        ? { isPostomat: true }
+        : args.type === "WAREHOUSE"
+          ? { isPostomat: false }
+          : {};
+
     const where: any = {
       cityRef,
       isActive: true,
@@ -213,17 +214,16 @@ export class NpSyncService {
         { shortAddress: { contains: q, mode: "insensitive" } },
       ],
     };
-  
+
     const items = await this.prisma.npWarehouse.findMany({
       where,
       select: { ref: true, description: true, shortAddress: true, number: true, isPostomat: true },
       orderBy: [{ isPostomat: "asc" }, { number: "asc" }, { description: "asc" }],
       take: limit,
     });
-  
+
     return { status: "OK", items };
   }
-  
 
   // ✅ autocomplete улиц для React
   // - q минимум 3 символа
@@ -242,7 +242,9 @@ export class NpSyncService {
       // запускаем синк (1 раз на cityRef), но не ждём
       if (!this.streetsSyncLocks.has(cityRef)) {
         const p = this.syncStreetsForCity(cityRef)
-          .catch((e) => this.logger.error(`NP streets sync failed city=${cityRef}: ${e?.message || e}`))
+          .catch((e) =>
+            this.logger.error(`NP streets sync failed city=${cityRef}: ${e?.message || e}`),
+          )
           .finally(() => this.streetsSyncLocks.delete(cityRef));
 
         this.streetsSyncLocks.set(cityRef, p);

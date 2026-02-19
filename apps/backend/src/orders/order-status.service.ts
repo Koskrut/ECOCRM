@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import { OrderStatus } from "@prisma/client";
 import { PrismaClient, Prisma } from "@prisma/client";
 
-
 @Injectable()
 export class OrderStatusService {
   constructor(private readonly prisma: PrismaClient) {}

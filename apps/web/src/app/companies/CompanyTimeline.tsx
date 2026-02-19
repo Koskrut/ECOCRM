@@ -29,8 +29,14 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(() => `${apiBaseUrl}/companies/${companyId}/timeline`, [apiBaseUrl, companyId]);
-  const activitiesUrl = useMemo(() => `${apiBaseUrl}/companies/${companyId}/activities`, [apiBaseUrl, companyId]);
+  const timelineUrl = useMemo(
+    () => `${apiBaseUrl}/companies/${companyId}/timeline`,
+    [apiBaseUrl, companyId],
+  );
+  const activitiesUrl = useMemo(
+    () => `${apiBaseUrl}/companies/${companyId}/activities`,
+    [apiBaseUrl, companyId],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -148,7 +154,9 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
           </div>
 
           {err ? (
-            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
           ) : null}
         </div>
       </div>
@@ -172,7 +180,9 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
-                  <div className="whitespace-nowrap text-xs text-zinc-500">{new Date(it.occurredAt).toLocaleString()}</div>
+                  <div className="whitespace-nowrap text-xs text-zinc-500">
+                    {new Date(it.occurredAt).toLocaleString()}
+                  </div>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
               </div>

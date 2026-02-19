@@ -39,7 +39,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-50 p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm"
+      >
         <h1 className="text-xl font-bold text-zinc-900">Login</h1>
         <p className="mt-1 text-sm text-zinc-500">Enter your credentials</p>
 

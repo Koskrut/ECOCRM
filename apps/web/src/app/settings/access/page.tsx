@@ -77,7 +77,7 @@ export default function AccessSettingsPage() {
           </p>
         </div>
 
-      {error && (
+        {error && (
           <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700 border border-red-100">
             {error}
           </div>

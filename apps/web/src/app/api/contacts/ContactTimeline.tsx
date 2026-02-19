@@ -175,9 +175,7 @@ export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
                         {it.type}
                       </span>
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">
-                      {it.body}
-                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
                   <div className="whitespace-nowrap text-xs text-zinc-500">
                     {new Date(it.occurredAt || it.createdAt).toLocaleString()}

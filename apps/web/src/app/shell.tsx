@@ -54,10 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
       {/* content area: сдвиг под fixed sidebar на desktop */}
-      <main
-        className="min-h-screen bg-zinc-50"
-        style={{ paddingLeft: sidebarPx }}
-      >
+      <main className="min-h-screen bg-zinc-50" style={{ paddingLeft: sidebarPx }}>
         <div className="p-4">{children}</div>
       </main>
     </>

@@ -5,9 +5,7 @@ export type UpdateOrderItemDto = {
   price?: number;
 };
 
-export const validateUpdateOrderItemDto = (
-  payload: UpdateOrderItemDto,
-): ValidationError[] => {
+export const validateUpdateOrderItemDto = (payload: UpdateOrderItemDto): ValidationError[] => {
   const errors: ValidationError[] = [];
   validateOptionalNumber(payload.qty, "qty", errors, { min: 1 });
   validateOptionalNumber(payload.price, "price", errors, { min: 0 });

@@ -71,7 +71,9 @@ export class NpClient {
       return json as NpResponse<T>;
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        throw new Error(`Nova Poshta API timeout after ${this.timeoutMs}ms (model=${modelName}.${calledMethod})`);
+        throw new Error(
+          `Nova Poshta API timeout after ${this.timeoutMs}ms (model=${modelName}.${calledMethod})`,
+        );
       }
       throw e;
     } finally {

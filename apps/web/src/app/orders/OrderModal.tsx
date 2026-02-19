@@ -123,7 +123,14 @@ function formatDt(iso: string) {
 }
 
 function StatusStepper({ status }: { status: string }) {
-  const flow = ["NEW", "IN_WORK", "READY_TO_SHIP", "SHIPPED", "CONTROL_PAYMENT", "SUCCESS"] as const;
+  const flow = [
+    "NEW",
+    "IN_WORK",
+    "READY_TO_SHIP",
+    "SHIPPED",
+    "CONTROL_PAYMENT",
+    "SUCCESS",
+  ] as const;
 
   const labels: Record<string, string> = {
     NEW: "New",
@@ -160,7 +167,9 @@ function StatusStepper({ status }: { status: string }) {
             <div
               key={s}
               className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium border ${
-                done ? `${colors[s]} text-white border-transparent` : "bg-zinc-100 text-zinc-600 border-zinc-200"
+                done
+                  ? `${colors[s]} text-white border-transparent`
+                  : "bg-zinc-100 text-zinc-600 border-zinc-200"
               } ${isCurrent ? "ring-2 ring-zinc-900/10" : ""}`}
               title={labels[s] ?? s}
             >
@@ -334,7 +343,9 @@ function CreateContactModal(props: {
 
         <div className="max-h-[80vh] overflow-auto p-5">
           {err ? (
-            <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+            <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
           ) : null}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -528,7 +539,9 @@ export function OrderModal({
   // Create contact
   const [createContactOpen, setCreateContactOpen] = useState(false);
   const [createContactQuery, setCreateContactQuery] = useState("");
-  const [createContactDefaultCompanyId, setCreateContactDefaultCompanyId] = useState<string | null>(null);
+  const [createContactDefaultCompanyId, setCreateContactDefaultCompanyId] = useState<string | null>(
+    null,
+  );
   const [createContactTarget, setCreateContactTarget] = useState<"create" | "edit">("create");
 
   // Add Item (only for existing orders)
@@ -714,7 +727,7 @@ export function OrderModal({
     setCreateContactQuery(query);
     setCreateContactTarget(target);
 
-    const companyId = target === "create" ? editCompanyId : order?.companyId ?? null;
+    const companyId = target === "create" ? editCompanyId : (order?.companyId ?? null);
     setCreateContactDefaultCompanyId(companyId);
 
     setCreateContactOpen(true);
@@ -802,9 +815,12 @@ export function OrderModal({
       setSearchLoading(true);
       setSearchError(null);
       try {
-        const r = await fetch(`${apiBaseUrl}/products?search=${encodeURIComponent(search)}&page=1&pageSize=10`, {
-          cache: "no-store",
-        });
+        const r = await fetch(
+          `${apiBaseUrl}/products?search=${encodeURIComponent(search)}&page=1&pageSize=10`,
+          {
+            cache: "no-store",
+          },
+        );
         if (!r.ok) throw new Error(`Failed to load products (${r.status})`);
         const data = (await r.json()) as ProductsResponse;
         if (alive) setSearchResults(data.items || []);
@@ -880,7 +896,11 @@ export function OrderModal({
   const ttnStatusText: string | null = np?.status?.Status ?? np?.status?.statusText ?? null;
   const ttnStatusCode: string | null = np?.status?.StatusCode ?? np?.status?.statusCode ?? null;
 
-  const ttnStatusLabel = ttnStatusText ? (ttnStatusCode ? `${ttnStatusText} (code ${ttnStatusCode})` : ttnStatusText) : null;
+  const ttnStatusLabel = ttnStatusText
+    ? ttnStatusCode
+      ? `${ttnStatusText} (code ${ttnStatusCode})`
+      : ttnStatusText
+    : null;
 
   const canShowCreateTtnButton = useMemo(() => {
     return !isCreate && !loading && !!order && order.deliveryMethod === "NOVA_POSHTA";
@@ -1070,7 +1090,9 @@ export function OrderModal({
                 </button>
               </div>
 
-              <div className="mt-3 text-xs text-zinc-500">After creation you’ll be able to add items and create TTN.</div>
+              <div className="mt-3 text-xs text-zinc-500">
+                After creation you’ll be able to add items and create TTN.
+              </div>
             </div>
           ) : loading ? (
             <p className="text-sm text-zinc-500">Loading order…</p>
@@ -1099,13 +1121,21 @@ export function OrderModal({
                                 setEditCompanyId(next);
                                 setEditClientId(null);
                                 void fetchContacts(next);
-                                void saveInline("company", { companyId: next, clientId: null, contactId: null });
+                                void saveInline("company", {
+                                  companyId: next,
+                                  clientId: null,
+                                  contactId: null,
+                                });
                               }}
                               disabled={loadingCompanies || fieldSaving === "company"}
                               isLoading={loadingCompanies}
                               placeholder="Select company…"
                             />
-                            <button type="button" onClick={stopInlineEdit} className="mt-2 text-xs text-zinc-600 hover:underline">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="mt-2 text-xs text-zinc-600 hover:underline"
+                            >
                               Cancel
                             </button>
                           </div>
@@ -1128,7 +1158,11 @@ export function OrderModal({
                             </button>
                           </div>
                         ) : (
-                          <button type="button" onClick={() => startInlineEdit("company")} className="mt-1 text-left text-zinc-600 hover:underline">
+                          <button
+                            type="button"
+                            onClick={() => startInlineEdit("company")}
+                            className="mt-1 text-left text-zinc-600 hover:underline"
+                          >
                             —
                           </button>
                         )}
@@ -1140,7 +1174,10 @@ export function OrderModal({
                         {editingField === "client" ? (
                           <div className="mt-1">
                             <SearchableSelect
-                              options={contacts.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName} — ${c.phone}` }))}
+                              options={contacts.map((c) => ({
+                                id: c.id,
+                                label: `${c.firstName} ${c.lastName} — ${c.phone}`,
+                              }))}
                               value={editClientId}
                               onChange={(val) => {
                                 const next = val || null;
@@ -1153,7 +1190,11 @@ export function OrderModal({
                               createLabel="Create contact"
                               onCreateNew={(q) => openCreateContact(q, "edit")}
                             />
-                            <button type="button" onClick={stopInlineEdit} className="mt-2 text-xs text-zinc-600 hover:underline">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="mt-2 text-xs text-zinc-600 hover:underline"
+                            >
                               Cancel
                             </button>
                           </div>
@@ -1164,14 +1205,24 @@ export function OrderModal({
                               onClick={() => onOpenContact?.(order.client!.id)}
                               className="text-left font-medium text-zinc-900 hover:underline"
                             >
-                              {order.client.firstName} {order.client.lastName} — {order.client.phone}
+                              {order.client.firstName} {order.client.lastName} —{" "}
+                              {order.client.phone}
                             </button>
-                            <button type="button" onClick={() => startInlineEdit("client")} className="text-xs text-zinc-500 hover:text-zinc-900" title="Edit">
+                            <button
+                              type="button"
+                              onClick={() => startInlineEdit("client")}
+                              className="text-xs text-zinc-500 hover:text-zinc-900"
+                              title="Edit"
+                            >
                               ✎
                             </button>
                           </div>
                         ) : (
-                          <button type="button" onClick={() => startInlineEdit("client")} className="mt-1 text-left text-zinc-600 hover:underline">
+                          <button
+                            type="button"
+                            onClick={() => startInlineEdit("client")}
+                            className="mt-1 text-left text-zinc-600 hover:underline"
+                          >
                             —
                           </button>
                         )}
@@ -1195,13 +1246,19 @@ export function OrderModal({
                               <option value="PICKUP">Pickup</option>
                               <option value="NOVA_POSHTA">Nova Poshta</option>
                             </select>
-                            <button type="button" onClick={stopInlineEdit} className="mt-2 text-xs text-zinc-600 hover:underline">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="mt-2 text-xs text-zinc-600 hover:underline"
+                            >
                               Cancel
                             </button>
                           </div>
                         ) : (
                           <div className="mt-1 flex items-center gap-2">
-                            <div className="font-medium text-zinc-900">{order.deliveryMethod ?? "—"}</div>
+                            <div className="font-medium text-zinc-900">
+                              {order.deliveryMethod ?? "—"}
+                            </div>
                             <button
                               type="button"
                               onClick={() => startInlineEdit("deliveryMethod")}
@@ -1232,14 +1289,25 @@ export function OrderModal({
                               <option value="CASH">Cash</option>
                               <option value="FOP">FOP</option>
                             </select>
-                            <button type="button" onClick={stopInlineEdit} className="mt-2 text-xs text-zinc-600 hover:underline">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="mt-2 text-xs text-zinc-600 hover:underline"
+                            >
                               Cancel
                             </button>
                           </div>
                         ) : (
                           <div className="mt-1 flex items-center gap-2">
-                            <div className="font-medium text-zinc-900">{(order as any).paymentMethod ?? "—"}</div>
-                            <button type="button" onClick={() => startInlineEdit("paymentMethod")} className="text-xs text-zinc-500 hover:text-zinc-900" title="Edit">
+                            <div className="font-medium text-zinc-900">
+                              {(order as any).paymentMethod ?? "—"}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => startInlineEdit("paymentMethod")}
+                              className="text-xs text-zinc-500 hover:text-zinc-900"
+                              title="Edit"
+                            >
                               ✎
                             </button>
                           </div>
@@ -1249,7 +1317,9 @@ export function OrderModal({
                       {/* TTN */}
                       <div>
                         <div className="text-xs text-zinc-500">TTN</div>
-                        <div className="mt-1 font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : "—"}</div>
+                        <div className="mt-1 font-medium text-zinc-900">
+                          {ttnNumber ? `№ ${ttnNumber}` : "—"}
+                        </div>
                       </div>
 
                       {/* NP status */}
@@ -1285,20 +1355,33 @@ export function OrderModal({
                             />
                             <button
                               type="button"
-                              onClick={() => void saveInline("discount", { discountAmount: Number(editDiscount) || 0 })}
+                              onClick={() =>
+                                void saveInline("discount", {
+                                  discountAmount: Number(editDiscount) || 0,
+                                })
+                              }
                               className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                               disabled={fieldSaving === "discount"}
                             >
                               Save
                             </button>
-                            <button type="button" onClick={stopInlineEdit} className="text-sm text-zinc-600 hover:underline">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="text-sm text-zinc-600 hover:underline"
+                            >
                               Cancel
                             </button>
                           </div>
                         ) : (
                           <div className="mt-1 flex items-center gap-2">
                             <div className="text-zinc-700">{order.discountAmount.toFixed(2)}</div>
-                            <button type="button" onClick={() => startInlineEdit("discount")} className="text-xs text-zinc-500 hover:text-zinc-900" title="Edit">
+                            <button
+                              type="button"
+                              onClick={() => startInlineEdit("discount")}
+                              className="text-xs text-zinc-500 hover:text-zinc-900"
+                              title="Edit"
+                            >
                               ✎
                             </button>
                           </div>
@@ -1319,7 +1402,12 @@ export function OrderModal({
                       <div className="flex items-center justify-between">
                         <div className="text-xs text-zinc-500">Comment</div>
                         {editingField !== "comment" ? (
-                          <button type="button" onClick={() => startInlineEdit("comment")} className="text-xs text-zinc-500 hover:text-zinc-900" title="Edit">
+                          <button
+                            type="button"
+                            onClick={() => startInlineEdit("comment")}
+                            className="text-xs text-zinc-500 hover:text-zinc-900"
+                            title="Edit"
+                          >
                             ✎
                           </button>
                         ) : null}
@@ -1335,12 +1423,18 @@ export function OrderModal({
                             disabled={fieldSaving === "comment"}
                           />
                           <div className="mt-2 flex justify-end gap-2">
-                            <button type="button" onClick={stopInlineEdit} className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50">
+                            <button
+                              type="button"
+                              onClick={stopInlineEdit}
+                              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                            >
                               Cancel
                             </button>
                             <button
                               type="button"
-                              onClick={() => void saveInline("comment", { comment: editComment.trim() || null })}
+                              onClick={() =>
+                                void saveInline("comment", { comment: editComment.trim() || null })
+                              }
                               className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
                               disabled={fieldSaving === "comment"}
                             >
@@ -1349,7 +1443,9 @@ export function OrderModal({
                           </div>
                         </div>
                       ) : order.comment ? (
-                        <div className="mt-1 text-sm text-zinc-800 whitespace-pre-wrap">{order.comment}</div>
+                        <div className="mt-1 text-sm text-zinc-800 whitespace-pre-wrap">
+                          {order.comment}
+                        </div>
                       ) : (
                         <div className="mt-1 text-sm text-zinc-500">—</div>
                       )}
@@ -1374,7 +1470,9 @@ export function OrderModal({
                       <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
                         <div className="grid grid-cols-12 gap-3">
                           <div className="col-span-12">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Product</label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">
+                              Product
+                            </label>
                             <input
                               value={search}
                               onChange={(e) => {
@@ -1384,8 +1482,12 @@ export function OrderModal({
                               placeholder="Search product…"
                               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                             />
-                            {searchLoading && <div className="mt-2 text-xs text-zinc-500">Searching…</div>}
-                            {searchError && <div className="mt-2 text-xs text-red-600">{searchError}</div>}
+                            {searchLoading && (
+                              <div className="mt-2 text-xs text-zinc-500">Searching…</div>
+                            )}
+                            {searchError && (
+                              <div className="mt-2 text-xs text-red-600">{searchError}</div>
+                            )}
                             {!selectedProduct && searchResults.length > 0 && (
                               <div className="mt-2 max-h-40 overflow-auto rounded-md border bg-white">
                                 {searchResults.map((p) => (
@@ -1403,13 +1505,18 @@ export function OrderModal({
                             )}
                             {selectedProduct && (
                               <div className="mt-2 text-xs text-zinc-600">
-                                Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
+                                Selected:{" "}
+                                <span className="font-medium text-zinc-900">
+                                  {selectedProduct.name}
+                                </span>
                               </div>
                             )}
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">
+                              Qty
+                            </label>
                             <input
                               type="number"
                               min={1}
@@ -1420,7 +1527,9 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">
+                              Price
+                            </label>
                             <input
                               type="number"
                               min={0}
@@ -1431,7 +1540,9 @@ export function OrderModal({
                           </div>
                         </div>
 
-                        {submitError && <div className="mt-3 text-xs text-red-600">{submitError}</div>}
+                        {submitError && (
+                          <div className="mt-3 text-xs text-red-600">{submitError}</div>
+                        )}
 
                         <div className="mt-3 flex justify-end">
                           <button
@@ -1468,12 +1579,20 @@ export function OrderModal({
                             order.items.map((it) => (
                               <tr key={it.id}>
                                 <td className="px-3 py-2">
-                                  <div className="font-medium text-zinc-900">{it.product?.name || it.productName || it.productId}</div>
-                                  {it.product?.sku ? <div className="text-xs text-zinc-500">{it.product.sku}</div> : null}
+                                  <div className="font-medium text-zinc-900">
+                                    {it.product?.name || it.productName || it.productId}
+                                  </div>
+                                  {it.product?.sku ? (
+                                    <div className="text-xs text-zinc-500">{it.product.sku}</div>
+                                  ) : null}
                                 </td>
                                 <td className="px-3 py-2 text-right text-zinc-700">{it.qty}</td>
-                                <td className="px-3 py-2 text-right text-zinc-700">{it.price.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right font-medium text-zinc-900">{it.lineTotal.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-right text-zinc-700">
+                                  {it.price.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-medium text-zinc-900">
+                                  {it.lineTotal.toFixed(2)}
+                                </td>
                               </tr>
                             ))
                           )}
@@ -1517,9 +1636,13 @@ export function OrderModal({
                                 </div>
                                 <div className="text-sm font-medium text-zinc-900">{t.title}</div>
                               </div>
-                              <div className="text-xs text-zinc-500 whitespace-nowrap">{formatDt(t.occurredAt)}</div>
+                              <div className="text-xs text-zinc-500 whitespace-nowrap">
+                                {formatDt(t.occurredAt)}
+                              </div>
                             </div>
-                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">{t.body}</div>
+                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">
+                              {t.body}
+                            </div>
                             <div className="mt-2 text-xs text-zinc-500">by {t.createdBy}</div>
                           </div>
                         ))}

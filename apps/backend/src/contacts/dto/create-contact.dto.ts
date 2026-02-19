@@ -10,9 +10,7 @@ export type CreateContactDto = {
   isPrimary?: boolean;
 };
 
-export const validateCreateContactDto = (
-  payload: CreateContactDto,
-): ValidationError[] => {
+export const validateCreateContactDto = (payload: CreateContactDto): ValidationError[] => {
   const errors: ValidationError[] = [];
 
   // Обязательные строковые поля
@@ -24,7 +22,7 @@ export const validateCreateContactDto = (
   if (payload.companyId) {
     validateString(payload.companyId, "companyId", errors);
   }
-  
+
   if (payload.email) {
     validateString(payload.email, "email", errors);
   }

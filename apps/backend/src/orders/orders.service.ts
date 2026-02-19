@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaClient) { }
+  constructor(private readonly prisma: PrismaClient) {}
 
   private num(v: any, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
@@ -143,34 +143,29 @@ export class OrdersService {
     // FK поля в Prisma "checked update" нельзя писать напрямую (companyId/clientId/contactId),
     // поэтому обновляем через relation-операции connect/disconnect.
     if ("companyId" in dto) {
-      data.company = dto.companyId
-        ? { connect: { id: dto.companyId } }
-        : { disconnect: true };
+      data.company = dto.companyId ? { connect: { id: dto.companyId } } : { disconnect: true };
     }
 
     if ("clientId" in dto) {
-      data.client = dto.clientId
-        ? { connect: { id: dto.clientId } }
-        : { disconnect: true };
+      data.client = dto.clientId ? { connect: { id: dto.clientId } } : { disconnect: true };
     }
 
     if ("contactId" in dto) {
-      data.contact = dto.contactId
-        ? { connect: { id: dto.contactId } }
-        : { disconnect: true };
+      data.contact = dto.contactId ? { connect: { id: dto.contactId } } : { disconnect: true };
     }
-
 
     // misc
     if ("comment" in dto) data.comment = dto.comment ? String(dto.comment) : null;
 
     // ✅ delivery/payment (was missing -> UI looked like it "reverts")
-    if ("deliveryMethod" in dto) data.deliveryMethod = (dto.deliveryMethod as DeliveryMethod) ?? null;
+    if ("deliveryMethod" in dto)
+      data.deliveryMethod = (dto.deliveryMethod as DeliveryMethod) ?? null;
     if ("paymentMethod" in dto) data.paymentMethod = (dto.paymentMethod as PaymentMethod) ?? null;
     if ("deliveryData" in dto) data.deliveryData = dto.deliveryData ?? null;
 
     // amounts
-    const nextDiscount = "discountAmount" in dto ? this.num(dto.discountAmount, 0) : existing.discountAmount;
+    const nextDiscount =
+      "discountAmount" in dto ? this.num(dto.discountAmount, 0) : existing.discountAmount;
     const nextPaid = "paidAmount" in dto ? this.num(dto.paidAmount, 0) : existing.paidAmount;
     const a = this.calc(existing.subtotalAmount, nextDiscount, nextPaid);
 
@@ -281,7 +276,10 @@ export class OrdersService {
 
   // ✅ OrderModal timeline
   async getTimeline(orderId: string) {
-    const exists = await this.prisma.order.findUnique({ where: { id: orderId }, select: { id: true } });
+    const exists = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true },
+    });
     if (!exists) throw new NotFoundException("Order not found");
 
     const [history, activities, ttns] = await Promise.all([

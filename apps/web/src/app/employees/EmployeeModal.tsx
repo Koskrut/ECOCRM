@@ -160,7 +160,10 @@ export function EmployeeModal({
       role="presentation"
       onClick={() => !saving && onClose()}
     >
-      <div className="w-full max-w-lg rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
           <div className="text-base font-semibold text-zinc-900">{title}</div>
           <button
@@ -174,7 +177,11 @@ export function EmployeeModal({
         </div>
 
         <div className="px-5 py-4">
-          {error && <div className="mb-3 rounded-md rder border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+          {error && (
+            <div className="mb-3 rounded-md rder border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
 
           <label className="block text-sm font-medium text-zinc-700">Email</label>
           <input

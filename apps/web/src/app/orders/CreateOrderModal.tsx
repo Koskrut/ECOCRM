@@ -5,22 +5,28 @@ import { SearchableSelect } from "../../components/SearchableSelect";
 
 // --- Enums (должны совпадать с Prisma) ---
 enum DeliveryMethod {
-  PICKUP = 'PICKUP',
-  NOVA_POSHTA = 'NOVA_POSHTA'
+  PICKUP = "PICKUP",
+  NOVA_POSHTA = "NOVA_POSHTA",
 }
 
 enum PaymentMethod {
-  FOP = 'FOP',
-  CASH = 'CASH'
+  FOP = "FOP",
+  CASH = "CASH",
 }
 
-type CompanyOption = { id: string; name: string; };
-type ContactOption = { id: string; firstName: string; lastName: string; phone: string; companyId?: string | null; };
+type CompanyOption = { id: string; name: string };
+type ContactOption = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  companyId?: string | null;
+};
 
 type CreateOrderModalProps = {
   apiBaseUrl: string;
   onClose: () => void;
-  onOrderCreated: (newOrderId: string) => void; 
+  onOrderCreated: (newOrderId: string) => void;
 };
 
 export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: CreateOrderModalProps) {
@@ -31,13 +37,13 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
-  
+
   // Новые поля
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>(DeliveryMethod.PICKUP);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
   const [deliveryData, setDeliveryData] = useState({
     city: "",
-    warehouse: ""
+    warehouse: "",
   });
 
   // --- Data State ---
@@ -57,36 +63,49 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
           const data = await response.json();
           if (mounted) setCompanies(data.items || []);
         }
-      } catch (e) { console.error("Failed to load companies", e); }
-      finally { if (mounted) setLoadingCompanies(false); }
+      } catch (e) {
+        console.error("Failed to load companies", e);
+      } finally {
+        if (mounted) setLoadingCompanies(false);
+      }
     };
     load();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [apiBaseUrl]);
 
-  const fetchContacts = useCallback(async (filterCompanyId: string | null) => {
-    setLoadingContacts(true);
-    const url = filterCompanyId
-      ? `${apiBaseUrl}/contacts?companyId=${filterCompanyId}&pageSize=100`
-      : `${apiBaseUrl}/contacts?pageSize=100`;
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        setContacts(data.items || []);
+  const fetchContacts = useCallback(
+    async (filterCompanyId: string | null) => {
+      setLoadingContacts(true);
+      const url = filterCompanyId
+        ? `${apiBaseUrl}/contacts?companyId=${filterCompanyId}&pageSize=100`
+        : `${apiBaseUrl}/contacts?pageSize=100`;
+      try {
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setContacts(data.items || []);
+        }
+      } catch (e) {
+        console.error("Failed to load contacts", e);
+      } finally {
+        setLoadingContacts(false);
       }
-    } catch (e) { console.error("Failed to load contacts", e); }
-    finally { setLoadingContacts(false); }
-  }, [apiBaseUrl]);
+    },
+    [apiBaseUrl],
+  );
 
-  useEffect(() => { void fetchContacts(companyId); }, [companyId, fetchContacts]);
+  useEffect(() => {
+    void fetchContacts(companyId);
+  }, [companyId, fetchContacts]);
 
   const handleCreate = async () => {
     setSubmitting(true);
     setError(null);
 
     try {
-      const mockOwnerId = "user-1"; 
+      const mockOwnerId = "user-1";
 
       const response = await fetch(`${apiBaseUrl}/orders`, {
         method: "POST",
@@ -97,7 +116,7 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
           clientId,
           comment: comment || undefined,
           deliveryMethod, //
-          paymentMethod,  //
+          paymentMethod, //
           deliveryData: deliveryMethod === DeliveryMethod.NOVA_POSHTA ? deliveryData : null,
           discountAmount: 0,
         }),
@@ -118,11 +137,23 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={() => !submitting && onClose()}>
-      <div className="w-full max-w-lg rounded-lg bg-white shadow-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={() => !submitting && onClose()}
+    >
+      <div
+        className="w-full max-w-lg rounded-lg bg-white shadow-lg overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-zinc-900">New Order</h2>
-          <button onClick={onClose} disabled={submitting} className="text-zinc-500 hover:text-zinc-800 disabled:opacity-50">✕</button>
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="text-zinc-500 hover:text-zinc-800 disabled:opacity-50"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="px-6 py-6 space-y-6 max-h-[80vh] overflow-y-auto">
@@ -131,9 +162,12 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
             <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1">Company</label>
               <SearchableSelect
-                options={companies.map(c => ({ id: c.id, label: c.name }))}
+                options={companies.map((c) => ({ id: c.id, label: c.name }))}
                 value={companyId}
-                onChange={(val) => { setCompanyId(val); setClientId(null); }}
+                onChange={(val) => {
+                  setCompanyId(val);
+                  setClientId(null);
+                }}
                 isLoading={loadingCompanies}
                 placeholder="Select company..."
               />
@@ -141,7 +175,7 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
             <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
               <SearchableSelect
-                options={contacts.map(c => ({ id: c.id, label: `${c.firstName} ${c.lastName}` }))}
+                options={contacts.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName}` }))}
                 value={clientId}
                 onChange={(val) => setClientId(val)}
                 isLoading={loadingContacts}
@@ -153,8 +187,10 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
           {/* Section: Delivery & Payment */}
           <div className="grid grid-cols-2 gap-4 border-t pt-4 border-zinc-100">
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Delivery Method</label>
-              <select 
+              <label className="block text-xs font-medium text-zinc-600 mb-1">
+                Delivery Method
+              </label>
+              <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={deliveryMethod}
                 onChange={(e) => setDeliveryMethod(e.target.value as DeliveryMethod)}
@@ -165,7 +201,7 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1">Payment Method</label>
-              <select 
+              <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
@@ -181,22 +217,22 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
               <div>
                 <label className="block text-xs font-medium text-zinc-600 mb-1">City</label>
-                <input 
+                <input
                   type="text"
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                   placeholder="Kyiv"
                   value={deliveryData.city}
-                  onChange={(e) => setDeliveryData({...deliveryData, city: e.target.value})}
+                  onChange={(e) => setDeliveryData({ ...deliveryData, city: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-zinc-600 mb-1">Warehouse</label>
-                <input 
+                <input
                   type="text"
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                   placeholder="Branch #1"
                   value={deliveryData.warehouse}
-                  onChange={(e) => setDeliveryData({...deliveryData, warehouse: e.target.value})}
+                  onChange={(e) => setDeliveryData({ ...deliveryData, warehouse: e.target.value })}
                 />
               </div>
             </div>
@@ -217,7 +253,13 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           <div className="flex justify-end gap-2 pt-2">
-            <button onClick={onClose} disabled={submitting} className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50">Cancel</button>
+            <button
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Cancel
+            </button>
             <button
               onClick={handleCreate}
               disabled={submitting}

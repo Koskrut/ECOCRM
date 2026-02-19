@@ -64,14 +64,7 @@ async function readJsonSafe(r: Response) {
   }
 }
 
-export function TtnModal({
-  apiBaseUrl,
-  open,
-  onClose,
-  orderId,
-  contactId,
-  onCreated,
-}: Props) {
+export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -156,9 +149,7 @@ export function TtnModal({
       const data = dataJson as ProfilesResponse;
       const items = Array.isArray(data) ? data : data?.items || [];
 
-      const sorted = [...items].sort(
-        (a, b) => Number(!!b.isDefault) - Number(!!a.isDefault),
-      );
+      const sorted = [...items].sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
 
       setProfiles(sorted);
 
@@ -480,7 +471,9 @@ export function TtnModal({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">Label (optional)</label>
+                  <label className="block text-xs font-medium text-zinc-600">
+                    Label (optional)
+                  </label>
                   <input
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
@@ -508,7 +501,9 @@ export function TtnModal({
                     onChange={(e) => {
                       const v = e.target.value as NpDeliveryType;
                       if (v === "ADDRESS") {
-                        setError("ADDRESS will be enabled later (needs streetRef + building from NP directory).");
+                        setError(
+                          "ADDRESS will be enabled later (needs streetRef + building from NP directory).",
+                        );
                         return;
                       }
                       setError(null);
@@ -553,7 +548,9 @@ export function TtnModal({
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">CityRef (NP directory)</label>
+                  <label className="block text-xs font-medium text-zinc-600">
+                    CityRef (NP directory)
+                  </label>
                   <input
                     value={cityRef}
                     onChange={(e) => setCityRef(e.target.value)}
@@ -563,7 +560,9 @@ export function TtnModal({
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">City name (optional)</label>
+                  <label className="block text-xs font-medium text-zinc-600">
+                    City name (optional)
+                  </label>
                   <input
                     value={cityName}
                     onChange={(e) => setCityName(e.target.value)}
@@ -572,7 +571,9 @@ export function TtnModal({
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">WarehouseRef / PostomatRef</label>
+                  <label className="block text-xs font-medium text-zinc-600">
+                    WarehouseRef / PostomatRef
+                  </label>
                   <input
                     value={warehouseRef}
                     onChange={(e) => setWarehouseRef(e.target.value)}

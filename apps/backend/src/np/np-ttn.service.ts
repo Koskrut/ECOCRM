@@ -1,17 +1,9 @@
 // src/np/np-ttn.service.ts
 
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { NpClient } from "./np-client.service";
-import {
-  CreateNpTtnDto,
-  NpDeliveryType,
-  NpRecipientType,
-} from "./dto/create-np-ttn.dto";
+import { CreateNpTtnDto, NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
 
 type SenderCache = {
   senderCityRef: string;
@@ -39,8 +31,7 @@ export class NpTtnService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly np: NpClient,
-  ) { }
-
+  ) {}
 
   // ======================
   // PUBLIC: create TTN
@@ -50,16 +41,16 @@ export class NpTtnService {
       where: { id: orderId },
       include: { contact: true, client: true },
     });
-  
+
     if (!order) throw new BadRequestException("order not found");
-  
+
     // ✅ fallback: если contactId не задан — берём clientId
     const contactId = order.contactId ?? order.clientId ?? null;
-  
+
     if (!contactId) {
       throw new BadRequestException("order.contactId or order.clientId is required");
     }
-  
+
     // ✅ если в заказе contactId пустой, но есть clientId — сохраним contactId в заказ
     // чтобы дальше всё работало (и UI мог всегда передавать order.contactId)
     if (!order.contactId && order.clientId) {
@@ -68,9 +59,8 @@ export class NpTtnService {
         data: { contactId: order.clientId },
       });
     }
-  
+
     const resolved = await this.resolveRecipientData(contactId, dto);
-  
 
     // 1) ensure NP entities (Recipient counterparty/contact/address)
     const npRefs = await this.ensureNpRecipientRefs(resolved);
@@ -124,7 +114,6 @@ export class NpTtnService {
     };
   }
 
-
   // ======================
   // PUBLIC: debug sender
   // ======================
@@ -158,10 +147,7 @@ export class NpTtnService {
       };
     }
 
-    if (!dto.draft)
-      throw new BadRequestException(
-        "draft is required if profileId not provided",
-      );
+    if (!dto.draft) throw new BadRequestException("draft is required if profileId not provided");
     return { sourceProfile: null, data: dto.draft };
   }
 
@@ -179,7 +165,8 @@ export class NpTtnService {
 
     if (!senderCityRef) throw new BadRequestException("Set NP_SENDER_CITY_REF in .env");
     if (!senderWarehouseRef) throw new BadRequestException("Set NP_SENDER_WAREHOUSE_REF in .env");
-    if (!senderCounterpartyRef) throw new BadRequestException("Set NP_SENDER_COUNTERPARTY_REF in .env");
+    if (!senderCounterpartyRef)
+      throw new BadRequestException("Set NP_SENDER_COUNTERPARTY_REF in .env");
     if (!senderContactRef) throw new BadRequestException("Set NP_SENDER_CONTACT_REF in .env");
     if (!senderPhoneEnv) throw new BadRequestException("Set NP_SENDER_PHONE in .env");
 
@@ -300,9 +287,7 @@ export class NpTtnService {
     // Address only for ADDRESS
     if (d.deliveryType === NpDeliveryType.ADDRESS && !refs.addressRef) {
       if (!d.streetRef || !d.building) {
-        throw new BadRequestException(
-          "For ADDRESS delivery streetRef and building are required",
-        );
+        throw new BadRequestException("For ADDRESS delivery streetRef and building are required");
       }
 
       const adr = await this.np.call<any>("Address", "save", {
@@ -359,8 +344,7 @@ export class NpTtnService {
     if (isAddress) {
       if (!d.cityRef) throw new BadRequestException("Recipient cityRef is required for ADDRESS");
       cityRecipient = d.cityRef;
-      recipientAddressName =
-        `${d.streetName ?? ""} ${d.building ?? ""}`.trim() || "Address";
+      recipientAddressName = `${d.streetName ?? ""} ${d.building ?? ""}`.trim() || "Address";
     } else {
       if (!d.warehouseRef)
         throw new BadRequestException("WAREHOUSE/POSTOMAT: warehouseRef is required");
@@ -418,16 +402,16 @@ export class NpTtnService {
 
       ...(parcels.length
         ? {
-          OptionsSeat: parcels.map((p: any, idx: number) => ({
-            number: String(idx + 1),
-            weight: String(p.weight),
-            volumetricWidth: p.width != null ? String(p.width) : undefined,
-            volumetricLength: p.length != null ? String(p.length) : undefined,
-            volumetricHeight: p.height != null ? String(p.height) : undefined,
-            volumetricVolume: this.calcVolume(p),
-            cost: p.cost != null ? String(p.cost) : undefined,
-          })),
-        }
+            OptionsSeat: parcels.map((p: any, idx: number) => ({
+              number: String(idx + 1),
+              weight: String(p.weight),
+              volumetricWidth: p.width != null ? String(p.width) : undefined,
+              volumetricLength: p.length != null ? String(p.length) : undefined,
+              volumetricHeight: p.height != null ? String(p.height) : undefined,
+              volumetricVolume: this.calcVolume(p),
+              cost: p.cost != null ? String(p.cost) : undefined,
+            })),
+          }
         : {}),
     };
   }
@@ -596,7 +580,12 @@ export class NpTtnService {
     if (!last?.documentNumber) throw new NotFoundException("TTN not found for this order");
 
     if (opts?.sync === false) {
-      return { ok: true, fromCache: true, ttn: last.documentNumber, snapshot: last.payloadSnapshot ?? null };
+      return {
+        ok: true,
+        fromCache: true,
+        ttn: last.documentNumber,
+        snapshot: last.payloadSnapshot ?? null,
+      };
     }
 
     const phone = (process.env.NP_SENDER_PHONE ?? "").trim();
@@ -632,8 +621,7 @@ export class NpTtnService {
       data: {
         statusCode: row?.StatusCode != null ? String(row.StatusCode) : null,
         statusText: row?.Status != null ? String(row.Status) : null,
-        estimatedDeliveryDate:
-          this.tryParseNpDateTime(row?.ScheduledDeliveryDate) ?? null,
+        estimatedDeliveryDate: this.tryParseNpDateTime(row?.ScheduledDeliveryDate) ?? null,
         payloadSnapshot: {
           ...(last.payloadSnapshot as any),
           statusRequest: payload,
@@ -672,9 +660,7 @@ export class NpTtnService {
     const docs = orders
       .map((o) => ({
         orderId: o.id,
-        ttn: (o as any)?.deliveryData?.novaPoshta?.ttn?.number as
-          | string
-          | undefined,
+        ttn: (o as any)?.deliveryData?.novaPoshta?.ttn?.number as string | undefined,
       }))
       .filter((x) => !!x.ttn) as Array<{ orderId: string; ttn: string }>;
 
@@ -732,8 +718,7 @@ export class NpTtnService {
     const debt = Number(args.debtAmount ?? 0);
 
     // 1) отмена/удаление
-    if (code === "2" || text.includes("видал") || text.includes("удален"))
-      return "CANCELED";
+    if (code === "2" || text.includes("видал") || text.includes("удален")) return "CANCELED";
 
     // 2) возврат/отказ/не вручено — по тексту надежнее всего
     if (
@@ -749,11 +734,7 @@ export class NpTtnService {
     }
 
     // 3) получено (часто 9/10/11)
-    if (
-      ["9", "10", "11"].includes(code) ||
-      text.includes("отрим") ||
-      text.includes("получено")
-    ) {
+    if (["9", "10", "11"].includes(code) || text.includes("отрим") || text.includes("получено")) {
       return debt <= 0.00001 ? "SUCCESS" : "CONTROL_PAYMENT";
     }
 
@@ -771,8 +752,7 @@ export class NpTtnService {
     }
 
     // 5) создана, но не передана
-    if (code === "1" || text.includes("створив") || text.includes("создан"))
-      return "IN_WORK";
+    if (code === "1" || text.includes("створив") || text.includes("создан")) return "IN_WORK";
 
     return null;
   }
@@ -866,8 +846,7 @@ export class NpTtnService {
           data: {
             statusCode: status?.StatusCode != null ? String(status.StatusCode) : null,
             statusText: status?.Status != null ? String(status.Status) : null,
-            estimatedDeliveryDate:
-              this.tryParseNpDateTime(status?.ScheduledDeliveryDate) ?? null,
+            estimatedDeliveryDate: this.tryParseNpDateTime(status?.ScheduledDeliveryDate) ?? null,
             // updatedAt в Prisma @updatedAt обновится сам на update
           },
         });
@@ -882,9 +861,7 @@ export class NpTtnService {
     const s = String(v ?? "").trim();
     if (!s) return null;
 
-    const m = s.match(
-      /^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/,
-    );
+    const m = s.match(/^(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
     if (!m) return null;
 
     const dd = Number(m[1]);

@@ -6,9 +6,7 @@ export type UpdateCompanyDto = {
   taxId?: string;
 };
 
-export const validateUpdateCompanyDto = (
-  payload: UpdateCompanyDto,
-): ValidationError[] => {
+export const validateUpdateCompanyDto = (payload: UpdateCompanyDto): ValidationError[] => {
   const errors: ValidationError[] = [];
 
   if (payload.name !== undefined) {
@@ -23,11 +21,7 @@ export const validateUpdateCompanyDto = (
     validateString(payload.taxId, "taxId", errors, { allowEmpty: false });
   }
 
-  if (
-    payload.name === undefined &&
-    payload.edrpou === undefined &&
-    payload.taxId === undefined
-  ) {
+  if (payload.name === undefined && payload.edrpou === undefined && payload.taxId === undefined) {
     errors.push({ field: "payload", message: "at least one field is required" });
   }
 

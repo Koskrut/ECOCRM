@@ -65,10 +65,7 @@ export class NpController {
   // GET /np/ttn/:orderId/status?sync=1
   // =========================
   @Get("ttn/:orderId/status")
-  async ttnStatus(
-    @Param("orderId") orderId: string,
-    @Query("sync") sync?: string,
-  ) {
+  async ttnStatus(@Param("orderId") orderId: string, @Query("sync") sync?: string) {
     const doSync = sync === "1" || sync === "true";
     return this.ttn.getTtnStatusByOrderId(orderId, { sync: doSync });
   }

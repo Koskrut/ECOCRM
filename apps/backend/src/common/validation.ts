@@ -46,11 +46,7 @@ export const validateOptionalNumber = (
 };
 
 // --- Добавляем валидацию булевого значения ---
-export const validateBoolean = (
-  value: unknown,
-  field: string,
-  errors: ValidationError[],
-): void => {
+export const validateBoolean = (value: unknown, field: string, errors: ValidationError[]): void => {
   if (typeof value !== "boolean") {
     errors.push({ field, message: "must be a boolean" });
   }
