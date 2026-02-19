@@ -1,5 +1,13 @@
 {
   "name": "crm",
   "private": true,
-  "workspaces": ["apps/*"]
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "lint": "eslint . -c eslint.config.mjs",
+    "lint:fix": "eslint . -c eslint.config.mjs --fix"
+  }
 }
