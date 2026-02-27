@@ -1,4 +1,11 @@
-import { IsOptional, IsString } from "class-validator";
+import { Type } from "class-transformer";
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from "class-validator";
+import { LeadItemDto } from "./lead-item.dto";
 
 export class UpdateLeadDto {
   @IsOptional()
@@ -23,5 +30,11 @@ export class UpdateLeadDto {
 
   @IsOptional()
   sourceMeta?: unknown;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LeadItemDto)
+  items?: LeadItemDto[];
 }
 

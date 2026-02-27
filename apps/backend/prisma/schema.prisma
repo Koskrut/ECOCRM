@@ -158,15 +158,35 @@ model Lead {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  owner   User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner   User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   LeadItem[]
 
   @@index([companyId, status])
   @@index([companyId, source])
   @@index([phone])
   @@index([email])
   @@index([contactId])
+}
+
+model LeadItem {
+  id        String   @id @default(cuid())
+  leadId    String
+  productId String
+  qty       Int
+  price     Float
+  lineTotal Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([leadId, productId], name: "leadId_productId")
+  @@index([leadId])
+  @@index([productId])
 }
 
 model ContactShippingProfile {
@@ -231,7 +251,8 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items OrderItem[]
+  items     OrderItem[]
+  leadItems LeadItem[]
 }
 
 model Order {

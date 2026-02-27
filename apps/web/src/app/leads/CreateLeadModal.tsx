@@ -6,6 +6,10 @@ import type { LeadSource, Lead } from "@/lib/api";
 
 type CompanyOption = { id: string; name: string };
 
+type EditItem = { productId: string; productName?: string; qty: number; price: number };
+
+const API_BASE = "/api";
+
 type Props = {
   onClose: () => void;
   onCreated: (lead: Lead) => void;
@@ -22,6 +26,13 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
   const [companyName, setCompanyName] = useState("");
   const [message, setMessage] = useState("");
   const [source, setSource] = useState<LeadSource>("OTHER");
+
+  const [createItems, setCreateItems] = useState<EditItem[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<Array<{ id: string; name: string; sku: string; basePrice: number }>>([]);
+  const [selectedProduct, setSelectedProduct] = useState<{ id: string; name: string; sku: string; basePrice: number } | null>(null);
+  const [newItemQty, setNewItemQty] = useState(1);
+  const [newItemPrice, setNewItemPrice] = useState(0);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -41,6 +52,48 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
   useEffect(() => {
     void loadCompanies();
   }, [loadCompanies]);
+
+  useEffect(() => {
+    if (!productSearch.trim()) {
+      setProductResults([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(
+          `${API_BASE}/products?search=${encodeURIComponent(productSearch)}&page=1&pageSize=10`,
+          { cache: "no-store" },
+        );
+        if (!r.ok) throw new Error("Failed");
+        const data = (await r.json()) as { items?: Array<{ id: string; name: string; sku: string; basePrice: number }> };
+        if (alive) setProductResults(data.items ?? []);
+      } catch {
+        if (alive) setProductResults([]);
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [productSearch]);
+
+  const addItem = () => {
+    if (!selectedProduct || newItemQty < 1 || newItemPrice < 0) return;
+    setCreateItems((prev) => [
+      ...prev,
+      { productId: selectedProduct.id, productName: selectedProduct.name, qty: newItemQty, price: newItemPrice },
+    ]);
+    setSelectedProduct(null);
+    setProductSearch("");
+    setProductResults([]);
+    setNewItemQty(1);
+    setNewItemPrice(selectedProduct.basePrice);
+  };
+
+  const removeItem = (index: number) => {
+    setCreateItems((prev) => prev.filter((_, i) => i !== index));
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -64,7 +117,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         companyId,
         source,
         name: name.trim() || undefined,
@@ -73,6 +126,9 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         companyName: companyName.trim() || undefined,
         message: message.trim() || undefined,
       };
+      if (createItems.length > 0) {
+        payload.items = createItems.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price }));
+      }
 
       const res = await apiHttp.post<Lead>("/leads", payload);
       onCreated(res.data);
@@ -199,6 +255,99 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             onChange={(e) => setMessage(e.target.value)}
             disabled={saving}
           />
+
+          <div className="mt-4">
+            <div className="text-xs font-medium text-zinc-600 mb-2">Товары (необязательно)</div>
+            {createItems.length > 0 ? (
+              <div className="rounded border border-zinc-200 overflow-hidden mb-2">
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-zinc-100">
+                    {createItems.map((it, idx) => (
+                      <tr key={`${it.productId}-${idx}`}>
+                        <td className="px-2 py-1.5">{it.productName ?? it.productId}</td>
+                        <td className="px-2 py-1.5 text-right">{it.qty}</td>
+                        <td className="px-2 py-1.5 text-right">{it.price.toFixed(2)}</td>
+                        <td className="px-2 py-1.5 w-14">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="text-zinc-500 hover:text-red-600 text-xs"
+                            disabled={saving}
+                          >
+                            Удалить
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[160px]">
+                <input
+                  type="text"
+                  placeholder="Поиск товара…"
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  disabled={saving}
+                />
+                {productResults.length > 0 ? (
+                  <ul className="mt-1 max-h-28 overflow-auto rounded border border-zinc-200 bg-white shadow text-sm">
+                    {productResults.map((p) => (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          className="w-full px-2 py-1 text-left hover:bg-zinc-50 flex justify-between"
+                          onClick={() => {
+                            setSelectedProduct(p);
+                            setProductSearch(p.name);
+                            setProductResults([]);
+                            setNewItemPrice(p.basePrice);
+                          }}
+                        >
+                          <span>{p.name}</span>
+                          <span className="text-zinc-500 text-xs">{p.sku}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              <div className="w-14">
+                <label className="block text-[10px] text-zinc-500">Кол.</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  value={newItemQty}
+                  onChange={(e) => setNewItemQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                  disabled={saving}
+                />
+              </div>
+              <div className="w-20">
+                <label className="block text-[10px] text-zinc-500">Цена</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  value={newItemPrice}
+                  onChange={(e) => setNewItemPrice(parseFloat(e.target.value) || 0)}
+                  disabled={saving}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={addItem}
+                disabled={!selectedProduct || saving}
+                className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                Добавить
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-5 py-3">

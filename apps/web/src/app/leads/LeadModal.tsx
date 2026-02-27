@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
-import type { Lead, LeadStatus, LeadSource } from "@/lib/api";
+import type { Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
 
 type Props = {
   apiBaseUrl: string;
@@ -73,6 +73,17 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [convertError, setConvertError] = useState<string | null>(null);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
 
+  // Товары лида (локальный список для редактирования)
+  type EditItem = { productId: string; productName?: string; qty: number; price: number };
+  const [editItems, setEditItems] = useState<EditItem[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<Array<{ id: string; name: string; sku: string; basePrice: number }>>([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<{ id: string; name: string; sku: string; basePrice: number } | null>(null);
+  const [newItemQty, setNewItemQty] = useState(1);
+  const [newItemPrice, setNewItemPrice] = useState(0);
+  const [savingItems, setSavingItems] = useState(false);
+
   const canClose = !saving && !converting && !statusUpdating;
 
   const title = useMemo(() => {
@@ -96,6 +107,16 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       setEditSource(data.source);
       setEditStatus(data.status);
 
+      const items = data.items ?? [];
+      setEditItems(
+        items.map((it: LeadItem) => ({
+          productId: it.productId,
+          productName: it.product?.name ?? undefined,
+          qty: it.qty,
+          price: it.price,
+        })),
+      );
+
       setNewContactFirstName(data.name ?? "");
       setNewContactPhone(data.phone ?? "");
       setNewContactEmail(data.email ?? "");
@@ -111,6 +132,77 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       setLoading(false);
     }
   }, [leadId]);
+
+  // Поиск продуктов для добавления товара
+  useEffect(() => {
+    if (!productSearch.trim()) {
+      setProductResults([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(async () => {
+      setProductSearchLoading(true);
+      try {
+        const r = await fetch(
+          `${apiBaseUrl}/products?search=${encodeURIComponent(productSearch)}&page=1&pageSize=10`,
+          { cache: "no-store" },
+        );
+        if (!r.ok) throw new Error("Failed to load products");
+        const data = (await r.json()) as { items?: Array<{ id: string; name: string; sku: string; basePrice: number }> };
+        if (alive) setProductResults(data.items ?? []);
+      } catch {
+        if (alive) setProductResults([]);
+      } finally {
+        if (alive) setProductSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [apiBaseUrl, productSearch]);
+
+  const saveItems = useCallback(async () => {
+    if (!lead) return;
+    setSavingItems(true);
+    setErr(null);
+    try {
+      await apiHttp.patch<Lead>(`/leads/${lead.id}`, {
+        items: editItems.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price })),
+      });
+      await loadLead();
+      onUpdated();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не удалось сохранить товары");
+      setErr(msg);
+    } finally {
+      setSavingItems(false);
+    }
+  }, [lead, editItems, loadLead, onUpdated]);
+
+  const addItemToLead = () => {
+    if (!selectedProduct || newItemQty < 1 || newItemPrice < 0) return;
+    setEditItems((prev) => [
+      ...prev,
+      {
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        qty: newItemQty,
+        price: newItemPrice,
+      },
+    ]);
+    setSelectedProduct(null);
+    setProductSearch("");
+    setProductResults([]);
+    setNewItemQty(1);
+    setNewItemPrice(selectedProduct.basePrice);
+  };
+
+  const removeItemFromLead = (index: number) => {
+    setEditItems((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const loadTimeline = useCallback(async () => {
     if (!lead) return;
@@ -422,6 +514,123 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   onChange={(e) => setEditMessage(e.target.value)}
                   disabled={saving}
                 />
+
+                <div className="mt-6">
+                  <div className="text-xs font-medium text-zinc-600 mb-2">Товары</div>
+                  <div className="rounded-md border border-zinc-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-zinc-50 border-b border-zinc-200">
+                          <th className="px-3 py-2 text-left">Товар</th>
+                          <th className="px-3 py-2 text-right">Кол.</th>
+                          <th className="px-3 py-2 text-right">Цена</th>
+                          <th className="px-3 py-2 text-right">Сумма</th>
+                          <th className="w-8" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {editItems.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-3 text-zinc-500" colSpan={5}>
+                              Нет товаров
+                            </td>
+                          </tr>
+                        ) : (
+                          editItems.map((it, idx) => (
+                            <tr key={`${it.productId}-${idx}`}>
+                              <td className="px-3 py-2">{it.productName ?? it.productId}</td>
+                              <td className="px-3 py-2 text-right">{it.qty}</td>
+                              <td className="px-3 py-2 text-right">{it.price.toFixed(2)}</td>
+                              <td className="px-3 py-2 text-right font-medium">{(it.qty * it.price).toFixed(2)}</td>
+                              <td className="px-1 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => removeItemFromLead(idx)}
+                                  className="rounded border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100"
+                                  disabled={savingItems}
+                                >
+                                  Удалить
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div className="min-w-[200px]">
+                      <input
+                        type="text"
+                        placeholder="Поиск товара…"
+                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                        value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)}
+                        disabled={savingItems}
+                      />
+                      {productResults.length > 0 ? (
+                        <ul className="mt-1 max-h-32 overflow-auto rounded border border-zinc-200 bg-white shadow">
+                          {productResults.map((p) => (
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-50 flex justify-between"
+                                onClick={() => {
+                                  setSelectedProduct(p);
+                                  setProductSearch(p.name);
+                                  setProductResults([]);
+                                  setNewItemPrice(p.basePrice);
+                                }}
+                              >
+                                <span>{p.name}</span>
+                                <span className="text-zinc-500 text-xs">{p.sku}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                    <div className="w-16">
+                      <label className="block text-[10px] text-zinc-500">Кол.</label>
+                      <input
+                        type="number"
+                        min={1}
+                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                        value={newItemQty}
+                        onChange={(e) => setNewItemQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        disabled={savingItems}
+                      />
+                    </div>
+                    <div className="w-24">
+                      <label className="block text-[10px] text-zinc-500">Цена</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                        value={newItemPrice}
+                        onChange={(e) => setNewItemPrice(parseFloat(e.target.value) || 0)}
+                        disabled={savingItems}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addItemToLead}
+                      disabled={!selectedProduct || savingItems}
+                      className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Добавить
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveItems()}
+                      disabled={savingItems || editItems.length === 0}
+                      className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      {savingItems ? "Сохранение…" : "Сохранить товары"}
+                    </button>
+                  </div>
+                </div>
 
                 <div className="mt-4 text-xs text-zinc-500">
                   Создан: {new Date(lead.createdAt).toLocaleString()}

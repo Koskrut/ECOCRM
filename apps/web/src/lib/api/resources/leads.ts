@@ -3,6 +3,15 @@ import { apiHttp } from "../client";
 export type LeadStatus = "NEW" | "IN_PROGRESS" | "WON" | "NOT_TARGET" | "LOST";
 export type LeadSource = "FACEBOOK" | "TELEGRAM" | "INSTAGRAM" | "WEBSITE" | "OTHER";
 
+export type LeadItem = {
+  id: string;
+  productId: string;
+  qty: number;
+  price: number;
+  lineTotal: number;
+  product?: { id: string; name: string; sku: string } | null;
+};
+
 export type Lead = {
   id: string;
   companyId: string;
@@ -20,6 +29,7 @@ export type Lead = {
   lastActivityAt: string | null;
   createdAt: string;
   updatedAt: string;
+  items?: LeadItem[];
 };
 
 export type LeadsResponse = {
@@ -57,6 +67,7 @@ export const leadsApi = {
     companyName?: string;
     message?: string;
     sourceMeta?: unknown;
+    items?: Array<{ productId: string; qty: number; price: number }>;
   }): Promise<Lead> => {
     const res = await apiHttp.post<Lead>("/leads", payload);
     return res.data;
@@ -71,6 +82,7 @@ export const leadsApi = {
       companyName?: string | null;
       message?: string | null;
       sourceMeta?: unknown;
+      items?: Array<{ productId: string; qty: number; price: number }>;
     },
   ): Promise<Lead> => {
     const res = await apiHttp.patch<Lead>(`/leads/${id}`, payload);

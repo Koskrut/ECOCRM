@@ -91,7 +91,38 @@ export class LeadsService {
     };
 
     const lead = await this.prisma.lead.create({ data });
-    return this.mapToEntity(lead);
+
+    if (dto.items?.length) {
+      const byProduct = new Map<string, { qty: number; price: number }>();
+      for (const it of dto.items) {
+        const qty = Math.max(1, Math.trunc(it.qty));
+        const price = it.price;
+        const cur = byProduct.get(it.productId);
+        if (cur) {
+          cur.qty += qty;
+          cur.price = price;
+        } else {
+          byProduct.set(it.productId, { qty, price });
+        }
+      }
+      for (const [productId, { qty, price }] of byProduct) {
+        await this.prisma.leadItem.create({
+          data: {
+            leadId: lead.id,
+            productId,
+            qty,
+            price,
+            lineTotal: qty * price,
+          },
+        });
+      }
+    }
+
+    const withItems = await this.prisma.lead.findUnique({
+      where: { id: lead.id },
+      include: { items: { include: { product: true } } },
+    });
+    return this.mapToEntity(withItems ?? lead);
   }
 
   async list(q: ListLeadsQueryDto, actor?: AuthUser) {
@@ -121,7 +152,10 @@ export class LeadsService {
   }
 
   async getById(id: string, actor?: AuthUser) {
-    const lead = await this.prisma.lead.findUnique({ where: { id } });
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { items: { include: { product: true } } },
+    });
     if (!lead) throw new NotFoundException("Lead not found");
     if (actor) this.assertLeadAccess(lead, actor);
     return this.mapToEntity(lead);
@@ -145,12 +179,40 @@ export class LeadsService {
       data.sourceMeta = (dto.sourceMeta ?? undefined) as Prisma.InputJsonValue | undefined;
     }
 
-    const updated = await this.prisma.lead.update({
-      where: { id },
-      data,
-    });
+    await this.prisma.lead.update({ where: { id }, data });
 
-    return this.mapToEntity(updated);
+    if (dto.items !== undefined) {
+      await this.prisma.leadItem.deleteMany({ where: { leadId: id } });
+      const byProduct = new Map<string, { qty: number; price: number }>();
+      for (const it of dto.items) {
+        const qty = Math.max(1, Math.trunc(it.qty));
+        const price = it.price;
+        const cur = byProduct.get(it.productId);
+        if (cur) {
+          cur.qty += qty;
+          cur.price = price;
+        } else {
+          byProduct.set(it.productId, { qty, price });
+        }
+      }
+      for (const [productId, { qty, price }] of byProduct) {
+        await this.prisma.leadItem.create({
+          data: {
+            leadId: id,
+            productId,
+            qty,
+            price,
+            lineTotal: qty * price,
+          },
+        });
+      }
+    }
+
+    const updated = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { items: { include: { product: true } } },
+    });
+    return this.mapToEntity(updated!);
   }
 
   // ===== STATUS =====
@@ -222,7 +284,10 @@ export class LeadsService {
       throw new BadRequestException("User is required");
     }
 
-    const lead = await this.prisma.lead.findUnique({ where: { id } });
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { items: true },
+    });
     if (!lead) throw new NotFoundException("Lead not found");
     this.assertLeadAccess(lead, actor);
 
@@ -293,6 +358,15 @@ export class LeadsService {
       };
 
       deal = await this.ordersService.create(orderDto, actor);
+      const orderId = (deal as { id: string }).id;
+      const leadItems = (lead as { items: Array<{ productId: string; qty: number; price: number }> }).items ?? [];
+      for (const it of leadItems) {
+        await this.ordersService.addItem(
+          orderId,
+          { productId: it.productId, qty: it.qty, price: it.price },
+          actor,
+        );
+      }
     }
 
     const updatedLead = await this.prisma.lead.update({
@@ -356,6 +430,7 @@ export class LeadsService {
   // ===== MAPPER =====
 
   private mapToEntity(lead: Record<string, any>) {
+    const items = (lead.items as Array<Record<string, unknown>> | undefined) ?? [];
     return {
       id: lead.id,
       companyId: lead.companyId,
@@ -373,6 +448,14 @@ export class LeadsService {
       lastActivityAt: lead.lastActivityAt ?? null,
       createdAt: lead.createdAt,
       updatedAt: lead.updatedAt,
+      items: items.map((it) => ({
+        id: it.id,
+        productId: it.productId,
+        qty: it.qty,
+        price: it.price,
+        lineTotal: it.lineTotal,
+        product: it.product ?? null,
+      })),
     };
   }
 }

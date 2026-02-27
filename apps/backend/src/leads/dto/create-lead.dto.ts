@@ -1,5 +1,13 @@
 import { LeadSource } from "@prisma/client";
-import { IsEnum, IsOptional, IsString } from "class-validator";
+import { Type } from "class-transformer";
+import {
+  IsArray,
+  IsEnum,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from "class-validator";
+import { LeadItemDto } from "./lead-item.dto";
 
 export class CreateLeadDto {
   @IsString()
@@ -29,8 +37,13 @@ export class CreateLeadDto {
   @IsString()
   message?: string;
 
-  // JSON, может быть чем угодно
   @IsOptional()
   sourceMeta?: unknown;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LeadItemDto)
+  items?: LeadItemDto[];
 }
 
