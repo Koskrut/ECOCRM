@@ -6,7 +6,7 @@ export type NpResponse<T> = {
   data: T[];
   errors?: string[];
   warnings?: string[];
-  info?: any[]; // ✅ сделаем универсально
+  info?: unknown[];
   messageCodes?: string[];
   errorCodes?: string[];
   warningCodes?: string[];
@@ -19,10 +19,10 @@ export class NpClient {
   private readonly apiKey = process.env.NP_API_KEY || "";
   private readonly timeoutMs = Number(process.env.NP_API_TIMEOUT_MS || 20000);
 
-  async call<T = any>(
+  async call<T = unknown>(
     modelName: string,
     calledMethod: string,
-    methodProperties: Record<string, any> = {},
+    methodProperties: Record<string, unknown> = {},
   ): Promise<NpResponse<T>> {
     if (!this.apiKey) throw new Error("NP_API_KEY is not set");
     if (typeof fetch !== "function") {
@@ -69,8 +69,8 @@ export class NpClient {
       }
 
       return json as NpResponse<T>;
-    } catch (e: any) {
-      if (e?.name === "AbortError") {
+    } catch (e: unknown) {
+      if ((e as { name?: string })?.name === "AbortError") {
         throw new Error(
           `Nova Poshta API timeout after ${this.timeoutMs}ms (model=${modelName}.${calledMethod})`,
         );

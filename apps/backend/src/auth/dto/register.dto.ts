@@ -1,5 +1,6 @@
 import { UserRole } from "@prisma/client";
-import { ValidationError, validateString } from "../../common/validation";
+import type { ValidationError } from "../../common/validation";
+import { validateString } from "../../common/validation";
 
 export type RegisterDto = {
   email: string;

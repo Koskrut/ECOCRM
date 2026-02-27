@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Employee, EmployeeModal } from "./EmployeeModal";
+import type { Employee } from "./EmployeeModal";
+import { EmployeeModal } from "./EmployeeModal";
+import { apiHttp } from "../../lib/api/client";
 
 type UsersResponse = {
   items?: Employee[];
@@ -21,7 +23,7 @@ export default function EmployeesPage() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch("/api/users", { cache: "no-store" });
+      const r = await apiHttp.get("/users");
       const text = await r.text();
       if (!r.ok) throw new Error(text || `Failed (${r.status})`);
 

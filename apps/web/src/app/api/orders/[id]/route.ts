@@ -1,41 +1,17 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { proxyToBackend } from "@/lib/api/proxy.server";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
-
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const token = (await cookies()).get("token")?.value;
-
-  const r = await fetch(`${API_URL}/orders/${id}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
+  return proxyToBackend(req, `/orders/${id}`);
 }
 
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const token = (await cookies()).get("token")?.value;
+  return proxyToBackend(req, `/orders/${id}`);
+}
 
-  const body = await req.text();
-
-  const r = await fetch(`${API_URL}/orders/${id}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body,
-  });
-
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  return proxyToBackend(req, `/orders/${id}`);
 }

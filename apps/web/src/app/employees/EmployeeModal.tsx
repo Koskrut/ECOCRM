@@ -1,6 +1,8 @@
+// apps/web/src/app/employees/EmployeeModal.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { apiHttp } from "../../lib/api/client";
 
 export type Employee = {
   id: string;
@@ -9,13 +11,13 @@ export type Employee = {
   role: "ADMIN" | "LEAD" | "USER";
 };
 
-function pickMessage(text: string) {
-  try {
-    const j = JSON.parse(text);
-    return j?.message || j?.error || text;
-  } catch {
-    return text;
-  }
+function pickMessage(e: unknown, fallback: string) {
+  const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
 }
 
 export function EmployeeModal({
@@ -86,47 +88,35 @@ export function EmployeeModal({
 
     try {
       if (mode === "create") {
-        const r = await fetch("/api/users", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim(),
-            fullName: fullName.trim() || null,
-            password: password.trim(),
-            role,
-          }),
+        await apiHttp.post("/users", {
+          email: email.trim(),
+          fullName: fullName.trim() || null,
+          password: password.trim(),
+          role,
         });
-
-        const t = await r.text();
-        if (!r.ok) throw new Error(pickMessage(t) || `Failed (${r.status})`);
       } else {
         if (!initial?.id) throw new Error("Missing user id");
 
-        // 1) имя/пароль (пароль отправляем только если введен)
-        const payload: any = { fullName: fullName.trim() || null };
+        // 1) fullName/password (password only if provided)
+        const payload = {
+          email: email.trim(),
+          fullName: fullName.trim() || null,
+          password: password.trim(),
+          role,
+        };
+
         if (password.trim().length > 0) payload.password = password.trim();
 
-        const r1 = await fetch(`/api/users/${initial.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-        });
-        const t1 = await r1.text();
-        if (!r1.ok) throw new Error(pickMessage(t1) || `Failed (${r1.status})`);
+        await apiHttp.patch(`/users/${initial.id}`, payload);
 
-        // 2) роль — отдельный endpoint
-        const r2 = await fetch(`/api/users/${initial.id}/role`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role }),
-        });
-        const t2 = await r2.text();
-        if (!r2.ok) throw new Error(pickMessage(t2) || `Failed (${r2.status})`);
+        // 2) role via dedicated endpoint
+        await apiHttp.patch(`/users/${initial.id}/role`, { role });
       }
 
       onSaved();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(pickMessage(e, "Failed"));
     } finally {
       setSaving(false);
     }
@@ -140,13 +130,11 @@ export function EmployeeModal({
     setError(null);
 
     try {
-      const r = await fetch(`/api/users/${initial.id}`, { method: "DELETE" });
-      const t = await r.text();
-      if (!r.ok) throw new Error(pickMessage(t) || `Fus})`);
+      await apiHttp.delete(`/users/${initial.id}`);
       onSaved();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(pickMessage(e, "Failed"));
     } finally {
       setSaving(false);
     }
@@ -178,7 +166,7 @@ export function EmployeeModal({
 
         <div className="px-5 py-4">
           {error && (
-            <div className="mb-3 rounded-md rder border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </div>
           )}
@@ -203,7 +191,7 @@ export function EmployeeModal({
             autoComplete="name"
           />
 
-          <label className="mt-3 block tex-medium text-zinc-700">
+          <label className="mt-3 block text-sm font-medium text-zinc-700">
             {mode === "create" ? "Password" : "New password (optional)"}
           </label>
           <input
@@ -213,53 +201,54 @@ export function EmployeeModal({
             disabled={saving}
             placeholder={mode === "create" ? "••••••" : "leave empty to keep current"}
             type="password"
-            autoComplete={mode === "create" ? "new-password" : "new-password"}
+            autoComplete="new-password"
           />
 
           <label className="mt-3 block text-sm font-medium text-zinc-700">Role</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={role}
-            onChange={(e) => setRole(e.target.value as any)}
+            onChange={(e) => setRole(e.target.value as Employee["role"])}
             disabled={saving}
           >
-            <option value="MANAGER">USER</option>
+            <option value="USER">USER</option>
             <option value="LEAD">LEAD</option>
             <option value="ADMIN">ADMIN</option>
           </select>
-        </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-5 py-4">
-          <div>
-            {canDelete && (
+          <div className="mt-5 flex items-center justify-between">
+            <div>
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={() => void remove()}
+                  disabled={saving}
+                  className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              ) : null}
+            </div>
+
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={remove}
+                onClick={onClose}
                 disabled={saving}
-                className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Delete
+                Cancel
               </button>
-            )}
-          </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={saving}
-              className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving}
+                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

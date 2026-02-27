@@ -1,5 +1,5 @@
 import { IsBoolean, IsIn, IsOptional, IsString } from "class-validator";
-import { NpDeliveryType, NpRecipientType } from "@prisma/client";
+import type { NpDeliveryType, NpRecipientType } from "@prisma/client";
 
 export class CreateProfileDto {
   @IsOptional()

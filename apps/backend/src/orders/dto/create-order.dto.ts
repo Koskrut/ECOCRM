@@ -1,45 +1,68 @@
 import { DeliveryMethod, PaymentMethod } from "@prisma/client";
-import { ValidationError, validateString, validateOptionalNumber } from "../../common/validation";
+import { Type } from "class-transformer";
+import {
+  IsEnum,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from "class-validator";
 
-export type CreateOrderDto = {
-  ownerId: string;
+export class DeliveryDataDto {
+  @IsString()
+  recipientName!: string;
+
+  @IsString()
+  recipientPhone!: string;
+
+  @IsString()
+  city!: string;
+
+  @IsString()
+  warehouse!: string;
+}
+
+export class CreateOrderDto {
+  /** Optional when request is authenticated; then ownerId = current user. */
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+
+  @IsOptional()
+  @IsString()
   companyId?: string | null;
+
+  @IsOptional()
+  @IsString()
   clientId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  contactId?: string | null;
+
+  @IsOptional()
+  @IsString()
   comment?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
   discountAmount?: number;
 
-  // ТЕ САМЫЕ ПОЛЯ, КОТОРЫХ НЕ ХВАТАЛО:
+  @IsOptional()
+  @IsEnum(DeliveryMethod)
   deliveryMethod?: DeliveryMethod;
+
+  @IsOptional()
+  @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
-  deliveryData?: {
-    recipientName: string;
-    recipientPhone: string;
-    city: string;
-    warehouse: string;
-  } | null;
-};
 
-export const validateCreateOrderDto = (payload: CreateOrderDto): ValidationError[] => {
-  const errors: ValidationError[] = [];
-
-  // Базовая валидация
-  validateString(payload.ownerId, "ownerId", errors);
-
-  if (payload.companyId) validateString(payload.companyId, "companyId", errors);
-  if (payload.clientId) validateString(payload.clientId, "clientId", errors);
-
-  validateOptionalNumber(payload.discountAmount, "discountAmount", errors, {
-    min: 0,
-  });
-
-  // Валидация методов (Enum)
-  if (payload.deliveryMethod && !Object.values(DeliveryMethod).includes(payload.deliveryMethod)) {
-    errors.push({ field: "deliveryMethod", message: "invalid delivery method" });
-  }
-
-  if (payload.paymentMethod && !Object.values(PaymentMethod).includes(payload.paymentMethod)) {
-    errors.push({ field: "paymentMethod", message: "invalid payment method" });
-  }
-
-  return errors;
-};
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => DeliveryDataDto)
+  deliveryData?: DeliveryDataDto | null;
+}

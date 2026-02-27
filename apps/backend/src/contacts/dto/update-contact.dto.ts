@@ -1,4 +1,5 @@
-import { ValidationError, validateString, validateBoolean } from "../../common/validation";
+import type { ValidationError } from "../../common/validation";
+import { validateString, validateBoolean } from "../../common/validation";
 
 export type UpdateContactDto = {
   companyId?: string | null; // Разрешаем null

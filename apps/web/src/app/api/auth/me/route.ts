@@ -1,7 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+import { API_URL } from "@/lib/api/config";
 
 export async function GET() {
   const token = (await cookies()).get("token")?.value;

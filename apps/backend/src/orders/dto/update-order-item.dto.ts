@@ -1,4 +1,5 @@
-import { ValidationError, validateOptionalNumber } from "../../common/validation";
+import type { ValidationError } from "../../common/validation";
+import { validateOptionalNumber } from "../../common/validation";
 
 export type UpdateOrderItemDto = {
   qty?: number;

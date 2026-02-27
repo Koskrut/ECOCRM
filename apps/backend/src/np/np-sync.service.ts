@@ -1,6 +1,7 @@
 // src/np/np-sync.service.ts
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
 import { NpClient } from "./np-client.service";
 
 type NpCityDto = {
@@ -38,7 +39,7 @@ export class NpSyncService {
   private streetsSyncLocks = new Map<string, Promise<void>>(); // cityRef -> running promise
 
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaService,
     private readonly np: NpClient,
   ) {}
 
@@ -204,7 +205,7 @@ export class NpSyncService {
           ? { isPostomat: false }
           : {};
 
-    const where: any = {
+    const where: Prisma.NpWarehouseWhereInput = {
       cityRef,
       isActive: true,
       ...typeFilter,

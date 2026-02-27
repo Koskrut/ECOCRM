@@ -1,4 +1,4 @@
-import { OrderStatus } from "@prisma/client";
+import type { DeliveryMethod, OrderStatus, PaymentMethod } from "@prisma/client";
 
 export type OrderCompany = {
   id: string;
@@ -48,9 +48,9 @@ export type Order = {
 
   comment?: string;
 
-  deliveryMethod?: any;
-  paymentMethod?: any;
-  deliveryData?: any;
+  deliveryMethod?: DeliveryMethod | null;
+  paymentMethod?: PaymentMethod | null;
+  deliveryData?: Record<string, unknown> | null;
 
   createdAt: string;
   updatedAt: string;

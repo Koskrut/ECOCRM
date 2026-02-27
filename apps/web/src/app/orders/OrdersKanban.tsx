@@ -1,5 +1,6 @@
 "use client";
 
+import { apiHttp } from "../../lib/api/client";
 import { useEffect, useMemo, useState } from "react";
 
 type OrderStatus =
@@ -102,10 +103,8 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`/api/orders/board`, { cache: "no-store" });
-      const text = await r.text();
-      if (!r.ok) throw new Error(text || `Failed (${r.status})`);
-      setList(text ? (JSON.parse(text) as OrdersListResponse) : { items: [] });
+      const res = await apiHttp.get<OrdersListResponse>("/orders/board");
+      setList(res.data ?? { items: [] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load board");
       setList(null);
@@ -119,15 +118,8 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
   }, []);
 
   const patchStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
-    const r = await fetch(`/api/orders/${orderId}/status`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, reason }),
-    });
-
-    const text = await r.text();
-    if (!r.ok) throw new Error(text || `Failed (${r.status})`);
-    return text ? JSON.parse(text) : null;
+    const res = await apiHttp.patch(`/orders/${orderId}/status`, { status, reason });
+    return res.data ?? null;
   };
 
   const moveLocal = (orderId: string, to: OrderStatus) => {

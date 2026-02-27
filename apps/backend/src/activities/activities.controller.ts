@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
-import { ActivityType } from "@prisma/client";
-import { Request } from "express";
-import { AuthUser } from "../auth/auth.types";
+import type { ActivityType } from "@prisma/client";
+import type { Request } from "express";
+import type { AuthUser } from "../auth/auth.types";
 import { ActivitiesService } from "./activities.service";
 
 type CreateBody = {
@@ -17,8 +17,8 @@ export class ActivitiesController {
 
   // -------- ORDER --------
   @Get("/orders/:id/activities")
-  async listForOrder(@Param("id") id: string) {
-    const items = await this.activitiesService.listForOrder(id);
+  async listForOrder(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const items = await this.activitiesService.listForOrder(id, req.user);
     return { items };
   }
 
@@ -35,8 +35,8 @@ export class ActivitiesController {
 
   // -------- CONTACT --------
   @Get("/contacts/:id/activities")
-  async listForContact(@Param("id") id: string) {
-    const items = await this.activitiesService.listForContact(id);
+  async listForContact(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const items = await this.activitiesService.listForContact(id, req.user);
     return { items };
   }
 

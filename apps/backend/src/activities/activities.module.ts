@@ -1,18 +1,11 @@
 import { Module } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { createPrismaClient } from "../common/prisma";
 import { ActivitiesController } from "./activities.controller";
 import { ActivitiesService } from "./activities.service";
+import { PrismaModule } from "../prisma/prisma.module";
 
 @Module({
+  imports: [PrismaModule],
   controllers: [ActivitiesController],
-  providers: [
-    ActivitiesService,
-    {
-      provide: PrismaClient,
-      useFactory: createPrismaClient,
-    },
-  ],
-  exports: [ActivitiesService],
+  providers: [ActivitiesService],
 })
 export class ActivitiesModule {}

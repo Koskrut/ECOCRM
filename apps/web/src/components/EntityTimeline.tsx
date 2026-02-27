@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 
 export type TimelineItem = {
   id: string;
@@ -15,34 +16,44 @@ type Props = {
   id: string;
 };
 
+type Resp = { items?: TimelineItem[] } | TimelineItem[];
+
+function getErrMsg(e: unknown, fallback: string) {
+  const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
+}
+
 export function EntityTimeline({ entity, id }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`/api/${entity}/${id}/activities`, { cache: "no-store" });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
-      const data = JSON.parse(t) as { items?: TimelineItem[] } | TimelineItem[];
-      const list = Array.isArray(data) ? data : (data.items ?? []);
+      const res = await apiHttp.get<Resp>(`/api/${entity}/${id}/activities`, {
+        headers: { "Cache-Control": "no-store" },
+      });
+      const data = res.data;
+      const list = Array.isArray(data) ? data : (data?.items ?? []);
       setItems(list);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load timeline");
+      setErr(getErrMsg(e, "Failed to load timeline"));
       setItems([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [entity, id]);
 
   useEffect(() => {
     if (!id) return;
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, load]);
 
   if (loading) return <div className="text-sm text-zinc-500">Loading timeline…</div>;
   if (err) return <div className="text-sm text-red-600">{err}</div>;

@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import type { UserRole } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async listUsers() {
     return this.prisma.user.findMany({ orderBy: { createdAt: "desc" } });
@@ -28,13 +30,11 @@ export class UsersService {
 
     return this.prisma.user.create({
       data: {
-        passwordHashValue,
-        fullName: payload.fullName ?? null,
-        firstName: payload.firstName ?? null,
-        lastName: payload.lastName ?? null,
-        role: (payload.role as any) ?? undefined,
-        isActive: payload.isActive ?? true,
-      } as any,
+        email: payload.email,
+        passwordHash: passwordHashValue,
+        fullName: payload.fullName ?? "",
+        role: (payload.role as UserRole) ?? undefined,
+      },
     });
   }
 
@@ -51,12 +51,9 @@ export class UsersService {
   ) {
     if (!id) throw new BadRequestException("id is required");
 
-    const data: any = {
+    const data: Prisma.UserUpdateInput = {
       email: payload.email ?? undefined,
       fullName: payload.fullName ?? undefined,
-      firstName: payload.firstName ?? undefined,
-      lastName: payload.lastName ?? undefined,
-      isActive: payload.isActive ?? undefined,
     };
 
     if (payload.password !== undefined) {
@@ -75,7 +72,7 @@ export class UsersService {
 
     return this.prisma.user.update({
       where: { id },
-      data: { role: role as any } as any,
+      data: { role: role as UserRole },
     });
   }
 

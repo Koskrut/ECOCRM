@@ -1,7 +1,7 @@
 import { Controller, Post } from "@nestjs/common";
 import { Roles } from "../auth/roles.decorator";
 import { UserRole } from "@prisma/client";
-import { NpSyncService } from "./np-sync.service";
+import type { NpSyncService } from "./np-sync.service";
 
 @Controller("np")
 export class NpSyncController {

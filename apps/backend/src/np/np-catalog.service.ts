@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import type { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class NpCatalogService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async searchCities(query: string) {
     return this.prisma.npCity.findMany({

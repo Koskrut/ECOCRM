@@ -1,9 +1,12 @@
 // src/np/np-ttn.service.ts
 
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
 import { NpClient } from "./np-client.service";
-import { CreateNpTtnDto, NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
+import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
+import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
+import { Prisma } from "@prisma/client";
+import type { Carrier, OrderStatus as PrismaOrderStatus } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
 
 type SenderCache = {
   senderCityRef: string;
@@ -29,7 +32,7 @@ export class NpTtnService {
   private senderCache: SenderCache | null = null;
 
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaService,
     private readonly np: NpClient,
   ) {}
 
@@ -73,16 +76,18 @@ export class NpTtnService {
     });
 
     // 3) create document
-    let doc: any;
+    let doc: unknown;
     try {
-      doc = await this.np.call<any>("InternetDocument", "save", payload);
-    } catch (e: any) {
-      throw new BadRequestException(`NP error: ${e?.message || e}`);
+      doc = await this.np.call<Record<string, unknown>>("InternetDocument", "save", payload);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new BadRequestException(`NP error: ${msg}`);
     }
 
-    const docData = doc?.data?.[0];
+    const docObj = doc as { data?: Array<Record<string, unknown>>; errors?: string[] };
+    const docData = docObj?.data?.[0];
     if (!docData?.IntDocNumber) {
-      const errors = Array.isArray(doc?.errors) ? doc.errors.join("; ") : "";
+      const errors = Array.isArray(docObj?.errors) ? docObj.errors.join("; ") : "";
       throw new BadRequestException(
         `NP: no IntDocNumber in response${errors ? `. Errors: ${errors}` : ""}`,
       );
@@ -92,19 +97,28 @@ export class NpTtnService {
     const saved = await this.prisma.orderTtn.create({
       data: {
         orderId: order.id,
-        carrier: "NOVA_POSHTA" as any,
-        documentNumber: docData.IntDocNumber,
-        documentRef: docData.Ref || null,
-        cost: docData.CostOnSite ? Number(docData.CostOnSite) : null,
-        payloadSnapshot: { request: payload, response: doc },
+        carrier: "NOVA_POSHTA" as Carrier,
+        documentNumber: String(docData.IntDocNumber ?? ""),
+        documentRef: docData.Ref != null ? String(docData.Ref) : null,
+        cost: docData.CostOnSite != null ? Number(docData.CostOnSite) : null,
+        payloadSnapshot: { request: payload, response: doc } as Prisma.InputJsonValue,
       },
     });
 
     // 4.5) persist TTN into Order.deliveryData (+ move NEW -> IN_WORK)
-    await this.persistOrderDeliveryDataWithTtn(order, resolved, saved);
+    await this.persistOrderDeliveryDataWithTtn(
+      order,
+      resolved as { data: Record<string, unknown> },
+      saved,
+    );
 
     // 5) persist profile updates (including NP refs)
-    await this.upsertShippingProfile(contactId, dto, resolved, npRefs);
+    await this.upsertShippingProfile(
+      contactId,
+      dto,
+      resolved as { data: Record<string, unknown> },
+      npRefs,
+    );
 
     return {
       ttnId: saved.id,
@@ -189,7 +203,7 @@ export class NpTtnService {
         `Sender warehouseRef city mismatch: wh.cityRef=${wh.cityRef} vs NP_SENDER_CITY_REF=${senderCityRef}`,
       );
     }
-    if ((wh as any).isPostomat) {
+    if ((wh as Record<string, unknown>).isPostomat) {
       throw new BadRequestException(
         "Sender warehouseRef points to postomat. Use real warehouse ref.",
       );
@@ -201,7 +215,9 @@ export class NpTtnService {
       senderCounterpartyRef,
       senderContactRef,
       senderPhone: this.normalizeNpPhone(senderPhoneEnv),
-      senderAddressName: (wh as any).shortAddress ?? wh.description,
+      senderAddressName: String(
+        (wh as Record<string, unknown>).shortAddress ?? wh.description ?? "",
+      ),
     };
 
     this.senderCache = cache;
@@ -219,8 +235,8 @@ export class NpTtnService {
   // ======================================
   // Recipient: counterparty/contact/address
   // ======================================
-  private async ensureNpRecipientRefs(resolved: any) {
-    const d = resolved.data;
+  private async ensureNpRecipientRefs(resolved: { data: unknown }) {
+    const d = resolved.data as Record<string, unknown>;
 
     const refs = {
       counterpartyRef: d.npCounterpartyRef as string | undefined,
@@ -233,7 +249,7 @@ export class NpTtnService {
       const isPerson = d.recipientType === NpRecipientType.PERSON;
       if (!d.cityRef) throw new BadRequestException("Recipient cityRef is required");
 
-      const cp = await this.np.call<any>("Counterparty", "save", {
+      const cp = await this.np.call<Record<string, unknown>>("Counterparty", "save", {
         CounterpartyProperty: "Recipient",
         CounterpartyType: isPerson ? "PrivatePerson" : "Organization",
         CityRef: d.cityRef,
@@ -242,14 +258,15 @@ export class NpTtnService {
         FirstName: isPerson ? d.firstName : undefined,
         LastName: isPerson ? d.lastName : undefined,
         MiddleName: isPerson ? d.middleName : undefined,
-        Phone: isPerson ? this.normalizeNpPhone(d.phone) : undefined,
+        Phone: isPerson ? this.normalizeNpPhone(String(d.phone ?? "")) : undefined,
 
         // COMPANY
         Description: !isPerson ? d.companyName : undefined,
         EDRPOU: !isPerson ? d.edrpou : undefined,
       });
 
-      refs.counterpartyRef = cp?.data?.[0]?.Ref;
+      const cpData = (cp as { data?: Array<{ Ref?: unknown }> })?.data?.[0];
+      refs.counterpartyRef = cpData?.Ref != null ? String(cpData.Ref) : undefined;
       if (!refs.counterpartyRef) {
         throw new BadRequestException("NP: Counterparty.save did not return Ref");
       }
@@ -259,10 +276,12 @@ export class NpTtnService {
     if (!refs.contactPersonRef) {
       const isPerson = d.recipientType === NpRecipientType.PERSON;
 
-      const firstName = isPerson ? d.firstName : d.contactPersonFirstName;
-      const lastName = isPerson ? d.lastName : d.contactPersonLastName;
-      const middleName = isPerson ? d.middleName : d.contactPersonMiddleName;
-      const phone = isPerson ? d.phone : d.contactPersonPhone;
+      const firstName = (isPerson ? d.firstName : d.contactPersonFirstName) as string | undefined;
+      const lastName = (isPerson ? d.lastName : d.contactPersonLastName) as string | undefined;
+      const middleName = (isPerson ? d.middleName : d.contactPersonMiddleName) as
+        | string
+        | undefined;
+      const phone = (isPerson ? d.phone : d.contactPersonPhone) as string | undefined;
 
       if (!firstName || !lastName || !phone) {
         throw new BadRequestException(
@@ -270,7 +289,7 @@ export class NpTtnService {
         );
       }
 
-      const cp = await this.np.call<any>("ContactPerson", "save", {
+      const cp = await this.np.call<Record<string, unknown>>("ContactPerson", "save", {
         CounterpartyRef: refs.counterpartyRef,
         FirstName: firstName,
         LastName: lastName,
@@ -278,7 +297,8 @@ export class NpTtnService {
         Phone: this.normalizeNpPhone(phone),
       });
 
-      refs.contactPersonRef = cp?.data?.[0]?.Ref;
+      const cpDataContact = (cp as { data?: Array<{ Ref?: unknown }> })?.data?.[0];
+      refs.contactPersonRef = cpDataContact?.Ref != null ? String(cpDataContact.Ref) : undefined;
       if (!refs.contactPersonRef) {
         throw new BadRequestException("NP: ContactPerson.save did not return Ref");
       }
@@ -290,7 +310,7 @@ export class NpTtnService {
         throw new BadRequestException("For ADDRESS delivery streetRef and building are required");
       }
 
-      const adr = await this.np.call<any>("Address", "save", {
+      const adr = await this.np.call<Record<string, unknown>>("Address", "save", {
         CounterpartyRef: refs.counterpartyRef,
         StreetRef: d.streetRef,
         BuildingNumber: d.building,
@@ -298,7 +318,8 @@ export class NpTtnService {
         Note: "CRM",
       });
 
-      refs.addressRef = adr?.data?.[0]?.Ref;
+      const adrData = (adr as { data?: Array<{ Ref?: unknown }> })?.data?.[0];
+      refs.addressRef = adrData?.Ref != null ? String(adrData.Ref) : undefined;
       if (!refs.addressRef) {
         throw new BadRequestException("NP: Address.save did not return Ref");
       }
@@ -310,9 +331,13 @@ export class NpTtnService {
   // ==========================
   // InternetDocument.save body
   // ==========================
-  private async buildInternetDocumentPayload(args: any) {
+  private async buildInternetDocumentPayload(args: {
+    dto: CreateNpTtnDto;
+    resolved: { data: unknown };
+    npRefs: Record<string, unknown>;
+  }) {
     const { dto, resolved, npRefs } = args;
-    const d = resolved.data;
+    const d = resolved.data as Record<string, unknown>;
 
     const sender = await this.getSenderRefsFromEnv();
     if (!d.phone) throw new BadRequestException("Recipient phone is required");
@@ -343,22 +368,25 @@ export class NpTtnService {
 
     if (isAddress) {
       if (!d.cityRef) throw new BadRequestException("Recipient cityRef is required for ADDRESS");
-      cityRecipient = d.cityRef;
-      recipientAddressName = `${d.streetName ?? ""} ${d.building ?? ""}`.trim() || "Address";
+      cityRecipient = String(d.cityRef);
+      recipientAddressName =
+        `${String(d.streetName ?? "")} ${String(d.building ?? "")}`.trim() || "Address";
     } else {
       if (!d.warehouseRef)
         throw new BadRequestException("WAREHOUSE/POSTOMAT: warehouseRef is required");
 
-      const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: d.warehouseRef } });
+      const whRef = String(d.warehouseRef ?? "");
+      const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: whRef } });
       if (!wh) throw new BadRequestException("warehouseRef not found in cache (NpWarehouse)");
 
       // enrich for later persistence/profile save
       d.cityRef = wh.cityRef;
-      d.warehouseNumber = String((wh as any).number ?? "");
-      d.warehouseType = (wh as any).isPostomat ? "POSTOMAT" : "WAREHOUSE";
+      const whExt = wh as Record<string, unknown>;
+      d.warehouseNumber = String(whExt.number ?? "");
+      d.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
 
       cityRecipient = wh.cityRef;
-      recipientAddressName = (wh as any).shortAddress ?? wh.description;
+      recipientAddressName = String(whExt.shortAddress ?? wh.description ?? "");
 
       if (!d.cityName) {
         const city = await this.prisma.npCity.findUnique({ where: { ref: wh.cityRef } });
@@ -393,16 +421,16 @@ export class NpTtnService {
 
       // Recipient
       CityRecipient: cityRecipient,
-      Recipient: npRefs.counterpartyRef,
-      ContactRecipient: npRefs.contactPersonRef,
-      RecipientsPhone: this.normalizeNpPhone(d.phone),
+      Recipient: String(npRefs.counterpartyRef ?? ""),
+      ContactRecipient: String(npRefs.contactPersonRef ?? ""),
+      RecipientsPhone: this.normalizeNpPhone(String(d.phone ?? "")),
 
-      RecipientAddress: recipientAddress,
-      RecipientAddressName: recipientAddressName,
+      RecipientAddress: String(recipientAddress ?? ""),
+      RecipientAddressName: recipientAddressName ?? "",
 
       ...(parcels.length
         ? {
-            OptionsSeat: parcels.map((p: any, idx: number) => ({
+            OptionsSeat: parcels.map((p: NpParcelDto, idx: number) => ({
               number: String(idx + 1),
               weight: String(p.weight),
               volumetricWidth: p.width != null ? String(p.width) : undefined,
@@ -416,7 +444,7 @@ export class NpTtnService {
     };
   }
 
-  private calcTotalsFromParcels(parcels: any[]) {
+  private calcTotalsFromParcels(parcels: NpParcelDto[]) {
     let weight = 0;
     let volume = 0;
     for (const p of parcels) {
@@ -429,7 +457,7 @@ export class NpTtnService {
     return { weight, volume };
   }
 
-  private calcVolume(p: any) {
+  private calcVolume(p: NpParcelDto) {
     const w = Number(p?.width ?? 0);
     const l = Number(p?.length ?? 0);
     const h = Number(p?.height ?? 0);
@@ -443,10 +471,10 @@ export class NpTtnService {
   private async upsertShippingProfile(
     contactId: string,
     dto: CreateNpTtnDto,
-    resolved: any,
-    npRefs: any,
+    resolved: { data: unknown },
+    npRefs: Record<string, unknown>,
   ) {
-    const d = resolved.data;
+    const d = resolved.data as Record<string, unknown>;
 
     const shouldSave = dto.saveAsProfile ?? true;
     if (!shouldSave) return;
@@ -460,38 +488,41 @@ export class NpTtnService {
           ? "Поштомат"
           : "Отделение");
 
-    const profileData = {
-      label,
+    const profileData: Omit<Prisma.ContactShippingProfileUncheckedCreateInput, "contactId"> = {
+      label: String(label ?? ""),
       recipientType: d.recipientType as NpRecipientType,
       deliveryType: d.deliveryType as NpDeliveryType,
 
-      firstName: d.firstName ?? null,
-      lastName: d.lastName ?? null,
-      middleName: d.middleName ?? null,
-      phone: d.phone ?? null,
+      firstName: d.firstName != null ? String(d.firstName) : null,
+      lastName: d.lastName != null ? String(d.lastName) : null,
+      middleName: d.middleName != null ? String(d.middleName) : null,
+      phone: d.phone != null ? String(d.phone) : null,
 
-      companyName: d.companyName ?? null,
-      edrpou: d.edrpou ?? null,
-      contactPersonFirstName: d.contactPersonFirstName ?? null,
-      contactPersonLastName: d.contactPersonLastName ?? null,
-      contactPersonMiddleName: d.contactPersonMiddleName ?? null,
-      contactPersonPhone: d.contactPersonPhone ?? null,
+      companyName: d.companyName != null ? String(d.companyName) : null,
+      edrpou: d.edrpou != null ? String(d.edrpou) : null,
+      contactPersonFirstName:
+        d.contactPersonFirstName != null ? String(d.contactPersonFirstName) : null,
+      contactPersonLastName:
+        d.contactPersonLastName != null ? String(d.contactPersonLastName) : null,
+      contactPersonMiddleName:
+        d.contactPersonMiddleName != null ? String(d.contactPersonMiddleName) : null,
+      contactPersonPhone: d.contactPersonPhone != null ? String(d.contactPersonPhone) : null,
 
-      cityRef: d.cityRef ?? null,
-      cityName: d.cityName ?? null,
+      cityRef: d.cityRef != null ? String(d.cityRef) : null,
+      cityName: d.cityName != null ? String(d.cityName) : null,
 
-      warehouseRef: d.warehouseRef ?? null,
-      warehouseNumber: d.warehouseNumber ?? null,
-      warehouseType: d.warehouseType ?? null,
+      warehouseRef: d.warehouseRef != null ? String(d.warehouseRef) : null,
+      warehouseNumber: d.warehouseNumber != null ? String(d.warehouseNumber) : null,
+      warehouseType: d.warehouseType != null ? String(d.warehouseType) : null,
 
-      streetRef: d.streetRef ?? null,
-      streetName: d.streetName ?? null,
-      building: d.building ?? null,
-      flat: d.flat ?? null,
+      streetRef: d.streetRef != null ? String(d.streetRef) : null,
+      streetName: d.streetName != null ? String(d.streetName) : null,
+      building: d.building != null ? String(d.building) : null,
+      flat: d.flat != null ? String(d.flat) : null,
 
-      npCounterpartyRef: npRefs.counterpartyRef ?? null,
-      npContactPersonRef: npRefs.contactPersonRef ?? null,
-      npAddressRef: npRefs.addressRef ?? null,
+      npCounterpartyRef: npRefs.counterpartyRef != null ? String(npRefs.counterpartyRef) : null,
+      npContactPersonRef: npRefs.contactPersonRef != null ? String(npRefs.contactPersonRef) : null,
+      npAddressRef: npRefs.addressRef != null ? String(npRefs.addressRef) : null,
     };
 
     if (dto.profileId) {
@@ -510,16 +541,28 @@ export class NpTtnService {
   // ======================
   // Persist TTN to Order.deliveryData (+ move NEW -> IN_WORK)
   // ======================
-  private async persistOrderDeliveryDataWithTtn(order: any, resolved: any, saved: any) {
+  private async persistOrderDeliveryDataWithTtn(
+    order: { id: string; status: string; deliveryData?: unknown },
+    resolved: { data: Record<string, unknown> },
+    saved: {
+      documentNumber: string;
+      documentRef: string | null;
+      cost: number | null;
+      createdAt: Date;
+    },
+  ) {
     const d = resolved.data;
 
     // enrich for WAREHOUSE/POSTOMAT
     if (d.deliveryType !== NpDeliveryType.ADDRESS && d.warehouseRef) {
-      const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: d.warehouseRef } });
+      const wh = await this.prisma.npWarehouse.findUnique({
+        where: { ref: String(d.warehouseRef) },
+      });
       if (wh) {
         d.cityRef = wh.cityRef;
-        d.warehouseNumber = String((wh as any).number ?? "");
-        d.warehouseType = (wh as any).isPostomat ? "POSTOMAT" : "WAREHOUSE";
+        const whExt = wh as Record<string, unknown>;
+        d.warehouseNumber = String(whExt.number ?? "");
+        d.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
         if (!d.cityName) {
           const city = await this.prisma.npCity.findUnique({ where: { ref: wh.cityRef } });
           d.cityName = city?.description ?? null;
@@ -527,8 +570,8 @@ export class NpTtnService {
       }
     }
 
-    const prev = (order as any).deliveryData ?? {};
-    const prevNp = prev?.novaPoshta ?? {};
+    const prev = (order.deliveryData as Record<string, unknown>) ?? {};
+    const prevNp = (prev?.novaPoshta ?? {}) as Record<string, unknown>;
 
     const nextDeliveryData = {
       ...prev,
@@ -538,17 +581,17 @@ export class NpTtnService {
         recipientType: d.recipientType ?? null,
         deliveryType: d.deliveryType ?? null,
 
-        cityRef: d.cityRef ?? null,
-        cityName: d.cityName ?? null,
+        cityRef: d.cityRef != null ? String(d.cityRef) : null,
+        cityName: d.cityName != null ? String(d.cityName) : null,
 
-        warehouseRef: d.warehouseRef ?? null,
-        warehouseNumber: d.warehouseNumber ?? null,
-        warehouseType: d.warehouseType ?? null,
+        warehouseRef: d.warehouseRef != null ? String(d.warehouseRef) : null,
+        warehouseNumber: d.warehouseNumber != null ? String(d.warehouseNumber) : null,
+        warehouseType: d.warehouseType != null ? String(d.warehouseType) : null,
 
-        streetRef: d.streetRef ?? null,
-        streetName: d.streetName ?? null,
-        building: d.building ?? null,
-        flat: d.flat ?? null,
+        streetRef: d.streetRef != null ? String(d.streetRef) : null,
+        streetName: d.streetName != null ? String(d.streetName) : null,
+        building: d.building != null ? String(d.building) : null,
+        flat: d.flat != null ? String(d.flat) : null,
 
         ttn: {
           number: saved.documentNumber,
@@ -562,7 +605,7 @@ export class NpTtnService {
     await this.prisma.order.update({
       where: { id: order.id },
       data: {
-        deliveryData: nextDeliveryData as any,
+        deliveryData: nextDeliveryData as Prisma.InputJsonValue,
         ...(order.status === "NEW" ? { status: "IN_WORK" } : {}),
       },
     });
@@ -573,7 +616,7 @@ export class NpTtnService {
   // ======================
   async getTtnStatusByOrderId(orderId: string, opts?: { sync?: boolean }) {
     const last = await this.prisma.orderTtn.findFirst({
-      where: { orderId, carrier: "NOVA_POSHTA" as any },
+      where: { orderId, carrier: "NOVA_POSHTA" as Carrier },
       orderBy: { createdAt: "desc" },
     });
 
@@ -600,16 +643,22 @@ export class NpTtnService {
       ],
     };
 
-    let resp: any;
+    let resp: unknown;
     try {
-      resp = await this.np.call<any>("TrackingDocument", "getStatusDocuments", payload);
-    } catch (e: any) {
-      throw new BadRequestException(`NP status error: ${e?.message || e}`);
+      resp = await this.np.call<Record<string, unknown>>(
+        "TrackingDocument",
+        "getStatusDocuments",
+        payload,
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new BadRequestException(`NP status error: ${msg}`);
     }
 
-    const row = resp?.data?.[0];
+    const respObj = resp as { data?: unknown[]; errors?: string[] };
+    const row = respObj?.data?.[0] as Record<string, unknown> | undefined;
     if (!row) {
-      const errors = Array.isArray(resp?.errors) ? resp.errors.join("; ") : "";
+      const errors = Array.isArray(respObj?.errors) ? respObj.errors.join("; ") : "";
       throw new BadRequestException(
         `NP status: empty response${errors ? `. Errors: ${errors}` : ""}`,
       );
@@ -623,10 +672,10 @@ export class NpTtnService {
         statusText: row?.Status != null ? String(row.Status) : null,
         estimatedDeliveryDate: this.tryParseNpDateTime(row?.ScheduledDeliveryDate) ?? null,
         payloadSnapshot: {
-          ...(last.payloadSnapshot as any),
+          ...(last.payloadSnapshot as Record<string, unknown>),
           statusRequest: payload,
           statusResponse: resp,
-        } as any,
+        } as Prisma.InputJsonValue,
       },
     });
 
@@ -645,12 +694,12 @@ export class NpTtnService {
     // Берем заказы с ТТН, которые еще не финальные
     const orders = await this.prisma.order.findMany({
       where: {
-        deliveryMethod: "NOVA_POSHTA" as any,
-        status: { notIn: ["SUCCESS", "CANCELED", "RETURNING"] as any },
+        deliveryMethod: "NOVA_POSHTA" as Carrier,
+        status: { notIn: ["SUCCESS", "CANCELED", "RETURNING"] as PrismaOrderStatus[] },
         deliveryData: {
           path: ["novaPoshta", "ttn", "number"],
-          not: null,
-        } as any,
+          not: Prisma.JsonNull,
+        },
       },
       orderBy: { updatedAt: "desc" },
       take: limit,
@@ -660,7 +709,10 @@ export class NpTtnService {
     const docs = orders
       .map((o) => ({
         orderId: o.id,
-        ttn: (o as any)?.deliveryData?.novaPoshta?.ttn?.number as string | undefined,
+        ttn: (
+          ((o.deliveryData as Record<string, unknown>)?.novaPoshta as Record<string, unknown>)
+            ?.ttn as Record<string, unknown>
+        )?.number as string | undefined,
       }))
       .filter((x) => !!x.ttn) as Array<{ orderId: string; ttn: string }>;
 
@@ -683,12 +735,16 @@ export class NpTtnService {
     for (const chunk of chunks) {
       checked += chunk.length;
 
-      const resp = await this.np.call<any>("TrackingDocument", "getStatusDocuments", {
-        Documents: chunk.map((x) => ({ DocumentNumber: x.ttn })),
-      });
+      const resp = await this.np.call<Record<string, unknown>>(
+        "TrackingDocument",
+        "getStatusDocuments",
+        {
+          Documents: chunk.map((x) => ({ DocumentNumber: x.ttn })),
+        },
+      );
 
       const arr = Array.isArray(resp?.data) ? resp.data : [];
-      const byNumber = new Map<string, any>();
+      const byNumber = new Map<string, Record<string, unknown>>();
       for (const s of arr) if (s?.Number) byNumber.set(String(s.Number), s);
 
       for (const item of chunk) {
@@ -783,7 +839,7 @@ export class NpTtnService {
   // ======================
   // PRIVATE: persist NP tracking status & map to order.status
   // ======================
-  private async persistOrderNpStatus(orderId: string, status: any) {
+  private async persistOrderNpStatus(orderId: string, status: Record<string, unknown>) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: {
@@ -802,9 +858,9 @@ export class NpTtnService {
     if (!order) return false;
 
     // Самовывоз: НП не трогаем (и не делаем auto SUCCESS тут)
-    if ((order as any).deliveryMethod === "PICKUP") return true;
+    if (order.deliveryMethod === "PICKUP") return true;
 
-    const prev = (order as any).deliveryData ?? {};
+    const prev = (order.deliveryData as Record<string, unknown>) ?? {};
     const prevNp = prev?.novaPoshta ?? {};
 
     const nextDeliveryData = {
@@ -817,19 +873,21 @@ export class NpTtnService {
 
     const currentStatus = String(order.status) as OrderStatus;
     const mapped = this.mapNpToOrderStatus({
-      npCode: status?.StatusCode,
-      npText: status?.Status,
+      npCode: status?.StatusCode != null ? String(status.StatusCode) : undefined,
+      npText: status?.Status != null ? String(status.Status) : undefined,
       debtAmount: order.debtAmount,
     });
 
-    const updateData: any = { deliveryData: nextDeliveryData as any };
+    const updateData: Prisma.OrderUpdateInput = {
+      deliveryData: nextDeliveryData as Prisma.InputJsonValue,
+    };
 
     if (
       mapped &&
       mapped !== currentStatus &&
       this.shouldAdvanceOrderStatus(currentStatus, mapped)
     ) {
-      updateData.status = mapped as any;
+      updateData.status = mapped as PrismaOrderStatus;
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -846,7 +904,8 @@ export class NpTtnService {
           data: {
             statusCode: status?.StatusCode != null ? String(status.StatusCode) : null,
             statusText: status?.Status != null ? String(status.Status) : null,
-            estimatedDeliveryDate: this.tryParseNpDateTime(status?.ScheduledDeliveryDate) ?? null,
+            estimatedDeliveryDate:
+              this.tryParseNpDateTime(status?.ScheduledDeliveryDate as unknown) ?? null,
             // updatedAt в Prisma @updatedAt обновится сам на update
           },
         });
@@ -856,7 +915,7 @@ export class NpTtnService {
     return true;
   }
 
-  private tryParseNpDateTime(v: any): Date | null {
+  private tryParseNpDateTime(v: unknown): Date | null {
     // NP часто возвращает "12-02-2026 09:00:00"
     const s = String(v ?? "").trim();
     if (!s) return null;

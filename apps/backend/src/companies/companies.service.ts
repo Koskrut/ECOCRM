@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaClient, Prisma } from "@prisma/client";
-import { Pagination } from "../common/pagination";
-import { CreateCompanyDto } from "./dto/create-company.dto";
-import { UpdateCompanyDto } from "./dto/update-company.dto";
-import { Company } from "./entities/company.entity";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import type { Pagination } from "../common/pagination";
+import type { CreateCompanyDto } from "./dto/create-company.dto";
+import type { UpdateCompanyDto } from "./dto/update-company.dto";
+import type { Company } from "./entities/company.entity";
 
 type ListCompaniesResult = {
   items: Company[];
@@ -12,26 +13,37 @@ type ListCompaniesResult = {
   pageSize: number;
 };
 
+function isPrismaUniqueError(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { code?: string }).code === "P2002";
+}
+
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   public async create(dto: CreateCompanyDto): Promise<Company> {
-    const company = await this.prisma.company.create({
-      data: {
-        name: dto.name,
-        edrpou: dto.edrpou,
-        taxId: dto.taxId,
-      },
-    });
+    try {
+      const company = await this.prisma.company.create({
+        data: {
+          name: dto.name,
+          edrpou: dto.edrpou,
+          taxId: dto.taxId,
+        },
+      });
 
-    return {
-      ...company,
-      edrpou: company.edrpou ?? undefined,
-      taxId: company.taxId ?? undefined,
-      createdAt: company.createdAt.toISOString(),
-      updatedAt: company.updatedAt.toISOString(),
-    };
+      return {
+        ...company,
+        edrpou: company.edrpou ?? undefined,
+        taxId: company.taxId ?? undefined,
+        createdAt: company.createdAt.toISOString(),
+        updatedAt: company.updatedAt.toISOString(),
+      };
+    } catch (e) {
+      if (isPrismaUniqueError(e)) {
+        throw new ConflictException("Company with the same EDRPOU / Tax ID already exists");
+      }
+      throw e;
+    }
   }
 
   public async list(
@@ -106,21 +118,28 @@ export class CompaniesService {
       throw new NotFoundException("Company not found");
     }
 
-    const company = await this.prisma.company.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        edrpou: dto.edrpou,
-        taxId: dto.taxId,
-      },
-    });
+    try {
+      const company = await this.prisma.company.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          edrpou: dto.edrpou,
+          taxId: dto.taxId,
+        },
+      });
 
-    return {
-      ...company,
-      edrpou: company.edrpou ?? undefined,
-      taxId: company.taxId ?? undefined,
-      createdAt: company.createdAt.toISOString(),
-      updatedAt: company.updatedAt.toISOString(),
-    };
+      return {
+        ...company,
+        edrpou: company.edrpou ?? undefined,
+        taxId: company.taxId ?? undefined,
+        createdAt: company.createdAt.toISOString(),
+        updatedAt: company.updatedAt.toISOString(),
+      };
+    } catch (e) {
+      if (isPrismaUniqueError(e)) {
+        throw new ConflictException("Company with the same EDRPOU / Tax ID already exists");
+      }
+      throw e;
+    }
   }
 }

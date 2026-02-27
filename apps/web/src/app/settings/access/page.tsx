@@ -2,14 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { apiHttp } from "../../../lib/api/client";
+
+type UserRole = "ADMIN" | "LEAD" | "MANAGER";
 
 type User = {
   id: string;
   email: string;
   fullName: string;
-  role: "ADMIN" | "LEAD" | "MANAGER";
+  role: UserRole;
   createdAt: string;
 };
+
+type UsersResponse = { items: User[] };
+
+function getApiErrorMessage(e: unknown, fallback: string) {
+  const msg =
+    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
+      ?.message ??
+    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
+
+  if (msg) return msg;
+  return e instanceof Error ? e.message : fallback;
+}
 
 export default function AccessSettingsPage() {
   const [items, setItems] = useState<User[]>([]);
@@ -21,15 +36,10 @@ export default function AccessSettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/users");
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d?.message || `Failed to load users (${res.status})`);
-      }
-      const d = await res.json();
-      setItems(d.items ?? []);
+      const res = await apiHttp.get<UsersResponse>("/users");
+      setItems(res.data?.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(getApiErrorMessage(e, "Failed to load users"));
     } finally {
       setLoading(false);
     }
@@ -39,22 +49,14 @@ export default function AccessSettingsPage() {
     void load();
   }, []);
 
-  async function setRole(userId: string, role: User["role"]) {
+  async function setRole(userId: string, role: UserRole) {
     setSavingId(userId);
     setError(null);
     try {
-      const res = await fetch(`/api/users/${userId}/role`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d?.message || `Failed to update role (${res.status})`);
-      }
+      await apiHttp.patch(`/users/${userId}/role`, { role });
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(getApiErrorMessage(e, "Failed to update role"));
     } finally {
       setSavingId(null);
     }
@@ -71,17 +73,17 @@ export default function AccessSettingsPage() {
           >
             ← Back to Settings
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-zinc-900">Access & Permissions</h1>
+          <h1 className="mt-2 text-2xl font-bold text-zinc-900">Access &amp; Permissions</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Manage employee roles (ADMIN / LEAD / MANAGER)
           </p>
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700 border border-red-100">
+        {error ? (
+          <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-4 text-sm text-red-700">
             {error}
           </div>
-        )}
+        ) : null}
 
         <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
           <table className="w-full text-left text-sm">
@@ -93,6 +95,7 @@ export default function AccessSettingsPage() {
                 <th className="px-6 py-3">Created</th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
                 <tr>
@@ -115,7 +118,7 @@ export default function AccessSettingsPage() {
                       <select
                         value={u.role}
                         disabled={savingId === u.id}
-                        onChange={(e) => void setRole(u.id, e.target.value as User["role"])}
+                        onChange={(e) => void setRole(u.id, e.target.value as UserRole)}
                         className="rounded-md border px-2 py-1 text-sm bg-white"
                       >
                         <option value="ADMIN">ADMIN</option>
@@ -124,7 +127,7 @@ export default function AccessSettingsPage() {
                       </select>
                     </td>
                     <td className="px-6 py-4 text-zinc-600">
-                      {new Date(u.createdAt).toLocaleDateString()}
+                      {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
                     </td>
                   </tr>
                 ))

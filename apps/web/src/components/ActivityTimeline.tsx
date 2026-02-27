@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 
 type Activity = {
   id: string;
@@ -11,15 +12,22 @@ type Activity = {
   authorName?: string | null;
 };
 
-type ActivitiesResponse = {
-  items?: Activity[];
-};
+type ActivitiesResponse = { items?: Activity[] } | Activity[];
 
 function formatDate(iso?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
+}
+
+function getErrMsg(e: unknown, fallback: string) {
+  const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
 }
 
 export function ActivityTimeline({
@@ -38,51 +46,47 @@ export function ActivityTimeline({
   const [note, setNote] = useState("");
   const [posting, setPosting] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`/api/${entity}/${id}/activities`, { cache: "no-store" });
-      const text = await r.text();
-      if (!r.ok) throw new Error(text || `Failed (${r.status})`);
-      const data = JSON.parse(text) as ActivitiesResponse | Activity[];
-      const list = Array.isArray(data) ? data : (data.items ?? []);
+      const res = await apiHttp.get<ActivitiesResponse>(`/api/${entity}/${id}/activities`, {
+        headers: { "Cache-Control": "no-store" },
+      });
+      const data = res.data;
+      const list = Array.isArray(data) ? data : (data?.items ?? []);
       setItems(list);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load timeline");
+      setErr(getErrMsg(e, "Failed to load timeline"));
       setItems([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [entity, id]);
 
   useEffect(() => {
     void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, entity]);
+  }, [load]);
 
-  const addNote = async () => {
+  const addNote = useCallback(async () => {
     const msg = note.trim();
     if (!msg) return;
 
     setPosting(true);
     try {
-      // backend обычно принимает что-то типа { message } / { text } — отправим оба
-      const r = await fetch(`/api/${entity}/${id}/activities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg, text: msg, type: "NOTE" }),
+      await apiHttp.post(`/api/${entity}/${id}/activities`, {
+        message: msg,
+        text: msg,
+        type: "NOTE",
       });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
       setNote("");
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to add note");
+      alert(getErrMsg(e, "Failed to add note"));
     } finally {
       setPosting(false);
     }
-  };
+  }, [entity, id, load, note]);
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-white">
@@ -139,7 +143,7 @@ export function ActivityTimeline({
                     </div>
                     <div className="text-xs text-zinc-500">{formatDate(a.createdAt)}</div>
                   </div>
-                  <div className="mt-2 text-sm text-zinc-900 whitespace-pre-wrap">
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">
                     {a.message ?? a.text ?? "(empty)"}
                   </div>
                 </div>

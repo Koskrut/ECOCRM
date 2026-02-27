@@ -12,10 +12,13 @@ import {
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
 import { normalizePagination } from "../common/pagination";
-import { ValidationError, validateString } from "../common/validation";
+import type { ValidationError } from "../common/validation";
+import { validateString } from "../common/validation";
 import { CompaniesService } from "./companies.service";
-import { CreateCompanyDto, validateCreateCompanyDto } from "./dto/create-company.dto";
-import { UpdateCompanyDto, validateUpdateCompanyDto } from "./dto/update-company.dto";
+import type { CreateCompanyDto } from "./dto/create-company.dto";
+import { validateCreateCompanyDto } from "./dto/create-company.dto";
+import type { UpdateCompanyDto } from "./dto/update-company.dto";
+import { validateUpdateCompanyDto } from "./dto/update-company.dto";
 
 const assertValid = (errors: ValidationError[]): void => {
   if (errors.length === 0) {

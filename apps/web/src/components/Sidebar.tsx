@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { apiHttp } from "../lib/api/client";
 
 type MenuItem = {
   label: string;
   icon: string;
   href: string;
 };
+
+type MeResponse = { user?: { role?: string } };
 
 const baseMenuItems: MenuItem[] = [
   { label: "Orders", icon: "OR", href: "/orders" },
@@ -30,10 +33,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [role, setRole] = useState<string | null>(null);
 
-  const menuItems =
-    role === "ADMIN" ? [...baseMenuItems, employeesItem, settingsItem] : baseMenuItems;
-
-  // Detect mobile on mount
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -42,13 +41,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
+  const menuItems =
+    role === "ADMIN" ? [...baseMenuItems, employeesItem, settingsItem] : baseMenuItems;
+
+  // Detect mobile on mount
   useEffect(() => {
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setRole(d?.user?.role ?? null))
+    apiHttp
+      .get<MeResponse>("/auth/me")
+      .then((res) => setRole(res.data?.user?.role ?? null))
       .catch(() => setRole(null));
   }, []);
-
   // Load collapsed state from localStorage (desktop only)
   useEffect(() => {
     if (typeof window !== "undefined" && !isMobile) {

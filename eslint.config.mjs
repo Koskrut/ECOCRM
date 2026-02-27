@@ -63,4 +63,6 @@ export default [
       "@next/next/no-html-link-for-pages": "off",
     },
   },
+
+  // Backend uses same rules as base (no-explicit-any, consistent-type-imports enabled)
 ];

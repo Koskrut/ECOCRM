@@ -1,7 +1,9 @@
 import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
-import { PrismaClient, User, UserRole } from "@prisma/client";
-import { LoginDto } from "./dto/login.dto";
-import { RegisterDto } from "./dto/register.dto";
+import { PrismaService } from "../prisma/prisma.service";
+import type { User } from "@prisma/client";
+import { UserRole } from "@prisma/client";
+import type { LoginDto } from "./dto/login.dto";
+import type { RegisterDto } from "./dto/register.dto";
 import { signJwt } from "./jwt";
 import { hashPassword, verifyPassword, needsRehash } from "./password";
 
@@ -17,7 +19,7 @@ export type AuthResponse = {
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   public async register(dto: RegisterDto): Promise<AuthResponse> {
     const existing = await this.prisma.user.findUnique({

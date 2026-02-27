@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { ActivityType, PrismaClient } from "@prisma/client";
-import { AuthUser } from "../auth/auth.types";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import type { ActivityType } from "@prisma/client";
+import { UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
+import { PrismaService } from "../prisma/prisma.service";
 
 type CreateActivityBody = {
   type: ActivityType;
@@ -11,10 +13,11 @@ type CreateActivityBody = {
 
 @Injectable()
 export class ActivitiesService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // ---------- ORDER ----------
-  async listForOrder(orderId: string) {
+  async listForOrder(orderId: string, actor?: AuthUser) {
+    await this.assertOrderAccess(orderId, actor);
     return this.prisma.activity.findMany({
       where: { orderId },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
@@ -22,6 +25,7 @@ export class ActivitiesService {
   }
 
   async createForOrder(orderId: string, body: CreateActivityBody, user: AuthUser) {
+    await this.assertOrderAccess(orderId, user);
     const data = this.normalizeBody(body);
     return this.prisma.activity.create({
       data: {
@@ -33,7 +37,8 @@ export class ActivitiesService {
   }
 
   // ---------- CONTACT ----------
-  async listForContact(contactId: string) {
+  async listForContact(contactId: string, actor?: AuthUser) {
+    await this.assertContactAccess(contactId, actor);
     return this.prisma.activity.findMany({
       where: { contactId },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
@@ -41,6 +46,7 @@ export class ActivitiesService {
   }
 
   async createForContact(contactId: string, body: CreateActivityBody, user: AuthUser) {
+    await this.assertContactAccess(contactId, user);
     const data = this.normalizeBody(body);
     return this.prisma.activity.create({
       data: {
@@ -68,6 +74,30 @@ export class ActivitiesService {
         companyId,
       },
     });
+  }
+
+  private async assertOrderAccess(orderId: string, actor?: AuthUser): Promise<void> {
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { ownerId: true },
+    });
+    if (!order) return;
+    if (order.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access orders assigned to you");
+    }
+  }
+
+  private async assertContactAccess(contactId: string, actor?: AuthUser): Promise<void> {
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { ownerId: true },
+    });
+    if (!contact) return;
+    if (contact.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access contacts assigned to you");
+    }
   }
 
   // ---------- helpers ----------

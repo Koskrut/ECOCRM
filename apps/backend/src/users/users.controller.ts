@@ -11,36 +11,36 @@ export class UsersController {
   }
 
   @Post()
-  async create(@Body() body: any) {
+  async create(@Body() body: Record<string, unknown>) {
     const user = await this.usersService.createUser({
-      email: body.email,
-      fullName: body.fullName ?? "",
-      firstName: body.firstName,
-      lastName: body.lastName,
-      password: body.password, // ✅ теперь сервис принимает password
-      role: body.role,
-      isActive: body.isActive,
+      email: String(body.email ?? ""),
+      fullName: body.fullName != null ? String(body.fullName) : "",
+      firstName: body.firstName != null ? String(body.firstName) : undefined,
+      lastName: body.lastName != null ? String(body.lastName) : undefined,
+      password: body.password != null ? String(body.password) : undefined,
+      role: body.role != null ? String(body.role) : undefined,
+      isActive: body.isActive != null ? Boolean(body.isActive) : undefined,
     });
 
     return { user };
   }
 
   @Patch(":id")
-  async update(@Param("id") id: string, @Body() body: any) {
+  async update(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     const user = await this.usersService.updateUser(id, {
-      email: body.email,
-      fullName: body.fullName,
-      firstName: body.firstName,
-      password: body.password,
-      isActive: body.isActive,
+      email: body.email != null ? String(body.email) : undefined,
+      fullName: body.fullName != null ? String(body.fullName) : undefined,
+      firstName: body.firstName != null ? String(body.firstName) : undefined,
+      password: body.password != null ? String(body.password) : undefined,
+      isActive: body.isActive != null ? Boolean(body.isActive) : undefined,
     });
 
     return { user };
   }
 
   @Patch(":id/role")
-  async updateRole(@Param("id") id: string, @Body() body: any) {
-    const user = await this.usersService.updateRole(id, body.role);
+  async updateRole(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    const user = await this.usersService.updateRole(id, String(body.role ?? ""));
     return { user };
   }
 

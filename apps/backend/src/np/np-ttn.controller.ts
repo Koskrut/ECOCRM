@@ -1,7 +1,7 @@
 // src/np/np-ttn.controller.ts
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { NpTtnService } from "./np-ttn.service";
-import { CreateNpTtnDto } from "./dto/create-np-ttn.dto";
+import type { CreateNpTtnDto } from "./dto/create-np-ttn.dto";
 
 @Controller("np")
 export class NpTtnController {

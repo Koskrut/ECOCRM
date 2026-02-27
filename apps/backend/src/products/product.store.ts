@@ -1,7 +1,8 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { Injectable } from "@nestjs/common";
-import { Pagination } from "../common/pagination";
-import { Product } from "./product.entity";
+import type { Pagination } from "../common/pagination";
+import type { Product } from "./product.entity";
+import { PrismaService } from "../prisma/prisma.service";
 
 type ProductListItem = Pick<Product, "id" | "sku" | "name" | "unit" | "basePrice">;
 
@@ -23,7 +24,7 @@ type PrismaProduct = {
 
 @Injectable()
 export class ProductStore {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private toEntity(row: PrismaProduct): Product {
     return {
@@ -52,9 +53,7 @@ export class ProductStore {
     search: string | undefined,
     pagination: Pagination,
   ): Promise<ProductListResult> {
-    const where: Prisma.ProductWhereInput = {
-      isActive: true,
-    };
+    const where: Prisma.ProductWhereInput = { isActive: true };
 
     if (search && search.trim().length > 0) {
       where.OR = [
@@ -70,13 +69,7 @@ export class ProductStore {
         orderBy: { name: "asc" },
         skip: pagination.offset,
         take: pagination.limit,
-        select: {
-          id: true,
-          sku: true,
-          name: true,
-          unit: true,
-          basePrice: true,
-        },
+        select: { id: true, sku: true, name: true, unit: true, basePrice: true },
       }),
     ]);
 

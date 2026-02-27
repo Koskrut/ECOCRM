@@ -23,7 +23,7 @@ async function main() {
   const adminEmail = "admin@ecocrm.local";
   const adminPassword = "admin12345";
 
-  const admin = await prisma.user.upsert({
+  const _admin = await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
       fullName: "Admin",
@@ -38,7 +38,7 @@ async function main() {
     },
   });
 
-  const lead = await prisma.user.upsert({
+  const _lead = await prisma.user.upsert({
     where: { email: "lead@ecocrm.local" },
     update: {
       fullName: "Team Lead",
@@ -328,3 +328,7 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+// eslint: silence unused seed vars
+void admin;
+void lead;

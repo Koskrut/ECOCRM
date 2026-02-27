@@ -1,5 +1,5 @@
 import { Controller, Get, Query } from "@nestjs/common";
-import { NpCatalogService } from "./np-catalog.service";
+import type { NpCatalogService } from "./np-catalog.service";
 
 @Controller("np")
 export class NpCatalogController {

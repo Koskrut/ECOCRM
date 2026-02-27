@@ -1,12 +1,30 @@
 import "dotenv/config";
+import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: false,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const corsOrigins = isProduction
+    ? (process.env.CORS_ORIGIN ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : true;
+
   app.enableCors({
-    origin: true,
+    origin: corsOrigins,
     credentials: true,
   });
 

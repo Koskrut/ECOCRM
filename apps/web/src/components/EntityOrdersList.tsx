@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 
 type OrderListItem = {
   id: string;
@@ -15,35 +16,42 @@ type OrdersResponse =
   | { items: OrderListItem[]; total?: number; page?: number; pageSize?: number }
   | OrderListItem[];
 
+function getErrMsg(e: unknown, fallback: string) {
+  const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
+}
+
 export function EntityOrdersList({
   apiBaseUrl,
   query,
   onOpenOrder,
 }: {
   apiBaseUrl: string;
-  query: string; // например: "companyId=...&pageSize=50" или "clientId=...&pageSize=50"
+  query: string;
   onOpenOrder: (orderId: string) => void;
 }) {
   const [items, setItems] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const url = useMemo(() => `${apiBaseUrl}/orders?${query}`, [apiBaseUrl, query]);
+  // apiHttp уже имеет baseURL "/api", поэтому путь без префикса
+  const url = useMemo(() => `orders?${query}`, [query]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(url, { cache: "no-store" });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
-
-      const data = JSON.parse(t) as OrdersResponse;
-      const list = Array.isArray(data) ? data : data.items || [];
+      const res = await apiHttp.get<OrdersResponse>(url);
+      const data = res.data;
+      const list = Array.isArray(data) ? data : data?.items || [];
       setItems(list);
     } catch (e) {
       setItems([]);
-      setErr(e instanceof Error ? e.message : "Failed to load orders");
+      setErr(getErrMsg(e, "Failed to load orders"));
     } finally {
       setLoading(false);
     }

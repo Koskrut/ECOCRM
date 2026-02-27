@@ -1,26 +1,28 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { createPrismaClient } from "../common/prisma";
+import type { OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 @Injectable()
-export class PrismaService implements OnModuleInit, OnModuleDestroy {
-  // TS сам выведет тип из createPrismaClient()
-  private readonly client = createPrismaClient();
-
-  // Proxy: чтобы this.prisma.user.findMany работало как раньше
+export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    return new Proxy(this, {
-      get: (target, prop) => {
-        if (prop in target) return (target as any)[prop];
-        return (target.client as any)[prop];
-      },
-    });
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("DATABASE_URL is not set");
+    }
+
+    const pool = new Pool({ connectionString });
+    const adapter = new PrismaPg(pool);
+
+    super({ adapter });
   }
 
   async onModuleInit() {
-    await this.client.$connect();
+    await this.$connect();
   }
 
   async onModuleDestroy() {
-    await this.client.$disconnect();
+    await this.$disconnect();
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
 
@@ -25,8 +26,23 @@ type OrdersListResponse = {
 
 type OrdersView = "list" | "kanban";
 
+function getErrMessage(e: unknown, fallback: string) {
+  const anyErr = e as {
+    response?: { data?: { message?: string; error?: string } };
+    message?: string;
+  };
+
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
+}
+
 export default function OrdersPage() {
-  const API_URL = "/api";
+  // ВАЖНО: apiHttp уже работает с baseURL="/api"
+  // А OrderModal всё ещё принимает apiBaseUrl, поэтому оставляем "/api" только для него.
+  const apiBaseUrl = "/api";
 
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +52,6 @@ export default function OrdersPage() {
   const [pageSize] = useState(20);
   const [view, setView] = useState<OrdersView>("list");
 
-  // ✅ ONE modal: only edit by id
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
 
@@ -45,20 +60,20 @@ export default function OrdersPage() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch(`${API_URL}/orders?page=${page}&pageSize=${pageSize}`, {
-        cache: "no-store",
+      const res = await apiHttp.get<OrdersListResponse>("/orders", {
+        params: { page, pageSize },
       });
-      if (!res.ok) throw new Error("Failed to fetch orders");
-      const data: OrdersListResponse = await res.json();
-      setOrders(data.items || []);
+
+      setOrders(res.data?.items || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error loading orders");
+      setError(getErrMessage(err, "Error loading orders"));
       setOrders([]);
     } finally {
       setLoading(false);
     }
-  }, [API_URL, page, pageSize]);
+  }, [page, pageSize]);
 
   useEffect(() => {
     void fetchOrders();
@@ -69,40 +84,30 @@ export default function OrdersPage() {
     setOrderModalOpen(true);
   };
 
-  // ✅ Create on click -> open full modal
   const openNewOrder = async () => {
     if (creating) return;
+
     setCreating(true);
     setError(null);
+
     try {
-      const r = await fetch(`${API_URL}/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId: null,
-          clientId: null,
-          deliveryMethod: "PICKUP",
-          comment: null,
-          discountAmount: 0,
-        }),
-        cache: "no-store",
+      const res = await apiHttp.post<{ id: string }>("/orders", {
+        companyId: null,
+        clientId: null,
+        deliveryMethod: "PICKUP",
+        comment: null,
+        discountAmount: 0,
       });
 
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        throw new Error(data?.message || `Failed to create order (${r.status})`);
-      }
-
-      const created = (await r.json()) as { id: string };
+      const created = res.data;
       if (!created?.id) throw new Error("Order created, but id missing");
 
       setActiveOrderId(created.id);
       setOrderModalOpen(true);
 
-      // обновим список, чтобы он тоже видел новый заказ
       void fetchOrders();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create order");
+      setError(getErrMessage(e, "Failed to create order"));
     } finally {
       setCreating(false);
     }
@@ -149,7 +154,7 @@ export default function OrdersPage() {
               type="button"
               onClick={() => void openNewOrder()}
               disabled={creating}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition-colors shadow-sm disabled:opacity-60"
+              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-zinc-800 disabled:opacity-60"
             >
               {creating ? "Creating…" : "+ New Order"}
             </button>
@@ -157,7 +162,7 @@ export default function OrdersPage() {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-600 border border-red-100">
+          <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-4 text-sm text-red-600">
             {error}
           </div>
         )}
@@ -192,14 +197,14 @@ export default function OrdersPage() {
                     <tr
                       key={order.id}
                       onClick={() => openExistingOrder(order.id)}
-                      className="cursor-pointer hover:bg-zinc-50 transition-colors"
+                      className="cursor-pointer transition-colors hover:bg-zinc-50"
                     >
                       <td className="px-6 py-4 font-medium text-zinc-900">{order.orderNumber}</td>
                       <td className="px-6 py-4 text-zinc-500">
                         {new Date(order.createdAt).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-800 border border-zinc-200">
+                        <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
                           {order.status}
                         </span>
                       </td>
@@ -213,7 +218,7 @@ export default function OrdersPage() {
               </tbody>
             </table>
 
-            <div className="flex items-center justify-between border-t border-zinc-200 px-6 py-4 bg-zinc-50">
+            <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50 px-6 py-4">
               <span className="text-xs text-zinc-500">Page {page}</span>
               <div className="flex gap-2">
                 <button
@@ -238,10 +243,9 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* ONLY FULL MODAL */}
       {orderModalOpen && activeOrderId && (
         <OrderModal
-          apiBaseUrl={API_URL}
+          apiBaseUrl={apiBaseUrl}
           orderId={activeOrderId}
           onClose={closeOrderModal}
           onSaved={() => void fetchOrders()}

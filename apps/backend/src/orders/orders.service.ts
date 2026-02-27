@@ -1,14 +1,33 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { DeliveryMethod, OrderStatus, PaymentMethod, Prisma } from "@prisma/client";
-import { PrismaClient } from "@prisma/client";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from "@nestjs/common";
+import type { DeliveryMethod, PaymentMethod, Prisma } from "@prisma/client";
+import { OrderStatus, UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
+import { PrismaService } from "../prisma/prisma.service";
+import type { AddOrderItemDto } from "./dto/add-order-item.dto";
+import type { CreateOrderDto } from "./dto/create-order.dto";
+import type { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
+import type { UpdateOrderDto } from "./dto/update-order.dto";
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private num(v: any, fallback = 0) {
+  private num(v: unknown, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  /** MANAGER может работать только с заказами, где ownerId === actor.id. ADMIN и LEAD — полный доступ. */
+  private assertOrderAccess(order: { ownerId: string | null }, actor: AuthUser): void {
+    if (actor.role === UserRole.MANAGER && order.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access orders assigned to you");
+    }
   }
 
   private calc(subtotal: number, discount: number, paid: number) {
@@ -20,7 +39,7 @@ export class OrdersService {
     return { subtotal: s, discount: d, total, paid: p, debt };
   }
 
-  async list(q: any) {
+  async list(q: ListOrdersQueryDto, actor?: AuthUser) {
     const page = Math.max(1, this.num(q?.page, 1));
     const pageSize = Math.min(100, Math.max(1, this.num(q?.pageSize, 20)));
     const skip = (page - 1) * pageSize;
@@ -31,6 +50,7 @@ export class OrdersService {
     if (q?.contactId) where.contactId = String(q.contactId);
     if (q?.status) where.status = q.status as OrderStatus;
     if (q?.ownerId) where.ownerId = String(q.ownerId);
+    if (actor?.role === UserRole.MANAGER) where.ownerId = actor.id;
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -61,7 +81,7 @@ export class OrdersService {
     };
   }
 
-  async getById(id: string) {
+  async getById(id: string, actor?: AuthUser) {
     const o = await this.prisma.order.findUnique({
       where: { id },
       include: {
@@ -73,58 +93,59 @@ export class OrdersService {
       },
     });
     if (!o) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(o, actor);
     return this.mapToEntity(o);
   }
 
-  async create(dto: any) {
-    const ownerId = dto?.ownerId ? String(dto.ownerId) : null;
+  async create(dto: CreateOrderDto, actor?: AuthUser) {
+    // When authenticated, use current user as owner; otherwise require body (e.g. API).
+    const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
+    const orderNumber = `ORD-${Date.now()}`;
+    const currency = "UAH";
+    const status = OrderStatus.NEW;
+    const discountAmount = this.num(dto.discountAmount, 0);
+    const paidAmount = 0;
 
-    const orderNumber = dto?.orderNumber ? String(dto.orderNumber) : `ORD-${Date.now()}`;
-
-    const currency = dto?.currency ? String(dto.currency) : "UAH";
-    const status = (dto?.status as OrderStatus) ?? OrderStatus.NEW;
-
-    const discountAmount = this.num(dto?.discountAmount, 0);
-    const paidAmount = this.num(dto?.paidAmount, 0);
-
-    // create with empty items -> subtotal 0
     const a = this.calc(0, discountAmount, paidAmount);
 
-    const order = await this.prisma.order.create({
-      data: {
-        orderNumber,
-        companyId: dto?.companyId ?? null,
-        clientId: dto?.clientId ?? null,
-        contactId: dto?.contactId ?? null,
-        ownerId,
-        status,
-        currency,
-        subtotalAmount: a.subtotal,
-        discountAmount: a.discount,
-        totalAmount: a.total,
-        paidAmount: a.paid,
-        debtAmount: a.debt,
-        comment: dto?.comment ?? null,
+    try {
+      const order = await this.prisma.order.create({
+        data: {
+          orderNumber,
+          companyId: dto.companyId ?? null,
+          clientId: dto.clientId ?? null,
+          contactId: dto.contactId ?? null,
+          ownerId,
+          status,
+          currency,
+          subtotalAmount: a.subtotal,
+          discountAmount: a.discount,
+          totalAmount: a.total,
+          paidAmount: a.paid,
+          debtAmount: a.debt,
+          comment: dto.comment ?? null,
+          deliveryMethod: dto.deliveryMethod ?? null,
+          paymentMethod: dto.paymentMethod ?? null,
+          deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
+        },
+        include: {
+          company: true,
+          client: true,
+          contact: true,
+          items: { include: { product: true } },
+          ttns: true,
+        },
+      });
 
-        // ✅ IMPORTANT for your UI
-        deliveryMethod: (dto?.deliveryMethod as DeliveryMethod) ?? null,
-        paymentMethod: (dto?.paymentMethod as PaymentMethod) ?? null,
-        deliveryData: dto?.deliveryData ?? null,
-      },
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: true,
-      },
-    });
-
-    return this.mapToEntity(order);
+      return this.mapToEntity(order);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new InternalServerErrorException(`Order create failed: ${msg}`);
+    }
   }
 
-  async update(id: string, dto: any) {
+  async update(id: string, dto: UpdateOrderDto, actor?: AuthUser) {
     const existing = await this.prisma.order.findUnique({
       where: { id },
       include: {
@@ -136,6 +157,7 @@ export class OrdersService {
       },
     });
     if (!existing) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(existing, actor);
 
     const data: Prisma.OrderUpdateInput = {};
 
@@ -161,7 +183,8 @@ export class OrdersService {
     if ("deliveryMethod" in dto)
       data.deliveryMethod = (dto.deliveryMethod as DeliveryMethod) ?? null;
     if ("paymentMethod" in dto) data.paymentMethod = (dto.paymentMethod as PaymentMethod) ?? null;
-    if ("deliveryData" in dto) data.deliveryData = dto.deliveryData ?? null;
+    if ("deliveryData" in dto)
+      data.deliveryData = (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined;
 
     // amounts
     const nextDiscount =
@@ -193,13 +216,17 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
-  async addItem(orderId: string, dto: any) {
-    const productId = String(dto?.productId ?? "");
-    const qty = Math.max(1, Math.trunc(this.num(dto?.qty, 1)));
-    const price = this.num(dto?.price, 0);
+  async addItem(orderId: string, dto: AddOrderItemDto, actor?: AuthUser) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(order, actor);
 
-    if (!productId) throw new BadRequestException("productId is required");
-    if (!Number.isFinite(price) || price < 0) throw new BadRequestException("price must be >= 0");
+    const productId = dto.productId;
+    const qty = Math.max(1, Math.trunc(dto.qty));
+    const price = dto.price;
 
     const existing = await this.prisma.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },
@@ -234,20 +261,29 @@ export class OrdersService {
     return this.recalcAndReturn(orderId);
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: AuthUser) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(order, actor);
     await this.prisma.order.delete({ where: { id } });
     return { ok: true };
   }
 
-  async setStatus(id: string, dto: any) {
-    const toStatus = dto?.toStatus as OrderStatus;
-    const changedBy = dto?.changedBy ? String(dto.changedBy) : "system";
-    const reason = dto?.reason ? String(dto.reason) : null;
-
-    if (!toStatus) throw new BadRequestException("toStatus is required");
+  async setStatus(
+    id: string,
+    dto: { toStatus: OrderStatus; reason?: string | null; changedBy: string },
+    actor?: AuthUser,
+  ) {
+    const toStatus = dto.toStatus;
+    const changedBy = dto.changedBy;
+    const reason = dto.reason ?? null;
 
     const current = await this.prisma.order.findUnique({ where: { id } });
     if (!current) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(current, actor);
 
     await this.prisma.orderStatusHistory.create({
       data: {
@@ -274,13 +310,13 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
-  // ✅ OrderModal timeline
-  async getTimeline(orderId: string) {
-    const exists = await this.prisma.order.findUnique({
+  async getTimeline(orderId: string, actor?: AuthUser) {
+    const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true },
+      select: { id: true, ownerId: true },
     });
-    if (!exists) throw new NotFoundException("Order not found");
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(order, actor);
 
     const [history, activities, ttns] = await Promise.all([
       this.prisma.orderStatusHistory.findMany({
@@ -362,7 +398,8 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
-  private mapToEntity(o: any) {
+  private mapToEntity(o: Record<string, unknown>) {
+    const items = (o.items as Array<Record<string, unknown>> | undefined) ?? [];
     return {
       id: o.id,
       orderNumber: o.orderNumber,
@@ -370,7 +407,6 @@ export class OrdersService {
       clientId: o.clientId ?? null,
       contactId: o.contactId ?? null,
       ownerId: o.ownerId ?? null,
-
       status: o.status,
       currency: o.currency,
       subtotalAmount: o.subtotalAmount,
@@ -379,20 +415,15 @@ export class OrdersService {
       paidAmount: o.paidAmount,
       debtAmount: o.debtAmount,
       comment: o.comment ?? null,
-
-      // ✅ IMPORTANT for UI
       deliveryMethod: o.deliveryMethod ?? null,
       paymentMethod: o.paymentMethod ?? null,
       deliveryData: o.deliveryData ?? null,
-
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
-
       company: o.company ?? null,
       client: o.client ?? null,
       contact: o.contact ?? null,
-
-      items: (o.items ?? []).map((it: any) => ({
+      items: items.map((it) => ({
         id: it.id,
         productId: it.productId,
         qty: it.qty,
@@ -400,7 +431,6 @@ export class OrdersService {
         lineTotal: it.lineTotal,
         product: it.product ?? null,
       })),
-
       ttns: o.ttns ?? [],
     };
   }

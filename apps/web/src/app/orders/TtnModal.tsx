@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiHttp } from "../../lib/api/client";
 
 type NpDeliveryType = "WAREHOUSE" | "POSTOMAT" | "ADDRESS";
 type NpRecipientType = "PERSON" | "COMPANY";
@@ -51,20 +52,17 @@ type Props = {
   // IMPORTANT: should be order.contactId (contact used for TTN)
   contactId: string;
 
-  onCreated?: (result: any) => void;
+  onCreated?: (result: unknown) => void;
 };
 
-async function readJsonSafe(r: Response) {
-  const text = await r.text().catch(() => "");
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { message: text };
-  }
-}
-
-export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCreated }: Props) {
+export function TtnModal({
+  apiBaseUrl: _apiBaseUrl,
+  open,
+  onClose,
+  orderId,
+  contactId,
+  onCreated,
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,26 +125,12 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
         return;
       }
 
-      const r = await fetch(`${apiBaseUrl}/contacts/${contactId}/shipping-profiles`, {
-        cache: "no-store",
-        credentials: "include",
+      // NOTE: apiHttp already handles base "/api", so use path-only
+      const res = await apiHttp.get<ProfilesResponse>(`/contacts/${contactId}/shipping-profiles`, {
+        headers: { "Cache-Control": "no-store" },
       });
 
-      if (r.status === 404) {
-        setProfiles([]);
-        setMode("NEW");
-        setSelectedProfileId("");
-        return;
-      }
-
-      const dataJson = (await readJsonSafe(r)) as any;
-
-      if (!r.ok) {
-        const msg = dataJson?.message || dataJson?.error || `Failed to load profiles (${r.status})`;
-        throw new Error(msg);
-      }
-
-      const data = dataJson as ProfilesResponse;
+      const data = res.data;
       const items = Array.isArray(data) ? data : data?.items || [];
 
       const sorted = [...items].sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
@@ -161,14 +145,30 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
         setSelectedProfileId("");
       }
     } catch (e) {
+      // if server returns 404, treat as no profiles
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      if (status === 404) {
+        setProfiles([]);
+        setMode("NEW");
+        setSelectedProfileId("");
+        return;
+      }
+
+      const msg =
+        (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
+          ?.message ??
+        (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
+          ?.error ??
+        (e instanceof Error ? e.message : "Failed to load profiles");
+
       setProfiles([]);
       setMode("NEW");
       setSelectedProfileId("");
-      setError(e instanceof Error ? e.message : "Failed to load profiles");
+      setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, contactId]);
+  }, [contactId]);
 
   useEffect(() => {
     if (!open) return;
@@ -223,7 +223,7 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
 
     // Next.js proxy endpoint:
     // POST /api/orders/:id/np/ttn
-    const createUrl = `${apiBaseUrl}/orders/${orderId}/np/ttn`;
+    const createPath = `/orders/${orderId}/np/ttn`;
 
     // ===== EXISTING =====
     if (mode === "EXISTING") {
@@ -234,24 +234,14 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
 
       setCreating(true);
       try {
-        const r = await fetch(createUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profileId: selectedProfileId }),
-          cache: "no-store",
-          credentials: "include",
-        });
-
-        const data = await readJsonSafe(r);
-
-        if (!r.ok) {
-          throw new Error((data as any)?.message || `Failed to create TTN (${r.status})`);
-        }
-
-        onCreated?.(data);
+        const res = await apiHttp.post(createPath, { profileId: selectedProfileId });
+        onCreated?.(res.data);
         onClose();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to create TTN");
+        const msg =
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          (e instanceof Error ? e.message : "Failed to create TTN");
+        setError(msg);
       } finally {
         setCreating(false);
       }
@@ -267,7 +257,7 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
 
     setCreating(true);
     try {
-      const payload: any = {
+      const payload = {
         saveAsProfile: !!saveToContact,
         profileLabel: label?.trim() || undefined,
         draft: {
@@ -294,24 +284,14 @@ export function TtnModal({ apiBaseUrl, open, onClose, orderId, contactId, onCrea
         },
       };
 
-      const r = await fetch(createUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-        credentials: "include",
-      });
-
-      const data = await readJsonSafe(r);
-
-      if (!r.ok) {
-        throw new Error((data as any)?.message || `Failed to create TTN (${r.status})`);
-      }
-
-      onCreated?.(data);
+      const res = await apiHttp.post(createPath, payload);
+      onCreated?.(res.data);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create TTN");
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to create TTN");
+      setError(msg);
     } finally {
       setCreating(false);
     }

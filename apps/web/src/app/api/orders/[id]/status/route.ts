@@ -1,27 +1,13 @@
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { proxyToBackend } from "@/lib/api/proxy";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
-
-export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const token = (await cookies()).get("token")?.value;
+  return proxyToBackend(req, `/orders/${id}/status`);
+}
 
-  const body = await req.text();
-
-  const r = await fetch(`${API_URL}/orders/${id}/status`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body,
-    cache: "no-store",
-  });
-
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
+// на всякий случай (если где-то дергаешь POST)
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  return proxyToBackend(req, `/orders/${id}/status`);
 }

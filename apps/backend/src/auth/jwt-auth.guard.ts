@@ -1,7 +1,8 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
+import type { CanActivate, ExecutionContext } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { Request } from "express";
-import { AuthUser, JwtPayload } from "./auth.types";
+import type { Request } from "express";
+import type { AuthUser, JwtPayload } from "./auth.types";
 import { verifyJwt } from "./jwt";
 import { IS_PUBLIC_KEY } from "./public.decorator";
 
@@ -15,22 +16,16 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (isPublic) {
-      return true;
-    }
+    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
     const authHeader = request.headers.authorization;
 
-    if (!authHeader) {
-      throw new UnauthorizedException("Missing Authorization header");
-    }
+    if (!authHeader) throw new UnauthorizedException("Missing Authorization header");
 
     const [type, token] = authHeader.split(" ");
-
-    if (type !== "Bearer" || !token) {
+    if (type !== "Bearer" || !token)
       throw new UnauthorizedException("Invalid Authorization header");
-    }
 
     try {
       const payload = verifyJwt<JwtPayload>(token, this.getJwtSecret());
@@ -41,16 +36,14 @@ export class JwtAuthGuard implements CanActivate {
         fullName: payload.fullName,
       };
       return true;
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException("Invalid or expired token");
     }
   }
 
   private getJwtSecret(): string {
     const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      throw new Error("JWT_SECRET is not set");
-    }
+    if (!secret) throw new Error("JWT_SECRET is not set");
     return secret;
   }
 }

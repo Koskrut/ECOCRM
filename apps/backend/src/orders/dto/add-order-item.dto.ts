@@ -1,15 +1,17 @@
-import { ValidationError, validateNumber, validateString } from "../../common/validation";
+import { Type } from "class-transformer";
+import { IsNumber, IsString, Min } from "class-validator";
 
-export type AddOrderItemDto = {
-  productId: string;
-  qty: number;
-  price: number;
-};
+export class AddOrderItemDto {
+  @IsString()
+  productId!: string;
 
-export const validateAddOrderItemDto = (payload: AddOrderItemDto): ValidationError[] => {
-  const errors: ValidationError[] = [];
-  validateString(payload.productId, "productId", errors);
-  validateNumber(payload.qty, "qty", errors, { min: 1 });
-  validateNumber(payload.price, "price", errors, { min: 0 });
-  return errors;
-};
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
+  qty!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  price!: number;
+}

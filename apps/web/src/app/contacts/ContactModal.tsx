@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ContactTimeline } from "./ContactTimeline";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
+import { apiHttp } from "../../lib/api/client";
 
 type Contact = {
   id: string;
   companyId?: string | null;
+  company?: { id: string; name: string } | null;
   firstName: string;
   lastName: string;
   phone: string;
@@ -73,6 +75,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [position, setPosition] = useState("");
+  const [companyId, setCompanyId] = useState<string | null>(null);
+
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
 
   // orders
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -91,10 +97,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`${apiBaseUrl}/contacts/${contactId}`, { cache: "no-store" });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
-      const data = JSON.parse(t) as Contact;
+      const res = await apiHttp.get<Contact>(`/contacts/${contactId}`);
+      const data = res.data as Contact;
 
       setContact(data);
 
@@ -103,13 +107,17 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setPhone(data.phone ?? "");
       setEmail((data.email ?? "") as string);
       setPosition((data.position ?? "") as string);
+      setCompanyId(data.companyId ?? null);
     } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to load contact");
       setContact(null);
-      setErr(e instanceof Error ? e.message : "Failed to load contact");
+      setErr(msg);
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, contactId, isCreate]);
+  }, [contactId, isCreate]);
 
   useEffect(() => {
     setErr(null);
@@ -126,12 +134,14 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setPhone("");
       setEmail("");
       setPosition("");
+      setCompanyId(null);
+      void fetchCompanies();
       return;
     }
 
     setIsEditing(false);
     void refresh();
-  }, [isCreate, refresh]);
+  }, [isCreate, refresh, fetchCompanies]);
 
   // ESC behavior + close nested order modal first
   useEffect(() => {
@@ -154,6 +164,16 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [orderId, createOrderOpen, isEditing, isCreate, canClose, onClose]);
 
+  const fetchCompanies = useCallback(async () => {
+    setLoadingCompanies(true);
+    try {
+      const res = await apiHttp.get<{ items?: { id: string; name: string }[] }>("/companies?page=1&pageSize=200");
+      setCompanies(Array.isArray(res.data?.items) ? res.data.items : []);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, []);
+
   const startEdit = () => {
     if (!contact) return;
     setIsEditing(true);
@@ -162,6 +182,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     setPhone(contact.phone ?? "");
     setEmail((contact.email ?? "") as string);
     setPosition((contact.position ?? "") as string);
+    setCompanyId(contact.companyId ?? null);
+    void fetchCompanies();
   };
 
   const save = async () => {
@@ -174,30 +196,27 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         phone: phone.trim(),
         email: email.trim() || null,
         position: position.trim() || null,
+        companyId: companyId || null,
       };
 
       if (!payload.firstName) throw new Error("First name is required");
       if (!payload.lastName) throw new Error("Last name is required");
       if (!payload.phone) throw new Error("Phone is required");
 
-      const url = isCreate ? `${apiBaseUrl}/contacts` : `${apiBaseUrl}/contacts/${contactId}`;
-      const method = isCreate ? "POST" : "PATCH";
-
-      const r = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
-
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
+      if (isCreate) {
+        await apiHttp.post("/contacts", payload);
+      } else {
+        await apiHttp.patch(`/contacts/${contactId}`, payload);
+      }
 
       setIsEditing(false);
       onUpdate();
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed");
+      setErr(msg);
     } finally {
       setSaving(false);
     }
@@ -342,6 +361,23 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         disabled={saving}
                       />
 
+                      <label className="mt-3 block text-sm font-medium text-zinc-700">
+                        Company
+                      </label>
+                      <select
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                        value={companyId ?? ""}
+                        onChange={(e) => setCompanyId(e.target.value || null)}
+                        disabled={saving || loadingCompanies}
+                      >
+                        <option value="">— No company</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+
                       <div className="mt-5 flex gap-2">
                         <button
                           type="button"
@@ -384,6 +420,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                             <div className="text-zinc-500">Name</div>
                             <div className="text-zinc-900">
                               {contact.firstName} {contact.lastName}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="text-zinc-500">Company</div>
+                            <div className="text-zinc-900">
+                              {contact.company?.name ?? "—"}
                             </div>
                           </div>
 

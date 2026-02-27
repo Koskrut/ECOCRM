@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { PrismaClient } from "@prisma/client";
-import { NpClient } from "./np-client.service";
+import type { PrismaClient } from "@prisma/client";
+import type { NpClient } from "./np-client.service";
 
 @Injectable()
 export class NpCatalogSync {
@@ -25,30 +25,34 @@ export class NpCatalogSync {
 
   private async syncCities() {
     // TODO: подставь точный calledMethod: обычно Address/getCities
-    const res = await this.np.call<any>("Address", "getCities", {});
+    const res = await this.np.call<Record<string, unknown>>("Address", "getCities", {});
     const items = res.data ?? [];
 
     // Мягкая деактивация: сначала пометим все как неактивные, потом активируем пришедшие
     await this.prisma.npCity.updateMany({ data: { isActive: false } });
 
-    for (const c of items) {
+    for (const c of items as Array<Record<string, unknown>>) {
+      const ref = String(c.Ref ?? "");
+      const description = String(c.Description ?? "");
       await this.prisma.npCity.upsert({
-        where: { ref: c.Ref },
+        where: { ref },
         update: {
-          description: c.Description,
-          area: c.Area,
-          areaDescription: c.AreaDescription,
-          region: c.Region,
-          settlementTypeDescription: c.SettlementTypeDescription,
+          description,
+          area: c.Area != null ? String(c.Area) : undefined,
+          areaDescription: c.AreaDescription != null ? String(c.AreaDescription) : undefined,
+          region: c.Region != null ? String(c.Region) : undefined,
+          settlementTypeDescription:
+            c.SettlementTypeDescription != null ? String(c.SettlementTypeDescription) : undefined,
           isActive: true,
         },
         create: {
-          ref: c.Ref,
-          description: c.Description,
-          area: c.Area,
-          areaDescription: c.AreaDescription,
-          region: c.Region,
-          settlementTypeDescription: c.SettlementTypeDescription,
+          ref,
+          description,
+          area: c.Area != null ? String(c.Area) : undefined,
+          areaDescription: c.AreaDescription != null ? String(c.AreaDescription) : undefined,
+          region: c.Region != null ? String(c.Region) : undefined,
+          settlementTypeDescription:
+            c.SettlementTypeDescription != null ? String(c.SettlementTypeDescription) : undefined,
           isActive: true,
         },
       });
@@ -57,43 +61,51 @@ export class NpCatalogSync {
 
   private async syncWarehouses() {
     // TODO: подставь точный calledMethod: Address/getWarehouses
-    const res = await this.np.call<any>("Address", "getWarehouses", {});
+    const res = await this.np.call<Record<string, unknown>>("Address", "getWarehouses", {});
     const items = res.data ?? [];
 
     await this.prisma.npWarehouse.updateMany({ data: { isActive: false } });
 
-    for (const w of items) {
+    for (const w of items as Array<Record<string, unknown>>) {
       const isPostomat =
-        String(w.CategoryOfWarehouse || "")
+        String(w.CategoryOfWarehouse ?? "")
           .toLowerCase()
           .includes("postomat") ||
-        String(w.TypeOfWarehouse || "")
+        String(w.TypeOfWarehouse ?? "")
           .toLowerCase()
           .includes("postomat") ||
-        String(w.Description || "")
+        String(w.Description ?? "")
           .toLowerCase()
           .includes("поштомат");
 
+      const ref = String(w.Ref ?? "");
+      const cityRef = String(w.CityRef ?? "");
+      const cityName = String(w.CityDescription ?? w.CityDescriptionRu ?? "");
+      const number = w.Number != null ? String(w.Number) : undefined;
+      const description = String(w.Description ?? "");
+      const shortAddress = w.ShortAddress != null ? String(w.ShortAddress) : null;
+      const typeOfWarehouse = w.TypeOfWarehouse != null ? String(w.TypeOfWarehouse) : null;
+
       await this.prisma.npWarehouse.upsert({
-        where: { ref: w.Ref },
+        where: { ref },
         update: {
-          cityRef: w.CityRef,
-          cityName: w.CityDescription || w.CityDescriptionRu || "",
-          number: w.Number,
-          description: w.Description,
-          shortAddress: w.ShortAddress || null,
-          typeOfWarehouse: w.TypeOfWarehouse || null,
+          cityRef,
+          cityName,
+          number,
+          description,
+          shortAddress,
+          typeOfWarehouse,
           isPostomat,
           isActive: true,
         },
         create: {
-          ref: w.Ref,
-          cityRef: w.CityRef,
-          cityName: w.CityDescription || w.CityDescriptionRu || "",
-          number: w.Number,
-          description: w.Description,
-          shortAddress: w.ShortAddress || null,
-          typeOfWarehouse: w.TypeOfWarehouse || null,
+          ref,
+          cityRef,
+          cityName,
+          number,
+          description,
+          shortAddress,
+          typeOfWarehouse,
           isPostomat,
           isActive: true,
         },

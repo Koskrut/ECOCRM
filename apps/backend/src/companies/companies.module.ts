@@ -1,17 +1,11 @@
 import { Module } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
-import { createPrismaClient } from "../common/prisma";
+import { PrismaModule } from "../prisma/prisma.module";
 import { CompaniesController } from "./companies.controller";
 import { CompaniesService } from "./companies.service";
 
 @Module({
+  imports: [PrismaModule],
   controllers: [CompaniesController],
-  providers: [
-    CompaniesService,
-    {
-      provide: PrismaClient,
-      useFactory: createPrismaClient,
-    },
-  ],
+  providers: [CompaniesService],
 })
 export class CompaniesModule {}

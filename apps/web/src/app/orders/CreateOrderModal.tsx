@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { SearchableSelect } from "../../components/SearchableSelect";
+import { apiHttp } from "../../lib/api/client";
 
 // --- Enums (должны совпадать с Prisma) ---
 enum DeliveryMethod {
@@ -15,6 +16,8 @@ enum PaymentMethod {
 }
 
 type CompanyOption = { id: string; name: string };
+type ContactsResponse = { items: ContactOption[] };
+
 type ContactOption = {
   id: string;
   firstName: string;
@@ -23,13 +26,19 @@ type ContactOption = {
   companyId?: string | null;
 };
 
+type CreateOrderResponse = { id: string };
+
 type CreateOrderModalProps = {
   apiBaseUrl: string;
   onClose: () => void;
   onOrderCreated: (newOrderId: string) => void;
 };
 
-export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: CreateOrderModalProps) {
+export function CreateOrderModal({
+  apiBaseUrl: _apiBaseUrl,
+  onClose,
+  onOrderCreated,
+}: CreateOrderModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,12 +67,11 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
     const load = async () => {
       setLoadingCompanies(true);
       try {
-        const response = await fetch(`${apiBaseUrl}/companies?page=1&pageSize=100`);
-        if (response.ok) {
-          const data = await response.json();
-          if (mounted) setCompanies(data.items || []);
-        }
-      } catch (e) {
+        const res = await apiHttp.get<CompaniesResponse>("/companies", {
+          params: { page: 1, pageSize: 100 },
+        });
+        if (mounted) setCompanies(res.data.items || []);
+      } catch (e: unknown) {
         console.error("Failed to load companies", e);
       } finally {
         if (mounted) setLoadingCompanies(false);
@@ -73,28 +81,21 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
     return () => {
       mounted = false;
     };
-  }, [apiBaseUrl]);
+  }, []);
 
-  const fetchContacts = useCallback(
-    async (filterCompanyId: string | null) => {
-      setLoadingContacts(true);
-      const url = filterCompanyId
-        ? `${apiBaseUrl}/contacts?companyId=${filterCompanyId}&pageSize=100`
-        : `${apiBaseUrl}/contacts?pageSize=100`;
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          setContacts(data.items || []);
-        }
-      } catch (e) {
-        console.error("Failed to load contacts", e);
-      } finally {
-        setLoadingContacts(false);
-      }
-    },
-    [apiBaseUrl],
-  );
+  const fetchContacts = useCallback(async (filterCompanyId: string | null) => {
+    setLoadingContacts(true);
+    try {
+      const res = await apiHttp.get<ContactsResponse>("/contacts", {
+        params: { companyId: filterCompanyId || undefined, pageSize: 100 },
+      });
+      setContacts(res.data?.items || []);
+    } catch (e) {
+      console.error("Failed to load contacts", e);
+    } finally {
+      setLoadingContacts(false);
+    }
+  }, []);
 
   useEffect(() => {
     void fetchContacts(companyId);
@@ -107,27 +108,17 @@ export function CreateOrderModal({ apiBaseUrl, onClose, onOrderCreated }: Create
     try {
       const mockOwnerId = "user-1";
 
-      const response = await fetch(`${apiBaseUrl}/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ownerId: mockOwnerId,
-          companyId,
-          clientId,
-          comment: comment || undefined,
-          deliveryMethod, //
-          paymentMethod, //
-          deliveryData: deliveryMethod === DeliveryMethod.NOVA_POSHTA ? deliveryData : null,
-          discountAmount: 0,
-        }),
+      const res = await apiHttp.post("/orders", {
+        ownerId: mockOwnerId,
+        companyId,
+        clientId,
+        comment: comment || undefined,
+        deliveryMethod,
+        paymentMethod,
+        deliveryData: deliveryMethod === DeliveryMethod.NOVA_POSHTA ? deliveryData : null,
+        discountAmount: 0,
       });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.message || "Failed to create order");
-      }
-
-      const newOrder = await response.json();
+      const newOrder = res.data as CreateOrderResponse;
       onOrderCreated(newOrder.id);
       onClose();
     } catch (err) {

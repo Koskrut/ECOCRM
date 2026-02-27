@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
+import { API_URL } from "@/lib/api/config";
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
 
   const r = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
@@ -24,6 +23,7 @@ export async function POST(req: Request) {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
+    secure: process.env.NODE_ENV === "production",
   });
 
   return res;

@@ -71,6 +71,8 @@ model User {
   role         UserRole @default(MANAGER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  contacts Contact[]
 }
 
 model Company {
@@ -88,16 +90,19 @@ model Company {
 
 model Contact {
   id        String   @id @default(cuid())
+  ownerId   String?
   companyId String?
   firstName String
   lastName  String
   phone     String
+  phoneNormalized String?  // цифры телефона для проверки уникальности по всей базе
   email     String?
   position  String?
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  owner   User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   // связь для Order.clientId (старое поле clientId в Order)
@@ -112,6 +117,8 @@ model Contact {
   activities Activity[]
 
   @@index([companyId])
+  @@index([ownerId])
+  @@unique([phoneNormalized])
 }
 
 model ContactShippingProfile {

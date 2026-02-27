@@ -1,5 +1,5 @@
 // src/orders/entities/order-status-history.ts
-import { OrderStatus } from "@prisma/client";
+import type { OrderStatus } from "@prisma/client";
 
 export type OrderStatusHistory = {
   id: string;

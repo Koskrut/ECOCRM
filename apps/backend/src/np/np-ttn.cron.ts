@@ -1,5 +1,4 @@
-// src/np/np-ttn.cron.ts
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { NpTtnService } from "./np-ttn.service";
 
@@ -7,7 +6,8 @@ import { NpTtnService } from "./np-ttn.service";
 export class NpTtnCron {
   private readonly logger = new Logger(NpTtnCron.name);
 
-  // каждые 5 минут
+  constructor(@Inject(NpTtnService) private readonly ttn: NpTtnService) {}
+
   @Cron("*/5 * * * *")
   async syncActiveTtns() {
     try {
@@ -15,10 +15,9 @@ export class NpTtnCron {
       this.logger.log(
         `NP TTN sync done: checked=${res.checked}, updatedOrders=${res.updatedOrders}, skipped=${res.skipped}`,
       );
-    } catch (e: any) {
-      this.logger.error(`NP TTN sync failed: ${e?.message || e}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`NP TTN sync failed: ${msg}`);
     }
   }
-
-  constructor(private readonly ttn: NpTtnService) {}
 }

@@ -1,4 +1,5 @@
-import { ValidationError, validateString } from "../../common/validation";
+import type { ValidationError } from "../../common/validation";
+import { validateString } from "../../common/validation";
 
 export type LoginDto = {
   email: string;

@@ -1,69 +1,67 @@
-import { cookies } from "next/headers";
+// apps/web/src/app/api/orders/route.ts
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { API_URL } from "@/lib/api/config";
 
-const API_URL = process.env.API_URL ?? "http://localhost:3001";
-
-function decodeJwtSub(token: string): string | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const payload = parts[1];
-    const json = Buffer.from(payload, "base64url").toString("utf8");
-    const data = JSON.parse(json);
-    return typeof data?.sub === "string" ? data.sub : null;
-  } catch {
-    return null;
-  }
+async function authHeader(): Promise<Record<string, string>> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("token")?.value;
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function GET(req: Request) {
-  const token = (await cookies()).get("token")?.value;
+  const headers = await authHeader();
 
-  const url = new URL(req.url);
-  const qs = url.searchParams.toString();
+  const { searchParams } = new URL(req.url);
+  const qs = searchParams.toString();
+  const upstream = `${API_URL}/orders${qs ? `?${qs}` : ""}`;
 
-  const r = await fetch(`${API_URL}/orders${qs ? `?${qs}` : ""}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const r = await fetch(upstream, {
+    method: "GET",
+    headers: {
+      ...headers,
+    },
     cache: "no-store",
   });
 
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
+  const text = await r.text().catch(() => "");
+  // пробуем вернуть json, иначе возвращаем как текст
+  try {
+    const data = text ? JSON.parse(text) : {};
+    return NextResponse.json(data, { status: r.status });
+  } catch {
+    return new NextResponse(text, { status: r.status });
+  }
 }
 
 export async function POST(req: Request) {
-  const token = (await cookies()).get("token")?.value;
+  const headers = await authHeader();
+  const body = await req.json().catch(() => ({}));
 
-  const raw = await req.text();
-  let body: any = {};
+  let r: Response;
   try {
-    body = raw ? JSON.parse(raw) : {};
+    r = await fetch(`${API_URL}/orders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { message: `Backend unreachable: ${msg}` },
+      { status: 502 },
+    );
+  }
+
+  const text = await r.text().catch(() => "");
+  try {
+    const data = text ? JSON.parse(text) : {};
+    return NextResponse.json(data, { status: r.status });
   } catch {
-    body = {};
+    return new NextResponse(text, { status: r.status });
   }
-
-  // ✅ если ownerId не передали — берем из JWT sub
-  if (!body.ownerId && token) {
-    const sub = decodeJwtSub(token);
-    if (sub) body.ownerId = sub;
-  }
-
-  const r = await fetch(`${API_URL}/orders`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
-
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { "Content-Type": "application/json" },
-  });
 }

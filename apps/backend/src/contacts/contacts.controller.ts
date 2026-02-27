@@ -1,5 +1,16 @@
 // apps/backend/src/contacts/contacts.controller.ts
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
+import type { Request } from "express";
+import type { AuthUser } from "../auth/auth.types";
 import { ContactsService } from "./contacts.service";
 
 @Controller("contacts")
@@ -8,63 +19,79 @@ export class ContactsController {
 
   // CREATE
   @Post()
-  async create(@Body() body: any) {
-    return this.contactsService.create({
-      companyId: body.companyId ?? null,
-      firstName: body.firstName,
-      lastName: body.lastName,
-      phone: body.phone,
-      email: body.email ?? null,
-      position: body.position ?? null,
-      isPrimary: body.isPrimary ?? false,
-    });
+  async create(@Body() body: Record<string, unknown>, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.create(
+      {
+        companyId: (body.companyId as string) ?? null,
+        firstName: String(body.firstName ?? ""),
+        lastName: String(body.lastName ?? ""),
+        phone: String(body.phone ?? ""),
+        email: (body.email as string) ?? null,
+        position: (body.position as string) ?? null,
+        isPrimary: Boolean(body.isPrimary ?? false),
+      },
+      req.user,
+    );
   }
 
   // LIST
-  // поддержка: ?companyId=...&page=1&pageSize=20
   @Get()
   async list(
+    @Req() req: Request & { user?: AuthUser },
     @Query("companyId") companyId?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
-    return this.contactsService.list({
-      companyId,
-      page: page ? Number(page) : undefined,
-      pageSize: pageSize ? Number(pageSize) : undefined,
-    });
+    return this.contactsService.list(
+      {
+        companyId,
+        page: page ? Number(page) : undefined,
+        pageSize: pageSize ? Number(pageSize) : undefined,
+      },
+      req.user,
+    );
   }
 
-  // ✅ NP shipping profiles (for TTN modal)
-  // GET /contacts/:id/shipping-profiles
   @Get(":id/shipping-profiles")
-  async listShippingProfiles(@Param("id") id: string) {
-    return this.contactsService.listShippingProfiles(id);
+  async listShippingProfiles(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.listShippingProfiles(id, req.user);
   }
 
-  // (optional) POST /contacts/:id/shipping-profiles
   @Post(":id/shipping-profiles")
-  async createShippingProfile(@Param("id") id: string, @Body() body: any) {
-    return this.contactsService.createShippingProfile(id, body);
+  async createShippingProfile(
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.createShippingProfile(id, body, req.user);
   }
 
-  // GET ONE
   @Get(":id")
-  async getOne(@Param("id") id: string) {
-    return this.contactsService.getById(id);
+  async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.getById(id, req.user);
   }
 
-  // UPDATE
   @Patch(":id")
-  async update(@Param("id") id: string, @Body() body: any) {
-    return this.contactsService.update(id, {
-      companyId: body.companyId ?? undefined,
-      firstName: body.firstName ?? undefined,
-      lastName: body.lastName ?? undefined,
-      phone: body.phone ?? undefined,
-      email: body.email ?? undefined,
-      position: body.position ?? undefined,
-      isPrimary: body.isPrimary ?? undefined,
-    });
+  async update(
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.update(
+      id,
+      {
+        companyId: body.companyId != null ? String(body.companyId) : undefined,
+        firstName: body.firstName != null ? String(body.firstName) : undefined,
+        lastName: body.lastName != null ? String(body.lastName) : undefined,
+        phone: body.phone != null ? String(body.phone) : undefined,
+        email: body.email != null ? String(body.email) : undefined,
+        position: body.position != null ? String(body.position) : undefined,
+        isPrimary: body.isPrimary != null ? Boolean(body.isPrimary) : undefined,
+      },
+      req.user,
+    );
   }
 }

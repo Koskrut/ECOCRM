@@ -1,8 +1,185 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { SearchableSelect } from "../../components/SearchableSelect";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TtnModal } from "./TtnModal";
+
+// =====================
+// Small local UI helpers
+// =====================
+
+type Option = { id: string; label: string; meta?: any };
+
+function cx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function renderValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function Badge({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Minimal searchable select (no external deps).
+ * - click to open
+ * - type to filter
+ * - shows optional "Create new" action when nothing matches
+ */
+function SearchableSelectLite({
+  value,
+  options,
+  placeholder,
+  disabled,
+  isLoading,
+  onChange,
+  onCreate,
+  createLabel,
+}: {
+  value: string | null;
+  options: Option[];
+  placeholder?: string;
+  disabled?: boolean;
+  isLoading?: boolean;
+  onChange: (id: string | null) => void;
+  onCreate?: (typed: string) => void;
+  createLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(s));
+  }, [options, q]);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className={cx(
+          "flex w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm",
+          disabled && "opacity-60",
+        )}
+      >
+        <span className={cx("truncate", selected ? "text-zinc-900" : "text-zinc-500")}>
+          {selected ? selected.label : placeholder ?? "Select…"}
+        </span>
+        <span className="ml-3 text-xs text-zinc-400">▾</span>
+      </button>
+
+      {open ? (
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg">
+          <div className="p-2">
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={isLoading ? "Loading…" : "Search…"}
+              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            />
+          </div>
+
+          <div className="max-h-56 overflow-auto">
+            {isLoading ? (
+              <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>
+            ) : filtered.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-zinc-500">
+                No results
+                {onCreate ? (
+                  <button
+                    type="button"
+                    className="ml-2 rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => {
+                      setOpen(false);
+                      onCreate(q.trim());
+                    }}
+                  >
+                    {createLabel ?? "Create"}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                {filtered.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(o.id);
+                      setOpen(false);
+                    }}
+                    className={cx(
+                      "flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50",
+                      o.id === value && "bg-zinc-50",
+                    )}
+                  >
+                    <span className="flex-1 truncate text-zinc-900">{o.label}</span>
+                  </button>
+                ))}
+                {onCreate ? (
+                  <div className="border-t border-zinc-100 p-2">
+                    <button
+                      type="button"
+                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => {
+                        setOpen(false);
+                        onCreate(q.trim());
+                      }}
+                    >
+                      {createLabel ?? "Create"}
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// =====================
+// Types
+// =====================
 
 type OrderItem = {
   id: string;
@@ -25,18 +202,15 @@ type OrderDetails = {
   companyId: string | null;
   clientId: string | null;
   contactId: string | null;
-  deliveryData?: unknown;
+  deliveryData?: any;
   company?: { id: string; name: string };
   client?: { id: string; firstName: string; lastName: string; phone: string };
 
   status: string;
   deliveryMethod: string | null;
-  paymentMethod?: string | null;
 
   discountAmount: number;
   totalAmount: number;
-  paidAmount?: number;
-  debtAmount?: number;
   comment: string | null;
   createdAt: string;
   items: OrderItem[];
@@ -66,7 +240,6 @@ type ContactOption = {
   lastName: string;
   phone: string;
   companyId?: string | null;
-  position?: string | null;
 };
 
 type TimelineItem = {
@@ -92,416 +265,81 @@ type OrderModalProps = {
   onOpenContact?: (contactId: string) => void;
 };
 
-type EditFieldKey =
-  | null
-  | "company"
-  | "client"
-  | "deliveryMethod"
-  | "paymentMethod"
-  | "discount"
-  | "comment";
+// =====================
+// Status stepper
+// =====================
 
-function safeJson<T = unknown>(text: string): T | null {
-  try {
-    return text ? (JSON.parse(text) as T) : null;
-  } catch {
-    return null;
-  }
+type StepDef = {
+  key: string;
+  label: string;
+  color: "zinc" | "blue" | "amber" | "emerald" | "red";
+};
+
+const ORDER_STEPS: StepDef[] = [
+  { key: "NEW", label: "New", color: "zinc" },
+  { key: "IN_WORK", label: "In work", color: "blue" },
+  { key: "READY_TO_SHIP", label: "Ready", color: "amber" },
+  { key: "SHIPPED", label: "Shipped", color: "blue" },
+  { key: "PAYMENT_CONTROL", label: "Payment", color: "amber" },
+  { key: "SUCCESS", label: "Success", color: "emerald" },
+  { key: "RETURNING", label: "Returning", color: "red" },
+  { key: "CANCELED", label: "Canceled", color: "red" },
+];
+
+function stepIndex(status: string) {
+  const idx = ORDER_STEPS.findIndex((s) => s.key === status);
+  return idx >= 0 ? idx : 0;
 }
 
-function looksLikePhone(input: string) {
-  const digits = input.replace(/\D/g, "");
-  return digits.length >= 8;
-}
+function Stepper({ status }: { status: string }) {
+  const activeIdx = stepIndex(status);
 
-function formatDt(iso: string) {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
+  const isCanceled = status === "CANCELED";
+  const isReturning = status === "RETURNING";
 
-function StatusStepper({ status }: { status: string }) {
-  const flow = [
-    "NEW",
-    "IN_WORK",
-    "READY_TO_SHIP",
-    "SHIPPED",
-    "CONTROL_PAYMENT",
-    "SUCCESS",
-  ] as const;
-
-  const labels: Record<string, string> = {
-    NEW: "New",
-    IN_WORK: "In work",
-    READY_TO_SHIP: "Ready",
-    SHIPPED: "Shipped",
-    CONTROL_PAYMENT: "Control payment",
-    SUCCESS: "Success",
-    RETURNING: "Returning",
-    CANCELED: "Canceled",
+  const colorClasses = (c: StepDef["color"]) => {
+    switch (c) {
+      case "blue":
+        return { on: "bg-blue-600 text-white border-blue-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+      case "amber":
+        return { on: "bg-amber-500 text-white border-amber-500", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+      case "emerald":
+        return { on: "bg-emerald-600 text-white border-emerald-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+      case "red":
+        return { on: "bg-red-600 text-white border-red-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+      default:
+        return { on: "bg-zinc-900 text-white border-zinc-900", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+    }
   };
 
-  const colors: Record<string, string> = {
-    NEW: "bg-blue-600",
-    IN_WORK: "bg-indigo-600",
-    READY_TO_SHIP: "bg-amber-600",
-    SHIPPED: "bg-sky-600",
-    CONTROL_PAYMENT: "bg-violet-600",
-    SUCCESS: "bg-emerald-600",
-    RETURNING: "bg-orange-600",
-    CANCELED: "bg-red-600",
+  const isDone = (s: StepDef, idx: number) => {
+    if (isCanceled) return s.key === "CANCELED";
+    if (isReturning) return s.key === "RETURNING";
+    return idx <= activeIdx;
   };
-
-  const idx = flow.indexOf(status as unknown);
-  const inFlow = idx !== -1;
 
   return (
     <div className="border-b border-zinc-200 px-6 py-3">
-      <div className="flex flex-wrap gap-2">
-        {flow.map((s, i) => {
-          const done = inFlow && i <= idx;
-          const isCurrent = status === s;
+      <div className="flex flex-wrap items-center gap-2">
+        {ORDER_STEPS.map((s, idx) => {
+          const done = isDone(s, idx);
+          const cls = colorClasses(s.color);
           return (
-            <div
-              key={s}
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium border ${
-                done
-                  ? `${colors[s]} text-white border-transparent`
-                  : "bg-zinc-100 text-zinc-600 border-zinc-200"
-              } ${isCurrent ? "ring-2 ring-zinc-900/10" : ""}`}
-              title={labels[s] ?? s}
-            >
-              <span className={`h-2 w-2 rounded-full ${done ? "bg-white/90" : "bg-zinc-400"}`} />
-              {labels[s] ?? s}
-            </div>
+            <Badge key={s.key} className={done ? cls.on : cls.off}>
+              {s.label}
+            </Badge>
           );
         })}
-
-        {!inFlow ? (
-          <div
-            className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium text-white ${
-              colors[status] ?? "bg-zinc-600"
-            }`}
-            title={labels[status] ?? status}
-          >
-            <span className="h-2 w-2 rounded-full bg-white/90" />
-            {labels[status] ?? status}
-          </div>
-        ) : null}
       </div>
     </div>
   );
 }
 
-function CreateContactModal(props: {
-  open: boolean;
-  companies: CompanyOption[];
-  defaultCompanyId: string | null;
-  query: string;
-  onClose: () => void;
-  onCreated: (c: ContactOption) => void;
-  apiBaseUrl: string;
-}) {
-  const { open, companies, defaultCompanyId, query, onClose, onCreated, apiBaseUrl } = props;
+// =====================
+// Main
+// =====================
 
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const [attachCompany, setAttachCompany] = useState(true);
-  const [companyId, setCompanyId] = useState<string | null>(defaultCompanyId);
-
-  const [phone, setPhone] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [role, setRole] = useState<"DOCTOR" | "TECHNICIAN">("DOCTOR");
-
-  const [region, setRegion] = useState("");
-  const [city, setCity] = useState("");
-
-  const [showMore, setShowMore] = useState(false);
-  const [email, setEmail] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-
-    setErr(null);
-    setSaving(false);
-
-    const q = (query || "").trim();
-    const isPhone = looksLikePhone(q);
-
-    setAttachCompany(true);
-    setCompanyId(defaultCompanyId);
-
-    setPhone(isPhone ? q : "");
-
-    if (!isPhone && q) {
-      const parts = q.split(/\s+/).filter(Boolean);
-      setFirstName(parts[0] ?? "");
-      setLastName(parts.slice(1).join(" ") ?? "");
-    } else {
-      setFirstName("");
-      setLastName("");
-    }
-
-    setRole("DOCTOR");
-    setRegion("");
-    setCity("");
-    setShowMore(false);
-    setEmail("");
-    setJobTitle("");
-  }, [open, query, defaultCompanyId]);
-
-  const canClose = !saving;
-
-  const submit = async () => {
-    setErr(null);
-
-    const p = phone.trim();
-    const fn = firstName.trim();
-    const ln = lastName.trim();
-
-    if (!p) return setErr("Phone is required");
-    if (!fn) return setErr("First name is required");
-    if (!ln) return setErr("Last name is required");
-
-    // временно кладем область/город/роль в position, чтобы не ломать схему.
-    const roleLabel = role === "DOCTOR" ? "Doctor" : "Technician";
-    const geo = [city.trim(), region.trim()].filter(Boolean).join(", ");
-    const extra = jobTitle.trim();
-    const position = [roleLabel, geo, extra].filter(Boolean).join("; ");
-
-    setSaving(true);
-    try {
-      const r = await fetch(`${apiBaseUrl}/contacts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyId: attachCompany ? companyId : null,
-          firstName: fn,
-          lastName: ln,
-          phone: p,
-          email: email.trim() || null,
-          position: position || null,
-        }),
-        cache: "no-store",
-      });
-
-      const text = await r.text();
-      if (!r.ok) {
-        const j = safeJson<{ message?: string }>(text);
-        throw new Error(j?.message || text || `Failed (${r.status})`);
-      }
-
-      const created = safeJson<{ message?: string }>(text);
-      if (!created?.id) throw new Error("Contact created but response is empty");
-
-      onCreated({
-        id: created.id,
-        firstName: created.firstName,
-        lastName: created.lastName,
-        phone: created.phone,
-        companyId: created.companyId ?? null,
-        position: created.position ?? null,
-      });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to create contact");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!open) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
-      role="presentation"
-      onClick={() => canClose && onClose()}
-    >
-      <div
-        className="w-full max-w-xl overflow-hidden rounded-xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <div>
-            <div className="text-base font-semibold text-zinc-900">Create contact</div>
-            <div className="mt-0.5 text-sm text-zinc-500">Minimum required fields</div>
-          </div>
-          <button
-            type="button"
-            className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
-            onClick={() => canClose && onClose()}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="max-h-[80vh] overflow-auto p-5">
-          {err ? (
-            <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-              {err}
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Phone *</label>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="+380…"
-                disabled={saving}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Role *</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as unknown)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                disabled={saving}
-              >
-                <option value="DOCTOR">Doctor</option>
-                <option value="TECHNICIAN">Technician</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">First name *</label>
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="Ivan"
-                disabled={saving}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Last name *</label>
-              <input
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="Petrenko"
-                disabled={saving}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">Region</label>
-              <input
-                value={region}
-                onChange={(e) => setRegion(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="Kyivska"
-                disabled={saving}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700">City</label>
-              <input
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="Kyiv"
-                disabled={saving}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-            <label className="flex items-center gap-2 text-sm text-zinc-800">
-              <input
-                type="checkbox"
-                checked={attachCompany}
-                onChange={(e) => setAttachCompany(e.target.checked)}
-                disabled={saving}
-              />
-              Attach to company
-            </label>
-
-            {attachCompany ? (
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-zinc-700">Company</label>
-                <SearchableSelect
-                  options={companies.map((c) => ({ id: c.id, label: c.name }))}
-                  value={companyId}
-                  onChange={(val) => setCompanyId(val || null)}
-                  disabled={saving}
-                  placeholder="Select company…"
-                />
-                <div className="mt-2 text-xs text-zinc-500">
-                  If you don’t have a company yet — uncheck and add later.
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowMore((v) => !v)}
-            className="mt-4 text-sm font-medium text-zinc-700 hover:underline"
-          >
-            {showMore ? "Hide additional" : "Show additional"}
-          </button>
-
-          {showMore ? (
-            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Email</label>
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  placeholder="ivan@test.com"
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-700">Position</label>
-                <input
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  placeholder="Chief doctor"
-                  disabled={saving}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => canClose && onClose()}
-              disabled={!canClose}
-              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={saving}
-              className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-            >
-              {saving ? "Creating…" : "Create"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+type EditingField = null | "company" | "client" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -518,33 +356,22 @@ export function OrderModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // create form fields
-  const [editCompanyId, setEditCompanyId] = useState<string | null>(null);
-  const [editClientId, setEditClientId] = useState<string | null>(null);
-  const [editDeliveryMethod, setEditDeliveryMethod] = useState<string>("PICKUP");
-  const [editPaymentMethod, setEditPaymentMethod] = useState<string>("CASH");
-  const [editComment, setEditComment] = useState("");
-  const [editDiscount, setEditDiscount] = useState(0);
-  const [savingOrder, setSavingOrder] = useState(false);
-
-  // for inline edit (existing order)
-  const [editingField, setEditingField] = useState<EditFieldKey>(null);
-  const [fieldSaving, setFieldSaving] = useState<EditFieldKey>(null);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<EditingField>(null);
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
 
-  // Create contact
-  const [createContactOpen, setCreateContactOpen] = useState(false);
-  const [createContactQuery, setCreateContactQuery] = useState("");
-  const [createContactDefaultCompanyId, setCreateContactDefaultCompanyId] = useState<string | null>(
-    null,
-  );
-  const [createContactTarget, setCreateContactTarget] = useState<"create" | "edit">("create");
+  // local editable values
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [comment, setComment] = useState<string>("");
 
-  // Add Item (only for existing orders)
+  // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
@@ -561,38 +388,38 @@ export function OrderModal({
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
 
+  // TTN
   const [showTtnModal, setShowTtnModal] = useState(false);
 
-  const canClose = !submittingItem && !savingOrder && !fieldSaving && !createContactOpen;
+  const canClose = !saving && !submittingItem;
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
     try {
       const r = await fetch(`${apiBaseUrl}/companies?page=1&pageSize=200`, { cache: "no-store" });
-      if (r.ok) {
-        const data = await r.json().catch(() => ({ items: [] }));
-        setCompanies(data.items || []);
-      } else {
+      if (!r.ok) {
         setCompanies([]);
+        return;
       }
+      const data = await r.json();
+      setCompanies(Array.isArray(data?.items) ? data.items : []);
     } finally {
       setLoadingCompanies(false);
     }
   }, [apiBaseUrl]);
 
   const fetchContacts = useCallback(
-    async (companyId: string | null) => {
+    async (cid: string | null) => {
       setLoadingContacts(true);
       setContacts([]);
-      const url = companyId
-        ? `${apiBaseUrl}/contacts?companyId=${companyId}&page=1&pageSize=200`
-        : `${apiBaseUrl}/contacts?page=1&pageSize=200`;
       try {
+        const url = cid
+          ? `${apiBaseUrl}/contacts?companyId=${encodeURIComponent(cid)}&page=1&pageSize=200`
+          : `${apiBaseUrl}/contacts?page=1&pageSize=200`;
         const r = await fetch(url, { cache: "no-store" });
-        if (r.ok) {
-          const data = await r.json().catch(() => ({ items: [] }));
-          setContacts(data.items || []);
-        }
+        if (!r.ok) return;
+        const data = await r.json();
+        setContacts(Array.isArray(data?.items) ? data.items : []);
       } finally {
         setLoadingContacts(false);
       }
@@ -605,29 +432,25 @@ export function OrderModal({
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, { cache: "no-store" });
-      const text = await r.text();
-      if (!r.ok) throw new Error(text || `Failed to load order (${r.status})`);
-      const data = safeJson<OrderDetails>(text);
-      if (!data) throw new Error("Failed to parse order");
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(`Failed to load order (${r.status})`);
+      const data = (await r.json()) as OrderDetails;
       setOrder(data);
-
-      // sync inline draft values
-      setEditCompanyId(data.companyId ?? null);
-      setEditClientId(data.clientId ?? null);
-      setEditDeliveryMethod(data.deliveryMethod ?? "PICKUP");
-      setEditPaymentMethod((data as unknown).paymentMethod ?? "CASH");
-      setEditComment(data.comment ?? "");
-      setEditDiscount(Number(data.discountAmount ?? 0));
-
-      void fetchContacts(data.companyId ?? null);
+      setCompanyId(data.companyId ?? null);
+      setClientId(data.clientId ?? null);
+      setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
+      setDiscountAmount(Number(data.discountAmount ?? 0));
+      setComment(data.comment ?? "");
     } catch (e) {
       setOrder(null);
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, orderId, fetchContacts]);
+  }, [apiBaseUrl, orderId]);
 
   const refreshTimeline = useCallback(async () => {
     if (!orderId) return;
@@ -635,10 +458,9 @@ export function OrderModal({
     setTimelineError(null);
     try {
       const r = await fetch(`${apiBaseUrl}/orders/${orderId}/timeline`, { cache: "no-store" });
-      const text = await r.text();
-      if (!r.ok) throw new Error(text || `Failed to load timeline (${r.status})`);
-      const data = safeJson<TimelineResponse>(text);
-      setTimeline(data?.items || []);
+      if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
+      const data = (await r.json()) as TimelineResponse;
+      setTimeline(data.items || []);
     } catch (e) {
       setTimeline([]);
       setTimelineError(e instanceof Error ? e.message : "Failed to load timeline");
@@ -647,10 +469,11 @@ export function OrderModal({
     }
   }, [apiBaseUrl, orderId]);
 
-  // init / switch mode
+  // init
   useEffect(() => {
     setError(null);
     setTimelineError(null);
+    setEditing(null);
     setShowAddForm(false);
     setSelectedProduct(null);
     setSearch("");
@@ -658,26 +481,19 @@ export function OrderModal({
     setQty(1);
     setPrice(0);
     setSubmitError(null);
-    setEditingField(null);
-    setFieldSaving(null);
-
-    void fetchCompanies();
 
     if (isCreate) {
-      setOrder(null);
-      setTimeline([]);
-
       const pCompanyId = prefill?.companyId ?? null;
       const pClientId = prefill?.clientId ?? null;
-
-      setEditCompanyId(pCompanyId);
-      setEditClientId(pClientId);
-      setEditDeliveryMethod("PICKUP");
-      setEditPaymentMethod("CASH");
-      setEditComment("");
-      setEditDiscount(0);
-
+      setCompanyId(pCompanyId);
+      setClientId(pClientId);
+      setDeliveryMethod("PICKUP");
+      setDiscountAmount(0);
+      setComment("");
+      void fetchCompanies();
       void fetchContacts(pCompanyId);
+      setOrder(null);
+      setTimeline([]);
       return;
     }
 
@@ -698,111 +514,77 @@ export function OrderModal({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-
-      if (createContactOpen) {
-        setCreateContactOpen(false);
+      if (editing) {
+        setEditing(null);
         return;
       }
-
-      if (editingField) {
-        setEditingField(null);
-        if (order) {
-          setEditCompanyId(order.companyId ?? null);
-          setEditClientId(order.clientId ?? null);
-          setEditDeliveryMethod(order.deliveryMethod ?? "PICKUP");
-          setEditPaymentMethod((order as unknown).paymentMethod ?? "CASH");
-          setEditComment(order.comment ?? "");
-          setEditDiscount(Number(order.discountAmount ?? 0));
-        }
-        return;
-      }
-
       if (canClose) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createContactOpen, editingField, canClose, onClose, order]);
-
-  const openCreateContact = (query: string, target: "create" | "edit") => {
-    setCreateContactQuery(query);
-    setCreateContactTarget(target);
-
-    const companyId = target === "create" ? editCompanyId : (order?.companyId ?? null);
-    setCreateContactDefaultCompanyId(companyId);
-
-    setCreateContactOpen(true);
-  };
+  }, [editing, canClose, onClose]);
 
   const patchOrder = useCallback(
-    async (patch: unknown) => {
+    async (payload: Record<string, any>) => {
       if (!orderId) return;
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-        cache: "no-store",
-      });
-      const text = await r.text();
-      if (!r.ok) {
-        const j = safeJson<{ message?: string }>(text);
-        throw new Error(j?.message || text || `Failed (${r.status})`);
+      setSaving(true);
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data?.message || `Failed to update order (${r.status})`);
+        }
+        await Promise.all([refreshOrder(), refreshTimeline()]);
+        onSaved?.();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Failed to save");
+        // rollback view to server state
+        await refreshOrder();
+      } finally {
+        setSaving(false);
       }
-      const updated = safeJson<OrderDetails>(text);
-      if (updated) setOrder(updated);
-      await refreshTimeline();
-      onSaved?.();
     },
-    [apiBaseUrl, orderId, refreshTimeline, onSaved],
+    [apiBaseUrl, onSaved, orderId, refreshOrder, refreshTimeline],
   );
 
-  const handleCompanyChange = (newCompanyId: string | null) => {
-    setEditCompanyId(newCompanyId);
-    setEditClientId(null);
-    void fetchContacts(newCompanyId);
-  };
-
-  const handleClientChange = (contactId: string | null) => {
-    setEditClientId(contactId);
-    if (contactId) {
-      const c = contacts.find((x) => x.id === contactId);
-      if (c?.companyId) setEditCompanyId(c.companyId);
-    }
-  };
-
-  const handleSaveOrder = async () => {
-    setSavingOrder(true);
+  const createOrder = useCallback(async () => {
+    setSaving(true);
     try {
       const r = await fetch(`${apiBaseUrl}/orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyId: editCompanyId,
-          clientId: editClientId,
-          contactId: editClientId, // ✅ sync for TTN
-          deliveryMethod: editDeliveryMethod,
-          paymentMethod: editPaymentMethod,
-          comment: editComment || null,
-          discountAmount: Number(editDiscount) || 0,
+          companyId,
+          clientId,
+          contactId: clientId,
+          deliveryMethod,
+          paymentMethod: "CASH",
+          comment: comment.trim() ? comment.trim() : null,
+          discountAmount: Number(discountAmount) || 0,
         }),
+        credentials: "include",
         cache: "no-store",
       });
-
-      const text = await r.text();
       if (!r.ok) {
-        const data = safeJson<{ message?: string }>(text);
-        throw new Error(data?.message || text || `Failed to create order (${r.status})`);
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.message || `Failed to create order (${r.status})`);
       }
-
       onSaved?.();
       onClose();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save");
+      alert(e instanceof Error ? e.message : "Failed to create order");
     } finally {
-      setSavingOrder(false);
+      setSaving(false);
     }
-  };
+  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, onClose, onSaved]);
 
-  // product search debounce (only existing order)
+  // product search debounce
   useEffect(() => {
     if (!showAddForm || !orderId || selectedProduct) return;
     if (search.trim().length === 0) {
@@ -817,9 +599,7 @@ export function OrderModal({
       try {
         const r = await fetch(
           `${apiBaseUrl}/products?search=${encodeURIComponent(search)}&page=1&pageSize=10`,
-          {
-            cache: "no-store",
-          },
+          { cache: "no-store" },
         );
         if (!r.ok) throw new Error(`Failed to load products (${r.status})`);
         const data = (await r.json()) as ProductsResponse;
@@ -891,52 +671,31 @@ export function OrderModal({
     return order?.orderNumber ?? "…";
   }, [isCreate, order?.orderNumber]);
 
-  const np = (order as unknown)?.deliveryData?.novaPoshta;
+  const formatDt = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
+
+  const np = (order as any)?.deliveryData?.novaPoshta;
   const ttnNumber: string | null = np?.ttn?.number ?? null;
   const ttnStatusText: string | null = np?.status?.Status ?? np?.status?.statusText ?? null;
   const ttnStatusCode: string | null = np?.status?.StatusCode ?? np?.status?.statusCode ?? null;
-
-  const ttnStatusLabel = ttnStatusText
-    ? ttnStatusCode
-      ? `${ttnStatusText} (code ${ttnStatusCode})`
-      : ttnStatusText
-    : null;
+  const ttnStatusLabel = ttnStatusText ? (ttnStatusCode ? `${ttnStatusText} (code ${ttnStatusCode})` : ttnStatusText) : null;
 
   const canShowCreateTtnButton = useMemo(() => {
     return !isCreate && !loading && !!order && order.deliveryMethod === "NOVA_POSHTA";
   }, [isCreate, loading, order]);
 
-  const startInlineEdit = (field: EditFieldKey) => {
-    if (!order || fieldSaving) return;
-    setEditingField(field);
-    void fetchCompanies();
-    void fetchContacts(order.companyId ?? null);
-  };
-
-  const stopInlineEdit = () => {
-    setEditingField(null);
-    if (order) {
-      setEditCompanyId(order.companyId ?? null);
-      setEditClientId(order.clientId ?? null);
-      setEditDeliveryMethod(order.deliveryMethod ?? "PICKUP");
-      setEditPaymentMethod((order as unknown).paymentMethod ?? "CASH");
-      setEditComment(order.comment ?? "");
-      setEditDiscount(Number(order.discountAmount ?? 0));
-    }
-  };
-
-  const saveInline = async (field: Exclude<EditFieldKey, null>, patch: unknown) => {
-    setFieldSaving(field);
-    try {
-      await patchOrder(patch);
-      setEditingField(null);
-      await refreshOrder();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setFieldSaving(null);
-    }
-  };
+  const ensureListsForCompanyClient = useCallback(
+    async (cid: string | null) => {
+      if (companies.length === 0) await fetchCompanies();
+      await fetchContacts(cid);
+    },
+    [companies.length, fetchCompanies, fetchContacts],
+  );
 
   return (
     <div
@@ -947,7 +706,7 @@ export function OrderModal({
       role="presentation"
     >
       <div
-        className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-lg bg-white shadow-lg"
+        className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="presentation"
       >
@@ -958,7 +717,7 @@ export function OrderModal({
             <h2 className="text-lg font-semibold text-zinc-900">{headerTitle}</h2>
           </div>
           <div className="flex items-center gap-2">
-            {canShowCreateTtnButton && (
+            {canShowCreateTtnButton ? (
               <button
                 type="button"
                 onClick={() => setShowTtnModal(true)}
@@ -966,7 +725,7 @@ export function OrderModal({
               >
                 Create TTN (NP)
               </button>
-            )}
+            ) : null}
 
             <button
               type="button"
@@ -981,52 +740,60 @@ export function OrderModal({
           </div>
         </div>
 
-        {/* статусная полоска */}
-        {!isCreate && order ? <StatusStepper status={order.status} /> : null}
+        {/* STATUS BAR (only existing order) */}
+        {!isCreate && order ? <Stepper status={order.status} /> : null}
 
         {/* BODY */}
         <div className="px-6 py-4 max-h-[calc(90vh-64px)] overflow-auto">
-          {/* CREATE MODE */}
           {isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
               <div className="grid grid-cols-2 gap-4">
-                {/* Company */}
                 <div>
                   <label className="block text-xs font-medium text-zinc-600 mb-1">Company</label>
-                  <SearchableSelect
+                  <SearchableSelectLite
                     options={companies.map((c) => ({ id: c.id, label: c.name }))}
-                    value={editCompanyId}
-                    onChange={(val) => handleCompanyChange(val || null)}
+                    value={companyId}
+                    onChange={(id) => {
+                      setCompanyId(id);
+                      setClientId(null);
+                      void fetchContacts(id);
+                    }}
                     disabled={loadingCompanies}
                     isLoading={loadingCompanies}
                     placeholder="Select company…"
+                    onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
+                    createLabel="Create company"
                   />
                 </div>
 
-                {/* Client */}
                 <div>
                   <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
-                  <SearchableSelect
+                  <SearchableSelectLite
                     options={contacts.map((c) => ({
                       id: c.id,
-                      label: `${c.firstName} ${c.lastName} — ${c.phone}`,
+                      label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
                     }))}
-                    value={editClientId}
-                    onChange={(val) => handleClientChange(val || null)}
+                    value={clientId}
+                    onChange={(id) => {
+                      setClientId(id);
+                      if (id) {
+                        const c = contacts.find((x) => x.id === id);
+                        if (c?.companyId) setCompanyId(c.companyId);
+                      }
+                    }}
                     disabled={loadingContacts}
                     isLoading={loadingContacts}
-                    placeholder="Search contact…"
+                    placeholder="Select client…"
+                    onCreate={onOpenContact ? () => onOpenContact("new") : undefined}
                     createLabel="Create contact"
-                    onCreateNew={(q) => openCreateContact(q, "create")}
                   />
                 </div>
 
-                {/* Delivery */}
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">Delivery</label>
                   <select
-                    value={editDeliveryMethod}
-                    onChange={(e) => setEditDeliveryMethod(e.target.value)}
+                    value={deliveryMethod}
+                    onChange={(e) => setDeliveryMethod(e.target.value)}
                     className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
                   >
                     <option value="PICKUP">Pickup</option>
@@ -1034,39 +801,24 @@ export function OrderModal({
                   </select>
                 </div>
 
-                {/* Payment */}
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Payment</label>
-                  <select
-                    value={editPaymentMethod}
-                    onChange={(e) => setEditPaymentMethod(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                  >
-                    <option value="CASH">Cash</option>
-                    <option value="FOP">FOP</option>
-                  </select>
-                </div>
-
-                {/* Discount */}
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">Discount</label>
                   <input
                     type="number"
                     min={0}
-                    value={editDiscount}
-                    onChange={(e) => setEditDiscount(Math.max(0, Number(e.target.value)))}
+                    value={discountAmount}
+                    onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
                     className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Comment */}
               <div className="mt-4">
                 <label className="block text-xs font-medium text-zinc-600">Comment</label>
                 <textarea
                   rows={3}
-                  value={editComment}
-                  onChange={(e) => setEditComment(e.target.value)}
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
                   className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
                 />
               </div>
@@ -1075,23 +827,19 @@ export function OrderModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  disabled={savingOrder}
+                  disabled={saving}
                   className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveOrder}
-                  disabled={savingOrder}
+                  onClick={() => void createOrder()}
+                  disabled={saving}
                   className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {savingOrder ? "Saving…" : "Create"}
+                  {saving ? "Saving…" : "Create"}
                 </button>
-              </div>
-
-              <div className="mt-3 text-xs text-zinc-500">
-                After creation you’ll be able to add items and create TTN.
               </div>
             </div>
           ) : loading ? (
@@ -1108,287 +856,242 @@ export function OrderModal({
                   {/* DETAILS */}
                   <div className="rounded-md border border-zinc-200 bg-white p-4">
                     <div className="grid grid-cols-2 gap-4 text-sm">
-                      {/* Company */}
                       <div>
                         <div className="text-xs text-zinc-500">Company</div>
-                        {editingField === "company" ? (
+                        {editing === "company" ? (
                           <div className="mt-1">
-                            <SearchableSelect
+                            <SearchableSelectLite
+                              value={companyId}
                               options={companies.map((c) => ({ id: c.id, label: c.name }))}
-                              value={editCompanyId}
-                              onChange={(val) => {
-                                const next = val || null;
-                                setEditCompanyId(next);
-                                setEditClientId(null);
-                                void fetchContacts(next);
-                                void saveInline("company", {
-                                  companyId: next,
-                                  clientId: null,
-                                  contactId: null,
-                                });
-                              }}
-                              disabled={loadingCompanies || fieldSaving === "company"}
-                              isLoading={loadingCompanies}
                               placeholder="Select company…"
+                              disabled={saving}
+                              isLoading={loadingCompanies}
+                              onChange={async (id) => {
+                                setCompanyId(id);
+                                setClientId(null);
+                                const selectedCompany = id ? companies.find((c) => c.id === id) : null;
+                                try {
+                                  await patchOrder({
+                                    companyId: id,
+                                    clientId: null,
+                                    contactId: null,
+                                  });
+                                  if (order && id && selectedCompany) {
+                                    setOrder((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            companyId: id,
+                                            company: {
+                                              id: selectedCompany.id,
+                                              name: selectedCompany.name,
+                                            },
+                                          }
+                                        : prev,
+                                    );
+                                  }
+                                  await fetchContacts(id);
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
+                              createLabel="Create company"
                             />
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="mt-2 text-xs text-zinc-600 hover:underline"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : order.company ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onOpenCompany?.(order.company!.id)}
-                              className="text-left font-medium text-zinc-900 hover:underline"
-                            >
-                              {order.company.name}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => startInlineEdit("company")}
-                              className="text-xs text-zinc-500 hover:text-zinc-900"
-                              title="Edit"
-                            >
-                              ✎
-                            </button>
+                            <div className="mt-1 text-xs text-zinc-500">ESC — cancel</div>
                           </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => startInlineEdit("company")}
-                            className="mt-1 text-left text-zinc-600 hover:underline"
+                            onClick={async () => {
+                              setEditing("company");
+                              await ensureListsForCompanyClient(companyId);
+                            }}
+                            className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
                           >
-                            —
+                            {order.company ? order.company.name : "—"}
                           </button>
                         )}
                       </div>
 
-                      {/* Client */}
                       <div>
                         <div className="text-xs text-zinc-500">Client</div>
-                        {editingField === "client" ? (
+                        {editing === "client" ? (
                           <div className="mt-1">
-                            <SearchableSelect
+                            <SearchableSelectLite
+                              value={clientId}
                               options={contacts.map((c) => ({
                                 id: c.id,
-                                label: `${c.firstName} ${c.lastName} — ${c.phone}`,
+                                label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
                               }))}
-                              value={editClientId}
-                              onChange={(val) => {
-                                const next = val || null;
-                                setEditClientId(next);
-                                void saveInline("client", { clientId: next, contactId: next });
-                              }}
-                              disabled={loadingContacts || fieldSaving === "client"}
+                              placeholder="Select client…"
+                              disabled={saving}
                               isLoading={loadingContacts}
-                              placeholder="Search contact…"
+                              onChange={async (id) => {
+                                setClientId(id);
+                                let nextCompanyId = companyId;
+                                const selectedContact = id ? contacts.find((x) => x.id === id) : null;
+                                if (selectedContact?.companyId) {
+                                  nextCompanyId = selectedContact.companyId;
+                                  setCompanyId(selectedContact.companyId);
+                                }
+                                try {
+                                  await patchOrder({
+                                    clientId: id,
+                                    contactId: id,
+                                    companyId: nextCompanyId,
+                                  });
+                                  // Оптимистично обновляем order.client, чтобы кнопка сразу показала выбранного клиента
+                                  if (order && id && selectedContact) {
+                                    setOrder((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            clientId: id,
+                                            client: {
+                                              id: selectedContact.id,
+                                              firstName: selectedContact.firstName,
+                                              lastName: selectedContact.lastName,
+                                              phone: selectedContact.phone,
+                                            },
+                                          }
+                                        : prev,
+                                    );
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              onCreate={onOpenContact ? () => onOpenContact("new") : undefined}
                               createLabel="Create contact"
-                              onCreateNew={(q) => openCreateContact(q, "edit")}
                             />
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="mt-2 text-xs text-zinc-600 hover:underline"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : order.client ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onOpenContact?.(order.client!.id)}
-                              className="text-left font-medium text-zinc-900 hover:underline"
-                            >
-                              {order.client.firstName} {order.client.lastName} —{" "}
-                              {order.client.phone}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => startInlineEdit("client")}
-                              className="text-xs text-zinc-500 hover:text-zinc-900"
-                              title="Edit"
-                            >
-                              ✎
-                            </button>
+                            <div className="mt-1 text-xs text-zinc-500">ESC — cancel</div>
                           </div>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => startInlineEdit("client")}
-                            className="mt-1 text-left text-zinc-600 hover:underline"
+                            onClick={async () => {
+                              setEditing("client");
+                              await ensureListsForCompanyClient(companyId);
+                            }}
+                            className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
                           >
-                            —
+                            {order.client
+                              ? `${order.client.firstName} ${order.client.lastName} — ${order.client.phone}`
+                              : "—"}
                           </button>
                         )}
                       </div>
 
-                      {/* Delivery */}
                       <div>
                         <div className="text-xs text-zinc-500">Delivery</div>
-                        {editingField === "deliveryMethod" ? (
+                        {editing === "delivery" ? (
                           <div className="mt-1">
                             <select
-                              value={editDeliveryMethod}
-                              onChange={(e) => {
+                              value={deliveryMethod}
+                              onChange={async (e) => {
                                 const v = e.target.value;
-                                setEditDeliveryMethod(v);
-                                void saveInline("deliveryMethod", { deliveryMethod: v });
+                                setDeliveryMethod(v);
+                                try {
+                                  await patchOrder({ deliveryMethod: v });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, deliveryMethod: v } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
                               }}
                               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={fieldSaving === "deliveryMethod"}
+                              disabled={saving}
                             >
                               <option value="PICKUP">Pickup</option>
                               <option value="NOVA_POSHTA">Nova Poshta</option>
                             </select>
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="mt-2 text-xs text-zinc-600 hover:underline"
-                            >
-                              Cancel
-                            </button>
                           </div>
                         ) : (
-                          <div className="mt-1 flex items-center gap-2">
-                            <div className="font-medium text-zinc-900">
-                              {order.deliveryMethod ?? "—"}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => startInlineEdit("deliveryMethod")}
-                              className="text-xs text-zinc-500 hover:text-zinc-900"
-                              title="Edit"
-                            >
-                              ✎
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeliveryMethod(order.deliveryMethod ?? "PICKUP");
+                              setEditing("delivery");
+                            }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {order.deliveryMethod ?? "—"}
+                          </button>
                         )}
                       </div>
 
-                      {/* Payment */}
-                      <div>
-                        <div className="text-xs text-zinc-500">Payment</div>
-                        {editingField === "paymentMethod" ? (
-                          <div className="mt-1">
-                            <select
-                              value={editPaymentMethod}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setEditPaymentMethod(v);
-                                void saveInline("paymentMethod", { paymentMethod: v });
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={fieldSaving === "paymentMethod"}
-                            >
-                              <option value="CASH">Cash</option>
-                              <option value="FOP">FOP</option>
-                            </select>
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="mt-2 text-xs text-zinc-600 hover:underline"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="mt-1 flex items-center gap-2">
-                            <div className="font-medium text-zinc-900">
-                              {(order as unknown).paymentMethod ?? "—"}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => startInlineEdit("paymentMethod")}
-                              className="text-xs text-zinc-500 hover:text-zinc-900"
-                              title="Edit"
-                            >
-                              ✎
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* TTN */}
                       <div>
                         <div className="text-xs text-zinc-500">TTN</div>
-                        <div className="mt-1 font-medium text-zinc-900">
-                          {ttnNumber ? `№ ${ttnNumber}` : "—"}
-                        </div>
+                        <div className="mt-1 font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : "—"}</div>
                       </div>
 
-                      {/* NP status */}
                       <div className="col-span-2">
                         <div className="text-xs text-zinc-500">NP status</div>
                         <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? "—"}</div>
                       </div>
 
-                      {/* Status */}
                       <div>
                         <div className="text-xs text-zinc-500">Status</div>
                         <div className="mt-1 font-medium text-zinc-900">{order.status}</div>
                       </div>
 
-                      {/* Created */}
                       <div>
                         <div className="text-xs text-zinc-500">Created</div>
                         <div className="mt-1 text-zinc-700">{formatDt(order.createdAt)}</div>
                       </div>
 
-                      {/* Discount */}
                       <div>
                         <div className="text-xs text-zinc-500">Discount</div>
-                        {editingField === "discount" ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
-                              value={editDiscount}
-                              onChange={(e) => setEditDiscount(Math.max(0, Number(e.target.value)))}
-                              className="w-32 rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                              disabled={fieldSaving === "discount"}
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void saveInline("discount", {
-                                  discountAmount: Number(editDiscount) || 0,
-                                })
+                        {editing === "discount" ? (
+                          <input
+                            type="number"
+                            min={0}
+                            value={discountAmount}
+                            onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                            onKeyDown={async (e) => {
+                              if (e.key === "Enter") {
+                                const val = Number(discountAmount) || 0;
+                                try {
+                                  await patchOrder({ discountAmount: val });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, discountAmount: val } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
                               }
-                              className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                              disabled={fieldSaving === "discount"}
-                            >
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="text-sm text-zinc-600 hover:underline"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                            }}
+                            onBlur={async () => {
+                              const val = Number(discountAmount) || 0;
+                              try {
+                                await patchOrder({ discountAmount: val });
+                                if (order) {
+                                  setOrder((prev) => (prev ? { ...prev, discountAmount: val } : prev));
+                                }
+                              } finally {
+                                setEditing(null);
+                              }
+                            }}
+                            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                            disabled={saving}
+                            autoFocus
+                          />
                         ) : (
-                          <div className="mt-1 flex items-center gap-2">
-                            <div className="text-zinc-700">{order.discountAmount.toFixed(2)}</div>
-                            <button
-                              type="button"
-                              onClick={() => startInlineEdit("discount")}
-                              className="text-xs text-zinc-500 hover:text-zinc-900"
-                              title="Edit"
-                            >
-                              ✎
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountAmount(Number(order.discountAmount ?? 0));
+                              setEditing("discount");
+                            }}
+                            className="mt-1 text-left text-zinc-700 hover:underline"
+                          >
+                            {Number(order.discountAmount ?? 0).toFixed(2)}
+                          </button>
                         )}
                       </div>
 
-                      {/* Total */}
                       <div>
                         <div className="text-xs text-zinc-500">Total</div>
                         <div className="mt-1 font-semibold text-zinc-900">
@@ -1397,58 +1100,60 @@ export function OrderModal({
                       </div>
                     </div>
 
-                    {/* Comment */}
                     <div className="mt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-zinc-500">Comment</div>
-                        {editingField !== "comment" ? (
-                          <button
-                            type="button"
-                            onClick={() => startInlineEdit("comment")}
-                            className="text-xs text-zinc-500 hover:text-zinc-900"
-                            title="Edit"
-                          >
-                            ✎
-                          </button>
-                        ) : null}
-                      </div>
-
-                      {editingField === "comment" ? (
-                        <div className="mt-1">
-                          <textarea
-                            rows={3}
-                            value={editComment}
-                            onChange={(e) => setEditComment(e.target.value)}
-                            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                            disabled={fieldSaving === "comment"}
-                          />
-                          <div className="mt-2 flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={stopInlineEdit}
-                              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void saveInline("comment", { comment: editComment.trim() || null })
+                      <div className="text-xs text-zinc-500">Comment</div>
+                      {editing === "comment" ? (
+                        <textarea
+                          rows={3}
+                          value={comment}
+                          onChange={(e) => setComment(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                              const val = comment.trim() ? comment.trim() : null;
+                              try {
+                                await patchOrder({ comment: val });
+                                if (order) {
+                                  setOrder((prev) => (prev ? { ...prev, comment: val } : prev));
+                                }
+                              } finally {
+                                setEditing(null);
                               }
-                              className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-                              disabled={fieldSaving === "comment"}
-                            >
-                              Save
-                            </button>
-                          </div>
-                        </div>
-                      ) : order.comment ? (
-                        <div className="mt-1 text-sm text-zinc-800 whitespace-pre-wrap">
-                          {order.comment}
-                        </div>
+                            }
+                          }}
+                          onBlur={async () => {
+                            const val = comment.trim() ? comment.trim() : null;
+                            try {
+                              await patchOrder({ comment: val });
+                              if (order) {
+                                setOrder((prev) => (prev ? { ...prev, comment: val } : prev));
+                              }
+                            } finally {
+                              setEditing(null);
+                            }
+                          }}
+                          className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                          disabled={saving}
+                          autoFocus
+                        />
                       ) : (
-                        <div className="mt-1 text-sm text-zinc-500">—</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setComment(order.comment ?? "");
+                            setEditing("comment");
+                          }}
+                          className="mt-1 w-full text-left text-sm text-zinc-800 hover:bg-zinc-50 rounded-md px-2 py-1"
+                        >
+                          {order.comment ? (
+                            <span className="whitespace-pre-wrap">{order.comment}</span>
+                          ) : (
+                            <span className="text-zinc-400">Click to add comment…</span>
+                          )}
+                        </button>
                       )}
+                      {editing === "comment" ? (
+                        <div className="mt-1 text-xs text-zinc-500">Blur — save • Ctrl/⌘ + Enter — save</div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1465,14 +1170,11 @@ export function OrderModal({
                       </button>
                     </div>
 
-                    {/* Add item form */}
-                    {showAddForm && (
+                    {showAddForm ? (
                       <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
                         <div className="grid grid-cols-12 gap-3">
                           <div className="col-span-12">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">
-                              Product
-                            </label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">Product</label>
                             <input
                               value={search}
                               onChange={(e) => {
@@ -1482,13 +1184,9 @@ export function OrderModal({
                               placeholder="Search product…"
                               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                             />
-                            {searchLoading && (
-                              <div className="mt-2 text-xs text-zinc-500">Searching…</div>
-                            )}
-                            {searchError && (
-                              <div className="mt-2 text-xs text-red-600">{searchError}</div>
-                            )}
-                            {!selectedProduct && searchResults.length > 0 && (
+                            {searchLoading ? <div className="mt-2 text-xs text-zinc-500">Searching…</div> : null}
+                            {searchError ? <div className="mt-2 text-xs text-red-600">{searchError}</div> : null}
+                            {!selectedProduct && searchResults.length > 0 ? (
                               <div className="mt-2 max-h-40 overflow-auto rounded-md border bg-white">
                                 {searchResults.map((p) => (
                                   <button
@@ -1502,21 +1200,16 @@ export function OrderModal({
                                   </button>
                                 ))}
                               </div>
-                            )}
-                            {selectedProduct && (
+                            ) : null}
+                            {selectedProduct ? (
                               <div className="mt-2 text-xs text-zinc-600">
-                                Selected:{" "}
-                                <span className="font-medium text-zinc-900">
-                                  {selectedProduct.name}
-                                </span>
+                                Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
                               </div>
-                            )}
+                            ) : null}
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">
-                              Qty
-                            </label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
                             <input
                               type="number"
                               min={1}
@@ -1527,9 +1220,7 @@ export function OrderModal({
                           </div>
 
                           <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">
-                              Price
-                            </label>
+                            <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
                             <input
                               type="number"
                               min={0}
@@ -1540,24 +1231,21 @@ export function OrderModal({
                           </div>
                         </div>
 
-                        {submitError && (
-                          <div className="mt-3 text-xs text-red-600">{submitError}</div>
-                        )}
+                        {submitError ? <div className="mt-3 text-xs text-red-600">{submitError}</div> : null}
 
                         <div className="mt-3 flex justify-end">
                           <button
                             type="button"
                             disabled={!selectedProduct || submittingItem}
-                            onClick={handleAddItemSubmit}
+                            onClick={() => void handleAddItemSubmit()}
                             className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                           >
                             {submittingItem ? "Adding…" : "Add"}
                           </button>
                         </div>
                       </div>
-                    )}
+                    ) : null}
 
-                    {/* items list */}
                     <div className="mt-4 overflow-hidden rounded-md border border-zinc-200">
                       <table className="w-full text-sm">
                         <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
@@ -1582,17 +1270,11 @@ export function OrderModal({
                                   <div className="font-medium text-zinc-900">
                                     {it.product?.name || it.productName || it.productId}
                                   </div>
-                                  {it.product?.sku ? (
-                                    <div className="text-xs text-zinc-500">{it.product.sku}</div>
-                                  ) : null}
+                                  {it.product?.sku ? <div className="text-xs text-zinc-500">{it.product.sku}</div> : null}
                                 </td>
                                 <td className="px-3 py-2 text-right text-zinc-700">{it.qty}</td>
-                                <td className="px-3 py-2 text-right text-zinc-700">
-                                  {it.price.toFixed(2)}
-                                </td>
-                                <td className="px-3 py-2 text-right font-medium text-zinc-900">
-                                  {it.lineTotal.toFixed(2)}
-                                </td>
+                                <td className="px-3 py-2 text-right text-zinc-700">{it.price.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-right font-medium text-zinc-900">{it.lineTotal.toFixed(2)}</td>
                               </tr>
                             ))
                           )}
@@ -1636,14 +1318,12 @@ export function OrderModal({
                                 </div>
                                 <div className="text-sm font-medium text-zinc-900">{t.title}</div>
                               </div>
-                              <div className="text-xs text-zinc-500 whitespace-nowrap">
-                                {formatDt(t.occurredAt)}
-                              </div>
+                              <div className="text-xs text-zinc-500 whitespace-nowrap">{formatDt(t.occurredAt)}</div>
                             </div>
                             <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">
-                              {t.body}
+                              {renderValue(t.body)}
                             </div>
-                            <div className="mt-2 text-xs text-zinc-500">by {t.createdBy}</div>
+                            <div className="mt-2 text-xs text-zinc-500">by {renderValue(t.createdBy)}</div>
                           </div>
                         ))}
                       </div>
@@ -1660,9 +1340,8 @@ export function OrderModal({
               open={showTtnModal}
               onClose={() => setShowTtnModal(false)}
               orderId={orderId}
-              contactId={(order as unknown).contactId ?? order.clientId ?? ""}
-              onCreated={async (res) => {
-                console.log("TTN created:", res);
+              contactId={(order as any).contactId ?? order.clientId ?? ""}
+              onCreated={async () => {
                 setShowTtnModal(false);
                 await Promise.all([refreshOrder(), refreshTimeline()]);
                 onSaved?.();
@@ -1670,34 +1349,6 @@ export function OrderModal({
             />
           ) : null}
         </div>
-
-        {/* Create contact overlay */}
-        <CreateContactModal
-          open={createContactOpen}
-          apiBaseUrl={apiBaseUrl}
-          companies={companies}
-          defaultCompanyId={createContactDefaultCompanyId}
-          query={createContactQuery}
-          onClose={() => setCreateContactOpen(false)}
-          onCreated={(c) => {
-            setContacts((prev) => {
-              const exists = prev.some((x) => x.id === c.id);
-              if (exists) return prev;
-              return [c, ...prev];
-            });
-
-            if (c.companyId) setEditCompanyId((prev) => prev ?? c.companyId ?? null);
-
-            if (createContactTarget === "create") {
-              setEditClientId(c.id);
-            } else {
-              setEditClientId(c.id);
-              void saveInline("client", { clientId: c.id, contactId: c.id });
-            }
-
-            setCreateContactOpen(false);
-          }}
-        />
       </div>
     </div>
   );

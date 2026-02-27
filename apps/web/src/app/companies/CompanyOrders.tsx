@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 
 type OrderItem = {
   id: string;
@@ -26,28 +27,35 @@ type Props = {
   onOpenOrder: (orderId: string) => void;
 };
 
+function getErrMsg(e: unknown, fallback: string) {
+  const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
+  return (
+    anyErr?.response?.data?.message ||
+    anyErr?.response?.data?.error ||
+    (e instanceof Error ? e.message : fallback)
+  );
+}
+
 export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // apiHttp уже имеет baseURL "/api", поэтому путь без префикса
   const url = useMemo(
-    () => `${apiBaseUrl}/orders?companyId=${companyId}&page=1&pageSize=50`,
-    [apiBaseUrl, companyId],
+    () => `orders?companyId=${companyId}&page=1&pageSize=50`,
+    [companyId],
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(url, { cache: "no-store" });
-      const t = await r.text();
-      if (!r.ok) throw new Error(t || `Failed (${r.status})`);
-      const data = JSON.parse(t) as OrdersResponse;
-      setItems(data.items || []);
+      const res = await apiHttp.get<OrdersResponse>(url);
+      setItems(res.data?.items || []);
     } catch (e) {
       setItems([]);
-      setErr(e instanceof Error ? e.message : "Failed to load orders");
+      setErr(getErrMsg(e, "Failed to load orders"));
     } finally {
       setLoading(false);
     }

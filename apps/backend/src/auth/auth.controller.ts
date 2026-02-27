@@ -1,11 +1,13 @@
-import { BadRequestException, Body, Controller, Get, Post, Req } from "@nestjs/common";
-import { Request } from "express";
+import { BadRequestException, Body, Controller, Get, Post, Req, Inject } from "@nestjs/common";
+import type { Request } from "express";
 import { AuthService } from "./auth.service";
 import { Public } from "./public.decorator";
-import { AuthUser } from "./auth.types";
-import { LoginDto, validateLoginDto } from "./dto/login.dto";
-import { RegisterDto, validateRegisterDto } from "./dto/register.dto";
-import { ValidationError } from "../common/validation";
+import type { AuthUser } from "./auth.types";
+import type { LoginDto } from "./dto/login.dto";
+import { validateLoginDto } from "./dto/login.dto";
+import type { RegisterDto } from "./dto/register.dto";
+import { validateRegisterDto } from "./dto/register.dto";
+import type { ValidationError } from "../common/validation";
 
 const assertValid = (errors: ValidationError[]): void => {
   if (errors.length === 0) {
@@ -17,7 +19,7 @@ const assertValid = (errors: ValidationError[]): void => {
 
 @Controller("/auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
 
   @Public()
   @Post("/register")

@@ -80,7 +80,7 @@ export function OrderStatusBar(props: {
     <div className={["w-full overflow-x-auto", className || ""].join(" ")}>
       <div className="flex min-w-max gap-2">
         {FLOW.map((s, i) => {
-          const isDone = i < activeIdx; // пройденный
+          const _isDone = i < activeIdx; // пройденный
           const isActive = i === activeIdx; // текущий
           const isFuture = i > activeIdx; // не пройденный
 
@@ -108,7 +108,7 @@ export function OrderStatusBar(props: {
             blocked ? "opacity-50 cursor-not-allowed hover:opacity-50" : "",
           ].join(" ");
 
-          const Tag: any = clickable ? "button" : "div";
+          const Tag: unknown = clickable ? "button" : "div";
 
           return (
             <Tag

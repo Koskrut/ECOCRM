@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiHttp } from "../../lib/api/client";
 
 type TimelineItem = {
   id: string;
@@ -42,10 +43,9 @@ export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(timelineUrl, { cache: "no-store" });
-      if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
-      const data = (await r.json()) as TimelineResponse;
-      setItems(data.items || []);
+      const res = await apiHttp.get<TimelineResponse>(timelineUrl);
+      const data = res.data;
+      setItems(data?.items || []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
       setItems([]);
@@ -63,19 +63,14 @@ export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
     setSaving(true);
     setErr(null);
     try {
-      const r = await fetch(activitiesUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: mode, body: text.trim() }),
-      });
-      if (!r.ok) {
-        const data = (await r.json().catch(() => ({}))) as { message?: string };
-        throw new Error(data?.message || `Failed to add activity (${r.status})`);
-      }
+      await apiHttp.post(activitiesUrl, { type: mode, body: text.trim() });
       setText("");
       await load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to add activity");
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to add activity");
+      setErr(msg);
     } finally {
       setSaving(false);
     }

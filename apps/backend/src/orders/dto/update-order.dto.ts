@@ -1,45 +1,45 @@
-import { ValidationError, validateOptionalNumber, validateString } from "../../common/validation";
+import { DeliveryMethod, PaymentMethod } from "@prisma/client";
+import { Type } from "class-transformer";
+import { IsEnum, IsNumber, IsObject, IsOptional, IsString, Min } from "class-validator";
 
-export type UpdateOrderDto = {
-  // Разрешаем null, чтобы можно было "очистить" поле
+export class UpdateOrderDto {
+  @IsOptional()
+  @IsString()
   companyId?: string | null;
+
+  @IsOptional()
+  @IsString()
   clientId?: string | null;
-  comment?: string | null; // Комментарий тоже можно стереть
+
+  @IsOptional()
+  @IsString()
+  contactId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  comment?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
   discountAmount?: number;
-};
 
-export const validateUpdateOrderDto = (payload: UpdateOrderDto): ValidationError[] => {
-  const errors: ValidationError[] = [];
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  paidAmount?: number;
 
-  // Проверяем: если значение есть и оно НЕ null, то это должна быть строка
-  if (payload.companyId !== undefined && payload.companyId !== null) {
-    validateString(payload.companyId, "companyId", errors, { allowEmpty: false });
-  }
+  @IsOptional()
+  @IsEnum(DeliveryMethod)
+  deliveryMethod?: DeliveryMethod | null;
 
-  if (payload.clientId !== undefined && payload.clientId !== null) {
-    validateString(payload.clientId, "clientId", errors, { allowEmpty: false });
-  }
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod | null;
 
-  if (
-    payload.comment !== undefined &&
-    payload.comment !== null &&
-    typeof payload.comment !== "string"
-  ) {
-    errors.push({ field: "comment", message: "must be a string" });
-  }
-
-  if (payload.discountAmount !== undefined) {
-    validateOptionalNumber(payload.discountAmount, "discountAmount", errors, { min: 0 });
-  }
-
-  if (
-    payload.companyId === undefined &&
-    payload.clientId === undefined &&
-    payload.comment === undefined &&
-    payload.discountAmount === undefined
-  ) {
-    errors.push({ field: "payload", message: "at least one field is required" });
-  }
-
-  return errors;
-};
+  @IsOptional()
+  @IsObject()
+  deliveryData?: Record<string, unknown> | null;
+}

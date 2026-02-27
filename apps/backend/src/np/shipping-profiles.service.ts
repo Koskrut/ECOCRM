@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import type { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class ShippingProfilesService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async list(contactId: string) {
     return this.prisma.contactShippingProfile.findMany({
@@ -12,20 +13,20 @@ export class ShippingProfilesService {
     });
   }
 
-  async create(contactId: string, data: any) {
+  async create(contactId: string, data: Record<string, unknown>) {
     if (!data?.label) throw new BadRequestException("label is required");
     return this.prisma.contactShippingProfile.create({
       data: {
         contactId,
         ...data,
-      },
+      } as Prisma.ContactShippingProfileUncheckedCreateInput,
     });
   }
 
-  async update(profileId: string, data: any) {
+  async update(profileId: string, data: Record<string, unknown>) {
     return this.prisma.contactShippingProfile.update({
       where: { id: profileId },
-      data,
+      data: data as Prisma.ContactShippingProfileUpdateInput,
     });
   }
 
