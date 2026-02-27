@@ -61,6 +61,22 @@ enum ActivityType {
   MEETING
 }
 
+enum LeadStatus {
+  NEW
+  IN_PROGRESS
+  WON
+  NOT_TARGET
+  LOST
+}
+
+enum LeadSource {
+  FACEBOOK
+  TELEGRAM
+  INSTAGRAM
+  WEBSITE
+  OTHER
+}
+
 // --- MODELS ---
 
 model User {
@@ -73,6 +89,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   contacts Contact[]
+  leads    Lead[]
 }
 
 model Company {
@@ -86,6 +103,7 @@ model Company {
   contacts   Contact[]
   orders     Order[]
   activities Activity[]
+  leads      Lead[]
 }
 
 model Contact {
@@ -115,10 +133,40 @@ model Contact {
   shippingProfiles ContactShippingProfile[]
 
   activities Activity[]
+  leads      Lead[]
 
   @@index([companyId])
   @@index([ownerId])
   @@unique([phoneNormalized])
+}
+
+model Lead {
+  id           String      @id @default(cuid())
+  companyId    String
+  ownerId      String?
+  contactId    String?
+  status       LeadStatus  @default(NEW)
+  source       LeadSource  @default(OTHER)
+  name         String?
+  phone        String?
+  email        String?
+  companyName  String?
+  message      String?
+  statusReason String?
+  sourceMeta   Json?
+  lastActivityAt DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner   User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([companyId, source])
+  @@index([phone])
+  @@index([email])
+  @@index([contactId])
 }
 
 model ContactShippingProfile {

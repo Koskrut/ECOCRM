@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
 import { CompaniesModule } from "./companies/companies.module";
+import { LeadsModule } from "./leads/leads.module";
 import { ContactsModule } from "./contacts/contacts.module";
 import { OrdersModule } from "./orders/orders.module";
 import { ProductsModule } from "./products/products.module";
@@ -21,6 +22,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     ProductsModule,
     CompaniesModule,
     ContactsModule,
+    LeadsModule,
     UsersModule,
   ],
   providers: [

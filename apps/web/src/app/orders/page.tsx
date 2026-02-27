@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
@@ -40,8 +41,10 @@ function getErrMessage(e: unknown, fallback: string) {
 }
 
 export default function OrdersPage() {
+  const searchParams = useSearchParams();
+  const orderIdFromUrl = searchParams.get("orderId");
+
   // ВАЖНО: apiHttp уже работает с baseURL="/api"
-  // А OrderModal всё ещё принимает apiBaseUrl, поэтому оставляем "/api" только для него.
   const apiBaseUrl = "/api";
 
   const [orders, setOrders] = useState<OrderSummary[]>([]);
@@ -56,6 +59,13 @@ export default function OrdersPage() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (orderIdFromUrl) {
+      setActiveOrderId(orderIdFromUrl);
+      setOrderModalOpen(true);
+    }
+  }, [orderIdFromUrl]);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -117,6 +127,9 @@ export default function OrdersPage() {
     setOrderModalOpen(false);
     setActiveOrderId(null);
     void fetchOrders();
+    if (orderIdFromUrl) {
+      window.history.replaceState({}, "", "/orders");
+    }
   };
 
   return (

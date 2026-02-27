@@ -15,6 +15,7 @@ type MeResponse = { user?: { role?: string } };
 
 const baseMenuItems: MenuItem[] = [
   { label: "Orders", icon: "OR", href: "/orders" },
+  { label: "Leads", icon: "LD", href: "/leads" },
   { label: "Companies", icon: "CO", href: "/companies" },
   { label: "Contacts", icon: "CT", href: "/contacts" },
 ];
