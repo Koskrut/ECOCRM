@@ -13,7 +13,17 @@ export const apiHttp = axios.create({
 
 apiHttp.interceptors.response.use(
   (r) => r,
-  (e) => Promise.reject(mapAxiosError(e)),
+  (e) => {
+    const err = mapAxiosError(e);
+    if (typeof window !== "undefined" && err.status === 401) {
+      const pathname = window.location.pathname;
+      if (pathname !== "/login") {
+        const from = encodeURIComponent(pathname);
+        window.location.href = `/login?from=${from}`;
+      }
+    }
+    return Promise.reject(err);
+  },
 );
 
 axiosRetry(apiHttp, {

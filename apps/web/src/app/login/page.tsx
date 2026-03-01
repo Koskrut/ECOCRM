@@ -1,11 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "../../lib/api/client";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromParam = searchParams.get("from");
+  const from =
+    fromParam && fromParam.startsWith("/") && !fromParam.startsWith("//")
+      ? fromParam
+      : "/orders";
   const [email, setEmail] = useState("admin@ecocrm.local");
   const [password, setPassword] = useState("admin123");
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +27,7 @@ export default function LoginPage() {
       // => реально пойдёт на /api/auth/login (route handler) и он поставит cookie token
       await apiHttp.post("/auth/login", { email, password });
 
-      router.push("/orders");
+      router.push(from);
       router.refresh();
     } catch (e) {
       const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
@@ -64,11 +70,7 @@ export default function LoginPage() {
           autoComplete="current-password"
         />
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-5 w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className="btn-primary mt-5 w-full">
           {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
