@@ -55,8 +55,11 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
   resHeaders.delete("content-encoding");
   resHeaders.delete("content-length");
 
+  // NextResponse не принимает 304 — маппим на 200
+  const status = r.status === 304 ? 200 : r.status;
+
   return new NextResponse(resBody, {
-    status: r.status,
+    status,
     headers: resHeaders,
   });
 }

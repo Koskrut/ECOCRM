@@ -145,12 +145,12 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
       role="presentation"
       onClick={() => canClose && onClose()}
     >
       <div
-        className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="presentation"
       >
@@ -362,7 +362,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
           <button
             type="button"
             onClick={() => void submit()}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+            className="btn-primary"
             disabled={saving}
           >
             {saving ? "Создание…" : "Создать"}

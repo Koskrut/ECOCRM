@@ -2,6 +2,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -28,6 +29,8 @@ export class ContactsController {
         phone: String(body.phone ?? ""),
         email: (body.email as string) ?? null,
         position: (body.position as string) ?? null,
+        address: body.address !== undefined ? (body.address != null ? String(body.address) : null) : undefined,
+        ownerId: body.ownerId !== undefined ? (body.ownerId != null ? String(body.ownerId) : null) : undefined,
         isPrimary: Boolean(body.isPrimary ?? false),
       },
       req.user,
@@ -69,6 +72,25 @@ export class ContactsController {
     return this.contactsService.createShippingProfile(id, body, req.user);
   }
 
+  @Patch(":id/shipping-profiles/:profileId")
+  async updateShippingProfile(
+    @Param("id") id: string,
+    @Param("profileId") profileId: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.updateShippingProfile(id, profileId, body, req.user);
+  }
+
+  @Delete(":id/shipping-profiles/:profileId")
+  async deleteShippingProfile(
+    @Param("id") id: string,
+    @Param("profileId") profileId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.deleteShippingProfile(id, profileId, req.user);
+  }
+
   @Get(":id")
   async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.contactsService.getById(id, req.user);
@@ -83,12 +105,14 @@ export class ContactsController {
     return this.contactsService.update(
       id,
       {
-        companyId: body.companyId != null ? String(body.companyId) : undefined,
+        companyId: body.companyId !== undefined ? (body.companyId != null ? String(body.companyId) : null) : undefined,
         firstName: body.firstName != null ? String(body.firstName) : undefined,
         lastName: body.lastName != null ? String(body.lastName) : undefined,
         phone: body.phone != null ? String(body.phone) : undefined,
         email: body.email != null ? String(body.email) : undefined,
         position: body.position != null ? String(body.position) : undefined,
+        address: body.address !== undefined ? (body.address != null ? String(body.address) : null) : undefined,
+        ownerId: body.ownerId !== undefined ? (body.ownerId != null ? String(body.ownerId) : null) : undefined,
         isPrimary: body.isPrimary != null ? Boolean(body.isPrimary) : undefined,
       },
       req.user,

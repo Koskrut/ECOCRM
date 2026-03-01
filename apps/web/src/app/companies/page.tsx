@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CompanyModal } from "./CompanyModal";
 import { companiesApi, type CompaniesResponse, type Company } from "../../lib/api";
 
-export default function CompaniesPage() {
+function CompaniesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const companyId = searchParams.get("companyId");
@@ -49,13 +49,13 @@ export default function CompaniesPage() {
         <h1 className="text-2xl font-bold">Компании</h1>
       </div>
 
-      {loading && <div className="text-sm text-gray-600">Загрузка...</div>}
+      {loading && <div className="text-sm text-zinc-600">Загрузка...</div>}
       {error && <div className="text-sm text-red-600">{error}</div>}
 
       {!loading && !error && (
-        <div className="overflow-hidden rounded-xl border bg-white">
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left">
+            <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
               <tr>
                 <th className="px-4 py-3">Название</th>
                 <th className="px-4 py-3">ЕДРПОУ</th>
@@ -66,7 +66,7 @@ export default function CompaniesPage() {
               {companies.map((c) => (
                 <tr
                   key={c.id}
-                  className="cursor-pointer border-t hover:bg-gray-50"
+                  className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50"
                   onClick={() => openCompany(c.id)}
                 >
                   <td className="px-4 py-3 font-medium">{c.name}</td>
@@ -76,7 +76,7 @@ export default function CompaniesPage() {
               ))}
               {companies.length === 0 && (
                 <tr className="border-t">
-                  <td className="px-4 py-6 text-center text-gray-500" colSpan={3}>
+                  <td className="px-4 py-6 text-center text-zinc-500" colSpan={3}>
                     Нет компаний
                   </td>
                 </tr>
@@ -95,5 +95,13 @@ export default function CompaniesPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function CompaniesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Loading…</div>}>
+      <CompaniesPageContent />
+    </Suspense>
   );
 }

@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { EntityModalShell } from "@/components/modals/EntityModalShell";
+import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
+import { EntitySection } from "@/components/sections/EntitySection";
 import { apiHttp } from "@/lib/api/client";
 import type { Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
 
@@ -10,8 +13,6 @@ type Props = {
   onClose: () => void;
   onUpdated: () => void;
 };
-
-type TabKey = "general" | "timeline" | "convert";
 
 type ActivityItem = {
   id: string;
@@ -35,7 +36,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<TabKey>("general");
+  const [showConvertWizard, setShowConvertWizard] = useState(false);
+  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity">("main");
 
   const [saving, setSaving] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -46,7 +48,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [editCompanyName, setEditCompanyName] = useState("");
   const [editMessage, setEditMessage] = useState("");
   const [editSource, setEditSource] = useState<LeadSource>("OTHER");
-  const [editStatus, setEditStatus] = useState<LeadStatus>("NEW");
+  const [_editStatus, setEditStatus] = useState<LeadStatus>("NEW");
 
   const [timeline, setTimeline] = useState<ActivityItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -78,7 +80,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [editItems, setEditItems] = useState<EditItem[]>([]);
   const [productSearch, setProductSearch] = useState("");
   const [productResults, setProductResults] = useState<Array<{ id: string; name: string; sku: string; basePrice: number }>>([]);
-  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const [_productSearchLoading, setProductSearchLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{ id: string; name: string; sku: string; basePrice: number } | null>(null);
   const [newItemQty, setNewItemQty] = useState(1);
   const [newItemPrice, setNewItemPrice] = useState(0);
@@ -87,8 +89,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const canClose = !saving && !converting && !statusUpdating;
 
   const title = useMemo(() => {
-    if (!lead) return "Лид";
-    return lead.name || lead.companyName || "Лид";
+    if (!lead) return "Lead";
+    return lead.name || lead.companyName || "Lead";
   }, [lead]);
 
   const loadLead = useCallback(async () => {
@@ -124,7 +126,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     } catch (e) {
       const raw =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось загрузить лид");
+        (e instanceof Error ? e.message : "Failed to load lead");
       const msg = raw;
       setErr(msg);
       setLead(null);
@@ -175,7 +177,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось сохранить товары");
+        (e instanceof Error ? e.message : "Failed to save items");
       setErr(msg);
     } finally {
       setSavingItems(false);
@@ -216,7 +218,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     } catch (e) {
       setTimeline([]);
       setTimelineError(
-        e instanceof Error ? e.message : "Не удалось загрузить активность лида",
+        e instanceof Error ? e.message : "Failed to load lead activity",
       );
     } finally {
       setTimelineLoading(false);
@@ -243,13 +245,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   }, [loadLead]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (canClose) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [canClose, onClose]);
+    if (lead) void loadTimeline();
+  }, [lead, loadTimeline]);
 
   const saveGeneral = async () => {
     if (!lead) return;
@@ -269,7 +266,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось сохранить");
+        (e instanceof Error ? e.message : "Failed to save");
       setErr(msg);
     } finally {
       setSaving(false);
@@ -290,7 +287,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось обновить статус");
+        (e instanceof Error ? e.message : "Failed to update status");
       setErr(msg);
     } finally {
       setStatusUpdating(false);
@@ -312,7 +309,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
 
       if (mode === "link") {
         if (!selectedContactId) {
-          throw new Error("Выберите контакт или включите создание контакта");
+          throw new Error("Select a contact or enable create contact");
         }
         payload.contactId = selectedContactId;
       } else {
@@ -343,107 +340,190 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       if (dealId) setCreatedOrderId(dealId);
       await loadLead();
       onUpdated();
-      setTab("general");
+      setShowConvertWizard(false);
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Ошибка конвертации");
+        (e instanceof Error ? e.message : "Conversion failed");
       setConvertError(msg);
     } finally {
       setConverting(false);
     }
   };
 
-  const showConvertTab = lead?.status === "WON";
+  const canConvert = lead?.status === "WON";
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      role="presentation"
-      onClick={() => canClose && onClose()}
-    >
-      <div
-        className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <div>
-            <div className="text-base font-semibold text-zinc-900">{title}</div>
-            {lead ? (
-              <div className="mt-0.5 text-xs text-zinc-500">
-                Статус: {lead.status} • Источник: {lead.source}
+  const handleEscape = useCallback(() => {
+    if (showConvertWizard) {
+      setShowConvertWizard(false);
+      return true;
+    }
+    return false;
+  }, [showConvertWizard]);
+
+  const openConvertWizard = () => {
+    setShowConvertWizard(true);
+    setCreatedOrderId(null);
+    void loadSuggestions();
+  };
+
+  const timelineContent = (
+    <div>
+      {timelineLoading ? (
+        <div className="text-sm text-zinc-500">Loading timeline…</div>
+      ) : timelineError ? (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{timelineError}</div>
+      ) : timeline.length === 0 ? (
+        <div className="text-sm text-zinc-500">No activity yet</div>
+      ) : (
+        <div className="space-y-3">
+          {timeline.map((t) => (
+            <div key={t.id} className="rounded-md border border-zinc-200 bg-white p-3 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs text-zinc-500">{t.type}</div>
+                  <div className="font-medium text-zinc-900">{t.title || "No title"}</div>
+                </div>
+                <div className="text-xs text-zinc-500 whitespace-nowrap">
+                  {new Date(t.occurredAt ?? t.createdAt).toLocaleString()}
+                </div>
               </div>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => canClose && onClose()}
-            className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
-            disabled={!canClose}
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="border-b border-zinc-200 px-5">
-          <div className="flex gap-6">
-            <button
-              type="button"
-              onClick={() => setTab("general")}
-              className={`-mb-px border-b-2 py-3 text-sm font-medium ${
-                tab === "general"
-                  ? "border-zinc-900 text-zinc-900"
-                  : "border-transparent text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              Основное
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTab("timeline");
-                void loadTimeline();
-              }}
-              className={`-mb-px border-b-2 py-3 text-sm font-medium ${
-                tab === "timeline"
-                  ? "border-zinc-900 text-zinc-900"
-                  : "border-transparent text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              Таймлайн
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTab("convert");
-                setCreatedOrderId(null);
-                void loadSuggestions();
-              }}
-              className={`-mb-px border-b-2 py-3 text-sm font-medium ${
-                tab === "convert"
-                  ? "border-zinc-900 text-zinc-900"
-                  : "border-transparent text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              Конвертация
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-[320px] max-h-[70vh] overflow-auto p-5">
-          {loading ? (
-            <div className="text-sm text-zinc-500">Загрузка…</div>
-          ) : err ? (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {err}
+              <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{t.body}</div>
             </div>
-          ) : !lead ? (
-            <div className="text-sm text-zinc-500">Лид не найден</div>
-          ) : tab === "general" ? (
-            <div className="grid gap-6 md:grid-cols-2">
-              <div>
-                <label className="block text-xs font-medium text-zinc-600">Имя</label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const leftContent = loading ? (
+    <div className="text-sm text-zinc-500">Loading…</div>
+  ) : err ? (
+    <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+  ) : !lead ? (
+    <div className="text-sm text-zinc-500">Lead not found</div>
+  ) : leadTab === "activity" ? (
+    <EntitySection title="Activity">{timelineContent}</EntitySection>
+  ) : leadTab === "products" ? (
+    <EntitySection title="Products">
+      <div className="rounded-md border border-zinc-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-zinc-50 border-b border-zinc-200">
+              <th className="px-3 py-2 text-left">Product</th>
+              <th className="px-3 py-2 text-right">Qty</th>
+              <th className="px-3 py-2 text-right">Price</th>
+              <th className="px-3 py-2 text-right">Total</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {editItems.length === 0 ? (
+              <tr>
+                <td className="px-3 py-3 text-zinc-500" colSpan={5}>
+                  No products
+                </td>
+              </tr>
+            ) : (
+              editItems.map((it, idx) => (
+                <tr key={`${it.productId}-${idx}`}>
+                  <td className="px-3 py-2">{it.productName ?? it.productId}</td>
+                  <td className="px-3 py-2 text-right">{it.qty}</td>
+                  <td className="px-3 py-2 text-right">{it.price.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right font-medium">{(it.qty * it.price).toFixed(2)}</td>
+                  <td className="px-1 py-2">
+                    <button
+                      type="button"
+                      onClick={() => removeItemFromLead(idx)}
+                      className="rounded border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100"
+                      disabled={savingItems}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 flex flex-wrap items-end gap-2">
+        <div className="min-w-[200px]">
+          <input
+            type="text"
+            placeholder="Search product…"
+            className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            disabled={savingItems}
+          />
+          {productResults.length > 0 ? (
+            <ul className="mt-1 max-h-32 overflow-auto rounded border border-zinc-200 bg-white shadow">
+              {productResults.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-50 flex justify-between"
+                    onClick={() => {
+                      setSelectedProduct(p);
+                      setProductSearch(p.name);
+                      setProductResults([]);
+                      setNewItemPrice(p.basePrice);
+                    }}
+                  >
+                    <span>{p.name}</span>
+                    <span className="text-zinc-500 text-xs">{p.sku}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+        <div className="w-16">
+          <label className="block text-[10px] text-zinc-500">Qty</label>
+          <input
+            type="number"
+            min={1}
+            className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            value={newItemQty}
+            onChange={(e) => setNewItemQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            disabled={savingItems}
+          />
+        </div>
+        <div className="w-24">
+          <label className="block text-[10px] text-zinc-500">Price</label>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            value={newItemPrice}
+            onChange={(e) => setNewItemPrice(parseFloat(e.target.value) || 0)}
+            disabled={savingItems}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={addItemToLead}
+          disabled={!selectedProduct || savingItems}
+          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={() => void saveItems()}
+          disabled={savingItems || editItems.length === 0}
+          className="btn-primary py-1.5"
+        >
+          {savingItems ? "Saving…" : "Save items"}
+        </button>
+      </div>
+    </EntitySection>
+  ) : (
+    <div className="grid gap-6 md:grid-cols-2">
+      <div>
+                <label className="block text-xs font-medium text-zinc-600">Name</label>
                 <input
                   className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                   value={editName}
@@ -451,7 +531,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   disabled={saving}
                 />
 
-                <label className="mt-3 block text-xs font-medium text-zinc-600">Телефон</label>
+                <label className="mt-3 block text-xs font-medium text-zinc-600">Phone</label>
                 <input
                   className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                   value={editPhone}
@@ -468,7 +548,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                 />
 
                 <label className="mt-3 block text-xs font-medium text-zinc-600">
-                  Компания (текст)
+                  Company (text)
                 </label>
                 <input
                   className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
@@ -477,7 +557,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   disabled={saving}
                 />
 
-                <label className="mt-3 block text-xs font-medium text-zinc-600">Источник</label>
+                <label className="mt-3 block text-xs font-medium text-zinc-600">Source</label>
                 <select
                   className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                   value={editSource}
@@ -487,8 +567,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   <option value="FACEBOOK">Facebook</option>
                   <option value="TELEGRAM">Telegram</option>
                   <option value="INSTAGRAM">Instagram</option>
-                  <option value="WEBSITE">Сайт</option>
-                  <option value="OTHER">Другое</option>
+                  <option value="WEBSITE">Website</option>
+                  <option value="OTHER">Other</option>
                 </select>
 
                 <div className="mt-4 flex gap-2">
@@ -496,16 +576,16 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     type="button"
                     onClick={() => void saveGeneral()}
                     disabled={saving}
-                    className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                    className="btn-primary"
                   >
-                    {saving ? "Сохранение…" : "Сохранить"}
+                    {saving ? "Saving…" : "Save"}
                   </button>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-zinc-600">
-                  Сообщение / комментарий
+                  Message / comment
                 </label>
                 <textarea
                   rows={6}
@@ -515,202 +595,51 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   disabled={saving}
                 />
 
-                <div className="mt-6">
-                  <div className="text-xs font-medium text-zinc-600 mb-2">Товары</div>
-                  <div className="rounded-md border border-zinc-200 overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200">
-                          <th className="px-3 py-2 text-left">Товар</th>
-                          <th className="px-3 py-2 text-right">Кол.</th>
-                          <th className="px-3 py-2 text-right">Цена</th>
-                          <th className="px-3 py-2 text-right">Сумма</th>
-                          <th className="w-8" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {editItems.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-3 text-zinc-500" colSpan={5}>
-                              Нет товаров
-                            </td>
-                          </tr>
-                        ) : (
-                          editItems.map((it, idx) => (
-                            <tr key={`${it.productId}-${idx}`}>
-                              <td className="px-3 py-2">{it.productName ?? it.productId}</td>
-                              <td className="px-3 py-2 text-right">{it.qty}</td>
-                              <td className="px-3 py-2 text-right">{it.price.toFixed(2)}</td>
-                              <td className="px-3 py-2 text-right font-medium">{(it.qty * it.price).toFixed(2)}</td>
-                              <td className="px-1 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => removeItemFromLead(idx)}
-                                  className="rounded border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100"
-                                  disabled={savingItems}
-                                >
-                                  Удалить
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div className="min-w-[200px]">
-                      <input
-                        type="text"
-                        placeholder="Поиск товара…"
-                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                        value={productSearch}
-                        onChange={(e) => setProductSearch(e.target.value)}
-                        disabled={savingItems}
-                      />
-                      {productResults.length > 0 ? (
-                        <ul className="mt-1 max-h-32 overflow-auto rounded border border-zinc-200 bg-white shadow">
-                          {productResults.map((p) => (
-                            <li key={p.id}>
-                              <button
-                                type="button"
-                                className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-50 flex justify-between"
-                                onClick={() => {
-                                  setSelectedProduct(p);
-                                  setProductSearch(p.name);
-                                  setProductResults([]);
-                                  setNewItemPrice(p.basePrice);
-                                }}
-                              >
-                                <span>{p.name}</span>
-                                <span className="text-zinc-500 text-xs">{p.sku}</span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </div>
-                    <div className="w-16">
-                      <label className="block text-[10px] text-zinc-500">Кол.</label>
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                        value={newItemQty}
-                        onChange={(e) => setNewItemQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        disabled={savingItems}
-                      />
-                    </div>
-                    <div className="w-24">
-                      <label className="block text-[10px] text-zinc-500">Цена</label>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                        value={newItemPrice}
-                        onChange={(e) => setNewItemPrice(parseFloat(e.target.value) || 0)}
-                        disabled={savingItems}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addItemToLead}
-                      disabled={!selectedProduct || savingItems}
-                      className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      Добавить
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void saveItems()}
-                      disabled={savingItems || editItems.length === 0}
-                      className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                    >
-                      {savingItems ? "Сохранение…" : "Сохранить товары"}
-                    </button>
-                  </div>
-                </div>
-
                 <div className="mt-4 text-xs text-zinc-500">
-                  Создан: {new Date(lead.createdAt).toLocaleString()}
+                  Created: {new Date(lead.createdAt).toLocaleString()}
                   <br />
-                  Обновлён: {new Date(lead.updatedAt).toLocaleString()}
+                  Updated: {new Date(lead.updatedAt).toLocaleString()}
                   {lead.lastActivityAt ? (
                     <>
                       <br />
-                      Последняя активность: {new Date(lead.lastActivityAt).toLocaleString()}
+                      Last activity: {new Date(lead.lastActivityAt).toLocaleString()}
                     </>
                   ) : null}
                   {lead.statusReason ? (
                     <>
                       <br />
-                      Причина статуса: {lead.statusReason}
+                      Status reason: {lead.statusReason}
                     </>
                   ) : null}
                 </div>
               </div>
             </div>
-          ) : tab === "timeline" ? (
-            <div>
-              {timelineLoading ? (
-                <div className="text-sm text-zinc-500">Загрузка таймлайна…</div>
-              ) : timelineError ? (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {timelineError}
-                </div>
-              ) : timeline.length === 0 ? (
-                <div className="text-sm text-zinc-500">Пока нет активности</div>
-              ) : (
-                <div className="space-y-3">
-                  {timeline.map((t) => (
-                    <div
-                      key={t.id}
-                      className="rounded-md border border-zinc-200 bg-white p-3 text-sm"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-xs text-zinc-500">{t.type}</div>
-                          <div className="font-medium text-zinc-900">
-                            {t.title || "Без заголовка"}
-                          </div>
-                        </div>
-                        <div className="text-xs text-zinc-500 whitespace-nowrap">
-                          {new Date(t.occurredAt ?? t.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">
-                        {t.body}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-6">
+  );
+
+  const rightContent = showConvertWizard ? (
+    <div className="space-y-6 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4">
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-zinc-900">Шаг 1. Контакт</div>
+                  <div className="font-medium text-zinc-900">Step 1. Contact</div>
                   <button
                     type="button"
                     onClick={() => void loadSuggestions()}
                     className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
                   >
-                    Обновить поиск
+                    Refresh search
                   </button>
                 </div>
 
                 <div className="mt-3 space-y-2">
                   {suggestionsLoading ? (
-                    <div className="text-xs text-zinc-500">Поиск возможных контактов…</div>
+                    <div className="text-xs text-zinc-500">Searching for contacts…</div>
                   ) : suggestions.length === 0 ? (
                     <div className="text-xs text-zinc-500">
-                      Контакты по телефону/email не найдены — можно создать новый.
+                      No contacts found by phone/email — you can create a new one.
                     </div>
                   ) : (
                     <>
-                      <div className="text-xs text-zinc-500">Возможные совпадения:</div>
+                      <div className="text-xs text-zinc-500">Possible matches:</div>
                       <div className="space-y-1">
                         {suggestions.map((c) => {
                           const active = selectedContactId === c.id;
@@ -753,7 +682,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     }}
                   />
                   <label htmlFor="createContact" className="text-xs text-zinc-700">
-                    Создать новый контакт вместо привязки
+                    Create new contact instead of linking
                   </label>
                 </div>
 
@@ -761,7 +690,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Имя
+                        First name
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -771,7 +700,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Фамилия
+                        Last name
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -781,7 +710,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Телефон
+                        Phone
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -801,7 +730,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600">
-                        Компания (текст)
+                        Company (text)
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -815,14 +744,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
 
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-zinc-900">Шаг 2. Сделка</div>
+                  <div className="font-medium text-zinc-900">Step 2. Deal</div>
                   <label className="flex items-center gap-2 text-xs text-zinc-700">
                     <input
                       type="checkbox"
                       checked={createDeal}
                       onChange={(e) => setCreateDeal(e.target.checked)}
                     />
-                    Создать заказ по этому лиду
+                    Create order from this lead
                   </label>
                 </div>
 
@@ -830,7 +759,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600">
-                        Название сделки
+                        Deal title
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -841,7 +770,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Сумма
+                        Amount
                       </label>
                       <input
                         type="number"
@@ -857,7 +786,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600">
-                        Комментарий
+                        Comment
                       </label>
                       <textarea
                         rows={3}
@@ -872,12 +801,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
 
               {createdOrderId && (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                  Конвертация выполнена. Заказ создан.{" "}
+                  Conversion complete. Order created.{" "}
                   <a
                     href={`/orders?orderId=${createdOrderId}`}
                     className="font-medium underline hover:no-underline"
                   >
-                    Открыть заказ →
+                    Open order →
                   </a>
                 </div>
               )}
@@ -891,35 +820,75 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => canClose && onClose()}
+                  onClick={() => setShowConvertWizard(false)}
                   className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white"
                   disabled={converting}
                 >
-                  Отмена
+                  Close
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleConvert()}
                   disabled={converting}
-                  className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+                  className="btn-primary"
                 >
-                  {converting ? "Конвертация…" : "Конвертировать"}
+                  {converting ? "Converting…" : "Convert"}
                 </button>
               </div>
-            </div>
-          )}
-        </div>
+    </div>
+  ) : lead && leadTab === "main" ? (
+    <FeedTabsScaffold activityContent={timelineContent} />
+  ) : null;
 
-        {lead && (
-          <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50 px-5 py-3 text-xs">
-            <div className="space-x-2">
+  const tabsUnderHeader =
+    lead ? (
+      <div className="flex gap-1 border-b border-zinc-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setLeadTab("main")}
+          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+        >
+          Main
+        </button>
+        <button
+          type="button"
+          onClick={() => setLeadTab("products")}
+          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+        >
+          Products
+        </button>
+        <button
+          type="button"
+          onClick={() => setLeadTab("activity")}
+          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+        >
+          Activity
+        </button>
+      </div>
+    ) : null;
+
+  return (
+    <EntityModalShell
+      title={title}
+      subtitle={
+        lead ? (
+          <>
+            Status: {lead.status} • Source: {lead.source}
+          </>
+        ) : undefined
+      }
+      tabsUnderHeader={tabsUnderHeader}
+      headerActions={
+        <>
+          {lead && (
+            <>
               <button
                 type="button"
                 className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
                 disabled={statusUpdating}
                 onClick={() => void updateStatus("IN_PROGRESS")}
               >
-                В работу
+                In progress
               </button>
               <button
                 type="button"
@@ -927,33 +896,50 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                 disabled={statusUpdating}
                 onClick={() => void updateStatus("WON")}
               >
-                Успешный
+                Won
               </button>
               <button
                 type="button"
                 className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
                 disabled={statusUpdating}
-                onClick={() => void updateStatus("NOT_TARGET", "Нецелевой")}
+                onClick={() => void updateStatus("NOT_TARGET", "Not target")}
               >
-                Нецелевой
+                Not target
               </button>
               <button
                 type="button"
                 className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100"
                 disabled={statusUpdating}
-                onClick={() => void updateStatus("LOST", "Проваленный")}
+                onClick={() => void updateStatus("LOST", "Lost")}
               >
-                Проваленный
+                Lost
               </button>
-            </div>
-
-            <div className="text-xs text-zinc-500">
-              ID: <span className="font-mono">{lead.id}</span>
-            </div>
+              {canConvert && (
+                <button
+                  type="button"
+                  onClick={openConvertWizard}
+                  className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                >
+                  Convert
+                </button>
+              )}
+            </>
+          )}
+        </>
+      }
+      left={leftContent}
+      right={rightContent}
+      footer={
+        lead ? (
+          <div className="text-xs text-zinc-500">
+            ID: <span className="font-mono">{lead.id}</span>
           </div>
-        )}
-      </div>
-    </div>
+        ) : null
+      }
+      canClose={canClose}
+      onClose={onClose}
+      onEscape={handleEscape}
+    />
   );
 }
 

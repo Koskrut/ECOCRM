@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   leadsApi,
@@ -9,13 +9,14 @@ import {
   type LeadStatus,
   type LeadSource,
 } from "@/lib/api";
+import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
 
 type StatusFilter = LeadStatus | "ALL";
 type SourceFilter = LeadSource | "ALL";
 
-export default function LeadsPage() {
+function LeadsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -116,24 +117,21 @@ export default function LeadsPage() {
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+          className="btn-primary"
         >
           + Лид
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm text-sm">
         <form onSubmit={handleSearchSubmit} className="flex flex-1 items-center gap-2">
           <input
             placeholder="Поиск по имени, телефону, email, компании, сообщению"
-            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            className="input-base"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-          >
+          <button type="submit" className="btn-primary">
             Найти
           </button>
         </form>
@@ -168,18 +166,20 @@ export default function LeadsPage() {
       </div>
 
       {loading && (
-        <div className="rounded-xl border bg-white p-4 text-sm text-zinc-500">Загрузка…</div>
+        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm text-sm text-zinc-500">
+          Загрузка…
+        </div>
       )}
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm text-sm text-red-700">
           {error}
         </div>
       )}
 
       {!loading && !error && (
-        <div className="overflow-hidden rounded-xl border bg-white">
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+            <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
               <tr>
                 <th className="px-4 py-3">Имя / Телефон</th>
                 <th className="px-4 py-3">Источник</th>
@@ -206,9 +206,7 @@ export default function LeadsPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-700">{l.source}</td>
                   <td className="px-4 py-3 text-xs">
-                    <span className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
-                      {l.status}
-                    </span>
+                    <StatusBadge variant="lead" status={l.status} />
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-500">
                     {l.ownerId || "—"}
@@ -325,3 +323,10 @@ export default function LeadsPage() {
   );
 }
 
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-gray-600">Loading…</div>}>
+      <LeadsPageContent />
+    </Suspense>
+  );
+}

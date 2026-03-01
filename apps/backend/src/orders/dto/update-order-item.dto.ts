@@ -1,17 +1,16 @@
-import type { ValidationError } from "../../common/validation";
-import { validateOptionalNumber } from "../../common/validation";
+import { Type } from "class-transformer";
+import { IsNumber, IsOptional, Min } from "class-validator";
 
-export type UpdateOrderItemDto = {
+export class UpdateOrderItemDto {
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Type(() => Number)
   qty?: number;
-  price?: number;
-};
 
-export const validateUpdateOrderItemDto = (payload: UpdateOrderItemDto): ValidationError[] => {
-  const errors: ValidationError[] = [];
-  validateOptionalNumber(payload.qty, "qty", errors, { min: 1 });
-  validateOptionalNumber(payload.price, "price", errors, { min: 0 });
-  if (payload.qty === undefined && payload.price === undefined) {
-    errors.push({ field: "payload", message: "qty or price is required" });
-  }
-  return errors;
-};
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  price?: number;
+}

@@ -108,7 +108,7 @@ export function OrderStatusBar(props: {
             blocked ? "opacity-50 cursor-not-allowed hover:opacity-50" : "",
           ].join(" ");
 
-          const Tag: unknown = clickable ? "button" : "div";
+          const Tag: "button" | "div" = clickable ? "button" : "div";
 
           return (
             <Tag

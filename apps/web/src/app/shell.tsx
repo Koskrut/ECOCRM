@@ -14,6 +14,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // ширина сайдбара: 240 (w-60) или 64 (w-16)
   const [sidebarPx, setSidebarPx] = useState<number>(240);
 
+  // мобильный вид: сайдбар оверлей, контент без левого отступа
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   // при открытии страницы — читаем localStorage
   useEffect(() => {
     const saved = localStorage.getItem("crm_sidebar_collapsed");
@@ -24,7 +34,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ collapsed: boolean }>;
-      setSidebarPx(ce.detail?.collapsed ? 64 : 240);
+      const collapsed = ce.detail?.collapsed ?? false;
+      setSidebarPx(collapsed ? 64 : 240);
     };
     window.addEventListener("crm_sidebar", handler as EventListener);
     return () => window.removeEventListener("crm_sidebar", handler as EventListener);
@@ -53,10 +64,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
-      {/* content area: сдвиг под fixed sidebar на desktop */}
-      <main className="min-h-screen bg-zinc-50" style={{ paddingLeft: sidebarPx }}>
-        <div className="p-4">{children}</div>
-      </main>
+      {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
+      <div
+        style={{ ["--sidebar-px" as string]: `${sidebarPx}px` }}
+        className="min-h-screen md:ml-[var(--sidebar-px)]"
+      >
+        <main className="min-h-screen bg-zinc-50">
+          <div className="p-4">{children}</div>
+        </main>
+      </div>
     </>
   );
 }

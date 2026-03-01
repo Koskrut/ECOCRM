@@ -15,7 +15,13 @@ enum PaymentMethod {
   CASH = "CASH",
 }
 
+enum PaymentType {
+  PREPAYMENT = "PREPAYMENT",
+  DEFERRED = "DEFERRED",
+}
+
 type CompanyOption = { id: string; name: string };
+type CompaniesResponse = { items?: CompanyOption[] };
 type ContactsResponse = { items: ContactOption[] };
 
 type ContactOption = {
@@ -50,6 +56,7 @@ export function CreateOrderModal({
   // Новые поля
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>(DeliveryMethod.PICKUP);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.CASH);
+  const [paymentType, setPaymentType] = useState<PaymentType | null>(null);
   const [deliveryData, setDeliveryData] = useState({
     city: "",
     warehouse: "",
@@ -115,6 +122,7 @@ export function CreateOrderModal({
         comment: comment || undefined,
         deliveryMethod,
         paymentMethod,
+        paymentType: paymentType ?? undefined,
         deliveryData: deliveryMethod === DeliveryMethod.NOVA_POSHTA ? deliveryData : null,
         discountAmount: 0,
       });
@@ -129,11 +137,11 @@ export function CreateOrderModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
       onClick={() => !submitting && onClose()}
     >
       <div
-        className="w-full max-w-lg rounded-lg bg-white shadow-lg overflow-hidden"
+        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
@@ -141,7 +149,7 @@ export function CreateOrderModal({
           <button
             onClick={onClose}
             disabled={submitting}
-            className="text-zinc-500 hover:text-zinc-800 disabled:opacity-50"
+            className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
           >
             ✕
           </button>
@@ -178,6 +186,20 @@ export function CreateOrderModal({
           {/* Section: Delivery & Payment */}
           <div className="grid grid-cols-2 gap-4 border-t pt-4 border-zinc-100">
             <div>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Payment Type</label>
+              <select
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
+                value={paymentType ?? ""}
+                onChange={(e) =>
+                  setPaymentType((e.target.value || null) as PaymentType | null)
+                }
+              >
+                <option value="">—</option>
+                <option value={PaymentType.PREPAYMENT}>Предоплата</option>
+                <option value={PaymentType.DEFERRED}>Отсрочка</option>
+              </select>
+            </div>
+            <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1">
                 Delivery Method
               </label>
@@ -191,7 +213,9 @@ export function CreateOrderModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Payment Method</label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">
+                Payment Method
+              </label>
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={paymentMethod}
@@ -254,7 +278,7 @@ export function CreateOrderModal({
             <button
               onClick={handleCreate}
               disabled={submitting}
-              className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              className="btn-primary"
             >
               {submitting ? "Creating..." : "Create Order"}
             </button>

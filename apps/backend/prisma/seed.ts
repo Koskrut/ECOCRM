@@ -260,6 +260,167 @@ async function main() {
   });
 
   // =========================
+  // 4b) Payment module demo: BankAccount, unmatched BankTransaction, one Cash Payment
+  // =========================
+  const bankAccount = await prisma.bankAccount.upsert({
+    where: { id: "seed-bank-1" },
+    update: { name: "FOP Demo", currency: "UAH", isActive: true },
+    create: {
+      id: "seed-bank-1",
+      provider: "PRIVAT24",
+      name: "FOP Demo",
+      currency: "UAH",
+      accountNumber: "UA123456789012345678901234567",
+      isActive: true,
+    },
+  });
+
+  const unmatchedDescriptions = [
+    "Payment for goods without order number",
+    "Transfer #1234",
+    "Invoice payment",
+    "Refund customer",
+    "Order 99999",
+    "Prepayment",
+    "Settlement",
+    "Supplier payment",
+    "Client ABC",
+    "Misc income",
+  ];
+  for (let i = 0; i < 10; i++) {
+    await prisma.bankTransaction.upsert({
+      where: {
+        bankAccountId_externalId: {
+          bankAccountId: bankAccount.id,
+          externalId: `seed-tx-unmatched-${i + 1}`,
+        },
+      },
+      update: {},
+      create: {
+        bankAccountId: bankAccount.id,
+        externalId: `seed-tx-unmatched-${i + 1}`,
+        bookedAt: new Date(Date.now() - (i + 1) * 24 * 60 * 60 * 1000),
+        amount: 100 + i * 50,
+        currency: "UAH",
+        direction: "IN",
+        description: unmatchedDescriptions[i],
+        counterpartyName: `Counterparty ${i + 1}`,
+      },
+    });
+  }
+
+  await prisma.payment.upsert({
+    where: { id: "seed-payment-cash-1" },
+    update: { amount: 100, paidAt: new Date(), status: "COMPLETED" },
+    create: {
+      id: "seed-payment-cash-1",
+      orderId: order.id,
+      sourceType: "CASH",
+      amount: 100,
+      currency: "UAH",
+      paidAt: new Date(),
+      status: "COMPLETED",
+    },
+  });
+
+  // Matched bank transactions (Payment linked to order)
+  const matchedTx1 = await prisma.bankTransaction.upsert({
+    where: {
+      bankAccountId_externalId: { bankAccountId: bankAccount.id, externalId: "seed-tx-matched-1" },
+    },
+    update: {},
+    create: {
+      bankAccountId: bankAccount.id,
+      externalId: "seed-tx-matched-1",
+      bookedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+      amount: 200,
+      currency: "UAH",
+      direction: "IN",
+      description: "Order DEMO-0001",
+      counterpartyName: "Client One",
+    },
+  });
+  const matchedTx2 = await prisma.bankTransaction.upsert({
+    where: {
+      bankAccountId_externalId: { bankAccountId: bankAccount.id, externalId: "seed-tx-matched-2" },
+    },
+    update: {},
+    create: {
+      bankAccountId: bankAccount.id,
+      externalId: "seed-tx-matched-2",
+      bookedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      amount: 150,
+      currency: "UAH",
+      direction: "IN",
+      description: "Payment for order 0001",
+      counterpartyName: "Client Two",
+    },
+  });
+
+  await prisma.payment.upsert({
+    where: { bankTransactionId: matchedTx1.id },
+    update: {},
+    create: {
+      orderId: order.id,
+      sourceType: "BANK",
+      amount: 200,
+      currency: "UAH",
+      paidAt: matchedTx1.bookedAt,
+      status: "COMPLETED",
+      bankTransactionId: matchedTx1.id,
+    },
+  });
+  await prisma.payment.upsert({
+    where: { bankTransactionId: matchedTx2.id },
+    update: {},
+    create: {
+      orderId: order.id,
+      sourceType: "BANK",
+      amount: 150,
+      currency: "UAH",
+      paidAt: matchedTx2.bookedAt,
+      status: "COMPLETED",
+      bankTransactionId: matchedTx2.id,
+    },
+  });
+
+  await prisma.payment.upsert({
+    where: { id: "seed-payment-cash-2" },
+    update: { amount: 50, paidAt: new Date(), status: "COMPLETED" },
+    create: {
+      id: "seed-payment-cash-2",
+      orderId: order.id,
+      sourceType: "CASH",
+      amount: 50,
+      currency: "UAH",
+      paidAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      status: "COMPLETED",
+    },
+  });
+  await prisma.payment.upsert({
+    where: { id: "seed-payment-cash-3" },
+    update: { amount: 75, paidAt: new Date(), status: "COMPLETED" },
+    create: {
+      id: "seed-payment-cash-3",
+      orderId: order.id,
+      sourceType: "CASH",
+      amount: 75,
+      currency: "UAH",
+      paidAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      status: "COMPLETED",
+    },
+  });
+
+  const totalPaid = 100 + 200 + 150 + 50 + 75;
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      paidAmount: totalPaid,
+      debtAmount: Math.max(0, total - totalPaid),
+    },
+  });
+
+  // =========================
   // 5) Optional: seed NP sender cache rows if env provided
   // =========================
   const senderCityRef = (process.env.NP_SENDER_CITY_REF ?? "").trim();
@@ -328,7 +489,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-
-// eslint: silence unused seed vars
-void admin;
-void lead;

@@ -10,9 +10,10 @@ async function authHeader(): Promise<Record<string, string>> {
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } },
+  ctx: { params: Promise<{ id: string }> },
 ) {
   const headers = await authHeader();
+  const params = await ctx.params;
 
   const url = new URL(req.url);
   const segments = url.pathname.split("/").filter(Boolean);
@@ -37,10 +38,11 @@ export async function GET(
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } },
+  ctx: { params: Promise<{ id: string }> },
 ) {
   const headers = await authHeader();
   const body = await req.json().catch(() => ({}));
+  const params = await ctx.params;
 
   const url = new URL(req.url);
   const segments = url.pathname.split("/").filter(Boolean);

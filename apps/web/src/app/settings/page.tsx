@@ -12,7 +12,7 @@ export default function SettingsHomePage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/settings/access"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm hover:bg-zinc-50 transition-colors"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
             <div className="text-sm font-semibold text-zinc-900">Access & Permissions</div>
             <div className="mt-1 text-sm text-zinc-500">
@@ -20,8 +20,17 @@ export default function SettingsHomePage() {
             </div>
           </Link>
 
-          {/* сюда позже добавим остальные разделы */}
-          <div className="rounde-zinc-300 bg-white p-5 text-sm text-zinc-400">
+          <Link
+            href="/settings/exchange-rates"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Exchange rates</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              UAH and EUR to USD — used for payment conversion
+            </div>
+          </Link>
+
+          <div className="rounded-lg border border-zinc-200 bg-white p-5 text-sm text-zinc-400">
             More settings coming soon…
           </div>
         </div>

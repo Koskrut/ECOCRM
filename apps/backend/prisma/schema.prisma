@@ -34,6 +34,11 @@ enum PaymentMethod {
   CASH
 }
 
+enum PaymentType {
+  PREPAYMENT // предоплата
+  DEFERRED   // отсрочка
+}
+
 enum UserRole {
   ADMIN
   LEAD
@@ -77,6 +82,33 @@ enum LeadSource {
   OTHER
 }
 
+enum BankProvider {
+  PRIVAT24
+}
+
+enum TransactionDirection {
+  IN
+  OUT
+}
+
+enum PaymentSourceType {
+  BANK
+  CASH
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  VOIDED
+}
+
+enum OrderPaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERPAID
+}
+
 // --- MODELS ---
 
 model User {
@@ -90,6 +122,7 @@ model User {
 
   contacts Contact[]
   leads    Lead[]
+  payments Payment[]
 }
 
 model Company {
@@ -104,6 +137,7 @@ model Company {
   orders     Order[]
   activities Activity[]
   leads      Lead[]
+  payments   Payment[]
 }
 
 model Contact {
@@ -116,6 +150,7 @@ model Contact {
   phoneNormalized String?  // цифры телефона для проверки уникальности по всей базе
   email     String?
   position  String?
+  address   String?
   isPrimary Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,6 +169,7 @@ model Contact {
 
   activities Activity[]
   leads      Lead[]
+  payments   Payment[]
 
   @@index([companyId])
   @@index([ownerId])
@@ -243,10 +279,11 @@ model ContactShippingProfile {
 
 model Product {
   id        String   @id @default(cuid())
-  sku       String
+  sku       String   @unique
   name      String
   unit      String
   basePrice Float
+  stock     Int      @default(0)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -280,6 +317,7 @@ model Order {
 
   deliveryMethod DeliveryMethod?
   paymentMethod  PaymentMethod?
+  paymentType    PaymentType?
   deliveryData   Json?
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -295,6 +333,7 @@ model Order {
   activities    Activity[]
 
   ttns OrderTtn[]
+  payments Payment[]
 
   @@index([companyId])
   @@index([clientId])
@@ -470,4 +509,84 @@ model NpSenderSettings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ===== System settings (key-value) =====
+
+model SystemSetting {
+  id        String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+// ===== Payment module =====
+
+model BankAccount {
+  id          String       @id @default(cuid())
+  provider    BankProvider @default(PRIVAT24)
+  name        String
+  currency    String
+  accountNumber String?
+  iban        String?
+  credentials Json?        // encrypted: cardNumber, clientId, token
+  isActive    Boolean      @default(true)
+  lastSyncAt  DateTime?
+  syncCursor  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  transactions BankTransaction[]
+
+  @@index([provider, isActive])
+}
+
+model BankTransaction {
+  id               String              @id @default(cuid())
+  bankAccountId    String
+  externalId       String
+  bookedAt         DateTime
+  amount           Decimal             @db.Decimal(18, 2)
+  currency         String
+  direction        TransactionDirection
+  description      String?
+  counterpartyName String?
+  counterpartyIban String?
+  rawPayload       Json?
+  createdAt        DateTime            @default(now())
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  payments    Payment[]
+
+  @@unique([bankAccountId, externalId])
+  @@index([bankAccountId, bookedAt])
+  @@index([bankAccountId])
+}
+
+model Payment {
+  id                 String            @id @default(cuid())
+  orderId            String
+  contactId          String?
+  companyId          String?
+  sourceType         PaymentSourceType
+  amount             Decimal           @db.Decimal(18, 2)
+  currency           String
+  /** Fixed USD equivalent at payment date; only admin can change. */
+  amountUsd          Decimal?          @db.Decimal(18, 2)
+  paidAt             DateTime
+  status             PaymentStatus     @default(COMPLETED)
+  bankTransactionId  String?
+  createdByUserId    String?
+  note               String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  order   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
+  createdBy User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([bankTransactionId])
+  @@index([paidAt])
 }

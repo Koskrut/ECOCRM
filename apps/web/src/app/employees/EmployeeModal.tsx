@@ -144,12 +144,12 @@ export function EmployeeModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
       role="presentation"
       onClick={() => !saving && onClose()}
     >
       <div
-        className="w-full max-w-lg rounded-xl bg-white shadow-xl"
+        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
@@ -158,7 +158,7 @@ export function EmployeeModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 disabled:opacity-50"
+            className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
           >
             ✕
           </button>
@@ -244,7 +244,7 @@ export function EmployeeModal({
                 type="button"
                 onClick={() => void save()}
                 disabled={saving}
-                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                className="btn-primary"
               >
                 {saving ? "Saving…" : "Save"}
               </button>

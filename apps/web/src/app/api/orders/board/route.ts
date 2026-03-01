@@ -3,7 +3,8 @@ import { proxyToBackend } from "@/lib/api/proxy";
 
 export async function GET(req: NextRequest) {
   const qs = req.nextUrl.searchParams.toString();
-  // раньше у тебя был upstream orders?page=1&pageSize=200 — оставляем как есть,
-  // но если передаёшь qs — оно переопределит.
-  return proxyToBackend(req, `/orders${qs ? `?${qs}` : "?page=1&pageSize=200"}`);
+  const base = qs
+    ? `${qs}&board=true&withCompanyClient=true`
+    : "page=1&pageSize=200&board=true&withCompanyClient=true";
+  return proxyToBackend(req, `/orders?${base}`);
 }

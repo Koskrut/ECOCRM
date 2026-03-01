@@ -10,12 +10,19 @@ import { ContactsModule } from "./contacts/contacts.module";
 import { OrdersModule } from "./orders/orders.module";
 import { ProductsModule } from "./products/products.module";
 import { UsersModule } from "./users/users.module";
+import { BankModule } from "./bank/bank.module";
 import { NpModule } from "./np/np.module";
+import { PaymentsModule } from "./payments/payments.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { SettingsModule } from "./settings/settings.module";
+
 @Module({
   imports: [
     PrismaModule,
+    SettingsModule,
+    BankModule,
     NpModule,
+    PaymentsModule,
     AuthModule,
     ActivitiesModule,
     OrdersModule,

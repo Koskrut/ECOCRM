@@ -32,7 +32,6 @@ export class ApiError extends Error {
     this.status = opts.status;
     this.details = opts.details;
     this.requestId = opts.requestId;
-    // @ts-expect-error modern runtimes support cause
     this.cause = opts.cause;
   }
 }
@@ -70,10 +69,11 @@ export function mapAxiosError(err: unknown): ApiError {
     });
   }
 
+  const d = data as { message?: string | string[]; error?: string } | undefined;
   const backendMsg =
-    (typeof data?.message === "string" && data.message) ||
-    (Array.isArray(data?.message) && data.message.join(", ")) ||
-    (typeof data?.error === "string" && data.error);
+    (typeof d?.message === "string" && d.message) ||
+    (Array.isArray(d?.message) && d.message.join(", ")) ||
+    (typeof d?.error === "string" && d.error);
 
   const message = backendMsg || `Request failed (${status})`;
 

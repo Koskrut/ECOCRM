@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
 
 type NpDeliveryType = "WAREHOUSE" | "POSTOMAT" | "ADDRESS";
@@ -52,6 +53,9 @@ type Props = {
   // IMPORTANT: should be order.contactId (contact used for TTN)
   contactId: string;
 
+  /** When no profiles exist, pre-fill NEW form with these values */
+  defaultPerson?: { firstName?: string; lastName?: string; phone?: string } | null;
+
   onCreated?: (result: unknown) => void;
 };
 
@@ -61,6 +65,7 @@ export function TtnModal({
   onClose,
   orderId,
   contactId,
+  defaultPerson,
   onCreated,
 }: Props) {
   const [loading, setLoading] = useState(false);
@@ -84,6 +89,8 @@ export function TtnModal({
   const [cityRef, setCityRef] = useState("");
   const [cityName, setCityName] = useState("");
   const [warehouseRef, setWarehouseRef] = useState("");
+  const [warehouseLabel, setWarehouseLabel] = useState("");
+  const [warehouseNumber, setWarehouseNumber] = useState("");
 
   // ADDRESS (пока disabled в UI, но тип/валидация оставлены корректно)
   const [streetRef, setStreetRef] = useState("");
@@ -106,6 +113,8 @@ export function TtnModal({
     setCityRef("");
     setCityName("");
     setWarehouseRef("");
+    setWarehouseLabel("");
+    setWarehouseNumber("");
 
     setStreetRef("");
     setStreetName("");
@@ -143,6 +152,11 @@ export function TtnModal({
       } else {
         setMode("NEW");
         setSelectedProfileId("");
+        if (defaultPerson) {
+          setFirstName(defaultPerson.firstName ?? "");
+          setLastName(defaultPerson.lastName ?? "");
+          setPhone(defaultPerson.phone ?? "");
+        }
       }
     } catch (e) {
       // if server returns 404, treat as no profiles
@@ -151,6 +165,11 @@ export function TtnModal({
         setProfiles([]);
         setMode("NEW");
         setSelectedProfileId("");
+        if (defaultPerson) {
+          setFirstName(defaultPerson.firstName ?? "");
+          setLastName(defaultPerson.lastName ?? "");
+          setPhone(defaultPerson.phone ?? "");
+        }
         return;
       }
 
@@ -164,11 +183,16 @@ export function TtnModal({
       setProfiles([]);
       setMode("NEW");
       setSelectedProfileId("");
+      if (defaultPerson) {
+        setFirstName(defaultPerson.firstName ?? "");
+        setLastName(defaultPerson.lastName ?? "");
+        setPhone(defaultPerson.phone ?? "");
+      }
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [contactId]);
+  }, [contactId, defaultPerson]);
 
   useEffect(() => {
     if (!open) return;
@@ -280,6 +304,7 @@ export function TtnModal({
               }
             : {
                 warehouseRef: warehouseRef.trim(),
+                warehouseNumber: warehouseNumber.trim() || undefined,
               }),
         },
       };
@@ -331,14 +356,14 @@ export function TtnModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
       onClick={() => {
         if (canClose) onClose();
       }}
       role="presentation"
     >
       <div
-        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-lg bg-white shadow-lg"
+        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="presentation"
       >
@@ -352,7 +377,7 @@ export function TtnModal({
             onClick={() => {
               if (canClose) onClose();
             }}
-            className="rounded-md px-3 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:text-zinc-400"
+            className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
             disabled={!canClose}
           >
             Close
@@ -488,6 +513,9 @@ export function TtnModal({
                       }
                       setError(null);
                       setDeliveryType(v);
+                      setWarehouseRef("");
+                      setWarehouseLabel("");
+                      setWarehouseNumber("");
                     }}
                     className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                   >
@@ -529,38 +557,46 @@ export function TtnModal({
 
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-zinc-600">
-                    CityRef (NP directory)
+                    City (from directory)
                   </label>
-                  <input
-                    value={cityRef}
-                    onChange={(e) => setCityRef(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                    placeholder="UUID from NP (CityRef)"
+                  <NpCitySelect
+                    valueRef={cityRef}
+                    valueLabel={cityName}
+                    onChange={(ref, name) => {
+                      setCityRef(ref);
+                      setCityName(name);
+                      setWarehouseRef("");
+                      setWarehouseLabel("");
+                      setWarehouseNumber("");
+                    }}
+                    disabled={creating}
+                    placeholder="Type at least 2 characters…"
                   />
                 </div>
 
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">
-                    City name (optional)
-                  </label>
-                  <input
-                    value={cityName}
-                    onChange={(e) => setCityName(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">
-                    WarehouseRef / PostomatRef
-                  </label>
-                  <input
-                    value={warehouseRef}
-                    onChange={(e) => setWarehouseRef(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                    placeholder="UUID from NP (WarehouseRef)"
-                  />
-                </div>
+                {(deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && (
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-zinc-600">
+                      {deliveryType === "POSTOMAT"
+                        ? "Postomat (from directory)"
+                        : "Warehouse (from directory)"}
+                    </label>
+                    <NpWarehouseSelect
+                      key={deliveryType}
+                      cityRef={cityRef}
+                      type={deliveryType}
+                      valueRef={warehouseRef}
+                      valueLabel={warehouseLabel}
+                      onChange={(ref, lbl, num) => {
+                        setWarehouseRef(ref);
+                        setWarehouseLabel(lbl);
+                        setWarehouseNumber(num ?? "");
+                      }}
+                      disabled={creating}
+                      placeholder="Type to search…"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -579,7 +615,7 @@ export function TtnModal({
               type="button"
               onClick={handleCreate}
               disabled={creating || loading || (mode === "EXISTING" && profiles.length === 0)}
-              className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              className="btn-primary"
             >
               {creating ? "Creating…" : "Create TTN"}
             </button>

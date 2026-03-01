@@ -3,25 +3,38 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+  Package,
+  UserPlus,
+  Building2,
+  Users,
+  LayoutGrid,
+  UserCog,
+  Settings,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { apiHttp } from "../lib/api/client";
 
 type MenuItem = {
   label: string;
-  icon: string;
+  icon: LucideIcon;
   href: string;
 };
 
 type MeResponse = { user?: { role?: string } };
 
 const baseMenuItems: MenuItem[] = [
-  { label: "Orders", icon: "OR", href: "/orders" },
-  { label: "Leads", icon: "LD", href: "/leads" },
-  { label: "Companies", icon: "CO", href: "/companies" },
-  { label: "Contacts", icon: "CT", href: "/contacts" },
+  { label: "Orders", icon: Package, href: "/orders" },
+  { label: "Leads", icon: UserPlus, href: "/leads" },
+  { label: "Companies", icon: Building2, href: "/companies" },
+  { label: "Contacts", icon: Users, href: "/contacts" },
+  { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
 ];
 
-const employeesItem: MenuItem = { label: "Employees", icon: "EM", href: "/employees" };
-const settingsItem: MenuItem = { label: "Settings", icon: "SE", href: "/settings" };
+const paymentsItem: MenuItem = { label: "Payments", icon: Wallet, href: "/payments" };
+const employeesItem: MenuItem = { label: "Employees", icon: UserCog, href: "/employees" };
+const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -36,14 +49,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
+      setIsMobile(window.innerWidth < 768);
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
   const menuItems =
-    role === "ADMIN" ? [...baseMenuItems, employeesItem, settingsItem] : baseMenuItems;
+    role === "ADMIN"
+      ? [...baseMenuItems, paymentsItem, employeesItem, settingsItem]
+      : baseMenuItems;
 
   // Detect mobile on mount
   useEffect(() => {
@@ -96,7 +111,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             window.dispatchEvent(
               new CustomEvent("crm_sidebar", { detail: { collapsed: newValue } }),
             );
-
             return newValue;
           });
         }
@@ -110,11 +124,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const sidebarWidth = collapsed ? "w-16" : "w-60";
   const sidebarWidthPx = collapsed ? 64 : 240;
 
-  // Mobile overlay
+  // Mobile: сайдбар оверлей (как было)
   if (isMobile) {
     return (
       <>
-        {/* Overlay */}
         {mobileOpen && (
           <div
             className="fixed inset-0 z-40 bg-black/40"
@@ -122,10 +135,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             role="presentation"
           />
         )}
-
-        {/* Mobile sidebar */}
         <aside
-          className={`fixed left-0 top-0 z-50 h-full w-60 transform bg-white shadow-lg transition-transform duration-300 ${
+          className={`fixed left-0 top-0 z-50 h-full w-60 transform bg-zinc-50 shadow-lg transition-transform duration-300 ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
@@ -134,7 +145,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <button
               type="button"
               onClick={onMobileClose}
-              className="rounded-md p-1 text-zinc-600 hover:bg-zinc-100"
+              className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-100"
               aria-label="Close menu"
             >
               ✕
@@ -143,16 +154,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           <nav className="p-3">
             {menuItems.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onMobileClose}
-                  className={`mb-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
+                  className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    isActive ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
                   }`}
                 >
-                  <span className="text-xs font-bold">{item.icon}</span>
+                  <Icon className="size-5 shrink-0" aria-hidden />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -166,7 +178,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   // Desktop sidebar
   return (
     <aside
-      className={`fixed left-0 top-0 z-30 h-screen border-r border-zinc-200 bg-white transition-all duration-300 ${sidebarWidth}`}
+      className={`fixed left-0 top-0 z-30 h-screen border-r border-zinc-200 bg-zinc-50 transition-all duration-300 ${sidebarWidth}`}
       style={{ width: `${sidebarWidthPx}px` }}
     >
       <div className="flex h-16 items-center justify-between border-b border-zinc-200 px-4">
@@ -180,7 +192,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               return newValue;
             });
           }}
-          className="rounded-md p-1 text-zinc-600 hover:bg-zinc-100"
+          className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-100"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand (Ctrl+B)" : "Collapse (Ctrl+B)"}
         >
@@ -190,16 +202,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       <nav className="p-3">
         {menuItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`mb-1 flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                isActive ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
+              className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                isActive ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
               }`}
               title={collapsed ? item.label : undefined}
             >
-              <span className="text-xs font-bold">{item.icon}</span>
+              <Icon className="size-5 shrink-0" aria-hidden />
               {!collapsed && <span>{item.label}</span>}
             </Link>
           );

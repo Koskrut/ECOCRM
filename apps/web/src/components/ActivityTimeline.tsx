@@ -120,7 +120,7 @@ export function ActivityTimeline({
             type="button"
             onClick={() => void addNote()}
             disabled={posting || note.trim().length === 0}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white disabled:opacity-50"
+            className="btn-primary"
           >
             Add
           </button>

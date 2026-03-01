@@ -5,3 +5,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   return proxyToBackend(req, `/np/ttn/${id}`);
 }
+
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  return proxyToBackend(req, `/np/ttn/${id}`);
+}

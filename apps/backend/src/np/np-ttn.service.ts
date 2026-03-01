@@ -612,6 +612,37 @@ export class NpTtnService {
   }
 
   // ======================
+  // PUBLIC: clear TTN from order (delete OrderTtn, clear deliveryData.novaPoshta.ttn)
+  // ======================
+  async clearTtnFromOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, deliveryData: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+
+    await this.prisma.orderTtn.deleteMany({
+      where: { orderId },
+    });
+
+    const prev = (order.deliveryData as Record<string, unknown>) ?? {};
+    const prevNp = (prev?.novaPoshta ?? {}) as Record<string, unknown>;
+    const { ttn: _ttn, ...restNp } = prevNp;
+    const nextDeliveryData = {
+      ...prev,
+      novaPoshta: Object.keys(restNp).length > 0 ? restNp : undefined,
+    };
+    if (!nextDeliveryData.novaPoshta) delete nextDeliveryData.novaPoshta;
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { deliveryData: nextDeliveryData as Prisma.InputJsonValue },
+    });
+
+    return { ok: true };
+  }
+
+  // ======================
   // PUBLIC: get NP status by orderId (+ optional sync)
   // ======================
   async getTtnStatusByOrderId(orderId: string, opts?: { sync?: boolean }) {

@@ -4,6 +4,7 @@ export type Product = {
   name: string;
   unit: string;
   basePrice: number;
+  stock: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

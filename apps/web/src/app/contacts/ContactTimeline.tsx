@@ -17,11 +17,13 @@ type TimelineItem = {
 type TimelineResponse = { items: TimelineItem[] };
 
 type Props = {
-  apiBaseUrl: string; // обычно "/api"
+  apiBaseUrl: string;
   contactId: string;
+  /** When false, only the timeline list is shown (no Call/Meeting/Comment add form). */
+  showActivityButtons?: boolean;
 };
 
-export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
+export function ContactTimeline({ apiBaseUrl, contactId, showActivityButtons = true }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -78,89 +80,91 @@ export function ContactTimeline({ apiBaseUrl, contactId }: Props) {
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-200 p-4">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setMode("CALL")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
-              mode === "CALL"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-            }`}
-          >
-            Звонок
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("MEETING")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
-              mode === "MEETING"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-            }`}
-          >
-            Встреча
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("COMMENT")}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
-              mode === "COMMENT"
-                ? "bg-zinc-900 text-white border-zinc-900"
-                : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
-            }`}
-          >
-            Комментарий
-          </button>
-        </div>
-
-        <div className="mt-3">
-          <textarea
-            className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
-            rows={3}
-            placeholder={
-              mode === "CALL"
-                ? "Коротко: о чём был звонок?"
-                : mode === "MEETING"
-                  ? "Коротко: итоги встречи?"
-                  : "Написать комментарий..."
-            }
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <div className="mt-2 flex items-center justify-between">
+      {showActivityButtons && (
+        <div className="border-b border-zinc-200 p-4">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={saving || !text.trim()}
-              onClick={() => void addActivity()}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              onClick={() => setMode("CALL")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+                mode === "CALL"
+                  ? "bg-accent-gradient text-white border-transparent"
+                  : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+              }`}
             >
-              {saving ? "Сохраняю..." : "Добавить"}
+              Call
             </button>
-
             <button
               type="button"
-              onClick={() => void load()}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              onClick={() => setMode("MEETING")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+                mode === "MEETING"
+                  ? "bg-accent-gradient text-white border-transparent"
+                  : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+              }`}
             >
-              Обновить
+              Meeting
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("COMMENT")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
+                mode === "COMMENT"
+                  ? "bg-accent-gradient text-white border-transparent"
+                  : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              Comment
             </button>
           </div>
 
-          {err ? (
-            <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-              {err}
+          <div className="mt-3">
+            <textarea
+              className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
+              rows={3}
+              placeholder={
+                mode === "CALL"
+                  ? "Briefly: what was the call about?"
+                  : mode === "MEETING"
+                    ? "Briefly: meeting outcome?"
+                    : "Write a comment..."
+              }
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <button
+                type="button"
+                disabled={saving || !text.trim()}
+                onClick={() => void addActivity()}
+                className="btn-primary py-1.5"
+              >
+                {saving ? "Saving…" : "Add"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void load()}
+                className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                Refresh
+              </button>
             </div>
-          ) : null}
+
+            {err ? (
+              <div className="mt-3 rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                {err}
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
           <div className="text-sm text-zinc-500">Loading timeline...</div>
         ) : items.length === 0 ? (
-          <div className="text-sm text-zinc-500">Пока нет событий</div>
+          <div className="text-sm text-zinc-500">No events yet</div>
         ) : (
           <div className="space-y-3">
             {items.map((it) => (

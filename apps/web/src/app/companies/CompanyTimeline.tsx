@@ -6,7 +6,7 @@ import { apiHttp } from "../../lib/api/client";
 type TimelineItem = {
   id: string;
   source: "ACTIVITY";
-  type: string; // COMMENT | CALL | MEETING
+  type: string;
   title: string;
   body: string;
   occurredAt: string;
@@ -14,10 +14,41 @@ type TimelineItem = {
   createdBy: string;
 };
 
-type TimelineResponse = { items: TimelineItem[] };
+type ActivityItem = {
+  id: string;
+  type: string;
+  body: string;
+  occurredAt?: string;
+  createdAt?: string;
+  createdBy?: string;
+};
+
+type ActivitiesResponse = { items?: ActivityItem[] };
+
+const titleFor = (type: string): string => {
+  if (type === "CALL") return "Звонок";
+  if (type === "MEETING") return "Встреча";
+  if (type === "COMMENT") return "Комментарий";
+  return type;
+};
+
+function toTimelineItem(a: ActivityItem): TimelineItem {
+  const occurredAt = a.occurredAt ?? a.createdAt ?? new Date().toISOString();
+  const createdAt = a.createdAt ?? occurredAt;
+  return {
+    id: a.id,
+    source: "ACTIVITY",
+    type: a.type,
+    title: titleFor(a.type),
+    body: a.body ?? "",
+    occurredAt,
+    createdAt,
+    createdBy: a.createdBy ?? "system",
+  };
+}
 
 type Props = {
-  apiBaseUrl: string; // обычно "/api"
+  apiBaseUrl: string;
   companyId: string;
 };
 
@@ -30,28 +61,28 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/companies/${companyId}/timeline`,
-    [apiBaseUrl, companyId],
-  );
+  // Path relative to apiHttp baseURL ("/api") to avoid /api/api/...
   const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/companies/${companyId}/activities`,
-    [apiBaseUrl, companyId],
+    () => `companies/${companyId}/activities`,
+    [companyId],
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiHttp.get<TimelineResponse>(timelineUrl);
-      setItems(res.data?.items || []);
+      const res = await apiHttp.get<ActivitiesResponse>(activitiesUrl);
+      const raw = res.data?.items ?? [];
+      const mapped = raw.map(toTimelineItem);
+      mapped.sort((x, y) => +new Date(y.occurredAt) - +new Date(x.occurredAt));
+      setItems(mapped);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load timeline");
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [timelineUrl]);
+  }, [activitiesUrl]);
 
   useEffect(() => {
     void load();
@@ -81,7 +112,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
             onClick={() => setMode("CALL")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "CALL"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -92,7 +123,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
             onClick={() => setMode("MEETING")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "MEETING"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -103,7 +134,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
             onClick={() => setMode("COMMENT")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "COMMENT"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -130,7 +161,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
               type="button"
               disabled={saving || !text.trim()}
               onClick={() => void addActivity()}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              className="btn-primary py-1.5"
             >
               {saving ? "Сохраняю..." : "Добавить"}
             </button>

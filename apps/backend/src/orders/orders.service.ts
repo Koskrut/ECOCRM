@@ -5,8 +5,8 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
-import type { DeliveryMethod, PaymentMethod, Prisma } from "@prisma/client";
-import { OrderStatus, UserRole } from "@prisma/client";
+import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
+import { OrderPaymentStatus, OrderStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
@@ -48,9 +48,20 @@ export class OrdersService {
     if (q?.companyId) where.companyId = String(q.companyId);
     if (q?.clientId) where.clientId = String(q.clientId);
     if (q?.contactId) where.contactId = String(q.contactId);
-    if (q?.status) where.status = q.status as OrderStatus;
+    if (q?.board === true) {
+      where.status = { notIn: [OrderStatus.SUCCESS, OrderStatus.CANCELED, OrderStatus.RETURNING] };
+    } else if (q?.status) {
+      where.status = q.status as OrderStatus;
+    }
     if (q?.ownerId) where.ownerId = String(q.ownerId);
     if (actor?.role === UserRole.MANAGER) where.ownerId = actor.id;
+
+    const withRelations = q?.withCompanyClient === true;
+    const include: Prisma.OrderInclude = { items: true };
+    if (withRelations) {
+      include.company = true;
+      include.client = true;
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -58,23 +69,45 @@ export class OrdersService {
         orderBy: { createdAt: "desc" },
         skip,
         take: pageSize,
-        include: { items: true },
+        include,
       }),
       this.prisma.order.count({ where }),
     ]);
 
     return {
-      items: items.map((o) => ({
-        id: o.id,
-        orderNumber: o.orderNumber,
-        companyId: o.companyId,
-        clientId: o.clientId,
-        status: o.status,
-        totalAmount: o.totalAmount,
-        currency: o.currency,
-        createdAt: o.createdAt,
-        itemsCount: o.items.length,
-      })),
+      items: items.map((o) => {
+        const paidAmount = o.paidAmount ?? 0;
+        const totalAmount = o.totalAmount ?? 0;
+        const base = {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          companyId: o.companyId,
+          clientId: o.clientId,
+          status: o.status,
+          totalAmount: o.totalAmount,
+          paidAmount: o.paidAmount,
+          debtAmount: o.debtAmount,
+          paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
+          currency: o.currency,
+          paymentType: o.paymentType,
+          createdAt: o.createdAt,
+          itemsCount: o.items.length,
+        };
+        if (withRelations && "company" in o && "client" in o) {
+          return {
+            ...base,
+            company: o.company ? { id: o.company.id, name: o.company.name } : null,
+            client: o.client
+              ? {
+                  id: o.client.id,
+                  firstName: o.client.firstName,
+                  lastName: o.client.lastName,
+                }
+              : null,
+          };
+        }
+        return base;
+      }),
       total,
       page,
       pageSize,
@@ -127,6 +160,7 @@ export class OrdersService {
           comment: dto.comment ?? null,
           deliveryMethod: dto.deliveryMethod ?? null,
           paymentMethod: dto.paymentMethod ?? null,
+          paymentType: dto.paymentType ?? null,
           deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
         },
         include: {
@@ -183,6 +217,7 @@ export class OrdersService {
     if ("deliveryMethod" in dto)
       data.deliveryMethod = (dto.deliveryMethod as DeliveryMethod) ?? null;
     if ("paymentMethod" in dto) data.paymentMethod = (dto.paymentMethod as PaymentMethod) ?? null;
+    if ("paymentType" in dto) data.paymentType = (dto.paymentType as PaymentType) ?? null;
     if ("deliveryData" in dto)
       data.deliveryData = (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined;
 
@@ -256,7 +291,52 @@ export class OrdersService {
     return this.recalcAndReturn(orderId);
   }
 
-  async removeItem(orderId: string, itemId: string) {
+  async updateItem(
+    orderId: string,
+    itemId: string,
+    dto: { qty?: number; price?: number },
+    actor?: AuthUser,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(order, actor);
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+    });
+    if (!item) throw new NotFoundException("Order item not found");
+
+    const nextQty = dto.qty != null ? Math.max(1, Math.trunc(dto.qty)) : item.qty;
+    const nextPrice = dto.price != null ? dto.price : item.price;
+
+    await this.prisma.orderItem.update({
+      where: { id: itemId },
+      data: {
+        qty: nextQty,
+        price: nextPrice,
+        lineTotal: nextQty * nextPrice,
+      },
+    });
+
+    return this.recalcAndReturn(orderId);
+  }
+
+  async removeItem(orderId: string, itemId: string, actor?: AuthUser) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(order, actor);
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+    });
+    if (!item) throw new NotFoundException("Order item not found");
+
     await this.prisma.orderItem.delete({ where: { id: itemId } });
     return this.recalcAndReturn(orderId);
   }
@@ -398,8 +478,18 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
+  private calcPaymentStatus(paidAmount: number, totalAmount: number): OrderPaymentStatus {
+    const paid = Number(paidAmount) || 0;
+    const total = Number(totalAmount) || 0;
+    if (paid <= 0) return OrderPaymentStatus.UNPAID;
+    if (paid >= total) return paid > total ? OrderPaymentStatus.OVERPAID : OrderPaymentStatus.PAID;
+    return OrderPaymentStatus.PARTIALLY_PAID;
+  }
+
   private mapToEntity(o: Record<string, unknown>) {
     const items = (o.items as Array<Record<string, unknown>> | undefined) ?? [];
+    const paidAmount = Number(o.paidAmount) ?? 0;
+    const totalAmount = Number(o.totalAmount) ?? 0;
     return {
       id: o.id,
       orderNumber: o.orderNumber,
@@ -414,9 +504,11 @@ export class OrdersService {
       totalAmount: o.totalAmount,
       paidAmount: o.paidAmount,
       debtAmount: o.debtAmount,
+      paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
       comment: o.comment ?? null,
       deliveryMethod: o.deliveryMethod ?? null,
       paymentMethod: o.paymentMethod ?? null,
+      paymentType: o.paymentType ?? null,
       deliveryData: o.deliveryData ?? null,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,

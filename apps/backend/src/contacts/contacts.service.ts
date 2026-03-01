@@ -37,6 +37,8 @@ export class ContactsService {
       phone: string;
       email?: string | null;
       position?: string | null;
+      address?: string | null;
+      ownerId?: string | null;
       isPrimary?: boolean;
     },
     actor?: AuthUser,
@@ -56,7 +58,7 @@ export class ContactsService {
       throw new ConflictException("A contact with this phone number already exists");
     }
 
-    const ownerId = actor?.id ?? null;
+    const ownerId = data.ownerId !== undefined ? data.ownerId : (actor?.id ?? null);
 
     const contact = await this.prisma.contact.create({
       data: {
@@ -68,9 +70,10 @@ export class ContactsService {
         phoneNormalized,
         email: data.email ?? null,
         position: data.position ?? null,
+        address: data.address ?? null,
         isPrimary: data.isPrimary ?? false,
       },
-      include: { company: true },
+      include: { company: true, owner: true },
     });
 
     return this.mapToEntity(contact);
@@ -101,7 +104,7 @@ export class ContactsService {
         skip: offset,
         take: limit,
         orderBy: { createdAt: "desc" },
-        include: { company: true },
+        include: { company: true, owner: true },
       }),
       this.prisma.contact.count({ where }),
     ]);
@@ -118,7 +121,7 @@ export class ContactsService {
   async getById(id: string, actor?: AuthUser) {
     const contact = await this.prisma.contact.findUnique({
       where: { id },
-      include: { company: true },
+      include: { company: true, owner: true },
     });
     if (!contact) throw new BadRequestException("contact not found");
     if (actor) this.assertContactAccess(contact, actor);
@@ -136,6 +139,8 @@ export class ContactsService {
       phone: string;
       email: string | null;
       position: string | null;
+      address: string | null;
+      ownerId: string | null;
       isPrimary: boolean;
     }>,
     actor?: AuthUser,
@@ -171,7 +176,7 @@ export class ContactsService {
     const contact = await this.prisma.contact.update({
       where: { id },
       data: updateData,
-      include: { company: true },
+      include: { company: true, owner: true },
     });
 
     return this.mapToEntity(contact);
@@ -302,8 +307,70 @@ export class ContactsService {
     return { item: created };
   }
 
+  async updateShippingProfile(
+    contactId: string,
+    profileId: string,
+    body: Record<string, unknown>,
+    actor?: AuthUser,
+  ) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const existing = await this.prisma.contactShippingProfile.findFirst({
+      where: { id: profileId, contactId },
+    });
+    if (!existing) throw new BadRequestException("shipping profile not found");
+
+    await this.prisma.contactShippingProfile.update({
+      where: { id: profileId },
+      data: {
+        ...(body.label != null && { label: String(body.label) }),
+        ...(body.isDefault !== undefined && { isDefault: Boolean(body.isDefault) }),
+        ...(body.recipientType != null && { recipientType: body.recipientType as "PERSON" | "COMPANY" }),
+        ...(body.deliveryType != null && {
+          deliveryType: body.deliveryType as "WAREHOUSE" | "POSTOMAT" | "ADDRESS",
+        }),
+        ...(body.firstName !== undefined && { firstName: body.firstName != null ? String(body.firstName) : null }),
+        ...(body.lastName !== undefined && { lastName: body.lastName != null ? String(body.lastName) : null }),
+        ...(body.phone !== undefined && { phone: body.phone != null ? String(body.phone) : null }),
+        ...(body.cityRef !== undefined && { cityRef: body.cityRef != null ? String(body.cityRef) : null }),
+        ...(body.cityName !== undefined && { cityName: body.cityName != null ? String(body.cityName) : null }),
+        ...(body.warehouseRef !== undefined && {
+          warehouseRef: body.warehouseRef != null ? String(body.warehouseRef) : null,
+        }),
+        ...(body.warehouseNumber !== undefined && {
+          warehouseNumber: body.warehouseNumber != null ? String(body.warehouseNumber) : null,
+        }),
+      },
+    });
+    return { ok: true };
+  }
+
+  async deleteShippingProfile(contactId: string, profileId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const existing = await this.prisma.contactShippingProfile.findFirst({
+      where: { id: profileId, contactId },
+    });
+    if (!existing) throw new BadRequestException("shipping profile not found");
+
+    await this.prisma.contactShippingProfile.delete({ where: { id: profileId } });
+    return { ok: true };
+  }
+
   // ===== MAPPER =====
-  private mapToEntity(contact: Prisma.ContactGetPayload<{ include: { company: true } }>) {
+  private mapToEntity(
+    contact: Prisma.ContactGetPayload<{ include: { company: true; owner: true } }>,
+  ) {
     return {
       id: contact.id,
       ownerId: contact.ownerId ?? null,
@@ -313,6 +380,7 @@ export class ContactsService {
       phone: contact.phone,
       email: contact.email,
       position: contact.position,
+      address: contact.address ?? null,
       isPrimary: contact.isPrimary,
       company: contact.company
         ? {
@@ -321,6 +389,9 @@ export class ContactsService {
             edrpou: contact.company.edrpou,
             taxId: contact.company.taxId,
           }
+        : null,
+      owner: contact.owner
+        ? { id: contact.owner.id, fullName: contact.owner.fullName, email: contact.owner.email }
         : null,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,

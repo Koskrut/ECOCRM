@@ -17,11 +17,10 @@ type TimelineItem = {
 type TimelineResponse = { items: TimelineItem[] };
 
 type Props = {
-  apiBaseUrl: string;
   orderId: string;
 };
 
-export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
+export function OrderTimeline({ orderId }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -30,15 +29,8 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/timeline`,
-    [apiBaseUrl, orderId],
-  );
-
-  const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/orders/${orderId}/activities`,
-    [apiBaseUrl, orderId],
-  );
+  const timelineUrl = useMemo(() => `orders/${orderId}/timeline`, [orderId]);
+  const activitiesUrl = useMemo(() => `orders/${orderId}/activities`, [orderId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,7 +87,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
             onClick={() => setMode("CALL")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "CALL"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -107,7 +99,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
             onClick={() => setMode("MEETING")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "MEETING"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -119,7 +111,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
             onClick={() => setMode("COMMENT")}
             className={`rounded-md px-3 py-1.5 text-sm font-medium border ${
               mode === "COMMENT"
-                ? "bg-zinc-900 text-white border-zinc-900"
+                ? "bg-accent-gradient text-white border-transparent"
                 : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
             }`}
           >
@@ -141,7 +133,7 @@ export function OrderTimeline({ apiBaseUrl, orderId }: Props) {
               type="button"
               disabled={saving || !text.trim()}
               onClick={() => void addActivity()}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              className="btn-primary py-1.5"
             >
               {saving ? "Сохраняю..." : "Добавить"}
             </button>

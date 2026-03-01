@@ -173,9 +173,14 @@ export class NpSyncService {
         isActive: true,
         description: { contains: q, mode: "insensitive" },
       },
-      select: { ref: true, description: true },
+      select: {
+        ref: true,
+        description: true,
+        settlementTypeDescription: true,
+        areaDescription: true,
+      },
       orderBy: { description: "asc" },
-      take: limit,
+      take: limit * 2,
     });
 
     return { status: "OK", items };

@@ -23,12 +23,10 @@ export default function EmployeesPage() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await apiHttp.get("/users");
-      const text = await r.text();
-      if (!r.ok) throw new Error(text || `Failed (${r.status})`);
-
-      const data = JSON.parse(text) as UsersResponse | Employee[];
-      const list = Array.isArray(data) ? data : (data.items ?? []);
+      const r = await apiHttp.get<UsersResponse | Employee[]>("/users");
+      if (r.status >= 400) throw new Error((r.data as unknown as string) || `Failed (${r.status})`);
+      const data = r.data as UsersResponse | Employee[];
+      const list = Array.isArray(data) ? data : (data?.items ?? []);
       setItems(list);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load employees");
@@ -62,7 +60,7 @@ export default function EmployeesPage() {
         <button
           type="button"
           onClick={openCreate}
-          className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800"
+          className="btn-primary"
         >
           + Add employee
         </button>

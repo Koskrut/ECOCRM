@@ -1,4 +1,4 @@
-import { DeliveryMethod, PaymentMethod } from "@prisma/client";
+import { DeliveryMethod, PaymentMethod, PaymentType } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
   IsEnum,
@@ -59,6 +59,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @IsEnum(PaymentType)
+  paymentType?: PaymentType;
 
   @IsOptional()
   @IsObject()

@@ -31,9 +31,9 @@ const titleFor = (type: string): string => {
   return type;
 };
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const token = (await cookies()).get("token")?.value;
-  const { id } = await params;
+  const { id } = await ctx.params;
 
   const r = await fetch(`${API_URL}/contacts/${id}/activities`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},

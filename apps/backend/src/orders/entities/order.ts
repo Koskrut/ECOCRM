@@ -1,4 +1,4 @@
-import type { DeliveryMethod, OrderStatus, PaymentMethod } from "@prisma/client";
+import type { DeliveryMethod, OrderStatus, PaymentMethod, PaymentType } from "@prisma/client";
 
 export type OrderCompany = {
   id: string;
@@ -50,6 +50,7 @@ export type Order = {
 
   deliveryMethod?: DeliveryMethod | null;
   paymentMethod?: PaymentMethod | null;
+  paymentType?: PaymentType | null;
   deliveryData?: Record<string, unknown> | null;
 
   createdAt: string;

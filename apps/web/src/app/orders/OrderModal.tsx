@@ -1,13 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EntityModalShell } from "@/components/modals/EntityModalShell";
+import { EntitySection } from "@/components/sections/EntitySection";
+import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
+import { apiHttp } from "@/lib/api/client";
+import { OrderPaymentBlock } from "./OrderPaymentBlock";
+import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
 
 // =====================
 // Small local UI helpers
 // =====================
-
-type Option = { id: string; label: string; meta?: any };
 
 function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -37,146 +41,6 @@ function Badge({ children, className }: { children: React.ReactNode; className?:
   );
 }
 
-/**
- * Minimal searchable select (no external deps).
- * - click to open
- * - type to filter
- * - shows optional "Create new" action when nothing matches
- */
-function SearchableSelectLite({
-  value,
-  options,
-  placeholder,
-  disabled,
-  isLoading,
-  onChange,
-  onCreate,
-  createLabel,
-}: {
-  value: string | null;
-  options: Option[];
-  placeholder?: string;
-  disabled?: boolean;
-  isLoading?: boolean;
-  onChange: (id: string | null) => void;
-  onCreate?: (typed: string) => void;
-  createLabel?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
-
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(s));
-  }, [options, q]);
-
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      const el = rootRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  useEffect(() => {
-    if (!open) setQ("");
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
-        className={cx(
-          "flex w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm",
-          disabled && "opacity-60",
-        )}
-      >
-        <span className={cx("truncate", selected ? "text-zinc-900" : "text-zinc-500")}>
-          {selected ? selected.label : placeholder ?? "Select…"}
-        </span>
-        <span className="ml-3 text-xs text-zinc-400">▾</span>
-      </button>
-
-      {open ? (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg">
-          <div className="p-2">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={isLoading ? "Loading…" : "Search…"}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            />
-          </div>
-
-          <div className="max-h-56 overflow-auto">
-            {isLoading ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">
-                No results
-                {onCreate ? (
-                  <button
-                    type="button"
-                    className="ml-2 rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => {
-                      setOpen(false);
-                      onCreate(q.trim());
-                    }}
-                  >
-                    {createLabel ?? "Create"}
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                {filtered.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => {
-                      onChange(o.id);
-                      setOpen(false);
-                    }}
-                    className={cx(
-                      "flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50",
-                      o.id === value && "bg-zinc-50",
-                    )}
-                  >
-                    <span className="flex-1 truncate text-zinc-900">{o.label}</span>
-                  </button>
-                ))}
-                {onCreate ? (
-                  <div className="border-t border-zinc-100 p-2">
-                    <button
-                      type="button"
-                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                      onClick={() => {
-                        setOpen(false);
-                        onCreate(q.trim());
-                      }}
-                    >
-                      {createLabel ?? "Create"}
-                    </button>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // =====================
 // Types
 // =====================
@@ -190,6 +54,7 @@ type OrderItem = {
     sku: string;
     name: string;
     unit: string;
+    stock?: number;
   };
   qty: number;
   price: number;
@@ -208,6 +73,9 @@ type OrderDetails = {
 
   status: string;
   deliveryMethod: string | null;
+  paymentType?: string | null;
+  paidAmount?: number;
+  debtAmount?: number;
 
   discountAmount: number;
   totalAmount: number;
@@ -223,6 +91,7 @@ type ProductSearchItem = {
   name: string;
   unit: string;
   basePrice: number;
+  stock?: number;
 };
 
 type ProductsResponse = {
@@ -280,7 +149,7 @@ const ORDER_STEPS: StepDef[] = [
   { key: "IN_WORK", label: "In work", color: "blue" },
   { key: "READY_TO_SHIP", label: "Ready", color: "amber" },
   { key: "SHIPPED", label: "Shipped", color: "blue" },
-  { key: "PAYMENT_CONTROL", label: "Payment", color: "amber" },
+  { key: "CONTROL_PAYMENT", label: "Payment", color: "amber" },
   { key: "SUCCESS", label: "Success", color: "emerald" },
   { key: "RETURNING", label: "Returning", color: "red" },
   { key: "CANCELED", label: "Canceled", color: "red" },
@@ -291,24 +160,57 @@ function stepIndex(status: string) {
   return idx >= 0 ? idx : 0;
 }
 
-function Stepper({ status }: { status: string }) {
+function Stepper({
+  status,
+  onStepClick,
+  disabled,
+  hasPayment,
+}: {
+  status: string;
+  onStepClick?: (stepKey: string) => void;
+  disabled?: boolean;
+  /** When true, Payment step is shown green (paid). */
+  hasPayment?: boolean;
+}) {
   const activeIdx = stepIndex(status);
 
   const isCanceled = status === "CANCELED";
   const isReturning = status === "RETURNING";
 
-  const colorClasses = (c: StepDef["color"]) => {
+  const colorClasses = (c: StepDef["color"], stepKey?: string) => {
+    const usePaymentGreen = stepKey === "CONTROL_PAYMENT" && hasPayment;
+    if (usePaymentGreen) {
+      return {
+        on: "bg-emerald-600 text-white border-emerald-600",
+        off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+      };
+    }
     switch (c) {
       case "blue":
-        return { on: "bg-blue-600 text-white border-blue-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+        return {
+          on: "bg-blue-600 text-white border-blue-600",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
       case "amber":
-        return { on: "bg-amber-500 text-white border-amber-500", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+        return {
+          on: "bg-amber-500 text-white border-amber-500",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
       case "emerald":
-        return { on: "bg-emerald-600 text-white border-emerald-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+        return {
+          on: "bg-emerald-600 text-white border-emerald-600",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
       case "red":
-        return { on: "bg-red-600 text-white border-red-600", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+        return {
+          on: "bg-red-600 text-white border-red-600",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
       default:
-        return { on: "bg-zinc-900 text-white border-zinc-900", off: "bg-zinc-100 text-zinc-600 border-zinc-200" };
+        return {
+          on: "bg-zinc-900 text-white border-zinc-900",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
     }
   };
 
@@ -323,11 +225,21 @@ function Stepper({ status }: { status: string }) {
       <div className="flex flex-wrap items-center gap-2">
         {ORDER_STEPS.map((s, idx) => {
           const done = isDone(s, idx);
-          const cls = colorClasses(s.color);
-          return (
-            <Badge key={s.key} className={done ? cls.on : cls.off}>
-              {s.label}
-            </Badge>
+          const cls = colorClasses(s.color, s.key);
+          const canClick = onStepClick && !disabled;
+          const showOn = s.key === "CONTROL_PAYMENT" && hasPayment ? true : done;
+          const badge = <Badge className={showOn ? cls.on : cls.off}>{s.label}</Badge>;
+          return canClick ? (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => onStepClick(s.key)}
+              className="rounded focus:outline-none focus:ring-2 focus:ring-zinc-400"
+            >
+              {badge}
+            </button>
+          ) : (
+            <span key={s.key}>{badge}</span>
           );
         })}
       </div>
@@ -339,7 +251,7 @@ function Stepper({ status }: { status: string }) {
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -368,11 +280,14 @@ export function OrderModal({
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
+  const [paymentType, setPaymentType] = useState<string | null>(null);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
 
   // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -382,6 +297,11 @@ export function OrderModal({
   const [price, setPrice] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittingItem, setSubmittingItem] = useState(false);
+  const [editingItem, setEditingItem] = useState<{
+    itemId: string;
+    field: "qty" | "price";
+    value: string;
+  } | null>(null);
 
   // Timeline
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -391,7 +311,10 @@ export function OrderModal({
   // TTN
   const [showTtnModal, setShowTtnModal] = useState(false);
 
-  const canClose = !saving && !submittingItem;
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [leftTab, setLeftTab] = useState<"main" | "items" | "activity">("main");
+
+  const canClose = !saving && !submittingItem && !statusUpdating;
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -442,6 +365,7 @@ export function OrderModal({
       setCompanyId(data.companyId ?? null);
       setClientId(data.clientId ?? null);
       setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
+      setPaymentType(data.paymentType ?? null);
       setDiscountAmount(Number(data.discountAmount ?? 0));
       setComment(data.comment ?? "");
     } catch (e) {
@@ -469,11 +393,33 @@ export function OrderModal({
     }
   }, [apiBaseUrl, orderId]);
 
+  const setOrderStatus = useCallback(
+    async (toStatus: string) => {
+      if (!orderId) return;
+      setStatusUpdating(true);
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toStatus }),
+          credentials: "include",
+        });
+        if (!r.ok) throw new Error(`Failed to update status (${r.status})`);
+        await refreshOrder();
+        onSaved?.();
+      } finally {
+        setStatusUpdating(false);
+      }
+    },
+    [apiBaseUrl, orderId, refreshOrder, onSaved],
+  );
+
   // init
   useEffect(() => {
     setError(null);
     setTimelineError(null);
     setEditing(null);
+    setEditingItem(null);
     setShowAddForm(false);
     setSelectedProduct(null);
     setSearch("");
@@ -488,6 +434,7 @@ export function OrderModal({
       setCompanyId(pCompanyId);
       setClientId(pClientId);
       setDeliveryMethod("PICKUP");
+      setPaymentType(null);
       setDiscountAmount(0);
       setComment("");
       void fetchCompanies();
@@ -514,6 +461,10 @@ export function OrderModal({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (editingItem) {
+        setEditingItem(null);
+        return;
+      }
       if (editing) {
         setEditing(null);
         return;
@@ -522,7 +473,61 @@ export function OrderModal({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, canClose, onClose]);
+  }, [editing, editingItem, canClose, onClose]);
+
+  const patchOrderItem = useCallback(
+    async (itemId: string, payload: { qty?: number; price?: number }) => {
+      if (!orderId) return;
+      setSaving(true);
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data?.message || `Failed to update item (${r.status})`);
+        }
+        setEditingItem(null);
+        await Promise.all([refreshOrder(), refreshTimeline()]);
+        onSaved?.();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Failed to save");
+        await refreshOrder();
+      } finally {
+        setSaving(false);
+      }
+    },
+    [apiBaseUrl, onSaved, orderId, refreshOrder, refreshTimeline],
+  );
+
+  const deleteOrderItem = useCallback(
+    async (itemId: string) => {
+      if (!orderId) return;
+      if (!confirm("Удалить позицию?")) return;
+      setSaving(true);
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
+          method: "DELETE",
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) throw new Error(`Failed to delete item (${r.status})`);
+        setEditingItem(null);
+        await Promise.all([refreshOrder(), refreshTimeline()]);
+        onSaved?.();
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Failed to delete");
+        await refreshOrder();
+      } finally {
+        setSaving(false);
+      }
+    },
+    [apiBaseUrl, onSaved, orderId, refreshOrder, refreshTimeline],
+  );
 
   const patchOrder = useCallback(
     async (payload: Record<string, any>) => {
@@ -625,7 +630,26 @@ export function OrderModal({
     setSearch(p.name);
     setSearchResults([]);
     setSearchError(null);
+    requestAnimationFrame(() => qtyInputRef.current?.focus());
   };
+
+  const addItemToOrder = useCallback(
+    async (productId: string, itemQty: number, itemPrice: number) => {
+      if (!orderId) return;
+      const payload = { productId, qty: itemQty, price: itemPrice };
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(`Failed to add item (${r.status})`);
+      await Promise.all([refreshOrder(), refreshTimeline()]);
+      onSaved?.();
+    },
+    [apiBaseUrl, orderId, refreshOrder, refreshTimeline, onSaved],
+  );
 
   const handleAddItemSubmit = async () => {
     if (!orderId || !selectedProduct) return;
@@ -642,23 +666,12 @@ export function OrderModal({
     setSubmittingItem(true);
     setSubmitError(null);
     try {
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: selectedProduct.id, qty, price }),
-        cache: "no-store",
-      });
-      if (!r.ok) throw new Error(`Failed to add item (${r.status})`);
-
-      setShowAddForm(false);
+      await addItemToOrder(selectedProduct.id, qty, price);
+      // Add & add another: keep form open, reset only product/search, keep qty/price
       setSelectedProduct(null);
       setSearch("");
       setSearchResults([]);
-      setQty(1);
-      setPrice(0);
-
-      await Promise.all([refreshOrder(), refreshTimeline()]);
-      onSaved?.();
+      requestAnimationFrame(() => searchInputRef.current?.focus());
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Failed to add item");
     } finally {
@@ -666,8 +679,28 @@ export function OrderModal({
     }
   };
 
+  const handleAddItemQuick = useCallback(
+    async (p: ProductSearchItem) => {
+      if (!orderId) return;
+      setSubmittingItem(true);
+      setSubmitError(null);
+      try {
+        await addItemToOrder(p.id, 1, p.basePrice);
+        setSelectedProduct(null);
+        setSearch("");
+        setSearchResults([]);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : "Failed to add item");
+      } finally {
+        setSubmittingItem(false);
+      }
+    },
+    [orderId, addItemToOrder],
+  );
+
   const headerTitle = useMemo(() => {
-    if (isCreate) return "Create order";
+    if (isCreate) return "New order";
     return order?.orderNumber ?? "…";
   }, [isCreate, order?.orderNumber]);
 
@@ -697,55 +730,52 @@ export function OrderModal({
     [companies.length, fetchCompanies, fetchContacts],
   );
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      onClick={() => {
-        if (canClose) onClose();
-      }}
-      role="presentation"
-    >
-      <div
-        className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        {/* HEADER */}
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
-          <div>
-            <p className="text-sm text-zinc-500">Order</p>
-            <h2 className="text-lg font-semibold text-zinc-900">{headerTitle}</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {canShowCreateTtnButton ? (
-              <button
-                type="button"
-                onClick={() => setShowTtnModal(true)}
-                className="rounded-md bg-emerald-600 px-3 py-1 text-sm font-medium text-white hover:bg-emerald-500"
-              >
-                Create TTN (NP)
-              </button>
-            ) : null}
+  const orderHeaderActions = <></>;
 
-            <button
-              type="button"
-              onClick={() => {
-                if (canClose) onClose();
-              }}
-              className="rounded-md px-3 py-1 text-sm text-zinc-600 hover:bg-zinc-100 disabled:text-zinc-400"
-              disabled={!canClose}
-            >
-              Close
-            </button>
-          </div>
+  const tabsUnderHeader =
+    !isCreate && order ? (
+      <div className="space-y-2">
+        <Stepper
+          status={order.status}
+          onStepClick={setOrderStatus}
+          disabled={statusUpdating}
+          hasPayment={Number(order.paidAmount ?? 0) > 0}
+        />
+        <div className="flex gap-1 border-b border-zinc-200 pb-2">
+          <button
+            type="button"
+            onClick={() => setLeftTab("main")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Main
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeftTab("items")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "items" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Items
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeftTab("activity")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Activity
+          </button>
         </div>
+      </div>
+    ) : null;
 
-        {/* STATUS BAR (only existing order) */}
-        {!isCreate && order ? <Stepper status={order.status} /> : null}
-
-        {/* BODY */}
-        <div className="px-6 py-4 max-h-[calc(90vh-64px)] overflow-auto">
-          {isCreate ? (
+  return (
+    <>
+      <EntityModalShell
+        title={headerTitle}
+        subtitle={!isCreate && order ? formatDt(order.createdAt) : undefined}
+        headerActions={orderHeaderActions}
+        tabsUnderHeader={tabsUnderHeader}
+        left={(
+          isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -836,7 +866,7 @@ export function OrderModal({
                   type="button"
                   onClick={() => void createOrder()}
                   disabled={saving}
-                  className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                  className="btn-primary"
                 >
                   {saving ? "Saving…" : "Create"}
                 </button>
@@ -849,12 +879,284 @@ export function OrderModal({
           ) : !order ? (
             <p className="text-sm text-zinc-500">Order not found</p>
           ) : (
-            <div className="grid grid-cols-12 gap-6">
-              {/* LEFT */}
-              <div className="col-span-12 lg:col-span-7">
-                <div className="space-y-6">
-                  {/* DETAILS */}
-                  <div className="rounded-md border border-zinc-200 bg-white p-4">
+            leftTab === "activity" ? (
+              <EntitySection title="Activity">
+                <OrderTimeline orderId={orderId!} />
+              </EntitySection>
+            ) : leftTab === "items" ? (
+              <EntitySection title="Items">
+                <div className="rounded-md border border-zinc-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-zinc-900">Items</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddForm((v) => !v)}
+                      className="rounded-md border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {showAddForm ? "Done" : "+ Add item"}
+                    </button>
+                  </div>
+                  {showAddForm ? (
+                    <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="grid grid-cols-12 gap-3">
+                        <div className="col-span-12">
+                          <label className="block text-xs font-medium text-zinc-600 mb-1">Product</label>
+                          <input
+                            ref={searchInputRef}
+                            value={search}
+                            onChange={(e) => {
+                              setSearch(e.target.value);
+                              setSelectedProduct(null);
+                            }}
+                            placeholder="Search product…"
+                            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                          />
+                          {searchLoading ? <div className="mt-2 text-xs text-zinc-500">Searching…</div> : null}
+                          {searchError ? <div className="mt-2 text-xs text-red-600">{searchError}</div> : null}
+                          {!selectedProduct && searchResults.length > 0 ? (
+                            <div className="mt-2 max-h-40 overflow-auto rounded-md border bg-white">
+                              {searchResults.map((p) => (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => handleSelectProduct(p)}
+                                  onDoubleClick={(e) => {
+                                    e.preventDefault();
+                                    void handleAddItemQuick(p);
+                                  }}
+                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                                >
+                                  <span className="font-medium text-zinc-900">{p.name}</span>
+                                  <span className="flex shrink-0 items-center gap-2 text-xs text-zinc-500">
+                                    {p.sku}
+                                    {p.stock !== undefined && (
+                                      <span className="text-zinc-400">Ост.: {p.stock}</span>
+                                    )}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          {selectedProduct ? (
+                            <div className="mt-2 text-xs text-zinc-600">
+                              Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
+                              {selectedProduct.stock !== undefined && (
+                                <span className="ml-2 text-zinc-500">Остаток: {selectedProduct.stock}</span>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="col-span-6">
+                          <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
+                          <input
+                            ref={qtyInputRef}
+                            type="number"
+                            min={1}
+                            value={qty}
+                            onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void handleAddItemSubmit();
+                              }
+                            }}
+                            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="col-span-6">
+                          <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="number"
+                              min={0}
+                              value={price}
+                              onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleAddItemSubmit();
+                                }
+                              }}
+                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                            />
+                            {selectedProduct && selectedProduct.stock !== undefined ? (
+                              <span className="shrink-0 text-xs text-zinc-500">
+                                Остаток: {selectedProduct.stock}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                      {submitError ? <div className="mt-3 text-xs text-red-600">{submitError}</div> : null}
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={!selectedProduct || submittingItem}
+                          onClick={() => void handleAddItemSubmit()}
+                          className="btn-primary"
+                        >
+                          {submittingItem ? "Adding…" : "Add"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 overflow-hidden rounded-md border border-zinc-200">
+                    <table className="w-full text-sm">
+                      <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Product</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2 text-right">Price</th>
+                          <th className="px-3 py-2 text-right">Остаток</th>
+                          <th className="px-3 py-2 text-right">Total</th>
+                          <th className="w-10 px-2 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {order.items.length === 0 ? (
+                          <tr>
+                            <td className="px-3 py-3 text-zinc-500" colSpan={6}>
+                              No items
+                            </td>
+                          </tr>
+                        ) : (
+                          order.items.map((it) => (
+                            <tr key={it.id} className="hover:bg-zinc-50/50">
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-zinc-900">
+                                  {it.product?.name || it.productName || it.productId}
+                                </div>
+                                {it.product?.sku ? (
+                                  <div className="text-xs text-zinc-500">{it.product.sku}</div>
+                                ) : null}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={editingItem.value}
+                                    onChange={(e) =>
+                                      setEditingItem((prev) =>
+                                        prev ? { ...prev, value: e.target.value } : null,
+                                      )
+                                    }
+                                    onBlur={async () => {
+                                      const val = Math.max(1, Number(editingItem?.value) || 1);
+                                      await patchOrderItem(it.id, { qty: val });
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        const val = Math.max(1, Number(editingItem?.value) || 1);
+                                        void patchOrderItem(it.id, { qty: val });
+                                      }
+                                      if (e.key === "Escape") setEditingItem(null);
+                                    }}
+                                    autoFocus
+                                    className="w-16 rounded border border-zinc-300 px-2 py-1 text-right text-sm"
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingItem({
+                                        itemId: it.id,
+                                        field: "qty",
+                                        value: String(it.qty),
+                                      })
+                                    }
+                                    className="text-zinc-700 hover:underline"
+                                  >
+                                    {it.qty}
+                                  </button>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {editingItem?.itemId === it.id && editingItem?.field === "price" ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.01}
+                                    value={editingItem.value}
+                                    onChange={(e) =>
+                                      setEditingItem((prev) =>
+                                        prev ? { ...prev, value: e.target.value } : null,
+                                      )
+                                    }
+                                    onBlur={async () => {
+                                      const val = Math.max(0, Number(editingItem?.value) || 0);
+                                      await patchOrderItem(it.id, { price: val });
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        const val = Math.max(0, Number(editingItem?.value) || 0);
+                                        void patchOrderItem(it.id, { price: val });
+                                      }
+                                      if (e.key === "Escape") setEditingItem(null);
+                                    }}
+                                    autoFocus
+                                    className="w-20 rounded border border-zinc-300 px-2 py-1 text-right text-sm"
+                                  />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingItem({
+                                        itemId: it.id,
+                                        field: "price",
+                                        value: String(it.price),
+                                      })
+                                    }
+                                    className="text-zinc-700 hover:underline"
+                                  >
+                                    {it.price.toFixed(2)}
+                                  </button>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-zinc-600">
+                                {it.product?.stock !== undefined ? it.product.stock : "—"}
+                              </td>
+                              <td className="px-3 py-2 text-right font-medium text-zinc-900">
+                                {it.lineTotal.toFixed(2)}
+                              </td>
+                              <td className="px-2 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void deleteOrderItem(it.id)}
+                                  disabled={saving}
+                                  className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                                  title="Delete"
+                                  aria-label="Delete"
+                                >
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
+                                  </svg>
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </EntitySection>
+            ) : (
+              <>
+              <EntitySection title="About order">
+                <div className="rounded-md border border-zinc-200 bg-white p-4">
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
                         <div className="text-xs text-zinc-500">Company</div>
@@ -941,7 +1243,7 @@ export function OrderModal({
                                     contactId: id,
                                     companyId: nextCompanyId,
                                   });
-                                  // Оптимистично обновляем order.client, чтобы кнопка сразу показала выбранного клиента
+                                  // Optimistically update order.client so the button shows the selected client
                                   if (order && id && selectedContact) {
                                     setOrder((prev) =>
                                       prev
@@ -984,6 +1286,58 @@ export function OrderModal({
                       </div>
 
                       <div>
+                        <div className="text-xs text-zinc-500">Payment type</div>
+                        {editing === "paymentType" ? (
+                          <div className="mt-1">
+                            <select
+                              value={paymentType ?? ""}
+                              onChange={async (e) => {
+                                const v = e.target.value || null;
+                                setPaymentType(v);
+                                try {
+                                  await patchOrder({ paymentType: v });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, paymentType: v } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                              disabled={saving}
+                            >
+                              <option value="">—</option>
+                              <option value="PREPAYMENT">Предоплата</option>
+                              <option value="DEFERRED">Отсрочка</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentType(order.paymentType ?? null);
+                              setEditing("paymentType");
+                            }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {order.paymentType === "PREPAYMENT"
+                              ? "Предоплата"
+                              : order.paymentType === "DEFERRED"
+                                ? "Отсрочка"
+                                : "—"}
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500">Paid / Debt</div>
+                        <div className="mt-1 text-zinc-700">
+                          {order.currency ?? "UAH"} {Number(order.paidAmount ?? 0).toFixed(2)} /{" "}
+                          {Number(order.debtAmount ?? 0).toFixed(2)}
+                        </div>
+                      </div>
+
+                      <div>
                         <div className="text-xs text-zinc-500">Delivery</div>
                         {editing === "delivery" ? (
                           <div className="mt-1">
@@ -1022,75 +1376,61 @@ export function OrderModal({
                         )}
                       </div>
 
-                      <div>
-                        <div className="text-xs text-zinc-500">TTN</div>
-                        <div className="mt-1 font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : "—"}</div>
-                      </div>
-
-                      <div className="col-span-2">
-                        <div className="text-xs text-zinc-500">NP status</div>
-                        <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? "—"}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">Status</div>
-                        <div className="mt-1 font-medium text-zinc-900">{order.status}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">Created</div>
-                        <div className="mt-1 text-zinc-700">{formatDt(order.createdAt)}</div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">Discount</div>
-                        {editing === "discount" ? (
-                          <input
-                            type="number"
-                            min={0}
-                            value={discountAmount}
-                            onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
-                            onKeyDown={async (e) => {
-                              if (e.key === "Enter") {
-                                const val = Number(discountAmount) || 0;
-                                try {
-                                  await patchOrder({ discountAmount: val });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, discountAmount: val } : prev));
+                      {order.deliveryMethod === "NOVA_POSHTA" ? (
+                        <div>
+                          <div className="text-xs text-zinc-500">TTN</div>
+                          <div className="mt-1 flex items-center gap-2">
+                            <span className="font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : "—"}</span>
+                            {canShowCreateTtnButton ? (
+                              <button
+                                type="button"
+                                onClick={() => setShowTtnModal(true)}
+                                className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50"
+                                title="Create TTN (NP)"
+                                aria-label="Create TTN"
+                              >
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                              </button>
+                            ) : null}
+                            {ttnNumber && orderId ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!confirm("Удалить ТТН из заказа?")) return;
+                                  try {
+                                    await apiHttp.delete(`orders/${orderId}/np/ttn`);
+                                    await refreshOrder();
+                                    onSaved?.();
+                                  } catch {
+                                    // ignore
                                   }
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }
-                            }}
-                            onBlur={async () => {
-                              const val = Number(discountAmount) || 0;
-                              try {
-                                await patchOrder({ discountAmount: val });
-                                if (order) {
-                                  setOrder((prev) => (prev ? { ...prev, discountAmount: val } : prev));
-                                }
-                              } finally {
-                                setEditing(null);
-                              }
-                            }}
-                            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                            disabled={saving}
-                            autoFocus
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDiscountAmount(Number(order.discountAmount ?? 0));
-                              setEditing("discount");
-                            }}
-                            className="mt-1 text-left text-zinc-700 hover:underline"
-                          >
-                            {Number(order.discountAmount ?? 0).toFixed(2)}
-                          </button>
-                        )}
-                      </div>
+                                }}
+                                className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
+                                title="Delete TTN"
+                                aria-label="Delete TTN"
+                              >
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {order.deliveryMethod === "NOVA_POSHTA" ? (
+                        <div className="col-span-2">
+                          <div className="text-xs text-zinc-500">NP status</div>
+                          <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? "—"}</div>
+                        </div>
+                      ) : null}
 
                       <div>
                         <div className="text-xs text-zinc-500">Total</div>
@@ -1156,191 +1496,51 @@ export function OrderModal({
                       ) : null}
                     </div>
                   </div>
-
-                  {/* ITEMS */}
-                  <div className="rounded-md border border-zinc-200 bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-zinc-900">Items</h3>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddForm((v) => !v)}
-                        className="rounded-md border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      >
-                        {showAddForm ? "Close" : "+ Add item"}
-                      </button>
-                    </div>
-
-                    {showAddForm ? (
-                      <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="grid grid-cols-12 gap-3">
-                          <div className="col-span-12">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Product</label>
-                            <input
-                              value={search}
-                              onChange={(e) => {
-                                setSearch(e.target.value);
-                                setSelectedProduct(null);
-                              }}
-                              placeholder="Search product…"
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                            {searchLoading ? <div className="mt-2 text-xs text-zinc-500">Searching…</div> : null}
-                            {searchError ? <div className="mt-2 text-xs text-red-600">{searchError}</div> : null}
-                            {!selectedProduct && searchResults.length > 0 ? (
-                              <div className="mt-2 max-h-40 overflow-auto rounded-md border bg-white">
-                                {searchResults.map((p) => (
-                                  <button
-                                    key={p.id}
-                                    type="button"
-                                    onClick={() => handleSelectProduct(p)}
-                                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                                  >
-                                    <span className="font-medium text-zinc-900">{p.name}</span>
-                                    <span className="text-xs text-zinc-500">{p.sku}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null}
-                            {selectedProduct ? (
-                              <div className="mt-2 text-xs text-zinc-600">
-                                Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
-                              </div>
-                            ) : null}
-                          </div>
-
-                          <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={qty}
-                              onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                          </div>
-
-                          <div className="col-span-6">
-                            <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
-                            <input
-                              type="number"
-                              min={0}
-                              value={price}
-                              onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                          </div>
-                        </div>
-
-                        {submitError ? <div className="mt-3 text-xs text-red-600">{submitError}</div> : null}
-
-                        <div className="mt-3 flex justify-end">
-                          <button
-                            type="button"
-                            disabled={!selectedProduct || submittingItem}
-                            onClick={() => void handleAddItemSubmit()}
-                            className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                          >
-                            {submittingItem ? "Adding…" : "Add"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-4 overflow-hidden rounded-md border border-zinc-200">
-                      <table className="w-full text-sm">
-                        <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Product</th>
-                            <th className="px-3 py-2 text-right">Qty</th>
-                            <th className="px-3 py-2 text-right">Price</th>
-                            <th className="px-3 py-2 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100">
-                          {order.items.length === 0 ? (
-                            <tr>
-                              <td className="px-3 py-3 text-zinc-500" colSpan={4}>
-                                No items
-                              </td>
-                            </tr>
-                          ) : (
-                            order.items.map((it) => (
-                              <tr key={it.id}>
-                                <td className="px-3 py-2">
-                                  <div className="font-medium text-zinc-900">
-                                    {it.product?.name || it.productName || it.productId}
-                                  </div>
-                                  {it.product?.sku ? <div className="text-xs text-zinc-500">{it.product.sku}</div> : null}
-                                </td>
-                                <td className="px-3 py-2 text-right text-zinc-700">{it.qty}</td>
-                                <td className="px-3 py-2 text-right text-zinc-700">{it.price.toFixed(2)}</td>
-                                <td className="px-3 py-2 text-right font-medium text-zinc-900">{it.lineTotal.toFixed(2)}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT */}
-              <div className="col-span-12 lg:col-span-5">
-                <div className="rounded-md border border-zinc-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-zinc-900">Timeline</h3>
-                    <button
-                      type="button"
-                      onClick={() => void refreshTimeline()}
-                      className="rounded-md border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      disabled={timelineLoading}
-                    >
-                      {timelineLoading ? "…" : "Refresh"}
-                    </button>
-                  </div>
-
-                  <div className="mt-4">
-                    {timelineError ? (
-                      <div className="text-sm text-red-600">{timelineError}</div>
-                    ) : timelineLoading ? (
-                      <div className="text-sm text-zinc-500">Loading timeline…</div>
-                    ) : timeline.length === 0 ? (
-                      <div className="text-sm text-zinc-500">No events yet</div>
-                    ) : (
-                      <div className="space-y-3">
-                        {timeline.map((t) => (
-                          <div key={t.id} className="rounded-md border border-zinc-200 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-xs text-zinc-500">
-                                  {t.source} • {t.type}
-                                </div>
-                                <div className="text-sm font-medium text-zinc-900">{t.title}</div>
-                              </div>
-                              <div className="text-xs text-zinc-500 whitespace-nowrap">{formatDt(t.occurredAt)}</div>
-                            </div>
-                            <div className="mt-2 text-sm text-zinc-800 whitespace-pre-wrap">
-                              {renderValue(t.body)}
-                            </div>
-                            <div className="mt-2 text-xs text-zinc-500">by {renderValue(t.createdBy)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!isCreate && orderId && order ? (
+              </EntitySection>
+              <EntitySection title="Payment">
+                <OrderPaymentBlock
+                  orderId={orderId!}
+                  apiBaseUrl={apiBaseUrl}
+                  paidAmount={Number(order.paidAmount ?? 0)}
+                  totalAmount={Number(order.totalAmount ?? 0)}
+                  paymentStatus={(order as { paymentStatus?: string }).paymentStatus}
+                  currency={order.currency}
+                  onSaved={async () => {
+                    await refreshOrder();
+                    onSaved?.();
+                  }}
+                />
+              </EntitySection>
+            </>
+            )
+          )
+        )}
+        right={
+          !isCreate && order && orderId && leftTab === "main" ? (
+            <EntitySection title="Activity">
+              <OrderTimeline orderId={orderId} />
+            </EntitySection>
+          ) : null
+        }
+        canClose={canClose}
+        onClose={onClose}
+      />
+      {!isCreate && orderId && order ? (
             <TtnModal
               apiBaseUrl={apiBaseUrl}
               open={showTtnModal}
               onClose={() => setShowTtnModal(false)}
               orderId={orderId}
               contactId={(order as any).contactId ?? order.clientId ?? ""}
+              defaultPerson={
+                order.client
+                  ? {
+                      firstName: order.client.firstName ?? "",
+                      lastName: order.client.lastName ?? "",
+                      phone: order.client.phone ?? "",
+                    }
+                  : undefined
+              }
               onCreated={async () => {
                 setShowTtnModal(false);
                 await Promise.all([refreshOrder(), refreshTimeline()]);
@@ -1348,8 +1548,6 @@ export function OrderModal({
               }}
             />
           ) : null}
-        </div>
-      </div>
-    </div>
+      </>
   );
 }
