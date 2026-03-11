@@ -235,7 +235,7 @@ function SyncImagesModal({
             {status.error}
           </p>
         )}
-        {running && (
+        {running && status && (
           <div className="mb-4">
             <p className="mb-2 text-sm font-medium text-zinc-700">
               Обработано файлов: {status.filesProcessed}
