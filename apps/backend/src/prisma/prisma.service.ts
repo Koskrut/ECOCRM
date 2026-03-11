@@ -13,8 +13,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     }
 
     const pool = new Pool({ connectionString });
-    // Cast: project @types/pg and @prisma/adapter-pg's @types/pg are different declarations
-    const adapter = new PrismaPg(pool as ConstructorParameters<typeof PrismaPg>[0]);
+    // @types/pg (ours) vs @prisma/adapter-pg's @types/pg are different; adapter accepts pg.Pool at runtime
+    const adapter = new PrismaPg(pool as any);
 
     super({ adapter });
   }
