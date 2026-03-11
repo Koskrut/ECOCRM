@@ -1,6 +1,15 @@
 // apps/backend/prisma/seed.ts
 import "dotenv/config";
-import { PrismaClient, UserRole, DeliveryMethod, PaymentMethod } from "@prisma/client";
+import {
+  PrismaClient,
+  UserRole,
+  DeliveryMethod,
+  PaymentMethod,
+  LeadStatus,
+  LeadSource,
+  LeadChannel,
+  LeadEventType,
+} from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 /**
  * В проекте сейчас пароли без bcrypt:
@@ -68,6 +77,22 @@ async function main() {
     },
   });
 
+  const storeUser = await prisma.user.upsert({
+    where: { email: "store@ecocrm.local" },
+    update: {
+      fullName: "Store (магазин)",
+      role: UserRole.MANAGER,
+      passwordHash: makePlainHash("store"),
+    },
+    create: {
+      email: "store@ecocrm.local",
+      fullName: "Store (магазин)",
+      role: UserRole.MANAGER,
+      passwordHash: makePlainHash("store"),
+    },
+  });
+  console.log("STORE_OWNER_ID for .env:", storeUser.id);
+
   // =========================
   // 2) Company + Contacts
   // =========================
@@ -131,6 +156,98 @@ async function main() {
       isPrimary: false,
     },
   });
+
+  // =========================
+  // 2b) Test Meta Lead (для вкладки «Источник» в карточке лида)
+  // =========================
+  const metaLead = await prisma.lead.upsert({
+    where: { id: "demo-meta-lead" },
+    update: {
+      companyId: company.id,
+      ownerId: manager.id,
+      status: LeadStatus.NEW,
+      source: LeadSource.META,
+      channel: LeadChannel.FB_LEAD_ADS,
+      firstName: "Марія",
+      lastName: "Шевченко",
+      fullName: "Марія Шевченко",
+      phone: "+380501234567",
+      phoneNormalized: "+380501234567",
+      email: "maria.shevchenko@example.com",
+      city: "Київ",
+      message: "Цікавить преміум категорія",
+      score: 2,
+    },
+    create: {
+      id: "demo-meta-lead",
+      companyId: company.id,
+      ownerId: manager.id,
+      status: LeadStatus.NEW,
+      source: LeadSource.META,
+      channel: LeadChannel.FB_LEAD_ADS,
+      firstName: "Марія",
+      lastName: "Шевченко",
+      fullName: "Марія Шевченко",
+      phone: "+380501234567",
+      phoneNormalized: "+380501234567",
+      email: "maria.shevchenko@example.com",
+      city: "Київ",
+      message: "Цікавить преміум категорія",
+      score: 2,
+    },
+  });
+
+  await prisma.leadMetaAttribution.upsert({
+    where: { leadId: metaLead.id },
+    update: {
+      metaLeadId: "lead-demo-123",
+      formId: "form-456",
+      pageId: "123456789",
+      campaignId: "camp-202",
+      campaignName: "Spring Sale",
+      adsetId: "adset-101",
+      adsetName: "UA 25-45",
+      adId: "ad-789",
+      adName: "Lead Ad Creative",
+      createdTime: new Date(Date.now() - 86400000),
+    },
+    create: {
+      leadId: metaLead.id,
+      metaLeadId: "lead-demo-123",
+      formId: "form-456",
+      pageId: "123456789",
+      campaignId: "camp-202",
+      campaignName: "Spring Sale",
+      adsetId: "adset-101",
+      adsetName: "UA 25-45",
+      adId: "ad-789",
+      adName: "Lead Ad Creative",
+      createdTime: new Date(Date.now() - 86400000),
+    },
+  });
+
+  await prisma.leadAnswer.deleteMany({ where: { leadId: metaLead.id } });
+  await prisma.leadAnswer.createMany({
+    data: [
+      { leadId: metaLead.id, key: "first_name", value: "Марія" },
+      { leadId: metaLead.id, key: "last_name", value: "Шевченко" },
+      { leadId: metaLead.id, key: "city", value: "Київ" },
+      { leadId: metaLead.id, key: "comment", value: "Цікавить преміум категорія" },
+    ],
+  });
+
+  const existingEvent = await prisma.leadEvent.findFirst({
+    where: { leadId: metaLead.id, type: LeadEventType.CREATED },
+  });
+  if (!existingEvent) {
+    await prisma.leadEvent.create({
+      data: {
+        leadId: metaLead.id,
+        type: LeadEventType.CREATED,
+        message: "Лид создан из Meta Lead Ads",
+      },
+    });
+  }
 
   // =========================
   // 3) Products
@@ -288,17 +405,19 @@ async function main() {
     "Misc income",
   ];
   for (let i = 0; i < 10; i++) {
+    const dedupKey = `seed-tx-unmatched-${i + 1}`;
     await prisma.bankTransaction.upsert({
       where: {
-        bankAccountId_externalId: {
+        bankAccountId_dedupKey: {
           bankAccountId: bankAccount.id,
-          externalId: `seed-tx-unmatched-${i + 1}`,
+          dedupKey,
         },
       },
       update: {},
       create: {
         bankAccountId: bankAccount.id,
-        externalId: `seed-tx-unmatched-${i + 1}`,
+        externalId: dedupKey,
+        dedupKey,
         bookedAt: new Date(Date.now() - (i + 1) * 24 * 60 * 60 * 1000),
         amount: 100 + i * 50,
         currency: "UAH",
@@ -326,12 +445,13 @@ async function main() {
   // Matched bank transactions (Payment linked to order)
   const matchedTx1 = await prisma.bankTransaction.upsert({
     where: {
-      bankAccountId_externalId: { bankAccountId: bankAccount.id, externalId: "seed-tx-matched-1" },
+      bankAccountId_dedupKey: { bankAccountId: bankAccount.id, dedupKey: "seed-tx-matched-1" },
     },
     update: {},
     create: {
       bankAccountId: bankAccount.id,
       externalId: "seed-tx-matched-1",
+      dedupKey: "seed-tx-matched-1",
       bookedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       amount: 200,
       currency: "UAH",
@@ -342,12 +462,13 @@ async function main() {
   });
   const matchedTx2 = await prisma.bankTransaction.upsert({
     where: {
-      bankAccountId_externalId: { bankAccountId: bankAccount.id, externalId: "seed-tx-matched-2" },
+      bankAccountId_dedupKey: { bankAccountId: bankAccount.id, dedupKey: "seed-tx-matched-2" },
     },
     update: {},
     create: {
       bankAccountId: bankAccount.id,
       externalId: "seed-tx-matched-2",
+      dedupKey: "seed-tx-matched-2",
       bookedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
       amount: 150,
       currency: "UAH",
@@ -357,32 +478,38 @@ async function main() {
     },
   });
 
-  await prisma.payment.upsert({
+  const existingPayment1 = await prisma.payment.findFirst({
     where: { bankTransactionId: matchedTx1.id },
-    update: {},
-    create: {
-      orderId: order.id,
-      sourceType: "BANK",
-      amount: 200,
-      currency: "UAH",
-      paidAt: matchedTx1.bookedAt,
-      status: "COMPLETED",
-      bankTransactionId: matchedTx1.id,
-    },
   });
-  await prisma.payment.upsert({
+  if (!existingPayment1) {
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        sourceType: "BANK",
+        amount: 200,
+        currency: "UAH",
+        paidAt: matchedTx1.bookedAt,
+        status: "COMPLETED",
+        bankTransactionId: matchedTx1.id,
+      },
+    });
+  }
+  const existingPayment2 = await prisma.payment.findFirst({
     where: { bankTransactionId: matchedTx2.id },
-    update: {},
-    create: {
-      orderId: order.id,
-      sourceType: "BANK",
-      amount: 150,
-      currency: "UAH",
-      paidAt: matchedTx2.bookedAt,
-      status: "COMPLETED",
-      bankTransactionId: matchedTx2.id,
-    },
   });
+  if (!existingPayment2) {
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        sourceType: "BANK",
+        amount: 150,
+        currency: "UAH",
+        paidAt: matchedTx2.bookedAt,
+        status: "COMPLETED",
+        bankTransactionId: matchedTx2.id,
+      },
+    });
+  }
 
   await prisma.payment.upsert({
     where: { id: "seed-payment-cash-2" },
@@ -471,6 +598,7 @@ async function main() {
   console.log("LEAD:", "lead@ecocrm.local", "password: lead12345");
   console.log("MANAGER:", "manager@ecocrm.local", "password: manager12345");
   console.log("DEMO ORDER:", "DEMO-0001");
+  console.log("TEST META LEAD: Лиды → откройте карточку «Марія Шевченко» → вкладка «Источник» (данные ФБ)");
   console.log(
     "DEMO CONTACTS:",
     contact1.firstName,

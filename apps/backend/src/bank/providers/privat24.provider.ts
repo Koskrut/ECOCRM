@@ -1,18 +1,63 @@
+import { appendFileSync } from "node:fs";
 import type { BankStatementProvider, RawBankTransaction } from "./types";
 import type { TransactionDirection } from "@prisma/client";
+import { createHash } from "node:crypto";
+import { Privat24Client, type Privat24Credentials } from "../privat24.client";
+
+const DEBUG_LOG_PATH = "/Users/konstantin/CRM/.cursor/debug-f04031.log";
+function debugLog(msg: string, data: Record<string, unknown> = {}) {
+  try {
+    appendFileSync(
+      DEBUG_LOG_PATH,
+      JSON.stringify({ timestamp: Date.now(), location: "privat24.provider", message: msg, data }) + "\n",
+    );
+  } catch (_) {}
+}
+
+function toRawTxHash(tx: RawBankTransaction): string {
+  const payload = [
+    tx.bookedAt instanceof Date ? tx.bookedAt.toISOString() : String(tx.bookedAt),
+    tx.amount,
+    tx.currency,
+    tx.direction,
+    tx.description ?? "",
+    tx.counterpartyName ?? "",
+  ].join("|");
+  return createHash("sha256").update(payload).digest("hex");
+}
 
 /**
- * Stub provider for Privat24. For MVP use CSV upload or replace with real API when available.
+ * Fetches statements via Privat24Client. Maps API response to RawBankTransaction;
+ * when API does not provide stable id, sets hash for dedup.
  */
 export class Privat24Provider implements BankStatementProvider {
+  private readonly client = new Privat24Client();
+
   async fetchStatement(
     _accountId: string,
-    _credentials: unknown,
-    _from: Date,
-    _to: Date,
-    _cursor?: string,
+    credentials: unknown,
+    iban: string | null,
+    from: Date,
+    to: Date,
+    cursor?: string,
   ): Promise<{ transactions: RawBankTransaction[]; nextCursor?: string }> {
-    return { transactions: [] };
+    const creds = credentials as Privat24Credentials | null | undefined;
+    if (!creds?.token) {
+      debugLog("fetchStatement skip no token", {});
+      return { transactions: [] };
+    }
+    if (!iban || !iban.trim()) {
+      debugLog("fetchStatement skip no iban", {});
+      return { transactions: [] };
+    }
+    const result = await this.client.getStatement(creds, iban.trim(), from, to, cursor);
+    debugLog("fetchStatement result", { count: result.transactions.length, hasNextCursor: !!result.nextCursor });
+    const transactions = result.transactions.map((tx) => {
+      const out: RawBankTransaction = { ...tx };
+      if (!out.externalId && !out.hash) out.hash = toRawTxHash(tx);
+      return out;
+    });
+    return { transactions, nextCursor: result.nextCursor };
   }
 }
 

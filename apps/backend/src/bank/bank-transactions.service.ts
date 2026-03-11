@@ -4,6 +4,8 @@ import { PrismaService } from "../prisma/prisma.service";
 type ListParams = {
   unmatched?: boolean;
   bankAccountId?: string;
+  from?: string;
+  to?: string;
   page: number;
   pageSize: number;
   offset: number;
@@ -15,9 +17,15 @@ export class BankTransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(params: ListParams) {
-    const where: { bankAccountId?: string; payments?: { none: {} } | undefined } = {};
+    const where: {
+      bankAccountId?: string;
+      payments?: { none: {} };
+      bookedAt?: { gte?: Date; lte?: Date };
+    } = {};
     if (params.bankAccountId) where.bankAccountId = params.bankAccountId;
     if (params.unmatched) where.payments = { none: {} };
+    if (params.from) where.bookedAt = { ...where.bookedAt, gte: new Date(params.from) };
+    if (params.to) where.bookedAt = { ...where.bookedAt, lte: new Date(params.to) };
 
     const [items, total] = await Promise.all([
       this.prisma.bankTransaction.findMany({

@@ -16,10 +16,17 @@ import { UpdateLeadDto } from "./dto/update-lead.dto";
 import { UpdateLeadStatusDto } from "./dto/update-lead-status.dto";
 import { ConvertLeadDto } from "./dto/convert-lead.dto";
 import { ListLeadsQueryDto } from "./dto/list-leads-query.dto";
+import { MetaIngestDto } from "./dto/meta-ingest.dto";
+import { AddNoteDto } from "./dto/add-note.dto";
 
 @Controller("leads")
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
+
+  @Post("meta/ingest")
+  metaIngest(@Body() body: MetaIngestDto, @Req() req: Request & { user?: AuthUser }) {
+    return this.leads.metaIngest(body as unknown as Record<string, unknown>, req.user);
+  }
 
   @Post()
   create(@Body() dto: CreateLeadDto, @Req() req: Request & { user?: AuthUser }) {
@@ -66,6 +73,15 @@ export class LeadsController {
   @Get(":id/suggest-contact")
   suggestContact(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.leads.suggestContact(id, req.user);
+  }
+
+  @Post(":id/note")
+  addNote(
+    @Param("id") id: string,
+    @Body() dto: AddNoteDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.leads.addNote(id, dto, req.user);
   }
 }
 

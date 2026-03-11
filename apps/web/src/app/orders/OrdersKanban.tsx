@@ -54,6 +54,21 @@ type BoardColumn = {
   items: BoardOrder[];
 };
 
+type BoardFilters = {
+  status?: string;
+  ownerId?: string;
+  amountFrom?: string;
+  amountTo?: string;
+  q?: string;
+  paymentType?: string;
+  paymentStatus?: string;
+  hasTtn?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+};
+
 const STATUS_ORDER: OrderStatus[] = [
   "NEW",
   "IN_WORK",
@@ -89,7 +104,13 @@ function isKnownStatus(s: string): s is OrderStatus {
   return (STATUS_ORDER as string[]).includes(s);
 }
 
-export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => void }) {
+export function OrdersKanban({
+  onOpenOrder,
+  filters,
+}: {
+  onOpenOrder: (id: string) => void;
+  filters?: BoardFilters;
+}) {
   const [list, setList] = useState<OrdersListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -124,11 +145,25 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
     }));
   }, [list]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiHttp.get<OrdersListResponse>("/orders/board");
+      const params: Record<string, string> = {};
+      if (filters?.status) params.status = filters.status;
+      if (filters?.ownerId) params.ownerId = filters.ownerId;
+      if (filters?.amountFrom) params.amountFrom = filters.amountFrom;
+      if (filters?.amountTo) params.amountTo = filters.amountTo;
+      if (filters?.q?.trim()) params.q = filters.q.trim();
+      if (filters?.paymentType) params.paymentType = filters.paymentType;
+      if (filters?.paymentStatus) params.paymentStatus = filters.paymentStatus;
+      if (filters?.hasTtn) params.hasTtn = filters.hasTtn;
+      if (filters?.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters?.dateTo) params.dateTo = filters.dateTo;
+      if (filters?.sortBy) params.sortBy = filters.sortBy;
+      if (filters?.sortDir) params.sortDir = filters.sortDir;
+
+      const res = await apiHttp.get<OrdersListResponse>("/orders/board", { params });
       setList(res.data ?? { items: [] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load board");
@@ -136,11 +171,24 @@ export function OrdersKanban({ onOpenOrder }: { onOpenOrder: (id: string) => voi
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    filters?.amountFrom,
+    filters?.amountTo,
+    filters?.dateFrom,
+    filters?.dateTo,
+    filters?.hasTtn,
+    filters?.ownerId,
+    filters?.paymentStatus,
+    filters?.paymentType,
+    filters?.q,
+    filters?.sortBy,
+    filters?.sortDir,
+    filters?.status,
+  ]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const patchStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
     const res = await apiHttp.patch(`/orders/${orderId}/status`, { status, reason });

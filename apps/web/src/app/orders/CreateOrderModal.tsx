@@ -194,7 +194,7 @@ export function CreateOrderModal({
                   setPaymentType((e.target.value || null) as PaymentType | null)
                 }
               >
-                <option value="">—</option>
+                <option value="">Выберите...</option>
                 <option value={PaymentType.PREPAYMENT}>Предоплата</option>
                 <option value={PaymentType.DEFERRED}>Отсрочка</option>
               </select>

@@ -29,6 +29,8 @@ type NpWarehouseDto = {
 type NpStreetDto = {
   Ref: string;
   Description: string;
+  StreetsType?: string;
+  StreetsTypeRef?: string;
 };
 
 @Injectable()
@@ -58,11 +60,12 @@ export class NpSyncService {
     const cities = resp.data ?? [];
 
     for (const c of cities) {
+      const fullCityName = c.SettlementTypeDescription ? `${c.SettlementTypeDescription} ${c.Description}` : c.Description;
       await this.prisma.npCity.upsert({
         where: { ref: c.Ref },
         create: {
           ref: c.Ref,
-          description: c.Description,
+          description: fullCityName,
           area: c.Area ?? null,
           areaDescription: c.AreaDescription ?? null,
           region: c.Region ?? null,
@@ -70,7 +73,7 @@ export class NpSyncService {
           isActive: true,
         },
         update: {
-          description: c.Description,
+          description: fullCityName,
           area: c.Area ?? null,
           areaDescription: c.AreaDescription ?? null,
           region: c.Region ?? null,
@@ -132,35 +135,106 @@ export class NpSyncService {
       return;
     }
 
-    const resp = await this.np.call<NpStreetDto>("Address", "getStreet", { CityRef: ref });
-    const streets = resp.data ?? [];
+    let allStreets: NpStreetDto[] = [];
+    let page = 1;
+    let hasMore = true;
 
-    for (const s of streets) {
+    while (hasMore) {
+      const resp = await this.np.call<NpStreetDto>("Address", "getStreet", {
+        CityRef: ref,
+        Page: String(page),
+        Limit: "1000",
+      });
+      const streets = resp.data ?? [];
+      allStreets = allStreets.concat(streets);
+      
+      if (streets.length < 1000) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+
+    for (const s of allStreets) {
+      const fullStreetName = s.StreetsType ? `${s.StreetsType} ${s.Description}` : s.Description;
       await this.prisma.npStreet.upsert({
         where: { ref: s.Ref },
-        create: { ref: s.Ref, cityRef: ref, street: s.Description },
-        update: { cityRef: ref, street: s.Description },
+        create: { ref: s.Ref, cityRef: ref, street: fullStreetName },
+        update: { cityRef: ref, street: fullStreetName },
       });
     }
 
-    this.logger.log(`NP sync: streets upserted for city=${ref} count=${streets.length}`);
+    this.logger.log(`NP sync: streets upserted for city=${ref} count=${allStreets.length}`);
   }
 
-  // ✅ (опционально) улицы по всем городам из кеша
-  async syncStreetsForAllCities(limitCities = 200) {
+  /** Улицы по всем городам из кеша. limitCities — макс. число городов; не передавать = все города. */
+  async syncStreetsForAllCities(limitCities?: number) {
     const cities = await this.prisma.npCity.findMany({
       where: { isActive: true },
       select: { ref: true, description: true },
-      take: limitCities,
+      ...(limitCities != null && Number.isFinite(limitCities) && limitCities > 0
+        ? { take: limitCities }
+        : {}),
       orderBy: { description: "asc" },
     });
 
-    for (const c of cities) {
-      await this.syncStreetsForCity(c.ref);
+    this.logger.log(`NP streets sync: starting for ${cities.length} cities`);
+    const failed: Array<{ ref: string; description: string; err: string }> = [];
+    for (let i = 0; i < cities.length; i++) {
+      const c = cities[i];
+      try {
+        await this.syncStreetsForCity(c.ref);
+      } catch (e) {
+        const err = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`NP streets sync: city failed ${c.description} (${c.ref}): ${err}`);
+        failed.push({ ref: c.ref, description: c.description, err });
+      }
+      if ((i + 1) % 50 === 0) {
+        this.logger.log(`NP streets sync: ${i + 1}/${cities.length} cities${failed.length ? `, failed: ${failed.length}` : ""}`);
+      }
+    }
+    this.logger.log(`NP streets sync: done ${cities.length} cities${failed.length ? `, failed: ${failed.length}` : ""}`);
+    if (failed.length > 0) {
+      this.logger.warn(`NP streets sync failed cities: ${failed.map((f) => f.description).join("; ")}`);
     }
   }
 
   // ====== SEARCH (autocomplete) ======
+
+  /** Основні міста України для пріоритету в пошуку (початок назви як у НП) */
+  private static readonly MAIN_CITY_PREFIXES = [
+    "Київ",
+    "Харків",
+    "Одеса",
+    "Дніпро",
+    "Львів",
+    "Запоріжжя",
+    "Вінниця",
+    "Кривий Ріг",
+    "Полтава",
+    "Чернігів",
+    "Івано-Франківськ",
+    "Кропивницький",
+    "Тернопіль",
+    "Ужгород",
+    "Луцьк",
+    "Черкаси",
+    "Суми",
+    "Миколаїв",
+    "Херсон",
+    "Чернівці",
+    "Житомир",
+    "Рівне",
+    "Кам'янське",
+    "Кременчук",
+  ];
+
+  private static isMainCity(description: string): boolean {
+    const d = description.trim();
+    return NpSyncService.MAIN_CITY_PREFIXES.some(
+      (name) => d === name || d.startsWith(name + ",") || d.startsWith(name + " "),
+    );
+  }
 
   async searchCities(args: { q: string; limit?: number }) {
     const q = (args.q ?? "").trim();
@@ -168,7 +242,8 @@ export class NpSyncService {
 
     if (q.length < 2) return { status: "MIN_CHARS", items: [], message: "min 2 chars" };
 
-    const items = await this.prisma.npCity.findMany({
+    const qLower = q.toLowerCase();
+    const raw = await this.prisma.npCity.findMany({
       where: {
         isActive: true,
         description: { contains: q, mode: "insensitive" },
@@ -178,10 +253,26 @@ export class NpSyncService {
         description: true,
         settlementTypeDescription: true,
         areaDescription: true,
+        region: true,
       },
       orderBy: { description: "asc" },
-      take: limit * 2,
+      take: limit * 4,
     });
+
+    const items = raw
+      .sort((a, b) => {
+        const aDesc = a.description.trim();
+        const bDesc = b.description.trim();
+        const aMain = NpSyncService.isMainCity(aDesc);
+        const bMain = NpSyncService.isMainCity(bDesc);
+        const aStart = aDesc.toLowerCase().startsWith(qLower);
+        const bStart = bDesc.toLowerCase().startsWith(qLower);
+        const aScore = (aMain ? 2 : 0) + (aStart ? 1 : 0);
+        const bScore = (bMain ? 2 : 0) + (bStart ? 1 : 0);
+        if (bScore !== aScore) return bScore - aScore;
+        return aDesc.localeCompare(bDesc, "uk");
+      })
+      .slice(0, limit);
 
     return { status: "OK", items };
   }
@@ -215,18 +306,33 @@ export class NpSyncService {
       isActive: true,
       ...typeFilter,
       OR: [
-        { number: { equals: q } }, // если ввели "75"
+        { number: { equals: q } },
         { description: { contains: q, mode: "insensitive" } },
         { shortAddress: { contains: q, mode: "insensitive" } },
       ],
     };
 
-    const items = await this.prisma.npWarehouse.findMany({
+    const raw = await this.prisma.npWarehouse.findMany({
       where,
       select: { ref: true, description: true, shortAddress: true, number: true, isPostomat: true },
-      orderBy: [{ isPostomat: "asc" }, { number: "asc" }, { description: "asc" }],
-      take: limit,
+      take: limit * 3,
     });
+
+    const numVal = (n: string | null): number => {
+      if (n == null || n === "") return 999999;
+      const v = parseInt(n.replace(/\D/g, ""), 10);
+      return Number.isNaN(v) ? 999999 : v;
+    };
+
+    const items = raw
+      .sort((a, b) => {
+        if (a.isPostomat !== b.isPostomat) return a.isPostomat ? 1 : -1;
+        const na = numVal(a.number);
+        const nb = numVal(b.number);
+        if (na !== nb) return na - nb;
+        return (a.description ?? "").localeCompare(b.description ?? "", "uk");
+      })
+      .slice(0, limit);
 
     return { status: "OK", items };
   }
@@ -234,13 +340,18 @@ export class NpSyncService {
   // ✅ autocomplete улиц для React
   // - q минимум 3 символа
   // - если улиц для города нет, стартуем sync в фоне и возвращаем SYNCING
-  async searchStreets(args: { cityRef: string; q: string; limit?: number }) {
+  async searchStreets(args: { cityRef: string; q: string; limit?: number; browse?: boolean }) {
     const cityRef = (args.cityRef ?? "").trim();
     const q = (args.q ?? "").trim();
     const limit = Number.isFinite(args.limit) ? Math.min(Math.max(Number(args.limit), 1), 50) : 20;
+    const browse = args.browse === true;
 
-    if (!cityRef) return { status: "BAD_REQUEST", items: [], message: "cityRef is required" };
-    if (q.length < 3) return { status: "MIN_CHARS", items: [], message: "min 3 chars" };
+    if (!cityRef) {
+      return { status: "BAD_REQUEST", items: [], message: "cityRef is required" };
+    }
+    if (!browse && q.length < 3) {
+      return { status: "MIN_CHARS", items: [], message: "min 3 chars" };
+    }
 
     const streetsCount = await this.prisma.npStreet.count({ where: { cityRef } });
 
@@ -259,21 +370,54 @@ export class NpSyncService {
       return { status: "SYNCING", items: [] };
     }
 
-    // Быстро: startsWith. (Если нужно — добавим fallback на contains + trigram index)
-    const items = await this.prisma.npStreet.findMany({
-      where: {
-        cityRef,
-        street: { startsWith: q, mode: "insensitive" },
-      },
+    const allForCity = await this.prisma.npStreet.findMany({
+      where: { cityRef },
       select: { ref: true, street: true },
       orderBy: { street: "asc" },
-      take: limit,
+      take: 2000,
     });
 
-    return { status: "OK", items };
+    if (browse) {
+      return { status: "OK", items: allForCity.slice(0, limit) };
+    }
+
+    // Нормализация для поиска: NFC + приведение і/и, є/е, ї/й к одному виду (НП часто і, пользователь может и)
+    const qNorm = this.normalizeStreetQuery(q.toLowerCase().normalize("NFC"));
+    const raw = allForCity.filter((r) =>
+      this.normalizeStreetQuery(r.street.normalize("NFC").toLowerCase()).includes(qNorm),
+    );
+    const items =
+      raw.length > 0
+        ? raw
+            .sort((a, b) => {
+              const aStr = this.normalizeStreetQuery(a.street.normalize("NFC").toLowerCase());
+              const bStr = this.normalizeStreetQuery(b.street.normalize("NFC").toLowerCase());
+              const aStart = aStr.startsWith(qNorm) ? 0 : 1;
+              const bStart = bStr.startsWith(qNorm) ? 0 : 1;
+              if (aStart !== bStart) return aStart - bStart;
+              return a.street.localeCompare(b.street, "uk");
+            })
+            .slice(0, limit)
+        : [];
+
+    return {
+      status: "OK",
+      items,
+      ...(items.length === 0 && {
+        message: "За вашим запитом нічого не знайдено. Спробуйте інший запит або перевірте написання.",
+      }),
+    };
   }
 
   // ====== HELPERS ======
+
+  /** Для поиска улиц: і↔и, є↔е, ї↔й чтобы "джин" находил "Джінчарадзе" */
+  private normalizeStreetQuery(s: string): string {
+    return s
+      .replace(/\u0456/g, "\u0438") // і -> и
+      .replace(/\u0454/g, "\u0435") // є -> е
+      .replace(/\u0457/g, "\u0439"); // ї -> й
+  }
 
   private extractWarehouseNumber(description: string): string | null {
     const m = description.match(/(?:№|#)\s*(\d+)/);

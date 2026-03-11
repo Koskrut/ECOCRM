@@ -107,11 +107,11 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
   const submit = async () => {
     setErr(null);
     if (!companyId) {
-      setErr("Выберите компанию");
+      setErr("Select a company");
       return;
     }
     if (!phone.trim() && !email.trim()) {
-      setErr("Нужно указать телефон или email");
+      setErr("Phone or email is required");
       return;
     }
 
@@ -136,7 +136,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось создать лид");
+        (e instanceof Error ? e.message : "Failed to create lead");
       setErr(msg);
     } finally {
       setSaving(false);
@@ -155,7 +155,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         role="presentation"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <div className="text-base font-semibold text-zinc-900">Новый лид</div>
+          <div className="text-base font-semibold text-zinc-900">New lead</div>
           <button
             type="button"
             onClick={() => canClose && onClose()}
@@ -172,14 +172,14 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             </div>
           )}
 
-          <label className="block text-xs font-medium text-zinc-600">Компания</label>
+          <label className="block text-xs font-medium text-zinc-600">Company</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
             disabled={loadingCompanies || saving}
           >
-            <option value="">— выберите компанию —</option>
+            <option value="">— select company —</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -189,7 +189,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Имя</label>
+              <label className="block text-xs font-medium text-zinc-600">Name</label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={name}
@@ -198,7 +198,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Телефон</label>
+              <label className="block text-xs font-medium text-zinc-600">Phone</label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={phone}
@@ -219,19 +219,19 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-600">
-                Компания (текст)
+                Company (text)
               </label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 disabled={saving}
-                placeholder="Название из источника"
+                placeholder="Name from source"
               />
             </div>
           </div>
 
-          <label className="mt-3 block text-xs font-medium text-zinc-600">Источник</label>
+          <label className="mt-3 block text-xs font-medium text-zinc-600">Source</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={source}
@@ -241,12 +241,12 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             <option value="FACEBOOK">Facebook</option>
             <option value="TELEGRAM">Telegram</option>
             <option value="INSTAGRAM">Instagram</option>
-            <option value="WEBSITE">Сайт</option>
-            <option value="OTHER">Другое</option>
+<option value="WEBSITE">Website</option>
+              <option value="OTHER">Other</option>
           </select>
 
           <label className="mt-3 block text-xs font-medium text-zinc-600">
-            Сообщение / комментарий
+            Message / comment
           </label>
           <textarea
             rows={3}
@@ -257,7 +257,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
           />
 
           <div className="mt-4">
-            <div className="text-xs font-medium text-zinc-600 mb-2">Товары (необязательно)</div>
+            <div className="text-xs font-medium text-zinc-600 mb-2">Products (optional)</div>
             {createItems.length > 0 ? (
               <div className="rounded border border-zinc-200 overflow-hidden mb-2">
                 <table className="w-full text-sm">
@@ -274,7 +274,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                             className="text-zinc-500 hover:text-red-600 text-xs"
                             disabled={saving}
                           >
-                            Удалить
+                            Remove
                           </button>
                         </td>
                       </tr>
@@ -287,7 +287,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
               <div className="min-w-[160px]">
                 <input
                   type="text"
-                  placeholder="Поиск товара…"
+                  placeholder="Search product…"
                   className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
@@ -316,7 +316,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 ) : null}
               </div>
               <div className="w-14">
-                <label className="block text-[10px] text-zinc-500">Кол.</label>
+                <label className="block text-[10px] text-zinc-500">Qty</label>
                 <input
                   type="number"
                   min={1}
@@ -327,7 +327,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 />
               </div>
               <div className="w-20">
-                <label className="block text-[10px] text-zinc-500">Цена</label>
+                <label className="block text-[10px] text-zinc-500">Price</label>
                 <input
                   type="number"
                   min={0}
@@ -344,7 +344,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 disabled={!selectedProduct || saving}
                 className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Добавить
+                Add
               </button>
             </div>
           </div>
@@ -357,7 +357,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white"
             disabled={saving}
           >
-            Отмена
+            Cancel
           </button>
           <button
             type="button"
@@ -365,7 +365,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             className="btn-primary"
             disabled={saving}
           >
-            {saving ? "Создание…" : "Создать"}
+            {saving ? "Creating…" : "Create"}
           </button>
         </div>
       </div>

@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 
 type BankAccount = { id: string; name: string; currency: string };
@@ -74,16 +74,37 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
 }
 
 export default function PaymentsPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <PaymentsContent />
+    </Suspense>
+  );
+}
+
+function PaymentsContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
+  const bankAccountId = searchParams.get("bankAccountId") ?? "";
   const [mode, setMode] = useState<"cash" | "fop">("fop");
   const [view, setView] = useState<"payments" | "unmatched">(
     viewParam === "unmatched" ? "unmatched" : "payments",
   );
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
-  const [bankAccountId, setBankAccountId] = useState<string>("");
   const [search, setSearch] = useState("");
+
+  const setBankAccountId = useCallback(
+    (value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) params.set("bankAccountId", value);
+      else params.delete("bankAccountId");
+      const q = params.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [paymentsTotal, setPaymentsTotal] = useState(0);
@@ -152,6 +173,7 @@ export default function PaymentsPage() {
   const [splitOrderCandidates, setSplitOrderCandidates] = useState<OrderOption[]>([]);
   const [splitOrderForRowIndex, setSplitOrderForRowIndex] = useState<number | null>(null);
   const [splitSubmitting, setSplitSubmitting] = useState(false);
+  const [bankSyncLoading, setBankSyncLoading] = useState(false);
 
   useEffect(() => {
     apiHttp
@@ -180,12 +202,14 @@ export default function PaymentsPage() {
         const r = await apiHttp.get<{ items: PaymentItem[]; total: number }>(
           `/payments?${params.toString()}`,
         );
-        setPayments(r.data?.items ?? []);
+        const items = Array.isArray(r.data?.items) ? r.data.items : [];
+        setPayments(items);
         setPaymentsTotal(r.data?.total ?? 0);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load payments");
-        setPayments([]);
-        setPaymentsTotal(0);
+        // Keep previous payments so the list does not disappear on transient 500
+        // setPayments([]);
+        // setPaymentsTotal(0);
       } finally {
         setPaymentsLoading(false);
       }
@@ -211,6 +235,51 @@ export default function PaymentsPage() {
     }
   }, [bankAccountId]);
 
+  const runBankSync = useCallback(
+    async (opts?: { forYesterday?: boolean }) => {
+      setBankSyncLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        if (bankAccountId) params.set("bankAccountId", bankAccountId);
+        if (opts?.forYesterday) {
+          const d = new Date();
+          d.setDate(d.getDate() - 1);
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const dd = String(d.getDate()).padStart(2, "0");
+          params.set("from", `${yyyy}-${mm}-${dd}`);
+          params.set("to", `${yyyy}-${mm}-${dd}`);
+        }
+        const url = `/api/bank/sync${params.toString() ? `?${params.toString()}` : ""}`;
+        const r = await fetch(url, { method: "POST", credentials: "include" });
+        const syncBody = await r.text();
+        if (!r.ok) throw new Error(syncBody);
+        const syncData = (() => {
+          try {
+            return JSON.parse(syncBody) as { errors?: { message: string }[] };
+          } catch {
+            return {};
+          }
+        })();
+        if (syncData.errors?.length) {
+          setError(syncData.errors.map((e) => e.message).join(" "));
+        } else {
+          setError(null);
+        }
+        setSearch("");
+        await fetchPayments(undefined);
+        await fetchUnmatched();
+        await fetchAccounts();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Sync failed");
+      } finally {
+        setBankSyncLoading(false);
+      }
+    },
+    [bankAccountId, fetchPayments, fetchUnmatched, fetchAccounts],
+  );
+
   useEffect(() => {
     fetchAccounts();
   }, [fetchAccounts]);
@@ -222,8 +291,8 @@ export default function PaymentsPage() {
   }, [mode, view, fetchPayments]);
 
   useEffect(() => {
-    if (mode === "fop" && view === "unmatched") fetchUnmatched();
-  }, [mode, view, fetchUnmatched]);
+    if (mode === "fop") fetchUnmatched();
+  }, [mode, fetchUnmatched]);
 
   const cashPayments = useMemo(
     () => filterBySearch(
@@ -236,7 +305,7 @@ export default function PaymentsPage() {
   const bankPayments = useMemo(
     () =>
       filterBySearch(
-        payments.filter((p) => p.sourceType === "BANK"),
+        payments.filter((p) => (String(p.sourceType ?? "").toUpperCase() === "BANK")),
         search,
         (p) =>
           [
@@ -725,7 +794,7 @@ export default function PaymentsPage() {
             </div>
           </div>
           <p className="mt-1 text-sm text-zinc-500">
-            Payments list and unmatched bank transactions. Filter by FOP, search, add statement, or allocate to order.
+            Список платежей и непривязанных банковских операций. Переключатель ФОП — выбор банковского счёта. ФОПы настраиваются в Settings → ФОП.
           </p>
         </div>
         {mode === "cash" && (
@@ -751,13 +820,31 @@ export default function PaymentsPage() {
           </button>
         )}
         {mode === "fop" && (
-          <button
-            type="button"
-            onClick={() => setShowAddStatement(true)}
-            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
-          >
-            + Add statement
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => void runBankSync()}
+              disabled={bankSyncLoading}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {bankSyncLoading ? "Синхронізація…" : "Обновить оплаты сейчас"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void runBankSync({ forYesterday: true })}
+              disabled={bankSyncLoading}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Синхронизировать за вчера
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAddStatement(true)}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
+            >
+              + Add statement
+            </button>
+          </>
         )}
       </div>
 
@@ -791,13 +878,13 @@ export default function PaymentsPage() {
                   </button>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-zinc-600">
-                  FOP
+                  Банковский счёт (ФОП)
                   <select
                     value={bankAccountId}
                     onChange={(e) => setBankAccountId(e.target.value)}
                     className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
                   >
-                    <option value="">All</option>
+                    <option value="">Все</option>
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name} ({a.currency})
@@ -882,83 +969,181 @@ export default function PaymentsPage() {
         )}
 
         {!loading && mode === "fop" && view === "payments" && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">FOP</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3">Counterparty</th>
-                  <th className="px-4 py-3 w-24">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bankPayments.map((p) => (
-                  <tr key={p.id} className="border-t border-zinc-100 hover:bg-zinc-50">
-                    <td className="px-4 py-3 text-zinc-600">
-                      {new Date(p.paidAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      {p.sameTransactionOrderNumbers?.length ? (
-                        <span className="text-zinc-700">
-                          {p.sameTransactionOrderNumbers.flatMap((num, i) => [
-                            i > 0 ? ", " : null,
-                            num === p.orderNumber ? (
-                              <Link
-                                key={num}
-                                href={`/orders?orderId=${p.orderId}`}
-                                className="font-medium text-zinc-900 hover:underline"
-                              >
-                                {num}
-                              </Link>
-                            ) : (
-                              <span key={num}>{num}</span>
-                            ),
-                          ])}
-                        </span>
-                      ) : p.orderNumber ? (
-                        <Link
-                          href={`/orders?orderId=${p.orderId}`}
-                          className="font-medium text-zinc-900 hover:underline"
-                        >
-                          {p.orderNumber}
-                        </Link>
-                      ) : (
-                        p.orderId
-                      )}
-                    </td>
-                    <td className="px-4 py-3">Bank</td>
-                    <td className="px-4 py-3">{p.bankTransaction?.bankAccount?.name ?? "—"}</td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatPaymentAmount(p)}
-                    </td>
-                    <td className="px-4 py-3 max-w-xs truncate">
-                      {p.bankTransaction?.counterpartyName ?? p.note ?? "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(p)}
-                        className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {bankPayments.length === 0 && (
+          <>
+            <p className="px-4 py-2 text-sm text-zinc-600">
+              Банковские платежи (привязанные к заказам): {bankPayments.length}
+              {search.trim() ? ` (поиск: «${search.trim()}»)` : ""}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
-                      No bank payments
-                    </td>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Order</th>
+                    <th className="px-4 py-3">Source</th>
+                    <th className="px-4 py-3">FOP</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3">Counterparty</th>
+                    <th className="px-4 py-3 w-24">Action</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {bankPayments.map((p, idx) => (
+                    <tr
+                      key={p.id ?? `bank-${idx}`}
+                      className="border-t border-zinc-100 hover:bg-zinc-50"
+                    >
+                      <td className="px-4 py-3 text-zinc-600">
+                        {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.sameTransactionOrderNumbers?.length ? (
+                          <span className="text-zinc-700">
+                            {p.sameTransactionOrderNumbers.flatMap((num, i) => [
+                              i > 0 ? ", " : null,
+                              num === p.orderNumber ? (
+                                <Link
+                                  key={num}
+                                  href={`/orders?orderId=${p.orderId}`}
+                                  className="font-medium text-zinc-900 hover:underline"
+                                >
+                                  {num}
+                                </Link>
+                              ) : (
+                                <span key={num}>{num}</span>
+                              ),
+                            ])}
+                          </span>
+                        ) : p.orderNumber ? (
+                          <Link
+                            href={`/orders?orderId=${p.orderId}`}
+                            className="font-medium text-zinc-900 hover:underline"
+                          >
+                            {p.orderNumber}
+                          </Link>
+                        ) : (
+                          p.orderId
+                        )}
+                      </td>
+                      <td className="px-4 py-3">Bank</td>
+                      <td className="px-4 py-3">
+                        {p.bankTransaction?.bankAccount?.name ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatPaymentAmount(p)}
+                      </td>
+                      <td className="px-4 py-3 max-w-xs truncate">
+                        {p.bankTransaction?.counterpartyName ?? p.note ?? "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(p)}
+                          className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {bankPayments.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                        {search.trim() &&
+                        payments.filter((p) => p.sourceType === "BANK").length > 0
+                          ? "Нет банковских платежей по вашему поиску. Очистите поле Search."
+                          : "No bank payments"}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredUnmatched.length > 0 && (
+              <>
+                <p className="px-4 pt-4 text-sm text-zinc-600">
+                  Непривязанные банковские операции: {filteredUnmatched.length}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
+                      <tr>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">FOP</th>
+                        <th className="px-4 py-3 text-right">Amount</th>
+                        <th className="px-4 py-3">Description</th>
+                        <th className="px-4 py-3">Counterparty</th>
+                        <th className="px-4 py-3 w-32">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredUnmatched.map((tx) => (
+                        <tr
+                          key={tx.id}
+                          className="border-t border-zinc-100 hover:bg-zinc-50"
+                        >
+                          <td className="px-4 py-3 text-zinc-600">
+                            {new Date(tx.bookedAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            {tx.bankAccount?.name ?? tx.bankAccountId}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            +{tx.amount.toFixed(2)} {tx.currency}
+                          </td>
+                          <td
+                            className="px-4 py-3 max-w-xs truncate"
+                            title={tx.description ?? ""}
+                          >
+                            {tx.description ?? "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {tx.counterpartyName ?? "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAllocateTxId(tx.id);
+                                  setAllocateTx(tx);
+                                  setAllocateContactSearch("");
+                                  setAllocateContactId(null);
+                                  setAllocateContactName("");
+                                  setAllocateOrders([]);
+                                  setSelectedOrderId(null);
+                                  setAllocateOrderNumber("");
+                                  setOrderSearch("");
+                                }}
+                                className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                              >
+                                Allocate to order
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSplitTx(tx);
+                                  setSplitRows([
+                                    { orderId: "", orderNumber: "", amount: "" },
+                                  ]);
+                                  setSplitOrderSearch("");
+                                  setSplitOrderForRowIndex(null);
+                                }}
+                                className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                              >
+                                Distribute
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {!loading && mode === "fop" && view === "unmatched" && (
@@ -1398,7 +1583,7 @@ export default function PaymentsPage() {
                             >
                               {o.orderNumber}
                               {o.totalAmount != null ? ` · ${o.totalAmount}` : ""}
-                              {(o as { debtAmount?: number }).debtAmount != null && (o as { debtAmount?: number }).debtAmount > 0
+                              {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
                                 ? ` (debt ${(o as { debtAmount?: number }).debtAmount})`
                                 : ""}
                             </button>
@@ -1764,7 +1949,7 @@ export default function PaymentsPage() {
                               }`}
                             >
                               {o.orderNumber}
-                              {(o as { debtAmount?: number }).debtAmount != null && (o as { debtAmount?: number }).debtAmount > 0
+                              {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
                                 ? ` (debt ${(o as { debtAmount?: number }).debtAmount})`
                                 : ""}
                             </button>

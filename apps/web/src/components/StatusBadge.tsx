@@ -8,11 +8,12 @@ type StatusBadgeProps = {
 };
 
 const LEAD_STATUS_MAP: Record<string, { color: string; label?: string }> = {
-  NEW: { color: "bg-blue-100 text-blue-800", label: "Новый" },
+  NEW: { color: "bg-blue-100 text-blue-800", label: "Не обработан" },
   IN_PROGRESS: { color: "bg-blue-100 text-blue-800", label: "В работе" },
   WON: { color: "bg-emerald-100 text-emerald-800", label: "Успешный" },
   NOT_TARGET: { color: "bg-zinc-100 text-zinc-600", label: "Нецелевой" },
   LOST: { color: "bg-red-100 text-red-700", label: "Проваленный" },
+  SPAM: { color: "bg-amber-100 text-amber-800", label: "Спам" },
 };
 
 const ORDER_STATUS_MAP: Record<string, { color: string; label?: string }> = {

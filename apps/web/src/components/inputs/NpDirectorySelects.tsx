@@ -8,7 +8,24 @@ type NpCityItem = {
   description: string;
   settlementTypeDescription?: string | null;
   areaDescription?: string | null;
+  region?: string | null;
 };
+
+/**
+ * Підпис без дублікатів: Description вже може містити "(область)" або район —
+ * додаємо areaDescription/region тільки якщо їх ще немає в тексті.
+ */
+function cityDisplayLabel(c: NpCityItem): string {
+  const d = (c.description ?? "").trim();
+  const lower = d.toLowerCase();
+  const parts: string[] = [d];
+  const ad = (c.areaDescription ?? "").trim();
+  if (ad && !lower.includes(ad.toLowerCase())) parts.push(ad);
+  const reg = (c.region ?? "").trim();
+  const regNorm = reg.replace(/\s*область\s*$/i, "").replace(/\s*обл\.?\s*$/i, "").trim();
+  if (reg && !lower.includes(regNorm.toLowerCase())) parts.push(reg);
+  return parts.join(", ");
+}
 
 /** Extract city name only: no region, no parenthetical (місто/город/...). */
 function cityNameOnly(fullLabel: string): string {
@@ -120,7 +137,7 @@ export function NpCitySelect({
             const items = (res.data?.items ?? []) as NpCityItem[];
             for (const c of items) {
               if (!byRef.has(c.ref)) {
-                const full = c.description;
+                const full = cityDisplayLabel(c);
                 byRef.set(c.ref, {
                   id: c.ref,
                   label: full,
@@ -318,6 +335,137 @@ export function NpWarehouseSelect({
                 {opt.label}
               </button>
             ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NpStreetSelect({
+  cityRef,
+  valueRef,
+  valueLabel,
+  onChange,
+  disabled,
+  placeholder = "Min 3 chars…",
+}: {
+  cityRef: string;
+  valueRef: string;
+  valueLabel: string;
+  onChange: (ref: string, label: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [q, setQ] = useState("");
+  const [options, setOptions] = useState<{ id: string; label: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchStreets = (query: string, browse = false) => {
+    setLoading(true);
+    setOptions([]);
+    setEmptyMessage(null);
+    let url = `/np/streets?cityRef=${encodeURIComponent(cityRef)}&limit=20`;
+    if (browse) {
+      url += "&browse=1";
+    } else {
+      url += `&q=${encodeURIComponent(query)}`;
+    }
+    
+    apiHttp
+      .get<{ status: string; items?: { ref: string; street: string }[]; message?: string }>(url)
+      .then((res) => {
+        const items = res.data?.items ?? [];
+        setOptions(items.map((s) => ({ id: s.ref, label: s.street })));
+        setEmptyMessage(items.length === 0 && res.data?.message ? res.data.message : null);
+        
+        if (res.data?.status === "SYNCING") {
+          setSyncing(true);
+          setTimeout(() => fetchStreets(query, browse), 2500);
+        } else {
+          setSyncing(false);
+        }
+      })
+      .catch(() => setOptions([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!cityRef || q.trim().length < 3) {
+      setOptions([]);
+      setSyncing(false);
+      setEmptyMessage(null);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchStreets(q.trim());
+      debounceRef.current = null;
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [cityRef, q]);
+
+  const displayValue = open
+    ? (q.trim() ? q : valueLabel || valueRef || "")
+    : valueLabel || valueRef || "";
+    
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={displayValue}
+        onChange={(e) => {
+          setQ(e.target.value);
+          if (!open) setOpen(true);
+        }}
+        onFocus={() => cityRef && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        placeholder={!cityRef ? "Select city first" : placeholder}
+        disabled={disabled || !cityRef}
+        className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+      />
+      
+      {syncing && q.trim().length >= 3 && (
+        <p className="mt-1 text-xs text-zinc-500">Завантаження списку вулиць…</p>
+      )}
+      
+      {emptyMessage && q.trim().length >= 3 && open && (
+        <div className="mt-1 space-y-1">
+          <p className="text-xs text-zinc-600">{emptyMessage}</p>
+          <button
+            type="button"
+            className="text-xs text-blue-600 hover:underline"
+            onMouseDown={(e) => {
+              e.preventDefault(); // prevent blur
+              fetchStreets("", true);
+            }}
+          >
+            Переглянути вулиці за абеткою
+          </button>
+        </div>
+      )}
+
+      {open && cityRef && options.length > 0 && (
+        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
+          {options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onMouseDown={() => {
+                onChange(opt.id, opt.label);
+                setQ("");
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       )}
     </div>

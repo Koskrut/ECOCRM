@@ -22,6 +22,10 @@ export class ConvertLeadContactDto {
 
   @IsOptional()
   @IsString()
+  middleName?: string;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()
@@ -49,7 +53,18 @@ export class ConvertLeadDealDto {
   comment?: string;
 }
 
+export class ConvertLeadCreateCompanyDto {
+  @IsString()
+  name!: string;
+}
+
 export class ConvertLeadDto {
+  /** When set, create a new company first and use it for contact and order. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ConvertLeadCreateCompanyDto)
+  createCompany?: ConvertLeadCreateCompanyDto;
+
   @IsEnum(["link", "create"], {
     message: "contactMode must be 'link' or 'create'",
   })

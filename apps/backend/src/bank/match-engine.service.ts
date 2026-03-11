@@ -2,8 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { PaymentSourceType, PaymentStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { PaymentsService } from "../payments/payments.service";
-
-const ORDER_NUMBER_DIGITS_REGEX = /\d{4,8}/g;
+import { extractOrderNumberFromDescription } from "./match-engine.utils";
 
 @Injectable()
 export class MatchEngineService {
@@ -31,29 +30,19 @@ export class MatchEngineService {
     return { matched };
   }
 
+  /**
+   * Extract order number from description; returns orderId only when exactly one order has orderNumber === normalized.
+   */
   async findOrderByDescription(description: string | null): Promise<string | null> {
-    if (!description || !description.trim()) return null;
-    const digits = description.match(ORDER_NUMBER_DIGITS_REGEX);
-    if (!digits || digits.length === 0) return null;
+    const normalized = extractOrderNumberFromDescription(description);
+    if (!normalized) return null;
 
-    const candidates: { id: string; orderNumber: string }[] = [];
-    for (const num of digits) {
-      const orders = await this.prisma.order.findMany({
-        where: {
-          OR: [
-            { orderNumber: num },
-            { orderNumber: { endsWith: num } },
-            { orderNumber: { contains: num } },
-          ],
-        },
-        select: { id: true, orderNumber: true },
-      });
-      candidates.push(...orders);
-    }
-
-    const unique = Array.from(new Map(candidates.map((o) => [o.id, o])).values());
-    if (unique.length !== 1) return null;
-    return unique[0]!.id;
+    const orders = await this.prisma.order.findMany({
+      where: { orderNumber: normalized },
+      select: { id: true, orderNumber: true },
+    });
+    if (orders.length !== 1) return null;
+    return orders[0]!.id;
   }
 
   async createPaymentFromTransaction(bankTransactionId: string, orderId: string): Promise<void> {

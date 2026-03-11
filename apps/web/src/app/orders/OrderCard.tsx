@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle2, Truck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 
 export type OrderCardOrder = {
@@ -9,6 +10,10 @@ export type OrderCardOrder = {
   totalAmount: number;
   currency: string;
   createdAt: string;
+  owner?: { id: string; fullName: string } | null;
+  paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
+  isPaid?: boolean;
+  hasTtn?: boolean;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
   clientId?: string | null;
@@ -51,7 +56,19 @@ export function OrderCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-zinc-900">{order.orderNumber}</div>
+          <div className="flex items-center gap-2 font-medium text-zinc-900">
+            <span>{order.orderNumber}</span>
+            {order.hasTtn && (
+              <span title="ТТН создана" className="inline-flex text-blue-600">
+                <Truck className="h-4 w-4" />
+              </span>
+            )}
+            {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (
+              <span title="Заказ оплачен" className="inline-flex text-emerald-600">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+            )}
+          </div>
           <div className="mt-0.5 text-xs text-zinc-500">{formatRelativeTime(order.createdAt)}</div>
         </div>
       </div>
@@ -89,6 +106,9 @@ export function OrderCard({
           </span>
         )}
       </div>
+
+      <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Відповідальний</div>
+      <div className="mt-1 text-sm text-zinc-900">{order.owner?.fullName ?? "—"}</div>
     </button>
   );
 }

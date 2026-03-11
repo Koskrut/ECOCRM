@@ -2,9 +2,12 @@ import "dotenv/config";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.useGlobalFilters(new UnauthorizedExceptionFilter());
 
   app.useGlobalPipes(
     new ValidationPipe({

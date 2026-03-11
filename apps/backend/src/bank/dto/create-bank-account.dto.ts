@@ -10,6 +10,8 @@ export type CreateBankAccountDto = {
     cardNumber?: string;
     clientId?: string;
     token?: string;
+    /** Режим групи ПП: id клієнта в групі. */
+    id?: string;
   };
   isActive?: boolean;
 };

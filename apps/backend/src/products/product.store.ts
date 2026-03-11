@@ -1,10 +1,14 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { Injectable } from "@nestjs/common";
 import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
+import { ProductImageStore } from "./product-image.store";
 
-type ProductListItem = Pick<Product, "id" | "sku" | "name" | "unit" | "basePrice" | "stock">;
+type ProductListItem = Pick<
+  Product,
+  "id" | "sku" | "name" | "unit" | "basePrice" | "stock" | "primaryImageUrl" | "primaryImageId"
+>;
 
 type ProductListResult = {
   items: ProductListItem[];
@@ -33,9 +37,15 @@ export type BulkStockUpdateResult = {
 
 @Injectable()
 export class ProductStore {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly productImageStore: ProductImageStore,
+  ) {}
 
-  private toEntity(row: PrismaProduct): Product {
+  private toEntity(
+    row: PrismaProduct,
+    primary?: { url: string; imageId: string } | null,
+  ): Product {
     return {
       id: row.id,
       sku: row.sku,
@@ -44,19 +54,44 @@ export class ProductStore {
       basePrice: row.basePrice,
       stock: row.stock,
       isActive: row.isActive,
+      primaryImageUrl: primary?.url ?? null,
+      primaryImageId: primary?.imageId ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
 
+  private async enrichWithPrimaryImage<T extends { id: string }>(
+    items: T[],
+  ): Promise<(T & { primaryImageUrl: string | null; primaryImageId: string | null })[]> {
+    if (items.length === 0) return [];
+    const ids = items.map((i) => i.id);
+    const imageMap = await this.productImageStore.getPrimaryImageIdsByProductIds(ids);
+    return items.map((item) => ({
+      ...item,
+      primaryImageUrl: imageMap.get(item.id)?.url ?? null,
+      primaryImageId: imageMap.get(item.id)?.imageId ?? null,
+    }));
+  }
+
   public async findById(id: string): Promise<Product | null> {
     const row = await this.prisma.product.findUnique({ where: { id } });
-    return row ? this.toEntity(row as PrismaProduct) : null;
+    if (!row) return null;
+    const primary = await this.productImageStore.findPrimaryByProductId(id);
+    return this.toEntity(
+      row as PrismaProduct,
+      primary ? { url: primary.url, imageId: primary.id } : null,
+    );
   }
 
   public async findBySku(sku: string): Promise<Product | null> {
     const row = await this.prisma.product.findUnique({ where: { sku: sku.trim() } });
-    return row ? this.toEntity(row as PrismaProduct) : null;
+    if (!row) return null;
+    const primary = await this.productImageStore.findPrimaryByProductId(row.id);
+    return this.toEntity(
+      row as PrismaProduct,
+      primary ? { url: primary.url, imageId: primary.id } : null,
+    );
   }
 
   public async updateStockBySku(sku: string, stock: number): Promise<boolean> {
@@ -120,7 +155,12 @@ export class ProductStore {
 
   public async findActiveById(id: string): Promise<Product | null> {
     const row = await this.prisma.product.findFirst({ where: { id, isActive: true } });
-    return row ? this.toEntity(row as PrismaProduct) : null;
+    if (!row) return null;
+    const primary = await this.productImageStore.findPrimaryByProductId(id);
+    return this.toEntity(
+      row as PrismaProduct,
+      primary ? { url: primary.url, imageId: primary.id } : null,
+    );
   }
 
   /** Normalize SKU for search: remove dots and spaces so "01.021" matches "01021". */
@@ -130,33 +170,52 @@ export class ProductStore {
     return { searchPattern: `%${trimmed}%`, normalizedPattern: `%${normalized}%` };
   }
 
+  /** Category = product group id (SKU prefix), e.g. "01" for Straumann RC. Only digits, 1-2 chars. */
+  private normalizeCategory(category: string | undefined): string | undefined {
+    if (!category || typeof category !== "string") return undefined;
+    const trimmed = category.trim();
+    return /^\d{1,2}$/.test(trimmed) ? trimmed : undefined;
+  }
+
   public async listActive(
     search: string | undefined,
+    category: string | undefined,
     pagination: Pagination,
   ): Promise<ProductListResult> {
+    const groupId = this.normalizeCategory(category);
     const hasSearch = search && search.trim().length > 0;
+
+    const baseWhere: Prisma.ProductWhereInput = { isActive: true };
+    if (groupId) {
+      baseWhere.sku = { startsWith: groupId + "." };
+    }
+
     if (!hasSearch) {
-      const where: Prisma.ProductWhereInput = { isActive: true };
-      const [total, items] = await this.prisma.$transaction([
-        this.prisma.product.count({ where }),
+      const [total, rows] = await Promise.all([
+        this.prisma.product.count({ where: baseWhere }),
         this.prisma.product.findMany({
-          where,
+          where: baseWhere,
           orderBy: { name: "asc" },
           skip: pagination.offset,
           take: pagination.limit,
           select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true },
         }),
       ]);
+      const items = await this.enrichWithPrimaryImage(rows);
       return { items, total };
     }
 
     const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
+    const skuPrefixCond = groupId
+      ? Prisma.sql`AND (sku LIKE ${groupId + ".%"} OR sku = ${groupId})`
+      : Prisma.empty;
     const rows = await this.prisma.$queryRaw<
       Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>
     >`
       SELECT id, sku, name, unit, "basePrice", stock
       FROM "Product"
       WHERE "isActive" = true
+        ${skuPrefixCond}
         AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
@@ -169,13 +228,15 @@ export class ProductStore {
       SELECT COUNT(*)::int AS count
       FROM "Product"
       WHERE "isActive" = true
+        ${skuPrefixCond}
         AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
         )
     `;
-    return { items: rows, total: Number(count) };
+    const items = await this.enrichWithPrimaryImage(rows);
+    return { items, total: Number(count) };
   }
 
   public async setInactive(id: string): Promise<boolean> {
@@ -193,7 +254,7 @@ export class ProductStore {
     const hasSearch = search && search.trim().length > 0;
     if (!hasSearch) {
       const where: Prisma.ProductWhereInput = { isActive: true };
-      const [total, items] = await this.prisma.$transaction([
+      const [total, rows] = await Promise.all([
         this.prisma.product.count({ where }),
         this.prisma.product.findMany({
           where,
@@ -203,6 +264,7 @@ export class ProductStore {
           select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true },
         }),
       ]);
+      const items = await this.enrichWithPrimaryImage(rows);
       return { items, total };
     }
 
@@ -231,6 +293,23 @@ export class ProductStore {
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
         )
     `;
-    return { items: rows, total: Number(count) };
+    const items = await this.enrichWithPrimaryImage(rows);
+    return { items, total: Number(count) };
+  }
+
+  /** All active products with id, sku, skuNormalized for sync matching. */
+  public async listAllForImageSync(): Promise<
+    Array<{ id: string; sku: string; skuNormalized: string }>
+  > {
+    const { normalizeArticle } = await import("./article-normalizer");
+    const rows = await this.prisma.product.findMany({
+      where: { isActive: true },
+      select: { id: true, sku: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      sku: r.sku,
+      skuNormalized: normalizeArticle(r.sku),
+    }));
   }
 }

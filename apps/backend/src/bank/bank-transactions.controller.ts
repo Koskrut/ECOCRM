@@ -19,6 +19,8 @@ export class BankTransactionsController {
     return this.service.list({
       unmatched: Boolean(q.unmatched),
       bankAccountId: q.bankAccountId,
+      from: q.from,
+      to: q.to,
       ...pagination,
     });
   }

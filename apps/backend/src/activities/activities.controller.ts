@@ -51,6 +51,24 @@ export class ActivitiesController {
     return { item };
   }
 
+  // -------- LEAD --------
+  @Get("/leads/:id/activities")
+  async listForLead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const items = await this.activitiesService.listForLead(id, req.user);
+    return { items };
+  }
+
+  @Post("/leads/:id/activities")
+  async createForLead(
+    @Param("id") id: string,
+    @Body() body: CreateBody,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) throw new BadRequestException("User not found in request");
+    const item = await this.activitiesService.createForLead(id, body, req.user);
+    return { item };
+  }
+
   // -------- COMPANY --------
   @Get("/companies/:id/activities")
   async listForCompany(@Param("id") id: string) {

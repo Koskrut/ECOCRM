@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
+import { NpCitySelect, NpWarehouseSelect, NpStreetSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
 
 type NpDeliveryType = "WAREHOUSE" | "POSTOMAT" | "ADDRESS";
@@ -81,9 +81,16 @@ export function TtnModal({
   const [label, setLabel] = useState("");
 
   const [recipientType, setRecipientType] = useState<NpRecipientType>("PERSON");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [npRecipientLastName, setNpRecipientLastName] = useState("");
+  const [npRecipientFirstName, setNpRecipientFirstName] = useState("");
+  const [npRecipientMiddleName, setNpRecipientMiddleName] = useState("");
+  const [npRecipientPhone, setNpRecipientPhone] = useState("");
+
+  const [npCompanyName, setNpCompanyName] = useState("");
+  const [npEdrpou, setNpEdrpou] = useState("");
+  const [npContactPersonFirstName, setNpContactPersonFirstName] = useState("");
+  const [npContactPersonLastName, setNpContactPersonLastName] = useState("");
+  const [npContactPersonPhone, setNpContactPersonPhone] = useState("");
 
   const [deliveryType, setDeliveryType] = useState<NpDeliveryType>("WAREHOUSE");
   const [cityRef, setCityRef] = useState("");
@@ -92,7 +99,7 @@ export function TtnModal({
   const [warehouseLabel, setWarehouseLabel] = useState("");
   const [warehouseNumber, setWarehouseNumber] = useState("");
 
-  // ADDRESS (пока disabled в UI, но тип/валидация оставлены корректно)
+  // ADDRESS
   const [streetRef, setStreetRef] = useState("");
   const [streetName, setStreetName] = useState("");
   const [building, setBuilding] = useState("");
@@ -105,9 +112,16 @@ export function TtnModal({
     setLabel("");
 
     setRecipientType("PERSON");
-    setFirstName("");
-    setLastName("");
-    setPhone("");
+    setNpRecipientLastName("");
+    setNpRecipientFirstName("");
+    setNpRecipientMiddleName("");
+    setNpRecipientPhone("");
+
+    setNpCompanyName("");
+    setNpEdrpou("");
+    setNpContactPersonFirstName("");
+    setNpContactPersonLastName("");
+    setNpContactPersonPhone("");
 
     setDeliveryType("WAREHOUSE");
     setCityRef("");
@@ -134,41 +148,43 @@ export function TtnModal({
         return;
       }
 
-      // NOTE: apiHttp already handles base "/api", so use path-only
       const res = await apiHttp.get<ProfilesResponse>(`/contacts/${contactId}/shipping-profiles`, {
         headers: { "Cache-Control": "no-store" },
       });
 
       const data = res.data;
-      const items = Array.isArray(data) ? data : data?.items || [];
+      const rawItems = Array.isArray(data) ? data : data?.items || [];
+      const items = rawItems.filter((p: NpShippingProfile) => typeof p?.id === "string" && p.id.trim() !== "");
 
       const sorted = [...items].sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
 
       setProfiles(sorted);
 
-      if (sorted.length > 0) {
+      const firstId = sorted[0]?.id?.trim();
+      if (sorted.length > 0 && firstId) {
         setMode("EXISTING");
-        setSelectedProfileId(sorted[0].id);
+        setSelectedProfileId(firstId);
       } else {
         setMode("NEW");
         setSelectedProfileId("");
         if (defaultPerson) {
-          setFirstName(defaultPerson.firstName ?? "");
-          setLastName(defaultPerson.lastName ?? "");
-          setPhone(defaultPerson.phone ?? "");
+          setNpRecipientLastName(defaultPerson.lastName ?? "");
+          setNpRecipientFirstName(defaultPerson.firstName ?? "");
+          setNpRecipientMiddleName("");
+          setNpRecipientPhone(defaultPerson.phone ?? "");
         }
       }
     } catch (e) {
-      // if server returns 404, treat as no profiles
       const status = (e as { response?: { status?: number } })?.response?.status;
       if (status === 404) {
         setProfiles([]);
         setMode("NEW");
         setSelectedProfileId("");
         if (defaultPerson) {
-          setFirstName(defaultPerson.firstName ?? "");
-          setLastName(defaultPerson.lastName ?? "");
-          setPhone(defaultPerson.phone ?? "");
+          setNpRecipientLastName(defaultPerson.lastName ?? "");
+          setNpRecipientFirstName(defaultPerson.firstName ?? "");
+          setNpRecipientMiddleName("");
+          setNpRecipientPhone(defaultPerson.phone ?? "");
         }
         return;
       }
@@ -184,9 +200,9 @@ export function TtnModal({
       setMode("NEW");
       setSelectedProfileId("");
       if (defaultPerson) {
-        setFirstName(defaultPerson.firstName ?? "");
-        setLastName(defaultPerson.lastName ?? "");
-        setPhone(defaultPerson.phone ?? "");
+        setNpRecipientFirstName(defaultPerson.firstName ?? "");
+        setNpRecipientLastName(defaultPerson.lastName ?? "");
+        setNpRecipientPhone(defaultPerson.phone ?? "");
       }
       setError(msg);
     } finally {
@@ -201,12 +217,12 @@ export function TtnModal({
     void loadProfiles();
   }, [open, loadProfiles, resetNewForm]);
 
-  // ESC
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (canClose) onClose();
+      if (e.key === "Escape") {
+        if (canClose) onClose();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -218,18 +234,26 @@ export function TtnModal({
   );
 
   const validateNew = () => {
-    if (!firstName.trim()) return "First name is required";
-    if (!lastName.trim()) return "Last name is required";
-    if (!phone.trim()) return "Phone is required";
-    if (!cityRef.trim()) return "CityRef is required";
+    if (recipientType === "PERSON") {
+      if (!npRecipientLastName.trim() || !npRecipientFirstName.trim()) return "Вкажіть прізвище та ім'я отримувача";
+      if (!npRecipientPhone.trim()) return "Вкажіть телефон отримувача";
+    } else {
+      if (!npCompanyName.trim()) return "Вкажіть назву компанії";
+      if (!npEdrpou.trim()) return "Вкажіть ЄДРПОУ";
+      if (!npContactPersonFirstName.trim()) return "Вкажіть ім'я контактної особи";
+      if (!npContactPersonLastName.trim()) return "Вкажіть прізвище контактної особи";
+      if (!npContactPersonPhone.trim()) return "Вкажіть телефон контактної особи";
+    }
+
+    if (!cityRef.trim()) return "Оберіть місто";
 
     if (deliveryType === "ADDRESS") {
-      if (!streetRef.trim()) return "StreetRef is required for ADDRESS";
-      if (!building.trim()) return "Building is required for ADDRESS";
+      if (!streetRef.trim()) return "Оберіть вулицю";
+      if (!building.trim()) return "Вкажіть номер будинку";
       return null;
     }
 
-    if (!warehouseRef.trim()) return "WarehouseRef is required for WAREHOUSE/POSTOMAT";
+    if (!warehouseRef.trim()) return "Оберіть відділення або поштомат";
     return null;
   };
 
@@ -245,20 +269,17 @@ export function TtnModal({
       return;
     }
 
-    // Next.js proxy endpoint:
-    // POST /api/orders/:id/np/ttn
     const createPath = `/orders/${orderId}/np/ttn`;
 
-    // ===== EXISTING =====
     if (mode === "EXISTING") {
-      if (!selectedProfileId) {
-        setError("Select a profile");
+      if (!selectedProfileId?.trim()) {
+        setError("Оберіть збережену адресу");
         return;
       }
 
       setCreating(true);
       try {
-        const res = await apiHttp.post(createPath, { profileId: selectedProfileId });
+        const res = await apiHttp.post(createPath, { profileId: selectedProfileId.trim() });
         onCreated?.(res.data);
         onClose();
       } catch (e) {
@@ -272,7 +293,6 @@ export function TtnModal({
       return;
     }
 
-    // ===== NEW =====
     const err = validateNew();
     if (err) {
       setError(err);
@@ -281,6 +301,22 @@ export function TtnModal({
 
     setCreating(true);
     try {
+      let fn = "", ln = "", mn = "", ph = "";
+      let cn = "", ed = "", cfn = "", cln = "", cph = "";
+
+      if (recipientType === "PERSON") {
+        fn = npRecipientFirstName.trim();
+        ln = npRecipientLastName.trim();
+        mn = npRecipientMiddleName.trim();
+        ph = npRecipientPhone.trim();
+      } else {
+        cn = npCompanyName.trim();
+        ed = npEdrpou.trim();
+        cfn = npContactPersonFirstName.trim();
+        cln = npContactPersonLastName.trim();
+        cph = npContactPersonPhone.trim();
+      }
+
       const payload = {
         saveAsProfile: !!saveToContact,
         profileLabel: label?.trim() || undefined,
@@ -288,9 +324,16 @@ export function TtnModal({
           recipientType,
           deliveryType,
 
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          phone: phone.trim(),
+          firstName: fn || undefined,
+          lastName: ln || undefined,
+          middleName: mn || undefined,
+          phone: ph || undefined,
+
+          companyName: cn || undefined,
+          edrpou: ed || undefined,
+          contactPersonFirstName: cfn || undefined,
+          contactPersonLastName: cln || undefined,
+          contactPersonPhone: cph || undefined,
 
           cityRef: cityRef.trim(),
           cityName: cityName.trim() || undefined,
@@ -331,7 +374,7 @@ export function TtnModal({
       : "");
 
   const previewAddress = (() => {
-    if (!selectedProfile) return "—";
+    if (!selectedProfile) return <span className="font-normal text-zinc-400">Не вибрано</span>;
 
     if (selectedProfile.deliveryType === "ADDRESS") {
       const parts = [
@@ -341,7 +384,7 @@ export function TtnModal({
       ]
         .filter(Boolean)
         .join(", ");
-      return parts || "—";
+      return parts || <span className="font-normal text-zinc-400">Не вибрано</span>;
     }
 
     const wh = [
@@ -351,8 +394,10 @@ export function TtnModal({
     ]
       .filter(Boolean)
       .join(" ");
-    return wh || "—";
+    return wh || <span className="font-normal text-zinc-400">Не вибрано</span>;
   })();
+
+  const inputClass = "mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none";
 
   return (
     <div
@@ -363,14 +408,14 @@ export function TtnModal({
       role="presentation"
     >
       <div
-        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
         role="presentation"
       >
-        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 flex-shrink-0">
           <div>
             <div className="text-sm text-zinc-500">Nova Poshta</div>
-            <div className="text-lg font-semibold text-zinc-900">Create TTN</div>
+            <div className="text-lg font-semibold text-zinc-900">Створити ТТН</div>
           </div>
           <button
             type="button"
@@ -380,61 +425,57 @@ export function TtnModal({
             className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
             disabled={!canClose}
           >
-            Close
+            Закрити
           </button>
         </div>
 
-        <div className="px-6 py-4 max-h-[calc(90vh-64px)] overflow-auto">
-          {error ? <div className="mb-3 text-sm text-red-600">{error}</div> : null}
+        <div className="px-6 py-4 overflow-auto flex-1">
+          {error ? <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
-          <div className="mb-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setMode("EXISTING")}
-              className={`rounded-md border px-3 py-1 text-sm ${
-                mode === "EXISTING"
-                  ? "border-zinc-900 text-zinc-900"
-                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-              }`}
-              disabled={loading}
-            >
-              Existing profile
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMode("NEW")}
-              className={`rounded-md border px-3 py-1 text-sm ${
-                mode === "NEW"
-                  ? "border-zinc-900 text-zinc-900"
-                  : "border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-              }`}
-              disabled={loading}
-            >
-              New profile
-            </button>
-
-            <div className="ml-auto text-xs text-zinc-500">
-              {loading ? "Loading…" : `${profiles.length} saved`}
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex gap-4">
+              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-mode-profile">
+                <input
+                  id="np-mode-profile"
+                  type="radio"
+                  name="npMode"
+                  checked={mode === "EXISTING"}
+                  onChange={() => setMode("EXISTING")}
+                  className="h-4 w-4 flex-shrink-0"
+                  disabled={loading}
+                />
+                <span className="text-sm">Збережена адреса</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-mode-new">
+                <input
+                  id="np-mode-new"
+                  type="radio"
+                  name="npMode"
+                  checked={mode === "NEW"}
+                  onChange={() => setMode("NEW")}
+                  className="h-4 w-4 flex-shrink-0"
+                  disabled={loading}
+                />
+                <span className="text-sm">Новий профіль</span>
+              </label>
             </div>
+            {loading && <div className="text-xs text-zinc-500">Завантаження…</div>}
           </div>
 
           {mode === "EXISTING" ? (
-            <div className="rounded-md border border-zinc-200 bg-white p-4">
+            <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <h3 className="text-sm font-medium text-zinc-800">Адреса доставки Нова пошта</h3>
               {profiles.length === 0 ? (
                 <div className="text-sm text-zinc-600">
-                  No saved profiles for this contact. Switch to <b>New profile</b>.
+                  Немає збережених профілів. Оберіть <b>Новий профіль</b>.
                 </div>
               ) : (
                 <>
-                  <label className="block text-xs font-medium text-zinc-600 mb-1">
-                    Choose profile
-                  </label>
-
+                  <label className="block text-sm text-zinc-600">Оберіть адресу</label>
                   <select
                     value={selectedProfileId}
                     onChange={(e) => setSelectedProfileId(e.target.value)}
-                    className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                    className={inputClass}
                   >
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -447,12 +488,14 @@ export function TtnModal({
                   </select>
 
                   {selectedProfile ? (
-                    <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
-                      <div className="text-xs text-zinc-500">Preview</div>
+                    <div className="mt-2 rounded-lg border border-zinc-200 bg-white p-3 text-sm">
+                      <div className="text-xs text-zinc-500">Попередній перегляд</div>
                       <div className="mt-1 font-medium text-zinc-900">{profileLabelText}</div>
                       <div className="mt-1 text-zinc-700">
-                        {selectedProfile.deliveryType} •{" "}
-                        {selectedProfile.cityName ?? selectedProfile.cityRef ?? "—"}
+                        {selectedProfile.deliveryType === "WAREHOUSE" && "Відділення"}
+                        {selectedProfile.deliveryType === "POSTOMAT" && "Поштомат"}
+                        {selectedProfile.deliveryType === "ADDRESS" && "Кур'єрська доставка"} •{" "}
+                        {selectedProfile.cityName ?? selectedProfile.cityRef ?? <span className="font-normal text-zinc-400">Не вибрано</span>}
                       </div>
                       <div className="mt-1 text-zinc-700">{previewAddress}</div>
                     </div>
@@ -461,165 +504,331 @@ export function TtnModal({
               )}
             </div>
           ) : (
-            <div className="rounded-md border border-zinc-200 bg-white p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm font-semibold text-zinc-900">New shipping profile</div>
+            <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-zinc-800">Нова адреса доставки</h3>
                 <label className="flex items-center gap-2 text-sm text-zinc-700">
                   <input
                     type="checkbox"
                     checked={saveToContact}
                     onChange={(e) => setSaveToContact(e.target.checked)}
+                    className="h-4 w-4"
                   />
-                  Save to contact
+                  Зберегти в контакт
                 </label>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">
-                    Label (optional)
-                  </label>
+              {saveToContact && (
+                <div>
+                  <label className="block text-sm text-zinc-600">Назва профілю (необов'язково)</label>
                   <input
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                    placeholder='e.g. "Dnipro office", "Ivan home", ...'
+                    className={inputClass}
+                    placeholder='Наприклад, "Дім", "Офіс"'
                   />
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Recipient type</label>
-                  <select
-                    value={recipientType}
-                    onChange={(e) => setRecipientType(e.target.value as NpRecipientType)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  >
-                    <option value="PERSON">PERSON</option>
-                    <option value="COMPANY">COMPANY</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Delivery type</label>
-                  <select
-                    value={deliveryType}
-                    onChange={(e) => {
-                      const v = e.target.value as NpDeliveryType;
-                      if (v === "ADDRESS") {
-                        setError(
-                          "ADDRESS will be enabled later (needs streetRef + building from NP directory).",
-                        );
-                        return;
-                      }
-                      setError(null);
-                      setDeliveryType(v);
-                      setWarehouseRef("");
-                      setWarehouseLabel("");
-                      setWarehouseNumber("");
-                    }}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  >
-                    <option value="WAREHOUSE">WAREHOUSE</option>
-                    <option value="POSTOMAT">POSTOMAT</option>
-                    <option value="ADDRESS" disabled>
-                      ADDRESS (soon)
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">First name</label>
-                  <input
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Last name</label>
-                  <input
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">Phone</label>
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                    placeholder="+380..."
-                  />
-                </div>
-
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-zinc-600">
-                    City (from directory)
+              <div>
+                <p className="mb-2 text-sm font-medium text-zinc-700">Тип отримувача</p>
+                <div className="flex gap-4">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="npRecipientType"
+                      checked={recipientType === "PERSON"}
+                      onChange={() => setRecipientType("PERSON")}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Фізична особа</span>
                   </label>
-                  <NpCitySelect
-                    valueRef={cityRef}
-                    valueLabel={cityName}
-                    onChange={(ref, name) => {
-                      setCityRef(ref);
-                      setCityName(name);
-                      setWarehouseRef("");
-                      setWarehouseLabel("");
-                      setWarehouseNumber("");
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="npRecipientType"
+                      checked={recipientType === "COMPANY"}
+                      onChange={() => setRecipientType("COMPANY")}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Організація</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium text-zinc-700">Тип доставки</p>
+                <div className="flex flex-wrap gap-3">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="npDeliveryType"
+                      checked={deliveryType === "WAREHOUSE"}
+                      onChange={() => {
+                        setDeliveryType("WAREHOUSE");
+                        setStreetRef("");
+                        setStreetName("");
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Відділення</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="npDeliveryType"
+                      checked={deliveryType === "POSTOMAT"}
+                      onChange={() => {
+                        setDeliveryType("POSTOMAT");
+                        setStreetRef("");
+                        setStreetName("");
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Поштомат</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="radio"
+                      name="npDeliveryType"
+                      checked={deliveryType === "ADDRESS"}
+                      onChange={() => {
+                        setDeliveryType("ADDRESS");
+                        setWarehouseRef("");
+                        setWarehouseLabel("");
+                        setWarehouseNumber("");
+                      }}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-sm">Адреса</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-zinc-600">Місто *</label>
+                <NpCitySelect
+                  valueRef={cityRef}
+                  valueLabel={cityName}
+                  onChange={(ref, name) => {
+                    setCityRef(ref);
+                    setCityName(name);
+                    setWarehouseRef("");
+                    setWarehouseLabel("");
+                    setWarehouseNumber("");
+                    setStreetRef("");
+                    setStreetName("");
+                  }}
+                  disabled={creating}
+                  placeholder="Почніть вводити назву"
+                />
+              </div>
+
+              {(deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && (
+                <div>
+                  <label className="block text-sm text-zinc-600">
+                    {deliveryType === "POSTOMAT" ? "Поштомат *" : "Відділення *"}
+                  </label>
+                  <NpWarehouseSelect
+                    key={deliveryType}
+                    cityRef={cityRef}
+                    type={deliveryType}
+                    valueRef={warehouseRef}
+                    valueLabel={warehouseLabel}
+                    onChange={(ref, lbl, num) => {
+                      setWarehouseRef(ref);
+                      setWarehouseLabel(lbl);
+                      setWarehouseNumber(num ?? "");
                     }}
                     disabled={creating}
-                    placeholder="Type at least 2 characters…"
+                    placeholder={
+                      cityRef
+                        ? deliveryType === "POSTOMAT"
+                          ? "Номер або назва поштомата"
+                          : "Номер або назва відділення"
+                        : "Спочатку оберіть місто"
+                    }
                   />
                 </div>
+              )}
 
-                {(deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && (
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium text-zinc-600">
-                      {deliveryType === "POSTOMAT"
-                        ? "Postomat (from directory)"
-                        : "Warehouse (from directory)"}
-                    </label>
-                    <NpWarehouseSelect
-                      key={deliveryType}
+              {deliveryType === "ADDRESS" && (
+                <>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Вулиця *</label>
+                    <NpStreetSelect
                       cityRef={cityRef}
-                      type={deliveryType}
-                      valueRef={warehouseRef}
-                      valueLabel={warehouseLabel}
-                      onChange={(ref, lbl, num) => {
-                        setWarehouseRef(ref);
-                        setWarehouseLabel(lbl);
-                        setWarehouseNumber(num ?? "");
+                      valueRef={streetRef}
+                      valueLabel={streetName}
+                      onChange={(ref, name) => {
+                        setStreetRef(ref);
+                        setStreetName(name);
                       }}
-                      disabled={creating}
-                      placeholder="Type to search…"
+                      disabled={creating || !cityRef}
+                      placeholder="Мін. 3 символи"
                     />
                   </div>
-                )}
-              </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-zinc-600">Номер будинку *</label>
+                      <input
+                        type="text"
+                        value={building}
+                        onChange={(e) => setBuilding(e.target.value)}
+                        placeholder="1"
+                        className={inputClass}
+                        disabled={creating}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-zinc-600">Квартира</label>
+                      <input
+                        type="text"
+                        value={flat}
+                        onChange={(e) => setFlat(e.target.value)}
+                        placeholder="Необовʼязково"
+                        className={inputClass}
+                        disabled={creating}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {recipientType === "PERSON" ? (
+                <>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Прізвище отримувача *</label>
+                    <input
+                      type="text"
+                      value={npRecipientLastName}
+                      onChange={(e) => setNpRecipientLastName(e.target.value)}
+                      placeholder="Прізвище"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm text-zinc-600">Ім'я *</label>
+                      <input
+                        type="text"
+                        value={npRecipientFirstName}
+                        onChange={(e) => setNpRecipientFirstName(e.target.value)}
+                        placeholder="Ім'я"
+                        className={inputClass}
+                        disabled={creating}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-zinc-600">По батькові</label>
+                      <input
+                        type="text"
+                        value={npRecipientMiddleName}
+                        onChange={(e) => setNpRecipientMiddleName(e.target.value)}
+                        placeholder="По батькові"
+                        className={inputClass}
+                        disabled={creating}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Телефон отримувача *</label>
+                    <input
+                      type="tel"
+                      value={npRecipientPhone}
+                      onChange={(e) => setNpRecipientPhone(e.target.value)}
+                      placeholder="0XXXXXXXXX"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Назва компанії *</label>
+                    <input
+                      type="text"
+                      value={npCompanyName}
+                      onChange={(e) => setNpCompanyName(e.target.value)}
+                      placeholder="ТОВ «Приклад»"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-600">ЄДРПОУ *</label>
+                    <input
+                      type="text"
+                      value={npEdrpou}
+                      onChange={(e) => setNpEdrpou(e.target.value)}
+                      placeholder="12345678"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-600">ПІБ контактної особи *</label>
+                    <input
+                      type="text"
+                      value={npContactPersonFirstName}
+                      onChange={(e) => setNpContactPersonFirstName(e.target.value)}
+                      placeholder="Ім'я"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Прізвище контактної особи *</label>
+                    <input
+                      type="text"
+                      value={npContactPersonLastName}
+                      onChange={(e) => setNpContactPersonLastName(e.target.value)}
+                      placeholder="Прізвище"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-zinc-600">Телефон контактної особи *</label>
+                    <input
+                      type="tel"
+                      value={npContactPersonPhone}
+                      onChange={(e) => setNpContactPersonPhone(e.target.value)}
+                      placeholder="0XXXXXXXXX"
+                      className={inputClass}
+                      disabled={creating}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
+        </div>
+        
+        <div className="mt-auto border-t border-zinc-200 px-6 py-4 flex justify-end gap-2 bg-white flex-shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={!canClose}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            Скасувати
+          </button>
 
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={!canClose}
-              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white disabled:opacity-50"
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={creating || loading || (mode === "EXISTING" && profiles.length === 0)}
-              className="btn-primary"
-            >
-              {creating ? "Creating…" : "Create TTN"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={
+              creating ||
+              loading ||
+              (mode === "EXISTING" && (profiles.length === 0 || !selectedProfileId?.trim()))
+            }
+            className="btn-primary rounded-md px-3 py-2 text-sm"
+          >
+            {creating ? "Створення…" : "Створити ТТН"}
+          </button>
         </div>
       </div>
     </div>

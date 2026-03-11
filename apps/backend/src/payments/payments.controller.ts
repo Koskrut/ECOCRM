@@ -17,7 +17,7 @@ export class PaymentsController {
   constructor(private readonly service: PaymentsService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
   list(@Query() q: ListPaymentsQueryDto) {
     const pagination = normalizePagination(
       { page: q.page, pageSize: q.pageSize },

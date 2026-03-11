@@ -30,6 +30,76 @@ export default function SettingsHomePage() {
             </div>
           </Link>
 
+          <Link
+            href="/settings/fop"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">ФОП (банковские счета)</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Настройка ID и TOKEN для банковских счетов ФОП. Список используется в Платежах.
+            </div>
+          </Link>
+
+          <Link
+            href="/settings/meta-lead-ads"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Facebook / Meta Lead Ads</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Webhook verify token, Page Access Token — for receiving leads from Meta
+            </div>
+          </Link>
+
+          <Link
+            href="/settings/google-maps"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Google Maps</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Maps JavaScript API key for visits planning map
+            </div>
+          </Link>
+
+          <Link
+            href="/settings/ringostat"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Ringostat</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Телефония Ringostat: webhook secret, API token и маппинг внутренних линий.
+            </div>
+          </Link>
+
+          <Link
+            href="/settings/telegram"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Telegram Inbox</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Bot token, webhook secret and public URL for Inbox
+            </div>
+          </Link>
+
+          <Link
+            href="/settings/store"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Інтернет-магазин</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Тема, баннери на головній та контакти для магазину
+            </div>
+          </Link>
+
+          <Link
+            href="/employees"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Employees</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Manage employees and their roles
+            </div>
+          </Link>
+
           <div className="rounded-lg border border-zinc-200 bg-white p-5 text-sm text-zinc-400">
             More settings coming soon…
           </div>

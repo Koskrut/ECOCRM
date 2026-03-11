@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --primary: #1e3a5f;
+  --primary-hover: #152a47;
+  --surface: #f8fafc;
+  --border: #e2e8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-manrope);
+}
+
+body {
+  background: var(--surface);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Touch-friendly minimum tap area; use with flex items-center justify-center */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.safe-area-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.font-heading {
+  font-family: var(--font-manrope), var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Легкий переливающийся градиент для героя — медицинская палитра (голубой, синий, зелёный) */
+@keyframes hero-gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.hero-slide-gradient {
+  --hero-blue: #1e3a5f;
+  --hero-light-blue: #2d5a87;
+  --hero-cyan: #1a5f7a;
+  --hero-teal: #0d9488;
+  --hero-med-green: #0f766e;
+  background: linear-gradient(
+    135deg,
+    var(--hero-blue) 0%,
+    var(--hero-light-blue) 20%,
+    var(--hero-cyan) 40%,
+    var(--hero-teal) 60%,
+    var(--hero-med-green) 80%,
+    var(--hero-blue) 100%
+  );
+  background-size: 200% 200%;
+  animation: hero-gradient-shift 14s ease-in-out infinite;
+}

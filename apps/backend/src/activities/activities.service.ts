@@ -42,6 +42,9 @@ export class ActivitiesService {
     return this.prisma.activity.findMany({
       where: { contactId },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      include: {
+        call: true,
+      },
     });
   }
 
@@ -53,6 +56,30 @@ export class ActivitiesService {
         ...data,
         createdBy: user.id,
         contactId,
+      },
+    });
+  }
+
+  // ---------- LEAD ----------
+  async listForLead(leadId: string, actor?: AuthUser) {
+    await this.assertLeadAccess(leadId, actor);
+    return this.prisma.activity.findMany({
+      where: { leadId },
+      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      include: {
+        call: true,
+      },
+    });
+  }
+
+  async createForLead(leadId: string, body: CreateActivityBody, user: AuthUser) {
+    await this.assertLeadAccess(leadId, user);
+    const data = this.normalizeBody(body);
+    return this.prisma.activity.create({
+      data: {
+        ...data,
+        createdBy: user.id,
+        leadId,
       },
     });
   }
@@ -97,6 +124,18 @@ export class ActivitiesService {
     if (!contact) return;
     if (contact.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access contacts assigned to you");
+    }
+  }
+
+  private async assertLeadAccess(leadId: string, actor?: AuthUser): Promise<void> {
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { ownerId: true },
+    });
+    if (!lead) return;
+    if (lead.ownerId && lead.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access leads assigned to you");
     }
   }
 

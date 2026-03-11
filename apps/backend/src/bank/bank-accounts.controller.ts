@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
@@ -34,6 +45,11 @@ export class BankAccountsController {
   @Patch(":id")
   update(@Param("id") id: string, @Body() dto: UpdateBankAccountDto) {
     return this.service.update(id, dto);
+  }
+
+  @Delete(":id")
+  delete(@Param("id") id: string) {
+    return this.service.delete(id);
   }
 
   @Post(":id/import")

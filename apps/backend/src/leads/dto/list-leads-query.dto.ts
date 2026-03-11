@@ -1,6 +1,6 @@
-import { LeadSource, LeadStatus } from "@prisma/client";
+import { LeadChannel, LeadSource, LeadStatus } from "@prisma/client";
 import { Type } from "class-transformer";
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class ListLeadsQueryDto {
   @IsOptional()
@@ -25,7 +25,31 @@ export class ListLeadsQueryDto {
   source?: LeadSource;
 
   @IsOptional()
+  @IsEnum(LeadChannel)
+  channel?: LeadChannel;
+
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
   @IsString()
   q?: string;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: "createdAt" | "score";
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: "asc" | "desc";
 }
 

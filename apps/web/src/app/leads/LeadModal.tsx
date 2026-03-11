@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
+import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { apiHttp } from "@/lib/api/client";
-import type { Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
+import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
+import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 
 type Props = {
   apiBaseUrl: string;
@@ -37,12 +39,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   const [showConvertWizard, setShowConvertWizard] = useState(false);
-  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity">("main");
+  const [showCompleteOutcomeDialog, setShowCompleteOutcomeDialog] = useState(false);
+  /** Preset when opening from outcome dialog: company+contact+deal | contact+deal | contact only */
+  const [convertPreset, setConvertPreset] = useState<"company_contact_deal" | "contact_deal" | "contact" | null>(null);
+  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity" | "source">("main");
+
+  const [noteMessage, setNoteMessage] = useState("");
+  const [addingNote, setAddingNote] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
 
-  const [editName, setEditName] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editMiddleName, setEditMiddleName] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editCompanyName, setEditCompanyName] = useState("");
@@ -62,6 +72,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [createContact, setCreateContact] = useState(false);
   const [newContactFirstName, setNewContactFirstName] = useState("");
   const [newContactLastName, setNewContactLastName] = useState("");
+  const [newContactMiddleName, setNewContactMiddleName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactCompanyName, setNewContactCompanyName] = useState("");
@@ -70,12 +81,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [dealTitle, setDealTitle] = useState("");
   const [dealAmount, setDealAmount] = useState<number | undefined>(undefined);
   const [dealComment, setDealComment] = useState("");
+  /** Company name when preset is company_contact_deal (create company first, then contact, then order) */
+  const [newCompanyName, setNewCompanyName] = useState("");
 
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
 
-  // Товары лида (локальный список для редактирования)
+  // Lead items (local list for editing)
   type EditItem = { productId: string; productName?: string; qty: number; price: number };
   const [editItems, setEditItems] = useState<EditItem[]>([]);
   const [productSearch, setProductSearch] = useState("");
@@ -86,11 +99,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [newItemPrice, setNewItemPrice] = useState(0);
   const [savingItems, setSavingItems] = useState(false);
 
-  const canClose = !saving && !converting && !statusUpdating;
+  const canClose = !saving && !converting && !statusUpdating && !addingNote;
 
   const title = useMemo(() => {
     if (!lead) return "Lead";
-    return lead.name || lead.companyName || "Lead";
+    return lead.fullName || lead.name || [lead.firstName, lead.middleName, lead.lastName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
 
   const loadLead = useCallback(async () => {
@@ -101,7 +114,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       const data = r.data as Lead;
       setLead(data);
 
-      setEditName(data.name ?? "");
+      setEditFirstName(data.firstName ?? data.name ?? "");
+      setEditLastName(data.lastName ?? "");
+      setEditMiddleName(data.middleName ?? "");
       setEditPhone(data.phone ?? "");
       setEditEmail(data.email ?? "");
       setEditCompanyName(data.companyName ?? "");
@@ -119,7 +134,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
         })),
       );
 
-      setNewContactFirstName(data.name ?? "");
+      setNewContactFirstName(data.firstName ?? data.name ?? "");
+      setNewContactLastName(data.lastName ?? "");
+      setNewContactMiddleName(data.middleName ?? "");
       setNewContactPhone(data.phone ?? "");
       setNewContactEmail(data.email ?? "");
       setNewContactCompanyName(data.companyName ?? "");
@@ -135,7 +152,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     }
   }, [leadId]);
 
-  // Поиск продуктов для добавления товара
+  // Product search for adding items
   useEffect(() => {
     if (!productSearch.trim()) {
       setProductResults([]);
@@ -249,16 +266,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   }, [lead, loadTimeline]);
 
   const saveGeneral = async () => {
+    // Kept for backward compatibility if needed elsewhere, but mostly replaced by patchLead
     if (!lead) return;
     setSaving(true);
     setErr(null);
     try {
       await apiHttp.patch<Lead>(`/leads/${lead.id}`, {
-        name: editName.trim() || null,
+        firstName: editFirstName.trim() || null,
+        lastName: editLastName.trim() || null,
+        middleName: editMiddleName.trim() || null,
         phone: editPhone.trim() || null,
         email: editEmail.trim() || null,
         companyName: editCompanyName.trim() || null,
         message: editMessage.trim() || null,
+        source: editSource,
         sourceMeta: lead.sourceMeta ?? null,
       });
       await loadLead();
@@ -272,6 +293,28 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       setSaving(false);
     }
   };
+
+  const patchLead = useCallback(
+    async (payload: Record<string, any>) => {
+      if (!lead) return;
+      setSaving(true);
+      setErr(null);
+      try {
+        await apiHttp.patch<Lead>(`/leads/${lead.id}`, payload);
+        await loadLead();
+        onUpdated();
+      } catch (e) {
+        const msg =
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          (e instanceof Error ? e.message : "Failed to save");
+        setErr(msg);
+        await loadLead(); // rollback on error
+      } finally {
+        setSaving(false);
+      }
+    },
+    [lead, loadLead, onUpdated]
+  );
 
   const updateStatus = async (next: LeadStatus, reason?: string) => {
     if (!lead) return;
@@ -296,6 +339,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
 
   const handleConvert = async () => {
     if (!lead) return;
+    if (convertPreset === "company_contact_deal" && !newCompanyName.trim()) {
+      setConvertError("Enter company name");
+      return;
+    }
     setConverting(true);
     setConvertError(null);
     try {
@@ -307,6 +354,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
         createDeal,
       };
 
+      if (convertPreset === "company_contact_deal" && newCompanyName.trim()) {
+        payload.createCompany = { name: newCompanyName.trim() };
+      }
+
       if (mode === "link") {
         if (!selectedContactId) {
           throw new Error("Select a contact or enable create contact");
@@ -316,6 +367,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
         payload.contact = {
           firstName: newContactFirstName.trim() || lead.name || "Lead",
           lastName: newContactLastName.trim() || "",
+          middleName: newContactMiddleName.trim() || "",
           phone: newContactPhone.trim() || lead.phone,
           email: newContactEmail.trim() || lead.email,
           companyName: newContactCompanyName.trim() || lead.companyName,
@@ -351,50 +403,112 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     }
   };
 
+  const isInProgress = lead?.status === "NEW" || lead?.status === "IN_PROGRESS";
+  const canShowCompleteButton = isInProgress;
   const canConvert = lead?.status === "WON";
 
+  const statusLabel =
+    lead?.status === "NEW"
+      ? "New"
+      : lead?.status === "IN_PROGRESS"
+        ? "In progress"
+        : lead?.status === "WON"
+          ? "Won"
+          : lead?.status === "NOT_TARGET"
+            ? "Not target"
+            : lead?.status === "LOST"
+              ? "Lost"
+              : lead?.status === "SPAM"
+                ? "Spam"
+                : lead?.status ?? "";
+
   const handleEscape = useCallback(() => {
+    if (showCompleteOutcomeDialog) {
+      setShowCompleteOutcomeDialog(false);
+      return true;
+    }
     if (showConvertWizard) {
       setShowConvertWizard(false);
       return true;
     }
     return false;
-  }, [showConvertWizard]);
+  }, [showCompleteOutcomeDialog, showConvertWizard]);
 
-  const openConvertWizard = () => {
+  const openCompleteOutcomeDialog = () => {
+    setShowCompleteOutcomeDialog(true);
+  };
+
+  const openConvertWizard = (preset?: "company_contact_deal" | "contact_deal" | "contact") => {
+    setShowCompleteOutcomeDialog(false);
+    setConvertPreset(preset ?? null);
+    setNewContactFirstName(lead?.firstName ?? lead?.name ?? "");
+    setNewContactLastName(lead?.lastName ?? "");
+    setNewContactMiddleName(lead?.middleName ?? "");
+    setNewContactPhone(lead?.phone ?? "");
+    setNewContactEmail(lead?.email ?? "");
+    setNewContactCompanyName(lead?.companyName ?? "");
+    setDealTitle(title);
+    if (preset === "company_contact_deal") {
+      setCreateContact(true);
+      setCreateDeal(true);
+      setSelectedContactId(null);
+      setNewCompanyName(lead?.companyName ?? "");
+    } else if (preset === "contact_deal") {
+      setCreateContact(false);
+      setCreateDeal(true);
+      setSelectedContactId(null);
+      setNewCompanyName("");
+    } else if (preset === "contact") {
+      setCreateContact(false);
+      setCreateDeal(false);
+      setSelectedContactId(null);
+      setNewCompanyName("");
+    }
     setShowConvertWizard(true);
     setCreatedOrderId(null);
     void loadSuggestions();
   };
 
-  const timelineContent = (
-    <div>
-      {timelineLoading ? (
-        <div className="text-sm text-zinc-500">Loading timeline…</div>
-      ) : timelineError ? (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{timelineError}</div>
-      ) : timeline.length === 0 ? (
-        <div className="text-sm text-zinc-500">No activity yet</div>
-      ) : (
-        <div className="space-y-3">
-          {timeline.map((t) => (
-            <div key={t.id} className="rounded-md border border-zinc-200 bg-white p-3 text-sm">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-xs text-zinc-500">{t.type}</div>
-                  <div className="font-medium text-zinc-900">{t.title || "No title"}</div>
-                </div>
-                <div className="text-xs text-zinc-500 whitespace-nowrap">
-                  {new Date(t.occurredAt ?? t.createdAt).toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{t.body}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const markAsPoorQuality = async () => {
+    if (!lead) return;
+    setShowCompleteOutcomeDialog(false);
+    setStatusUpdating(true);
+    setErr(null);
+    try {
+      await apiHttp.patch<Lead>(`/leads/${lead.id}/status`, {
+        status: "NOT_TARGET",
+        reason: "Poor quality lead",
+      });
+      await loadLead();
+      onUpdated();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to update status");
+      setErr(msg);
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  const addNote = async () => {
+    if (!lead || !noteMessage.trim()) return;
+    setAddingNote(true);
+    setErr(null);
+    try {
+      await leadsApi.addNote(lead.id, { message: noteMessage.trim() });
+      setNoteMessage("");
+      await loadLead();
+      onUpdated();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to add note");
+      setErr(msg);
+    } finally {
+      setAddingNote(false);
+    }
+  };
 
   const leftContent = loading ? (
     <div className="text-sm text-zinc-500">Loading…</div>
@@ -402,8 +516,62 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
     <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
   ) : !lead ? (
     <div className="text-sm text-zinc-500">Lead not found</div>
+  ) : leadTab === "source" ? (
+    <div className="space-y-6">
+      {lead.attribution ? (
+        <EntitySection title="Attribution">
+          <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-sm">
+            <div className="grid gap-2 text-zinc-700">
+              <div><span className="text-zinc-500">Campaign:</span> {lead.attribution.campaignName} ({lead.attribution.campaignId})</div>
+              <div><span className="text-zinc-500">Ad set:</span> {lead.attribution.adsetName} ({lead.attribution.adsetId})</div>
+              <div><span className="text-zinc-500">Ad:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
+              <div><span className="text-zinc-500">Form:</span> {lead.attribution.formId}</div>
+              <div><span className="text-zinc-500">Created (Meta):</span> {new Date(lead.attribution.createdTime).toLocaleString()}</div>
+            </div>
+          </div>
+        </EntitySection>
+      ) : null}
+      {lead.answers && lead.answers.length > 0 ? (
+        <EntitySection title="Form answers">
+          <div className="rounded-md border border-zinc-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-zinc-100">
+                {lead.answers.map((a) => (
+                  <tr key={a.id}>
+                    <td className="px-3 py-2 text-zinc-500 font-medium w-1/3">{a.key}</td>
+                    <td className="px-3 py-2 text-zinc-900">{a.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </EntitySection>
+      ) : null}
+      {lead.events && lead.events.length > 0 ? (
+        <EntitySection title="Events">
+          <div className="space-y-2">
+            {lead.events.map((e) => (
+              <div key={e.id} className="rounded-md border border-zinc-200 p-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-medium text-zinc-900">{e.type}</span>
+                  <span className="text-xs text-zinc-500">{new Date(e.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="mt-1 text-zinc-700">{e.message}</div>
+              </div>
+            ))}
+          </div>
+        </EntitySection>
+      ) : null}
+      {!lead.attribution && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
+        <div className="text-sm text-zinc-500">No source data</div>
+      ) : null}
+    </div>
   ) : leadTab === "activity" ? (
-    <EntitySection title="Activity">{timelineContent}</EntitySection>
+    <EntitySection title="Activity">
+      <div className="h-[420px]">
+        <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead?.contactId || lead.id} entityType={lead?.contactId ? "contact" : "lead"} showActivityButtons={true} />
+      </div>
+    </EntitySection>
   ) : leadTab === "products" ? (
     <EntitySection title="Products">
       <div className="rounded-md border border-zinc-200 overflow-hidden">
@@ -521,106 +689,240 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       </div>
     </EntitySection>
   ) : (
-    <div className="grid gap-6 md:grid-cols-2">
-      <div>
-                <label className="block text-xs font-medium text-zinc-600">Name</label>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  disabled={saving}
-                />
+    <div className="space-y-6">
+      {/* Contact */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Contact</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">First Name</label>
+            <input
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter first name..."
+              value={editFirstName}
+              onChange={(e) => setEditFirstName(e.target.value)}
+              onBlur={() => {
+                if (editFirstName !== (lead.firstName ?? lead.name ?? "")) {
+                  void patchLead({ firstName: editFirstName.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Last Name</label>
+            <input
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter last name..."
+              value={editLastName}
+              onChange={(e) => setEditLastName(e.target.value)}
+              onBlur={() => {
+                if (editLastName !== (lead.lastName ?? "")) {
+                  fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0f7630'},body:JSON.stringify({sessionId:'0f7630',location:'LeadModal.tsx:714',message:'Updating lastName',data:{lastName:editLastName},timestamp:Date.now(),hypothesisId:'A',runId:'test'})}).catch(()=>{});
+                  void patchLead({ lastName: editLastName.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Middle Name</label>
+            <input
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter middle name..."
+              value={editMiddleName}
+              onChange={(e) => setEditMiddleName(e.target.value)}
+              onBlur={() => {
+                if (editMiddleName !== (lead.middleName ?? "")) {
+                  void patchLead({ middleName: editMiddleName.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Phone</label>
+            <input
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter phone..."
+              value={editPhone}
+              onChange={(e) => setEditPhone(e.target.value)}
+              onBlur={() => {
+                if (editPhone !== (lead.phone ?? "")) {
+                  void patchLead({ phone: editPhone.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+          <div className="flex flex-col gap-1 sm:col-span-2">
+            <label className="text-xs font-medium text-zinc-500">Email</label>
+            <input
+              type="email"
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter email..."
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+              onBlur={() => {
+                if (editEmail !== (lead.email ?? "")) {
+                  void patchLead({ email: editEmail.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+        </div>
+        {!lead.phone && !lead.email && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
+            Request contact from lead
+          </p>
+        )}
+      </section>
 
-                <label className="mt-3 block text-xs font-medium text-zinc-600">Phone</label>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editPhone}
-                  onChange={(e) => setEditPhone(e.target.value)}
-                  disabled={saving}
-                />
-
-                <label className="mt-3 block text-xs font-medium text-zinc-600">Email</label>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  disabled={saving}
-                />
-
-                <label className="mt-3 block text-xs font-medium text-zinc-600">
-                  Company (text)
-                </label>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editCompanyName}
-                  onChange={(e) => setEditCompanyName(e.target.value)}
-                  disabled={saving}
-                />
-
-                <label className="mt-3 block text-xs font-medium text-zinc-600">Source</label>
-                <select
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editSource}
-                  onChange={(e) => setEditSource(e.target.value as LeadSource)}
-                  disabled={saving}
-                >
-                  <option value="FACEBOOK">Facebook</option>
-                  <option value="TELEGRAM">Telegram</option>
-                  <option value="INSTAGRAM">Instagram</option>
-                  <option value="WEBSITE">Website</option>
-                  <option value="OTHER">Other</option>
-                </select>
-
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void saveGeneral()}
-                    disabled={saving}
-                    className="btn-primary"
-                  >
-                    {saving ? "Saving…" : "Save"}
-                  </button>
+      {/* Company & source */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Company & source</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Company</label>
+            <input
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="Enter company..."
+              value={editCompanyName}
+              onChange={(e) => setEditCompanyName(e.target.value)}
+              onBlur={() => {
+                if (editCompanyName !== (lead.companyName ?? "")) {
+                  void patchLead({ companyName: editCompanyName.trim() || null });
+                }
+              }}
+              disabled={saving}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Source</label>
+            <select
+              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer appearance-none"
+              value={editSource}
+              onChange={(e) => {
+                const val = e.target.value as LeadSource;
+                setEditSource(val);
+                if (val !== lead.source) {
+                  void patchLead({ source: val });
+                }
+              }}
+              disabled={saving}
+            >
+              <option value="META">Meta Lead Ads</option>
+              <option value="FACEBOOK">Facebook</option>
+              <option value="TELEGRAM">Telegram</option>
+              <option value="INSTAGRAM">Instagram</option>
+              <option value="WEBSITE">Website</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-zinc-500">Ответственный</label>
+            <div className="py-1 text-sm text-zinc-900">{lead.owner?.fullName ?? "—"}</div>
+          </div>
+          {(lead.city != null && lead.city !== "") || lead.score != null ? (
+            <div className="flex flex-wrap gap-4 sm:col-span-2">
+              {lead.city != null && lead.city !== "" && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xs text-zinc-500">City:</span>
+                  <span className="text-sm text-zinc-900">{lead.city}</span>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-zinc-600">
-                  Message / comment
-                </label>
-                <textarea
-                  rows={6}
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  value={editMessage}
-                  onChange={(e) => setEditMessage(e.target.value)}
-                  disabled={saving}
-                />
-
-                <div className="mt-4 text-xs text-zinc-500">
-                  Created: {new Date(lead.createdAt).toLocaleString()}
-                  <br />
-                  Updated: {new Date(lead.updatedAt).toLocaleString()}
-                  {lead.lastActivityAt ? (
-                    <>
-                      <br />
-                      Last activity: {new Date(lead.lastActivityAt).toLocaleString()}
-                    </>
-                  ) : null}
-                  {lead.statusReason ? (
-                    <>
-                      <br />
-                      Status reason: {lead.statusReason}
-                    </>
-                  ) : null}
+              )}
+              {lead.score != null && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xs text-zinc-500">Score:</span>
+                  <span className="text-sm font-medium text-zinc-900">{lead.score}</span>
                 </div>
-              </div>
+              )}
             </div>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Message */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Message</h3>
+        <textarea
+          rows={3}
+          className="w-full resize-none rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          placeholder="Message or comment from lead..."
+          value={editMessage}
+          onChange={(e) => {
+            setEditMessage(e.target.value);
+            e.target.style.height = 'auto';
+            e.target.style.height = `${e.target.scrollHeight}px`;
+          }}
+          onBlur={() => {
+            if (editMessage !== (lead.message ?? "")) {
+              void patchLead({ message: editMessage.trim() || null });
+            }
+          }}
+          disabled={saving}
+        />
+      </section>
+
+      <div className="border-t border-zinc-100 pt-4">
+        <span className="text-xs text-zinc-400">
+          Created: {new Date(lead.createdAt).toLocaleString()}
+          {lead.lastActivityAt && ` · Activity: ${new Date(lead.lastActivityAt).toLocaleString()}`}
+        </span>
+      </div>
+
+      {/* Add note */}
+      <section className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Add note</h3>
+        <textarea
+          rows={2}
+          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none transition-colors focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/30 disabled:bg-zinc-50"
+          placeholder="Enter note text…"
+          value={noteMessage}
+          onChange={(e) => setNoteMessage(e.target.value)}
+          disabled={addingNote}
+        />
+        <button
+          type="button"
+          onClick={() => void addNote()}
+          disabled={addingNote || !noteMessage.trim()}
+          className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          {addingNote ? "Sending…" : "Add note"}
+        </button>
+      </section>
+
+      {lead.statusReason ? (
+        <p className="text-xs text-zinc-500">
+          <span className="font-medium text-zinc-600">Status reason:</span> {lead.statusReason}
+        </p>
+      ) : null}
+    </div>
   );
 
   const rightContent = showConvertWizard ? (
     <div className="space-y-6 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4">
+              {convertPreset === "company_contact_deal" && (
+                <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
+                  <div className="font-medium text-zinc-900">Step 1. Company</div>
+                  <p className="mt-1 text-xs text-zinc-500">Create a company first; contact and order will be linked to it.</p>
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-zinc-600">Company name</label>
+                    <input
+                      className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm outline-none focus:border-zinc-400"
+                      placeholder="Company name"
+                      value={newCompanyName}
+                      onChange={(e) => setNewCompanyName(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-zinc-900">Step 1. Contact</div>
+                  <div className="font-medium text-zinc-900">
+                    {convertPreset === "company_contact_deal" ? "Step 2. Contact" : "Step 1. Contact"}
+                  </div>
                   <button
                     type="button"
                     onClick={() => void loadSuggestions()}
@@ -671,22 +973,24 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   )}
                 </div>
 
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    id="createContact"
-                    type="checkbox"
-                    checked={createContact}
-                    onChange={(e) => {
-                      setCreateContact(e.target.checked);
-                      if (e.target.checked) setSelectedContactId(null);
-                    }}
-                  />
-                  <label htmlFor="createContact" className="text-xs text-zinc-700">
-                    Create new contact instead of linking
-                  </label>
-                </div>
+                {convertPreset !== "company_contact_deal" && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      id="createContact"
+                      type="checkbox"
+                      checked={createContact}
+                      onChange={(e) => {
+                        setCreateContact(e.target.checked);
+                        if (e.target.checked) setSelectedContactId(null);
+                      }}
+                    />
+                    <label htmlFor="createContact" className="text-xs text-zinc-700">
+                      Create new contact instead of linking
+                    </label>
+                  </div>
+                )}
 
-                {createContact && (
+                {(createContact || convertPreset === "company_contact_deal") && (
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
@@ -710,6 +1014,16 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
+                        Middle name
+                      </label>
+                      <input
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
+                        value={newContactMiddleName}
+                        onChange={(e) => setNewContactMiddleName(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-600">
                         Phone
                       </label>
                       <input
@@ -728,23 +1042,28 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                         onChange={(e) => setNewContactEmail(e.target.value)}
                       />
                     </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-zinc-600">
-                        Company (text)
-                      </label>
-                      <input
-                        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
-                        value={newContactCompanyName}
-                        onChange={(e) => setNewContactCompanyName(e.target.value)}
-                      />
-                    </div>
+                    {convertPreset !== "company_contact_deal" && (
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-zinc-600">
+                          Company (text)
+                        </label>
+                        <input
+                          className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
+                          value={newContactCompanyName}
+                          onChange={(e) => setNewContactCompanyName(e.target.value)}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
+              {convertPreset !== "contact" && (
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-zinc-900">Step 2. Deal</div>
+                  <div className="font-medium text-zinc-900">
+                    {convertPreset === "company_contact_deal" ? "Step 3. Deal" : "Step 2. Deal"}
+                  </div>
                   <label className="flex items-center gap-2 text-xs text-zinc-700">
                     <input
                       type="checkbox"
@@ -798,6 +1117,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
                   </div>
                 )}
               </div>
+              )}
 
               {createdOrderId && (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
@@ -837,93 +1157,233 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
               </div>
     </div>
   ) : lead && leadTab === "main" ? (
-    <FeedTabsScaffold activityContent={timelineContent} />
+    <FeedTabsScaffold
+      activityContent={
+        <div className="h-[420px]">
+          <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead?.contactId || lead.id} entityType={lead?.contactId ? "contact" : "lead"} showActivityButtons={true} />
+        </div>
+      }
+      tasksContent={
+        <div className="h-[420px] overflow-auto">
+          <EntityTasksList leadId={leadId} />
+        </div>
+      }
+    />
+  ) : null;
+
+  const isProcessed = lead?.status === "WON" || lead?.status === "NOT_TARGET" || lead?.status === "LOST" || lead?.status === "SPAM";
+
+  const stagesBar = lead ? (
+    <div className="border-b border-zinc-200 py-3 px-4">
+      <div className="flex items-center gap-2 w-full max-w-xl">
+        {/* Step 1: New */}
+        <button
+          type="button"
+          disabled={statusUpdating}
+          onClick={() => {
+            if (lead.status !== "NEW") void updateStatus("NEW");
+          }}
+          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none disabled:cursor-default ${
+            lead.status === "NEW"
+              ? "bg-blue-100 text-blue-800"
+              : lead.status === "IN_PROGRESS" || isProcessed
+                ? "text-emerald-600 hover:bg-emerald-50/80"
+                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          }`}
+        >
+          {(lead.status === "IN_PROGRESS" || isProcessed) && (
+            <svg className="h-3 w-3 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+          New
+        </button>
+
+        <div className="flex-1 h-px min-w-[12px] bg-zinc-200 relative overflow-hidden">
+          <div
+            className={`absolute top-0 left-0 h-full bg-emerald-300 transition-all duration-300 ${
+              lead.status === "IN_PROGRESS" || isProcessed ? "w-full" : "w-0"
+            }`}
+          />
+        </div>
+
+        {/* Step 2: In progress */}
+        <button
+          type="button"
+          disabled={statusUpdating}
+          onClick={() => {
+            if (lead.status !== "IN_PROGRESS") void updateStatus("IN_PROGRESS");
+          }}
+          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none disabled:cursor-default ${
+            lead.status === "IN_PROGRESS"
+              ? "bg-blue-100 text-blue-800"
+              : isProcessed
+                ? "text-emerald-600 hover:bg-emerald-50/80"
+                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          }`}
+        >
+          {isProcessed && (
+            <svg className="h-3 w-3 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+          In progress
+        </button>
+
+        <div className="flex-1 h-px min-w-[12px] bg-zinc-200 relative overflow-hidden">
+          <div
+            className={`absolute top-0 left-0 h-full bg-emerald-300 transition-all duration-300 ${
+              isProcessed ? "w-full" : "w-0"
+            }`}
+          />
+        </div>
+
+        {/* Step 3: Processed */}
+        <button
+          type="button"
+          disabled={statusUpdating}
+          onClick={() => {
+            if (lead.status === "NEW" || lead.status === "IN_PROGRESS") openCompleteOutcomeDialog();
+          }}
+          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none ${
+            isProcessed
+              ? "bg-emerald-100 text-emerald-800"
+              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          }`}
+        >
+          {isProcessed && (
+            <svg className="h-3 w-3 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+          Processed
+        </button>
+      </div>
+    </div>
   ) : null;
 
   const tabsUnderHeader =
     lead ? (
-      <div className="flex gap-1 border-b border-zinc-200 pb-2">
-        <button
-          type="button"
-          onClick={() => setLeadTab("main")}
-          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
-        >
-          Main
-        </button>
-        <button
-          type="button"
-          onClick={() => setLeadTab("products")}
-          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
-        >
-          Products
-        </button>
-        <button
-          type="button"
-          onClick={() => setLeadTab("activity")}
-          className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
-        >
-          Activity
-        </button>
+      <div className="space-y-0">
+        {stagesBar}
+        <div className="flex gap-1 border-b border-zinc-200 pb-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setLeadTab("main")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Main
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeadTab("products")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Products
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeadTab("activity")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Activity
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeadTab("source")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "source" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Source
+            </button>
+        </div>
       </div>
     ) : null;
 
   return (
-    <EntityModalShell
-      title={title}
-      subtitle={
+    <>
+      {showCompleteOutcomeDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="complete-outcome-title"
+          onClick={() => setShowCompleteOutcomeDialog(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="complete-outcome-title" className="text-base font-semibold text-zinc-900">
+              Choose outcome to complete the lead
+            </h2>
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => openConvertWizard("company_contact_deal")}
+                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                <span>Company + contact + order</span>
+                <span className="text-emerald-600">→</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openConvertWizard("contact_deal")}
+                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                <span>Contact + order</span>
+                <span className="text-emerald-600">→</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openConvertWizard("contact")}
+                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                <span>Contact only</span>
+                <span className="text-emerald-600">→</span>
+              </button>
+              <button
+                type="button"
+                onClick={markAsPoorQuality}
+                disabled={statusUpdating}
+                className="flex w-full items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+              >
+                <span>Poor quality lead</span>
+                <span className="text-red-600">→</span>
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowCompleteOutcomeDialog(false)}
+                className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <EntityModalShell
+        title={title}
+        subtitle={
         lead ? (
           <>
-            Status: {lead.status} • Source: {lead.source}
+            Stage: {statusLabel} • Source: {lead.source}
           </>
         ) : undefined
       }
       tabsUnderHeader={tabsUnderHeader}
       headerActions={
         <>
-          {lead && (
-            <>
-              <button
-                type="button"
-                className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
-                disabled={statusUpdating}
-                onClick={() => void updateStatus("IN_PROGRESS")}
-              >
-                In progress
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
-                disabled={statusUpdating}
-                onClick={() => void updateStatus("WON")}
-              >
-                Won
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
-                disabled={statusUpdating}
-                onClick={() => void updateStatus("NOT_TARGET", "Not target")}
-              >
-                Not target
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100"
-                disabled={statusUpdating}
-                onClick={() => void updateStatus("LOST", "Lost")}
-              >
-                Lost
-              </button>
-              {canConvert && (
-                <button
-                  type="button"
-                  onClick={openConvertWizard}
-                  className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-                >
-                  Convert
-                </button>
-              )}
-            </>
+          {lead && canConvert && (
+            <button
+              type="button"
+              onClick={() => openConvertWizard()}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+            >
+              Convert
+            </button>
           )}
         </>
       }
@@ -940,6 +1400,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       onClose={onClose}
       onEscape={handleEscape}
     />
+    </>
   );
 }
 

@@ -8,6 +8,7 @@ import { apiHttp } from "@/lib/api/client";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
+import { EntityTasksList } from "@/components/EntityTasksList";
 
 // =====================
 // Small local UI helpers
@@ -312,7 +313,7 @@ export function OrderModal({
   const [showTtnModal, setShowTtnModal] = useState(false);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
-  const [leftTab, setLeftTab] = useState<"main" | "items" | "activity">("main");
+  const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
 
   const canClose = !saving && !submittingItem && !statusUpdating;
 
@@ -763,6 +764,13 @@ export function OrderModal({
           >
             Activity
           </button>
+          <button
+            type="button"
+            onClick={() => setLeftTab("tasks")}
+            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "tasks" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Tasks
+          </button>
         </div>
       </div>
     ) : null;
@@ -882,6 +890,10 @@ export function OrderModal({
             leftTab === "activity" ? (
               <EntitySection title="Activity">
                 <OrderTimeline orderId={orderId!} />
+              </EntitySection>
+            ) : leftTab === "tasks" ? (
+              <EntitySection title="Tasks">
+                <EntityTasksList orderId={orderId!} />
               </EntitySection>
             ) : leftTab === "items" ? (
               <EntitySection title="Items">
@@ -1116,7 +1128,7 @@ export function OrderModal({
                                 )}
                               </td>
                               <td className="px-3 py-2 text-right text-zinc-600">
-                                {it.product?.stock !== undefined ? it.product.stock : "—"}
+                                {it.product?.stock !== undefined ? it.product.stock : <span className="font-normal text-zinc-400">Не указано</span>}
                               </td>
                               <td className="px-3 py-2 text-right font-medium text-zinc-900">
                                 {it.lineTotal.toFixed(2)}
@@ -1211,7 +1223,7 @@ export function OrderModal({
                             }}
                             className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
                           >
-                            {order.company ? order.company.name : "—"}
+                            {order.company ? order.company.name : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать компанию...</span>}
                           </button>
                         )}
                       </div>
@@ -1280,7 +1292,7 @@ export function OrderModal({
                           >
                             {order.client
                               ? `${order.client.firstName} ${order.client.lastName} — ${order.client.phone}`
-                              : "—"}
+                              : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать клиента...</span>}
                           </button>
                         )}
                       </div>
@@ -1306,7 +1318,7 @@ export function OrderModal({
                               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
                               disabled={saving}
                             >
-                              <option value="">—</option>
+                              <option value="">Выберите...</option>
                               <option value="PREPAYMENT">Предоплата</option>
                               <option value="DEFERRED">Отсрочка</option>
                             </select>
@@ -1324,7 +1336,7 @@ export function OrderModal({
                               ? "Предоплата"
                               : order.paymentType === "DEFERRED"
                                 ? "Отсрочка"
-                                : "—"}
+                                : <span className="font-normal text-zinc-400">Выберите тип оплаты...</span>}
                           </button>
                         )}
                       </div>
@@ -1371,7 +1383,7 @@ export function OrderModal({
                             }}
                             className="mt-1 font-medium text-zinc-900 hover:underline"
                           >
-                            {order.deliveryMethod ?? "—"}
+                            {order.deliveryMethod ?? <span className="font-normal text-zinc-400">Выберите метод доставки...</span>}
                           </button>
                         )}
                       </div>
@@ -1380,7 +1392,7 @@ export function OrderModal({
                         <div>
                           <div className="text-xs text-zinc-500">TTN</div>
                           <div className="mt-1 flex items-center gap-2">
-                            <span className="font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : "—"}</span>
+                            <span className="font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : <span className="font-normal text-zinc-400">Не указано</span>}</span>
                             {canShowCreateTtnButton ? (
                               <button
                                 type="button"
@@ -1428,7 +1440,7 @@ export function OrderModal({
                       {order.deliveryMethod === "NOVA_POSHTA" ? (
                         <div className="col-span-2">
                           <div className="text-xs text-zinc-500">NP status</div>
-                          <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? "—"}</div>
+                          <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? <span className="font-normal text-zinc-400">Нет данных</span>}</div>
                         </div>
                       ) : null}
 

@@ -5,6 +5,12 @@ export type CreateCompanyDto = {
   name: string;
   edrpou?: string;
   taxId?: string;
+  phone?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  googlePlaceId?: string;
+  ownerId?: string | null;
 };
 
 export const validateCreateCompanyDto = (payload: CreateCompanyDto): ValidationError[] => {
@@ -12,11 +18,19 @@ export const validateCreateCompanyDto = (payload: CreateCompanyDto): ValidationE
   validateString(payload.name, "name", errors);
 
   if (payload.edrpou !== undefined) {
-    validateString(payload.edrpou, "edrpou", errors, { allowEmpty: false });
+    validateString(payload.edrpou, "edrpou", errors, { allowEmpty: true });
   }
 
   if (payload.taxId !== undefined) {
-    validateString(payload.taxId, "taxId", errors, { allowEmpty: false });
+    validateString(payload.taxId, "taxId", errors, { allowEmpty: true });
+  }
+
+  if (payload.phone !== undefined) {
+    validateString(payload.phone, "phone", errors, { allowEmpty: true });
+  }
+
+  if (payload.address !== undefined) {
+    validateString(payload.address, "address", errors, { allowEmpty: true });
   }
 
   return errors;

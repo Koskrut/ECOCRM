@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { PaymentSourceType, PaymentStatus, UserRole } from "@prisma/client";
@@ -37,43 +38,52 @@ type ListPaymentsParams = {
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
   ) {}
 
   async list(params: ListPaymentsParams) {
-    const rates = await this.settings.getExchangeRates();
+    let rates: ExchangeRates;
+    try {
+      rates = await this.settings.getExchangeRates();
+    } catch (e) {
+      this.logger.warn(`getExchangeRates failed, using defaults: ${e}`);
+      rates = { UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 };
+    }
     const where: { bankTransaction?: { bankAccountId?: string } } = {};
     if (params.bankAccountId) {
       where.bankTransaction = { bankAccountId: params.bankAccountId };
     }
 
-    const [items, total] = await Promise.all([
-      this.prisma.payment.findMany({
-        where,
-        orderBy: { paidAt: "desc" },
-        skip: params.offset,
-        take: params.limit,
-        include: {
-          order: { select: { id: true, orderNumber: true } },
-          bankTransaction: {
-            select: {
-              id: true,
-              bankAccountId: true,
-              bookedAt: true,
-              description: true,
-              counterpartyName: true,
-              bankAccount: { select: { id: true, name: true, currency: true } },
+    try {
+      const [items, total] = await Promise.all([
+        this.prisma.payment.findMany({
+          where,
+          orderBy: { paidAt: "desc" },
+          skip: params.offset,
+          take: params.limit,
+          include: {
+            order: { select: { id: true, orderNumber: true } },
+            bankTransaction: {
+              select: {
+                id: true,
+                bankAccountId: true,
+                bookedAt: true,
+                description: true,
+                counterpartyName: true,
+                bankAccount: { select: { id: true, name: true, currency: true } },
+              },
             },
+            createdBy: { select: { id: true, fullName: true } },
           },
-          createdBy: { select: { id: true, fullName: true } },
-        },
-      }),
-      this.prisma.payment.count({ where }),
-    ]);
+        }),
+        this.prisma.payment.count({ where }),
+      ]);
 
-    const txIds = [...new Set(items.map((p) => p.bankTransactionId).filter(Boolean))] as string[];
+      const txIds = [...new Set(items.map((p) => p.bankTransactionId).filter(Boolean))] as string[];
     const ordersByTx =
       txIds.length > 0
         ? await this.prisma.payment.findMany({
@@ -132,6 +142,15 @@ export class PaymentsService {
       page: params.page,
       pageSize: params.pageSize,
     };
+    } catch (e) {
+      this.logger.error(`payments.list failed: ${e}`);
+      return {
+        items: [],
+        total: 0,
+        page: params.page,
+        pageSize: params.pageSize,
+      };
+    }
   }
 
   async listByOrderId(orderId: string, actor?: AuthUser) {

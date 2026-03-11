@@ -1,4 +1,4 @@
-import { DeliveryMethod, PaymentMethod, PaymentType } from "@prisma/client";
+import { DeliveryMethod, OrderSource, PaymentMethod, PaymentType } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
   IsEnum,
@@ -69,4 +69,8 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => DeliveryDataDto)
   deliveryData?: DeliveryDataDto | null;
+
+  @IsOptional()
+  @IsEnum(OrderSource)
+  orderSource?: OrderSource;
 }

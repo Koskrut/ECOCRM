@@ -29,13 +29,21 @@ export class NpTtnController {
     @Body() dto: CreateNpTtnDto,
     @Req() req: Request,
   ) {
-    // Workaround: ValidationPipe/class-transformer can strip nested draft when it fails
-    // nested validation; raw body has draft but dto.draft is undefined. Use raw body.
+    // Workaround: ValidationPipe/class-transformer can strip nested draft or profileId;
+    // raw body may have them. Restore from raw when DTO has them missing.
     const raw = req.body as Record<string, unknown>;
     if (!dto.profileId && !dto.draft && raw?.draft && typeof raw.draft === "object") {
       (dto as Record<string, unknown>).draft = raw.draft as CreateNpTtnDto["draft"];
     }
-    return this.ttn.createFromOrder(orderId, dto);
+    const rawProfileId = raw?.profileId;
+    if ((!dto.profileId || typeof dto.profileId !== "string" || !dto.profileId.trim()) && typeof rawProfileId === "string" && rawProfileId.trim()) {
+      (dto as Record<string, unknown>).profileId = rawProfileId.trim();
+    }
+    try {
+      return await this.ttn.createFromOrder(orderId, dto);
+    } catch (err: unknown) {
+      throw err;
+    }
   }
 
   // ✅ удалить ТТН из заказа (очистить deliveryData, удалить OrderTtn)

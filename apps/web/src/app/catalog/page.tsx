@@ -4,13 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   productsApi,
   type ProductCatalogItem,
+  type ProductImageItem,
+  type ProductImagesSyncResult,
+  type ProductImagesSyncStatus,
   type StockUploadResult,
 } from "../../lib/api";
+import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
 
-/** Первые два символа артикула (или весь артикул, если короче). */
+/** Первые два символа артикула (группа товара). */
 function categoryFromSku(sku: string): string {
   const s = sku.trim();
   return s.length >= 2 ? s.slice(0, 2) : s || "—";
+}
+
+function categoryLabel(categoryId: string): string {
+  return PRODUCT_GROUP_NAMES[categoryId] ?? `Группа ${categoryId}`;
 }
 
 function CatalogRowDeleteButton({
@@ -61,6 +69,246 @@ function CatalogRowDeleteButton({
         <line x1="14" y1="11" x2="14" y2="17" />
       </svg>
     </button>
+  );
+}
+
+function ProductImagesModal({
+  productId,
+  productName,
+  open,
+  onClose,
+}: {
+  productId: string;
+  productName: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [images, setImages] = useState<ProductImageItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!open || !productId) return;
+    setLoading(true);
+    productsApi
+      .listProductImages(productId)
+      .then((r) => setImages(r.items))
+      .catch(() => setImages([]))
+      .finally(() => setLoading(false));
+  }, [open, productId]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+      <div className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+          <h2 className="text-lg font-semibold text-zinc-900">
+            Фото: {productName}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+            aria-label="Закрыть"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto p-4">
+          {loading ? (
+            <p className="text-sm text-zinc-500">Загрузка…</p>
+          ) : images.length === 0 ? (
+            <p className="text-sm text-zinc-500">Нет фото. Запустите синхронизацию с Google Drive.</p>
+          ) : (
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {images.map((img) => (
+                <li key={img.id} className="flex flex-col gap-1">
+                  <img
+                    src={`/api/products/images/${img.id}/source`}
+                    alt={img.fileName}
+                    className="aspect-square rounded-lg border border-zinc-200 object-contain bg-zinc-50"
+                  />
+                  <p className="truncate text-xs text-zinc-500" title={img.fileName}>
+                    {img.fileName}
+                    {img.isPrimary && " (главное)"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const POLL_INTERVAL_MS = 1500;
+
+function SyncImagesModal({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [status, setStatus] = useState<ProductImagesSyncStatus | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = useCallback(() => {
+    setStatus(null);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
+
+  const pollStatus = useCallback(async () => {
+    try {
+      const s = await productsApi.getProductImagesSyncStatus();
+      setStatus(s);
+      return s.running;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open || !status?.running) return;
+    const t = setInterval(pollStatus, POLL_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [open, status?.running, pollStatus]);
+
+  const handleSync = async () => {
+    setStarting(true);
+    setError(null);
+    setStatus(null);
+    try {
+      await productsApi.syncProductImagesStart();
+      const s = await productsApi.getProductImagesSyncStatus();
+      setStatus(s);
+      if (!s.running && s.result && s.result.errors.length === 0) {
+        onSuccess();
+      }
+    } catch (err: unknown) {
+      const res = err && typeof err === "object" && "response" in err
+        ? (err as { response?: { status?: number; data?: ProductImagesSyncStatus } }).response
+        : null;
+      if (res?.status === 409 && res.data && typeof res.data === "object") {
+        setStatus(res.data);
+      } else {
+        setError(err instanceof Error ? err.message : "Ошибка запуска синхронизации");
+      }
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const result = status?.result ?? null;
+  const running = status?.running ?? false;
+  const done = !running && (result !== null || (status?.error ?? null) !== null);
+
+  useEffect(() => {
+    if (done && result && result.errors.length === 0) onSuccess();
+  }, [done, result, onSuccess]);
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+          Синхронизация фото из Google Drive
+        </h2>
+        <p className="mb-4 text-sm text-zinc-600">
+          Файлы из папки сопоставляются с товарами по артикулу в имени файла.
+          Настройте GOOGLE_DRIVE_FOLDER_ID и учётные данные на бэкенде.
+        </p>
+        {error && (
+          <p className="mb-3 text-sm text-red-600" role="alert">
+            {error}
+          </p>
+        )}
+        {status?.error && (
+          <p className="mb-3 text-sm text-red-600" role="alert">
+            {status.error}
+          </p>
+        )}
+        {running && (
+          <div className="mb-4">
+            <p className="mb-2 text-sm font-medium text-zinc-700">
+              Обработано файлов: {status.filesProcessed}
+              {status.totalFiles != null ? ` из ${status.totalFiles}` : ""}
+            </p>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200">
+              <div
+                className="h-full bg-[var(--primary)] transition-all duration-300"
+                style={{
+                  width:
+                    status.totalFiles != null && status.totalFiles > 0
+                      ? `${(100 * status.filesProcessed) / status.totalFiles}%`
+                      : "30%",
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {result && !running && (
+          <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
+            <p className="font-medium text-zinc-900">
+              Обработано файлов: {result.filesProcessed}
+            </p>
+            <p className="mt-1 text-zinc-700">
+              Сопоставлено с товарами: {result.productsMatched}
+            </p>
+            <p className="mt-1 text-zinc-700">
+              Не сопоставлено файлов: {result.filesUnmatched}
+            </p>
+            <p className="mt-1 text-zinc-700">
+              Товаров с несколькими фото: {result.productsWithMultipleImages}
+            </p>
+            {result.errors.length > 0 && (
+              <p className="mt-2 text-red-600">
+                Ошибки: {result.errors.join("; ")}
+              </p>
+            )}
+            {result.unmatchedFileNames.length > 0 && (
+              <p className="mt-2 text-zinc-600">
+                Примеры без совпадения:{" "}
+                {result.unmatchedFileNames.slice(0, 5).join(", ")}
+                {result.unmatchedFileNames.length > 5 &&
+                  ` и ещё ${result.unmatchedFileNames.length - 5}`}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSync}
+            disabled={starting || running}
+            className="btn-primary"
+          >
+            {starting
+              ? "Запуск…"
+              : running
+                ? "Синхронизация…"
+                : "Запустить синхронизацию"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              reset();
+            }}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -183,6 +431,11 @@ function CatalogPageContent() {
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [syncImagesModalOpen, setSyncImagesModalOpen] = useState(false);
+  const [imagesModalProduct, setImagesModalProduct] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [editingStock, setEditingStock] = useState<{
     productId: string;
     value: string;
@@ -252,6 +505,13 @@ function CatalogPageContent() {
           />
           <button
             type="button"
+            onClick={() => setSyncImagesModalOpen(true)}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Синхронизация фото
+          </button>
+          <button
+            type="button"
             onClick={() => setUploadModalOpen(true)}
             className="btn-primary"
           >
@@ -277,6 +537,7 @@ function CatalogPageContent() {
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
+                  <th className="w-16 px-2 py-3">Фото</th>
                   <th className="px-4 py-3">Артикул</th>
                   <th className="px-4 py-3">Название</th>
                   <th className="px-4 py-3">Ед.</th>
@@ -290,7 +551,7 @@ function CatalogPageContent() {
                 return (
                   <tbody key={category} className="border-t border-zinc-200">
                     <tr>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={7} className="p-0">
                         <button
                           type="button"
                           onClick={() => toggleCategory(category)}
@@ -309,7 +570,7 @@ function CatalogPageContent() {
                               d="M9 5l7 7-7 7"
                             />
                           </svg>
-                          <span>Категория {category}</span>
+                          <span>{categoryLabel(category)}</span>
                           <span className="text-xs font-normal text-zinc-500">
                             ({categoryItems.length})
                           </span>
@@ -319,6 +580,26 @@ function CatalogPageContent() {
                     {!isCollapsed &&
                       categoryItems.map((p) => (
                         <tr key={p.id} className="border-t border-zinc-100 hover:bg-zinc-50">
+                          <td className="px-2 py-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setImagesModalProduct({ id: p.id, name: p.name })
+                              }
+                              className="flex h-12 w-12 items-center justify-center overflow-hidden rounded border border-zinc-200 bg-zinc-50 hover:bg-zinc-100"
+                              title="Фото товара"
+                            >
+                              {p.primaryImageId ? (
+                                <img
+                                  src={`/api/products/images/${p.primaryImageId}/source`}
+                                  alt=""
+                                  className="h-full w-full object-contain"
+                                />
+                              ) : (
+                                <span className="text-lg text-zinc-400">—</span>
+                              )}
+                            </button>
+                          </td>
                           <td className="px-4 py-3 font-mono text-zinc-900">{p.sku}</td>
                           <td className="px-4 py-3 text-zinc-900">{p.name}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.unit}</td>
@@ -399,6 +680,17 @@ function CatalogPageContent() {
         open={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
         onSuccess={loadCatalog}
+      />
+      <SyncImagesModal
+        open={syncImagesModalOpen}
+        onClose={() => setSyncImagesModalOpen(false)}
+        onSuccess={loadCatalog}
+      />
+      <ProductImagesModal
+        productId={imagesModalProduct?.id ?? ""}
+        productName={imagesModalProduct?.name ?? ""}
+        open={Boolean(imagesModalProduct)}
+        onClose={() => setImagesModalProduct(null)}
       />
     </div>
   );

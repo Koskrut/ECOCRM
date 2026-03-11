@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+npm-debug.log*
+.coverage
+.nyc_output
+**/__tests__
+**/*.spec.ts
+**/*.test.ts

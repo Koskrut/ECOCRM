@@ -7,6 +7,39 @@ export type ProductCatalogItem = {
   unit: string;
   basePrice: number;
   stock: number;
+  primaryImageUrl: string | null;
+  primaryImageId: string | null;
+};
+
+export type ProductImageItem = {
+  id: string;
+  productId: string;
+  source: string;
+  fileId: string;
+  fileName: string;
+  url: string;
+  sortOrder: number;
+  isPrimary: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProductImagesSyncResult = {
+  filesProcessed: number;
+  productsMatched: number;
+  filesUnmatched: number;
+  productsWithMultipleImages: number;
+  unmatchedFileNames: string[];
+  errors: string[];
+};
+
+export type ProductImagesSyncStatus = {
+  jobId: string | null;
+  running: boolean;
+  filesProcessed: number;
+  totalFiles: number | null;
+  result: ProductImagesSyncResult | null;
+  error: string | null;
 };
 
 export type ProductsCatalogResponse = {
@@ -75,6 +108,30 @@ export const productsApi = {
       }
       throw new Error(message);
     }
+  },
+
+  listProductImages: async (productId: string): Promise<{ items: ProductImageItem[] }> => {
+    const res = await apiHttp.get<{ items: ProductImageItem[] }>(
+      `/products/${productId}/images`,
+    );
+    return res.data;
+  },
+
+  syncProductImagesStart: async (
+    folderId?: string,
+  ): Promise<{ jobId: string; status: string }> => {
+    const res = await apiHttp.post<{ jobId: string; status: string }>(
+      "/products/images/sync",
+      { folderId: folderId || undefined },
+    );
+    return res.data;
+  },
+
+  getProductImagesSyncStatus: async (): Promise<ProductImagesSyncStatus> => {
+    const res = await apiHttp.get<ProductImagesSyncStatus>(
+      "/products/images/sync/status",
+    );
+    return res.data;
   },
 
   uploadStock: async (file: File): Promise<StockUploadResult> => {

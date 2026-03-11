@@ -2,28 +2,49 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
+import type { CallTimelineItem } from "./CallCard";
+import { CallCard } from "./CallCard";
 
-type TimelineItem = {
-  id: string;
-  source: "ACTIVITY";
-  type: string; // COMMENT | CALL | MEETING
-  title: string;
-  body: string;
-  occurredAt: string;
-  createdAt: string;
-  createdBy: string;
-};
+type TimelineItem = CallTimelineItem;
 
 type TimelineResponse = { items: TimelineItem[] };
 
 type Props = {
   apiBaseUrl: string;
   contactId: string;
+  entityType?: "contact" | "lead";
   /** When false, only the timeline list is shown (no Call/Meeting/Comment add form). */
   showActivityButtons?: boolean;
 };
 
-export function ContactTimeline({ apiBaseUrl, contactId, showActivityButtons = true }: Props) {
+const MEETING_OUTCOME_SUCCESS = ["SUCCESS", "FOLLOW_UP"] as const;
+const MEETING_OUTCOME_FAIL = ["FAILED", "NOT_RELEVANT", "NO_DECISION"] as const;
+
+function getMeetingOutcomeBadge(
+  title: string,
+  type: string,
+): { variant: "success" | "fail" | "plan"; label: string } | null {
+  if (type !== "MEETING") return null;
+  const m = title.match(/\(([^)]+)\)$/);
+  const outcome = m?.[1]?.trim();
+  if (!outcome) return null;
+  const upper = outcome.toUpperCase();
+  if (outcome === "план" || upper === "ПЛАН") return { variant: "plan", label: "План" };
+  if (MEETING_OUTCOME_SUCCESS.includes(upper as (typeof MEETING_OUTCOME_SUCCESS)[number]))
+    return { variant: "success", label: upper === "FOLLOW_UP" ? "Дозвон" : "Успех" };
+  if (MEETING_OUTCOME_FAIL.includes(upper as (typeof MEETING_OUTCOME_FAIL)[number]))
+    return {
+      variant: "fail",
+      label: upper === "FAILED" ? "Неудача" : upper === "NO_DECISION" ? "Без решения" : "Не релевантно",
+    };
+  return null;
+}
+
+function meetingTitleWithoutOutcome(title: string): string {
+  return title.replace(/\s*\([^)]+\)\s*$/, "").trim() || "Встреча";
+}
+
+export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact", showActivityButtons = true }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -31,14 +52,16 @@ export function ContactTimeline({ apiBaseUrl, contactId, showActivityButtons = t
   const [mode, setMode] = useState<"COMMENT" | "CALL" | "MEETING">("COMMENT");
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "calls" | "missed" | "withRecording">("all");
 
   const timelineUrl = useMemo(
-    () => `${apiBaseUrl}/contacts/${contactId}/timeline`,
-    [apiBaseUrl, contactId],
+    () => entityType === "lead" ? `leads/${contactId}/activities` : `contacts/${contactId}/timeline`,
+    [contactId, entityType],
   );
   const activitiesUrl = useMemo(
-    () => `${apiBaseUrl}/contacts/${contactId}/activities`,
-    [apiBaseUrl, contactId],
+    () => entityType === "lead" ? `leads/${contactId}/activities` : `contacts/${contactId}/activities`,
+    [contactId, entityType],
   );
 
   const load = useCallback(async () => {
@@ -167,25 +190,134 @@ export function ContactTimeline({ apiBaseUrl, contactId, showActivityButtons = t
           <div className="text-sm text-zinc-500">No events yet</div>
         ) : (
           <div className="space-y-3">
-            {items.map((it) => (
-              <div key={it.id} className="rounded-md border border-zinc-200 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">
-                      {it.title}
-                      <span className="ml-2 rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
-                        {it.type}
-                      </span>
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-zinc-500">Фильтр:</span>
+              <button
+                type="button"
+                onClick={() => setFilter("all")}
+                className={`rounded-full px-3 py-1 ${
+                  filter === "all"
+                    ? "bg-zinc-900 text-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                } text-xs font-medium`}
+              >
+                Все
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter("calls")}
+                className={`rounded-full px-3 py-1 ${
+                  filter === "calls"
+                    ? "bg-zinc-900 text-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                } text-xs font-medium`}
+              >
+                Звонки
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter("missed")}
+                className={`rounded-full px-3 py-1 ${
+                  filter === "missed"
+                    ? "bg-red-600 text-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                } text-xs font-medium`}
+              >
+                Пропущенные
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter("withRecording")}
+                className={`rounded-full px-3 py-1 ${
+                  filter === "withRecording"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                } text-xs font-medium`}
+              >
+                С записью
+              </button>
+            </div>
+
+            {items
+              .filter((it) => {
+                const call = it.call;
+                if (filter === "all") return true;
+                if (filter === "calls") return it.type === "CALL";
+                if (filter === "missed") {
+                  if (it.type !== "CALL" || !call?.status) return false;
+                  const s = call.status.toUpperCase();
+                  return s.includes("MISSED");
+                }
+                if (filter === "withRecording") {
+                  if (it.type !== "CALL" || !call) return false;
+                  const status = (call.recordingStatus ?? "").toUpperCase();
+                  return !!call.recordingUrl && status === "READY";
+                }
+                return true;
+              })
+              .map((it) => {
+              const isExpanded = expandedId === it.id;
+              const hasBody = it.body.trim().length > 0;
+              const outcomeBadge = getMeetingOutcomeBadge(it.title, it.type);
+              const displayTitle = outcomeBadge ? meetingTitleWithoutOutcome(it.title) : it.title;
+              if (it.type === "CALL") {
+                return <CallCard key={it.id} item={it} />;
+              }
+
+              return (
+                <div
+                  key={it.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setExpandedId(isExpanded ? null : it.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setExpandedId(isExpanded ? null : it.id);
+                    }
+                  }}
+                  className="rounded-md border border-zinc-200 p-3 cursor-pointer hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-zinc-900 flex flex-wrap items-center gap-2">
+                        {displayTitle}
+                        <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
+                          {it.type}
+                        </span>
+                        {outcomeBadge && (
+                          <span
+                            className={
+                              outcomeBadge.variant === "success"
+                                ? "rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 border border-emerald-200"
+                                : outcomeBadge.variant === "plan"
+                                  ? "rounded bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-300"
+                                  : "rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 border border-red-200"
+                            }
+                          >
+                            {outcomeBadge.label}
+                          </span>
+                        )}
+                        {hasBody && (
+                          <span className="text-xs text-zinc-500">
+                            {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+                          </span>
+                        )}
+                      </div>
+                      {isExpanded && hasBody && (
+                        <div className="mt-2 rounded bg-zinc-50 p-2 whitespace-pre-wrap text-sm text-zinc-700 border border-zinc-100">
+                          {it.body}
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
+                    <div className="whitespace-nowrap text-xs text-zinc-500">
+                      {new Date(it.occurredAt).toLocaleString()}
+                    </div>
                   </div>
-                  <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt).toLocaleString()}
-                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
                 </div>
-                <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

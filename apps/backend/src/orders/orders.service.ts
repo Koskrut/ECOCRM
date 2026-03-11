@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
-import { OrderPaymentStatus, OrderStatus, UserRole } from "@prisma/client";
+import { OrderPaymentStatus, OrderSource, OrderStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
@@ -41,10 +41,11 @@ export class OrdersService {
 
   async list(q: ListOrdersQueryDto, actor?: AuthUser) {
     const page = Math.max(1, this.num(q?.page, 1));
-    const pageSize = Math.min(100, Math.max(1, this.num(q?.pageSize, 20)));
+    const pageSize = Math.min(100, Math.max(1, this.num(q?.pageSize, 50)));
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.OrderWhereInput = {};
+    const andWhere: Prisma.OrderWhereInput[] = [];
     if (q?.companyId) where.companyId = String(q.companyId);
     if (q?.clientId) where.clientId = String(q.clientId);
     if (q?.contactId) where.contactId = String(q.contactId);
@@ -54,10 +55,121 @@ export class OrdersService {
       where.status = q.status as OrderStatus;
     }
     if (q?.ownerId) where.ownerId = String(q.ownerId);
-    if (actor?.role === UserRole.MANAGER) where.ownerId = actor.id;
+    if (actor?.role === UserRole.MANAGER) {
+      where.OR = [{ ownerId: actor.id }, { orderSource: OrderSource.STORE }];
+    }
+    if (q?.paymentType) where.paymentType = q.paymentType;
+    if (q?.hasTtn === true) where.ttns = { some: {} };
+    if (q?.hasTtn === false) where.ttns = { none: {} };
+
+    if (q?.amountFrom != null || q?.amountTo != null) {
+      const totalAmount: Prisma.FloatFilter = {};
+      if (q?.amountFrom != null && Number.isFinite(Number(q.amountFrom))) {
+        totalAmount.gte = Number(q.amountFrom);
+      }
+      if (q?.amountTo != null && Number.isFinite(Number(q.amountTo))) {
+        totalAmount.lte = Number(q.amountTo);
+      }
+      if (totalAmount.gte != null || totalAmount.lte != null) {
+        andWhere.push({ totalAmount });
+      }
+    }
+
+    if (q?.paymentStatus) {
+      switch (q.paymentStatus) {
+        case OrderPaymentStatus.UNPAID:
+          andWhere.push({ paidAmount: { lte: 0 } });
+          break;
+        case OrderPaymentStatus.PARTIALLY_PAID:
+          andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { gt: 0 } });
+          break;
+        case OrderPaymentStatus.PAID:
+          andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { lte: 0 } });
+          break;
+        case OrderPaymentStatus.OVERPAID:
+          andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { lte: 0 } });
+          break;
+        default:
+          break;
+      }
+    }
+
+    const search = q?.q?.trim();
+    if (search) {
+      const phoneDigits = search.replace(/\D/g, "");
+      andWhere.push({
+        OR: [
+          { orderNumber: { contains: search, mode: "insensitive" } },
+          {
+            company: {
+              is: { name: { contains: search, mode: "insensitive" } },
+            },
+          },
+          {
+            client: {
+              is: {
+                OR: [
+                  { firstName: { contains: search, mode: "insensitive" } },
+                  { lastName: { contains: search, mode: "insensitive" } },
+                  {
+                    AND: search.includes(" ")
+                      ? search
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((part) => ({
+                            OR: [
+                              { firstName: { contains: part, mode: "insensitive" } },
+                              { lastName: { contains: part, mode: "insensitive" } },
+                            ],
+                          }))
+                      : [],
+                  },
+                  { phone: { contains: search, mode: "insensitive" } },
+                  ...(phoneDigits.length >= 5
+                    ? [{ phoneNormalized: { contains: phoneDigits } }]
+                    : []),
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (q?.dateFrom || q?.dateTo) {
+      const createdAt: Prisma.DateTimeFilter = {};
+      if (q?.dateFrom) {
+        const from = new Date(q.dateFrom);
+        if (!Number.isNaN(from.getTime())) {
+          createdAt.gte = from;
+        }
+      }
+      if (q?.dateTo) {
+        const to = new Date(q.dateTo);
+        if (!Number.isNaN(to.getTime())) {
+          const hasTime = q.dateTo.includes("T");
+          if (!hasTime) to.setHours(23, 59, 59, 999);
+          createdAt.lte = to;
+        }
+      }
+      if (createdAt.gte || createdAt.lte) {
+        andWhere.push({ createdAt });
+      }
+    }
+
+    if (andWhere.length > 0) {
+      where.AND = andWhere;
+    }
+
+    const sortBy = q?.sortBy ?? "createdAt";
+    const sortDir: Prisma.SortOrder = q?.sortDir === "asc" ? "asc" : "desc";
 
     const withRelations = q?.withCompanyClient === true;
-    const include: Prisma.OrderInclude = { items: true };
+    const include: Prisma.OrderInclude = {
+      items: true,
+      _count: { select: { ttns: true } },
+    };
     if (withRelations) {
       include.company = true;
       include.client = true;
@@ -66,7 +178,7 @@ export class OrdersService {
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: { [sortBy]: sortDir },
         skip,
         take: pageSize,
         include,
@@ -74,22 +186,43 @@ export class OrdersService {
       this.prisma.order.count({ where }),
     ]);
 
+    const ownerIds = Array.from(new Set(items.map((o) => o.ownerId).filter(Boolean)));
+    const owners =
+      ownerIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: ownerIds } },
+            select: { id: true, fullName: true, email: true },
+          })
+        : [];
+    const ownerById = new Map(owners.map((o) => [o.id, o]));
+
     return {
       items: items.map((o) => {
         const paidAmount = o.paidAmount ?? 0;
         const totalAmount = o.totalAmount ?? 0;
+        const owner = ownerById.get(o.ownerId);
         const base = {
           id: o.id,
           orderNumber: o.orderNumber,
           companyId: o.companyId,
           clientId: o.clientId,
+          ownerId: o.ownerId,
+          owner: owner
+            ? {
+                id: owner.id,
+                fullName: owner.fullName,
+                email: owner.email,
+              }
+            : null,
           status: o.status,
           totalAmount: o.totalAmount,
           paidAmount: o.paidAmount,
           debtAmount: o.debtAmount,
           paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
+          isPaid: paidAmount >= totalAmount && totalAmount > 0,
           currency: o.currency,
           paymentType: o.paymentType,
+          hasTtn: (o._count?.ttns ?? 0) > 0,
           createdAt: o.createdAt,
           itemsCount: o.items.length,
         };
@@ -134,6 +267,7 @@ export class OrdersService {
     // When authenticated, use current user as owner; otherwise require body (e.g. API).
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
+    const orderSource = dto.orderSource ?? OrderSource.CRM;
     const orderNumber = `ORD-${Date.now()}`;
     const currency = "UAH";
     const status = OrderStatus.NEW;
@@ -150,6 +284,7 @@ export class OrdersService {
           clientId: dto.clientId ?? null,
           contactId: dto.contactId ?? null,
           ownerId,
+          orderSource,
           status,
           currency,
           subtotalAmount: a.subtotal,
@@ -518,6 +653,10 @@ export class OrdersService {
       items: items.map((it) => ({
         id: it.id,
         productId: it.productId,
+        productName:
+          (it.product as { name?: string } | null)?.name ??
+          (it as { productNameSnapshot?: string | null }).productNameSnapshot ??
+          "",
         qty: it.qty,
         price: it.price,
         lineTotal: it.lineTotal,

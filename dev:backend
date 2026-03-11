@@ -1,0 +1,58 @@
+> npm run dev --workspace=backend
+
+
+> backend@1.0.0 dev
+> ts-node src/main.ts
+
+/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:859
+    return new TSError(diagnosticText, diagnosticCodes, diagnostics);
+           ^
+TSError: ⨯ Unable to compile TypeScript:
+src/integrations/bitrix-sync/bitrix.initial-import.service.ts:1075:27 - error TS2769: No o
+src/integrations/bitrix-sync/bitrix.initial-import.service.ts:1075:27 - error TS2769: No overload matches this call.
+  Overload 1 of 2, '(arg: Prisma__OrderClient<{ id: string; createdAt: Date; contactId: st
+  Overload 1 of 2, '(arg: Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; owner
+  Overload 1 of 2, '(arg: Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStus; ... 16 more ...; orderSource: OrderSource; }, never, Defa
+  Overload 1 of 2, '(arg: Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[], options?: { ...; } | undefined): Promise<...>', gave the 
+  Overload 1 of 2, '(arg: Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[], options?: { ...; } | undefined): Promise<...>', gave the following error.
+    Object literal may only specify known properties, and 'timeout' does not exist in type
+    Object literal may only specify known properties, and 'timeout' does not exist in type '{ isolationLevel?: TransactionIsolationLevel | undefined; }'.
+  Overload 2 of 2, '(fn: (prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArg
+  Overload 2 of 2, '(fn: (prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$transaction" | "$extends">) => Promise<...>, op
+  Overload 2 of 2, '(fn: (prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$transaction" | "$extends">) => Promise<...>, options?: { ...; } | undefined): Promise<...>', gave the following error.
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: 
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultA
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' is not assignable to parameter of type '(prisma: Omit<PrismaC
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' is not assignable to parameter of type '(prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$tra
+    Argument of type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' is not assignable to parameter of type '(prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$transaction" | "$extends">) => Promise<...>'.
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; c
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; st
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, Prism
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' provides no match for the signature '(prisma: Omit<PrismaClient<PrismaC
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' provides no match for the signature '(prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$transaction" | "
+      Type 'Prisma__OrderClient<{ id: string; createdAt: Date; contactId: string | null; companyId: string | null; orderNumber: string; clientId: string | null; ownerId: string; status: OrderStatus; ... 16 more ...; orderSource: OrderSource; }, never, DefaultArgs, PrismaClientOptions>[]' provides no match for the signature '(prisma: Omit<PrismaClient<PrismaClientOptions, never, DefaultArgs>, "$on" | "$connect" | "$disconnect" | "$transaction" | "$extends">): Promise<...>'.
+
+1075         await this.prisma.$transaction(
+                               ~~~~~~~~~~~~
+
+
+    at createTSError (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:859:12)
+    at reportTSError (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:863:19)
+    at getOutput (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:1077:36)
+    at Object.compile (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:1433:41)
+    at Module.m._compile (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:1617:30)
+    at node:internal/modules/cjs/loader:1893:10
+    at Object.require.extensions.<computed> [as .ts] (/Users/konstantin/CRM/node_modules/t
+    at Object.require.extensions.<computed> [as .ts] (/Users/konstantin/CRM/node_modules/ts-node/src/index.ts:1621:12)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14) {
+  diagnosticCodes: [ 2769 ]
+}
+npm error Lifecycle script `dev` failed with error:
+npm error code 1
+npm error path /Users/konstantin/CRM/apps/backend
+npm error workspace backend@1.0.0
+npm error location /Users/konstantin/CRM/apps/backend
+npm error command failed

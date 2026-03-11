@@ -8,8 +8,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
 import { normalizePagination } from "../common/pagination";
 import type { ValidationError } from "../common/validation";
@@ -34,10 +37,13 @@ export class CompaniesController {
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Post()
-  public async create(@Body() body: CreateCompanyDto) {
+  public async create(
+    @Body() body: CreateCompanyDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     const errors = validateCreateCompanyDto(body);
     assertValid(errors);
-    return this.companiesService.create(body);
+    return this.companiesService.create(body, req.user);
   }
 
   @Get()
@@ -47,6 +53,14 @@ export class CompaniesController {
       pageSize: query.pageSize,
     });
     return this.companiesService.list(query.search, pagination);
+  }
+
+  @Get("/:id/change-history")
+  public async getChangeHistory(@Param() params: { id: string }) {
+    const errors: ValidationError[] = [];
+    validateString(params.id, "id", errors);
+    assertValid(errors);
+    return this.companiesService.getChangeHistory(params.id);
   }
 
   @Get("/:id")
@@ -65,11 +79,15 @@ export class CompaniesController {
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Patch("/:id")
-  public async update(@Param() params: { id: string }, @Body() body: UpdateCompanyDto) {
+  public async update(
+    @Param() params: { id: string },
+    @Body() body: UpdateCompanyDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     const errors: ValidationError[] = [];
     validateString(params.id, "id", errors);
     errors.push(...validateUpdateCompanyDto(body));
     assertValid(errors);
-    return this.companiesService.update(params.id, body);
+    return this.companiesService.update(params.id, body, req.user);
   }
 }

@@ -1,5 +1,5 @@
 // src/np/np-client.service.ts
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 
 export type NpResponse<T> = {
   success: boolean;
@@ -17,7 +17,7 @@ export type NpResponse<T> = {
 export class NpClient {
   private readonly url = process.env.NP_API_URL || "https://api.novaposhta.ua/v2.0/json/";
   private readonly apiKey = process.env.NP_API_KEY || "";
-  private readonly timeoutMs = Number(process.env.NP_API_TIMEOUT_MS || 20000);
+  private readonly timeoutMs = Number(process.env.NP_API_TIMEOUT_MS || 30000);
 
   async call<T = unknown>(
     modelName: string,
@@ -63,8 +63,8 @@ export class NpClient {
           (Array.isArray(json?.info) ? json.info.join("; ") : "") ||
           "Nova Poshta API error";
 
-        throw new Error(
-          `NP API error (model=${modelName}.${calledMethod}): ${msg}. Response: ${JSON.stringify(json).slice(0, 800)}`,
+        throw new BadRequestException(
+          `NP API error (model=${modelName}.${calledMethod}): ${msg}`,
         );
       }
 

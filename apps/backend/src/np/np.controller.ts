@@ -53,6 +53,17 @@ export class NpController {
     return { ok: true };
   }
 
+  // ручной sync вулиць: без limit = по всіх містах, ?limit=N = перші N міст (макс. 5000)
+  @Post("sync/streets")
+  async syncStreetsAll(@Query("limit") limit?: string) {
+    const limitCities =
+      limit && limit.trim() !== ""
+        ? Math.min(Math.max(Number(limit), 1), 5000)
+        : undefined;
+    await this.sync.syncStreetsForAllCities(limitCities);
+    return { ok: true, fullSync: limitCities == null };
+  }
+
   // ручной sync улиц для конкретного города
   @Post("sync/streets/:cityRef")
   async syncStreets(@Param("cityRef") cityRef: string) {

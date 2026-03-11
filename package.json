@@ -8,6 +8,9 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "lint": "eslint . -c eslint.config.mjs",
-    "lint:fix": "eslint . -c eslint.config.mjs --fix"
+    "lint:fix": "eslint . -c eslint.config.mjs --fix",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:web": "npm run dev --workspace=web",
+    "dev:store": "npm run dev --workspace=store"
   }
 }

@@ -40,27 +40,6 @@ export async function proxyToBackend(req: NextRequest, backendPath: string) {
   const body =
     method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
 
-  // #region agent log
-  if (method === "POST" && backendPath === "products/stock/upload") {
-    const contentType = req.headers.get("content-type") ?? "";
-    fetch("http://127.0.0.1:7242/ingest/58313e80-8970-4da9-b340-4c7a66d3124e", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        location: "proxy.server.ts:proxyToBackend",
-        message: "Proxy forwarding stock upload",
-        data: {
-          hypothesisId: "H1",
-          contentType: contentType.substring(0, 80),
-          hasMultipart: contentType.includes("multipart"),
-          bodyByteLength: body ? (body as ArrayBuffer).byteLength : 0,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
-
   const r = await fetch(target.toString(), {
     method,
     headers,

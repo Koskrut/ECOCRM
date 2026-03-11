@@ -1,0 +1,63 @@
+# Production stack for Netcup (or any VPS).
+# Usage: copy .env from apps/backend/.env.example, add POSTGRES_PASSWORD, then:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/crm
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      API_URL: http://backend:3001
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+  store:
+    build:
+      context: ./apps/store
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      API_URL: http://backend:3001
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3002:3002"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -47,6 +47,8 @@ export type OrderPaymentBlockProps = {
   onSaved?: () => void | Promise<void>;
 };
 
+type SyncStatusAccount = { id: string; name: string; lastSyncAt: string | null; lastBookedAt: string | null };
+
 export function OrderPaymentBlock({
   orderId,
   apiBaseUrl,
@@ -60,6 +62,8 @@ export function OrderPaymentBlock({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddCash, setShowAddCash] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusAccount[]>([]);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -80,14 +84,50 @@ export function OrderPaymentBlock({
     }
   }, [apiBaseUrl, orderId]);
 
+  const fetchSyncStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiBaseUrl}/bank/sync/status`, { credentials: "include" });
+      if (!r.ok) return;
+      const data = (await r.json()) as { accounts?: SyncStatusAccount[] };
+      setSyncStatus(Array.isArray(data.accounts) ? data.accounts : []);
+    } catch {
+      setSyncStatus([]);
+    }
+  }, [apiBaseUrl]);
+
   useEffect(() => {
     void fetchPayments();
-  }, [fetchPayments]);
+    void fetchSyncStatus();
+  }, [fetchPayments, fetchSyncStatus]);
+
+  const runSync = useCallback(async () => {
+    setSyncLoading(true);
+    try {
+      const r = await fetch(`${apiBaseUrl}/bank/sync`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(await r.text());
+      await fetchPayments();
+      await fetchSyncStatus();
+      await Promise.resolve(onSaved?.());
+    } catch {
+      // Error could be shown via a small toast; for now just stop loading
+    } finally {
+      setSyncLoading(false);
+    }
+  }, [apiBaseUrl, fetchPayments, fetchSyncStatus, onSaved]);
 
   const statusLabel = paymentStatus ? PAYMENT_STATUS_LABELS[paymentStatus] ?? paymentStatus : null;
+  const lastSync = syncStatus.length > 0 && syncStatus[0]?.lastSyncAt
+    ? new Date(syncStatus[0].lastSyncAt).toLocaleString()
+    : null;
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-zinc-500">
+        В назначении платежа указывайте номер заказа — оплаты подтянутся автоматически.
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-zinc-600">
           <span className="font-medium text-zinc-900">{statusLabel ?? "Payment"}</span>
@@ -96,14 +136,27 @@ export function OrderPaymentBlock({
             {paidAmount.toFixed(2)} / {totalAmount.toFixed(2)} {currency}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowAddCash(true)}
-          className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-        >
-          + Cash payment
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runSync()}
+            disabled={syncLoading}
+            className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {syncLoading ? "Синхронізація…" : "Обновить оплаты сейчас"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddCash(true)}
+            className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            + Наличная
+          </button>
+        </div>
       </div>
+      {lastSync && (
+        <p className="text-xs text-zinc-400">Остання синхронізація: {lastSync}</p>
+      )}
 
       {error ? (
         <p className="text-xs text-red-600">{error}</p>

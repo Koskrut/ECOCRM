@@ -4,14 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  LayoutDashboard,
   Package,
   UserPlus,
   Building2,
   Users,
   LayoutGrid,
-  UserCog,
   Settings,
   Wallet,
+  MapPin,
+  MessageCircle,
+  ListTodo,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -25,15 +28,18 @@ type MenuItem = {
 type MeResponse = { user?: { role?: string } };
 
 const baseMenuItems: MenuItem[] = [
-  { label: "Orders", icon: Package, href: "/orders" },
+  { label: "Dashboard", icon: LayoutDashboard, href: "/" },
   { label: "Leads", icon: UserPlus, href: "/leads" },
+  { label: "Orders", icon: Package, href: "/orders" },
   { label: "Companies", icon: Building2, href: "/companies" },
   { label: "Contacts", icon: Users, href: "/contacts" },
+  { label: "Tasks", icon: ListTodo, href: "/tasks" },
+  { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
+  { label: "Visits", icon: MapPin, href: "/visits" },
 ];
 
 const paymentsItem: MenuItem = { label: "Payments", icon: Wallet, href: "/payments" };
-const employeesItem: MenuItem = { label: "Employees", icon: UserCog, href: "/employees" };
 const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
 
 type SidebarProps = {
@@ -57,7 +63,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   }, []);
   const menuItems =
     role === "ADMIN"
-      ? [...baseMenuItems, paymentsItem, employeesItem, settingsItem]
+      ? [...baseMenuItems, paymentsItem, settingsItem]
       : baseMenuItems;
 
   // Detect mobile on mount
@@ -153,7 +159,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           </div>
           <nav className="p-3">
             {menuItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const isActive =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
               return (
                 <Link
@@ -189,6 +198,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             setCollapsed((prev) => {
               const newValue = !prev;
               localStorage.setItem("crm_sidebar_collapsed", String(newValue));
+              window.dispatchEvent(
+                new CustomEvent("crm_sidebar", { detail: { collapsed: newValue } }),
+              );
               return newValue;
             });
           }}
@@ -201,7 +213,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       </div>
       <nav className="p-3">
         {menuItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

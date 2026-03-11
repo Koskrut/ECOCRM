@@ -37,6 +37,64 @@ export class AuthController {
     return this.authService.login(body);
   }
 
+  @Public()
+  @Post("/password-reset/request")
+  public async requestPasswordReset(@Body() body: { email?: string }) {
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    return this.authService.requestPasswordReset(email);
+  }
+
+  @Public()
+  @Post("/password-reset/confirm")
+  public async confirmPasswordReset(
+    @Body() body: { email?: string; code?: string; newPassword?: string },
+  ) {
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const code = typeof body?.code === "string" ? body.code.trim() : "";
+    const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+    return this.authService.confirmPasswordReset(email, code, newPassword);
+  }
+
+  @Public()
+  @Get("/telegram-widget-config")
+  public async getTelegramWidgetConfig() {
+    return this.authService.getTelegramWidgetConfig();
+  }
+
+  @Public()
+  @Post("/telegram-login")
+  public async telegramLogin(
+    @Body()
+    body: {
+      id?: number;
+      first_name?: string;
+      username?: string;
+      auth_date?: number;
+      hash?: string;
+    },
+  ) {
+    if (
+      typeof body?.id !== "number" ||
+      typeof body?.auth_date !== "number" ||
+      typeof body?.hash !== "string"
+    ) {
+      throw new BadRequestException("id, auth_date and hash required");
+    }
+    return this.authService.loginWithTelegram({
+      id: body.id,
+      first_name: body.first_name,
+      username: body.username,
+      auth_date: body.auth_date,
+      hash: body.hash,
+    });
+  }
+
+  @Post("/telegram-link-request")
+  public async requestTelegramLink(@Req() req: Request & { user?: AuthUser }) {
+    if (!req.user) throw new BadRequestException("Authentication required");
+    return this.authService.requestTelegramLink(req.user.id);
+  }
+
   @Get("/me")
   public async me(@Req() request: Request & { user?: AuthUser }) {
     if (!request.user) {

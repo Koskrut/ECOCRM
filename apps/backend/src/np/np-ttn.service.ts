@@ -148,9 +148,10 @@ export class NpTtnService {
   // Resolve data (profile or draft)
   // ==============================
   private async resolveRecipientData(contactId: string, dto: CreateNpTtnDto) {
-    if (dto.profileId) {
+    const profileId = typeof dto.profileId === "string" ? dto.profileId.trim() : "";
+    if (profileId) {
       const profile = await this.prisma.contactShippingProfile.findUnique({
-        where: { id: dto.profileId },
+        where: { id: profileId },
       });
       if (!profile || profile.contactId !== contactId)
         throw new BadRequestException("profile not found");
@@ -338,7 +339,6 @@ export class NpTtnService {
   }) {
     const { dto, resolved, npRefs } = args;
     const d = resolved.data as Record<string, unknown>;
-
     const sender = await this.getSenderRefsFromEnv();
     if (!d.phone) throw new BadRequestException("Recipient phone is required");
 
@@ -525,9 +525,10 @@ export class NpTtnService {
       npAddressRef: npRefs.addressRef != null ? String(npRefs.addressRef) : null,
     };
 
-    if (dto.profileId) {
+    const profileId = typeof dto.profileId === "string" ? dto.profileId.trim() : "";
+    if (profileId) {
       await this.prisma.contactShippingProfile.update({
-        where: { id: dto.profileId },
+        where: { id: profileId },
         data: profileData,
       });
       return;
