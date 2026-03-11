@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { login } from "@/lib/api";
 import { Button } from "@/components/Button";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const resetSuccess = searchParams.get("reset") === "success";
@@ -104,5 +104,13 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center">Завантаження…</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
