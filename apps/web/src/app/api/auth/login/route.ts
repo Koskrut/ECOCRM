@@ -20,12 +20,15 @@ export async function POST(req: Request) {
   const token = data.token ?? data.accessToken;
   const res = NextResponse.json({ ok: true });
 
-  res.cookies.set("token", token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    secure: isSecureRequest(req),
-  });
+  if (token) {
+    res.cookies.set("token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      secure: isSecureRequest(req),
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+    });
+  }
 
   return res;
 }

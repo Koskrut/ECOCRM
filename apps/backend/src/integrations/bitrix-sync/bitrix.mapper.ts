@@ -115,6 +115,19 @@ export function mapBitrixContactToPrisma(
   const post = row["POST"] != null ? String(row["POST"]).trim() : null;
   const comments = row["COMMENTS"] != null ? String(row["COMMENTS"]).trim() : null;
   const address = comments || null;
+  // Bitrix REST may return ADDRESS or structured ADDRESS_*; build addressInfo from any available
+  const addressParts = [
+    row["ADDRESS"],
+    row["ADDRESS_2"],
+    row["ADDRESS_CITY"],
+    row["ADDRESS_REGION"],
+    row["ADDRESS_PROVINCE"],
+    row["ADDRESS_POSTAL_CODE"],
+    row["ADDRESS_COUNTRY"],
+  ]
+    .filter((v) => v != null && String(v).trim() !== "")
+    .map((v) => String(v).trim());
+  const addressInfoFromRest = addressParts.length > 0 ? addressParts.join(", ") : null;
   const externalCode =
     row["UF_CRM_1772007718612"] != null && String(row["UF_CRM_1772007718612"]).trim() !== ""
       ? String(row["UF_CRM_1772007718612"]).trim()
@@ -131,7 +144,7 @@ export function mapBitrixContactToPrisma(
   const addressInfo =
     row["ADDRESS"] != null && String(row["ADDRESS"]).trim() !== ""
       ? String(row["ADDRESS"]).trim()
-      : null;
+      : addressInfoFromRest;
   const city =
     row["UF_CRM_1753079682882"] != null && String(row["UF_CRM_1753079682882"]).trim() !== ""
       ? String(row["UF_CRM_1753079682882"]).trim()

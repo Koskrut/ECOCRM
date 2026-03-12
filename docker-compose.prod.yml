@@ -11,6 +11,9 @@ services:
       POSTGRES_DB: crm
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Expose 5432 on all interfaces so import run from another host (e.g. 159.159.31.153) can connect. Restrict with firewall (e.g. ufw allow from 159.159.31.153 to any port 5432).
+    ports:
+      - "5432:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
@@ -27,6 +30,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/crm
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      CRON_ENABLED: "true"
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RINGOSTAT_PROVIDER, RingostatIngestService } from "./ringostat-ingest.service";
 
@@ -25,8 +26,11 @@ export class RingostatPollingService {
    */
   @Cron("*/5 * * * *")
   async run(): Promise<void> {
+    if (process.env.CRON_ENABLED !== "true") return;
     try {
-      const setting = await this.prisma.integrationSetting.findFirst({
+      await withRetryOnConnectionClosed(
+        async () => {
+        const setting = await this.prisma.integrationSetting.findFirst({
         where: { provider: RINGOSTAT_PROVIDER },
       });
       if (!setting?.isEnabled) return;
@@ -115,6 +119,14 @@ export class RingostatPollingService {
 
       this.logger.log(
         `Ringostat polling done: events=${events.length}, window=${from.toISOString()}..${to.toISOString()}`,
+      );
+        },
+        {
+          onBeforeRetry: async () => {
+            await this.prisma.$disconnect();
+            await this.prisma.$connect();
+          },
+        },
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

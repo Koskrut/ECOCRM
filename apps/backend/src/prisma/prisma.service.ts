@@ -12,8 +12,16 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       throw new Error("DATABASE_URL is not set");
     }
 
-    const pool = new Pool({ connectionString });
-    // @types/pg (ours) vs @prisma/adapter-pg's @types/pg are different; adapter accepts pg.Pool at runtime
+    const pool = new Pool({
+      connectionString,
+      keepAlive: true,
+      idleTimeoutMillis: 30_000,
+      max: 1,
+      connectionTimeoutMillis: 10_000,
+    });
+    pool.on("error", (err) => {
+      console.warn("[PrismaService] pool connection error (client will be removed):", err.message);
+    });
     const adapter = new PrismaPg(pool as any);
 
     super({ adapter });

@@ -126,4 +126,31 @@ export class BitrixClient {
       return null;
     }
   }
+
+  /** Fetch contact by ID with PHONE, EMAIL, ADDRESS (REST returns them by default; explicit for clarity). */
+  async getContactById(contactId: number): Promise<Record<string, unknown> | null> {
+    return this.getById("crm.contact.get", contactId);
+  }
+
+  /**
+   * Fetch product rows (товары) of a deal. Bitrix method: crm.deal.productrows.get
+   * @param dealId Bitrix deal ID (OWNER_ID for product rows)
+   * @returns Array of product row objects (ID, PRODUCT_NAME, QUANTITY, PRICE, etc.)
+   */
+  async getDealProductRows(dealId: number): Promise<Record<string, unknown>[]> {
+    try {
+      const result = await this.request<Record<string, unknown>[] | Record<string, unknown>>(
+        "crm.deal.productrows.get",
+        { id: dealId },
+      );
+      if (Array.isArray(result)) return result;
+      if (result && typeof result === "object" && !Array.isArray(result)) {
+        const values = Object.values(result) as Record<string, unknown>[];
+        return values.filter((v) => v && typeof v === "object");
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
 }

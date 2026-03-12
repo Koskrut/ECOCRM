@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
 import { BitrixClient } from "./bitrix.client";
 import { BITRIX_INTEGRATION, BitrixSyncStateService } from "./bitrix.sync-state.service";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -8,8 +9,10 @@ import {
   mapBitrixContactToPrisma,
   mapBitrixLeadToPrisma,
   mapBitrixDealToPrisma,
+  mapBitrixProductRowToPrisma,
   firstPhoneFromRest,
   firstEmailFromRest,
+  parseBitrixProductNameForSku,
 } from "./bitrix.mapper";
 
 const LEGACY_SOURCE = "bitrix";
@@ -27,14 +30,24 @@ export class BitrixDeltaSyncService {
 
   @Cron("*/5 * * * *") // every 5 minutes
   async run(): Promise<void> {
-    if (process.env.BITRIX_SYNC_ENABLED !== "true") {
+    if (process.env.CRON_ENABLED !== "true" || process.env.BITRIX_SYNC_ENABLED !== "true") {
       return;
     }
     try {
-      await this.syncContacts();
-      await this.syncCompanies();
-      await this.syncLeads();
-      await this.syncDeals();
+      await withRetryOnConnectionClosed(
+        async () => {
+          await this.syncContacts();
+          await this.syncCompanies();
+          await this.syncLeads();
+          await this.syncDeals();
+        },
+        {
+          onBeforeRetry: async () => {
+            await this.prisma.$disconnect();
+            await this.prisma.$connect();
+          },
+        },
+      );
     } catch (e) {
       this.logger.error("Bitrix delta sync failed", e);
     }
@@ -294,7 +307,7 @@ export class BitrixDeltaSyncService {
    * Fetches current state from Bitrix REST then upserts into ECOCRM. Idempotent.
    */
   async syncContactByBitrixId(bitrixId: number): Promise<boolean> {
-    const item = await this.client.getById("crm.contact.get", bitrixId);
+    const item = await this.client.getContactById(bitrixId);
     if (!item) return false;
     const id = Number(item["ID"]);
     if (!id) return false;
@@ -409,8 +422,15 @@ export class BitrixDeltaSyncService {
     const assignedById = Number(item["ASSIGNED_BY_ID"] ?? 0);
     const ownerId = await this.resolveUserId(assignedById);
     if (!ownerId) return false;
-    const companyId = item["COMPANY_ID"] ? await this.resolveCompanyId(Number(item["COMPANY_ID"])) : null;
-    const contactId = item["CONTACT_ID"] ? await this.resolveContactId(Number(item["CONTACT_ID"])) : null;
+
+    // Sync company and contact first so they exist when we link the order
+    const rawCompanyId = item["COMPANY_ID"] ? Number(item["COMPANY_ID"]) : 0;
+    const rawContactId = item["CONTACT_ID"] ? Number(item["CONTACT_ID"]) : 0;
+    if (rawCompanyId) await this.syncCompanyByBitrixId(rawCompanyId);
+    if (rawContactId) await this.syncContactByBitrixId(rawContactId);
+
+    const companyId = rawCompanyId ? await this.resolveCompanyId(rawCompanyId) : null;
+    const contactId = rawContactId ? await this.resolveContactId(rawContactId) : null;
     const clientId = contactId;
     const orderNumber = `BITRIX-${id}`;
     const data = mapBitrixDealToPrisma(
@@ -446,11 +466,59 @@ export class BitrixDeltaSyncService {
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     };
+    let orderId: string;
     if (existing) {
       await this.prisma.order.update({ where: { id: existing.id }, data: payload });
+      orderId = existing.id;
     } else {
-      await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
+      const created = await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
+      orderId = created.id;
     }
+
+    // Sync deal product rows (товары) → OrderItem
+    const productRows = await this.client.getDealProductRows(bitrixId);
+    for (const row of productRows) {
+      const rowId = Number(row["ID"]);
+      if (!rowId) continue;
+      const productName = row["PRODUCT_NAME"] != null ? String(row["PRODUCT_NAME"]).trim() : null;
+      const { sku } = parseBitrixProductNameForSku(productName);
+      let productId: string | null = null;
+      if (sku) {
+        const product = await this.prisma.product.findUnique({ where: { sku } });
+        productId = product?.id ?? null;
+      }
+      const d = mapBitrixProductRowToPrisma(
+        row as Record<string, unknown>,
+        orderId,
+        productId,
+        productName,
+      );
+      await this.prisma.orderItem.upsert({
+        where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: rowId } },
+        create: {
+          orderId: d.orderId,
+          productId: d.productId,
+          productNameSnapshot: d.productNameSnapshot,
+          qty: d.qty,
+          price: d.price,
+          lineTotal: d.lineTotal,
+          legacySource: d.legacySource,
+          legacyId: d.legacyId,
+          legacyRaw: d.legacyRaw as object,
+          syncedAt: d.syncedAt,
+        },
+        update: {
+          productId: d.productId,
+          productNameSnapshot: d.productNameSnapshot,
+          qty: d.qty,
+          price: d.price,
+          lineTotal: d.lineTotal,
+          legacyRaw: d.legacyRaw as object,
+          syncedAt: d.syncedAt,
+        },
+      });
+    }
+
     return true;
   }
 }
