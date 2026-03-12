@@ -432,10 +432,15 @@ export class RingostatIngestService {
 
     const candidates = this.phoneNormalizedCandidates(customerPhoneNormalized);
 
-    // 1) Try to find Contact by normalized phone (try 380... and 0... formats).
+    // 1) Try to find Contact by primary or additional phone (same candidate formats).
     for (const key of candidates) {
-      const contact = await this.prisma.contact.findUnique({
-        where: { phoneNormalized: key },
+      const contact = await this.prisma.contact.findFirst({
+        where: {
+          OR: [
+            { phoneNormalized: key },
+            { phones: { some: { phoneNormalized: key } } },
+          ],
+        },
         select: { id: true, companyId: true },
       });
       if (contact) {
@@ -610,6 +615,7 @@ export class RingostatIngestService {
         createdBy: params.managerUserId ?? "system",
         contactId: params.contactId,
         companyId: params.companyId,
+        leadId: params.leadId,
         callId,
       },
     });
