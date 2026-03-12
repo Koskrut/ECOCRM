@@ -176,7 +176,7 @@ export function EmployeeModal({
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={saving || mode === "edit"} // email не меняем в edit
+            disabled={saving}
             placeholder="user@company.com"
             autoComplete="email"
           />
