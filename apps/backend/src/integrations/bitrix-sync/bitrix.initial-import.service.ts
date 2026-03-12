@@ -437,29 +437,9 @@ export class BitrixInitialImportService {
         result.errors += newRecords.length;
       }
     }
-    for (let i = 0; i < existingRecords.length; i += UPDATE_BATCH_SIZE) {
-      const chunk = existingRecords.slice(i, i + UPDATE_BATCH_SIZE);
-      try {
-        await this.prisma.$transaction(
-          chunk.map((row) => {
-            const id = Number(row["ID"]);
-            const d = mapBitrixUserToPrisma(row as Record<string, unknown>);
-            return this.prisma.user.update({
-              where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
-              data: {
-                fullName: d.fullName,
-                legacyRaw: d.legacyRaw as object,
-                syncedAt: d.syncedAt,
-              },
-            });
-          }),
-        );
-        result.updated += chunk.length;
-      } catch (e) {
-        this.logger.warn(`User batch update error (legacyIds ${chunk.map((r) => Number(r["ID"])).join(",")}): ${e}`);
-        result.errors += chunk.length;
-      }
-    }
+    // Не обновляем существующих пользователей — сохраняем ручные правки (email, роль, пароль).
+    // Новые пользователи по legacyId по-прежнему создаются; заказы/лиды/контакты привязываются к пользователям через loadUserIdByLegacyId().
+    result.skipped += existingRecords.length;
     return result;
   }
 
