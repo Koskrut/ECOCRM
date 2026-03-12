@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { API_URL } from "@/lib/api/config";
+import { isSecureRequest } from "@/lib/cookie-secure";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(req),
   });
 
   return res;
