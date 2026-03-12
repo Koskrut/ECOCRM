@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "../../../lib/api/client";
 
-type UserRole = "ADMIN" | "LEAD" | "MANAGER";
+/** Same order as Employees modal: USER, LEAD, MANAGER, ADMIN */
+const ROLE_OPTIONS = ["USER", "LEAD", "MANAGER", "ADMIN"] as const;
+type UserRole = (typeof ROLE_OPTIONS)[number];
 
 type User = {
   id: string;
@@ -75,7 +77,7 @@ export default function AccessSettingsPage() {
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Access &amp; Permissions</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Manage employee roles (ADMIN / LEAD / MANAGER)
+            Manage employee roles (USER / LEAD / MANAGER / ADMIN)
           </p>
         </div>
 
@@ -121,9 +123,11 @@ export default function AccessSettingsPage() {
                         onChange={(e) => void setRole(u.id, e.target.value as UserRole)}
                         className="rounded-md border px-2 py-1 text-sm bg-white"
                       >
-                        <option value="ADMIN">ADMIN</option>
-                        <option value="LEAD">LEAD</option>
-                        <option value="MANAGER">MANAGER</option>
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
                       </select>
                     </td>
                     <td className="px-6 py-4 text-zinc-600">

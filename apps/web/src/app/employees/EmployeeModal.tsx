@@ -8,7 +8,7 @@ export type Employee = {
   id: string;
   email: string;
   fullName?: string | null;
-  role: "ADMIN" | "LEAD" | "USER";
+  role: "ADMIN" | "LEAD" | "MANAGER" | "USER";
 };
 
 function pickMessage(e: unknown, fallback: string) {
@@ -213,9 +213,11 @@ export function EmployeeModal({
             value={role}
             onChange={(e) => setRole(e.target.value as Employee["role"])}
             disabled={saving}
+            aria-label="Role"
           >
             <option value="USER">USER</option>
             <option value="LEAD">LEAD</option>
+            <option value="MANAGER">MANAGER</option>
             <option value="ADMIN">ADMIN</option>
           </select>
 

@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
 import type { Pagination } from "../common/pagination";
@@ -88,6 +89,7 @@ export class CompaniesService {
   public async list(
     search: string | undefined,
     pagination: Pagination,
+    actor?: AuthUser,
   ): Promise<ListCompaniesResult> {
     const where: Prisma.CompanyWhereInput = {};
 
@@ -99,6 +101,12 @@ export class CompaniesService {
         { phone: { contains: search, mode: "insensitive" } },
         { address: { contains: search, mode: "insensitive" } },
       ];
+    }
+
+    if (actor?.role === UserRole.MANAGER) {
+      const existingAnd: Prisma.CompanyWhereInput[] =
+        where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND];
+      where.AND = [...existingAnd, { OR: [{ ownerId: actor.id }, { ownerId: null }] }];
     }
 
     const [total, companies] = await this.prisma.$transaction([
@@ -138,7 +146,7 @@ export class CompaniesService {
     };
   }
 
-  public async findOne(id: string): Promise<Company> {
+  public async findOne(id: string, actor?: AuthUser): Promise<Company> {
     const [company, lastVisit] = await this.prisma.$transaction([
       this.prisma.company.findUnique({
         where: { id },
@@ -151,6 +159,10 @@ export class CompaniesService {
     ]);
 
     if (!company) {
+      throw new NotFoundException("Company not found");
+    }
+
+    if (actor?.role === UserRole.MANAGER && company.ownerId != null && company.ownerId !== actor.id) {
       throw new NotFoundException("Company not found");
     }
 
@@ -292,12 +304,15 @@ export class CompaniesService {
     }
   }
 
-  public async getChangeHistory(companyId: string): Promise<CompanyChangeHistoryItem[]> {
+  public async getChangeHistory(companyId: string, actor?: AuthUser): Promise<CompanyChangeHistoryItem[]> {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { id: true },
+      select: { id: true, ownerId: true },
     });
     if (!company) {
+      throw new NotFoundException("Company not found");
+    }
+    if (actor?.role === UserRole.MANAGER && company.ownerId != null && company.ownerId !== actor.id) {
       throw new NotFoundException("Company not found");
     }
 

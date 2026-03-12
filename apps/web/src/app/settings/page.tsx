@@ -16,7 +16,7 @@ export default function SettingsHomePage() {
           >
             <div className="text-sm font-semibold text-zinc-900">Access & Permissions</div>
             <div className="mt-1 text-sm text-zinc-500">
-              Manage employee roles (ADMIN / LEAD / MANAGER)
+              Manage employee roles (USER / LEAD / MANAGER / ADMIN)
             </div>
           </Link>
 

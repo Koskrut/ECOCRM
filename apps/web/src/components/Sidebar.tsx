@@ -142,11 +142,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           />
         )}
         <aside
-          className={`fixed left-0 top-0 z-50 h-full w-60 transform bg-zinc-50 shadow-lg transition-transform duration-300 ${
+          className={`fixed left-0 top-0 z-50 flex h-full w-60 flex-col transform bg-zinc-50 shadow-lg transition-transform duration-300 ${
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="flex h-16 items-center justify-between border-b border-zinc-200 px-4">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
             <h1 className="text-lg font-semibold text-zinc-900">CRM</h1>
             <button
               type="button"
@@ -157,7 +157,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               ✕
             </button>
           </div>
-          <nav className="p-3">
+          <nav className="min-h-0 flex-1 overflow-y-auto p-3">
             {menuItems.map((item) => {
               const isActive =
                 item.href === "/"
@@ -187,10 +187,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   // Desktop sidebar
   return (
     <aside
-      className={`fixed left-0 top-0 z-30 h-screen border-r border-zinc-200 bg-zinc-50 transition-all duration-300 ${sidebarWidth}`}
+      className={`fixed left-0 top-0 z-30 flex h-screen flex-col border-r border-zinc-200 bg-zinc-50 transition-all duration-300 ${sidebarWidth}`}
       style={{ width: `${sidebarWidthPx}px` }}
     >
-      <div className="flex h-16 items-center justify-between border-b border-zinc-200 px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 px-4">
         {!collapsed && <h1 className="text-lg font-semibold text-zinc-900">CRM</h1>}
         <button
           type="button"
@@ -211,7 +211,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           {collapsed ? "›" : "‹"}
         </button>
       </div>
-      <nav className="p-3">
+      <nav className="min-h-0 flex-1 overflow-y-auto p-3">
         {menuItems.map((item) => {
           const isActive =
             item.href === "/"

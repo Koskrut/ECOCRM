@@ -47,28 +47,37 @@ export class CompaniesController {
   }
 
   @Get()
-  public async list(@Query() query: { search?: string; page?: string; pageSize?: string }) {
+  public async list(
+    @Query() query: { search?: string; page?: string; pageSize?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     const pagination = normalizePagination({
       page: query.page,
       pageSize: query.pageSize,
     });
-    return this.companiesService.list(query.search, pagination);
+    return this.companiesService.list(query.search, pagination, req.user);
   }
 
   @Get("/:id/change-history")
-  public async getChangeHistory(@Param() params: { id: string }) {
+  public async getChangeHistory(
+    @Param() params: { id: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     const errors: ValidationError[] = [];
     validateString(params.id, "id", errors);
     assertValid(errors);
-    return this.companiesService.getChangeHistory(params.id);
+    return this.companiesService.getChangeHistory(params.id, req.user);
   }
 
   @Get("/:id")
-  public async findOne(@Param() params: { id: string }) {
+  public async findOne(
+    @Param() params: { id: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     const errors: ValidationError[] = [];
     validateString(params.id, "id", errors);
     assertValid(errors);
-    return this.companiesService.findOne(params.id);
+    return this.companiesService.findOne(params.id, req.user);
   }
 
   @Roles(UserRole.ADMIN, UserRole.LEAD)
