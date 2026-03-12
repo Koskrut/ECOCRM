@@ -171,14 +171,17 @@ export function EmployeeModal({
             </div>
           )}
 
-          <label className="block text-sm font-medium text-zinc-700">Email</label>
+          <label className="block text-sm font-medium text-zinc-700">
+            Email {mode === "edit" ? "(логін)" : ""}
+          </label>
           <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            type="text"
+            className="mt-1 w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-100"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            disabled={saving}
+            disabled={false}
             placeholder="user@company.com"
-            autoComplete="email"
+            autoComplete="off"
           />
 
           <label className="mt-3 block text-sm font-medium text-zinc-700">Full name</label>
