@@ -755,6 +755,12 @@ model StoreTelegramLinkToken {
   @@index([expiresAt])
 }
 
+/// Single-row table: next order number (7000, 7001, …). No ORD- prefix.
+model OrderNumberSeq {
+  id        String @id @default(cuid())
+  nextValue Int
+}
+
 model Order {
   id          String @id @default(cuid())
   orderNumber String @unique

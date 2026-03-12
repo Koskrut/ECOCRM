@@ -268,43 +268,51 @@ export class OrdersService {
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
     const orderSource = dto.orderSource ?? OrderSource.CRM;
-    const orderNumber = `ORD-${Date.now()}`;
     const currency = "UAH";
     const status = OrderStatus.NEW;
     const discountAmount = this.num(dto.discountAmount, 0);
     const paidAmount = 0;
-
     const a = this.calc(0, discountAmount, paidAmount);
 
     try {
-      const order = await this.prisma.order.create({
-        data: {
-          orderNumber,
-          companyId: dto.companyId ?? null,
-          clientId: dto.clientId ?? null,
-          contactId: dto.contactId ?? null,
-          ownerId,
-          orderSource,
-          status,
-          currency,
-          subtotalAmount: a.subtotal,
-          discountAmount: a.discount,
-          totalAmount: a.total,
-          paidAmount: a.paid,
-          debtAmount: a.debt,
-          comment: dto.comment ?? null,
-          deliveryMethod: dto.deliveryMethod ?? null,
-          paymentMethod: dto.paymentMethod ?? null,
-          paymentType: dto.paymentType ?? null,
-          deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
-        },
-        include: {
-          company: true,
-          client: true,
-          contact: true,
-          items: { include: { product: true } },
-          ttns: true,
-        },
+      const order = await this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<[{ assigned: number }]>`
+          UPDATE "OrderNumberSeq" SET "nextValue" = "nextValue" + 1
+          RETURNING "nextValue" - 1 AS assigned
+        `;
+        const row = rows[0];
+        if (!row) throw new InternalServerErrorException("OrderNumberSeq not initialized");
+        const orderNumber = String(row.assigned);
+
+        return tx.order.create({
+          data: {
+            orderNumber,
+            companyId: dto.companyId ?? null,
+            clientId: dto.clientId ?? null,
+            contactId: dto.contactId ?? null,
+            ownerId,
+            orderSource,
+            status,
+            currency,
+            subtotalAmount: a.subtotal,
+            discountAmount: a.discount,
+            totalAmount: a.total,
+            paidAmount: a.paid,
+            debtAmount: a.debt,
+            comment: dto.comment ?? null,
+            deliveryMethod: dto.deliveryMethod ?? null,
+            paymentMethod: dto.paymentMethod ?? null,
+            paymentType: dto.paymentType ?? null,
+            deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
+          },
+          include: {
+            company: true,
+            client: true,
+            contact: true,
+            items: { include: { product: true } },
+            ttns: true,
+          },
+        });
       });
 
       return this.mapToEntity(order);
