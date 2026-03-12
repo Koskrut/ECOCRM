@@ -88,9 +88,9 @@ Content-Type: application/json
   git clone https://github.com/<user>/<repo>.git /opt/crm
   cd /opt/crm
   ```
-- Создай на сервере файл `.env` в корне репо (рядом с `docker-compose.prod.yml`). Минимум:
+- Создай на сервере файл `.env` **в корне репо** (рядом с `docker-compose.prod.yml`). Только переменные окружения (строки вида `KEY=value`), без вставки YAML из docker-compose. Минимум:
   - `POSTGRES_PASSWORD` — пароль БД PostgreSQL.
-  - Все переменные из `apps/backend/.env.example` (в т.ч. `DATABASE_URL` можно не задавать — compose подставит свой от postgres).
+  - Остальное по образцу `apps/backend/.env.example` или корневого `.env.production.example`. `DATABASE_URL` в .env можно не задавать — compose подставит свою строку для контейнера backend.
   - Для прода: `CORS_ORIGIN=https://твой-домен.ru,https://store.твой-домен.ru` и т.п.
 - Первый запуск вручную:
   ```bash
@@ -118,9 +118,6 @@ Content-Type: application/json
 ```bash
 docker compose -f docker-compose.prod.yml exec backend npm run bitrix:import
 ```
-ssh -L 3307:127.0.0.1:3306 root@144.76.233.11
-
-
 
 **Вариант B — импорт с другого хоста** (импорт на 159.159.31.153, CRM и Bitrix MySQL на 144.76.233.11). В `apps/backend/.env` на машине, где запускаешь импорт (159.159.31.153), укажи:
 

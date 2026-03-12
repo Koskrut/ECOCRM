@@ -29,7 +29,17 @@ if (!process.env.DATABASE_URL) {
 import { AppModule } from "../src/app.module";
 import { BitrixInitialImportService } from "../src/integrations/bitrix-sync/bitrix.initial-import.service";
 
+/** When run on host (not in Docker), hostname "postgres" does not resolve — force 127.0.0.1. Call immediately before creating Nest app. */
+function ensureDatabaseUrlForHost() {
+  const u = process.env.DATABASE_URL;
+  if (!u) return;
+  if (u.includes("@postgres:") || u.includes("@postgres/")) {
+    process.env.DATABASE_URL = u.replace(/@postgres:/, "@127.0.0.1:").replace(/@postgres\//, "@127.0.0.1/");
+  }
+}
+
 async function main() {
+  ensureDatabaseUrlForHost();
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["log", "error", "warn"],
   });
