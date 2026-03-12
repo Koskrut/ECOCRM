@@ -26,6 +26,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/crm
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     depends_on:
       postgres:
         condition: service_healthy
