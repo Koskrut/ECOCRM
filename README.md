@@ -118,8 +118,21 @@ Content-Type: application/json
 ```bash
 docker compose -f docker-compose.prod.yml exec backend npm run bitrix:import
 ```
+ssh -L 3307:127.0.0.1:3306 root@144.76.233.11
 
-**Вариант B — импорт с другого хоста** (например Bitrix на 144.76.233.11, импорт запускаешь на 159.159.31.153): на сервере с CRM (144.76.233.11) PostgreSQL слушает на порту 5432 на всех интерфейсах (`5432:5432` в compose). На машине, где запускаешь импорт, в `apps/backend/.env` укажи `DATABASE_URL=postgresql://crm:ПАРОЛЬ@144.76.233.11:5432/crm`. Доступ к 5432 снаружи лучше ограничить файрволом (например только с IP 159.159.31.153).
+
+
+**Вариант B — импорт с другого хоста** (импорт на 159.159.31.153, CRM и Bitrix MySQL на 144.76.233.11). В `apps/backend/.env` на машине, где запускаешь импорт (159.159.31.153), укажи:
+
+- **CRM (PostgreSQL):** `DATABASE_URL=postgresql://crm:ПАРОЛЬ_БД@144.76.233.11:5432/crm` (на 144.76.233.11 в compose порт 5432 проброшен).
+- **Bitrix MySQL** (источник данных на 144.76.233.11):
+  - Если MySQL на 144.76.233.11 доступен по сети (порт 3306 открыт):  
+    `BITRIX_MYSQL_HOST=144.76.233.11`, `BITRIX_MYSQL_PORT=3306`, `BITRIX_MYSQL_USER`, `BITRIX_MYSQL_PASSWORD`, `BITRIX_MYSQL_DATABASE`.
+  - Если MySQL слушает только localhost на 144.76.233.11 — туннель с хоста, где запускаешь импорт:  
+    `ssh -L 3307:127.0.0.1:3306 root@144.76.233.11` (держать в фоне), затем в `.env`:  
+    `BITRIX_MYSQL_HOST=127.0.0.1`, `BITRIX_MYSQL_PORT=3307`, `BITRIX_MYSQL_USER`, `BITRIX_MYSQL_PASSWORD`, `BITRIX_MYSQL_DATABASE`.
+
+Доступ к 5432 на 144.76.233.11 лучше ограничить файрволом (например только с 159.159.31.153).
 
 ---
 
