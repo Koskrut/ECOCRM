@@ -128,6 +128,7 @@ function OrdersPageContent() {
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
@@ -217,6 +218,13 @@ function OrdersPageContent() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
   }, []);
 
   const fetchOrders = useCallback(async () => {
@@ -730,6 +738,7 @@ function OrdersPageContent() {
           onSaved={() => void fetchOrders()}
           onOpenCompany={(id) => console.log("Open company", id)}
           onOpenContact={(id) => console.log("Open contact", id)}
+          userRole={userRole}
         />
       )}
     </div>

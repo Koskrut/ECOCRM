@@ -14,6 +14,8 @@ type Props = {
   leadId: string;
   onClose: () => void;
   onUpdated: () => void;
+  /** Role from parent (e.g. from /auth/me on page). When set, used for admin actions and internal fetch is skipped. */
+  userRole?: string | null;
 };
 
 type ActivityItem = {
@@ -33,7 +35,7 @@ type ContactSuggestion = {
   email?: string | null;
 };
 
-export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
+export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: userRoleProp }: Props) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -104,17 +106,47 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
 
   const canClose = !saving && !converting && !statusUpdating && !addingNote && !deleting;
 
+  const effectiveRole = userRoleProp ?? userRole;
+  const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
+
+  useEffect(() => {
+    // #region agent log
+    if (typeof console !== "undefined" && console.debug) {
+      console.debug("[LeadModal delete condition]", { effectiveRole, hasLead: !!lead, isAdmin, showDelete: !!(lead && isAdmin) });
+    }
+    fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasLead:!!lead,isAdmin,showDelete:!!(lead&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
+    // #endregion
+  }, [effectiveRole, lead, isAdmin]);
+
   const title = useMemo(() => {
     if (!lead) return "Lead";
     return lead.fullName || lead.name || [lead.firstName, lead.middleName, lead.lastName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
 
   useEffect(() => {
+    if (userRoleProp != null) return;
     apiHttp
       .get<{ user?: { role?: string } }>("/auth/me")
-      .then((res) => setUserRole(res.data?.user?.role ?? null))
-      .catch(() => setUserRole(null));
-  }, []);
+      .then((res) => {
+        const role = res.data?.user?.role ?? null;
+        // #region agent log
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug("[LeadModal auth/me]", { role, rawUser: res.data?.user });
+        }
+        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
+        // #endregion
+        setUserRole(role);
+      })
+      .catch((err) => {
+        // #region agent log
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug("[LeadModal auth/me failed]", err?.message, (err as any)?.response?.status);
+        }
+        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        setUserRole(null);
+      });
+  }, [userRoleProp]);
 
   const loadLead = useCallback(async () => {
     setLoading(true);
@@ -728,7 +760,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
               onChange={(e) => setEditLastName(e.target.value)}
               onBlur={() => {
                 if (editLastName !== (lead.lastName ?? "")) {
-                  fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0f7630'},body:JSON.stringify({sessionId:'0f7630',location:'LeadModal.tsx:714',message:'Updating lastName',data:{lastName:editLastName},timestamp:Date.now(),hypothesisId:'A',runId:'test'})}).catch(()=>{});
+                  fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0f7630'},body:JSON.stringify({sessionId:'0f7630',location:'LeadModal.tsx:714',message:'Updating lastName',data:{lastName:editLastName},timestamp:Date.now(),hypothesisId:'A',runId:'test'})}).catch(()=>{});
                   void patchLead({ lastName: editLastName.trim() || null });
                 }
               }}
@@ -1386,31 +1418,40 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       tabsUnderHeader={tabsUnderHeader}
       headerActions={
         <>
-          {lead && userRole === "ADMIN" && (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
-                setDeleting(true);
-                setErr(null);
-                try {
-                  await leadsApi.delete(lead.id);
-                  onUpdated();
-                  onClose();
-                } catch (e) {
-                  const msg =
-                    (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                    (e instanceof Error ? e.message : "Не удалось удалить лид");
-                  setErr(msg);
-                } finally {
-                  setDeleting(false);
-                }
-              }}
-              disabled={deleting}
-              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
-            >
-              {deleting ? "Удаление…" : "Удалить лид"}
-            </button>
+          {lead && (
+            isAdmin ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
+                  setDeleting(true);
+                  setErr(null);
+                  try {
+                    await leadsApi.delete(lead.id);
+                    onUpdated();
+                    onClose();
+                  } catch (e) {
+                    const msg =
+                      (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                      (e instanceof Error ? e.message : "Не удалось удалить лид");
+                    setErr(msg);
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                disabled={deleting}
+                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+              >
+                {deleting ? "Удаление…" : "Удалить лид"}
+              </button>
+            ) : (
+              <span
+                className="rounded-md border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-500"
+                title={effectiveRole != null ? `Ваша роль: ${effectiveRole}. Удалять может только ADMIN.` : "Роль не загружена. Удалять может только ADMIN."}
+              >
+                Удалить лид (только ADMIN)
+              </span>
+            )
           )}
           {lead && canConvert && (
             <button

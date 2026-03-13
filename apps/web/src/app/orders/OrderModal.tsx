@@ -324,7 +324,7 @@ export function OrderModal({
 
   const canClose = !saving && !submittingItem && !statusUpdating && !deleting;
 
-  const effectiveRole = userRoleProp !== undefined ? userRoleProp : userRole;
+  const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
 
   useEffect(() => {
@@ -332,7 +332,7 @@ export function OrderModal({
     if (typeof console !== "undefined" && console.debug) {
       console.debug("[OrderModal delete condition]", { effectiveRole, hasOrder: !!order, isCreate, isAdmin, showDelete: !!(!isCreate && order && isAdmin) });
     }
-    fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasOrder:!!order,isCreate,isAdmin,showDelete:!!(!isCreate&&order&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
+    fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasOrder:!!order,isCreate,isAdmin,showDelete:!!(!isCreate&&order&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
     // #endregion
   }, [effectiveRole, order, isCreate, isAdmin]);
 
@@ -479,7 +479,7 @@ export function OrderModal({
   ]);
 
   useEffect(() => {
-    if (userRoleProp !== undefined) return;
+    if (userRoleProp != null) return;
     apiHttp
       .get<{ user?: { role?: string } }>("/auth/me")
       .then((res) => {
@@ -488,7 +488,7 @@ export function OrderModal({
         if (typeof console !== "undefined" && console.debug) {
           console.debug("[OrderModal auth/me]", { role, rawUser: res.data?.user });
         }
-        fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
+        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
         // #endregion
         setUserRole(role);
       })
@@ -497,7 +497,7 @@ export function OrderModal({
         if (typeof console !== "undefined" && console.debug) {
           console.debug("[OrderModal auth/me failed]", err?.message, (err as any)?.response?.status);
         }
-        fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
         setUserRole(null);
       });
@@ -802,15 +802,29 @@ export function OrderModal({
 
   const orderHeaderActions = (
     <>
-      {!isCreate && order && isAdmin && (
-        <button
-          type="button"
-          onClick={() => void deleteOrder()}
-          disabled={deleting}
-          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
-        >
-          {deleting ? "Удаление…" : "Удалить заказ"}
-        </button>
+      {userRoleProp != null && (
+        <span className="rounded bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
+          {String(userRoleProp)}
+        </span>
+      )}
+      {!isCreate && order && (
+        isAdmin ? (
+          <button
+            type="button"
+            onClick={() => void deleteOrder()}
+            disabled={deleting}
+            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+          >
+            {deleting ? "Удаление…" : "Удалить заказ"}
+          </button>
+        ) : (
+          <span
+            className="rounded-md border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-500"
+            title={effectiveRole != null ? `Ваша роль: ${effectiveRole}. Удалять может только ADMIN.` : "Роль не загружена. Удалять может только ADMIN."}
+          >
+            Удалить заказ (только ADMIN)
+          </span>
+        )
       )}
     </>
   );

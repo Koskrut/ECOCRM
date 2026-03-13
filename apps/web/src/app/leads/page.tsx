@@ -10,6 +10,7 @@ import {
   type LeadStatus,
   type LeadSource,
 } from "@/lib/api";
+import { apiHttp } from "@/lib/api/client";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
@@ -42,6 +43,7 @@ function LeadsPageContent() {
 
   const leadId = searchParams.get("leadId");
   const [createOpen, setCreateOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [items, setItems] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +124,13 @@ function LeadsPageContent() {
   useEffect(() => {
     void reload({ keepPage: true });
   }, [reload]);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
 
   const openLead = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -337,6 +346,7 @@ function LeadsPageContent() {
           leadId={leadId}
           onClose={closeModal}
           onUpdated={() => void reload({ keepPage: true })}
+          userRole={userRole}
         />
       )}
 

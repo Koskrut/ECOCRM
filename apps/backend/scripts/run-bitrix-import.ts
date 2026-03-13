@@ -18,7 +18,7 @@ import { NestFactory } from "@nestjs/core";
 const rootEnv = path.resolve(process.cwd(), "../../.env");
 config({ path: rootEnv });
 if (!process.env.DATABASE_URL && process.env.POSTGRES_PASSWORD) {
-  process.env.DATABASE_URL = `postgresql://crm:${process.env.POSTGRES_PASSWORD}@127.0.0.1:5432/crm`;
+  process.env.DATABASE_URL = `postgresql://crm:${process.env.POSTGRES_PASSWORD}@localhost:5432/crm`;
 }
 if (!process.env.DATABASE_URL) {
   console.error(
@@ -29,12 +29,12 @@ if (!process.env.DATABASE_URL) {
 import { AppModule } from "../src/app.module";
 import { BitrixInitialImportService } from "../src/integrations/bitrix-sync/bitrix.initial-import.service";
 
-/** When run on host (not in Docker), hostname "postgres" does not resolve — force 127.0.0.1. Call immediately before creating Nest app. */
+/** When run on host (not in Docker), hostname "postgres" does not resolve — force localhost. Call immediately before creating Nest app. */
 function ensureDatabaseUrlForHost() {
   const u = process.env.DATABASE_URL;
   if (!u) return;
   if (u.includes("@postgres:") || u.includes("@postgres/")) {
-    process.env.DATABASE_URL = u.replace(/@postgres:/, "@127.0.0.1:").replace(/@postgres\//, "@127.0.0.1/");
+    process.env.DATABASE_URL = u.replace(/@postgres:/, "@localhost:").replace(/@postgres\//, "@localhost/");
   }
 }
 

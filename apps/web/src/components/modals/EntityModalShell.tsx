@@ -69,7 +69,7 @@ export function EntityModalShell({
               <div className="mt-0.5 text-sm text-zinc-500">{subtitle}</div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {headerActions}
             <button
               type="button"

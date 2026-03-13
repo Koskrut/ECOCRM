@@ -86,7 +86,7 @@ export default function CheckoutPage() {
     }
     setProfilesLoaded(false);
     // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
       body: JSON.stringify({
@@ -103,7 +103,7 @@ export default function CheckoutPage() {
       .then((r) => {
         const items = r.items ?? [];
         // #region agent log
-        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+        fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
           body: JSON.stringify({
@@ -127,7 +127,7 @@ export default function CheckoutPage() {
       })
       .catch((err) => {
         // #region agent log
-        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+        fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
           body: JSON.stringify({

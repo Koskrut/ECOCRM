@@ -183,7 +183,7 @@ cd /opt/crm
 docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 ```
 
-Проверка: сервисы слушают только localhost (3000 — web, 3001 — backend, 3002 — store). Доступ снаружи — через nginx/caddy с SSL (прокси на `127.0.0.1:3000`, `127.0.0.1:3001`, `127.0.0.1:3002`).
+Проверка: сервисы слушают только localhost (3000 — web, 3001 — backend, 3002 — store). Доступ снаружи — через nginx/caddy с SSL (прокси на `localhost:3000`, `localhost:3001`, `localhost:3002`).
 
 ### 4. (Опционально) Nginx как reverse proxy
 
@@ -201,7 +201,7 @@ server {
     listen 80;
     server_name crm.example.com;
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -215,7 +215,7 @@ server {
     listen 80;
     server_name store.example.com;
     location / {
-        proxy_pass http://127.0.0.1:3002;
+        proxy_pass http://localhost:3002;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -230,4 +230,4 @@ ln -s /etc/nginx/sites-available/crm /etc/nginx/sites-enabled/
 nginx -t && systemctl reload nginx
 ```
 
-Дальше — SSL через `certbot --nginx` и при необходимости прокси для API (`api.example.com` → `127.0.0.1:3001`).
+Дальше — SSL через `certbot --nginx` и при необходимости прокси для API (`api.example.com` → `localhost:3001`).

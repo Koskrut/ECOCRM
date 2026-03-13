@@ -30,7 +30,7 @@ export async function withRetryOnConnectionClosed<T>(
     const err = e as { code?: string; message?: string };
     const msg = err?.message ?? (e instanceof Error ? (e as Error).message : String(e));
     const isMatch = isConnectionClosedError(e);
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
       body: JSON.stringify({
@@ -48,7 +48,7 @@ export async function withRetryOnConnectionClosed<T>(
     // Give pool time to drop dead client(s) before acquiring again (pg removes on client error)
     await new Promise((r) => setTimeout(r, 1500));
     // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
       body: JSON.stringify({
@@ -64,7 +64,7 @@ export async function withRetryOnConnectionClosed<T>(
     try {
       const out = await fn();
       // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
         body: JSON.stringify({
@@ -82,7 +82,7 @@ export async function withRetryOnConnectionClosed<T>(
       // #region agent log
       const err2 = e2 as { code?: string; message?: string };
       const msg2 = err2?.message ?? (e2 instanceof Error ? (e2 as Error).message : String(e2));
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
         body: JSON.stringify({

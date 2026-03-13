@@ -23,7 +23,7 @@ export class StoreCabinetController {
   async getShippingProfiles(@Req() req: RequestWithCustomer) {
     const contactId = req.customer!.contactId;
     // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
       body: JSON.stringify({
@@ -38,7 +38,7 @@ export class StoreCabinetController {
     // #endregion
     const result = await this.contacts.listShippingProfiles(contactId, undefined);
     // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
       body: JSON.stringify({

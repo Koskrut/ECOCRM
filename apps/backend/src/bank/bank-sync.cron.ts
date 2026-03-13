@@ -29,7 +29,7 @@ export class BankSyncCron {
     if (process.env.CRON_ENABLED !== "true") return;
     try {
       // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
         body: JSON.stringify({
@@ -52,7 +52,7 @@ export class BankSyncCron {
     } catch (e: unknown) {
       // #region agent log
       const msg = e instanceof Error ? e.message : String(e);
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
         body: JSON.stringify({

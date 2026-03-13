@@ -35,7 +35,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:3001:3001"
+      - "localhost:3001:3001"
     restart: unless-stopped
 
   web:
@@ -48,7 +48,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:3000:3000"
+      - "localhost:3000:3000"
     restart: unless-stopped
 
   store:
@@ -61,7 +61,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:3002:3002"
+      - "localhost:3002:3002"
     restart: unless-stopped
 
 volumes:
