@@ -165,7 +165,7 @@ export class RingostatIngestService {
         // Create Activity only on first insert (no call.id in old data).
         const existingActivity = await tx.activity.findFirst({
           where: { callId: call.id },
-          select: { id: true },
+          select: { id: true, leadId: true, contactId: true, companyId: true },
         });
 
         if (!existingActivity) {
@@ -179,22 +179,27 @@ export class RingostatIngestService {
             customerPhoneNormalized,
             managerUserId,
           });
-        } else if (recording.url) {
-          // Optionally enrich existing activity with recording info later.
-          await tx.activity.updateMany({
-            where: { callId: call.id },
-            data: {
-              body: {
-                set: this.buildActivityBody({
-                  direction,
-                  status,
-                  durationSec: call.durationSec ?? undefined,
-                  customerPhoneNormalized,
-                  hasRecording: true,
-                }),
-              },
-            },
-          });
+        } else {
+          // Enrich existing activity: link to lead/contact/company if call has them (so the creating call appears in lead timeline).
+          const updatePayload: Prisma.ActivityUpdateManyMutationInput = {};
+          if (call.leadId != null && existingActivity.leadId !== call.leadId) updatePayload.leadId = call.leadId;
+          if (call.contactId != null && existingActivity.contactId !== call.contactId) updatePayload.contactId = call.contactId;
+          if (call.companyId != null && existingActivity.companyId !== call.companyId) updatePayload.companyId = call.companyId;
+          if (recording.url) {
+            updatePayload.body = this.buildActivityBody({
+              direction,
+              status,
+              durationSec: call.durationSec ?? undefined,
+              customerPhoneNormalized,
+              hasRecording: true,
+            });
+          }
+          if (Object.keys(updatePayload).length > 0) {
+            await tx.activity.updateMany({
+              where: { callId: call.id },
+              data: updatePayload,
+            });
+          }
         }
 
         if (this.isMissed(status) && customerPhoneNormalized) {
