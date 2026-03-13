@@ -16,6 +16,7 @@ apps/web/.env.local
 **/.DS_Store
 
 # backups / temp
+crm_dump.sql
 *.bak
 *.bak.*
 *.tmp
