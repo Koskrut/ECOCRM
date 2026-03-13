@@ -13,7 +13,6 @@
     "prisma:migrate": "prisma migrate dev --name initial",
     "seed": "ts-node prisma/seed.ts",
     "np-sync": "ts-node scripts/run-np-sync.ts",
-    "prebitrix:import": "prisma generate",
     "bitrix:import": "ts-node scripts/run-bitrix-import.ts",
     "bitrix:delete-np-profiles": "ts-node scripts/delete-bitrix-np-profiles.ts"
   },

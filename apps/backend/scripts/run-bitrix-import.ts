@@ -11,6 +11,7 @@
 
 import "dotenv/config";
 import * as path from "path";
+import { execSync } from "child_process";
 import { config } from "dotenv";
 import { NestFactory } from "@nestjs/core";
 
@@ -26,6 +27,10 @@ if (!process.env.DATABASE_URL) {
   );
   process.exit(1);
 }
+
+// Regenerate Prisma client after env is loaded (so DATABASE_URL is set for prisma.config.ts)
+execSync("npx prisma generate", { stdio: "inherit" });
+
 import { AppModule } from "../src/app.module";
 import { BitrixInitialImportService } from "../src/integrations/bitrix-sync/bitrix.initial-import.service";
 
