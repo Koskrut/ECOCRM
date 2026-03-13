@@ -1,6 +1,7 @@
 import { DeliveryMethod, OrderSource, PaymentMethod, PaymentType } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsObject,
@@ -63,6 +64,10 @@ export class CreateOrderDto {
   @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType;
+
+  @IsOptional()
+  @IsBoolean()
+  documentsRequested?: boolean | null;
 
   @IsOptional()
   @IsObject()

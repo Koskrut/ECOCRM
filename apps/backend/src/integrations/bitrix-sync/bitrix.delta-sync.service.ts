@@ -14,6 +14,7 @@ import {
   firstEmailFromRest,
   parseBitrixProductNameForSku,
 } from "./bitrix.mapper";
+import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
 const MAX_PAGES_PER_RUN = 10;
@@ -249,6 +250,8 @@ export class BitrixDeltaSyncService {
           ownerId: data.ownerId,
           status: data.status,
           paymentMethod: data.paymentMethod ?? undefined,
+          documentsRequested: data.documentsRequested ?? undefined,
+          deliveryMethod: data.deliveryMethod ?? undefined,
           currency: data.currency,
           subtotalAmount: data.subtotalAmount,
           discountAmount: data.discountAmount,
@@ -263,13 +266,17 @@ export class BitrixDeltaSyncService {
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
         };
+        let orderId: string;
         if (existing) {
           await this.prisma.order.update({ where: { id: existing.id }, data: payload });
+          orderId = existing.id;
           updated++;
         } else {
-          await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
+          const createdOrder = await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
+          orderId = createdOrder.id;
           created++;
         }
+        if (data.ttnNumber) await ensureOrderTtnFromBitrix(this.prisma, orderId, data.ttnNumber);
       }
       if (items.length > 0) {
         await this.syncState.setLastSync(BITRIX_INTEGRATION, entity, new Date());
@@ -452,6 +459,8 @@ export class BitrixDeltaSyncService {
       ownerId: data.ownerId,
       status: data.status,
       paymentMethod: data.paymentMethod ?? undefined,
+      documentsRequested: data.documentsRequested ?? undefined,
+      deliveryMethod: data.deliveryMethod ?? undefined,
       currency: data.currency,
       subtotalAmount: data.subtotalAmount,
       discountAmount: data.discountAmount,
@@ -474,6 +483,7 @@ export class BitrixDeltaSyncService {
       const created = await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
       orderId = created.id;
     }
+    if (data.ttnNumber) await ensureOrderTtnFromBitrix(this.prisma, orderId, data.ttnNumber);
 
     // Sync deal product rows (товары) → OrderItem
     const productRows = await this.client.getDealProductRows(bitrixId);

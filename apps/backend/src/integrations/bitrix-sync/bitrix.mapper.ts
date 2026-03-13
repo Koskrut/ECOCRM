@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentMethod, UserRole } from "@prisma/client";
+import type { DeliveryMethod, OrderStatus, PaymentMethod, UserRole } from "@prisma/client";
 
 /** Normalize phone to digits-only for phoneNormalized. */
 export function normalizePhoneDigits(phone: string | null | undefined): string {
@@ -290,6 +290,16 @@ export function mapBitrixPaymentMethodToPrisma(
   return null;
 }
 
+/** Bitrix UF_CRM_1753788124915 (Документы) — list/single "1"|"0" or "Да"|"Нет" → boolean. */
+export function mapBitrixDocumentsToPrisma(value: unknown): boolean | null {
+  if (value == null) return null;
+  const v = String(value).trim().toLowerCase();
+  if (!v) return null;
+  if (v === "1" || v === "y" || v === "yes" || v === "да" || v === "так" || v === "true") return true;
+  if (v === "0" || v === "n" || v === "no" || v === "нет" || v === "нi" || v === "false") return false;
+  return null;
+}
+
 /**
  * Bitrix b_crm_deal STAGE_ID + STAGE_SEMANTIC_ID → OrderStatus.
  * STAGE_ID may be "C4:1" (pipeline:stage); we use the part after ":" for matching.
@@ -326,7 +336,7 @@ export function parseBitrixDate(value: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Bitrix b_crm_deal row → Prisma Order. */
+/** Bitrix b_crm_deal row → Prisma Order (+ ttnNumber for ensureOrderTtnFromBitrix). */
 export function mapBitrixDealToPrisma(
   row: Record<string, unknown>,
   companyId: string | null,
@@ -342,6 +352,9 @@ export function mapBitrixDealToPrisma(
   ownerId: string;
   status: OrderStatus;
   paymentMethod: PaymentMethod | null;
+  documentsRequested: boolean | null;
+  deliveryMethod: DeliveryMethod | null;
+  ttnNumber: string | null;
   currency: string;
   subtotalAmount: number;
   discountAmount: number;
@@ -363,6 +376,15 @@ export function mapBitrixDealToPrisma(
   const stageSemanticId = row["STAGE_SEMANTIC_ID"] != null ? String(row["STAGE_SEMANTIC_ID"]) : null;
   const comments = row["COMMENTS"] != null ? String(row["COMMENTS"]).trim() : null;
   const paymentMethod = mapBitrixPaymentMethodToPrisma(row["UF_CRM_1753787869056"]);
+  const documentsRaw = row["UF_CRM_1753788124915"];
+  const documentsRequested =
+    documentsRaw != null && Array.isArray(documentsRaw) && documentsRaw.length > 0
+      ? mapBitrixDocumentsToPrisma(documentsRaw[0])
+      : mapBitrixDocumentsToPrisma(documentsRaw);
+  const ttnRaw = row["UF_CRM_TTN_NUMBER"];
+  const ttnNumber =
+    ttnRaw != null && String(ttnRaw).trim() !== "" ? String(ttnRaw).trim() : null;
+  const deliveryMethod: DeliveryMethod | null = ttnNumber ? "NOVA_POSHTA" : null;
   const now = new Date();
   const createdAt = parseBitrixDate(row["DATE_CREATE"]) ?? now;
   const updatedAt = parseBitrixDate(row["DATE_MODIFY"]) ?? createdAt;
@@ -375,6 +397,9 @@ export function mapBitrixDealToPrisma(
     ownerId,
     status: mapBitrixDealStageToOrderStatus(stageId, stageSemanticId),
     paymentMethod,
+    documentsRequested,
+    deliveryMethod,
+    ttnNumber,
     currency: currencyId,
     subtotalAmount: opportunity,
     discountAmount: 0,

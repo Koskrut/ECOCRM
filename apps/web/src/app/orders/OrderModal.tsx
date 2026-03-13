@@ -75,6 +75,7 @@ type OrderDetails = {
   status: string;
   deliveryMethod: string | null;
   paymentType?: string | null;
+  documentsRequested?: boolean | null;
   paidAmount?: number;
   debtAmount?: number;
 
@@ -133,6 +134,8 @@ type OrderModalProps = {
   prefill?: { companyId?: string | null; clientId?: string | null };
   onOpenCompany?: (companyId: string) => void;
   onOpenContact?: (contactId: string) => void;
+  /** Role from parent (e.g. from /auth/me on page). When set, used for admin actions and internal fetch is skipped. */
+  userRole?: string | null;
 };
 
 // =====================
@@ -252,7 +255,7 @@ function Stepper({
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "paymentType" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "documents" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -262,6 +265,7 @@ export function OrderModal({
   prefill,
   onOpenCompany,
   onOpenContact,
+  userRole: userRoleProp,
 }: OrderModalProps) {
   const isCreate = orderId === null;
 
@@ -284,6 +288,7 @@ export function OrderModal({
   const [clientId, setClientId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
   const [paymentType, setPaymentType] = useState<string | null>(null);
+  const [documentsRequested, setDocumentsRequested] = useState<boolean | null>(null);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
 
@@ -318,6 +323,18 @@ export function OrderModal({
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
 
   const canClose = !saving && !submittingItem && !statusUpdating && !deleting;
+
+  const effectiveRole = userRoleProp !== undefined ? userRoleProp : userRole;
+  const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
+
+  useEffect(() => {
+    // #region agent log
+    if (typeof console !== "undefined" && console.debug) {
+      console.debug("[OrderModal delete condition]", { effectiveRole, hasOrder: !!order, isCreate, isAdmin, showDelete: !!(!isCreate && order && isAdmin) });
+    }
+    fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasOrder:!!order,isCreate,isAdmin,showDelete:!!(!isCreate&&order&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
+    // #endregion
+  }, [effectiveRole, order, isCreate, isAdmin]);
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -369,6 +386,7 @@ export function OrderModal({
       setClientId(data.clientId ?? null);
       setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
       setPaymentType(data.paymentType ?? null);
+      setDocumentsRequested(data.documentsRequested ?? null);
       setDiscountAmount(Number(data.discountAmount ?? 0));
       setComment(data.comment ?? "");
     } catch (e) {
@@ -461,11 +479,29 @@ export function OrderModal({
   ]);
 
   useEffect(() => {
+    if (userRoleProp !== undefined) return;
     apiHttp
       .get<{ user?: { role?: string } }>("/auth/me")
-      .then((res) => setUserRole(res.data?.user?.role ?? null))
-      .catch(() => setUserRole(null));
-  }, []);
+      .then((res) => {
+        const role = res.data?.user?.role ?? null;
+        // #region agent log
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug("[OrderModal auth/me]", { role, rawUser: res.data?.user });
+        }
+        fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
+        // #endregion
+        setUserRole(role);
+      })
+      .catch((err) => {
+        // #region agent log
+        if (typeof console !== "undefined" && console.debug) {
+          console.debug("[OrderModal auth/me failed]", err?.message, (err as any)?.response?.status);
+        }
+        fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        setUserRole(null);
+      });
+  }, [userRoleProp]);
 
   // ESC
   useEffect(() => {
@@ -580,6 +616,7 @@ export function OrderModal({
           contactId: clientId,
           deliveryMethod,
           paymentMethod: "CASH",
+          documentsRequested: documentsRequested ?? undefined,
           comment: comment.trim() ? comment.trim() : null,
           discountAmount: Number(discountAmount) || 0,
         }),
@@ -597,7 +634,7 @@ export function OrderModal({
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, onClose, onSaved]);
+  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, onClose, onSaved]);
 
   // product search debounce
   useEffect(() => {
@@ -765,7 +802,7 @@ export function OrderModal({
 
   const orderHeaderActions = (
     <>
-      {!isCreate && order && userRole === "ADMIN" && (
+      {!isCreate && order && isAdmin && (
         <button
           type="button"
           onClick={() => void deleteOrder()}
@@ -1382,6 +1419,51 @@ export function OrderModal({
                               : order.paymentType === "DEFERRED"
                                 ? "Отсрочка"
                                 : <span className="font-normal text-zinc-400">Выберите тип оплаты...</span>}
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500">Документы</div>
+                        {editing === "documents" ? (
+                          <div className="mt-1">
+                            <select
+                              value={documentsRequested === true ? "yes" : documentsRequested === false ? "no" : ""}
+                              onChange={async (e) => {
+                                const raw = e.target.value;
+                                const v = raw === "yes" ? true : raw === "no" ? false : null;
+                                setDocumentsRequested(v);
+                                try {
+                                  await patchOrder({ documentsRequested: v });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, documentsRequested: v } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                              disabled={saving}
+                            >
+                              <option value="">Выберите...</option>
+                              <option value="yes">Да</option>
+                              <option value="no">Нет</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDocumentsRequested(order.documentsRequested ?? null);
+                              setEditing("documents");
+                            }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {order.documentsRequested === true
+                              ? "Да"
+                              : order.documentsRequested === false
+                                ? "Нет"
+                                : <span className="font-normal text-zinc-400">Выберите...</span>}
                           </button>
                         )}
                       </div>

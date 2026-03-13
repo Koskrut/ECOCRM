@@ -50,6 +50,8 @@ export type Order = {
 
   deliveryMethod?: DeliveryMethod | null;
   paymentMethod?: PaymentMethod | null;
+  /** Bitrix: Документы (Да/нет). */
+  documentsRequested?: boolean | null;
   paymentType?: PaymentType | null;
   deliveryData?: Record<string, unknown> | null;
 

@@ -302,6 +302,7 @@ export class OrdersService {
             comment: dto.comment ?? null,
             deliveryMethod: dto.deliveryMethod ?? null,
             paymentMethod: dto.paymentMethod ?? null,
+            documentsRequested: dto.documentsRequested ?? null,
             paymentType: dto.paymentType ?? null,
             deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
           },
@@ -360,6 +361,7 @@ export class OrdersService {
     if ("deliveryMethod" in dto)
       data.deliveryMethod = (dto.deliveryMethod as DeliveryMethod) ?? null;
     if ("paymentMethod" in dto) data.paymentMethod = (dto.paymentMethod as PaymentMethod) ?? null;
+    if ("documentsRequested" in dto) data.documentsRequested = dto.documentsRequested ?? null;
     if ("paymentType" in dto) data.paymentType = (dto.paymentType as PaymentType) ?? null;
     if ("deliveryData" in dto)
       data.deliveryData = (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined;
@@ -654,6 +656,7 @@ export class OrdersService {
       comment: o.comment ?? null,
       deliveryMethod: o.deliveryMethod ?? null,
       paymentMethod: o.paymentMethod ?? null,
+      documentsRequested: o.documentsRequested ?? null,
       paymentType: o.paymentType ?? null,
       deliveryData: o.deliveryData ?? null,
       createdAt: o.createdAt,

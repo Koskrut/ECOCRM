@@ -18,6 +18,7 @@ import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "../../contacts/bitrix-np-mapper";
+import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
 const UPDATE_BATCH_SIZE = 200;
@@ -1014,6 +1015,7 @@ export class BitrixInitialImportService {
     }
     if (newRecords.length > 0) {
       try {
+        const withTtn: { legacyId: number; ttnNumber: string }[] = [];
         const data = newRecords.map((row) => {
           const id = Number(row["ID"]);
           const companyId = row["COMPANY_ID"] ? companyIdByLegacyId.get(Number(row["COMPANY_ID"])) ?? null : null;
@@ -1028,6 +1030,7 @@ export class BitrixInitialImportService {
             userIdByLegacyId.get(Number(row["ASSIGNED_BY_ID"]))!,
             orderNumber,
           );
+          if (d.ttnNumber) withTtn.push({ legacyId: id, ttnNumber: d.ttnNumber });
           return {
             orderNumber: d.orderNumber,
             companyId: d.companyId,
@@ -1036,6 +1039,8 @@ export class BitrixInitialImportService {
             ownerId: d.ownerId,
             status: d.status,
             paymentMethod: d.paymentMethod ?? undefined,
+            documentsRequested: d.documentsRequested ?? undefined,
+            deliveryMethod: d.deliveryMethod ?? undefined,
             currency: d.currency,
             subtotalAmount: d.subtotalAmount,
             discountAmount: d.discountAmount,
@@ -1054,6 +1059,18 @@ export class BitrixInitialImportService {
         });
         const r = await this.prisma.order.createMany({ data, skipDuplicates: true });
         result.created += r.count;
+        if (withTtn.length > 0) {
+          const orders = await this.prisma.order.findMany({
+            where: { legacySource: LEGACY_SOURCE, legacyId: { in: withTtn.map((x) => x.legacyId) } },
+            select: { id: true, legacyId: true },
+          });
+          for (const o of orders) {
+            if (o.legacyId != null) {
+              const ttn = withTtn.find((w) => w.legacyId === o.legacyId)?.ttnNumber;
+              if (ttn) await ensureOrderTtnFromBitrix(this.prisma, o.id, ttn);
+            }
+          }
+        }
       } catch (e) {
         this.logger.warn(`Order batch insert error: ${e}`);
         result.errors += newRecords.length;
@@ -1080,6 +1097,7 @@ export class BitrixInitialImportService {
                 ownerId,
                 orderNumber,
               );
+              const orderId = existingByLegacyId.get(id)!.id;
               await tx.order.update({
                 where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
                 data: {
@@ -1089,6 +1107,8 @@ export class BitrixInitialImportService {
                   ownerId: d.ownerId,
                   status: d.status,
                   paymentMethod: d.paymentMethod ?? undefined,
+                  documentsRequested: d.documentsRequested ?? undefined,
+                  deliveryMethod: d.deliveryMethod ?? undefined,
                   currency: d.currency,
                   subtotalAmount: d.subtotalAmount,
                   discountAmount: d.discountAmount,
@@ -1102,6 +1122,7 @@ export class BitrixInitialImportService {
                   updatedAt: d.updatedAt,
                 },
               });
+              if (d.ttnNumber) await ensureOrderTtnFromBitrix(tx, orderId, d.ttnNumber);
             }
           },
           { timeout: orderTxTimeout },

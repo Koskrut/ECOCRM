@@ -1,6 +1,6 @@
 import { DeliveryMethod, PaymentMethod, PaymentType } from "@prisma/client";
 import { Type } from "class-transformer";
-import { IsEnum, IsNumber, IsObject, IsOptional, IsString, Min } from "class-validator";
+import { IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min } from "class-validator";
 
 export class UpdateOrderDto {
   @IsOptional()
@@ -42,6 +42,10 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsEnum(PaymentType)
   paymentType?: PaymentType | null;
+
+  @IsOptional()
+  @IsBoolean()
+  documentsRequested?: boolean | null;
 
   @IsOptional()
   @IsObject()

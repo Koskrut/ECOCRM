@@ -789,11 +789,13 @@ model Order {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  deliveryMethod DeliveryMethod?
-  paymentMethod  PaymentMethod?
-  paymentType    PaymentType?
-  deliveryData   Json?
-  orderSource    OrderSource @default(CRM)
+  deliveryMethod      DeliveryMethod?
+  paymentMethod       PaymentMethod?
+  /** Bitrix UF_CRM_1753788124915 — Документы (Да/нет). */
+  documentsRequested  Boolean?
+  paymentType         PaymentType?
+  deliveryData        Json?
+  orderSource         OrderSource @default(CRM)
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
