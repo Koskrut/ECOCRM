@@ -85,6 +85,8 @@ type OrderDetails = {
   createdAt: string;
   items: OrderItem[];
   currency: string;
+  /** TTN records (from Bitrix import or NP creation); status from cron sync or NP API */
+  ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
 };
 
 type ProductSearchItem = {
@@ -760,9 +762,12 @@ export function OrderModal({
   };
 
   const np = (order as any)?.deliveryData?.novaPoshta;
-  const ttnNumber: string | null = np?.ttn?.number ?? null;
-  const ttnStatusText: string | null = np?.status?.Status ?? np?.status?.statusText ?? null;
-  const ttnStatusCode: string | null = np?.status?.StatusCode ?? np?.status?.statusCode ?? null;
+  const ttnNumber: string | null =
+    np?.ttn?.number ?? (order?.ttns?.length ? order.ttns[0].documentNumber : null) ?? null;
+  const ttnStatusText: string | null =
+    np?.status?.Status ?? np?.status?.statusText ?? order?.ttns?.[0]?.statusText ?? null;
+  const ttnStatusCode: string | null =
+    np?.status?.StatusCode ?? np?.status?.statusCode ?? order?.ttns?.[0]?.statusCode ?? null;
   const ttnStatusLabel = ttnStatusText ? (ttnStatusCode ? `${ttnStatusText} (code ${ttnStatusCode})` : ttnStatusText) : null;
 
   const canShowCreateTtnButton = useMemo(() => {

@@ -31,11 +31,19 @@ services:
       DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/crm
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       CRON_ENABLED: "true"
+      BITRIX_SYNC_ENABLED: ${BITRIX_SYNC_ENABLED:-"false"}
+      BITRIX_WEBHOOK_URL: ${BITRIX_WEBHOOK_URL:-}
+      BITRIX_WEBHOOK_SECRET: ${BITRIX_WEBHOOK_SECRET}
+      BITRIX_MYSQL_HOST: ${BITRIX_MYSQL_HOST}
+      BITRIX_MYSQL_PORT: ${BITRIX_MYSQL_PORT}
+      BITRIX_MYSQL_USER: ${BITRIX_MYSQL_USER}
+      BITRIX_MYSQL_PASSWORD: ${BITRIX_MYSQL_PASSWORD}
+      BITRIX_MYSQL_DATABASE: ${BITRIX_MYSQL_DATABASE}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "localhost:3001:3001"
+      - "3001:3001"
     restart: unless-stopped
 
   web:
@@ -48,7 +56,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "localhost:3000:3000"
+      - "3000:3000"
     restart: unless-stopped
 
   store:
@@ -61,7 +69,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "localhost:3002:3002"
+      - "3002:3002"
     restart: unless-stopped
 
 volumes:

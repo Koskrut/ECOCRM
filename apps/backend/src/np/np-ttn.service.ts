@@ -723,30 +723,45 @@ export class NpTtnService {
   async syncActiveTtns(opts?: { limit?: number }) {
     const limit = Math.min(Math.max(Number(opts?.limit ?? 200), 1), 1000);
 
-    // Берем заказы с ТТН, которые еще не финальные
+    // Заказы с ТТН (из приложения — deliveryData.novaPoshta.ttn — или из Bitrix — OrderTtn)
     const orders = await this.prisma.order.findMany({
       where: {
         deliveryMethod: "NOVA_POSHTA" as Carrier,
         status: { notIn: ["SUCCESS", "CANCELED", "RETURNING"] as PrismaOrderStatus[] },
-        deliveryData: {
-          path: ["novaPoshta", "ttn", "number"],
-          not: Prisma.JsonNull,
-        },
+        OR: [
+          {
+            deliveryData: {
+              path: ["novaPoshta", "ttn", "number"],
+              not: Prisma.JsonNull,
+            },
+          },
+          { ttns: { some: {} } },
+        ],
       },
       orderBy: { updatedAt: "desc" },
       take: limit,
-      select: { id: true, deliveryData: true },
+      select: {
+        id: true,
+        deliveryData: true,
+        ttns: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: { documentNumber: true },
+        },
+      },
     });
 
     const docs = orders
-      .map((o) => ({
-        orderId: o.id,
-        ttn: (
+      .map((o) => {
+        const fromDeliveryData = (
           ((o.deliveryData as Record<string, unknown>)?.novaPoshta as Record<string, unknown>)
             ?.ttn as Record<string, unknown>
-        )?.number as string | undefined,
-      }))
-      .filter((x) => !!x.ttn) as Array<{ orderId: string; ttn: string }>;
+        )?.number as string | undefined;
+        const fromTtns = o.ttns?.[0]?.documentNumber;
+        const ttn = fromDeliveryData ?? fromTtns ?? undefined;
+        return ttn ? { orderId: o.id, ttn } : null;
+      })
+      .filter((x): x is { orderId: string; ttn: string } => !!x);
 
     // chunk by 100 (лимит НП)
     const chunks: Array<Array<{ orderId: string; ttn: string }>> = [];
