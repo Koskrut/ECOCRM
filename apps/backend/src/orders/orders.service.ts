@@ -484,13 +484,16 @@ export class OrdersService {
     return this.recalcAndReturn(orderId);
   }
 
+  /** Only ADMIN can delete orders. */
   async remove(id: string, actor?: AuthUser) {
+    if (!actor || actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can delete orders");
+    }
     const order = await this.prisma.order.findUnique({
       where: { id },
       select: { id: true, ownerId: true },
     });
     if (!order) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(order, actor);
     await this.prisma.order.delete({ where: { id } });
     return { ok: true };
   }

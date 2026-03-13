@@ -270,7 +270,9 @@ export function OrderModal({
   const [error, setError] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState<EditingField>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
@@ -315,7 +317,7 @@ export function OrderModal({
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
 
-  const canClose = !saving && !submittingItem && !statusUpdating;
+  const canClose = !saving && !submittingItem && !statusUpdating && !deleting;
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -457,6 +459,13 @@ export function OrderModal({
     refreshOrder,
     refreshTimeline,
   ]);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
 
   // ESC
   useEffect(() => {
@@ -731,7 +740,43 @@ export function OrderModal({
     [companies.length, fetchCompanies, fetchContacts],
   );
 
-  const orderHeaderActions = <></>;
+  const deleteOrder = useCallback(async () => {
+    if (!orderId || !order || !confirm("Удалить заказ? Это действие нельзя отменить.")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
+        method: "DELETE",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.message ?? `Failed to delete order (${r.status})`);
+      }
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось удалить заказ");
+    } finally {
+      setDeleting(false);
+    }
+  }, [apiBaseUrl, orderId, order, onClose, onSaved]);
+
+  const orderHeaderActions = (
+    <>
+      {!isCreate && order && userRole === "ADMIN" && (
+        <button
+          type="button"
+          onClick={() => void deleteOrder()}
+          disabled={deleting}
+          className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+        >
+          {deleting ? "Удаление…" : "Удалить заказ"}
+        </button>
+      )}
+    </>
+  );
 
   const tabsUnderHeader =
     !isCreate && order ? (

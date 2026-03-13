@@ -99,12 +99,22 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
   const [newItemPrice, setNewItemPrice] = useState(0);
   const [savingItems, setSavingItems] = useState(false);
 
-  const canClose = !saving && !converting && !statusUpdating && !addingNote;
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const canClose = !saving && !converting && !statusUpdating && !addingNote && !deleting;
 
   const title = useMemo(() => {
     if (!lead) return "Lead";
     return lead.fullName || lead.name || [lead.firstName, lead.middleName, lead.lastName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
 
   const loadLead = useCallback(async () => {
     setLoading(true);
@@ -1376,6 +1386,32 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated }: Props) {
       tabsUnderHeader={tabsUnderHeader}
       headerActions={
         <>
+          {lead && userRole === "ADMIN" && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
+                setDeleting(true);
+                setErr(null);
+                try {
+                  await leadsApi.delete(lead.id);
+                  onUpdated();
+                  onClose();
+                } catch (e) {
+                  const msg =
+                    (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                    (e instanceof Error ? e.message : "Не удалось удалить лид");
+                  setErr(msg);
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+              disabled={deleting}
+              className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              {deleting ? "Удаление…" : "Удалить лид"}
+            </button>
+          )}
           {lead && canConvert && (
             <button
               type="button"

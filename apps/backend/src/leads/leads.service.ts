@@ -43,6 +43,20 @@ export class LeadsService {
     }
   }
 
+  /** Only ADMIN can delete leads. */
+  async remove(id: string, actor?: AuthUser) {
+    if (!actor || actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can delete leads");
+    }
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!lead) throw new NotFoundException("Lead not found");
+    await this.prisma.lead.delete({ where: { id } });
+    return { ok: true };
+  }
+
   private buildListWhere(q: ListLeadsQueryDto, actor?: AuthUser): Prisma.LeadWhereInput {
     const where: Prisma.LeadWhereInput = {};
 

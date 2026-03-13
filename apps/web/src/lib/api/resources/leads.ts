@@ -100,6 +100,11 @@ export const leadsApi = {
     return res.data;
   },
 
+  delete: async (id: string): Promise<{ ok: boolean }> => {
+    const res = await apiHttp.delete<{ ok: boolean }>(`/leads/${id}`);
+    return res.data;
+  },
+
   create: async (payload: {
     companyId: string;
     source?: LeadSource;

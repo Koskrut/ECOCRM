@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -8,8 +9,10 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { Roles } from "../auth/roles.decorator";
 import { LeadsService } from "./leads.service";
 import { CreateLeadDto } from "./dto/create-lead.dto";
 import { UpdateLeadDto } from "./dto/update-lead.dto";
@@ -41,6 +44,12 @@ export class LeadsController {
   @Get(":id")
   get(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.leads.getById(id, req.user);
+  }
+
+  @Delete(":id")
+  @Roles(UserRole.ADMIN)
+  remove(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.leads.remove(id, req.user);
   }
 
   @Patch(":id")

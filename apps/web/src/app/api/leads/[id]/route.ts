@@ -68,3 +68,26 @@ export async function PATCH(
   }
 }
 
+export async function DELETE(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const headers = await authHeader();
+  const params = await ctx.params;
+  const id = params.id ?? "";
+
+  const r = await fetch(`${API_URL}/leads/${id}`, {
+    method: "DELETE",
+    headers,
+    cache: "no-store",
+  });
+
+  const text = await r.text().catch(() => "");
+  try {
+    const data = text ? JSON.parse(text) : {};
+    return NextResponse.json(data, { status: r.status });
+  } catch {
+    return new NextResponse(text, { status: r.status });
+  }
+}
+
