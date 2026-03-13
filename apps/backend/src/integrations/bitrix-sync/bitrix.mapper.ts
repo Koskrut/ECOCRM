@@ -278,25 +278,39 @@ function mapBitrixLeadStatusToPrisma(
   return "IN_PROGRESS";
 }
 
-/** Bitrix UF_CRM_1753787869056 (cash/FOP) → PaymentMethod. */
+/** Normalize list/object value from Bitrix (REST may return { ID, VALUE } or array of such). */
+function normalizeBitrixListValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (first != null && typeof first === "object" && "VALUE" in first) return String((first as { VALUE?: unknown }).VALUE ?? "").trim() || null;
+    if (first != null && typeof first === "object" && "ID" in first) return String((first as { ID?: unknown }).ID ?? "").trim() || null;
+    return String(first).trim() || null;
+  }
+  if (typeof value === "object" && value !== null && "VALUE" in value) return String((value as { VALUE?: unknown }).VALUE ?? "").trim() || null;
+  if (typeof value === "object" && value !== null && "ID" in value) return String((value as { ID?: unknown }).ID ?? "").trim() || null;
+  return String(value).trim() || null;
+}
+
+/** Bitrix UF_CRM_1753787869056 (cash/FOP) → PaymentMethod. List options may be stored as ID "1"/"2". */
 export function mapBitrixPaymentMethodToPrisma(
   value: unknown,
 ): PaymentMethod | null {
-  if (value == null) return null;
-  const v = String(value).trim().toLowerCase();
+  const raw = normalizeBitrixListValue(value);
+  const v = (raw ?? "").toLowerCase();
   if (!v) return null;
-  if (v === "cash" || v === "готівка" || v === "готівку" || v === "наличные") return "CASH";
-  if (v === "fop" || v === "фоп" || v === "бн" || v === "безготівка" || v === "безнал" || v === "безналичные") return "FOP";
+  if (v === "cash" || v === "готівка" || v === "готівку" || v === "наличные" || v === "1") return "CASH";
+  if (v === "fop" || v === "фоп" || v === "бн" || v === "безготівка" || v === "безнал" || v === "безналичные" || v === "2") return "FOP";
   return null;
 }
 
-/** Bitrix UF_CRM_1753788124915 (Документы) — list/single "1"|"0" or "Да"|"Нет" → boolean. */
+/** Bitrix UF_CRM_1753788124915 (Документы) — list/single "1"|"0"|"2" or "Да"|"Нет" → boolean. List ID: 1=Да, 2=Нет. */
 export function mapBitrixDocumentsToPrisma(value: unknown): boolean | null {
-  if (value == null) return null;
-  const v = String(value).trim().toLowerCase();
+  const raw = normalizeBitrixListValue(value);
+  const v = (raw ?? "").toLowerCase();
   if (!v) return null;
   if (v === "1" || v === "y" || v === "yes" || v === "да" || v === "так" || v === "true") return true;
-  if (v === "0" || v === "n" || v === "no" || v === "нет" || v === "нi" || v === "false") return false;
+  if (v === "0" || v === "2" || v === "n" || v === "no" || v === "нет" || v === "нi" || v === "false") return false;
   return null;
 }
 
@@ -376,11 +390,7 @@ export function mapBitrixDealToPrisma(
   const stageSemanticId = row["STAGE_SEMANTIC_ID"] != null ? String(row["STAGE_SEMANTIC_ID"]) : null;
   const comments = row["COMMENTS"] != null ? String(row["COMMENTS"]).trim() : null;
   const paymentMethod = mapBitrixPaymentMethodToPrisma(row["UF_CRM_1753787869056"]);
-  const documentsRaw = row["UF_CRM_1753788124915"];
-  const documentsRequested =
-    documentsRaw != null && Array.isArray(documentsRaw) && documentsRaw.length > 0
-      ? mapBitrixDocumentsToPrisma(documentsRaw[0])
-      : mapBitrixDocumentsToPrisma(documentsRaw);
+  const documentsRequested = mapBitrixDocumentsToPrisma(row["UF_CRM_1753788124915"]);
   const ttnRaw = row["UF_CRM_TTN_NUMBER"];
   const ttnNumber =
     ttnRaw != null && String(ttnRaw).trim() !== "" ? String(ttnRaw).trim() : null;
