@@ -181,7 +181,7 @@ export class RingostatIngestService {
           });
         } else {
           // Enrich existing activity: link to lead/contact/company if call has them (so the creating call appears in lead timeline).
-          const updatePayload: Prisma.ActivityUpdateManyMutationInput = {};
+          const updatePayload: Record<string, unknown> = {};
           if (call.leadId != null && existingActivity.leadId !== call.leadId) updatePayload.leadId = call.leadId;
           if (call.contactId != null && existingActivity.contactId !== call.contactId) updatePayload.contactId = call.contactId;
           if (call.companyId != null && existingActivity.companyId !== call.companyId) updatePayload.companyId = call.companyId;
@@ -197,7 +197,7 @@ export class RingostatIngestService {
           if (Object.keys(updatePayload).length > 0) {
             await tx.activity.updateMany({
               where: { callId: call.id },
-              data: updatePayload,
+              data: updatePayload as Prisma.ActivityUpdateManyMutationInput,
             });
           }
         }

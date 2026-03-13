@@ -168,7 +168,9 @@ export class ContactsService {
       andParts.push({ phone: "", phones: { none: {} } });
     }
     if (params.hasEmail === true) {
-      andParts.push({ email: { not: null, not: "" } });
+      andParts.push({
+        AND: [{ email: { not: null } }, { email: { not: "" } }],
+      });
     } else if (params.hasEmail === false) {
       andParts.push({ OR: [{ email: null }, { email: "" }] });
     }
