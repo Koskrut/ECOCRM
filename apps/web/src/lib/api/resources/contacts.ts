@@ -35,6 +35,12 @@ export type ContactsListParams = {
   pageSize?: number;
   q?: string;
   companyId?: string;
+  ownerId?: string;
+  hasPhone?: "yes" | "no";
+  hasEmail?: "yes" | "no";
+  region?: string;
+  city?: string;
+  clientType?: string;
 };
 
 export const contactsApi = {
@@ -44,6 +50,12 @@ export const contactsApi = {
     if (params?.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
     if (params?.q?.trim()) searchParams.set("q", params.q.trim());
     if (params?.companyId) searchParams.set("companyId", params.companyId);
+    if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
+    if (params?.hasPhone) searchParams.set("hasPhone", params.hasPhone);
+    if (params?.hasEmail) searchParams.set("hasEmail", params.hasEmail);
+    if (params?.region?.trim()) searchParams.set("region", params.region.trim());
+    if (params?.city?.trim()) searchParams.set("city", params.city.trim());
+    if (params?.clientType?.trim()) searchParams.set("clientType", params.clientType.trim());
     const qs = searchParams.toString();
     const res = await apiHttp.get<ContactsResponse>(`/contacts${qs ? `?${qs}` : ""}`);
     return res.data;

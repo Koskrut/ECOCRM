@@ -62,6 +62,12 @@ export class ContactsController {
   async list(
     @Req() req: Request & { user?: AuthUser },
     @Query("companyId") companyId?: string,
+    @Query("ownerId") ownerId?: string,
+    @Query("hasPhone") hasPhone?: string,
+    @Query("hasEmail") hasEmail?: string,
+    @Query("region") region?: string,
+    @Query("city") city?: string,
+    @Query("clientType") clientType?: string,
     @Query("q") q?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
@@ -69,6 +75,12 @@ export class ContactsController {
     return this.contactsService.list(
       {
         companyId,
+        ownerId,
+        hasPhone: hasPhone === "yes" ? true : hasPhone === "no" ? false : undefined,
+        hasEmail: hasEmail === "yes" ? true : hasEmail === "no" ? false : undefined,
+        region: region?.trim() || undefined,
+        city: city?.trim() || undefined,
+        clientType: clientType?.trim() || undefined,
         q,
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,

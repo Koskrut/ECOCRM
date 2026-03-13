@@ -4,21 +4,46 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export type ContactsFiltersState = {
   companyId: string;
+  ownerId: string;
+  hasPhone: string;
+  hasEmail: string;
+  region: string;
+  city: string;
+  clientType: string;
+};
+
+export type OwnerOption = {
+  id: string;
+  fullName: string;
 };
 
 type Props = {
   open: boolean;
   value: ContactsFiltersState;
   companyOptions: { value: string; label: string }[];
+  ownerOptions: OwnerOption[];
   onClose: () => void;
   onApply: (next: ContactsFiltersState) => void;
   onReset: () => void;
 };
 
+const HAS_PHONE_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Любой" },
+  { value: "yes", label: "Есть телефон" },
+  { value: "no", label: "Нет телефона" },
+];
+
+const HAS_EMAIL_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Любой" },
+  { value: "yes", label: "Есть email" },
+  { value: "no", label: "Нет email" },
+];
+
 export function ContactsFiltersPopover({
   open,
   value,
   companyOptions,
+  ownerOptions,
   onClose,
   onApply,
   onReset,
@@ -42,7 +67,19 @@ export function ContactsFiltersPopover({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [onClose, open]);
 
-  const hasActiveFilters = useMemo(() => Boolean(draft.companyId), [draft.companyId]);
+  const hasActiveFilters = useMemo(
+    () =>
+      Boolean(
+        draft.companyId ||
+          draft.ownerId ||
+          draft.hasPhone ||
+          draft.hasEmail ||
+          draft.region.trim() ||
+          draft.city.trim() ||
+          draft.clientType.trim(),
+      ),
+    [draft],
+  );
 
   if (!open) return null;
 
@@ -76,6 +113,85 @@ export function ContactsFiltersPopover({
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Ответственный</label>
+          <select
+            value={draft.ownerId}
+            onChange={(e) => setDraft((p) => ({ ...p, ownerId: e.target.value }))}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Все</option>
+            {ownerOptions.map((owner) => (
+              <option key={owner.id} value={owner.id}>
+                {owner.fullName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Телефон</label>
+          <select
+            value={draft.hasPhone}
+            onChange={(e) => setDraft((p) => ({ ...p, hasPhone: e.target.value }))}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+          >
+            {HAS_PHONE_OPTIONS.map((opt) => (
+              <option key={opt.value || "_any"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Email</label>
+          <select
+            value={draft.hasEmail}
+            onChange={(e) => setDraft((p) => ({ ...p, hasEmail: e.target.value }))}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+          >
+            {HAS_EMAIL_OPTIONS.map((opt) => (
+              <option key={opt.value || "_any"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Регион</label>
+          <input
+            type="text"
+            value={draft.region}
+            onChange={(e) => setDraft((p) => ({ ...p, region: e.target.value }))}
+            placeholder="Часть названия региона"
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Город</label>
+          <input
+            type="text"
+            value={draft.city}
+            onChange={(e) => setDraft((p) => ({ ...p, city: e.target.value }))}
+            placeholder="Часть названия города"
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Тип клиента</label>
+          <input
+            type="text"
+            value={draft.clientType}
+            onChange={(e) => setDraft((p) => ({ ...p, clientType: e.target.value }))}
+            placeholder="Врач, техник и т.д."
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+          />
         </div>
       </div>
 

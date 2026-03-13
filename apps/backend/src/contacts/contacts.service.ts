@@ -142,7 +142,18 @@ export class ContactsService {
 
   // ===== LIST =====
   async list(
-    params: { page?: number; pageSize?: number; companyId?: string; q?: string },
+    params: {
+      page?: number;
+      pageSize?: number;
+      companyId?: string;
+      ownerId?: string;
+      hasPhone?: boolean;
+      hasEmail?: boolean;
+      region?: string;
+      city?: string;
+      clientType?: string;
+      q?: string;
+    },
     actor?: AuthUser,
   ) {
     const { page, pageSize, offset, limit } = normalizePagination({
@@ -150,15 +161,20 @@ export class ContactsService {
       pageSize: params.pageSize ?? 20,
     });
 
-    const where: Prisma.ContactWhereInput = {
-      ...(params.companyId ? { companyId: params.companyId } : {}),
-      ...(actor?.role === UserRole.MANAGER
-        ? {
-            OR: [{ ownerId: actor.id }, { ownerId: null }],
-          }
-        : {}),
-    };
-
+    const andParts: Prisma.ContactWhereInput[] = [];
+    if (params.hasPhone === true) {
+      andParts.push({ OR: [{ phone: { not: "" } }, { phones: { some: {} } }] });
+    } else if (params.hasPhone === false) {
+      andParts.push({ phone: "", phones: { none: {} } });
+    }
+    if (params.hasEmail === true) {
+      andParts.push({ email: { not: null, not: "" } });
+    } else if (params.hasEmail === false) {
+      andParts.push({ OR: [{ email: null }, { email: "" }] });
+    }
+    if (actor?.role === UserRole.MANAGER) {
+      andParts.push({ OR: [{ ownerId: actor.id }, { ownerId: null }] });
+    }
     const search = params.q?.trim();
     if (search) {
       const phoneDigits = search.replace(/\D/g, "");
@@ -172,8 +188,22 @@ export class ContactsService {
         searchOr.push({ phoneNormalized: { contains: phoneDigits } });
         searchOr.push({ phones: { some: { phoneNormalized: { contains: phoneDigits } } } });
       }
-      where.AND = [{ OR: searchOr }];
+      andParts.push({ OR: searchOr });
     }
+    const where: Prisma.ContactWhereInput = {
+      ...(params.companyId ? { companyId: params.companyId } : {}),
+      ...(params.ownerId ? { ownerId: params.ownerId } : {}),
+      ...(params.region
+        ? { region: { contains: params.region, mode: "insensitive" } }
+        : {}),
+      ...(params.city
+        ? { city: { contains: params.city, mode: "insensitive" } }
+        : {}),
+      ...(params.clientType
+        ? { clientType: { contains: params.clientType, mode: "insensitive" } }
+        : {}),
+      ...(andParts.length > 0 ? { AND: andParts } : {}),
+    };
 
     const [items, total] = await Promise.all([
       this.prisma.contact.findMany({

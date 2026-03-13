@@ -8,7 +8,11 @@ import { companiesApi, type Company } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { ContactModal } from "./ContactModal";
 import { CompanyModal } from "../companies/CompanyModal";
-import { ContactsFiltersPopover, type ContactsFiltersState } from "./ContactsFiltersPopover";
+import {
+  ContactsFiltersPopover,
+  type ContactsFiltersState,
+  type OwnerOption,
+} from "./ContactsFiltersPopover";
 
 const PAGE_SIZE = 20;
 
@@ -33,8 +37,25 @@ function ContactsPageContent() {
   const [filterCompanyId, setFilterCompanyId] = useState<string | null>(() =>
     searchParams.get("companyId") || null,
   );
+  const [filterOwnerId, setFilterOwnerId] = useState<string | null>(() =>
+    searchParams.get("ownerId") || null,
+  );
+  const [filterHasPhone, setFilterHasPhone] = useState<string>(() =>
+    searchParams.get("hasPhone") || "",
+  );
+  const [filterHasEmail, setFilterHasEmail] = useState<string>(() =>
+    searchParams.get("hasEmail") || "",
+  );
+  const [filterRegion, setFilterRegion] = useState<string>(() =>
+    searchParams.get("region") || "",
+  );
+  const [filterCity, setFilterCity] = useState<string>(() => searchParams.get("city") || "");
+  const [filterClientType, setFilterClientType] = useState<string>(() =>
+    searchParams.get("clientType") || "",
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<{ value: string; label: string }[]>([]);
+  const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupActionLoading, setGroupActionLoading] = useState(false);
   const [assignCompanyOpen, setAssignCompanyOpen] = useState(false);
@@ -50,13 +71,33 @@ function ContactsPageContent() {
     if (page > 1) params.set("page", String(page));
     if (q) params.set("q", q);
     if (filterCompanyId) params.set("companyId", filterCompanyId);
+    if (filterOwnerId) params.set("ownerId", filterOwnerId);
+    if (filterHasPhone) params.set("hasPhone", filterHasPhone);
+    if (filterHasEmail) params.set("hasEmail", filterHasEmail);
+    if (filterRegion) params.set("region", filterRegion);
+    if (filterCity) params.set("city", filterCity);
+    if (filterClientType) params.set("clientType", filterClientType);
 
     const next = params.toString();
     const current = searchParams.toString();
     if (next !== current) {
       router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
     }
-  }, [contactId, filterCompanyId, page, pathname, q, router, searchParams]);
+  }, [
+    contactId,
+    filterCompanyId,
+    filterOwnerId,
+    filterHasPhone,
+    filterHasEmail,
+    filterRegion,
+    filterCity,
+    filterClientType,
+    page,
+    pathname,
+    q,
+    router,
+    searchParams,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -80,6 +121,12 @@ function ContactsPageContent() {
           pageSize: PAGE_SIZE,
           q: q.trim() || undefined,
           companyId: filterCompanyId || undefined,
+          ownerId: filterOwnerId || undefined,
+          hasPhone: (filterHasPhone === "yes" || filterHasPhone === "no") ? filterHasPhone : undefined,
+          hasEmail: (filterHasEmail === "yes" || filterHasEmail === "no") ? filterHasEmail : undefined,
+          region: filterRegion.trim() || undefined,
+          city: filterCity.trim() || undefined,
+          clientType: filterClientType.trim() || undefined,
         });
         setItems(res.items);
         setTotal(res.total);
@@ -93,7 +140,17 @@ function ContactsPageContent() {
         setLoading(false);
       }
     },
-    [page, q, filterCompanyId],
+    [
+      page,
+      q,
+      filterCompanyId,
+      filterOwnerId,
+      filterHasPhone,
+      filterHasEmail,
+      filterRegion,
+      filterCity,
+      filterClientType,
+    ],
   );
 
   useEffect(() => {
@@ -120,6 +177,13 @@ function ContactsPageContent() {
           ...r.items.map((c: Company) => ({ value: c.id, label: c.name })),
         ]);
       })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ items: OwnerOption[] }>("/users")
+      .then((r) => setOwnerOptions(r.data.items ?? []))
       .catch(() => {});
   }, []);
 
@@ -152,11 +216,23 @@ function ContactsPageContent() {
 
   const applyPopoverFilters = (next: ContactsFiltersState) => {
     setFilterCompanyId(next.companyId || null);
+    setFilterOwnerId(next.ownerId || null);
+    setFilterHasPhone(next.hasPhone || "");
+    setFilterHasEmail(next.hasEmail || "");
+    setFilterRegion(next.region || "");
+    setFilterCity(next.city || "");
+    setFilterClientType(next.clientType || "");
     setPage(1);
   };
 
   const resetAllFilters = () => {
     setFilterCompanyId(null);
+    setFilterOwnerId(null);
+    setFilterHasPhone("");
+    setFilterHasEmail("");
+    setFilterRegion("");
+    setFilterCity("");
+    setFilterClientType("");
     setQInput("");
     setQ("");
     setPage(1);
@@ -224,6 +300,12 @@ function ContactsPageContent() {
 
   const filtersState: ContactsFiltersState = {
     companyId: filterCompanyId ?? "",
+    ownerId: filterOwnerId ?? "",
+    hasPhone: filterHasPhone,
+    hasEmail: filterHasEmail,
+    region: filterRegion,
+    city: filterCity,
+    clientType: filterClientType,
   };
 
   const goToPage = (next: number) => {
@@ -271,6 +353,7 @@ function ContactsPageContent() {
             open={filtersOpen}
             value={filtersState}
             companyOptions={companyOptions}
+            ownerOptions={ownerOptions}
             onClose={() => setFiltersOpen(false)}
             onApply={applyPopoverFilters}
             onReset={resetAllFilters}
