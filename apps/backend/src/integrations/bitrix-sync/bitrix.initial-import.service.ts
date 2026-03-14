@@ -22,6 +22,9 @@ import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
 const UPDATE_BATCH_SIZE = 200;
+/** Smaller chunks for order/orderItem updates to avoid transaction timeout under concurrency. */
+const ORDER_UPDATE_CHUNK_SIZE = 25;
+const ORDER_ITEM_UPDATE_CHUNK_SIZE = 25;
 const FIELD_MULTI_IN_LIMIT = 1000;
 
 type ImportStats = { created: number; updated: number; skipped: number; errors: number };
@@ -1038,8 +1041,8 @@ export class BitrixInitialImportService {
             contactId: d.contactId,
             ownerId: d.ownerId,
             status: d.status,
-            paymentMethod: d.paymentMethod ?? undefined,
-            documentsRequested: d.documentsRequested ?? undefined,
+            paymentMethod: d.paymentMethod ?? null,
+            documentsRequested: d.documentsRequested ?? null,
             deliveryMethod: d.deliveryMethod ?? undefined,
             currency: d.currency,
             subtotalAmount: d.subtotalAmount,
@@ -1077,8 +1080,9 @@ export class BitrixInitialImportService {
       }
     }
     const orderTxTimeout = Number(process.env.BITRIX_IMPORT_ORDER_TX_TIMEOUT_MS) || 60_000;
-    for (let i = 0; i < existingRecords.length; i += UPDATE_BATCH_SIZE) {
-      const chunk = existingRecords.slice(i, i + UPDATE_BATCH_SIZE);
+    let loggedWriteSample = false;
+    for (let i = 0; i < existingRecords.length; i += ORDER_UPDATE_CHUNK_SIZE) {
+      const chunk = existingRecords.slice(i, i + ORDER_UPDATE_CHUNK_SIZE);
       try {
         await this.prisma.$transaction(
           async (tx) => {
@@ -1097,6 +1101,12 @@ export class BitrixInitialImportService {
                 ownerId,
                 orderNumber,
               );
+              if (!loggedWriteSample && (d.paymentMethod != null || d.documentsRequested != null)) {
+                this.logger.log(
+                  `Bitrix import: writing paymentMethod/documentsRequested e.g. BITRIX-${id} paymentMethod=${d.paymentMethod} documentsRequested=${d.documentsRequested}`,
+                );
+                loggedWriteSample = true;
+              }
               const orderId = existingByLegacyId.get(id)!.id;
               await tx.order.update({
                 where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
@@ -1106,8 +1116,8 @@ export class BitrixInitialImportService {
                   contactId: d.contactId,
                   ownerId: d.ownerId,
                   status: d.status,
-                  paymentMethod: d.paymentMethod ?? undefined,
-                  documentsRequested: d.documentsRequested ?? undefined,
+                  paymentMethod: d.paymentMethod ?? null,
+                  documentsRequested: d.documentsRequested ?? null,
                   deliveryMethod: d.deliveryMethod ?? undefined,
                   currency: d.currency,
                   subtotalAmount: d.subtotalAmount,
@@ -1230,34 +1240,38 @@ export class BitrixInitialImportService {
         result.errors += newRecords.length;
       }
     }
-    for (let i = 0; i < existingRecords.length; i += UPDATE_BATCH_SIZE) {
-      const chunk = existingRecords.slice(i, i + UPDATE_BATCH_SIZE);
+    const orderItemTxTimeout = Number(process.env.BITRIX_IMPORT_ORDER_ITEM_TX_TIMEOUT_MS) || 60_000;
+    for (let i = 0; i < existingRecords.length; i += ORDER_ITEM_UPDATE_CHUNK_SIZE) {
+      const chunk = existingRecords.slice(i, i + ORDER_ITEM_UPDATE_CHUNK_SIZE);
       try {
         await this.prisma.$transaction(
-          chunk.map((row) => {
-            const id = Number(row["ID"]);
-            const ownerId = Number(row["OWNER_ID"] ?? row["DEAL_ID"] ?? 0);
-            const orderId = orderIdByLegacyId.get(ownerId)!;
-            const productName = row["PRODUCT_NAME"] != null ? String(row["PRODUCT_NAME"]).trim() : null;
-            const d = mapBitrixProductRowToPrisma(
-              row as Record<string, unknown>,
-              orderId,
-              productId,
-              productName,
-            );
-            return this.prisma.orderItem.update({
-              where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
-              data: {
-                productId: d.productId,
-                productNameSnapshot: d.productNameSnapshot,
-                qty: d.qty,
-                price: d.price,
-                lineTotal: d.lineTotal,
-                legacyRaw: d.legacyRaw as object,
-                syncedAt: d.syncedAt,
-              },
-            });
-          }),
+          async (tx) => {
+            for (const row of chunk) {
+              const id = Number(row["ID"]);
+              const ownerId = Number(row["OWNER_ID"] ?? row["DEAL_ID"] ?? 0);
+              const orderId = orderIdByLegacyId.get(ownerId)!;
+              const productName = row["PRODUCT_NAME"] != null ? String(row["PRODUCT_NAME"]).trim() : null;
+              const d = mapBitrixProductRowToPrisma(
+                row as Record<string, unknown>,
+                orderId,
+                productId,
+                productName,
+              );
+              await tx.orderItem.update({
+                where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
+                data: {
+                  productId: d.productId,
+                  productNameSnapshot: d.productNameSnapshot,
+                  qty: d.qty,
+                  price: d.price,
+                  lineTotal: d.lineTotal,
+                  legacyRaw: d.legacyRaw as object,
+                  syncedAt: d.syncedAt,
+                },
+              });
+            }
+          },
+          { timeout: orderItemTxTimeout },
         );
         result.updated += chunk.length;
       } catch (e) {

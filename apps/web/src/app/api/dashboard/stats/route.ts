@@ -14,11 +14,23 @@ export async function GET(req: Request) {
   const qs = searchParams.toString();
   const upstream = `${API_URL}/dashboard/stats${qs ? `?${qs}` : ""}`;
 
-  const r = await fetch(upstream, {
-    method: "GET",
-    headers: { ...headers },
-    cache: "no-store",
-  });
+  let r: Response;
+  try {
+    r = await fetch(upstream, {
+      method: "GET",
+      headers: { ...headers },
+      cache: "no-store",
+    });
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } })?.cause?.code;
+    if (code === "ECONNRESET" || (e as Error).message?.includes("ECONNRESET")) {
+      return NextResponse.json(
+        { message: "Backend unavailable. Start the API server (e.g. npm run dev in apps/backend)." },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 
   const text = await r.text().catch(() => "");
   try {

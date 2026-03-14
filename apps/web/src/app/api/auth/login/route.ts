@@ -5,11 +5,23 @@ import { isSecureRequest } from "@/lib/cookie-secure";
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
 
-  const r = await fetch(`${API_URL}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let r: Response;
+  try {
+    r = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } })?.cause?.code;
+    if (code === "ECONNRESET" || (e as Error).message?.includes("ECONNRESET")) {
+      return NextResponse.json(
+        { message: "Backend unavailable. Start the API server (e.g. npm run dev in apps/backend)." },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 
   const data = await r.json().catch(() => ({}));
 

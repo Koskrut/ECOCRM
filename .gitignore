@@ -8,6 +8,10 @@ apps/web/.env.local
 .env
 .env.local
 
+# docker prod local overrides (do not push; server has its own config)
+docker-compose.prod.local.yml
+docker-compose.override.yml
+
 # Next / node
 **/node_modules/
 **/.next/

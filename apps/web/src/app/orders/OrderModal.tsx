@@ -75,6 +75,8 @@ type OrderDetails = {
   status: string;
   deliveryMethod: string | null;
   paymentType?: string | null;
+  /** CASH | FOP — способ оплаты (from Bitrix UF_CRM_1753787869056) */
+  paymentMethod?: string | null;
   documentsRequested?: boolean | null;
   paidAmount?: number;
   debtAmount?: number;
@@ -257,7 +259,7 @@ function Stepper({
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "paymentType" | "documents" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "documents" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -290,6 +292,7 @@ export function OrderModal({
   const [clientId, setClientId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
   const [paymentType, setPaymentType] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [documentsRequested, setDocumentsRequested] = useState<boolean | null>(null);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
@@ -383,11 +386,17 @@ export function OrderModal({
       });
       if (!r.ok) throw new Error(`Failed to load order (${r.status})`);
       const data = (await r.json()) as OrderDetails;
-      setOrder(data);
+      const orderWithFields = {
+        ...data,
+        paymentMethod: data.paymentMethod ?? null,
+        documentsRequested: data.documentsRequested ?? null,
+      };
+      setOrder(orderWithFields);
       setCompanyId(data.companyId ?? null);
       setClientId(data.clientId ?? null);
       setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
       setPaymentType(data.paymentType ?? null);
+      setPaymentMethod(data.paymentMethod ?? null);
       setDocumentsRequested(data.documentsRequested ?? null);
       setDiscountAmount(Number(data.discountAmount ?? 0));
       setComment(data.comment ?? "");
@@ -617,7 +626,7 @@ export function OrderModal({
           clientId,
           contactId: clientId,
           deliveryMethod,
-          paymentMethod: "CASH",
+          paymentMethod: (paymentMethod === "FOP" ? "FOP" : "CASH") as "CASH" | "FOP",
           documentsRequested: documentsRequested ?? undefined,
           comment: comment.trim() ? comment.trim() : null,
           discountAmount: Number(discountAmount) || 0,
@@ -636,7 +645,7 @@ export function OrderModal({
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, onClose, onSaved]);
+  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, paymentMethod, onClose, onSaved]);
 
   // product search debounce
   useEffect(() => {
@@ -1443,6 +1452,50 @@ export function OrderModal({
                       </div>
 
                       <div>
+                        <div className="text-xs text-zinc-500">Способ оплаты</div>
+                        {editing === "paymentMethod" ? (
+                          <div className="mt-1">
+                            <select
+                              value={paymentMethod ?? ""}
+                              onChange={async (e) => {
+                                const v = e.target.value || null;
+                                setPaymentMethod(v);
+                                try {
+                                  await patchOrder({ paymentMethod: v });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, paymentMethod: v } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                              disabled={saving}
+                            >
+                              <option value="">Выберите...</option>
+                              <option value="CASH">Готівка</option>
+                              <option value="FOP">ФОП</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentMethod(order.paymentMethod ?? null);
+                              setEditing("paymentMethod");
+                            }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {(order.paymentMethod ?? paymentMethod) === "CASH"
+                              ? "Готівка"
+                              : (order.paymentMethod ?? paymentMethod) === "FOP"
+                                ? "ФОП"
+                                : <span className="font-normal text-zinc-400">Выберите способ оплаты...</span>}
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
                         <div className="text-xs text-zinc-500">Документы</div>
                         {editing === "documents" ? (
                           <div className="mt-1">
@@ -1478,9 +1531,9 @@ export function OrderModal({
                             }}
                             className="mt-1 font-medium text-zinc-900 hover:underline"
                           >
-                            {order.documentsRequested === true
+                            {(order.documentsRequested ?? documentsRequested) === true
                               ? "Да"
-                              : order.documentsRequested === false
+                              : (order.documentsRequested ?? documentsRequested) === false
                                 ? "Нет"
                                 : <span className="font-normal text-zinc-400">Выберите...</span>}
                           </button>

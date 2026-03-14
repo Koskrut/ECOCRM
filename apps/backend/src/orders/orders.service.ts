@@ -222,6 +222,8 @@ export class OrdersService {
           isPaid: paidAmount >= totalAmount && totalAmount > 0,
           currency: o.currency,
           paymentType: o.paymentType,
+          paymentMethod: o.paymentMethod ?? null,
+          documentsRequested: o.documentsRequested ?? null,
           hasTtn: (o._count?.ttns ?? 0) > 0,
           createdAt: o.createdAt,
           itemsCount: o.items.length,

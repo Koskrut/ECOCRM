@@ -6,10 +6,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   const token = (await cookies()).get("token")?.value;
 
-  const r = await fetch(`${API_URL}/orders/${id}/timeline`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    cache: "no-store",
-  });
+  let r: Response;
+  try {
+    r = await fetch(`${API_URL}/orders/${id}/timeline`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: "no-store",
+    });
+  } catch (e) {
+    const code = (e as { cause?: { code?: string } })?.cause?.code;
+    if (code === "ECONNRESET" || (e as Error).message?.includes("ECONNRESET")) {
+      return NextResponse.json(
+        { message: "Backend unavailable. Start the API server (e.g. npm run dev in apps/backend)." },
+        { status: 503 }
+      );
+    }
+    throw e;
+  }
 
   const text = await r.text();
   return new NextResponse(text, {

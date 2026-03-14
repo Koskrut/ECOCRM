@@ -292,25 +292,25 @@ function normalizeBitrixListValue(value: unknown): string | null {
   return String(value).trim() || null;
 }
 
-/** Bitrix UF_CRM_1753787869056 (cash/FOP) → PaymentMethod. List options may be stored as ID "1"/"2". */
+/** Bitrix UF_CRM_1753787869056: 74=готівка, 75=бн → PaymentMethod. */
 export function mapBitrixPaymentMethodToPrisma(
   value: unknown,
 ): PaymentMethod | null {
   const raw = normalizeBitrixListValue(value);
   const v = (raw ?? "").toLowerCase();
   if (!v) return null;
-  if (v === "cash" || v === "готівка" || v === "готівку" || v === "наличные" || v === "1") return "CASH";
-  if (v === "fop" || v === "фоп" || v === "бн" || v === "безготівка" || v === "безнал" || v === "безналичные" || v === "2") return "FOP";
+  if (v === "cash" || v === "готівка" || v === "готівку" || v === "наличные" || v === "1" || v === "74") return "CASH";
+  if (v === "fop" || v === "фоп" || v === "бн" || v === "безготівка" || v === "безнал" || v === "безналичные" || v === "2" || v === "75") return "FOP";
   return null;
 }
 
-/** Bitrix UF_CRM_1753788124915 (Документы) — list/single "1"|"0"|"2" or "Да"|"Нет" → boolean. List ID: 1=Да, 2=Нет. */
+/** Bitrix UF_CRM_1753788124915 (Документы): 76=ДА, null=null. */
 export function mapBitrixDocumentsToPrisma(value: unknown): boolean | null {
   const raw = normalizeBitrixListValue(value);
   const v = (raw ?? "").toLowerCase();
   if (!v) return null;
-  if (v === "1" || v === "y" || v === "yes" || v === "да" || v === "так" || v === "true") return true;
-  if (v === "0" || v === "2" || v === "n" || v === "no" || v === "нет" || v === "нi" || v === "false") return false;
+  if (v === "1" || v === "76" || v === "y" || v === "yes" || v === "да" || v === "так" || v === "true") return true;
+  if (v === "0" || v === "2" || v === "75" || v === "n" || v === "no" || v === "нет" || v === "нi" || v === "false") return false;
   return null;
 }
 
@@ -389,8 +389,10 @@ export function mapBitrixDealToPrisma(
   const stageId = row["STAGE_ID"] != null ? String(row["STAGE_ID"]) : null;
   const stageSemanticId = row["STAGE_SEMANTIC_ID"] != null ? String(row["STAGE_SEMANTIC_ID"]) : null;
   const comments = row["COMMENTS"] != null ? String(row["COMMENTS"]).trim() : null;
-  const paymentMethod = mapBitrixPaymentMethodToPrisma(row["UF_CRM_1753787869056"]);
-  const documentsRequested = mapBitrixDocumentsToPrisma(row["UF_CRM_1753788124915"]);
+  const rawPayment = row["UF_CRM_1753787869056"] ?? (row as Record<string, unknown>)["uf_crm_1753787869056"];
+  const rawDocuments = row["UF_CRM_1753788124915"] ?? (row as Record<string, unknown>)["uf_crm_1753788124915"];
+  const paymentMethod = mapBitrixPaymentMethodToPrisma(rawPayment);
+  const documentsRequested = mapBitrixDocumentsToPrisma(rawDocuments);
   const ttnRaw = row["UF_CRM_TTN_NUMBER"];
   const ttnNumber =
     ttnRaw != null && String(ttnRaw).trim() !== "" ? String(ttnRaw).trim() : null;

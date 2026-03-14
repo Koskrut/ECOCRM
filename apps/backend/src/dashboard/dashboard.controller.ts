@@ -1,4 +1,10 @@
-import { Controller, Get, Query, Req } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  InternalServerErrorException,
+  Query,
+  Req,
+} from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import {
@@ -16,12 +22,17 @@ export class DashboardController {
    * Returns: kpi, ordersByStatus, leadsByStatus, leadsBySource, revenueByDay
    */
   @Get("stats")
-  getStats(
+  async getStats(
     @Query("period") periodRaw?: string,
     @Req() req?: Request & { user?: AuthUser },
   ): Promise<DashboardStats> {
     const period: DashboardPeriod =
       periodRaw === "week" || periodRaw === "month" ? periodRaw : "month";
-    return this.dashboard.getStats(period, req?.user);
+    try {
+      return await this.dashboard.getStats(period, req?.user);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
   }
 }

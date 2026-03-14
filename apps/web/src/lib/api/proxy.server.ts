@@ -40,12 +40,31 @@ export async function proxyToBackend(req: NextRequest, backendPath: string) {
   const body =
     method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
 
-  const r = await fetch(target.toString(), {
-    method,
-    headers,
-    body,
-    redirect: "manual",
-  });
+  let r: Response;
+  try {
+    r = await fetch(target.toString(), {
+      method,
+      headers,
+      body,
+      redirect: "manual",
+    });
+  } catch (e) {
+    const cause = (e as { cause?: { code?: string } })?.cause;
+    const isConnectionReset = cause?.code === "ECONNRESET" || (e as Error).message?.includes("ECONNRESET");
+    if (isConnectionReset) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        r = await fetch(target.toString(), { method, headers, body, redirect: "manual" });
+      } catch {
+        return NextResponse.json(
+          { message: "Backend unavailable. Start the API server (e.g. npm run dev in apps/backend)." },
+          { status: 503 }
+        );
+      }
+    } else {
+      throw e;
+    }
+  }
 
   // пробрасываем ответ как есть
   const resHeaders = new Headers(r.headers);

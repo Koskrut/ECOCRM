@@ -45,6 +45,8 @@ function ensureDatabaseUrlForHost() {
 
 async function main() {
   ensureDatabaseUrlForHost();
+  // Lower concurrency by default to avoid "Unable to start a transaction" on order/orderItem updates
+  if (!process.env.BITRIX_IMPORT_CONCURRENCY) process.env.BITRIX_IMPORT_CONCURRENCY = "1";
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["log", "error", "warn"],
   });
