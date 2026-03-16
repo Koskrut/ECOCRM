@@ -346,8 +346,11 @@ export class NpTtnService {
     const seatsAmount = dto.seatsAmount ?? (parcels.length || 1);
 
     const totals = this.calcTotalsFromParcels(parcels);
-    const weight = totals.weight > 0 ? totals.weight : 1;
-    const volumeGeneral = totals.volume > 0 ? totals.volume : 0.001;
+    const defaultWeight = 0.5;
+    const defaultDimensions = { width: 17, length: 12, height: 9 };
+    const defaultVolume = (defaultDimensions.width * defaultDimensions.length * defaultDimensions.height) / 1_000_000;
+    const weight = totals.weight > 0 ? totals.weight : defaultWeight;
+    const volumeGeneral = totals.volume > 0 ? totals.volume : defaultVolume;
 
     const payerType = dto.payerType ?? (process.env.NP_DEFAULT_PAYER_TYPE || "Recipient");
     const paymentMethod = dto.paymentMethod ?? (process.env.NP_DEFAULT_PAYMENT_METHOD || "Cash");
@@ -428,9 +431,10 @@ export class NpTtnService {
       RecipientAddress: String(recipientAddress ?? ""),
       RecipientAddressName: recipientAddressName ?? "",
 
-      ...(parcels.length
-        ? {
-            OptionsSeat: parcels.map((p: NpParcelDto, idx: number) => ({
+      // NP API requires OptionsSeat; when frontend sends no parcels, send one default seat
+      OptionsSeat:
+        parcels.length > 0
+          ? parcels.map((p: NpParcelDto, idx: number) => ({
               number: String(idx + 1),
               weight: String(p.weight),
               volumetricWidth: p.width != null ? String(p.width) : undefined,
@@ -438,9 +442,17 @@ export class NpTtnService {
               volumetricHeight: p.height != null ? String(p.height) : undefined,
               volumetricVolume: this.calcVolume(p),
               cost: p.cost != null ? String(p.cost) : undefined,
-            })),
-          }
-        : {}),
+            }))
+          : [
+              {
+                number: "1",
+                weight: String(weight),
+                volumetricWidth: String(defaultDimensions.width),
+                volumetricLength: String(defaultDimensions.length),
+                volumetricHeight: String(defaultDimensions.height),
+                volumetricVolume: String(defaultVolume),
+              },
+            ],
     };
   }
 
