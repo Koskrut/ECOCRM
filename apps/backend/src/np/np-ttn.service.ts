@@ -411,7 +411,7 @@ export class NpTtnService {
       SeatsAmount: String(seatsAmount),
       Description: "мед. вироби",
       InfoRegClientBarcodes: orderNumber,
-      Cost: String(dto.declaredCost ?? 0),
+      Cost: String(dto.declaredCost ?? 200),
 
       Weight: String(weight),
       VolumeGeneral: String(volumeGeneral),
