@@ -676,8 +676,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const [isAddressLookupLoading, setIsAddressLookupLoading] = useState(false);
   const [isGeocodeLoading, setIsGeocodeLoading] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
 
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const lastGeocodedAddressRef = useRef<string>("");
   const autocompleteAbortRef = useRef<AbortController | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
@@ -913,6 +915,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     });
   }, [address, contact, googlePlaceId, isCreate, lat, lng, patchContact]);
 
+  useEffect(() => {
+    if (lat != null && lng != null) setAddressRequiredForVisit(false);
+  }, [lat, lng]);
+
   const handleSelectAddressSuggestion = useCallback(
     async (suggestion: PlaceSuggestion) => {
       if (!mapsApiKey) return;
@@ -1108,7 +1114,20 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   };
 
   const scheduleVisit = async () => {
-    if (!contact) return;
+    if (!contact) {
+      alert("Сначала сохраните контакт и заполните адрес, чтобы запланировать встречу.");
+      return;
+    }
+    const effectiveLat = lat ?? contact.lat ?? null;
+    const effectiveLng = lng ?? contact.lng ?? null;
+    if (effectiveLat == null || effectiveLng == null) {
+      setAddressRequiredForVisit(true);
+      setTimeout(() => {
+        addressInputRef.current?.focus();
+        addressInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
+      return;
+    }
     try {
       await visitsApi.create({
         contactId: contact.id,
@@ -1116,12 +1135,15 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         title: `${contact.firstName} ${contact.lastName}`.trim() || "Visit",
         phone: contact.phone ?? undefined,
         addressText: contact.address ?? undefined,
-        lat: contact.lat ?? undefined,
-        lng: contact.lng ?? undefined,
+        lat: effectiveLat,
+        lng: effectiveLng,
       });
       alert("Visit added to planned backlog.");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to schedule visit");
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to schedule visit");
+      alert(msg);
     }
   };
 
@@ -1282,10 +1304,16 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             <option value="Техник">Техник</option>
           </select>
           <label className="mt-3 block text-sm font-medium text-zinc-700">Address</label>
+          {addressRequiredForVisit ? (
+            <p className="mt-1 text-sm text-red-600">Заполните адрес для планирования встреч</p>
+          ) : null}
           <div className="mt-1 space-y-2">
             <div className="relative">
               <input
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                ref={addressInputRef}
+                className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-zinc-400 ${
+                  addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
+                }`}
                 value={address}
                 onChange={(e) => {
                   setAddress(e.target.value);
@@ -1586,9 +1614,15 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         />
         <div className="space-y-1 py-1">
           <label className="text-sm text-zinc-500">Address</label>
+          {addressRequiredForVisit ? (
+            <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
+          ) : null}
           <div className="relative">
             <input
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+              ref={addressInputRef}
+              className={`w-full rounded-md border px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 ${
+                addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
+              }`}
               value={address}
               onChange={(e) => {
                 setAddress(e.target.value);
@@ -1748,6 +1782,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     isAddressLookupLoading,
     isGeocodeLoading,
     addressError,
+    addressRequiredForVisit,
     companyId,
     companyOptions,
     loadingCompanies,

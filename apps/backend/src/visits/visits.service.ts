@@ -71,25 +71,40 @@ export class VisitsService {
     const contactId = body.contactId ?? null;
     const companyId = body.companyId ?? null;
 
-    let contact: { id: string; phone: string | null; address: string | null } | null = null;
+    let contact: {
+      id: string;
+      phone: string | null;
+      address: string | null;
+      lat: number | null;
+      lng: number | null;
+    } | null = null;
     if (contactId) {
       contact = await this.prisma.contact.findUnique({
         where: { id: contactId },
-        select: { id: true, phone: true, address: true },
+        select: { id: true, phone: true, address: true, lat: true, lng: true },
       });
       if (!contact) {
         throw new NotFoundException("Contact not found");
       }
     }
 
+    let company: { id: string; lat: number | null; lng: number | null } | null = null;
     if (companyId) {
-      const companyExists = await this.prisma.company.findUnique({
+      company = await this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true },
+        select: { id: true, lat: true, lng: true },
       });
-      if (!companyExists) {
+      if (!company) {
         throw new NotFoundException("Company not found");
       }
+    }
+
+    const effectiveLat = body.lat ?? contact?.lat ?? company?.lat ?? null;
+    const effectiveLng = body.lng ?? contact?.lng ?? company?.lng ?? null;
+    if ((contactId ?? companyId) && (effectiveLat == null || effectiveLng == null)) {
+      throw new BadRequestException(
+        "Нельзя запланировать встречу: в карточке не заданы координаты (адрес/карта).",
+      );
     }
 
     if (contactId) {
@@ -124,6 +139,15 @@ export class VisitsService {
     if (!locationSource && body.lat != null && body.lng != null) {
       locationSource = LocationSourceEnum.GEOCODED;
     }
+    if (
+      !locationSource &&
+      body.lat == null &&
+      body.lng == null &&
+      contact?.lat != null &&
+      contact?.lng != null
+    ) {
+      locationSource = LocationSourceEnum.FROM_CONTACT;
+    }
 
     const data: Prisma.VisitCreateInput = {
       owner: { connect: { id: ownerId } },
@@ -132,8 +156,8 @@ export class VisitsService {
       title: body.title ?? undefined,
       phone: phone ?? undefined,
       addressText: addressText ?? undefined,
-      lat: body.lat ?? undefined,
-      lng: body.lng ?? undefined,
+      lat: effectiveLat ?? undefined,
+      lng: effectiveLng ?? undefined,
       locationSource: locationSource ?? LocationSourceEnum.NONE,
       status: VisitStatusEnum.PLANNED_UNASSIGNED,
     };
@@ -270,6 +294,13 @@ export class VisitsService {
     }
 
     if (nextStatus === VisitStatusEnum.SCHEDULED) {
+      const finalLat = (data.lat !== undefined ? data.lat : existing.lat) ?? null;
+      const finalLng = (data.lng !== undefined ? data.lng : existing.lng) ?? null;
+      if (finalLat == null || finalLng == null) {
+        throw new BadRequestException(
+          "Нельзя запланировать встречу: в карточке не заданы координаты (адрес/карта).",
+        );
+      }
       if (!nextStartsAt || !nextEndsAt) {
         throw new BadRequestException("startsAt and endsAt are required for SCHEDULED visits");
       }

@@ -108,9 +108,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [isAddressLookupLoading, setIsAddressLookupLoading] = useState(false);
   const [isGeocodeLoading, setIsGeocodeLoading] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
   const lastGeocodedAddressRef = useRef<string>("");
   const autocompleteAbortRef = useRef<AbortController | null>(null);
 
@@ -235,6 +237,10 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setEditGooglePlaceId(company.googlePlaceId ?? null);
     }
   }, [company, isCreate]);
+
+  useEffect(() => {
+    if (editLat != null && editLng != null) setAddressRequiredForVisit(false);
+  }, [editLat, editLng]);
 
   const loadMapsConfig = useCallback(async () => {
     try {
@@ -384,17 +390,30 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
   const scheduleVisit = async () => {
     if (!company || isCreate) return;
+    const effectiveLat = editLat ?? company.lat ?? null;
+    const effectiveLng = editLng ?? company.lng ?? null;
+    if (effectiveLat == null || effectiveLng == null) {
+      setAddressRequiredForVisit(true);
+      setTimeout(() => {
+        addressInputRef.current?.focus();
+        addressInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 0);
+      return;
+    }
     try {
       await visitsApi.create({
         companyId: company.id,
         title: company.name || "Visit",
         addressText: company.address ?? undefined,
-        lat: company.lat ?? undefined,
-        lng: company.lng ?? undefined,
+        lat: effectiveLat,
+        lng: effectiveLng,
       });
       alert("Visit added to planned backlog.");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to schedule visit");
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to schedule visit");
+      alert(msg);
     }
   };
 
@@ -831,9 +850,17 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             </div>
             <div className="flex flex-col gap-1 sm:col-span-2">
               <label className={labelClass}>Адрес</label>
+              {addressRequiredForVisit ? (
+                <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
+              ) : null}
               <div className="relative">
                 <input
-                  className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  ref={addressInputRef}
+                  className={`w-full rounded-md border bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:bg-white hover:px-2 focus:bg-white focus:px-2 focus:outline-none ${
+                    addressRequiredForVisit
+                      ? "border-red-500 ring-1 ring-red-500 px-2"
+                      : "border-transparent focus:border-blue-500 focus:ring-1 focus:ring-blue-500 hover:border-zinc-300"
+                  }`}
                   placeholder="Вулиця, місто, індекс"
                   value={editAddress}
                   onChange={(e) => {
@@ -1000,6 +1027,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     companyContacts,
     onOpenContact,
     scheduleVisit,
+    addressRequiredForVisit,
     mapsApiKey,
     mapsConfigError,
     showAddressSuggestions,
