@@ -73,6 +73,7 @@ export class NpTtnService {
       dto,
       resolved,
       npRefs,
+      orderNumber: order.orderNumber,
     });
 
     // 3) create document
@@ -336,8 +337,9 @@ export class NpTtnService {
     dto: CreateNpTtnDto;
     resolved: { data: unknown };
     npRefs: Record<string, unknown>;
+    orderNumber: string;
   }) {
-    const { dto, resolved, npRefs } = args;
+    const { dto, resolved, npRefs, orderNumber } = args;
     const d = resolved.data as Record<string, unknown>;
     const sender = await this.getSenderRefsFromEnv();
     if (!d.phone) throw new BadRequestException("Recipient phone is required");
@@ -407,7 +409,7 @@ export class NpTtnService {
 
       CargoType: "Cargo",
       SeatsAmount: String(seatsAmount),
-      Description: dto.description || "Goods",
+      Description: orderNumber.replace(/\D/g, "") || dto.description || "Goods",
       Cost: String(dto.declaredCost ?? 0),
 
       Weight: String(weight),

@@ -64,7 +64,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const menuItems =
     role === "ADMIN"
       ? [...baseMenuItems, paymentsItem, settingsItem]
-      : baseMenuItems;
+      : role === "MANAGER"
+        ? [...baseMenuItems, paymentsItem]
+        : baseMenuItems;
 
   // Detect mobile on mount
   useEffect(() => {
