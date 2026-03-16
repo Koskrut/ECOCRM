@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getProducts, addToCart } from "@/lib/api";
+import { getProduct, addToCart } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
 import { Button } from "@/components/Button";
 
@@ -18,20 +18,27 @@ export default function ProductPage() {
   } | null>(null);
   const [uahPerUsd, setUahPerUsd] = useState(41);
   const [adding, setAdding] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getProducts({})
+    setLoading(true);
+    setError(null);
+    getProduct(id)
       .then((r) => {
-        const p = r.items.find((i) => i.id === id);
-        if (p)
-          setProduct({
-            name: p.name,
-            basePrice: p.basePrice,
-            primaryImageId: p.primaryImageId ?? null,
-          });
+        setProduct({
+          name: r.product.name,
+          basePrice: r.product.basePrice,
+          primaryImageId: r.product.primaryImageId ?? null,
+        });
         setUahPerUsd(r.uahPerUsd);
       })
-      .catch(() => {});
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Не вдалося завантажити товар");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }, [id]);
 
   const handleAddToCart = async () => {
@@ -46,6 +53,54 @@ export default function ProductPage() {
   };
 
   const priceUah = product ? Math.round(product.basePrice * uahPerUsd) : 0;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+          <Link
+            href="/"
+            className="mb-6 inline-flex min-h-[44px] items-center text-sm text-zinc-600 hover:text-[var(--primary)] transition -ml-1"
+          >
+            ← Назад до каталогу
+          </Link>
+          <div className="rounded-xl border border-[var(--border)] bg-white shadow-sm overflow-hidden md:flex">
+            <div className="flex aspect-square w-full items-center justify-center bg-[var(--surface)] md:w-1/2">
+              <span className="text-zinc-400">Завантаження…</span>
+            </div>
+            <div className="p-4 sm:p-6 md:w-1/2 md:p-8 flex flex-col justify-center">
+              <div className="h-8 w-3/4 rounded bg-zinc-200 animate-pulse" />
+              <div className="mt-4 h-8 w-1/3 rounded bg-zinc-200 animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen">
+        <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+          <Link
+            href="/"
+            className="mb-6 inline-flex min-h-[44px] items-center text-sm text-zinc-600 hover:text-[var(--primary)] transition -ml-1"
+          >
+            ← Назад до каталогу
+          </Link>
+          <div className="rounded-xl border border-[var(--border)] bg-white shadow-sm p-6 sm:p-8">
+            <p className="text-zinc-700">{error}</p>
+            <Link
+              href="/"
+              className="mt-4 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[var(--primary)] px-4 py-2.5 font-medium text-white hover:opacity-90 transition"
+            >
+              Перейти до каталогу
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">

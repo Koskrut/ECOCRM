@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, NotFoundException, Param, Query } from "@nestjs/common";
 import { normalizePagination } from "../../common/pagination";
 import { ProductStore } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
@@ -9,6 +9,27 @@ export class StoreCatalogController {
     private readonly productStore: ProductStore,
     private readonly settings: SettingsService,
   ) {}
+
+  @Get(":id")
+  async getOne(@Param("id") id: string) {
+    const p = await this.productStore.findActiveById(id);
+    if (!p) throw new NotFoundException("Product not found");
+    const [rates] = await Promise.all([this.settings.getExchangeRates()]);
+    const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+    return {
+      uahPerUsd,
+      product: {
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        unit: p.unit,
+        basePrice: p.basePrice,
+        inStock: p.stock > 0,
+        primaryImageUrl: p.primaryImageUrl ?? null,
+        primaryImageId: p.primaryImageId ?? null,
+      },
+    };
+  }
 
   @Get()
   async list(

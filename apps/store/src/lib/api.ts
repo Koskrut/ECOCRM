@@ -61,6 +61,23 @@ export async function getProducts(params?: { search?: string; category?: string;
   }>("/products" + (q.toString() ? "?" + q.toString() : ""));
 }
 
+export async function getProduct(id: string) {
+  const res = await fetch(API + "/products/" + encodeURIComponent(id), {
+    credentials: "include",
+  });
+  if (res.status === 404) {
+    throw new Error("Товар не знайдено");
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error((err as { message?: string }).message ?? "Request failed");
+  }
+  return res.json() as Promise<{
+    uahPerUsd: number;
+    product: Product;
+  }>;
+}
+
 export async function getCart(sessionId?: string): Promise<Cart> {
   const q = sessionId ? "?sessionId=" + encodeURIComponent(sessionId) : "";
   const res = await fetch(API + "/cart" + q, { credentials: "include" });
