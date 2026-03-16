@@ -409,7 +409,8 @@ export class NpTtnService {
 
       CargoType: "Cargo",
       SeatsAmount: String(seatsAmount),
-      Description: orderNumber.replace(/\D/g, "") || dto.description || "Goods",
+      Description: "мед. вироби",
+      Note: orderNumber,
       Cost: String(dto.declaredCost ?? 0),
 
       Weight: String(weight),
@@ -627,7 +628,7 @@ export class NpTtnService {
   }
 
   // ======================
-  // PUBLIC: clear TTN from order (delete OrderTtn, clear deliveryData.novaPoshta.ttn)
+  // PUBLIC: clear TTN from order (delete in NP API, then OrderTtn + deliveryData)
   // ======================
   async clearTtnFromOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({
@@ -635,6 +636,22 @@ export class NpTtnService {
       select: { id: true, deliveryData: true },
     });
     if (!order) throw new NotFoundException("Order not found");
+
+    const ttns = await this.prisma.orderTtn.findMany({
+      where: { orderId, carrier: "NOVA_POSHTA" as Carrier },
+      select: { documentRef: true },
+    });
+    const refs = ttns.map((t) => t.documentRef).filter((r): r is string => r != null && r.trim() !== "");
+    if (refs.length > 0) {
+      try {
+        await this.np.call("InternetDocument", "delete", {
+          DocumentRefs: refs.join(","),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new BadRequestException(`NP delete TTN failed: ${msg}`);
+      }
+    }
 
     await this.prisma.orderTtn.deleteMany({
       where: { orderId },
