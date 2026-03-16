@@ -24,8 +24,9 @@ export default function CartPage() {
   }, []);
 
   const updateQty = async (itemId: string, qty: number) => {
+    const sessionId = getCartSessionId();
     try {
-      const next = await updateCartItem(itemId, qty);
+      const next = await updateCartItem(itemId, qty, sessionId);
       setCart(next);
     } catch {
       load();
@@ -33,8 +34,9 @@ export default function CartPage() {
   };
 
   const remove = async (itemId: string) => {
+    const sessionId = getCartSessionId();
     try {
-      const next = await removeCartItem(itemId);
+      const next = await removeCartItem(itemId, sessionId);
       setCart(next);
     } catch {
       load();

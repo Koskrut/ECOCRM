@@ -75,12 +75,15 @@ export async function addToCart(productId: string, qty: number, sessionId?: stri
   });
 }
 
-export async function updateCartItem(itemId: string, qty: number) {
-  return api<Cart>(`/cart/items/${itemId}`, { method: "PATCH", body: { qty } });
+export async function updateCartItem(itemId: string, qty: number, sessionId?: string) {
+  const body = sessionId ? { qty, sessionId } : { qty };
+  return api<Cart>(`/cart/items/${itemId}`, { method: "PATCH", body });
 }
 
-export async function removeCartItem(itemId: string) {
-  return api<Cart>(`/cart/items/${itemId}`, { method: "DELETE" });
+export async function removeCartItem(itemId: string, sessionId?: string) {
+  const opts: { method: string; body?: { sessionId: string } } = { method: "DELETE" };
+  if (sessionId) opts.body = { sessionId };
+  return api<Cart>(`/cart/items/${itemId}`, opts);
 }
 
 export type CheckoutDeliveryData =
