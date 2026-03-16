@@ -86,7 +86,11 @@ export function CallCard({ item, isExpanded = false, onToggle }: Props) {
     <div className="rounded-md border border-zinc-200 p-3 bg-zinc-50">
       <div className="flex items-start justify-between gap-3">
         <div
-          className="min-w-0 flex-1 space-y-1"
+          className={
+            canExpand
+              ? "min-w-0 flex-1 space-y-1 cursor-pointer hover:bg-zinc-100/80 rounded focus:outline-none focus:ring-2 focus:ring-zinc-300 -m-1 p-1"
+              : "min-w-0 flex-1 space-y-1"
+          }
           role={canExpand ? "button" : undefined}
           tabIndex={canExpand ? 0 : undefined}
           onClick={canExpand ? onToggle : undefined}
@@ -99,11 +103,6 @@ export function CallCard({ item, isExpanded = false, onToggle }: Props) {
                   }
                 }
               : undefined
-          }
-          className={
-            canExpand
-              ? "min-w-0 flex-1 space-y-1 cursor-pointer hover:bg-zinc-100/80 rounded focus:outline-none focus:ring-2 focus:ring-zinc-300 -m-1 p-1"
-              : "min-w-0 flex-1 space-y-1"
           }
         >
           <div className="flex flex-wrap items-center gap-2">
