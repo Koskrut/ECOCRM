@@ -110,6 +110,17 @@ export class ProductStore {
     return result.count > 0;
   }
 
+  /** Set stock to 0 for all products whose SKU is not in the given set (full overwrite on upload). */
+  public async resetStockExceptSkus(skus: Set<string>): Promise<number> {
+    if (skus.size === 0) return 0;
+    const list = Array.from(skus);
+    const result = await this.prisma.product.updateMany({
+      where: { sku: { notIn: list } },
+      data: { stock: 0 },
+    });
+    return result.count;
+  }
+
   public async bulkUpdateStocks(entries: StockUpdateEntry[]): Promise<BulkStockUpdateResult> {
     const notFound: string[] = [];
     let updated = 0;

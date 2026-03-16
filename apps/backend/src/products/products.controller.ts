@@ -101,6 +101,8 @@ export class ProductsController {
         "No rows with valid артикул column. Expected headers: Артикул (or sku), Остаток (or qty/quantity/stock)",
       );
     }
+    const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
+    await this.productStore.resetStockExceptSkus(skuSet);
     return this.productStore.bulkUpdateStocks(entries);
   }
 
