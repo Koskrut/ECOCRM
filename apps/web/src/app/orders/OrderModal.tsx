@@ -1122,278 +1122,227 @@ export function OrderModal({
                 <EntityTasksList orderId={orderId!} />
               </EntitySection>
             ) : leftTab === "items" ? (
-              <EntitySection title="Items">
-                <div className="rounded-md border border-zinc-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-zinc-900">Items</h3>
+              <EntitySection
+                title="Items"
+                rightAction={
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm((v) => !v)}
+                    className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {showAddForm ? "Done" : "+ Add item"}
+                  </button>
+                }
+              >
+                {showAddForm ? (
+                  <div className="mb-3 flex flex-wrap items-end gap-2">
+                    <div className="relative min-w-0 flex-1" style={{ minWidth: "120px" }}>
+                      <input
+                        ref={searchInputRef}
+                        value={search}
+                        onChange={(e) => {
+                          setSearch(e.target.value);
+                          setSelectedProduct(null);
+                        }}
+                        placeholder="Product…"
+                        className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                      />
+                      {!selectedProduct && searchResults.length > 0 ? (
+                        <div className="absolute top-full left-0 right-0 z-10 mt-0.5 max-h-36 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
+                          {searchResults.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => handleSelectProduct(p)}
+                              onDoubleClick={(e) => {
+                                e.preventDefault();
+                                void handleAddItemQuick(p);
+                              }}
+                              className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-50"
+                            >
+                              <span className="truncate font-medium text-zinc-900">{p.name}</span>
+                              <span className="shrink-0 text-xs text-zinc-500">
+                                {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !== undefined
+                                  ? `Ост. ${stockAtWarehouse(p, order?.warehouseId) ?? p.stock}`
+                                  : p.sku}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      {searchLoading ? <div className="mt-0.5 text-[10px] text-zinc-500">Searching…</div> : null}
+                      {searchError ? <div className="mt-0.5 text-[10px] text-red-600">{searchError}</div> : null}
+                      {selectedProduct ? (
+                        <div className="mt-0.5 text-[10px] text-zinc-600">
+                          {selectedProduct.name}
+                          {(stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined && (
+                            <span className="ml-1 text-zinc-500">
+                              Ост. {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                    <input
+                      ref={qtyInputRef}
+                      type="number"
+                      min={1}
+                      value={qty}
+                      onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleAddItemSubmit();
+                        }
+                      }}
+                      className="w-14 rounded-md border border-zinc-300 px-2 py-1.5 text-right text-sm"
+                      placeholder="Qty"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={price}
+                      onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleAddItemSubmit();
+                        }
+                      }}
+                      className="w-20 rounded-md border border-zinc-300 px-2 py-1.5 text-right text-sm"
+                      placeholder="Price"
+                    />
                     <button
                       type="button"
-                      onClick={() => setShowAddForm((v) => !v)}
-                      className="rounded-md border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                      disabled={!selectedProduct || submittingItem}
+                      onClick={() => void handleAddItemSubmit()}
+                      className="rounded-md bg-zinc-900 px-2 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                     >
-                      {showAddForm ? "Done" : "+ Add item"}
+                      {submittingItem ? "…" : "Add"}
                     </button>
+                    {submitError ? <span className="w-full text-[10px] text-red-600 sm:w-auto">{submitError}</span> : null}
                   </div>
-                  {showAddForm ? (
-                    <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="grid grid-cols-12 gap-3">
-                        <div className="col-span-12">
-                          <label className="block text-xs font-medium text-zinc-600 mb-1">Product</label>
-                          <input
-                            ref={searchInputRef}
-                            value={search}
-                            onChange={(e) => {
-                              setSearch(e.target.value);
-                              setSelectedProduct(null);
-                            }}
-                            placeholder="Search product…"
-                            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                          />
-                          {searchLoading ? <div className="mt-2 text-xs text-zinc-500">Searching…</div> : null}
-                          {searchError ? <div className="mt-2 text-xs text-red-600">{searchError}</div> : null}
-                          {!selectedProduct && searchResults.length > 0 ? (
-                            <div className="mt-2 max-h-40 overflow-auto rounded-md border bg-white">
-                              {searchResults.map((p) => (
-                                <button
-                                  key={p.id}
-                                  type="button"
-                                  onClick={() => handleSelectProduct(p)}
-                                  onDoubleClick={(e) => {
-                                    e.preventDefault();
-                                    void handleAddItemQuick(p);
-                                  }}
-                                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                                >
-                                  <span className="font-medium text-zinc-900">{p.name}</span>
-                                  <span className="flex shrink-0 items-center gap-2 text-xs text-zinc-500">
-                                    {p.sku}
-                                    {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !== undefined && (
-                                      <span className="text-zinc-400">
-                                        Ост.: {stockAtWarehouse(p, order?.warehouseId) ?? p.stock}
-                                      </span>
-                                    )}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          ) : null}
-                          {selectedProduct ? (
-                            <div className="mt-2 text-xs text-zinc-600">
-                              Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
-                              {(stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined && (
-                                <span className="ml-2 text-zinc-500">
-                                  Остаток: {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
-                                </span>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="col-span-6">
-                          <label className="block text-xs font-medium text-zinc-600 mb-1">Qty</label>
-                          <input
-                            ref={qtyInputRef}
-                            type="number"
-                            min={1}
-                            value={qty}
-                            onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void handleAddItemSubmit();
-                              }
-                            }}
-                            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                          />
-                        </div>
-                        <div className="col-span-6">
-                          <label className="block text-xs font-medium text-zinc-600 mb-1">Price</label>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="number"
-                              min={0}
-                              value={price}
-                              onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void handleAddItemSubmit();
-                                }
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                            />
-                            {selectedProduct && (stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined ? (
-                              <span className="shrink-0 text-xs text-zinc-500">
-                                Остаток: {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
-                              </span>
+                ) : null}
+                <ul className="divide-y divide-zinc-100 text-sm">
+                  {order.items.length === 0 ? (
+                    <li className="py-2 text-zinc-500">No items</li>
+                  ) : (
+                    order.items.map((it) => (
+                        <li key={it.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+                          <div className="min-w-0 flex-1">
+                            {it.product?.sku ? (
+                              <div className="text-[11px] text-zinc-500">{it.product.sku}</div>
                             ) : null}
+                            <span className="text-xs font-medium text-zinc-700">
+                              {it.product?.name || it.productName || it.productId}
+                            </span>
                           </div>
-                        </div>
-                      </div>
-                      {submitError ? <div className="mt-3 text-xs text-red-600">{submitError}</div> : null}
-                      <div className="mt-3 flex justify-end">
-                        <button
-                          type="button"
-                          disabled={!selectedProduct || submittingItem}
-                          onClick={() => void handleAddItemSubmit()}
-                          className="btn-primary"
-                        >
-                          {submittingItem ? "Adding…" : "Add"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-4 overflow-hidden rounded-md border border-zinc-200">
-                    <table className="w-full text-sm">
-                      <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                        <tr>
-                          <th className="px-3 py-2 text-left">Product</th>
-                          <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2 text-right">Price</th>
-                          <th className="px-3 py-2 text-right">Остаток</th>
-                          <th className="px-3 py-2 text-right">Total</th>
-                          <th className="w-10 px-2 py-2"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {order.items.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-3 text-zinc-500" colSpan={6}>
-                              No items
-                            </td>
-                          </tr>
-                        ) : (
-                          order.items.map((it) => (
-                            <tr key={it.id} className="hover:bg-zinc-50/50">
-                              <td className="px-3 py-2">
-                                <div className="font-medium text-zinc-900">
-                                  {it.product?.name || it.productName || it.productId}
-                                </div>
-                                {it.product?.sku ? (
-                                  <div className="text-xs text-zinc-500">{it.product.sku}</div>
-                                ) : null}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={editingItem.value}
-                                    onChange={(e) =>
-                                      setEditingItem((prev) =>
-                                        prev ? { ...prev, value: e.target.value } : null,
-                                      )
-                                    }
-                                    onBlur={async () => {
-                                      const val = Math.max(1, Number(editingItem?.value) || 1);
-                                      await patchOrderItem(it.id, { qty: val });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        const val = Math.max(1, Number(editingItem?.value) || 1);
-                                        void patchOrderItem(it.id, { qty: val });
-                                      }
-                                      if (e.key === "Escape") setEditingItem(null);
-                                    }}
-                                    autoFocus
-                                    className="w-16 rounded border border-zinc-300 px-2 py-1 text-right text-sm"
-                                  />
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingItem({
-                                        itemId: it.id,
-                                        field: "qty",
-                                        value: String(it.qty),
-                                      })
-                                    }
-                                    className="text-zinc-700 hover:underline"
-                                  >
-                                    {it.qty}
-                                  </button>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                {editingItem?.itemId === it.id && editingItem?.field === "price" ? (
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step={0.01}
-                                    value={editingItem.value}
-                                    onChange={(e) =>
-                                      setEditingItem((prev) =>
-                                        prev ? { ...prev, value: e.target.value } : null,
-                                      )
-                                    }
-                                    onBlur={async () => {
-                                      const val = Math.max(0, Number(editingItem?.value) || 0);
-                                      await patchOrderItem(it.id, { price: val });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        const val = Math.max(0, Number(editingItem?.value) || 0);
-                                        void patchOrderItem(it.id, { price: val });
-                                      }
-                                      if (e.key === "Escape") setEditingItem(null);
-                                    }}
-                                    autoFocus
-                                    className="w-20 rounded border border-zinc-300 px-2 py-1 text-right text-sm"
-                                  />
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingItem({
-                                        itemId: it.id,
-                                        field: "price",
-                                        value: String(it.price),
-                                      })
-                                    }
-                                    className="text-zinc-700 hover:underline"
-                                  >
-                                    {it.price.toFixed(2)}
-                                  </button>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right text-zinc-600">
-                                {it.product?.stock !== undefined ? it.product.stock : <span className="font-normal text-zinc-400">Не указано</span>}
-                              </td>
-                              <td className="px-3 py-2 text-right font-medium text-zinc-900">
-                                {it.lineTotal.toFixed(2)}
-                              </td>
-                              <td className="px-2 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => void deleteOrderItem(it.id)}
-                                  disabled={saving}
-                                  className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                                  title="Delete"
-                                  aria-label="Delete"
-                                >
-                                  <svg
-                                    className="h-4 w-4"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                    />
-                                  </svg>
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                          <div className="flex items-center gap-1">
+                            {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
+                              <input
+                                type="number"
+                                min={1}
+                                value={editingItem.value}
+                                onChange={(e) =>
+                                  setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
+                                }
+                                onBlur={async () => {
+                                  const val = Math.max(1, Number(editingItem?.value) || 1);
+                                  await patchOrderItem(it.id, { qty: val });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const val = Math.max(1, Number(editingItem?.value) || 1);
+                                    void patchOrderItem(it.id, { qty: val });
+                                  }
+                                  if (e.key === "Escape") setEditingItem(null);
+                                }}
+                                autoFocus
+                                className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-right text-sm"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingItem({
+                                    itemId: it.id,
+                                    field: "qty",
+                                    value: String(it.qty),
+                                  })
+                                }
+                                className="text-zinc-600 hover:underline"
+                              >
+                                {it.qty}
+                              </button>
+                            )}
+                            <span className="text-zinc-400">×</span>
+                            {editingItem?.itemId === it.id && editingItem?.field === "price" ? (
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={editingItem.value}
+                                onChange={(e) =>
+                                  setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
+                                }
+                                onBlur={async () => {
+                                  const val = Math.max(0, Number(editingItem?.value) || 0);
+                                  await patchOrderItem(it.id, { price: val });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const val = Math.max(0, Number(editingItem?.value) || 0);
+                                    void patchOrderItem(it.id, { price: val });
+                                  }
+                                  if (e.key === "Escape") setEditingItem(null);
+                                }}
+                                autoFocus
+                                className="w-14 rounded border border-zinc-300 px-1 py-0.5 text-right text-sm"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingItem({
+                                    itemId: it.id,
+                                    field: "price",
+                                    value: String(it.price),
+                                  })
+                                }
+                                className="text-zinc-600 hover:underline"
+                              >
+                                {it.price.toFixed(2)}
+                              </button>
+                            )}
+                            <span className="text-zinc-500">=</span>
+                            <span className="w-14 text-right font-medium text-zinc-900">
+                              {it.lineTotal.toFixed(2)}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void deleteOrderItem(it.id)}
+                            disabled={saving}
+                            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                            title="Удалить"
+                            aria-label="Удалить"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        </li>
+                    ))
+                  )}
+                </ul>
               </EntitySection>
             ) : (
               <>
