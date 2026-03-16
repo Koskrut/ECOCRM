@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { SearchableSelect } from "../../components/SearchableSelect";
 import { apiHttp } from "../../lib/api/client";
+import { listBankAccountsForOrder } from "../../lib/api/resources/bank";
+import { listWarehouses, type WarehouseItem } from "../../lib/api/resources/warehouses";
 
 // --- Enums (должны совпадать с Prisma) ---
 enum DeliveryMethod {
@@ -61,10 +63,14 @@ export function CreateOrderModal({
     city: "",
     warehouse: "",
   });
+  const [warehouseId, setWarehouseId] = useState<string | null>(null);
+  const [bankAccountId, setBankAccountId] = useState<string | null>(null);
 
   // --- Data State ---
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
+  const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
 
@@ -108,6 +114,32 @@ export function CreateOrderModal({
     void fetchContacts(companyId);
   }, [companyId, fetchContacts]);
 
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const [whRes, fopRes] = await Promise.all([
+          listWarehouses(),
+          listBankAccountsForOrder(),
+        ]);
+        if (mounted) {
+          setWarehouses(whRes);
+          setFopAccounts(fopRes);
+          if (whRes.length > 0 && warehouseId === null) {
+            const defaultWh = whRes.find((w) => w.name === "Днепр") ?? whRes[0];
+            setWarehouseId(defaultWh.id);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load warehouses / FOP", e);
+      }
+    };
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const handleCreate = async () => {
     setSubmitting(true);
     setError(null);
@@ -123,6 +155,8 @@ export function CreateOrderModal({
         deliveryMethod,
         paymentMethod,
         paymentType: paymentType ?? undefined,
+        bankAccountId: paymentMethod === PaymentMethod.FOP ? bankAccountId : null,
+        warehouseId: warehouseId ?? undefined,
         deliveryData: deliveryMethod === DeliveryMethod.NOVA_POSHTA ? deliveryData : null,
         discountAmount: 0,
       });
@@ -219,10 +253,44 @@ export function CreateOrderModal({
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                onChange={(e) => {
+                  setPaymentMethod(e.target.value as PaymentMethod);
+                  if (e.target.value !== PaymentMethod.FOP) setBankAccountId(null);
+                }}
               >
                 <option value={PaymentMethod.CASH}>Cash</option>
                 <option value={PaymentMethod.FOP}>FOP (Bank)</option>
+              </select>
+            </div>
+            {paymentMethod === PaymentMethod.FOP && (
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-zinc-600 mb-1">ФОП (банк)</label>
+                <select
+                  className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
+                  value={bankAccountId ?? ""}
+                  onChange={(e) => setBankAccountId(e.target.value || null)}
+                >
+                  <option value="">Выберите счёт...</option>
+                  {fopAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Склад отгрузки</label>
+              <select
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
+                value={warehouseId ?? ""}
+                onChange={(e) => setWarehouseId(e.target.value || null)}
+              >
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

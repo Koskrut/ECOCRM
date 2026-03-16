@@ -37,6 +37,13 @@ export class BankAccountsController {
     return this.service.list();
   }
 
+  /** List active accounts for order form (id, name only). Available to managers. */
+  @Get("for-order")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  listForOrder() {
+    return this.service.listForOrder();
+  }
+
   @Get(":id")
   get(@Param("id") id: string) {
     return this.service.getById(id);

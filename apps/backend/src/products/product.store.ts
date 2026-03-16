@@ -5,13 +5,24 @@ import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProductImageStore } from "./product-image.store";
 
+export type StockByWarehouseItem = { warehouseId: string; warehouseName: string; qty: number };
+
 type ProductListItem = Pick<
   Product,
   "id" | "sku" | "name" | "unit" | "basePrice" | "stock" | "primaryImageUrl" | "primaryImageId"
 >;
 
+export type ProductListItemWithStockByWarehouse = ProductListItem & {
+  stockByWarehouse?: StockByWarehouseItem[];
+};
+
 type ProductListResult = {
   items: ProductListItem[];
+  total: number;
+};
+
+export type ProductListResultWithStockByWarehouse = {
+  items: ProductListItemWithStockByWarehouse[];
   total: number;
 };
 
@@ -28,6 +39,8 @@ type PrismaProduct = {
 };
 
 export type StockUpdateEntry = { sku: string; stock: number; name?: string; basePrice?: number };
+
+export type StockByWarehouseEntry = { sku: string; warehouseId: string; qty: number };
 
 export type BulkStockUpdateResult = {
   updated: number;
@@ -108,6 +121,108 @@ export class ProductStore {
       data: { stock: Math.max(0, Math.floor(stock)) },
     });
     return result.count > 0;
+  }
+
+  /** Returns map productId -> stockByWarehouse[]. */
+  public async getStocksByWarehouseForProductIds(
+    productIds: string[],
+  ): Promise<Map<string, StockByWarehouseItem[]>> {
+    if (productIds.length === 0) return new Map();
+    const rows = await this.prisma.productWarehouseStock.findMany({
+      where: { productId: { in: productIds } },
+      include: { warehouse: { select: { id: true, name: true } } },
+    });
+    const map = new Map<string, StockByWarehouseItem[]>();
+    for (const r of rows) {
+      const list = map.get(r.productId) ?? [];
+      list.push({
+        warehouseId: r.warehouse.id,
+        warehouseName: r.warehouse.name,
+        qty: r.qty,
+      });
+      map.set(r.productId, list);
+    }
+    return map;
+  }
+
+  /** Get stock for one product at one warehouse (0 if no row). */
+  public async getStockAtWarehouse(productId: string, warehouseId: string): Promise<number> {
+    const row = await this.prisma.productWarehouseStock.findUnique({
+      where: {
+        productId_warehouseId: { productId, warehouseId },
+      },
+      select: { qty: true },
+    });
+    return row?.qty ?? 0;
+  }
+
+  /** Upsert ProductWarehouseStock and recalc Product.stock as sum across warehouses. */
+  public async upsertProductWarehouseStock(
+    productId: string,
+    warehouseId: string,
+    qty: number,
+  ): Promise<void> {
+    const qtyVal = Math.max(0, Math.floor(qty));
+    await this.prisma.productWarehouseStock.upsert({
+      where: {
+        productId_warehouseId: { productId, warehouseId },
+      },
+      create: { productId, warehouseId, qty: qtyVal },
+      update: { qty: qtyVal },
+    });
+    await this.recalcProductTotalStock(productId);
+  }
+
+  private async recalcProductTotalStock(productId: string): Promise<void> {
+    const rows = await this.prisma.productWarehouseStock.findMany({
+      where: { productId },
+      select: { qty: true },
+    });
+    const total = rows.reduce((s, r) => s + r.qty, 0);
+    await this.prisma.product.update({
+      where: { id: productId },
+      data: { stock: total },
+    });
+  }
+
+  /** Bulk set stocks by warehouse from upload; creates product if missing by sku (with 0 stock elsewhere). */
+  public async bulkSetStocksByWarehouses(
+    entries: StockByWarehouseEntry[],
+  ): Promise<BulkStockUpdateResult> {
+    const notFound: string[] = [];
+    let updated = 0;
+    let created = 0;
+    const skuToId = new Map<string, string>();
+    for (const { sku, warehouseId, qty } of entries) {
+      const skuTrim = sku.trim();
+      if (!skuTrim) continue;
+      let productId = skuToId.get(skuTrim);
+      if (!productId) {
+        const product = await this.prisma.product.findUnique({
+          where: { sku: skuTrim },
+          select: { id: true },
+        });
+        if (!product) {
+          notFound.push(skuTrim);
+          continue;
+        }
+        productId = product.id;
+        skuToId.set(skuTrim, productId);
+      }
+      const qtyVal = Math.max(0, Math.floor(qty));
+      await this.prisma.productWarehouseStock.upsert({
+        where: {
+          productId_warehouseId: { productId, warehouseId },
+        },
+        create: { productId, warehouseId, qty: qtyVal },
+        update: { qty: qtyVal },
+      });
+      updated++;
+    }
+    for (const productId of skuToId.values()) {
+      await this.recalcProductTotalStock(productId);
+    }
+    return { updated, created, notFound };
   }
 
   /** Set stock to 0 for all products whose SKU is not in the given set (full overwrite on upload). */
@@ -261,11 +376,13 @@ export class ProductStore {
   public async listCatalog(
     search: string | undefined,
     pagination: Pagination,
-  ): Promise<ProductListResult> {
+  ): Promise<ProductListResultWithStockByWarehouse> {
     const hasSearch = search && search.trim().length > 0;
+    let rows: Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>;
+    let total: number;
     if (!hasSearch) {
       const where: Prisma.ProductWhereInput = { isActive: true };
-      const [total, rows] = await Promise.all([
+      const [totalCount, rowsResult] = await Promise.all([
         this.prisma.product.count({ where }),
         this.prisma.product.findMany({
           where,
@@ -275,37 +392,45 @@ export class ProductStore {
           select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true },
         }),
       ]);
-      const items = await this.enrichWithPrimaryImage(rows);
-      return { items, total };
+      rows = rowsResult;
+      total = totalCount;
+    } else {
+      const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
+      const rowsResult = await this.prisma.$queryRaw<
+        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>
+      >`
+        SELECT id, sku, name, unit, "basePrice", stock
+        FROM "Product"
+        WHERE "isActive" = true
+          AND (
+            sku ILIKE ${searchPattern}
+            OR name ILIKE ${searchPattern}
+            OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
+          )
+        ORDER BY name
+        LIMIT ${pagination.limit} OFFSET ${pagination.offset}
+      `;
+      const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*)::int AS count
+        FROM "Product"
+        WHERE "isActive" = true
+          AND (
+            sku ILIKE ${searchPattern}
+            OR name ILIKE ${searchPattern}
+            OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
+          )
+      `;
+      rows = rowsResult;
+      total = Number(count);
     }
-
-    const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
-    const rows = await this.prisma.$queryRaw<
-      Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>
-    >`
-      SELECT id, sku, name, unit, "basePrice", stock
-      FROM "Product"
-      WHERE "isActive" = true
-        AND (
-          sku ILIKE ${searchPattern}
-          OR name ILIKE ${searchPattern}
-          OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
-        )
-      ORDER BY name
-      LIMIT ${pagination.limit} OFFSET ${pagination.offset}
-    `;
-    const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
-      SELECT COUNT(*)::int AS count
-      FROM "Product"
-      WHERE "isActive" = true
-        AND (
-          sku ILIKE ${searchPattern}
-          OR name ILIKE ${searchPattern}
-          OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
-        )
-    `;
-    const items = await this.enrichWithPrimaryImage(rows);
-    return { items, total: Number(count) };
+    const itemsWithImages = await this.enrichWithPrimaryImage(rows);
+    const productIds = itemsWithImages.map((i) => i.id);
+    const stockByWarehouseMap = await this.getStocksByWarehouseForProductIds(productIds);
+    const items: ProductListItemWithStockByWarehouse[] = itemsWithImages.map((item) => ({
+      ...item,
+      stockByWarehouse: stockByWarehouseMap.get(item.id) ?? [],
+    }));
+    return { items, total };
   }
 
   /** All active products with id, sku, skuNormalized for sync matching. */

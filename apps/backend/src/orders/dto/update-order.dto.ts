@@ -50,4 +50,12 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsObject()
   deliveryData?: Record<string, unknown> | null;
+
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string | null;
 }

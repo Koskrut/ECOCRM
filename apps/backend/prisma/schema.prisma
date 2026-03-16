@@ -668,6 +668,19 @@ model ContactPhone {
   @@index([contactId])
 }
 
+model Warehouse {
+  id        String   @id @default(cuid())
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders              Order[]
+  productWarehouseStocks ProductWarehouseStock[]
+
+  @@index([sortOrder])
+}
+
 model Product {
   id              String         @id @default(cuid())
   sku             String         @unique
@@ -685,8 +698,25 @@ model Product {
   items         OrderItem[]
   leadItems     LeadItem[]
   cartItems     CartItem[]
+  productWarehouseStocks ProductWarehouseStock[]
 
   @@index([primaryImageId])
+}
+
+model ProductWarehouseStock {
+  id          String   @id @default(cuid())
+  productId   String
+  warehouseId String
+  qty         Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId])
+  @@index([productId])
+  @@index([warehouseId])
 }
 
 enum ProductImageSource {
@@ -791,13 +821,19 @@ model Order {
 
   deliveryMethod      DeliveryMethod?
   paymentMethod       PaymentMethod?
+  /** Банковский счёт (ФОП) при оплате FOP. */
+  bankAccountId       String?
+  /** Склад отгрузки. */
+  warehouseId         String?
   /** Bitrix UF_CRM_1753788124915 — Документы (Да/нет). */
   documentsRequested  Boolean?
   paymentType         PaymentType?
   deliveryData        Json?
   orderSource         OrderSource @default(CRM)
 
-  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  warehouse    Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   // Order.clientId -> Contact
   client Contact? @relation("OrderClient", fields: [clientId], references: [id], onDelete: SetNull)
@@ -816,6 +852,8 @@ model Order {
   @@index([companyId])
   @@index([clientId])
   @@index([contactId])
+  @@index([bankAccountId])
+  @@index([warehouseId])
   @@index([status])
   @@index([orderSource])
   @@unique([legacySource, legacyId])
@@ -1068,6 +1106,7 @@ model BankAccount {
   updatedAt      DateTime     @updatedAt
 
   transactions BankTransaction[]
+  orders       Order[]
 
   @@index([provider, isActive])
 }

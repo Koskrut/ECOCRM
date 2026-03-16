@@ -94,6 +94,25 @@ async function main() {
   console.log("STORE_OWNER_ID for .env:", storeUser.id);
 
   // =========================
+  // 1b) Warehouses (Днепр — default, Одесса, Львов)
+  // =========================
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-dnipro" },
+    update: { name: "Днепр", sortOrder: 0 },
+    create: { id: "seed-wh-dnipro", name: "Днепр", sortOrder: 0 },
+  });
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-odesa" },
+    update: { name: "Одесса", sortOrder: 1 },
+    create: { id: "seed-wh-odesa", name: "Одесса", sortOrder: 1 },
+  });
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-lviv" },
+    update: { name: "Львов", sortOrder: 2 },
+    create: { id: "seed-wh-lviv", name: "Львов", sortOrder: 2 },
+  });
+
+  // =========================
   // 2) Company + Contacts
   // =========================
   const company = await prisma.company.upsert({

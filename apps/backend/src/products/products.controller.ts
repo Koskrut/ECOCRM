@@ -25,6 +25,7 @@ import { ProductImagesSyncState } from "./product-images-sync-state";
 import type { ProductImagesSyncStatus } from "./product-images-sync-state";
 import { StockUploadService } from "./stock-upload.service";
 import type { ProductImagesSyncResult } from "./product-images-sync.service";
+import { WarehousesService } from "../warehouses/warehouses.service";
 
 type ProductsQuery = {
   search?: string;
@@ -41,6 +42,7 @@ export class ProductsController {
     private readonly productImagesSyncService: ProductImagesSyncService,
     private readonly syncState: ProductImagesSyncState,
     private readonly stockUploadService: StockUploadService,
+    private readonly warehousesService: WarehousesService,
   ) {}
 
   @Get()
@@ -104,6 +106,26 @@ export class ProductsController {
     const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
     await this.productStore.resetStockExceptSkus(skuSet);
     return this.productStore.bulkUpdateStocks(entries);
+  }
+
+  @Post("stock/upload-by-warehouses")
+  @UseInterceptors(FileInterceptor("file"))
+  public async uploadStockByWarehouses(
+    @UploadedFile() file: { buffer?: Buffer } | undefined,
+  ): Promise<{ updated: number; created: number; notFound: string[] }> {
+    const buffer = file?.buffer;
+    if (!buffer) throw new BadRequestException("File is required");
+    const warehouses = await this.warehousesService.list();
+    if (warehouses.length === 0) {
+      throw new BadRequestException("No warehouses configured. Add warehouses first.");
+    }
+    const entries = this.stockUploadService.parseExcelBufferByWarehouses(buffer, warehouses);
+    if (entries.length === 0) {
+      throw new BadRequestException(
+        "No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (Днепр, Одесса, Львов).",
+      );
+    }
+    return this.productStore.bulkSetStocksByWarehouses(entries);
   }
 
   @Public()

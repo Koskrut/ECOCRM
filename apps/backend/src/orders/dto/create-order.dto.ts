@@ -76,6 +76,14 @@ export class CreateOrderDto {
   deliveryData?: DeliveryDataDto | null;
 
   @IsOptional()
+  @IsString()
+  bankAccountId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string | null;
+
+  @IsOptional()
   @IsEnum(OrderSource)
   orderSource?: OrderSource;
 }

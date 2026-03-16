@@ -50,6 +50,10 @@ export type Order = {
 
   deliveryMethod?: DeliveryMethod | null;
   paymentMethod?: PaymentMethod | null;
+  bankAccountId?: string | null;
+  bankAccount?: { id: string; name: string } | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
   /** Bitrix: Документы (Да/нет). */
   documentsRequested?: boolean | null;
   paymentType?: PaymentType | null;

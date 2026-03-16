@@ -75,6 +75,16 @@ export class BankAccountsService {
     return accounts.map(toMasked);
   }
 
+  /** For order form: active accounts, id and name only. */
+  async listForOrder(): Promise<Array<{ id: string; name: string }>> {
+    const accounts = await this.prisma.bankAccount.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+    return accounts;
+  }
+
   async getById(id: string) {
     const account = await this.prisma.bankAccount.findUnique({
       where: { id },

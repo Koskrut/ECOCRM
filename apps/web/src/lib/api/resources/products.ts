@@ -1,5 +1,11 @@
 import { apiHttp } from "../client";
 
+export type StockByWarehouseItem = {
+  warehouseId: string;
+  warehouseName: string;
+  qty: number;
+};
+
 export type ProductCatalogItem = {
   id: string;
   sku: string;
@@ -9,6 +15,7 @@ export type ProductCatalogItem = {
   stock: number;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
+  stockByWarehouse?: StockByWarehouseItem[];
 };
 
 export type ProductImageItem = {
@@ -140,6 +147,28 @@ export const productsApi = {
     // Use fetch so the request is sent as multipart/form-data with boundary.
     // axios defaults to Content-Type: application/json, which prevents the file from being sent.
     const r = await fetch("/api/products/stock/upload", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Upload failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+    return r.json() as Promise<StockUploadResult>;
+  },
+
+  uploadStockByWarehouses: async (file: File): Promise<StockUploadResult> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const r = await fetch("/api/products/stock/upload-by-warehouses", {
       method: "POST",
       body: formData,
       credentials: "include",

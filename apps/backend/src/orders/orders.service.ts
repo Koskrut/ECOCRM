@@ -9,14 +9,28 @@ import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma
 import { OrderPaymentStatus, OrderSource, OrderStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { WarehousesService } from "../warehouses/warehouses.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
 import type { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import type { UpdateOrderDto } from "./dto/update-order.dto";
 
+const ORDER_INCLUDE = {
+  company: true,
+  client: true,
+  contact: true,
+  bankAccount: { select: { id: true, name: true } },
+  warehouse: { select: { id: true, name: true } },
+  items: { include: { product: true } },
+  ttns: { orderBy: { createdAt: "desc" as const } },
+} as const;
+
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly warehousesService: WarehousesService,
+  ) {}
 
   private num(v: unknown, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
@@ -252,13 +266,7 @@ export class OrdersService {
   async getById(id: string, actor?: AuthUser) {
     const o = await this.prisma.order.findUnique({
       where: { id },
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: { orderBy: { createdAt: "desc" } },
-      },
+      include: ORDER_INCLUDE,
     });
     if (!o) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(o, actor);
@@ -276,6 +284,8 @@ export class OrdersService {
     const paidAmount = 0;
     const a = this.calc(0, discountAmount, paidAmount);
 
+    const warehouseId =
+      dto.warehouseId ?? (await this.warehousesService.getDefaultWarehouseId());
     try {
       const order = await this.prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRaw<[{ assigned: number }]>`
@@ -304,17 +314,13 @@ export class OrdersService {
             comment: dto.comment ?? null,
             deliveryMethod: dto.deliveryMethod ?? null,
             paymentMethod: dto.paymentMethod ?? null,
+            bankAccountId: dto.bankAccountId ?? null,
+            warehouseId: warehouseId ?? null,
             documentsRequested: dto.documentsRequested ?? null,
             paymentType: dto.paymentType ?? null,
             deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
           },
-          include: {
-            company: true,
-            client: true,
-            contact: true,
-            items: { include: { product: true } },
-            ttns: true,
-          },
+          include: ORDER_INCLUDE,
         });
       });
 
@@ -376,6 +382,16 @@ export class OrdersService {
     if ("contactId" in dto) {
       data.contact = dto.contactId ? { connect: { id: dto.contactId } } : { disconnect: true };
     }
+    if ("bankAccountId" in dto) {
+      data.bankAccount = dto.bankAccountId
+        ? { connect: { id: dto.bankAccountId } }
+        : { disconnect: true };
+    }
+    if ("warehouseId" in dto) {
+      data.warehouse = dto.warehouseId
+        ? { connect: { id: dto.warehouseId } }
+        : { disconnect: true };
+    }
 
     // misc
     if ("comment" in dto) data.comment = dto.comment ? String(dto.comment) : null;
@@ -407,13 +423,7 @@ export class OrdersService {
     const updated = await this.prisma.order.update({
       where: { id },
       data,
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: { orderBy: { createdAt: "desc" } },
-      },
+      include: ORDER_INCLUDE,
     });
     // #region agent log
     fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
@@ -562,13 +572,7 @@ export class OrdersService {
     const updated = await this.prisma.order.update({
       where: { id },
       data: { status: toStatus },
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: { orderBy: { createdAt: "desc" } },
-      },
+      include: ORDER_INCLUDE,
     });
 
     return this.mapToEntity(updated);
@@ -630,13 +634,7 @@ export class OrdersService {
   private async recalcAndReturn(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: { orderBy: { createdAt: "desc" } },
-      },
+      include: ORDER_INCLUDE,
     });
     if (!order) throw new NotFoundException("Order not found");
 
@@ -650,13 +648,7 @@ export class OrdersService {
         totalAmount: a.total,
         debtAmount: a.debt,
       },
-      include: {
-        company: true,
-        client: true,
-        contact: true,
-        items: { include: { product: true } },
-        ttns: { orderBy: { createdAt: "desc" } },
-      },
+      include: ORDER_INCLUDE,
     });
 
     return this.mapToEntity(updated);
@@ -692,6 +684,10 @@ export class OrdersService {
       comment: o.comment ?? null,
       deliveryMethod: o.deliveryMethod ?? null,
       paymentMethod: o.paymentMethod ?? null,
+      bankAccountId: o.bankAccountId ?? null,
+      bankAccount: o.bankAccount ?? null,
+      warehouseId: o.warehouseId ?? null,
+      warehouse: o.warehouse ?? null,
       documentsRequested: o.documentsRequested ?? null,
       paymentType: o.paymentType ?? null,
       deliveryData: o.deliveryData ?? null,

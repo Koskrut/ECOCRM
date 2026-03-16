@@ -23,6 +23,7 @@ import { RingostatModule } from "./integrations/ringostat/ringostat.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { StoreModule } from "./store/store.module";
+import { WarehousesModule } from "./warehouses/warehouses.module";
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { StoreModule } from "./store/store.module";
     BitrixSyncModule,
     BitrixWebhookModule,
     StoreModule,
+    WarehousesModule,
   ],
   providers: [
     {

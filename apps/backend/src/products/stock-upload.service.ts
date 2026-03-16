@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import * as XLSX from "xlsx";
-import type { StockUpdateEntry } from "./product.store";
+import type { StockUpdateEntry, StockByWarehouseEntry } from "./product.store";
+
+export type WarehouseForUpload = { id: string; name: string };
 
 const SKU_HEADERS = ["артикул", "sku", "article"];
 const NAME_HEADERS = ["название", "name", "наименование", "товар"];
@@ -69,6 +71,57 @@ export class StockUploadService {
       entries.push({ sku, stock, name: name || undefined, basePrice });
     }
 
+    return entries;
+  }
+
+  /**
+   * Parse Excel for stock-by-warehouse upload (variant B).
+   * Headers: Артикул/sku + columns per warehouse: "Остаток Днепр", "Днепр", "Одесса", "Остаток Одесса", etc.
+   * warehouses: list from GET /warehouses to map column header -> warehouseId.
+   * Returns flat list { sku, warehouseId, qty } for each (row, warehouse) with non-empty sku.
+   */
+  public parseExcelBufferByWarehouses(
+    buffer: Buffer,
+    warehouses: WarehouseForUpload[],
+  ): StockByWarehouseEntry[] {
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName || warehouses.length === 0) return [];
+
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+    }) as unknown[][];
+
+    if (rows.length < 2) return [];
+
+    const headerRow = rows[0].map((c) => String(c ?? "").trim());
+    const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    if (skuIdx < 0) return [];
+
+    const warehouseColIndices: { warehouseId: string; colIndex: number }[] = [];
+    for (const wh of warehouses) {
+      const nameLower = wh.name.trim().toLowerCase();
+      const idx = headerRow.findIndex((h) => {
+        const hNorm = normalizeHeader(h);
+        return hNorm.includes(nameLower) || nameLower.includes(hNorm) || hNorm === nameLower;
+      });
+      if (idx >= 0) warehouseColIndices.push({ warehouseId: wh.id, colIndex: idx });
+    }
+
+    const entries: StockByWarehouseEntry[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!Array.isArray(row)) continue;
+      const sku = row[skuIdx] != null ? String(row[skuIdx]).trim() : "";
+      if (!sku) continue;
+      for (const { warehouseId, colIndex } of warehouseColIndices) {
+        const qty = parseNumber(row[colIndex]);
+        entries.push({ sku, warehouseId, qty });
+      }
+    }
     return entries;
   }
 }

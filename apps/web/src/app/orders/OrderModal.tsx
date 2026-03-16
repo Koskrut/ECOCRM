@@ -77,6 +77,10 @@ type OrderDetails = {
   paymentType?: string | null;
   /** CASH | FOP — способ оплаты (from Bitrix UF_CRM_1753787869056) */
   paymentMethod?: string | null;
+  bankAccountId?: string | null;
+  bankAccount?: { id: string; name: string } | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
   paidAmount?: number;
   debtAmount?: number;
@@ -91,6 +95,8 @@ type OrderDetails = {
   ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
 };
 
+type StockByWarehouseItem = { warehouseId: string; warehouseName: string; qty: number };
+
 type ProductSearchItem = {
   id: string;
   sku: string;
@@ -98,6 +104,7 @@ type ProductSearchItem = {
   unit: string;
   basePrice: number;
   stock?: number;
+  stockByWarehouse?: StockByWarehouseItem[];
 };
 
 type ProductsResponse = {
@@ -106,6 +113,16 @@ type ProductsResponse = {
   page: number;
   pageSize: number;
 };
+
+function stockAtWarehouse(
+  p: ProductSearchItem,
+  warehouseId: string | null | undefined,
+): number | undefined {
+  if (!p.stockByWarehouse?.length) return p.stock;
+  if (!warehouseId) return p.stock;
+  const w = p.stockByWarehouse.find((x) => x.warehouseId === warehouseId);
+  return w?.qty ?? 0;
+}
 
 type CompanyOption = { id: string; name: string };
 
@@ -259,7 +276,7 @@ function Stepper({
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "documents" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "bankAccount" | "warehouse" | "documents" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -293,6 +310,10 @@ export function OrderModal({
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
   const [paymentType, setPaymentType] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [bankAccountId, setBankAccountId] = useState<string | null>(null);
+  const [warehouseId, setWarehouseId] = useState<string | null>(null);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [documentsRequested, setDocumentsRequested] = useState<boolean | null>(null);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
@@ -428,6 +449,8 @@ export function OrderModal({
       setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
       setPaymentType(data.paymentType ?? null);
       setPaymentMethod(data.paymentMethod ?? null);
+      setBankAccountId(data.bankAccountId ?? null);
+      setWarehouseId(data.warehouseId ?? null);
       setDocumentsRequested(data.documentsRequested ?? null);
       setDiscountAmount(Number(data.discountAmount ?? 0));
       setComment(data.comment ?? "");
@@ -476,6 +499,32 @@ export function OrderModal({
     },
     [apiBaseUrl, orderId, refreshOrder, onSaved],
   );
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [whRes, fopRes] = await Promise.all([
+          fetch(`${apiBaseUrl}/warehouses`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
+          fetch(`${apiBaseUrl}/bank/accounts/for-order`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
+        ]);
+        if (mounted) {
+          setWarehouses(Array.isArray(whRes) ? whRes : []);
+          setFopAccounts(Array.isArray(fopRes) ? fopRes : []);
+          if (isCreate && whRes?.length > 0 && warehouseId === null) {
+            const defaultWh = whRes.find((w: { name: string }) => w.name === "Днепр") ?? whRes[0];
+            setWarehouseId(defaultWh.id);
+          }
+        }
+      } catch {
+        if (mounted) setWarehouses([]);
+        if (mounted) setFopAccounts([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [apiBaseUrl, isCreate]);
 
   // init
   useEffect(() => {
@@ -677,6 +726,8 @@ export function OrderModal({
           contactId: clientId,
           deliveryMethod,
           paymentMethod: (paymentMethod === "FOP" ? "FOP" : "CASH") as "CASH" | "FOP",
+          bankAccountId: paymentMethod === "FOP" ? bankAccountId : null,
+          warehouseId: warehouseId ?? undefined,
           documentsRequested: documentsRequested ?? undefined,
           comment: comment.trim() ? comment.trim() : null,
           discountAmount: Number(discountAmount) || 0,
@@ -695,7 +746,7 @@ export function OrderModal({
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, paymentMethod, onClose, onSaved]);
+  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, paymentMethod, bankAccountId, warehouseId, onClose, onSaved]);
 
   // product search debounce
   useEffect(() => {
@@ -711,7 +762,7 @@ export function OrderModal({
       setSearchError(null);
       try {
         const r = await fetch(
-          `${apiBaseUrl}/products?search=${encodeURIComponent(search)}&page=1&pageSize=10`,
+          `${apiBaseUrl}/products?catalog=1&search=${encodeURIComponent(search)}&page=1&pageSize=10`,
           { cache: "no-store" },
         );
         if (!r.ok) throw new Error(`Failed to load products (${r.status})`);
@@ -1116,8 +1167,10 @@ export function OrderModal({
                                   <span className="font-medium text-zinc-900">{p.name}</span>
                                   <span className="flex shrink-0 items-center gap-2 text-xs text-zinc-500">
                                     {p.sku}
-                                    {p.stock !== undefined && (
-                                      <span className="text-zinc-400">Ост.: {p.stock}</span>
+                                    {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !== undefined && (
+                                      <span className="text-zinc-400">
+                                        Ост.: {stockAtWarehouse(p, order?.warehouseId) ?? p.stock}
+                                      </span>
                                     )}
                                   </span>
                                 </button>
@@ -1127,8 +1180,10 @@ export function OrderModal({
                           {selectedProduct ? (
                             <div className="mt-2 text-xs text-zinc-600">
                               Selected: <span className="font-medium text-zinc-900">{selectedProduct.name}</span>
-                              {selectedProduct.stock !== undefined && (
-                                <span className="ml-2 text-zinc-500">Остаток: {selectedProduct.stock}</span>
+                              {(stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined && (
+                                <span className="ml-2 text-zinc-500">
+                                  Остаток: {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
+                                </span>
                               )}
                             </div>
                           ) : null}
@@ -1166,9 +1221,9 @@ export function OrderModal({
                               }}
                               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                             />
-                            {selectedProduct && selectedProduct.stock !== undefined ? (
+                            {selectedProduct && (stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined ? (
                               <span className="shrink-0 text-xs text-zinc-500">
-                                Остаток: {selectedProduct.stock}
+                                Остаток: {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
                               </span>
                             ) : null}
                           </div>
@@ -1554,6 +1609,79 @@ export function OrderModal({
                               : (order.paymentMethod ?? paymentMethod) === "FOP"
                                 ? "ФОП"
                                 : <span className="font-normal text-zinc-400">Выберите способ оплаты...</span>}
+                          </button>
+                        )}
+                      </div>
+
+                      {(order.paymentMethod ?? paymentMethod) === "FOP" ? (
+                        <div>
+                          <div className="text-xs text-zinc-500">ФОП (банк)</div>
+                          {editing === "bankAccount" ? (
+                            <div className="mt-1">
+                              <select
+                                value={bankAccountId ?? ""}
+                                onChange={async (e) => {
+                                  const v = e.target.value || null;
+                                  setBankAccountId(v);
+                                  try {
+                                    await patchOrder({ bankAccountId: v });
+                                    if (order) setOrder((prev) => (prev ? { ...prev, bankAccountId: v, bankAccount: v ? (fopAccounts.find((a) => a.id === v) ? { id: v, name: fopAccounts.find((a) => a.id === v)!.name } : prev.bankAccount) : null } : prev));
+                                  } finally {
+                                    setEditing(null);
+                                  }
+                                }}
+                                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                                disabled={saving}
+                              >
+                                <option value="">Выберите счёт...</option>
+                                {fopAccounts.map((a) => (
+                                  <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setBankAccountId(order.bankAccountId ?? null); setEditing("bankAccount"); }}
+                              className="mt-1 font-medium text-zinc-900 hover:underline"
+                            >
+                              {order.bankAccount?.name ?? (bankAccountId ? fopAccounts.find((a) => a.id === bankAccountId)?.name : null) ?? <span className="font-normal text-zinc-400">Выберите ФОП...</span>}
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+
+                      <div>
+                        <div className="text-xs text-zinc-500">Склад отгрузки</div>
+                        {editing === "warehouse" ? (
+                          <div className="mt-1">
+                            <select
+                              value={warehouseId ?? ""}
+                              onChange={async (e) => {
+                                const v = e.target.value || null;
+                                setWarehouseId(v);
+                                try {
+                                  await patchOrder({ warehouseId: v });
+                                  if (order) setOrder((prev) => (prev ? { ...prev, warehouseId: v, warehouse: v ? (warehouses.find((w) => w.id === v) ? { id: v, name: warehouses.find((w) => w.id === v)!.name } : prev.warehouse) : null } : prev));
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                              disabled={saving}
+                            >
+                              {warehouses.map((w) => (
+                                <option key={w.id} value={w.id}>{w.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setWarehouseId(order.warehouseId ?? null); setEditing("warehouse"); }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {order.warehouse?.name ?? (warehouseId ? warehouses.find((w) => w.id === warehouseId)?.name : null) ?? <span className="font-normal text-zinc-400">Выберите склад...</span>}
                           </button>
                         )}
                       </div>
