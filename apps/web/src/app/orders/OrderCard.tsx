@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Truck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { isTextSelected } from "@/lib/dom";
 
 export type OrderCardOrder = {
   id: string;
@@ -51,7 +52,10 @@ export function OrderCard({
   return (
     <button
       type="button"
-      onClick={() => onOpen(order.id)}
+      onClick={() => {
+        if (isTextSelected()) return;
+        onOpen(order.id);
+      }}
       className="w-full rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md active:bg-zinc-50"
     >
       <div className="flex items-start justify-between gap-2">

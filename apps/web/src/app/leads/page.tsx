@@ -11,6 +11,7 @@ import {
   type LeadSource,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
@@ -268,7 +269,10 @@ function LeadsPageContent() {
                 <tr
                   key={l.id}
                   className="cursor-pointer transition-colors hover:bg-zinc-50"
-                  onClick={() => openLead(l.id)}
+                  onClick={() => {
+                    if (isTextSelected()) return;
+                    openLead(l.id);
+                  }}
                 >
                   <td className="px-4 py-4">
                     <div className="font-medium text-zinc-900">

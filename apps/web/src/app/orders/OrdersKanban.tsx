@@ -1,6 +1,7 @@
 "use client";
 
 import { apiHttp } from "../../lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 
@@ -290,7 +291,10 @@ export function OrdersKanban({
                     <button
                       key={o.id}
                       type="button"
-                      onClick={() => onOpenOrder(o.id)}
+                      onClick={() => {
+                        if (isTextSelected()) return;
+                        onOpenOrder(o.id);
+                      }}
                       draggable
                       onDragStart={(e) => {
                         const st0 = isKnownStatus(String(o.status))

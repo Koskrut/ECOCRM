@@ -9,6 +9,7 @@ import {
   type Contact,
   type MessageItem,
 } from "@/lib/api";
+import { isTextSelected } from "@/lib/dom";
 import { Link2, MessageCircle, Send, Sparkles, User, UserPlus } from "lucide-react";
 
 const PAGE_SIZE = 50;
@@ -298,7 +299,10 @@ function InboxTelegramContent() {
                 <li key={c.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedId(c.id)}
+                    onClick={() => {
+                      if (isTextSelected()) return;
+                      setSelectedId(c.id);
+                    }}
                     className={`w-full px-3 py-3 text-left transition-colors ${
                       selectedId === c.id ? "bg-accent-gradient/10" : "hover:bg-zinc-100/80"
                     }`}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 
 type OrderItem = {
   id: string;
@@ -100,7 +101,10 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
           {items.map((o) => (
             <tr
               key={o.id}
-              onClick={() => onOpenOrder(o.id)}
+              onClick={() => {
+                if (isTextSelected()) return;
+                onOpenOrder(o.id);
+              }}
               className="cursor-pointer hover:bg-zinc-50"
             >
               <td className="px-4 py-3 text-sm font-medium text-zinc-900">{o.orderNumber}</td>

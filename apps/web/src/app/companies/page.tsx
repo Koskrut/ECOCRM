@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Filter, Pencil, Search, Trash2, Users } from "lucide-react";
 import { companiesApi, type Company, type CompaniesResponse } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 import { ContactModal } from "../contacts/ContactModal";
 import { CompanyModal } from "./CompanyModal";
 import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
@@ -301,7 +302,10 @@ function CompaniesPageContent() {
                 <tr
                   key={c.id}
                   className="group cursor-pointer transition-colors hover:bg-zinc-50"
-                  onClick={() => openCompany(c.id)}
+                  onClick={() => {
+                    if (isTextSelected()) return;
+                    openCompany(c.id);
+                  }}
                 >
                   <td className="w-10 px-4 py-4" onClick={(e) => e.stopPropagation()}>
                     <input

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 
 type OrderListItem = {
   id: string;
@@ -81,7 +82,10 @@ export function EntityOrdersList({
           <button
             key={o.id}
             type="button"
-            onClick={() => onOpenOrder(o.id)}
+            onClick={() => {
+            if (isTextSelected()) return;
+            onOpenOrder(o.id);
+          }}
             className="w-full px-4 py-3 text-left hover:bg-zinc-50"
           >
             <div className="flex items-start justify-between gap-3">

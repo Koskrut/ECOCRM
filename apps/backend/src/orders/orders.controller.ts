@@ -58,9 +58,34 @@ export class OrdersController {
   update(
     @Param("id") id: string,
     @Body() dto: UpdateOrderDto,
-    @Req() req: Request & { user?: AuthUser },
+    @Req() req: Request & { user?: AuthUser; body?: Record<string, unknown> },
   ) {
-    return this.orders.update(id, dto, req.user);
+    const raw = req.body ?? {};
+    const deliveryMethod =
+      dto.deliveryMethod ?? (raw.deliveryMethod as UpdateOrderDto["deliveryMethod"]);
+    const dtoWithDelivery =
+      deliveryMethod !== undefined ? { ...dto, deliveryMethod } : dto;
+    // #region agent log
+    if (typeof fetch !== "undefined") {
+      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
+        body: JSON.stringify({
+          sessionId: "975001",
+          location: "orders.controller.ts:update",
+          message: "raw vs dto deliveryMethod",
+          data: {
+            rawDeliveryMethod: raw.deliveryMethod,
+            dtoDeliveryMethod: dto.deliveryMethod,
+            finalDeliveryMethod: dtoWithDelivery.deliveryMethod,
+          },
+          timestamp: Date.now(),
+          hypothesisId: "H4",
+        }),
+      }).catch(() => {});
+    }
+    // #endregion
+    return this.orders.update(id, dtoWithDelivery, req.user);
   }
 
   @Patch(":id/status")

@@ -629,9 +629,28 @@ export function OrderModal({
           credentials: "include",
           cache: "no-store",
         });
+        const resBody = await r.json().catch(() => ({}));
+        // #region agent log
+        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
+          body: JSON.stringify({
+            sessionId: "975001",
+            location: "OrderModal.tsx:patchOrder",
+            message: "PATCH response",
+            data: {
+              status: r.status,
+              ok: r.ok,
+              payloadSent: payload,
+              bodyDeliveryMethod: resBody?.deliveryMethod,
+            },
+            timestamp: Date.now(),
+            hypothesisId: "H2",
+          }),
+        }).catch(() => {});
+        // #endregion
         if (!r.ok) {
-          const data = await r.json().catch(() => ({}));
-          throw new Error(data?.message || `Failed to update order (${r.status})`);
+          throw new Error(resBody?.message || `Failed to update order (${r.status})`);
         }
         await Promise.all([refreshOrder(), refreshTimeline()]);
         onSaved?.();
@@ -1600,7 +1619,23 @@ export function OrderModal({
                               value={deliveryMethod}
                               onChange={async (e) => {
                                 const v = e.target.value;
+                                const current = order?.deliveryMethod ?? null;
+                                if (current != null && v === current) return;
                                 setDeliveryMethod(v);
+                                // #region agent log
+                                fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
+                                  body: JSON.stringify({
+                                    sessionId: "975001",
+                                    location: "OrderModal.tsx:delivery onChange",
+                                    message: "delivery selected",
+                                    data: { value: v, payload: { deliveryMethod: v } },
+                                    timestamp: Date.now(),
+                                    hypothesisId: "H1",
+                                  }),
+                                }).catch(() => {});
+                                // #endregion
                                 try {
                                   await patchOrder({ deliveryMethod: v });
                                   if (order) {

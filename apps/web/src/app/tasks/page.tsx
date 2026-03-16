@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ListTodo } from "lucide-react";
 import { tasksApi, type Task, type TaskStatus, type TaskSortField } from "@/lib/api/resources/tasks";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 
 const TASK_STATUS_OPTIONS: { value: TaskStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -484,7 +485,10 @@ export default function TasksPage() {
                   <tr
                     key={task.id}
                     className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/80"
-                    onClick={() => setSelectedTaskId(task.id)}
+                    onClick={() => {
+                    if (isTextSelected()) return;
+                    setSelectedTaskId(task.id);
+                  }}
                   >
                     <td className="px-4 py-3">
                       <p className="font-medium text-zinc-900">{task.title}</p>

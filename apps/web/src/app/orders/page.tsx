@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Filter, Search, Truck } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { OrderModal } from "./OrderModal";
@@ -539,7 +540,10 @@ function OrdersPageContent() {
                     orders.map((order) => (
                       <tr
                         key={order.id}
-                        onClick={() => openExistingOrder(order.id)}
+                        onClick={() => {
+                          if (isTextSelected()) return;
+                          openExistingOrder(order.id);
+                        }}
                         className="cursor-pointer transition-colors hover:bg-zinc-50"
                       >
                         <td className="px-4 py-4">

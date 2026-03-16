@@ -6,6 +6,7 @@ import { Filter, Mail, Pencil, Phone, Search, X } from "lucide-react";
 import { contactsApi, type Contact, type ContactsResponse } from "@/lib/api";
 import { companiesApi, type Company } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
+import { isTextSelected } from "@/lib/dom";
 import { ContactModal } from "./ContactModal";
 import { CompanyModal } from "../companies/CompanyModal";
 import {
@@ -465,7 +466,10 @@ function ContactsPageContent() {
                 <tr
                   key={c.id}
                   className={`cursor-pointer transition-colors hover:bg-zinc-50 ${selectedIds.has(c.id) ? "bg-blue-50/50" : ""}`}
-                  onClick={() => openContact(c.id)}
+                  onClick={() => {
+                    if (isTextSelected()) return;
+                    openContact(c.id);
+                  }}
                 >
                   <td className="px-2 py-4" onClick={(e) => e.stopPropagation()}>
                     <label className="flex cursor-pointer items-center justify-center">
