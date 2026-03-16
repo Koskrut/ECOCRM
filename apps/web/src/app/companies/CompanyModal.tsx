@@ -6,6 +6,7 @@ import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "../../lib/api/client";
 import { companiesApi, type CompanyChangeHistoryItem } from "@/lib/api/resources/companies";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { CompanyTimeline } from "./CompanyTimeline";
@@ -155,7 +156,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     () =>
       allContactsForLink.map((c) => ({
         id: c.id,
-        label: `${c.firstName} ${c.lastName} — ${c.phone}`,
+        label: `${c.firstName} ${c.lastName} — ${formatPhoneDisplay(c.phone)}`,
       })),
     [allContactsForLink],
   );
@@ -983,7 +984,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                       ) : null}
                     </div>
                     {c.phone ? (
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">{c.phone}</div>
+                      <div className="mt-0.5 truncate text-xs text-zinc-500">{formatPhoneDisplay(c.phone)}</div>
                     ) : null}
                   </button>
                 </li>
@@ -1158,7 +1159,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                         >
                           <span className="min-w-0 flex-1">
                             {c.firstName} {c.lastName}
-                            {c.phone ? ` — ${c.phone}` : ""}
+                            {c.phone ? ` — ${formatPhoneDisplay(c.phone)}` : ""}
                           </span>
                           <div className="flex shrink-0 items-center gap-0.5">
                             {onOpenContact ? (

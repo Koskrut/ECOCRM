@@ -15,6 +15,10 @@ import { hashPassword } from "../auth/password";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
 import {
+  getPhoneNormalizedDigits,
+  normalizePhoneToE164,
+} from "../common/phone.utils";
+import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "./bitrix-np-mapper";
@@ -22,11 +26,6 @@ import {
 @Injectable()
 export class ContactsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  /** Нормализация телефона для проверки уникальности по всей базе (только цифры). */
-  private normalizePhoneForUniqueness(phone: string): string {
-    return String(phone ?? "").replace(/\D/g, "");
-  }
 
   /** Варианты номера для проверки уникальности (0XX ↔ 380XX и т.д.). */
   private getPhoneCandidatesForUniqueness(phoneNorm: string): string[] {
@@ -103,7 +102,7 @@ export class ContactsService {
     }
     if (!data.phone) throw new BadRequestException("phone required");
 
-    const phoneNormalized = this.normalizePhoneForUniqueness(data.phone);
+    const phoneNormalized = getPhoneNormalizedDigits(data.phone);
     if (!phoneNormalized) throw new BadRequestException("phone must contain digits");
 
     if (await this.isPhoneTakenByOtherContact(phoneNormalized)) {
@@ -112,6 +111,7 @@ export class ContactsService {
 
     const ownerId = data.ownerId !== undefined ? data.ownerId : (actor?.id ?? null);
 
+    const phoneCanonical = normalizePhoneToE164(data.phone) ?? data.phone.trim();
     const contact = await this.prisma.contact.create({
       data: {
         ownerId,
@@ -119,7 +119,7 @@ export class ContactsService {
         firstName: data.firstName,
         lastName: data.lastName,
         middleName: data.middleName ?? null,
-        phone: data.phone,
+        phone: phoneCanonical,
         phoneNormalized,
         email: data.email ?? null,
         position: data.position ?? null,
@@ -375,7 +375,7 @@ export class ContactsService {
     if (!contact) throw new BadRequestException("contact not found");
     if (actor) this.assertContactAccess(contact, actor);
 
-    const phoneNormalized = this.normalizePhoneForUniqueness(data.phone);
+    const phoneNormalized = getPhoneNormalizedDigits(data.phone);
     if (!phoneNormalized) throw new BadRequestException("phone must contain digits");
     if (await this.isPhoneTakenByOtherContact(phoneNormalized, contactId)) {
       throw new ConflictException("Контакт з таким номером телефону вже існує");
@@ -388,10 +388,11 @@ export class ContactsService {
     });
     if (sameContactHas) throw new BadRequestException("This number is already added to this contact");
 
+    const phoneCanonical = normalizePhoneToE164(data.phone) ?? data.phone.trim();
     const created = await this.prisma.contactPhone.create({
       data: {
         contactId,
-        phone: data.phone.trim(),
+        phone: phoneCanonical,
         phoneNormalized,
         label: data.label?.trim() || null,
       },
@@ -486,7 +487,7 @@ export class ContactsService {
     if (actor) this.assertContactAccess(existing, actor);
 
     if (data.phone !== undefined) {
-      const phoneNormalized = this.normalizePhoneForUniqueness(data.phone);
+      const phoneNormalized = getPhoneNormalizedDigits(data.phone);
       if (phoneNormalized && (await this.isPhoneTakenByOtherContact(phoneNormalized, id))) {
         throw new ConflictException("Контакт з таким номером телефону вже існує");
       }
@@ -494,8 +495,10 @@ export class ContactsService {
 
     const updateData: Prisma.ContactUpdateInput = { ...data };
     if (data.phone !== undefined) {
-      const normalized = this.normalizePhoneForUniqueness(data.phone);
-      updateData.phoneNormalized = normalized || null;
+      const phoneNormalized = getPhoneNormalizedDigits(data.phone);
+      const phoneCanonical = normalizePhoneToE164(data.phone);
+      updateData.phoneNormalized = phoneNormalized ?? null;
+      updateData.phone = phoneCanonical ?? data.phone;
     }
 
     const contact = await this.prisma.contact.update({
@@ -589,6 +592,7 @@ export class ContactsService {
       );
     }
     const body = bitrixNpDataToProfilePayload(npData);
+    await this.enrichBitrixProfileWithNpRefs(body);
     return this.createShippingProfile(contactId, body, actor);
   }
 
@@ -654,6 +658,51 @@ export class ContactsService {
     });
 
     return { item: created };
+  }
+
+  /**
+   * Enrich Bitrix-derived NP profile payload with cityRef / warehouseRef from NP catalog.
+   * Used for on-demand creation from Bitrix and during initial import.
+   */
+  private async enrichBitrixProfileWithNpRefs(body: Record<string, unknown>): Promise<void> {
+    const cityName = typeof body.cityName === "string" ? body.cityName.trim() : "";
+    const warehouseNumber = typeof body.warehouseNumber === "string" ? body.warehouseNumber.trim() : "";
+
+    if (!body.cityRef && cityName) {
+      const cityNameNorm = cityName.replace(/^місто\s+/i, "").replace(/^м\.\s*/i, "").split(",")[0]?.trim() || cityName;
+      const pattern = `%${cityNameNorm.replace(/%/g, "\\%")}%`;
+      const cities = await this.prisma.$queryRaw<Array<{ ref: string; description: string }>>`
+        SELECT ref, description FROM "NpCity"
+        WHERE "isActive" = true AND description ILIKE ${pattern}
+        ORDER BY LENGTH(description) ASC
+        LIMIT 1
+      `;
+      const city = cities[0];
+      if (city) {
+        body.cityRef = city.ref;
+        if (!body.cityName) body.cityName = city.description;
+      }
+    }
+
+    if (!body.warehouseRef && body.cityRef && warehouseNumber) {
+      const wh = await this.prisma.npWarehouse.findFirst({
+        where: {
+          cityRef: String(body.cityRef),
+          isActive: true,
+          OR: [
+            { number: warehouseNumber },
+            { number: { contains: warehouseNumber } },
+            { description: { contains: warehouseNumber, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (wh) {
+        const whExt = wh as Record<string, unknown>;
+        body.warehouseRef = wh.ref;
+        body.warehouseNumber = (whExt.number as string) ?? warehouseNumber;
+        body.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
+      }
+    }
   }
 
   async updateShippingProfile(

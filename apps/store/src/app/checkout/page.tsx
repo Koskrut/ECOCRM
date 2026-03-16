@@ -16,6 +16,7 @@ import {
   type ShippingProfile,
 } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 
 const inputClass =
@@ -506,7 +507,7 @@ export default function CheckoutPage() {
                                 {selected.phone && (
                                   <>
                                     <span className="text-zinc-300">·</span>
-                                    <span>{selected.phone}</span>
+                                    <span>{formatPhoneDisplay(selected.phone)}</span>
                                   </>
                                 )}
                               </div>
@@ -555,7 +556,7 @@ export default function CheckoutPage() {
                                     {p.phone && (
                                       <>
                                         <span className="text-zinc-300">·</span>
-                                        <span>{p.phone}</span>
+                                        <span>{formatPhoneDisplay(p.phone)}</span>
                                       </>
                                     )}
                                   </div>

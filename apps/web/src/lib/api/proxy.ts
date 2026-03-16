@@ -25,6 +25,9 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
   headers.delete("host");
   headers.delete("origin");
   headers.delete("referer");
+  // не пересылать условный GET — бэкенд иначе отдаёт 304 без тела, и прокси отдаёт пустой ответ
+  headers.delete("if-none-match");
+  headers.delete("if-modified-since");
 
   if (token) {
     headers.set("authorization", `Bearer ${token}`);

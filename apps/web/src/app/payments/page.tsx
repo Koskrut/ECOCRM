@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 
 type BankAccount = { id: string; name: string; currency: string };
 
@@ -1287,7 +1288,7 @@ function PaymentsContent() {
                           }}
                           className="w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                         >
-                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${c.phone}` : ""}
+                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                         </button>
                       </li>
                     ))}
@@ -1537,7 +1538,7 @@ function PaymentsContent() {
                           }}
                           className="w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                         >
-                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${c.phone}` : ""}
+                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                         </button>
                       </li>
                     ))}
@@ -1838,7 +1839,7 @@ function PaymentsContent() {
                         }}
                         className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                       >
-                        {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${c.phone}` : ""}
+                        {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                       </button>
                     </li>
                   ))}

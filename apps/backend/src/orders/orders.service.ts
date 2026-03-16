@@ -367,6 +367,10 @@ export class OrdersService {
 
     if ("clientId" in dto) {
       data.client = dto.clientId ? { connect: { id: dto.clientId } } : { disconnect: true };
+      // Sync contactId to clientId when only client is set, so TtnModal loads shipping profiles for the same contact
+      if (dto.clientId && !("contactId" in dto)) {
+        data.contact = { connect: { id: dto.clientId } };
+      }
     }
 
     if ("contactId" in dto) {

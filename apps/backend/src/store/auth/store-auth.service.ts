@@ -1,16 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { randomBytes } from "crypto";
 import { ContactsService } from "../../contacts/contacts.service";
+import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
 import { TelegramService } from "../../integrations/telegram/telegram.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword, verifyPassword, needsRehash } from "../../auth/password";
 import type { StoreLoginDto } from "./dto/store-login.dto";
 import type { StoreRegisterDto } from "./dto/store-register.dto";
-
-function normalizePhone(phone: string): string {
-  return String(phone ?? "").replace(/\D/g, "");
-}
 
 /** Returns candidate normalized strings for contact lookup (e.g. 0994444815 and 380994444815). */
 function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
@@ -60,7 +57,7 @@ export class StoreAuthService {
   ) {}
 
   async register(dto: StoreRegisterDto): Promise<StoreAuthResponse> {
-    const phoneNorm = normalizePhone(dto.phone);
+    const phoneNorm = getPhoneNormalizedDigits(dto.phone);
     if (!phoneNorm || phoneNorm.length < 5) {
       throw new ConflictException("Invalid phone number");
     }
@@ -80,7 +77,7 @@ export class StoreAuthService {
         {
           firstName: firstName || "—",
           lastName: lastName || "—",
-          phone: dto.phone.trim(),
+          phone: normalizePhoneToE164(dto.phone) ?? dto.phone.trim(),
           email,
         },
         undefined,
@@ -120,7 +117,7 @@ export class StoreAuthService {
 
   async login(dto: StoreLoginDto): Promise<StoreAuthResponse | StoreLoginFailure> {
     const rawPhone = typeof dto.phone === "string" ? dto.phone.trim() : "";
-    const phoneNorm = normalizePhone(rawPhone);
+    const phoneNorm = getPhoneNormalizedDigits(rawPhone);
     if (!phoneNorm) {
       return {
         ok: false,
@@ -184,7 +181,7 @@ export class StoreAuthService {
   }
 
   async requestPasswordReset(phone: string): Promise<{ sentVia: "telegram"; message: string }> {
-    const phoneNorm = normalizePhone(phone);
+    const phoneNorm = getPhoneNormalizedDigits(phone);
     if (!phoneNorm || phoneNorm.length < 5) {
       throw new BadRequestException("Введіть коректний номер телефону");
     }
@@ -239,7 +236,7 @@ export class StoreAuthService {
             select: { phone: true, telegramChatId: true },
           });
           const byPhone = accountsWithPhone.find(
-            (a) => a.phone && contactNormals.has(normalizePhone(a.phone)),
+            (a) => a.phone && contactNormals.has(getPhoneNormalizedDigits(a.phone) ?? ""),
           );
           if (byPhone?.telegramChatId) telegramChatIdForNew = byPhone.telegramChatId;
         }
@@ -289,7 +286,7 @@ export class StoreAuthService {
           select: { phone: true, telegramChatId: true },
         });
         const byPhone = accountsWithPhone.find(
-          (a) => a.phone && contactNormals.has(normalizePhone(a.phone)),
+          (a) => a.phone && contactNormals.has(getPhoneNormalizedDigits(a.phone) ?? ""),
         );
         if (byPhone?.telegramChatId) telegramChatId = byPhone.telegramChatId;
       }
@@ -324,7 +321,7 @@ export class StoreAuthService {
   }
 
   async confirmPasswordReset(phone: string, code: string, newPassword: string): Promise<{ ok: true }> {
-    const phoneNorm = normalizePhone(phone);
+    const phoneNorm = getPhoneNormalizedDigits(phone);
     if (!phoneNorm) throw new BadRequestException("Введіть номер телефону");
     if (!code?.trim()) throw new BadRequestException("Введіть код");
     if (!newPassword || newPassword.length < 6) {

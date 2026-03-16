@@ -6,6 +6,7 @@ import { ListTodo } from "lucide-react";
 import { tasksApi, type Task, type TaskStatus, type TaskSortField } from "@/lib/api/resources/tasks";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 
 const TASK_STATUS_OPTIONS: { value: TaskStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -175,7 +176,7 @@ export default function TasksPage() {
           { params: { q: linkSearch, page: 1, pageSize: 20 } } as never,
         );
         const list = r.data?.items ?? [];
-        setLinkOptions(list.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName} — ${c.phone}` })));
+        setLinkOptions(list.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName} — ${formatPhoneDisplay(c.phone)}` })));
       } else if (linkType === "company") {
         const r = await apiHttp.get<{ items: { id: string; name: string }[] }>("/companies", {
           params: { search: linkSearch, page: 1, pageSize: 20 } } as never,
@@ -188,7 +189,7 @@ export default function TasksPage() {
           { params: { q: linkSearch, page: 1, pageSize: 20 } } as never,
         );
         const list = r.data?.items ?? [];
-        setLinkOptions(list.map((l) => ({ id: l.id, label: [l.fullName, l.phone, l.companyName].filter(Boolean).join(" — ") || l.id })));
+        setLinkOptions(list.map((l) => ({ id: l.id, label: [l.fullName, l.phone ? formatPhoneDisplay(l.phone) : null, l.companyName].filter(Boolean).join(" — ") || l.id })));
       } else {
         const r = await apiHttp.get<{ items: { id: string; orderNumber: string }[] }>(
           "/orders",

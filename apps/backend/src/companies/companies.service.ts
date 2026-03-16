@@ -4,6 +4,7 @@ import { UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
 import type { Pagination } from "../common/pagination";
+import { normalizePhoneToE164 } from "../common/phone.utils";
 import type { CreateCompanyDto } from "./dto/create-company.dto";
 import type { UpdateCompanyDto } from "./dto/update-company.dto";
 import type { Company } from "./entities/company.entity";
@@ -33,13 +34,17 @@ export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
   public async create(dto: CreateCompanyDto, actor?: AuthUser): Promise<Company> {
+    const companyPhone =
+      dto.phone != null
+        ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null))
+        : null;
     try {
       const company = await this.prisma.company.create({
         data: {
           name: dto.name,
           edrpou: dto.edrpou ?? null,
           taxId: dto.taxId ?? null,
-          phone: dto.phone ?? null,
+          phone: companyPhone,
           address: dto.address ?? null,
           lat: dto.lat ?? null,
           lng: dto.lng ?? null,
@@ -57,7 +62,7 @@ export class CompaniesService {
             { field: "name", oldValue: null, newValue: dto.name ?? null },
             { field: "edrpou", oldValue: null, newValue: dto.edrpou ?? null },
             { field: "taxId", oldValue: null, newValue: dto.taxId ?? null },
-            { field: "phone", oldValue: null, newValue: dto.phone ?? null },
+            { field: "phone", oldValue: null, newValue: companyPhone ?? null },
             { field: "address", oldValue: null, newValue: dto.address ?? null },
             { field: "lat", oldValue: null, newValue: dto.lat != null ? String(dto.lat) : null },
             { field: "lng", oldValue: null, newValue: dto.lng != null ? String(dto.lng) : null },
@@ -202,7 +207,10 @@ export class CompaniesService {
     const newName = dto.name != null ? dto.name : existing.name;
     const newEdrpou = dto.edrpou !== undefined ? dto.edrpou : existing.edrpou;
     const newTaxId = dto.taxId !== undefined ? dto.taxId : existing.taxId;
-    const newPhone = dto.phone !== undefined ? dto.phone : existing.phone;
+    const newPhone =
+      dto.phone !== undefined
+        ? (normalizePhoneToE164(dto.phone) ?? (dto.phone?.trim() || null))
+        : existing.phone;
     const newAddress = dto.address !== undefined ? dto.address : existing.address;
     const newLat = dto.lat !== undefined ? dto.lat : existing.lat;
     const newLng = dto.lng !== undefined ? dto.lng : existing.lng;

@@ -1,27 +1,10 @@
-/**
- * Normalize phone to E.164-like form. Default Ukraine +380 if 10 digits.
- * Strips spaces, parentheses, dashes. Returns null if empty or invalid.
- */
-export function normalizePhone(phone: string | null | undefined): string | null {
-  if (phone == null || typeof phone !== "string") return null;
-  const digits = phone.replace(/\s+|\(|\)|-/g, "").replace(/\D/g, "");
-  if (digits.length === 0) return null;
-  if (digits.length === 10 && digits.startsWith("0")) {
-    return "+380" + digits.slice(1);
-  }
-  if (digits.length === 9 && !digits.startsWith("38")) {
-    return "+380" + digits;
-  }
-  if (digits.length >= 10) {
-    const normalized = digits.startsWith("38") ? "+" + digits : "+380" + digits.slice(-9);
-    return normalized.length >= 12 ? normalized : null;
-  }
-  return null;
-}
+import { normalizePhoneToE164 } from "../common/phone.utils";
+
+export { normalizePhoneToE164 as normalizePhone };
 
 /** Simple validity: at least 10 digits. */
 export function isPhoneValid(phone: string | null | undefined): boolean {
-  const n = normalizePhone(phone);
+  const n = normalizePhoneToE164(phone);
   return n != null && n.replace(/\D/g, "").length >= 10;
 }
 

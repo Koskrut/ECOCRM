@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getMyShippingProfiles } from "@/lib/api";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 
 export default function CabinetAddressesPage() {
   const [data, setData] = useState<Awaited<ReturnType<typeof getMyShippingProfiles>> | null>(null);
@@ -74,7 +75,7 @@ export default function CabinetAddressesPage() {
                     </p>
                   )}
                   {profile.phone && (
-                    <p className="mt-1 text-sm text-zinc-600">{profile.phone}</p>
+                    <p className="mt-1 text-sm text-zinc-600">{formatPhoneDisplay(profile.phone)}</p>
                   )}
                 </div>
               </div>

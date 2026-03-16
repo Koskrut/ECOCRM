@@ -6,6 +6,7 @@ import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { apiHttp } from "@/lib/api/client";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 
@@ -1005,7 +1006,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                                 {c.firstName} {c.lastName}
                               </div>
                               <div className="text-xs text-zinc-500">
-                                {c.phone} {c.email ? `• ${c.email}` : ""}
+                                {formatPhoneDisplay(c.phone)} {c.email ? `• ${c.email}` : ""}
                               </div>
                             </button>
                           );

@@ -7,6 +7,7 @@ import { contactsApi, type Contact, type ContactsResponse } from "@/lib/api";
 import { companiesApi, type Company } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
+import { formatPhoneDisplay, normalizePhone } from "@/lib/formatPhone";
 import { ContactModal } from "./ContactModal";
 import { CompanyModal } from "../companies/CompanyModal";
 import {
@@ -485,7 +486,7 @@ function ContactsPageContent() {
                   <td className="px-4 py-4 font-medium text-zinc-900">
                     {c.firstName} {c.lastName}
                   </td>
-                  <td className="px-4 py-4 text-zinc-600">{c.phone}</td>
+                  <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
                   <td className="px-4 py-4 text-zinc-600">{c.email || "—"}</td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex justify-end gap-1">
@@ -504,7 +505,7 @@ function ContactsPageContent() {
                   <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <a
-                        href={c.phone ? `tel:${c.phone.replace(/\s/g, "")}` : undefined}
+                        href={c.phone ? `tel:${normalizePhone(c.phone) ?? c.phone.replace(/\s/g, "")}` : undefined}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}

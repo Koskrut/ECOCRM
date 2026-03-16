@@ -11,6 +11,7 @@ import { ContactTimeline } from "./ContactTimeline";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
@@ -547,7 +548,7 @@ function ContactPhonesSection({
         {additionalPhones.map((p) => (
           <li key={p.id} className="flex items-center justify-between gap-2 rounded border border-zinc-100 bg-zinc-50/50 px-2 py-1.5">
             <span>
-              {p.phone}
+              {formatPhoneDisplay(p.phone)}
               {p.label ? <span className="ml-1 text-zinc-500">({p.label})</span> : null}
             </span>
             <span className="flex gap-1">
@@ -1524,7 +1525,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         />
         <InlineEditableField
           label="Phone (основной)"
-          value={contact.phone}
+          value={formatPhoneDisplay(contact.phone ?? "")}
           placeholder="Click to add…"
           kind="text"
           required

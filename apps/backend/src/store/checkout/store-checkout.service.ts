@@ -4,16 +4,13 @@ import { randomBytes } from "crypto";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
+import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
 import { OrdersService } from "../../orders/orders.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { StoreCartService } from "../cart/store-cart.service";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
-
-function normalizePhone(phone: string): string {
-  return String(phone ?? "").replace(/\D/g, "");
-}
 
 @Injectable()
 export class StoreCheckoutService {
@@ -32,7 +29,7 @@ export class StoreCheckoutService {
     if (!cart.items.length) throw new BadRequestException("Cart is empty");
 
     const rawPhone = (dto.phone ?? "").trim();
-    const phoneNorm = normalizePhone(rawPhone);
+    const phoneNorm = getPhoneNormalizedDigits(rawPhone);
     if (!phoneNorm) throw new BadRequestException("Введіть номер телефону");
     if (phoneNorm.length < 9) throw new BadRequestException("Номер телефону має містити щонайменше 9 цифр");
 
@@ -52,7 +49,7 @@ export class StoreCheckoutService {
         {
           firstName,
           lastName,
-          phone: rawPhone || phoneNorm,
+          phone: normalizePhoneToE164(rawPhone) ?? (rawPhone || phoneNorm),
           email,
         },
         undefined,

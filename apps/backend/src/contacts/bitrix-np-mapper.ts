@@ -5,7 +5,7 @@
  * Custom field keys are usually UF_CRM_* (numeric ID); we support known IDs and key substrings.
  */
 
-/** Known Bitrix CRM contact field IDs for NP. */
+/** Known Bitrix CRM contact field IDs for NP (text fields). */
 const BITRIX_NP_FIELD_IDS: Record<
   string,
   "recipient" | "phone" | "city" | "warehouse" | "street" | "building" | "recipientFio"
@@ -19,6 +19,13 @@ const BITRIX_NP_FIELD_IDS: Record<
   UF_CRM_1754057393851: "recipientFio", // ФІО (запасний отримувач)
 };
 
+/** Bitrix field IDs that store NP API refs (CityRef, Warehouse/Postomat ID, StreetRef). */
+const BITRIX_NP_REF_FIELD_IDS: Record<string, "cityRef" | "warehouseRef" | "streetRef"> = {
+  UF_CRM_1754036697135: "cityRef", // CityRef
+  UF_CRM_1754036521022: "warehouseRef", // Відділення отримувача ID / поштомат ID
+  UF_CRM_1754036540236: "streetRef", // StreetRef
+};
+
 export type BitrixNpProfileData = {
   firstName: string | null;
   lastName: string | null;
@@ -28,6 +35,9 @@ export type BitrixNpProfileData = {
   warehouseAddress: string | null;
   streetName: string | null;
   building: string | null;
+  cityRef: string | null;
+  warehouseRef: string | null;
+  streetRef: string | null;
 };
 
 function str(v: unknown): string | null {
@@ -47,6 +57,13 @@ function isReasonablePhone(v: string): boolean {
 
 /** Reject checkbox-like or too short values for name/city/warehouse. */
 function isSubstantialValue(v: string): boolean {
+  if (!v || v.length < 2) return false;
+  const lower = v.toLowerCase();
+  return !["y", "n", "yes", "no", "1", "0", "true", "false"].includes(lower);
+}
+
+/** Ref from Bitrix must be non-empty and not a checkbox value. */
+function isReasonableRef(v: string): boolean {
   if (!v || v.length < 2) return false;
   const lower = v.toLowerCase();
   return !["y", "n", "yes", "no", "1", "0", "true", "false"].includes(lower);
@@ -88,10 +105,20 @@ export function extractNpDataFromBitrixLegacyRaw(
   let street: string | null = null;
   let building: string | null = null;
   let recipientFio: string | null = null;
+  let cityRef: string | null = null;
+  let warehouseRef: string | null = null;
+  let streetRef: string | null = null;
 
   for (const [key, value] of Object.entries(legacyRaw)) {
     const v = str(value);
     if (!v) continue;
+    const refKey = BITRIX_NP_REF_FIELD_IDS[key];
+    if (refKey && isReasonableRef(v)) {
+      if (refKey === "cityRef") cityRef = v;
+      else if (refKey === "warehouseRef") warehouseRef = v;
+      else if (refKey === "streetRef") streetRef = v;
+      continue;
+    }
     const known = BITRIX_NP_FIELD_IDS[key];
     if (known === "recipient" && isSubstantialValue(v)) {
       recipientName = v;
@@ -153,7 +180,16 @@ export function extractNpDataFromBitrixLegacyRaw(
   }
 
   const nameForRecipient = recipientName || recipientFio;
-  const hasAny = nameForRecipient || phone || city || warehouse || street || building;
+  const hasAny =
+    nameForRecipient ||
+    phone ||
+    city ||
+    warehouse ||
+    street ||
+    building ||
+    cityRef ||
+    warehouseRef ||
+    streetRef;
   if (!hasAny) return null;
 
   const { firstName, lastName } = splitFullName(nameForRecipient);
@@ -168,6 +204,9 @@ export function extractNpDataFromBitrixLegacyRaw(
     warehouseAddress: warehouseAddress ?? null,
     streetName: street ?? null,
     building: building ?? null,
+    cityRef: cityRef ?? null,
+    warehouseRef: warehouseRef ?? null,
+    streetRef: streetRef ?? null,
   };
 }
 
@@ -191,5 +230,8 @@ export function bitrixNpDataToProfilePayload(
     warehouseNumber: data.warehouseNumber ?? undefined,
     streetName: data.streetName ?? data.warehouseAddress ?? undefined,
     building: data.building ?? undefined,
+    cityRef: data.cityRef ?? undefined,
+    warehouseRef: data.warehouseRef ?? undefined,
+    streetRef: data.streetRef ?? undefined,
   };
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useStoreConfig } from "@/context/StoreConfigContext";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 
 const DEFAULT_COMPANY = "SUPREX";
 const DEFAULT_ADDRESS = "Дніпро, просп. Б. Хмельницкого 147";
@@ -31,7 +32,7 @@ export function Footer() {
             <p>{address}</p>
             <p className="mt-1">
               <a href={`tel:${phone}`} className="inline-block min-h-[44px] py-2 hover:text-[var(--primary)] transition">
-                {phone.replace(/^\+380/, "0")}
+                {formatPhoneDisplay(phone)}
               </a>
             </p>
             <p className="mt-1">

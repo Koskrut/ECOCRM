@@ -14,6 +14,7 @@ import {
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
+import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../common/phone.utils";
 import type { ListLeadsQueryDto } from "./dto/list-leads-query.dto";
 import type { CreateLeadDto } from "./dto/create-lead.dto";
 import type { UpdateLeadDto } from "./dto/update-lead.dto";
@@ -103,13 +104,17 @@ export class LeadsService {
 
     const ownerId = actor?.id ?? null;
 
+    const phoneCanonical =
+      dto.phone != null ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null)) : null;
+    const phoneNormalized = dto.phone != null ? getPhoneNormalizedDigits(dto.phone) ?? null : null;
     const data: Prisma.LeadCreateInput = {
       company: { connect: { id: dto.companyId } },
       owner: ownerId ? { connect: { id: ownerId } } : undefined,
       status: LeadStatusEnum.NEW,
       source: dto.source ?? "OTHER",
       name: dto.name ?? null,
-      phone: dto.phone ?? null,
+      phone: phoneCanonical,
+      phoneNormalized,
       email: dto.email ?? null,
       companyName: dto.companyName ?? null,
       message: dto.message ?? null,
@@ -255,7 +260,12 @@ export class LeadsService {
     if ("lastName" in dto) data.lastName = dto.lastName ?? null;
     if ("middleName" in dto) data.middleName = dto.middleName ?? null;
     if ("fullName" in dto) data.fullName = dto.fullName ?? null;
-    if ("phone" in dto) data.phone = dto.phone ?? null;
+    if ("phone" in dto) {
+      const canonical = normalizePhoneToE164(dto.phone ?? "") ?? (dto.phone?.trim() || null);
+      const digits = getPhoneNormalizedDigits(dto.phone ?? "");
+      data.phone = canonical ?? null;
+      data.phoneNormalized = digits ?? null;
+    }
     if ("email" in dto) data.email = dto.email ?? null;
     if ("companyName" in dto) data.companyName = dto.companyName ?? null;
     if ("city" in dto) data.city = dto.city ?? null;
@@ -762,8 +772,8 @@ export class LeadsService {
         lastName: parsed.lastName || null,
         fullName,
         name: fullName,
-        phone: parsed.phone || null,
-        phoneNormalized: phoneNorm,
+        phone: phoneNorm ?? parsed.phone ?? null,
+        phoneNormalized: phoneNorm?.replace(/\D/g, "") ?? null,
         email: emailNorm,
         city: parsed.city || null,
         message: parsed.comment || null,

@@ -65,6 +65,9 @@ export class NpTtnService {
 
     const resolved = await this.resolveRecipientData(contactId, dto);
 
+    // 0) для профилей из Bitrix: подставить cityRef/warehouseRef по cityName/warehouseNumber из справочника НП
+    await this.enrichResolvedDataWithNpRefs(resolved);
+
     // 1) ensure NP entities (Recipient counterparty/contact/address)
     const npRefs = await this.ensureNpRecipientRefs(resolved);
 
@@ -165,6 +168,57 @@ export class NpTtnService {
 
     if (!dto.draft) throw new BadRequestException("draft is required if profileId not provided");
     return { sourceProfile: null, data: dto.draft };
+  }
+
+  /** Поиск города в справочнике НП по названию (ILIKE для гибкого совпадения). */
+  private async findCityByDescription(description: string): Promise<{ ref: string; description: string } | null> {
+    if (!description) return null;
+    const pattern = "%" + description.replace(/%/g, "\\%") + "%";
+    const rows = await this.prisma.$queryRaw<Array<{ ref: string; description: string }>>`
+      SELECT ref, description FROM "NpCity"
+      WHERE "isActive" = true AND description ILIKE ${pattern}
+      ORDER BY LENGTH(description) ASC
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Для профилей без cityRef/warehouseRef (например из Bitrix) подставляет ref из справочников НП по cityName/warehouseNumber.
+   */
+  private async enrichResolvedDataWithNpRefs(resolved: { data: unknown }): Promise<void> {
+    const d = resolved.data as Record<string, unknown>;
+    const cityName = typeof d.cityName === "string" ? d.cityName.trim() : "";
+    const warehouseNumber = typeof d.warehouseNumber === "string" ? d.warehouseNumber.trim() : "";
+
+    if (!d.cityRef && cityName) {
+      const cityNameNorm = cityName.replace(/^місто\s+/i, "").replace(/^м\.\s*/i, "").split(",")[0]?.trim() || cityName;
+      const city = await this.findCityByDescription(cityNameNorm);
+      if (city) {
+        d.cityRef = city.ref;
+        if (!d.cityName) d.cityName = city.description;
+      }
+    }
+
+    if (!d.warehouseRef && d.cityRef && warehouseNumber) {
+      const wh = await this.prisma.npWarehouse.findFirst({
+        where: {
+          cityRef: String(d.cityRef),
+          isActive: true,
+          OR: [
+            { number: warehouseNumber },
+            { number: { contains: warehouseNumber } },
+            { description: { contains: warehouseNumber, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (wh) {
+        const whExt = wh as Record<string, unknown>;
+        d.warehouseRef = wh.ref;
+        d.warehouseNumber = (whExt.number as string) ?? warehouseNumber;
+        d.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
+      }
+    }
   }
 
   // =====================================

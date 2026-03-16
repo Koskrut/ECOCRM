@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getMe, patchMe } from "@/lib/api";
+import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 
 const inputClass =
@@ -152,7 +153,7 @@ export default function CabinetProfilePage() {
                 <dt className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                   Телефон
                 </dt>
-                <dd className="mt-1 text-zinc-900">{me.phone || "—"}</dd>
+                <dd className="mt-1 text-zinc-900">{formatPhoneDisplay(me.phone) || "—"}</dd>
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wider text-zinc-500">

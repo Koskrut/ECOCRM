@@ -1,4 +1,5 @@
 import type { DeliveryMethod, OrderStatus, PaymentMethod, UserRole } from "@prisma/client";
+import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
 
 /** Bitrix UF_CRM_1753079162490 (область) enum ID → название (b_user_field_enum, USER_FIELD_ID = 114). */
 const BITRIX_REGION_ENUM_ID_TO_NAME: Record<number, string> = {
@@ -201,12 +202,16 @@ export function mapBitrixContactToPrisma(
     BITRIX_CLIENT_TYPE_ENUM_ID_TO_NAME,
   );
 
+  const phoneCanonical = primaryPhone ? (normalizePhoneToE164(primaryPhone) ?? primaryPhone) : "—";
+  const phoneNorm = primaryPhone
+    ? (getPhoneNormalizedDigits(primaryPhone) ?? (normalizePhoneDigits(primaryPhone) || null))
+    : null;
   return {
     firstName: name || "—",
     lastName: lastName || "—",
     middleName: secondName,
-    phone: primaryPhone || "—",
-    phoneNormalized: primaryPhone ? normalizePhoneDigits(primaryPhone) || null : null,
+    phone: phoneCanonical,
+    phoneNormalized: phoneNorm,
     email: primaryEmail || null,
     position: post,
     address,
@@ -240,11 +245,12 @@ export function mapBitrixFieldMultiPhoneToContactPhone(
   legacyRaw: Record<string, unknown>;
   syncedAt: Date;
 } {
-  const normalized = normalizePhoneDigits(value);
+  const phoneCanonical = normalizePhoneToE164(value) ?? value;
+  const normalized = getPhoneNormalizedDigits(value) ?? (normalizePhoneDigits(value) || value);
   return {
     contactId: "", // filled by import service with resolved contact id
-    phone: value,
-    phoneNormalized: normalized || value,
+    phone: phoneCanonical,
+    phoneNormalized: normalized,
     label: typeId === "PHONE" ? null : typeId,
     legacySource: "bitrix",
     legacyId: legacyRowId,

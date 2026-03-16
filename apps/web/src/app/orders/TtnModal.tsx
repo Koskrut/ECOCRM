@@ -105,6 +105,8 @@ export function TtnModal({
   const [building, setBuilding] = useState("");
   const [flat, setFlat] = useState("");
 
+  const [payerType, setPayerType] = useState<"Recipient" | "Sender">("Recipient");
+
   const canClose = !loading && !creating;
 
   const resetNewForm = useCallback(() => {
@@ -141,10 +143,13 @@ export function TtnModal({
     setError(null);
 
     try {
-      if (!contactId) {
+      if (!contactId?.trim()) {
         setProfiles([]);
         setMode("NEW");
         setSelectedProfileId("");
+        setError(
+          "У замовленні не обрано контакт (клієнта). Збережіть замовлення з обраним клієнтом — тоді з’являться збережені адреси Нова Пошта.",
+        );
         return;
       }
 
@@ -153,7 +158,17 @@ export function TtnModal({
       });
 
       const data = res.data;
-      const rawItems = Array.isArray(data) ? data : data?.items || [];
+      const itemsArray =
+        Array.isArray(data)
+          ? data
+          : Array.isArray((data as Record<string, unknown>)?.items)
+            ? (data as { items: NpShippingProfile[] }).items
+            : Array.isArray((data as Record<string, unknown>)?.data?.items)
+              ? (data as { data: { items: NpShippingProfile[] } }).data.items
+              : Array.isArray((data as Record<string, unknown>)?.data)
+                ? (data as { data: NpShippingProfile[] }).data
+                : [];
+      const rawItems = itemsArray;
       const items = rawItems.filter((p: NpShippingProfile) => typeof p?.id === "string" && p.id.trim() !== "");
 
       const sorted = [...items].sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
@@ -180,6 +195,9 @@ export function TtnModal({
         setProfiles([]);
         setMode("NEW");
         setSelectedProfileId("");
+        setError(
+          "Контакт не знайдено або немає доступу. Перевірте, що у замовленні обрано контакт (клієнта) — тоді збережені адреси Нова Пошта підтягнуться.",
+        );
         if (defaultPerson) {
           setNpRecipientLastName(defaultPerson.lastName ?? "");
           setNpRecipientFirstName(defaultPerson.firstName ?? "");
@@ -279,7 +297,10 @@ export function TtnModal({
 
       setCreating(true);
       try {
-        const res = await apiHttp.post(createPath, { profileId: selectedProfileId.trim() });
+        const res = await apiHttp.post(createPath, {
+          profileId: selectedProfileId.trim(),
+          payerType,
+        });
         onCreated?.(res.data);
         onClose();
       } catch (e) {
@@ -320,6 +341,7 @@ export function TtnModal({
       const payload = {
         saveAsProfile: !!saveToContact,
         profileLabel: label?.trim() || undefined,
+        payerType,
         draft: {
           recipientType,
           deliveryType,
@@ -460,6 +482,34 @@ export function TtnModal({
               </label>
             </div>
             {loading && <div className="text-xs text-zinc-500">Завантаження…</div>}
+          </div>
+
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <span className="text-sm font-medium text-zinc-700">Плательщик</span>
+            <div className="flex gap-4">
+              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-recipient">
+                <input
+                  id="np-payer-recipient"
+                  type="radio"
+                  name="npPayer"
+                  checked={payerType === "Recipient"}
+                  onChange={() => setPayerType("Recipient")}
+                  className="h-4 w-4 flex-shrink-0"
+                />
+                <span className="text-sm">Отримувач</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-sender">
+                <input
+                  id="np-payer-sender"
+                  type="radio"
+                  name="npPayer"
+                  checked={payerType === "Sender"}
+                  onChange={() => setPayerType("Sender")}
+                  className="h-4 w-4 flex-shrink-0"
+                />
+                <span className="text-sm">Відправник</span>
+              </label>
+            </div>
           </div>
 
           {mode === "EXISTING" ? (
