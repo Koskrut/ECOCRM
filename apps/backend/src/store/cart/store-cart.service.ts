@@ -69,7 +69,7 @@ export class StoreCartService {
 
   async addItem(identity: CartIdentity, productId: string, qty: number) {
     const product = await this.productStore.findById(productId);
-    if (!product || !product.isActive)
+    if (!product || !product.isActive || !product.showOnStore)
       throw new NotFoundException("Product not found or inactive");
     const addQty = Math.max(1, Math.floor(qty));
     const cart = await this.getOrCreateCart(identity);

@@ -9,7 +9,7 @@ export type StockByWarehouseItem = { warehouseId: string; warehouseName: string;
 
 type ProductListItem = Pick<
   Product,
-  "id" | "sku" | "name" | "unit" | "basePrice" | "stock" | "primaryImageUrl" | "primaryImageId"
+  "id" | "sku" | "name" | "unit" | "basePrice" | "stock" | "showOnStore" | "primaryImageUrl" | "primaryImageId"
 >;
 
 export type ProductListItemWithStockByWarehouse = ProductListItem & {
@@ -34,6 +34,7 @@ type PrismaProduct = {
   basePrice: number;
   stock: number;
   isActive: boolean;
+  showOnStore: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -67,6 +68,7 @@ export class ProductStore {
       basePrice: row.basePrice,
       stock: row.stock,
       isActive: row.isActive,
+      showOnStore: row.showOnStore,
       primaryImageUrl: primary?.url ?? null,
       primaryImageId: primary?.imageId ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -280,7 +282,9 @@ export class ProductStore {
   }
 
   public async findActiveById(id: string): Promise<Product | null> {
-    const row = await this.prisma.product.findFirst({ where: { id, isActive: true } });
+    const row = await this.prisma.product.findFirst({
+      where: { id, isActive: true, showOnStore: true },
+    });
     if (!row) return null;
     const primary = await this.productImageStore.findPrimaryByProductId(id);
     return this.toEntity(
@@ -311,7 +315,7 @@ export class ProductStore {
     const groupId = this.normalizeCategory(category);
     const hasSearch = search && search.trim().length > 0;
 
-    const baseWhere: Prisma.ProductWhereInput = { isActive: true };
+    const baseWhere: Prisma.ProductWhereInput = { isActive: true, showOnStore: true };
     if (groupId) {
       baseWhere.sku = { startsWith: groupId + "." };
     }
@@ -340,7 +344,7 @@ export class ProductStore {
     >`
       SELECT id, sku, name, unit, "basePrice", stock
       FROM "Product"
-      WHERE "isActive" = true
+      WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
         AND (
           sku ILIKE ${searchPattern}
@@ -353,7 +357,7 @@ export class ProductStore {
     const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
       SELECT COUNT(*)::int AS count
       FROM "Product"
-      WHERE "isActive" = true
+      WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
         AND (
           sku ILIKE ${searchPattern}
@@ -373,12 +377,20 @@ export class ProductStore {
     return result.count > 0;
   }
 
+  public async updateShowOnStore(id: string, showOnStore: boolean): Promise<boolean> {
+    const result = await this.prisma.product.updateMany({
+      where: { id },
+      data: { showOnStore },
+    });
+    return result.count > 0;
+  }
+
   public async listCatalog(
     search: string | undefined,
     pagination: Pagination,
   ): Promise<ProductListResultWithStockByWarehouse> {
     const hasSearch = search && search.trim().length > 0;
-    let rows: Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>;
+    let rows: Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>;
     let total: number;
     if (!hasSearch) {
       const where: Prisma.ProductWhereInput = { isActive: true };
@@ -389,7 +401,7 @@ export class ProductStore {
           orderBy: { name: "asc" },
           skip: pagination.offset,
           take: pagination.limit,
-          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true },
+          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true, showOnStore: true },
         }),
       ]);
       rows = rowsResult;
@@ -397,9 +409,9 @@ export class ProductStore {
     } else {
       const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
       const rowsResult = await this.prisma.$queryRaw<
-        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>
+        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>
       >`
-        SELECT id, sku, name, unit, "basePrice", stock
+        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore"
         FROM "Product"
         WHERE "isActive" = true
           AND (

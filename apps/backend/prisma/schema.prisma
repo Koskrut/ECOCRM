@@ -689,6 +689,8 @@ model Product {
   basePrice       Float
   stock           Int            @default(0)
   isActive        Boolean        @default(true)
+  /** Показывать в каталоге магазина (на сайте). */
+  showOnStore     Boolean        @default(true)
   primaryImageId  String?        @unique
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

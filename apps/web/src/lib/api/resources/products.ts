@@ -13,6 +13,7 @@ export type ProductCatalogItem = {
   unit: string;
   basePrice: number;
   stock: number;
+  showOnStore: boolean;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
   stockByWarehouse?: StockByWarehouseItem[];
@@ -84,6 +85,26 @@ export const productsApi = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stock }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Update failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+  },
+
+  updateShowOnStore: async (id: string, showOnStore: boolean): Promise<void> => {
+    const r = await fetch(`/api/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ showOnStore }),
       credentials: "include",
     });
     if (!r.ok) {

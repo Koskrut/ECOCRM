@@ -665,7 +665,8 @@ function CatalogPageContent() {
               Нет товаров
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px] text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
                   <th className="w-16 px-2 py-3">Фото</th>
@@ -679,6 +680,9 @@ function CatalogPageContent() {
                     </th>
                   ))}
                   <th className="px-4 py-3">Всего</th>
+                  <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
+                    На сайте
+                  </th>
                   <th className="w-10 px-2 py-3" aria-label="Удалить" />
                 </tr>
               </thead>
@@ -687,7 +691,7 @@ function CatalogPageContent() {
                 return (
                   <tbody key={category} className="border-t border-zinc-200">
                     <tr>
-                      <td colSpan={7 + WAREHOUSE_ORDER.length + 1} className="p-0">
+                      <td colSpan={8 + WAREHOUSE_ORDER.length} className="p-0">
                         <button
                           type="button"
                           onClick={() => toggleCategory(category)}
@@ -748,6 +752,30 @@ function CatalogPageContent() {
                           <td className="px-4 py-3 font-medium tabular-nums text-zinc-900">
                             {p.stock}
                           </td>
+                          <td className="px-2 py-3 text-center">
+                            <label className="inline-flex cursor-pointer items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={p.showOnStore ?? true}
+                                onChange={async (e) => {
+                                  const next = e.target.checked;
+                                  try {
+                                    await productsApi.updateShowOnStore(p.id, next);
+                                    setItems((prev) =>
+                                      prev.map((it) =>
+                                        it.id === p.id ? { ...it, showOnStore: next } : it,
+                                      ),
+                                    );
+                                  } catch {
+                                    loadCatalog();
+                                  }
+                                }}
+                                className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                                title={p.showOnStore ?? true ? "Скрыть с сайта" : "Показать на сайте"}
+                              />
+                              <span className="sr-only">Отображать на сайте</span>
+                            </label>
+                          </td>
                           <td className="px-2 py-3">
                             <CatalogRowDeleteButton
                               productId={p.id}
@@ -761,6 +789,7 @@ function CatalogPageContent() {
                 );
               })}
             </table>
+            </div>
           )}
         </div>
       )}

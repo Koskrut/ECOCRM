@@ -6,6 +6,7 @@ export type Product = {
   basePrice: number;
   stock: number;
   isActive: boolean;
+  showOnStore: boolean;
   primaryImageId?: string | null;
   primaryImageUrl?: string | null; // direct URL; use primaryImageId + proxy for Drive
   createdAt: string;
