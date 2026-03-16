@@ -19,11 +19,15 @@ export type CallTimelineItem = {
   occurredAt: string;
   createdAt: string;
   createdBy: string;
+  createdByName?: string;
   call?: CallMeta;
 };
 
 type Props = {
   item: CallTimelineItem;
+  /** When set, body is expandable/collapsible like in ContactTimeline COMMENT/MEETING cards */
+  isExpanded?: boolean;
+  onToggle?: () => void;
 };
 
 function formatDuration(sec?: number): string | null {
@@ -61,7 +65,7 @@ function recordingLabel(status?: string): string {
   return s;
 }
 
-export function CallCard({ item }: Props) {
+export function CallCard({ item, isExpanded = false, onToggle }: Props) {
   const call = item.call ?? {};
   const dir = directionLabel(call.direction);
   const st = statusLabel(call.status);
@@ -75,10 +79,33 @@ export function CallCard({ item }: Props) {
   const showSingleNumber =
     fromLabel && (!toLabel || fromLabel === toLabel);
 
+  const hasBody = item.body.trim().length > 0;
+  const canExpand = hasBody && onToggle;
+
   return (
     <div className="rounded-md border border-zinc-200 p-3 bg-zinc-50">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
+        <div
+          className="min-w-0 flex-1 space-y-1"
+          role={canExpand ? "button" : undefined}
+          tabIndex={canExpand ? 0 : undefined}
+          onClick={canExpand ? onToggle : undefined}
+          onKeyDown={
+            canExpand
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onToggle?.();
+                  }
+                }
+              : undefined
+          }
+          className={
+            canExpand
+              ? "min-w-0 flex-1 space-y-1 cursor-pointer hover:bg-zinc-100/80 rounded focus:outline-none focus:ring-2 focus:ring-zinc-300 -m-1 p-1"
+              : "min-w-0 flex-1 space-y-1"
+          }
+        >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-zinc-900">
               {item.title || "Звонок"}
@@ -110,6 +137,11 @@ export function CallCard({ item }: Props) {
                 {durationText}
               </span>
             )}
+            {hasBody && onToggle && (
+              <span className="text-xs text-zinc-500">
+                {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+              </span>
+            )}
           </div>
 
           {(fromLabel || toLabel) && (
@@ -126,14 +158,16 @@ export function CallCard({ item }: Props) {
             </div>
           )}
 
-          {item.body.trim() && (
-            <div className="whitespace-pre-wrap text-sm text-zinc-700">{item.body}</div>
+          {hasBody && isExpanded && (
+            <div className="mt-2 rounded bg-zinc-50 p-2 whitespace-pre-wrap text-sm text-zinc-700 border border-zinc-100">
+              {item.body}
+            </div>
           )}
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span>{occurredAt}</span>
             <span>·</span>
-            <span>by {item.createdBy}</span>
+            <span>by {item.createdByName ?? item.createdBy}</span>
           </div>
         </div>
 

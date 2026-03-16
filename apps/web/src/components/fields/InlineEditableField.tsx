@@ -34,7 +34,11 @@ export function InlineEditableField({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(null);
 
-  const displayValue = value?.trim() ?? "";
+  const displayValue = value != null ? String(value).trim() : "";
+  const displayText =
+    kind === "select" && options.length > 0 && value != null
+      ? (options.find((o) => String((o as { value?: string }).value ?? (o as { id?: string }).id) === String(value))?.label ?? displayValue)
+      : displayValue;
   const isEmpty = !displayValue;
 
   const cancelEdit = useCallback(() => {
@@ -123,7 +127,7 @@ export function InlineEditableField({
           disabled={disabled}
           className="min-w-0 flex-1 text-right text-sm text-zinc-900 hover:underline disabled:opacity-50"
         >
-          {isEmpty ? placeholder : displayValue}
+          {isEmpty ? placeholder : displayText}
         </button>
       </div>
     );

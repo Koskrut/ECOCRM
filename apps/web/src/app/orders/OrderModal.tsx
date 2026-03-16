@@ -375,6 +375,37 @@ export function OrderModal({
     [apiBaseUrl],
   );
 
+  const searchContacts = useCallback(
+    async (query: string, cid: string | null) => {
+      setLoadingContacts(true);
+      setContacts([]);
+      try {
+        const params = new URLSearchParams();
+        if (cid) params.set("companyId", cid);
+        if (query.trim()) params.set("q", query.trim());
+        params.set("page", "1");
+        params.set("pageSize", "50");
+        const r = await fetch(`${apiBaseUrl}/contacts?${params}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        setContacts(Array.isArray(data?.items) ? data.items : []);
+      } finally {
+        setLoadingContacts(false);
+      }
+    },
+    [apiBaseUrl],
+  );
+
+  const onContactSearchQueryChange = useCallback(
+    (q: string) => {
+      searchContacts(q, companyId);
+    },
+    [searchContacts, companyId],
+  );
+
   const refreshOrder = useCallback(async () => {
     if (!orderId) return;
     setLoading(true);
@@ -791,6 +822,23 @@ export function OrderModal({
     [companies.length, fetchCompanies, fetchContacts],
   );
 
+  const contactOptions = useMemo(() => {
+    const list = contacts.map((c) => ({
+      id: c.id,
+      label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
+    }));
+    if (clientId && order?.client && !contacts.some((c) => c.id === clientId)) {
+      return [
+        {
+          id: order.client.id,
+          label: `${order.client.firstName} ${order.client.lastName} — ${order.client.phone}`,
+        },
+        ...list,
+      ];
+    }
+    return list;
+  }, [contacts, clientId, order?.client, companyId]);
+
   const deleteOrder = useCallback(async () => {
     if (!orderId || !order || !confirm("Удалить заказ? Это действие нельзя отменить.")) return;
     setDeleting(true);
@@ -917,10 +965,7 @@ export function OrderModal({
                 <div>
                   <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
                   <SearchableSelectLite
-                    options={contacts.map((c) => ({
-                      id: c.id,
-                      label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
-                    }))}
+                    options={contactOptions}
                     value={clientId}
                     onChange={(id) => {
                       setClientId(id);
@@ -934,6 +979,7 @@ export function OrderModal({
                     placeholder="Select client…"
                     onCreate={onOpenContact ? () => onOpenContact("new") : undefined}
                     createLabel="Create contact"
+                    onSearchQueryChange={onContactSearchQueryChange}
                   />
                 </div>
 
@@ -1344,13 +1390,11 @@ export function OrderModal({
                           <div className="mt-1">
                             <SearchableSelectLite
                               value={clientId}
-                              options={contacts.map((c) => ({
-                                id: c.id,
-                                label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
-                              }))}
+                              options={contactOptions}
                               placeholder="Select client…"
                               disabled={saving}
                               isLoading={loadingContacts}
+                              onSearchQueryChange={onContactSearchQueryChange}
                               onChange={async (id) => {
                                 setClientId(id);
                                 let nextCompanyId = companyId;

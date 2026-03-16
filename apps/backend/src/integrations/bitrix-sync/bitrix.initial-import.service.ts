@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { ActivityType, TaskStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { Pool } from "mysql2/promise";
 import { createPool } from "mysql2/promise";
@@ -21,6 +22,13 @@ import {
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
+/** Bitrix b_crm_act OWNER_TYPE_ID: 1=Lead, 2=Deal, 3=Contact, 4=Company */
+const BITRIX_OWNER_TYPE_LEAD = 1;
+const BITRIX_OWNER_TYPE_DEAL = 2;
+const BITRIX_OWNER_TYPE_CONTACT = 3;
+const BITRIX_OWNER_TYPE_COMPANY = 4;
+/** PROVIDER_ID in b_crm_act for tasks */
+const BITRIX_ACT_PROVIDER_TASK = "Task";
 const UPDATE_BATCH_SIZE = 200;
 /** Smaller chunks for order/orderItem updates to avoid transaction timeout under concurrency. */
 const ORDER_UPDATE_CHUNK_SIZE = 25;
@@ -230,6 +238,8 @@ export class BitrixInitialImportService {
     leads: ImportStats;
     orders: ImportStats;
     orderItems: ImportStats;
+    activities: ImportStats;
+    tasks: ImportStats;
   }> {
     const pool = this.getPool();
     const stats = {
@@ -241,6 +251,8 @@ export class BitrixInitialImportService {
       leads: { created: 0, updated: 0, skipped: 0, errors: 0 },
       orders: { created: 0, updated: 0, skipped: 0, errors: 0 },
       orderItems: { created: 0, updated: 0, skipped: 0, errors: 0 },
+      activities: { created: 0, updated: 0, skipped: 0, errors: 0 },
+      tasks: { created: 0, updated: 0, skipped: 0, errors: 0 },
     };
 
     try {
@@ -264,6 +276,25 @@ export class BitrixInitialImportService {
 
       // 6. OrderItems (product rows) bulk
       await this.importOrderItemsBulk(pool, stats);
+
+      // 7. Activities and tasks from b_crm_act
+      await this.importActivitiesAndTasksBulk(pool, stats);
+    } catch (e) {
+      const host = process.env.BITRIX_MYSQL_HOST ?? "localhost";
+      const port = process.env.BITRIX_MYSQL_PORT
+        ? parseInt(process.env.BITRIX_MYSQL_PORT, 10)
+        : 3306;
+      if (
+        e &&
+        typeof e === "object" &&
+        "code" in e &&
+        (e as NodeJS.ErrnoException).code === "ECONNREFUSED"
+      ) {
+        throw new Error(
+          `Bitrix MySQL connection refused at ${host}:${port}. Start the SSH tunnel (e.g. ssh -L 3307:127.0.0.1:3306 user@bitrix-server) or set BITRIX_MYSQL_PORT to the port where MySQL is listening.`,
+        );
+      }
+      throw e;
     } finally {
       try {
         await pool.end();
@@ -802,6 +833,14 @@ export class BitrixInitialImportService {
     return new Map(rows.map((r) => [r.legacyId!, r.id]));
   }
 
+  private async loadLeadIdByLegacyId(): Promise<Map<number, string>> {
+    const rows = await this.prisma.lead.findMany({
+      where: { legacySource: LEGACY_SOURCE },
+      select: { legacyId: true, id: true },
+    });
+    return new Map(rows.map((r) => [r.legacyId!, r.id]));
+  }
+
   private async importLeadsBulk(
     pool: Pool,
     stats: { leads: ImportStats },
@@ -1282,6 +1321,216 @@ export class BitrixInitialImportService {
     return result;
   }
 
+  /** Parse date from Bitrix MySQL row (Date or string). */
+  private parseActDate(v: unknown): Date | null {
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+    if (typeof v === "string" && v.trim()) {
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  private isBitrixActTask(row: Record<string, unknown>): boolean {
+    const provider = String(row["PROVIDER_ID"] ?? "").trim();
+    return provider === BITRIX_ACT_PROVIDER_TASK;
+  }
+
+  private getActivityTypeFromProvider(row: Record<string, unknown>): ActivityType {
+    const provider = String(row["PROVIDER_ID"] ?? "").trim().toLowerCase();
+    if (provider.includes("meeting")) return "MEETING";
+    if (provider.includes("call")) return "CALL";
+    return "COMMENT";
+  }
+
+  private async importActivitiesAndTasksBulk(
+    pool: Pool,
+    stats: { activities: ImportStats; tasks: ImportStats },
+  ): Promise<void> {
+    const batchSize = getBatchSize();
+    const concurrency = Math.min(getConcurrency(), 2);
+    const contactIdByLegacyId = await this.loadContactIdByLegacyId();
+    const companyIdByLegacyId = await this.loadCompanyIdByLegacyId();
+    const leadIdByLegacyId = await this.loadLeadIdByLegacyId();
+    const orderIdByLegacyId = await this.loadOrderIdByLegacyId();
+    const userIdByLegacyId = await this.loadUserIdByLegacyId();
+    this.logger.log("Bitrix initial import: activities and tasks from b_crm_act…");
+    let batchIndex = 0;
+    const runSlot = async (slotIndex: number): Promise<void> => {
+      for (let offset = slotIndex * batchSize; ; offset += concurrency * batchSize) {
+        const batch = await this.loadBatch(pool, "b_crm_act", offset, batchSize);
+        if (batch.length === 0) break;
+        batchIndex++;
+        const result = await this.processActBatch(
+          batch,
+          contactIdByLegacyId,
+          companyIdByLegacyId,
+          leadIdByLegacyId,
+          orderIdByLegacyId,
+          userIdByLegacyId,
+        );
+        stats.activities.created += result.activities.created;
+        stats.activities.updated += result.activities.updated;
+        stats.activities.skipped += result.activities.skipped;
+        stats.activities.errors += result.activities.errors;
+        stats.tasks.created += result.tasks.created;
+        stats.tasks.updated += result.tasks.updated;
+        stats.tasks.skipped += result.tasks.skipped;
+        stats.tasks.errors += result.tasks.errors;
+        this.logger.log(
+          `activities+tasks batch ${batchIndex} (offset ${offset}) activities: ${result.activities.created + result.activities.updated} tasks: ${result.tasks.created + result.tasks.updated} skipped: ${result.activities.skipped + result.tasks.skipped} errors: ${result.activities.errors + result.tasks.errors}`,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    };
+    await Promise.all(Array.from({ length: concurrency }, (_, i) => runSlot(i)));
+    this.logger.log(
+      `Bitrix import activities: created=${stats.activities.created} updated=${stats.activities.updated} skipped=${stats.activities.skipped} errors=${stats.activities.errors}`,
+    );
+    this.logger.log(
+      `Bitrix import tasks: created=${stats.tasks.created} updated=${stats.tasks.updated} skipped=${stats.tasks.skipped} errors=${stats.tasks.errors}`,
+    );
+  }
+
+  private async processActBatch(
+    batch: Record<string, unknown>[],
+    contactIdByLegacyId: Map<number, string>,
+    companyIdByLegacyId: Map<number, string>,
+    leadIdByLegacyId: Map<number, string>,
+    orderIdByLegacyId: Map<number, string>,
+    userIdByLegacyId: Map<number, string>,
+  ): Promise<{ activities: ImportStats; tasks: ImportStats }> {
+    const aStats: ImportStats = { created: 0, updated: 0, skipped: 0, errors: 0 };
+    const tStats: ImportStats = { created: 0, updated: 0, skipped: 0, errors: 0 };
+    for (const row of batch) {
+      const id = Number(row["ID"]);
+      if (!id) {
+        aStats.skipped++;
+        continue;
+      }
+      const ownerTypeId = Number(row["OWNER_TYPE_ID"]);
+      const ownerId = Number(row["OWNER_ID"]);
+      const contactId = ownerTypeId === BITRIX_OWNER_TYPE_CONTACT ? contactIdByLegacyId.get(ownerId) ?? null : null;
+      const companyId = ownerTypeId === BITRIX_OWNER_TYPE_COMPANY ? companyIdByLegacyId.get(ownerId) ?? null : null;
+      const leadId = ownerTypeId === BITRIX_OWNER_TYPE_LEAD ? leadIdByLegacyId.get(ownerId) ?? null : null;
+      const orderId = ownerTypeId === BITRIX_OWNER_TYPE_DEAL ? orderIdByLegacyId.get(ownerId) ?? null : null;
+      const ownerContactId = contactId ?? null;
+      const ownerCompanyId = companyId ?? null;
+      const ownerLeadId = leadId ?? null;
+      const ownerOrderId = orderId ?? null;
+      if (!ownerContactId && !ownerCompanyId && !ownerLeadId && !ownerOrderId) {
+        aStats.skipped++;
+        continue;
+      }
+      const responsibleId = Number(row["RESPONSIBLE_ID"] ?? row["AUTHOR_ID"] ?? 0);
+      const createdByUserId = responsibleId ? userIdByLegacyId.get(responsibleId) ?? null : null;
+      const assigneeUserId = responsibleId ? userIdByLegacyId.get(responsibleId) ?? null : null;
+
+      if (this.isBitrixActTask(row)) {
+        if (!assigneeUserId) {
+          tStats.skipped++;
+          continue;
+        }
+        const title = String(row["SUBJECT"] ?? "").trim() || "Задача";
+        const body = row["DESCRIPTION"] != null ? String(row["DESCRIPTION"]).trim() : null;
+        const dueAt = this.parseActDate(row["DEADLINE"] ?? row["CREATED"]);
+        const completed = String(row["COMPLETED"] ?? "N").toUpperCase() === "Y";
+        const status: TaskStatus = completed ? "DONE" : "OPEN";
+        const completedAt = completed ? this.parseActDate(row["END_TIME"] ?? row["LAST_UPDATED"] ?? row["CREATED"]) : null;
+        try {
+          const existing = await this.prisma.task.findUnique({
+            where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
+          });
+          const data = {
+            assigneeId: assigneeUserId,
+            contactId: ownerContactId,
+            companyId: ownerCompanyId,
+            leadId: ownerLeadId,
+            orderId: ownerOrderId,
+            title,
+            body: body ?? undefined,
+            dueAt: dueAt ?? undefined,
+            status,
+            completedAt: completedAt ?? undefined,
+            legacySource: LEGACY_SOURCE,
+            legacyId: id,
+          };
+          if (existing) {
+            await this.prisma.task.update({
+              where: { id: existing.id },
+              data: {
+                title: data.title,
+                body: data.body,
+                dueAt: data.dueAt,
+                status: data.status,
+                completedAt: data.completedAt,
+                contactId: data.contactId,
+                companyId: data.companyId,
+                leadId: data.leadId,
+                orderId: data.orderId,
+              },
+            });
+            tStats.updated++;
+          } else {
+            await this.prisma.task.create({ data });
+            tStats.created++;
+          }
+        } catch (e) {
+          this.logger.warn(`Task legacyId=${id} error: ${e}`);
+          tStats.errors++;
+        }
+      } else {
+        const createdBy = createdByUserId ?? "system";
+        const type = this.getActivityTypeFromProvider(row);
+        const title = String(row["SUBJECT"] ?? "").trim() || null;
+        const body = String(row["DESCRIPTION"] ?? "").trim() || "(без описания)";
+        const occurredAt = this.parseActDate(row["START_TIME"] ?? row["CREATED"]);
+        try {
+          const existing = await this.prisma.activity.findUnique({
+            where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
+          });
+          const data = {
+            type,
+            title,
+            body,
+            occurredAt: occurredAt ?? undefined,
+            createdBy,
+            contactId: ownerContactId,
+            companyId: ownerCompanyId,
+            leadId: ownerLeadId,
+            orderId: ownerOrderId,
+            legacySource: LEGACY_SOURCE,
+            legacyId: id,
+          };
+          if (existing) {
+            await this.prisma.activity.update({
+              where: { id: existing.id },
+              data: {
+                type: data.type,
+                title: data.title,
+                body: data.body,
+                occurredAt: data.occurredAt,
+                createdBy: data.createdBy,
+                contactId: data.contactId,
+                companyId: data.companyId,
+                leadId: data.leadId,
+                orderId: data.orderId,
+              },
+            });
+            aStats.updated++;
+          } else {
+            await this.prisma.activity.create({ data });
+            aStats.created++;
+          }
+        } catch (e) {
+          this.logger.warn(`Activity legacyId=${id} error: ${e}`);
+          aStats.errors++;
+        }
+      }
+    }
+    return { activities: aStats, tasks: tStats };
+  }
+
   private async queryRows(pool: Pool, sql: string): Promise<unknown[]> {
     const [rows] = await pool.query(sql);
     return Array.isArray(rows) ? (rows as unknown[]) : [];
@@ -1494,6 +1743,20 @@ export class BitrixInitialImportService {
       where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: bitrixContactId } },
     });
     return c?.id ?? null;
+  }
+
+  private async resolveLeadId(bitrixLeadId: number): Promise<string | null> {
+    const l = await this.prisma.lead.findUnique({
+      where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: bitrixLeadId } },
+    });
+    return l?.id ?? null;
+  }
+
+  private async resolveOrderId(bitrixDealId: number): Promise<string | null> {
+    const o = await this.prisma.order.findUnique({
+      where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: bitrixDealId } },
+    });
+    return o?.id ?? null;
   }
 
   private async upsertLead(row: Record<string, unknown>): Promise<"created" | "updated" | "skipped" | "error"> {

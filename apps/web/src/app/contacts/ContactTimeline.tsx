@@ -261,7 +261,14 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
               const outcomeBadge = getMeetingOutcomeBadge(it.title, it.type);
               const displayTitle = outcomeBadge ? meetingTitleWithoutOutcome(it.title) : it.title;
               if (it.type === "CALL") {
-                return <CallCard key={it.id} item={it} />;
+                return (
+                  <CallCard
+                    key={it.id}
+                    item={it}
+                    isExpanded={isExpanded}
+                    onToggle={() => setExpandedId(isExpanded ? null : it.id)}
+                  />
+                );
               }
 
               return (
@@ -314,7 +321,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                       {new Date(it.occurredAt).toLocaleString()}
                     </div>
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
+                  <div className="mt-2 text-xs text-zinc-500">by {it.createdByName ?? it.createdBy}</div>
                 </div>
               );
             })}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type Option = { id: string; label: string; meta?: unknown };
 
@@ -8,10 +8,12 @@ function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
+const SEARCH_DEBOUNCE_MS = 300;
+
 /**
  * Minimal searchable select (no external deps).
  * - click to open
- * - type to filter
+ * - type to filter (or trigger onSearchQueryChange for API search)
  * - shows optional "Create new" action when nothing matches
  */
 export function SearchableSelectLite({
@@ -24,6 +26,7 @@ export function SearchableSelectLite({
   onCreate,
   createLabel,
   variant = "default",
+  onSearchQueryChange,
 }: {
   value: string | null;
   options: Option[];
@@ -35,18 +38,41 @@ export function SearchableSelectLite({
   createLabel?: string;
   /** "inline" = same row style as InlineEditableField (text + hover underline, no border) */
   variant?: "default" | "inline";
+  /** When set, search is done by parent (API); query is passed here debounced. No local filtering. */
+  onSearchQueryChange?: (query: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
+  const selected = useMemo(
+    () => options.find((o) => String(o.id) === String(value)) ?? null,
+    [options, value],
+  );
 
   const filtered = useMemo(() => {
+    if (onSearchQueryChange) return options;
     const s = q.trim().toLowerCase();
     if (!s) return options;
     return options.filter((o) => o.label.toLowerCase().includes(s));
-  }, [options, q]);
+  }, [options, q, onSearchQueryChange]);
+
+  const triggerSearch = useCallback(
+    (query: string) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      if (onSearchQueryChange) {
+        debounceRef.current = setTimeout(() => {
+          debounceRef.current = null;
+          onSearchQueryChange(query);
+        }, SEARCH_DEBOUNCE_MS);
+      }
+    },
+    [onSearchQueryChange],
+  );
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -59,8 +85,27 @@ export function SearchableSelectLite({
   }, []);
 
   useEffect(() => {
-    if (!open) setQ("");
-  }, [open]);
+    if (!open) {
+      setQ("");
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      return;
+    }
+    if (onSearchQueryChange) onSearchQueryChange("");
+  }, [open, onSearchQueryChange]);
+
+  useEffect(() => {
+    if (!onSearchQueryChange) return;
+    triggerSearch(q);
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
+  }, [q, onSearchQueryChange, triggerSearch]);
 
   const isInline = variant === "inline";
 
@@ -127,7 +172,7 @@ export function SearchableSelectLite({
                     }}
                     className={cx(
                       "flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50",
-                      o.id === value && "bg-zinc-50",
+                      String(o.id) === String(value) && "bg-zinc-50",
                     )}
                   >
                     <span className="flex-1 truncate text-zinc-900">{o.label}</span>

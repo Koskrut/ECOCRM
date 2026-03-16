@@ -194,7 +194,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setEditLat(data.lat ?? null);
       setEditLng(data.lng ?? null);
       setEditGooglePlaceId(data.googlePlaceId ?? null);
-      setOwnerId(data.ownerId ?? null);
+      setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
     } catch (e) {
       setCompany(null);
       setErr(e instanceof Error ? e.message : "Failed to load company");
@@ -315,7 +315,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         await apiHttp.patch(`/companies/${companyId}`, payload);
         await refresh();
         if (leftTab === "change-history") void loadChangeHistory();
-        if (payload.ownerId !== undefined) setOwnerId(payload.ownerId ?? null);
+        if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
         onUpdate();
       } catch (e) {
         setErr(e instanceof Error ? e.message : "Save failed");
@@ -327,7 +327,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   );
 
   const userOptions = useMemo(
-    () => users.map((u) => ({ id: u.id, label: u.fullName || u.email })),
+    () => users.map((u) => ({ id: String(u.id), label: u.fullName || u.email })),
     [users],
   );
 
@@ -452,7 +452,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setAddressError(null);
       setIsGeocodeLoading(true);
       try {
-        const result = await geocodeText(mapsApiKey, query);
+        const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
         if (!result) {
           setAddressError("Address service temporarily unavailable.");
           return;
@@ -522,7 +522,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     autocompleteAbortRef.current = controller;
     const timer = setTimeout(async () => {
       try {
-        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6 });
+        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6, regionCode: "UA" });
         if (autocompleteAbortRef.current !== controller) return;
         setAddressSuggestions(suggestions);
         setAddressError(null);

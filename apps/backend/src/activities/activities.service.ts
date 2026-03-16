@@ -39,13 +39,14 @@ export class ActivitiesService {
   // ---------- CONTACT ----------
   async listForContact(contactId: string, actor?: AuthUser) {
     await this.assertContactAccess(contactId, actor);
-    return this.prisma.activity.findMany({
+    const items = await this.prisma.activity.findMany({
       where: { contactId },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
       include: {
         call: true,
       },
     });
+    return this.withCreatedByName(items);
   }
 
   async createForContact(contactId: string, body: CreateActivityBody, user: AuthUser) {
@@ -63,13 +64,14 @@ export class ActivitiesService {
   // ---------- LEAD ----------
   async listForLead(leadId: string, actor?: AuthUser) {
     await this.assertLeadAccess(leadId, actor);
-    return this.prisma.activity.findMany({
+    const items = await this.prisma.activity.findMany({
       where: { leadId },
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
       include: {
         call: true,
       },
     });
+    return this.withCreatedByName(items);
   }
 
   async createForLead(leadId: string, body: CreateActivityBody, user: AuthUser) {
@@ -140,6 +142,20 @@ export class ActivitiesService {
   }
 
   // ---------- helpers ----------
+  private async withCreatedByName<T extends { createdBy: string }>(items: T[]) {
+    const ids = [...new Set(items.map((a) => a.createdBy).filter(Boolean))];
+    if (ids.length === 0) return items.map((a) => ({ ...a, createdByName: a.createdBy }));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, fullName: true },
+    });
+    const map = new Map(users.map((u) => [u.id, u.fullName]));
+    return items.map((a) => ({
+      ...a,
+      createdByName: map.get(a.createdBy) ?? a.createdBy,
+    }));
+  }
+
   private normalizeBody(body: CreateActivityBody) {
     if (!body?.type) throw new BadRequestException("type is required");
     if (!body?.body || String(body.body).trim().length === 0) {

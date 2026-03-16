@@ -1,5 +1,52 @@
 import type { DeliveryMethod, OrderStatus, PaymentMethod, UserRole } from "@prisma/client";
 
+/** Bitrix UF_CRM_1753079162490 (область) enum ID → название (b_user_field_enum, USER_FIELD_ID = 114). */
+const BITRIX_REGION_ENUM_ID_TO_NAME: Record<number, string> = {
+  26: "Вінницька",
+  27: "Волинська",
+  28: "Дніпропетровська",
+  29: "Донецька",
+  30: "Житомирська",
+  31: "Закарпатська",
+  32: "Запорізька",
+  33: "Івано-Франківська",
+  34: "Київська",
+  35: "Кіровоградська",
+  36: "Луганська",
+  37: "Львівська",
+  38: "Миколаївська",
+  39: "Одеська",
+  40: "Полтавська",
+  41: "Рівненська",
+  42: "Сумська",
+  43: "Тернопільська",
+  44: "Харківська",
+  45: "Херсонська",
+  46: "Хмельницька",
+  47: "Черкаська",
+  48: "Чернівецька",
+  49: "Чернігівська",
+};
+
+/** Bitrix UF_CRM_1756361960817 (тип клиента) enum ID → название (b_user_field_enum, USER_FIELD_ID = 310). */
+const BITRIX_CLIENT_TYPE_ENUM_ID_TO_NAME: Record<number, string> = {
+  137: "Врач",
+  138: "Технік",
+  164: "Адмін",
+};
+
+/** Resolve Bitrix enum value (number or string "123") to label via map; else return trimmed string or null. */
+function resolveBitrixEnum(
+  value: unknown,
+  idToName: Record<number, string>,
+): string | null {
+  if (value == null) return null;
+  const num = typeof value === "number" ? value : Number(String(value).trim());
+  if (!Number.isNaN(num) && num in idToName) return idToName[num];
+  const str = String(value).trim();
+  return str !== "" ? str : null;
+}
+
 /** Normalize phone to digits-only for phoneNormalized. */
 export function normalizePhoneDigits(phone: string | null | undefined): string {
   if (phone == null || typeof phone !== "string") return "";
@@ -132,10 +179,10 @@ export function mapBitrixContactToPrisma(
     row["UF_CRM_1772007718612"] != null && String(row["UF_CRM_1772007718612"]).trim() !== ""
       ? String(row["UF_CRM_1772007718612"]).trim()
       : null;
-  const regionPrimary =
-    row["UF_CRM_1753079162490"] != null && String(row["UF_CRM_1753079162490"]).trim() !== ""
-      ? String(row["UF_CRM_1753079162490"]).trim()
-      : null;
+  const regionPrimary = resolveBitrixEnum(
+    row["UF_CRM_1753079162490"],
+    BITRIX_REGION_ENUM_ID_TO_NAME,
+  );
   const regionFallback =
     row["UF_CRM_1753079192866"] != null && String(row["UF_CRM_1753079192866"]).trim() !== ""
       ? String(row["UF_CRM_1753079192866"]).trim()
@@ -149,10 +196,10 @@ export function mapBitrixContactToPrisma(
     row["UF_CRM_1753079682882"] != null && String(row["UF_CRM_1753079682882"]).trim() !== ""
       ? String(row["UF_CRM_1753079682882"]).trim()
       : null;
-  const clientType =
-    row["UF_CRM_1756361960817"] != null && String(row["UF_CRM_1756361960817"]).trim() !== ""
-      ? String(row["UF_CRM_1756361960817"]).trim()
-      : null;
+  const clientType = resolveBitrixEnum(
+    row["UF_CRM_1756361960817"],
+    BITRIX_CLIENT_TYPE_ENUM_ID_TO_NAME,
+  );
 
   return {
     firstName: name || "—",

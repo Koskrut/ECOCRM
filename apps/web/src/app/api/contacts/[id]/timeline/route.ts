@@ -10,6 +10,7 @@ type ActivityItem = {
   occurredAt?: string;
   createdAt?: string;
   createdBy?: string;
+  createdByName?: string;
   call?: {
     direction?: string;
     status?: string;
@@ -33,7 +34,8 @@ type TimelineItem = {
   occurredAt: string;
   createdAt: string;
   createdBy: string;
-   call?: {
+  createdByName?: string;
+  call?: {
     direction?: string;
     status?: string;
     durationSec?: number;
@@ -98,6 +100,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       occurredAt,
       createdAt,
       createdBy: a.createdBy ?? "system",
+      createdByName: a.createdByName ?? a.createdBy ?? "system",
       call,
     };
   });

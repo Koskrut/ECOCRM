@@ -785,8 +785,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setLng(data.lng ?? null);
       setGooglePlaceId(data.googlePlaceId ?? null);
       setAddressStatus(null);
-      setOwnerId(data.ownerId ?? null);
-      setCompanyId(data.companyId ?? null);
+      setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
+      setCompanyId(data.companyId != null ? String(data.companyId) : null);
       setExternalCode((data.externalCode ?? "") as string);
       setRegion((data.region ?? "") as string);
       setAddressInfo((data.addressInfo ?? "") as string);
@@ -881,8 +881,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       if (payload.lat !== undefined) setLat(payload.lat ?? null);
       if (payload.lng !== undefined) setLng(payload.lng ?? null);
       if (payload.googlePlaceId !== undefined) setGooglePlaceId(payload.googlePlaceId ?? null);
-      if (payload.ownerId !== undefined) setOwnerId(payload.ownerId);
-      if (payload.companyId !== undefined) setCompanyId(payload.companyId);
+      if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
+      if (payload.companyId !== undefined) setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
       onUpdate();
     },
     [contactId, onUpdate],
@@ -963,7 +963,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setAddressError(null);
       setIsGeocodeLoading(true);
       try {
-        const result = await geocodeText(mapsApiKey, query);
+        const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
         if (!result) {
           setAddressError("Address service temporarily unavailable.");
           return;
@@ -1010,7 +1010,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     autocompleteAbortRef.current = controller;
     const timer = setTimeout(async () => {
       try {
-        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6 });
+        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6, regionCode: "UA" });
         if (autocompleteAbortRef.current !== controller) return;
         setAddressSuggestions(suggestions);
         setAddressError(null);
@@ -1131,8 +1131,36 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     return `${a} ${b}`.trim() || null;
   }, [contact]);
 
+  const REGION_OPTIONS: Array<{ value: string; label: string }> = [
+    { value: "", label: "—" },
+    { value: "Вінницька", label: "Вінницька" },
+    { value: "Волинська", label: "Волинська" },
+    { value: "Дніпропетровська", label: "Дніпропетровська" },
+    { value: "Донецька", label: "Донецька" },
+    { value: "Житомирська", label: "Житомирська" },
+    { value: "Закарпатська", label: "Закарпатська" },
+    { value: "Запорізька", label: "Запорізька" },
+    { value: "Івано-Франківська", label: "Івано-Франківська" },
+    { value: "Київська", label: "Київська" },
+    { value: "Кіровоградська", label: "Кіровоградська" },
+    { value: "Луганська", label: "Луганська" },
+    { value: "Львівська", label: "Львівська" },
+    { value: "Миколаївська", label: "Миколаївська" },
+    { value: "Одеська", label: "Одеська" },
+    { value: "Полтавська", label: "Полтавська" },
+    { value: "Рівненська", label: "Рівненська" },
+    { value: "Сумська", label: "Сумська" },
+    { value: "Тернопільська", label: "Тернопільська" },
+    { value: "Харківська", label: "Харківська" },
+    { value: "Херсонська", label: "Херсонська" },
+    { value: "Хмельницька", label: "Хмельницька" },
+    { value: "Черкаська", label: "Черкаська" },
+    { value: "Чернівецька", label: "Чернівецька" },
+    { value: "Чернігівська", label: "Чернігівська" },
+  ];
+
   const companyOptions = useMemo(
-    () => companies.map((c) => ({ id: c.id, label: c.name })),
+    () => companies.map((c) => ({ id: String(c.id), label: c.name })),
     [companies],
   );
 
@@ -1142,7 +1170,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   );
 
   const userOptions = useMemo(
-    () => users.map((u) => ({ id: u.id, label: u.fullName || u.email })),
+    () => users.map((u) => ({ id: String(u.id), label: u.fullName || u.email })),
     [users],
   );
 
@@ -1214,13 +1242,18 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             disabled={saving}
           />
           <label className="mt-3 block text-sm font-medium text-zinc-700">Область</label>
-          <input
+          <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={region}
             onChange={(e) => setRegion(e.target.value)}
-            placeholder="Область"
             disabled={saving}
-          />
+          >
+            {REGION_OPTIONS.map((o) => (
+              <option key={o.value || "empty"} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
           <label className="mt-3 block text-sm font-medium text-zinc-700">Адрес (инфо)</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
@@ -1238,13 +1271,16 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             disabled={saving}
           />
           <label className="mt-3 block text-sm font-medium text-zinc-700">Тип клиента</label>
-          <input
+          <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={clientType}
             onChange={(e) => setClientType(e.target.value)}
-            placeholder="Врач / техник"
             disabled={saving}
-          />
+          >
+            <option value="">—</option>
+            <option value="Врач">Врач</option>
+            <option value="Техник">Техник</option>
+          </select>
           <label className="mt-3 block text-sm font-medium text-zinc-700">Address</label>
           <div className="mt-1 space-y-2">
             <div className="relative">
@@ -1509,8 +1545,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         <InlineEditableField
           label="Область"
           value={contact.region ?? ""}
-          placeholder="Click to add…"
-          kind="text"
+          placeholder="—"
+          kind="select"
+          options={REGION_OPTIONS}
           disabled={saving}
           onSave={async (next) => patchContact({ region: next?.trim() || null })}
           onRegisterCancel={registerCancel}
@@ -1536,8 +1573,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         <InlineEditableField
           label="Тип клиента"
           value={contact.clientType ?? ""}
-          placeholder="Врач / техник"
-          kind="text"
+          placeholder="—"
+          kind="select"
+          options={[
+            { value: "", label: "—" },
+            { value: "Врач", label: "Врач" },
+            { value: "Техник", label: "Техник" },
+          ]}
           disabled={saving}
           onSave={async (next) => patchContact({ clientType: next?.trim() || null })}
           onRegisterCancel={registerCancel}
