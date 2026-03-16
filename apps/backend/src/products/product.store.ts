@@ -328,7 +328,7 @@ export class ProductStore {
           orderBy: { name: "asc" },
           skip: pagination.offset,
           take: pagination.limit,
-          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true },
+          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true, showOnStore: true },
         }),
       ]);
       const items = await this.enrichWithPrimaryImage(rows);
@@ -340,9 +340,9 @@ export class ProductStore {
       ? Prisma.sql`AND (sku LIKE ${groupId + ".%"} OR sku = ${groupId})`
       : Prisma.empty;
     const rows = await this.prisma.$queryRaw<
-      Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number }>
+      Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>
     >`
-      SELECT id, sku, name, unit, "basePrice", stock
+      SELECT id, sku, name, unit, "basePrice", stock, "showOnStore"
       FROM "Product"
       WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
