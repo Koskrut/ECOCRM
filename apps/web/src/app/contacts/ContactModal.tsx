@@ -1810,6 +1810,14 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     handleMarkerDragEnd,
     geocodeFromAddressText,
     registerCancel,
+    region,
+    city,
+    addressInfo,
+    externalCode,
+    clientType,
+    ownerId,
+    userOptions,
+    loadingUsers,
   ]);
 
   const tabsUnderHeader = (
