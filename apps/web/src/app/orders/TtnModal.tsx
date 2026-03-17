@@ -166,9 +166,9 @@ export function TtnModal({
           : Array.isArray(dataRecord?.items)
             ? (data as { items: NpShippingProfile[] }).items
             : Array.isArray(dataData?.items)
-              ? (data as { data: { items: NpShippingProfile[] } }).data.items
+              ? (data as unknown as { data: { items: NpShippingProfile[] } }).data.items
               : Array.isArray(dataRecord?.data)
-                ? (data as { data: NpShippingProfile[] }).data
+                ? (data as unknown as { data: NpShippingProfile[] }).data
                 : [];
       const rawItems = itemsArray;
       const items = rawItems.filter((p: NpShippingProfile) => typeof p?.id === "string" && p.id.trim() !== "");
