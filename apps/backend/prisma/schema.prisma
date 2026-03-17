@@ -306,6 +306,8 @@ model Contact {
   isPrimary Boolean  @default(false)
   /** Код 1С (импорт из Bitrix UF_CRM_1772007718612). */
   externalCode String?
+  /** Как выводить на документ (счёт/РН): напр. «ФОП Петров Петр» при контакте Иванов Иван. */
+  documentDisplayName String?
   /** Область (Bitrix UF_CRM_1753079162490; fallback UF_CRM_1753079192866). */
   region String?
   /** Адрес (инфо) — строка из Bitrix ADDRESS. */
@@ -669,11 +671,13 @@ model ContactPhone {
 }
 
 model Warehouse {
-  id        String   @id @default(cuid())
-  name      String
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  sortOrder    Int      @default(0)
+  /** Код 1С/таблицы для интеграции (напр. 000000190). */
+  externalCode String?  @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   orders              Order[]
   productWarehouseStocks ProductWarehouseStock[]
@@ -832,6 +836,14 @@ model Order {
   paymentType         PaymentType?
   deliveryData        Json?
   orderSource         OrderSource @default(CRM)
+  /** Номер и дата счёта (из 1С). */
+  invoiceNumber       String?
+  invoiceDate        DateTime?
+  /** Номер и дата РН / расходной накладной (из 1С). */
+  waybillNumber       String?
+  waybillDate        DateTime?
+  /** Курс сделки для таблицы/документов. */
+  exchangeRate        Float?
 
   company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
@@ -1098,6 +1110,10 @@ model BankAccount {
   currency       String
   accountNumber  String?
   iban           String?
+  /** Код ФОП для 1С/таблицы (напр. 000000123). */
+  externalCode   String?      @unique
+  /** Реквизиты для счёта/РН: legalName, taxId, address, bankDetails и т.д. */
+  documentRequisites Json?
   credentials    Json?        // encrypted: cardNumber, clientId, token
   isActive       Boolean      @default(true)
   lastSyncAt     DateTime?

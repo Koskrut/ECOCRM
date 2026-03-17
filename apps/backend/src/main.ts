@@ -4,6 +4,31 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
+// Suppress pg deprecation from @prisma/adapter-pg: transaction runs multiple queries on one
+// client without awaiting (Prisma engine + PgTransaction.performIO). Harmless until pg@9.
+const origEmitWarning = process.emitWarning.bind(process);
+type EmitWarningFn = (warning: string | Error, ...args: unknown[]) => void;
+(process.emitWarning as EmitWarningFn) = function (warning: string | Error, ...args: unknown[]) {
+  const msg = typeof warning === "string" ? warning : (warning as Error).message;
+  const typeArg = args[0];
+  const name =
+    typeof typeArg === "string"
+      ? typeArg
+      : typeof typeArg === "object" && typeArg !== null && typeArg !== undefined && "type" in typeArg
+        ? (typeArg as { type?: string }).type
+        : typeof warning === "object" && warning !== null && "name" in warning
+          ? (warning as Error).name
+          : "Warning";
+  if (
+    name === "DeprecationWarning" &&
+    typeof msg === "string" &&
+    msg.includes("client.query() when the client is already executing")
+  ) {
+    return;
+  }
+  return (origEmitWarning as EmitWarningFn).apply(process, [warning, ...args]);
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 

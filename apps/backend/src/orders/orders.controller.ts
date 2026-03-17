@@ -9,11 +9,14 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
 } from "@nestjs/common";
 import type { OrderStatus } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
 import { PaymentsService } from "../payments/payments.service";
+import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersService } from "./orders.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
@@ -27,6 +30,8 @@ export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly payments: PaymentsService,
+    private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
+    private readonly ordersDocuments: OrdersDocumentsService,
   ) {}
 
   @Get()
@@ -42,6 +47,30 @@ export class OrdersController {
   @Get(":id/timeline")
   timeline(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.orders.getTimeline(id, req.user);
+  }
+
+  @Get(":id/documents/invoice")
+  async getInvoicePdf(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<StreamableFile> {
+    const buffer = await this.ordersDocuments.buildInvoicePdf(id, req.user);
+    return new StreamableFile(buffer, {
+      type: "application/pdf",
+      disposition: `attachment; filename="invoice-${id}.pdf"`,
+    });
+  }
+
+  @Get(":id/documents/waybill")
+  async getWaybillPdf(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<StreamableFile> {
+    const buffer = await this.ordersDocuments.buildWaybillPdf(id, req.user);
+    return new StreamableFile(buffer, {
+      type: "application/pdf",
+      disposition: `attachment; filename="waybill-${id}.pdf"`,
+    });
   }
 
   @Get(":id")
@@ -66,6 +95,13 @@ export class OrdersController {
     const dtoWithDelivery =
       deliveryMethod !== undefined ? { ...dto, deliveryMethod } : dto;
     return this.orders.update(id, dtoWithDelivery, req.user);
+  }
+
+  @Post(":id/send-to-sheet")
+  async sendToSheet(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    await this.orders.getById(id, req.user);
+    await this.googleSheetSendOrder.sendOrderToSheet(id);
+    return { ok: true };
   }
 
   @Patch(":id/status")

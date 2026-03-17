@@ -11,6 +11,8 @@ type BankAccount = {
   currency: string;
   iban?: string | null;
   isActive: boolean;
+  externalCode?: string | null;
+  documentRequisites?: Record<string, unknown> | null;
   credentialsMasked?: {
     clientIdMasked?: string;
     tokenMasked?: string;
@@ -35,6 +37,7 @@ export default function FopSettingsPage() {
   const [addName, setAddName] = useState("");
   const [addCurrency, setAddCurrency] = useState<"UAH" | "USD" | "EUR">("UAH");
   const [addIban, setAddIban] = useState("");
+  const [addExternalCode, setAddExternalCode] = useState("");
   const [addClientId, setAddClientId] = useState("");
   const [addGroupId, setAddGroupId] = useState("");
   const [addToken, setAddToken] = useState("");
@@ -43,6 +46,8 @@ export default function FopSettingsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editIban, setEditIban] = useState("");
+  const [editExternalCode, setEditExternalCode] = useState("");
+  const [editDocumentRequisites, setEditDocumentRequisites] = useState("");
   const [editClientIdVal, setEditClientIdVal] = useState("");
   const [editGroupIdVal, setEditGroupIdVal] = useState("");
   const [editToken, setEditToken] = useState("");
@@ -81,6 +86,7 @@ export default function FopSettingsPage() {
         name: addName.trim(),
         currency: addCurrency,
         iban: addIban.trim() || undefined,
+        externalCode: addExternalCode.trim() || undefined,
         credentials: {
           clientId: addClientId.trim() || undefined,
           token: addToken.trim() || undefined,
@@ -91,6 +97,7 @@ export default function FopSettingsPage() {
       setAddName("");
       setAddCurrency("UAH");
       setAddIban("");
+      setAddExternalCode("");
       setAddClientId("");
       setAddGroupId("");
       setAddToken("");
@@ -106,6 +113,10 @@ export default function FopSettingsPage() {
     setEditId(acc.id);
     setEditName(acc.name);
     setEditIban(acc.iban ?? "");
+    setEditExternalCode(acc.externalCode ?? "");
+    setEditDocumentRequisites(
+      acc.documentRequisites != null ? JSON.stringify(acc.documentRequisites, null, 2) : "",
+    );
     setEditClientIdVal("");
     setEditGroupIdVal("");
     setEditToken("");
@@ -117,10 +128,29 @@ export default function FopSettingsPage() {
     setEditSubmitting(true);
     setError(null);
     try {
-      const body: { name: string; iban?: string; credentials?: { clientId?: string; token?: string; id?: string } } = {
+      const body: {
+        name: string;
+        iban?: string;
+        externalCode?: string | null;
+        documentRequisites?: Record<string, unknown> | null;
+        credentials?: { clientId?: string; token?: string; id?: string };
+      } = {
         name: editName.trim(),
         iban: editIban.trim() || undefined,
+        externalCode: editExternalCode.trim() || null,
       };
+      const drTrim = editDocumentRequisites.trim();
+      if (drTrim) {
+        try {
+          body.documentRequisites = JSON.parse(drTrim) as Record<string, unknown>;
+        } catch {
+          setError("documentRequisites must be valid JSON");
+          setEditSubmitting(false);
+          return;
+        }
+      } else {
+        body.documentRequisites = null;
+      }
       if (editClientIdVal !== "" || editGroupIdVal !== "" || editToken !== "") {
         body.credentials = {};
         if (editClientIdVal !== "") body.credentials.clientId = editClientIdVal.trim() || undefined;
@@ -213,6 +243,9 @@ export default function FopSettingsPage() {
                     {acc.iban && (
                       <div className="mt-0.5 text-xs text-zinc-600 font-mono">IBAN: {acc.iban}</div>
                     )}
+                    {acc.externalCode && (
+                      <div className="mt-0.5 text-xs text-zinc-600">Код 1С: {acc.externalCode}</div>
+                    )}
                     <div className="mt-0.5 text-xs text-zinc-500">
                       ID: {acc.credentialsMasked?.clientIdMasked ?? acc.credentialsMasked?.idMasked ?? "—"} · TOKEN:{" "}
                       {acc.credentialsMasked?.tokenMasked ?? "—"}
@@ -284,6 +317,19 @@ export default function FopSettingsPage() {
                     onChange={(e) => setAddIban(e.target.value)}
                     placeholder="UA123456789012345678901234567"
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">Код 1С (ФОП)</label>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Код для інтеграції з таблицею / 1С (напр. 000000123).
+                  </p>
+                  <input
+                    type="text"
+                    value={addExternalCode}
+                    onChange={(e) => setAddExternalCode(e.target.value)}
+                    placeholder="000000123"
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </div>
                 <div>
@@ -373,6 +419,29 @@ export default function FopSettingsPage() {
                     onChange={(e) => setEditIban(e.target.value)}
                     placeholder="Выписка только по этому счёту"
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">Код 1С (ФОП)</label>
+                  <input
+                    type="text"
+                    value={editExternalCode}
+                    onChange={(e) => setEditExternalCode(e.target.value)}
+                    placeholder="000000123"
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">Реквизити для документів (JSON)</label>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    legalName, taxId, address, bankDetails тощо для счёта/РН.
+                  </p>
+                  <textarea
+                    value={editDocumentRequisites}
+                    onChange={(e) => setEditDocumentRequisites(e.target.value)}
+                    placeholder='{"legalName": "...", "taxId": "...", "address": "..."}'
+                    rows={4}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-mono text-zinc-900 placeholder:text-zinc-400"
                   />
                 </div>
                 <div>

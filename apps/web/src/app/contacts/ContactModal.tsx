@@ -628,6 +628,7 @@ type Contact = {
   ownerId?: string | null;
   owner?: { id: string; fullName: string; email: string } | null;
   externalCode?: string | null;
+  documentDisplayName?: string | null;
   region?: string | null;
   addressInfo?: string | null;
   city?: string | null;
@@ -686,6 +687,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [externalCode, setExternalCode] = useState("");
+  const [documentDisplayName, setDocumentDisplayName] = useState("");
   const [region, setRegion] = useState("");
   const [addressInfo, setAddressInfo] = useState("");
   const [city, setCity] = useState("");
@@ -791,6 +793,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
       setCompanyId(data.companyId != null ? String(data.companyId) : null);
       setExternalCode((data.externalCode ?? "") as string);
+      setDocumentDisplayName((data.documentDisplayName ?? "") as string);
       setRegion((data.region ?? "") as string);
       setAddressInfo((data.addressInfo ?? "") as string);
       setCity((data.city ?? "") as string);
@@ -863,6 +866,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       ownerId: string | null;
       companyId: string | null;
       externalCode: string | null;
+      documentDisplayName: string | null;
       region: string | null;
       addressInfo: string | null;
       city: string | null;
@@ -886,6 +890,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       if (payload.googlePlaceId !== undefined) setGooglePlaceId(payload.googlePlaceId ?? null);
       if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
       if (payload.companyId !== undefined) setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
+      if (payload.externalCode !== undefined) setExternalCode(payload.externalCode ?? "");
+      if (payload.documentDisplayName !== undefined) setDocumentDisplayName(payload.documentDisplayName ?? "");
       onUpdate();
     },
     [contactId, onUpdate],
@@ -1569,6 +1575,15 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ externalCode: next?.trim() || null })}
+          onRegisterCancel={registerCancel}
+        />
+        <InlineEditableField
+          label="Як виводити на документ"
+          value={contact.documentDisplayName ?? ""}
+          placeholder="Напр. ФОП Петров Петр"
+          kind="text"
+          disabled={saving}
+          onSave={async (next) => patchContact({ documentDisplayName: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField

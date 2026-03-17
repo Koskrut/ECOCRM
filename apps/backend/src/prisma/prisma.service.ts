@@ -18,7 +18,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       connectionString,
       keepAlive: true,
       idleTimeoutMillis: 30_000,
-      max: 1,
+      max: 20,
       connectionTimeoutMillis: 10_000,
     });
     pool.on("error", (err) => {

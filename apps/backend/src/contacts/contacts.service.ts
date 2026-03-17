@@ -90,6 +90,7 @@ export class ContactsService {
       ownerId?: string | null;
       isPrimary?: boolean;
       externalCode?: string | null;
+      documentDisplayName?: string | null;
       region?: string | null;
       addressInfo?: string | null;
       city?: string | null;
@@ -129,6 +130,7 @@ export class ContactsService {
         googlePlaceId: data.googlePlaceId ?? null,
         isPrimary: data.isPrimary ?? false,
         externalCode: data.externalCode ?? null,
+        documentDisplayName: data.documentDisplayName ?? null,
         region: data.region ?? null,
         addressInfo: data.addressInfo ?? null,
         city: data.city ?? null,
@@ -472,6 +474,7 @@ export class ContactsService {
       ownerId: string | null;
       isPrimary: boolean;
       externalCode: string | null;
+      documentDisplayName: string | null;
       region: string | null;
       addressInfo: string | null;
       city: string | null;
@@ -785,6 +788,7 @@ export class ContactsService {
       googlePlaceId: contact.googlePlaceId ?? null,
       isPrimary: contact.isPrimary,
       externalCode: contact.externalCode ?? null,
+      documentDisplayName: contact.documentDisplayName ?? null,
       region: contact.region ?? null,
       addressInfo: contact.addressInfo ?? null,
       city: contact.city ?? null,

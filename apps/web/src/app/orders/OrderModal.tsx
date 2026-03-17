@@ -82,6 +82,10 @@ type OrderDetails = {
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
   paidAmount?: number;
   debtAmount?: number;
 
@@ -598,21 +602,61 @@ export function OrderModal({
   const patchOrderItem = useCallback(
     async (itemId: string, payload: { qty?: number; price?: number }) => {
       if (!orderId) return;
+      setEditingItem(null);
       setSaving(true);
+      setOrder((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map((it) =>
+            it.id === itemId
+              ? {
+                  ...it,
+                  qty: payload.qty ?? it.qty,
+                  price: payload.price ?? it.price,
+                  lineTotal: (payload.qty ?? it.qty) * (payload.price ?? it.price),
+                }
+              : it,
+          ),
+        };
+      });
       try {
+        const body: { qty?: number; price?: number } = {};
+        if (payload.qty !== undefined) body.qty = Number(payload.qty);
+        if (payload.price !== undefined) body.price = Number(payload.price);
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(body),
           credentials: "include",
           cache: "no-store",
         });
         if (!r.ok) {
-          const data = await r.json().catch(() => ({}));
-          throw new Error(data?.message || `Failed to update item (${r.status})`);
+          const errData = await r.json().catch(() => ({}));
+          throw new Error((errData?.message as string) || `Failed to update item (${r.status})`);
         }
-        setEditingItem(null);
-        await Promise.all([refreshOrder(), refreshTimeline()]);
+        const data = (await r.json()) as OrderDetails;
+        if (data?.items) {
+          const qty = payload.qty !== undefined ? Number(payload.qty) : undefined;
+          const price = payload.price !== undefined ? Number(payload.price) : undefined;
+          const items =
+            qty !== undefined || price !== undefined
+              ? data.items.map((i) =>
+                  i.id === itemId
+                    ? {
+                        ...i,
+                        qty: qty ?? i.qty,
+                        price: price ?? i.price,
+                        lineTotal: (qty ?? i.qty) * (price ?? i.price),
+                      }
+                    : i,
+                )
+              : data.items;
+          applyOrderToState({ ...data, items });
+        } else {
+          await refreshOrder();
+        }
+        await refreshTimeline();
         onSaved?.();
       } catch (e) {
         alert(e instanceof Error ? e.message : "Failed to save");
@@ -621,7 +665,7 @@ export function OrderModal({
         setSaving(false);
       }
     },
-    [apiBaseUrl, onSaved, orderId, refreshOrder, refreshTimeline],
+    [apiBaseUrl, applyOrderToState, onSaved, orderId, refreshOrder, refreshTimeline],
   );
 
   const deleteOrderItem = useCallback(
@@ -1215,14 +1259,14 @@ export function OrderModal({
                                 onChange={(e) =>
                                   setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
                                 }
-                                onBlur={async () => {
-                                  const val = Math.max(1, Number(editingItem?.value) || 1);
+                                onBlur={async (e) => {
+                                  const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
                                   await patchOrderItem(it.id, { qty: val });
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
-                                    const val = Math.max(1, Number(editingItem?.value) || 1);
+                                    const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
                                     void patchOrderItem(it.id, { qty: val });
                                   }
                                   if (e.key === "Escape") setEditingItem(null);
@@ -1255,14 +1299,14 @@ export function OrderModal({
                                 onChange={(e) =>
                                   setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
                                 }
-                                onBlur={async () => {
-                                  const val = Math.max(0, Number(editingItem?.value) || 0);
+                                onBlur={async (e) => {
+                                  const val = Math.max(0, Number((e.target as HTMLInputElement).value) || 0);
                                   await patchOrderItem(it.id, { price: val });
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
-                                    const val = Math.max(0, Number(editingItem?.value) || 0);
+                                    const val = Math.max(0, Number((e.target as HTMLInputElement).value) || 0);
                                     void patchOrderItem(it.id, { price: val });
                                   }
                                   if (e.key === "Escape") setEditingItem(null);
@@ -1646,6 +1690,57 @@ export function OrderModal({
                                 : <span className="font-normal text-zinc-400">Выберите...</span>}
                           </button>
                         )}
+                      </div>
+
+                      {(order.invoiceNumber ?? order.invoiceDate ?? order.waybillNumber ?? order.waybillDate) && (
+                        <div>
+                          <div className="text-xs text-zinc-500">Документи 1С</div>
+                          <div className="mt-1 space-y-0.5 text-sm text-zinc-700">
+                            {order.invoiceNumber && <div>Рахунок: {order.invoiceNumber}{order.invoiceDate ? ` від ${order.invoiceDate}` : ""}</div>}
+                            {order.waybillNumber && <div>РН: {order.waybillNumber}{order.waybillDate ? ` від ${order.waybillDate}` : ""}</div>}
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="text-xs text-zinc-500">PDF документи</div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <a
+                            href={`/api/orders/${order.id}/documents/invoice`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Рахунок (PDF)
+                          </a>
+                          <a
+                            href={`/api/orders/${order.id}/documents/waybill`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                          >
+                            РН (PDF)
+                          </a>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500">1С / таблиця</div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await apiHttp.post(`/orders/${order.id}/send-to-sheet`);
+                              setOrder((prev) => prev ? { ...prev } : prev);
+                            } catch (e) {
+                              const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? (e instanceof Error ? e.message : "Помилка");
+                              alert(msg);
+                            }
+                          }}
+                          className="mt-1 rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Відправити в 1С
+                        </button>
                       </div>
 
                       <div>

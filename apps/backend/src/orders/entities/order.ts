@@ -58,6 +58,12 @@ export type Order = {
   documentsRequested?: boolean | null;
   paymentType?: PaymentType | null;
   deliveryData?: Record<string, unknown> | null;
+  /** Номер и дата счёта (из 1С). */
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
+  exchangeRate?: number | null;
 
   createdAt: string;
   updatedAt: string;

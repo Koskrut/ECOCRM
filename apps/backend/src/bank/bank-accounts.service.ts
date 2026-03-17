@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { BankAccount, BankProvider } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateBankAccountDto } from "./dto/create-bank-account.dto";
 import type { UpdateBankAccountDto } from "./dto/update-bank-account.dto";
@@ -61,6 +62,11 @@ export class BankAccountsService {
         currency: dto.currency,
         iban: dto.iban ?? null,
         accountNumber: dto.accountNumber ?? null,
+        externalCode: dto.externalCode ?? null,
+        documentRequisites:
+          dto.documentRequisites == null
+            ? Prisma.JsonNull
+            : (dto.documentRequisites as Prisma.InputJsonValue),
         credentials: dto.credentials ? (dto.credentials as object) : undefined,
         isActive: dto.isActive ?? true,
       },
@@ -100,11 +106,26 @@ export class BankAccountsService {
     });
     if (!current) throw new NotFoundException("Bank account not found");
 
-    const data: { name?: string; isActive?: boolean; syncWindowDays?: number; iban?: string | null; credentials?: object } = {
+    const data: {
+      name?: string;
+      isActive?: boolean;
+      syncWindowDays?: number;
+      iban?: string | null;
+      externalCode?: string | null;
+      documentRequisites?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+      credentials?: object;
+    } = {
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.isActive !== undefined && { isActive: dto.isActive }),
       ...(dto.syncWindowDays !== undefined && { syncWindowDays: dto.syncWindowDays }),
       ...(dto.iban !== undefined && { iban: dto.iban === "" ? null : dto.iban }),
+      ...(dto.externalCode !== undefined && { externalCode: dto.externalCode === "" ? null : dto.externalCode }),
+      ...(dto.documentRequisites !== undefined && {
+        documentRequisites:
+          dto.documentRequisites == null
+            ? Prisma.JsonNull
+            : (dto.documentRequisites as Prisma.InputJsonValue),
+      }),
     };
 
     if (dto.credentials !== undefined) {

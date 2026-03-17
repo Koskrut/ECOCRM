@@ -3,12 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
 import { OrderPaymentStatus, OrderSource, OrderStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { WarehousesService } from "../warehouses/warehouses.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
@@ -27,9 +30,13 @@ const ORDER_INCLUDE = {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly warehousesService: WarehousesService,
+    private readonly settings: SettingsService,
+    private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
@@ -544,6 +551,16 @@ export class OrdersService {
       include: ORDER_INCLUDE,
     });
 
+    if (toStatus === OrderStatus.READY_TO_SHIP) {
+      this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
+        if (sendOnReadyToShip) {
+          this.googleSheetSendOrder.sendOrderToSheet(id).catch((err) => {
+            if (err instanceof Error) this.logger.error(`Send to sheet failed: ${err.message}`);
+          });
+        }
+      });
+    }
+
     return this.mapToEntity(updated);
   }
 
@@ -660,6 +677,11 @@ export class OrdersService {
       documentsRequested: o.documentsRequested ?? null,
       paymentType: o.paymentType ?? null,
       deliveryData: o.deliveryData ?? null,
+      invoiceNumber: o.invoiceNumber ?? null,
+      invoiceDate: o.invoiceDate ?? null,
+      waybillNumber: o.waybillNumber ?? null,
+      waybillDate: o.waybillDate ?? null,
+      exchangeRate: o.exchangeRate ?? null,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
       company: o.company ?? null,

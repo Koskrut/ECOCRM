@@ -4,6 +4,7 @@ import { Roles } from "../auth/roles.decorator";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
+  GoogleSheetConfig,
   MetaLeadAdsConfig,
   StoreConfig,
   TelegramConfig,
@@ -54,6 +55,18 @@ export class SettingsController {
   @Get("google-maps/public")
   getGoogleMapsPublicConfig() {
     return this.settings.getGoogleMapsPublicConfig();
+  }
+
+  @Get("google-sheet")
+  @Roles(UserRole.ADMIN)
+  getGoogleSheetConfig() {
+    return this.settings.getGoogleSheetConfig();
+  }
+
+  @Patch("google-sheet")
+  @Roles(UserRole.ADMIN)
+  setGoogleSheetConfig(@Body() body: Partial<GoogleSheetConfig>) {
+    return this.settings.setGoogleSheetConfig(body);
   }
 
   @Get("telegram")

@@ -28,6 +28,16 @@ export type GoogleMapsConfig = {
 
 const GOOGLE_MAPS_KEY = "google_maps";
 
+export type GoogleSheetConfig = {
+  webhookUrl?: string;
+  webhookSecretOut?: string;
+  webhookSecretIn?: string;
+  /** Відправляти в таблицю при переході в статус READY_TO_SHIP. */
+  sendOnReadyToShip?: boolean;
+};
+
+const GOOGLE_SHEET_KEY = "google_sheet";
+
 export type TelegramConfig = {
   botToken?: string;
   webhookSecret?: string;
@@ -312,6 +322,99 @@ export class SettingsService {
     const v = row.value as Record<string, unknown>;
     const mapsApiKey = typeof v.mapsApiKey === "string" ? v.mapsApiKey : null;
     return { mapsApiKey };
+  }
+
+  async getGoogleSheetConfig(): Promise<
+    GoogleSheetConfig & { webhookSecretOutMasked?: string; webhookSecretInMasked?: string }
+  > {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: GOOGLE_SHEET_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return {
+        webhookSecretOutMasked: "",
+        webhookSecretInMasked: "",
+        sendOnReadyToShip: true,
+      };
+    }
+    const v = row.value as Record<string, unknown>;
+    const webhookUrl = typeof v.webhookUrl === "string" ? v.webhookUrl : undefined;
+    const webhookSecretOut = typeof v.webhookSecretOut === "string" ? v.webhookSecretOut : undefined;
+    const webhookSecretIn = typeof v.webhookSecretIn === "string" ? v.webhookSecretIn : undefined;
+    const sendOnReadyToShip = v.sendOnReadyToShip !== false;
+    return {
+      webhookUrl: webhookUrl || undefined,
+      webhookSecretOutMasked: maskToken(webhookSecretOut),
+      webhookSecretInMasked: maskToken(webhookSecretIn),
+      sendOnReadyToShip,
+    };
+  }
+
+  async setGoogleSheetConfig(
+    config: Partial<GoogleSheetConfig>,
+  ): Promise<GoogleSheetConfig & { webhookSecretOutMasked?: string; webhookSecretInMasked?: string }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: GOOGLE_SHEET_KEY },
+    });
+    const current = (row?.value as Record<string, unknown>) || {};
+    const next: Record<string, unknown> = {
+      webhookUrl:
+        typeof config.webhookUrl === "string"
+          ? config.webhookUrl
+          : (current.webhookUrl as string | undefined),
+      webhookSecretOut:
+        config.webhookSecretOut !== undefined
+          ? (config.webhookSecretOut || undefined)
+          : (current.webhookSecretOut as string | undefined),
+      webhookSecretIn:
+        config.webhookSecretIn !== undefined
+          ? (config.webhookSecretIn || undefined)
+          : (current.webhookSecretIn as string | undefined),
+      sendOnReadyToShip: config.sendOnReadyToShip !== undefined ? config.sendOnReadyToShip : current.sendOnReadyToShip !== false,
+    };
+    if (config.webhookUrl === "") next.webhookUrl = undefined;
+    if (config.webhookSecretOut === "") next.webhookSecretOut = undefined;
+    if (config.webhookSecretIn === "") next.webhookSecretIn = undefined;
+    await this.prisma.systemSetting.upsert({
+      where: { id: GOOGLE_SHEET_KEY },
+      create: { id: GOOGLE_SHEET_KEY, value: next as Prisma.InputJsonValue },
+      update: { value: next as Prisma.InputJsonValue },
+    });
+    const webhookSecretOut = next.webhookSecretOut as string | undefined;
+    const webhookSecretIn = next.webhookSecretIn as string | undefined;
+    return {
+      webhookUrl: next.webhookUrl as string | undefined,
+      webhookSecretOutMasked: maskToken(webhookSecretOut),
+      webhookSecretInMasked: maskToken(webhookSecretIn),
+      sendOnReadyToShip: next.sendOnReadyToShip as boolean,
+    };
+  }
+
+  /** Raw values for internal use (outgoing service, incoming webhook). */
+  async getGoogleSheetSecrets(): Promise<{
+    webhookUrl: string | null;
+    webhookSecretOut: string | null;
+    webhookSecretIn: string | null;
+    sendOnReadyToShip: boolean;
+  }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: GOOGLE_SHEET_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return {
+        webhookUrl: null,
+        webhookSecretOut: null,
+        webhookSecretIn: null,
+        sendOnReadyToShip: true,
+      };
+    }
+    const v = row.value as Record<string, unknown>;
+    return {
+      webhookUrl: typeof v.webhookUrl === "string" ? v.webhookUrl : null,
+      webhookSecretOut: typeof v.webhookSecretOut === "string" ? v.webhookSecretOut : null,
+      webhookSecretIn: typeof v.webhookSecretIn === "string" ? v.webhookSecretIn : null,
+      sendOnReadyToShip: v.sendOnReadyToShip !== false,
+    };
   }
 
   async getTelegramConfig(): Promise<

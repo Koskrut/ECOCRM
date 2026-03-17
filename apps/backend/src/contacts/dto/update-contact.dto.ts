@@ -15,6 +15,8 @@ export type UpdateContactDto = {
   isPrimary?: boolean;
   /** Код 1С. */
   externalCode?: string | null;
+  /** Як виводити на документ (счёт/РН): напр. «ФОП Петров Петр». */
+  documentDisplayName?: string | null;
   region?: string | null;
   addressInfo?: string | null;
   city?: string | null;
@@ -60,6 +62,9 @@ export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationE
   if (payload.externalCode !== undefined && payload.externalCode !== null) {
     validateString(payload.externalCode, "externalCode", errors, { allowEmpty: false });
   }
+  if (payload.documentDisplayName !== undefined && payload.documentDisplayName !== null) {
+    validateString(payload.documentDisplayName, "documentDisplayName", errors);
+  }
 
   if (payload.region !== undefined && payload.region !== null) {
     validateString(payload.region, "region", errors, { allowEmpty: false });
@@ -98,6 +103,7 @@ export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationE
     payload.lng === undefined &&
     payload.googlePlaceId === undefined &&
     payload.isPrimary === undefined &&
+    payload.documentDisplayName === undefined &&
     payload.region === undefined &&
     payload.addressInfo === undefined &&
     payload.city === undefined &&

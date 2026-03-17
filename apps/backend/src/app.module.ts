@@ -22,6 +22,7 @@ import { TelegramModule } from "./integrations/telegram/telegram.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
+import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
 
@@ -47,6 +48,7 @@ import { WarehousesModule } from "./warehouses/warehouses.module";
     RingostatModule,
     BitrixSyncModule,
     BitrixWebhookModule,
+    GoogleSheetModule,
     StoreModule,
     WarehousesModule,
   ],

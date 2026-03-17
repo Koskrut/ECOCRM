@@ -61,6 +61,16 @@ export default function SettingsHomePage() {
           </Link>
 
           <Link
+            href="/settings/google-sheet"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Google-таблиця (1С)</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С
+            </div>
+          </Link>
+
+          <Link
             href="/settings/ringostat"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
