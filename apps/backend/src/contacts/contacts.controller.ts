@@ -52,6 +52,7 @@ export class ContactsController {
         addressInfo: body.addressInfo !== undefined ? (body.addressInfo != null ? String(body.addressInfo) : null) : undefined,
         city: body.city !== undefined ? (body.city != null ? String(body.city) : null) : undefined,
         clientType: body.clientType !== undefined ? (body.clientType != null ? String(body.clientType) : null) : undefined,
+        status: body.status !== undefined ? (body.status != null ? String(body.status) : null) : undefined,
       },
       req.user,
     );
@@ -68,6 +69,7 @@ export class ContactsController {
     @Query("region") region?: string,
     @Query("city") city?: string,
     @Query("clientType") clientType?: string,
+    @Query("status") status?: string,
     @Query("q") q?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
@@ -81,6 +83,7 @@ export class ContactsController {
         region: region?.trim() || undefined,
         city: city?.trim() || undefined,
         clientType: clientType?.trim() || undefined,
+        status: status?.trim() || undefined,
         q,
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,
@@ -223,6 +226,7 @@ export class ContactsController {
         addressInfo: body.addressInfo !== undefined ? (body.addressInfo != null ? String(body.addressInfo) : null) : undefined,
         city: body.city !== undefined ? (body.city != null ? String(body.city) : null) : undefined,
         clientType: body.clientType !== undefined ? (body.clientType != null ? String(body.clientType) : null) : undefined,
+        status: body.status !== undefined ? (body.status != null ? String(body.status) : null) : undefined,
       },
       req.user,
     );

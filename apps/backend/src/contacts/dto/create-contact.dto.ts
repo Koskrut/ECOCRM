@@ -19,6 +19,7 @@ export type CreateContactDto = {
   addressInfo?: string | null;
   city?: string | null;
   clientType?: string | null;
+  status?: string | null;
 };
 
 export const validateCreateContactDto = (payload: CreateContactDto): ValidationError[] => {
@@ -65,6 +66,9 @@ export const validateCreateContactDto = (payload: CreateContactDto): ValidationE
   }
   if (payload.clientType !== undefined && payload.clientType !== null) {
     validateString(payload.clientType, "clientType", errors);
+  }
+  if (payload.status !== undefined && payload.status !== null) {
+    validateString(payload.status, "status", errors);
   }
 
   if (payload.lat !== undefined && payload.lat !== null && !Number.isFinite(payload.lat)) {

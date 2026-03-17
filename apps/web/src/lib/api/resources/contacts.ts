@@ -21,6 +21,8 @@ export type Contact = {
   telegramConversationId?: string | null;
   hasCallToday?: boolean;
   hasMissedCall?: boolean;
+  /** Статус клієнта (з Bitrix UF_CRM_1755068668186). */
+  status?: string | null;
 };
 
 export type ContactsResponse = {
@@ -41,6 +43,7 @@ export type ContactsListParams = {
   region?: string;
   city?: string;
   clientType?: string;
+  status?: string;
 };
 
 export const contactsApi = {
@@ -56,6 +59,7 @@ export const contactsApi = {
     if (params?.region?.trim()) searchParams.set("region", params.region.trim());
     if (params?.city?.trim()) searchParams.set("city", params.city.trim());
     if (params?.clientType?.trim()) searchParams.set("clientType", params.clientType.trim());
+    if (params?.status?.trim()) searchParams.set("status", params.status.trim());
     const qs = searchParams.toString();
     const res = await apiHttp.get<ContactsResponse>(`/contacts${qs ? `?${qs}` : ""}`);
     return res.data;

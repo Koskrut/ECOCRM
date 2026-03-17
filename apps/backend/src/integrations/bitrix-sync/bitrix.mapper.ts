@@ -36,6 +36,17 @@ const BITRIX_CLIENT_TYPE_ENUM_ID_TO_NAME: Record<number, string> = {
   164: "Адмін",
 };
 
+/** Bitrix UF_CRM_1755068668186 (статус клієнта) enum ID → назва. */
+const BITRIX_STATUS_ENUM_ID_TO_NAME: Record<number, string> = {
+  117: "Клієнт",
+  118: "Тимчасово не працює",
+  119: "Видалити",
+  120: "Зацікавленний",
+  121: "Відмова",
+  122: "Немає зв'язку",
+  123: "Не працює з імплантами",
+};
+
 /** Resolve Bitrix enum value (number or string "123") to label via map; else return trimmed string or null. */
 function resolveBitrixEnum(
   value: unknown,
@@ -149,6 +160,7 @@ export function mapBitrixContactToPrisma(
   addressInfo: string | null;
   city: string | null;
   clientType: string | null;
+  status: string | null;
   ownerId: string | null;
   companyId: string | null;
   legacySource: string;
@@ -201,6 +213,10 @@ export function mapBitrixContactToPrisma(
     row["UF_CRM_1756361960817"],
     BITRIX_CLIENT_TYPE_ENUM_ID_TO_NAME,
   );
+  const status = resolveBitrixEnum(
+    row["UF_CRM_1755068668186"],
+    BITRIX_STATUS_ENUM_ID_TO_NAME,
+  );
 
   const phoneCanonical = primaryPhone ? (normalizePhoneToE164(primaryPhone) ?? primaryPhone) : "—";
   const phoneNorm = primaryPhone
@@ -220,6 +236,7 @@ export function mapBitrixContactToPrisma(
     addressInfo,
     city,
     clientType,
+    status,
     ownerId: null,
     companyId: null,
     legacySource: "bitrix",

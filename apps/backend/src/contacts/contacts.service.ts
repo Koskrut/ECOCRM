@@ -95,6 +95,7 @@ export class ContactsService {
       addressInfo?: string | null;
       city?: string | null;
       clientType?: string | null;
+      status?: string | null;
     },
     actor?: AuthUser,
   ) {
@@ -135,6 +136,7 @@ export class ContactsService {
         addressInfo: data.addressInfo ?? null,
         city: data.city ?? null,
         clientType: data.clientType ?? null,
+        status: data.status ?? null,
       },
       include: { company: true, owner: true },
     });
@@ -154,6 +156,7 @@ export class ContactsService {
       region?: string;
       city?: string;
       clientType?: string;
+      status?: string;
       q?: string;
     },
     actor?: AuthUser,
@@ -205,6 +208,9 @@ export class ContactsService {
         : {}),
       ...(params.clientType
         ? { clientType: { contains: params.clientType, mode: "insensitive" } }
+        : {}),
+      ...(params.status
+        ? { status: { contains: params.status, mode: "insensitive" } }
         : {}),
       ...(andParts.length > 0 ? { AND: andParts } : {}),
     };
@@ -479,6 +485,7 @@ export class ContactsService {
       addressInfo: string | null;
       city: string | null;
       clientType: string | null;
+      status: string | null;
     }>,
     actor?: AuthUser,
   ) {
@@ -793,6 +800,7 @@ export class ContactsService {
       addressInfo: contact.addressInfo ?? null,
       city: contact.city ?? null,
       clientType: contact.clientType ?? null,
+      status: contact.status ?? null,
       company: contact.company
         ? {
             id: contact.company.id,

@@ -23,6 +23,8 @@ export type Contact = {
   addressInfo?: string | null;
   city?: string | null;
   clientType?: string | null;
+  /** Статус клієнта (Bitrix UF_CRM_1755068668186). */
+  status?: string | null;
   createdAt: string;
   updatedAt: string;
   recipients?: {

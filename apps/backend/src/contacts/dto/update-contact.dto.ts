@@ -21,6 +21,7 @@ export type UpdateContactDto = {
   addressInfo?: string | null;
   city?: string | null;
   clientType?: string | null;
+  status?: string | null;
 };
 
 export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationError[] => {
@@ -78,6 +79,9 @@ export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationE
   if (payload.clientType !== undefined && payload.clientType !== null) {
     validateString(payload.clientType, "clientType", errors, { allowEmpty: false });
   }
+  if (payload.status !== undefined && payload.status !== null) {
+    validateString(payload.status, "status", errors, { allowEmpty: false });
+  }
 
   if (payload.lat !== undefined && payload.lat !== null && !Number.isFinite(payload.lat)) {
     errors.push({ field: "lat", message: "must be a number" });
@@ -107,7 +111,8 @@ export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationE
     payload.region === undefined &&
     payload.addressInfo === undefined &&
     payload.city === undefined &&
-    payload.clientType === undefined
+    payload.clientType === undefined &&
+    payload.status === undefined
   ) {
     errors.push({ field: "payload", message: "at least one field is required" });
   }

@@ -633,6 +633,7 @@ type Contact = {
   addressInfo?: string | null;
   city?: string | null;
   clientType?: string | null;
+  status?: string | null;
   isPrimary: boolean;
   createdAt: string;
   updatedAt: string;
@@ -692,6 +693,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const [addressInfo, setAddressInfo] = useState("");
   const [city, setCity] = useState("");
   const [clientType, setClientType] = useState("");
+  const [status, setStatus] = useState("");
 
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -798,6 +800,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setAddressInfo((data.addressInfo ?? "") as string);
       setCity((data.city ?? "") as string);
       setClientType((data.clientType ?? "") as string);
+      setStatus((data.status ?? "") as string);
       await Promise.all([fetchCompanies(), fetchUsers()]);
     } catch (e) {
       const msg =
@@ -846,6 +849,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setAddressInfo("");
       setCity("");
       setClientType("");
+      setStatus("");
       void Promise.all([fetchCompanies(), fetchUsers()]);
       return;
     }
@@ -871,6 +875,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       addressInfo: string | null;
       city: string | null;
       clientType: string | null;
+      status: string | null;
     }>) => {
       const res = await apiHttp.patch<Contact>(`/contacts/${contactId}`, payload);
       const data = res.data as Contact;
@@ -885,6 +890,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       if (payload.addressInfo !== undefined) setAddressInfo(payload.addressInfo ?? "");
       if (payload.city !== undefined) setCity(payload.city ?? "");
       if (payload.clientType !== undefined) setClientType(payload.clientType ?? "");
+      if (payload.status !== undefined) setStatus(payload.status ?? "");
       if (payload.lat !== undefined) setLat(payload.lat ?? null);
       if (payload.lng !== undefined) setLng(payload.lng ?? null);
       if (payload.googlePlaceId !== undefined) setGooglePlaceId(payload.googlePlaceId ?? null);
@@ -1097,6 +1103,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         addressInfo: addressInfo.trim() || null,
         city: city.trim() || null,
         clientType: clientType.trim() || null,
+        status: status.trim() || null,
         address: address.trim() || null,
         lat,
         lng,
@@ -1309,6 +1316,22 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             <option value="">—</option>
             <option value="Врач">Врач</option>
             <option value="Техник">Техник</option>
+          </select>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">Статус</label>
+          <select
+            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            disabled={saving}
+          >
+            <option value="">—</option>
+            <option value="Клієнт">Клієнт</option>
+            <option value="Зацікавленний">Зацікавленний</option>
+            <option value="Тимчасово не працює">Тимчасово не працює</option>
+            <option value="Відмова">Відмова</option>
+            <option value="Немає зв'язку">Немає зв'язку</option>
+            <option value="Видалити">Видалити</option>
+            <option value="Не працює з імплантами">Не працює з імплантами</option>
           </select>
           <label className="mt-3 block text-sm font-medium text-zinc-700">Address</label>
           {addressRequiredForVisit ? (
@@ -1628,6 +1651,25 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onSave={async (next) => patchContact({ clientType: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
+        <InlineEditableField
+          label="Статус"
+          value={contact.status ?? ""}
+          placeholder="—"
+          kind="select"
+          options={[
+            { value: "", label: "—" },
+            { value: "Клієнт", label: "Клієнт" },
+            { value: "Зацікавленний", label: "Зацікавленний" },
+            { value: "Тимчасово не працює", label: "Тимчасово не працює" },
+            { value: "Відмова", label: "Відмова" },
+            { value: "Немає зв'язку", label: "Немає зв'язку" },
+            { value: "Видалити", label: "Видалити" },
+            { value: "Не працює з імплантами", label: "Не працює з імплантами" },
+          ]}
+          disabled={saving}
+          onSave={async (next) => patchContact({ status: next?.trim() || null })}
+          onRegisterCancel={registerCancel}
+        />
         <div className="space-y-1 py-1">
           <label className="text-sm text-zinc-500">Address</label>
           {addressRequiredForVisit ? (
@@ -1815,6 +1857,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     addressInfo,
     externalCode,
     clientType,
+    status,
     ownerId,
     userOptions,
     loadingUsers,
