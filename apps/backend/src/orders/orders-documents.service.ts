@@ -18,6 +18,7 @@ const ORDER_DOCUMENTS_INCLUDE = {
     select: {
       id: true,
       name: true,
+      iban: true,
       documentRequisites: true,
     },
   },
@@ -33,6 +34,14 @@ export type DocumentRequisites = {
   taxId?: string;
   address?: string;
   bankDetails?: string;
+  /** Р/р для блоку "П/р UA..., Банк Приват, МФО ..." */
+  iban?: string;
+  /** МФО банку (напр. 305299) */
+  mfo?: string;
+  /** Код ЄДРПОУ */
+  edrpou?: string;
+  /** Напр. "Платник єдиного податку" */
+  taxPayerStatus?: string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,8 +70,40 @@ export class OrdersDocumentsService {
     return parts.join(" ") || "—";
   }
 
-  private sellerLines(requisites: DocumentRequisites | null): string[] {
+  /**
+   * Формат для рахунку та РН (приклад):
+   * П/р UA643052990000026009016240911, Банк Приват, МФО 305299
+   * Юр. адреса: 49069, Дніпропетровська обл., ...
+   * код за ЄДРПОУ 3531102191 , ІПН 3531102191
+   * Платник єдиного податку
+   */
+  private sellerLines(
+    requisites: DocumentRequisites | null,
+    bankAccountIban?: string | null,
+  ): string[] {
     if (!requisites) return ["—"];
+    const iban = requisites.iban?.replace(/\s/g, "") || bankAccountIban?.replace(/\s/g, "") || "";
+    const mfo = requisites.mfo?.trim() || "305299";
+    const hasNewFormat = iban || requisites.address || requisites.edrpou != null;
+    if (hasNewFormat) {
+      const lines: string[] = [];
+      if (iban) {
+        lines.push(`П/р ${iban}, Банк Приват, МФО ${mfo}`);
+      }
+      if (requisites.address?.trim()) {
+        lines.push(`Юр. адреса: ${requisites.address.trim()}`);
+      }
+      const edrpou = requisites.edrpou?.trim();
+      const taxId = requisites.taxId?.trim();
+      if (edrpou || taxId) {
+        lines.push(
+          [edrpou ? `код за ЄДРПОУ ${edrpou}` : "", taxId ? `ІПН ${taxId}` : ""].filter(Boolean).join(" , "),
+        );
+      }
+      const status = requisites.taxPayerStatus?.trim() || "Платник єдиного податку";
+      if (status) lines.push(status);
+      if (lines.length) return lines;
+    }
     const lines: string[] = [];
     if (requisites.legalName) lines.push(requisites.legalName);
     if (requisites.taxId) lines.push(`ІПН: ${requisites.taxId}`);
@@ -116,7 +157,7 @@ export class OrdersDocumentsService {
     order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
   ) {
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
-    const seller = this.sellerLines(requisites);
+    const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
     const buyer = this.buyerName(order.contact);
 
     doc.fontSize(14).text("Рахунок", { align: "center" }).moveDown(0.5);
@@ -185,7 +226,7 @@ export class OrdersDocumentsService {
     order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
   ) {
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
-    const seller = this.sellerLines(requisites);
+    const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
     const buyer = this.buyerName(order.contact);
 
     doc.fontSize(14).text("Расходная накладная (РН)", { align: "center" }).moveDown(0.5);

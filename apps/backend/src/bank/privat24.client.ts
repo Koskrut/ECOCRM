@@ -24,6 +24,21 @@ export type Privat24StatementResult = {
   nextCursor?: string;
 };
 
+/** One balance item from GET /api/statements/balance (nameACC = найменування рахунку для реквізитів). */
+export type Privat24BalanceItem = {
+  acc: string;
+  currency?: string;
+  nameACC?: string;
+  balanceIn?: string;
+  balanceOut?: string;
+  brnm?: string;
+};
+
+export type Privat24BalancesResult = {
+  balances: Privat24BalanceItem[];
+  next_page_id?: string;
+};
+
 /** Official Autoclient API: https://acp.privatbank.ua (docs: Опис API Автоклієнта 3.0) */
 const DEFAULT_BASE_URL = "https://acp.privatbank.ua";
 const TIMEOUT_MS = 30_000;
@@ -241,6 +256,88 @@ export class Privat24Client {
       });
 
       return { transactions, nextCursor };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Fetch balances for all accounts (or pass acc to filter). Used to get nameACC for requisites.
+   * GET /api/statements/balance?startDate=DD-MM-YYYY&endDate=DD-MM-YYYY&followId=...&limit=...
+   */
+  async getBalances(
+    credentials: Privat24Credentials,
+    from: Date,
+    to: Date,
+    cursor?: string,
+  ): Promise<Privat24BalancesResult> {
+    const startDate = formatDateDDMMYYYY(from);
+    const endDate = formatDateDDMMYYYY(to);
+    const rawId = credentials.id ?? credentials.clientId;
+    const providedId = rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    const buildRequest = (withIdHeader: boolean) => {
+      const params = new URLSearchParams();
+      params.set("startDate", startDate);
+      params.set("endDate", endDate);
+      params.set("limit", String(Privat24Client.LIMIT));
+      if (cursor) params.set("followId", cursor);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json;charset=utf-8",
+        "User-Agent": "ECOCRM",
+        token: credentials.token,
+      };
+      if (withIdHeader && providedId) headers.id = providedId;
+      return { params, headers };
+    };
+
+    try {
+      let withId = !!providedId;
+      let { params, headers } = buildRequest(withId);
+      let res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+      let text = await res.text();
+
+      if (!res.ok && res.status === 400 && /id in mode for companies should not be present/i.test(text) && withId) {
+        withId = false;
+        ({ params, headers } = buildRequest(false));
+        res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        });
+        text = await res.text();
+      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !withId && providedId) {
+        withId = true;
+        ({ params, headers } = buildRequest(true));
+        res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        });
+        text = await res.text();
+      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !providedId) {
+        throw new Error("Приват24 працює в режимі групи ПП. Вкажіть ID для цього ФОП у налаштуваннях рахунку.");
+      }
+
+      if (!res.ok) {
+        throw new Error(`Privat24 API HTTP ${res.status}. ${text.slice(0, 500)}`);
+      }
+
+      const data = JSON.parse(text || "{}") as Record<string, unknown>;
+      if ((data.status as string) === "ERROR") {
+        throw new Error((data.message as string) || (data.code as string) || "Privat24 API error");
+      }
+
+      const list = (data.balances as Privat24BalanceItem[]) ?? [];
+      const next_page_id =
+        data.exist_next_page && data.next_page_id != null ? String(data.next_page_id) : undefined;
+      return { balances: list, next_page_id };
     } finally {
       clearTimeout(timeout);
     }

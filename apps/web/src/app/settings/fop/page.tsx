@@ -47,11 +47,20 @@ export default function FopSettingsPage() {
   const [editName, setEditName] = useState("");
   const [editIban, setEditIban] = useState("");
   const [editExternalCode, setEditExternalCode] = useState("");
-  const [editDocumentRequisites, setEditDocumentRequisites] = useState("");
+  const [editReqLegalName, setEditReqLegalName] = useState("");
+  const [editReqBankDetails, setEditReqBankDetails] = useState("");
+  const [editReqIban, setEditReqIban] = useState("");
+  const [editReqMfo, setEditReqMfo] = useState("");
+  const [editReqAddress, setEditReqAddress] = useState("");
+  const [editReqEdrpou, setEditReqEdrpou] = useState("");
+  const [editReqTaxId, setEditReqTaxId] = useState("");
+  const [editReqTaxPayerStatus, setEditReqTaxPayerStatus] = useState("");
   const [editClientIdVal, setEditClientIdVal] = useState("");
   const [editGroupIdVal, setEditGroupIdVal] = useState("");
   const [editToken, setEditToken] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [loadingRequisites, setLoadingRequisites] = useState(false);
+  const [editAccountHasToken, setEditAccountHasToken] = useState(false);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -114,13 +123,57 @@ export default function FopSettingsPage() {
     setEditName(acc.name);
     setEditIban(acc.iban ?? "");
     setEditExternalCode(acc.externalCode ?? "");
-    setEditDocumentRequisites(
-      acc.documentRequisites != null ? JSON.stringify(acc.documentRequisites, null, 2) : "",
-    );
+    const req = (acc.documentRequisites ?? {}) as Record<string, unknown>;
+    setEditReqLegalName(String(req.legalName ?? ""));
+    setEditReqBankDetails(String(req.bankDetails ?? ""));
+    setEditReqIban(String(req.iban ?? ""));
+    setEditReqMfo(String(req.mfo ?? ""));
+    setEditReqAddress(String(req.address ?? ""));
+    setEditReqEdrpou(String(req.edrpou ?? ""));
+    setEditReqTaxId(String(req.taxId ?? ""));
+    setEditReqTaxPayerStatus(String(req.taxPayerStatus ?? ""));
     setEditClientIdVal("");
     setEditGroupIdVal("");
     setEditToken("");
+    setEditAccountHasToken(!!acc.credentialsMasked?.tokenMasked);
     setError(null);
+  }
+
+  async function fetchRequisitesFromBank() {
+    if (!editId) return;
+    setLoadingRequisites(true);
+    setError(null);
+    try {
+      const hasTokenInForm = editToken.trim() !== "";
+      const payload = hasTokenInForm
+        ? {
+            token: editToken.trim(),
+            clientId: editClientIdVal.trim() || undefined,
+            id: editGroupIdVal.trim() || undefined,
+          }
+        : undefined;
+      const res = await (payload
+        ? apiHttp.post<{ legalName?: string; taxId?: string; address?: string; bankDetails?: string; iban?: string; mfo?: string }>(
+            `/bank/accounts/${editId}/requisites-from-bank`,
+            payload,
+          )
+        : apiHttp.get<{ legalName?: string; taxId?: string; address?: string; bankDetails?: string; iban?: string; mfo?: string }>(
+            `/bank/accounts/${editId}/requisites-from-bank`,
+          ));
+      const data = res.data || {};
+      setEditReqLegalName(data.legalName ?? "");
+      setEditReqBankDetails(data.bankDetails ?? "");
+      setEditReqIban(data.iban ?? "");
+      setEditReqMfo(data.mfo ?? "");
+      if (data.address != null) setEditReqAddress(data.address);
+      if (data.taxId != null) setEditReqTaxId(data.taxId);
+      if (data.edrpou != null) setEditReqEdrpou(data.edrpou);
+      if (data.taxPayerStatus != null) setEditReqTaxPayerStatus(data.taxPayerStatus);
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Не вдалося завантажити реквізити з Приват24"));
+    } finally {
+      setLoadingRequisites(false);
+    }
   }
 
   async function submitEdit() {
@@ -139,18 +192,16 @@ export default function FopSettingsPage() {
         iban: editIban.trim() || undefined,
         externalCode: editExternalCode.trim() || null,
       };
-      const drTrim = editDocumentRequisites.trim();
-      if (drTrim) {
-        try {
-          body.documentRequisites = JSON.parse(drTrim) as Record<string, unknown>;
-        } catch {
-          setError("documentRequisites must be valid JSON");
-          setEditSubmitting(false);
-          return;
-        }
-      } else {
-        body.documentRequisites = null;
-      }
+      const req: Record<string, string> = {};
+      if (editReqLegalName.trim()) req.legalName = editReqLegalName.trim();
+      if (editReqBankDetails.trim()) req.bankDetails = editReqBankDetails.trim();
+      if (editReqIban.trim()) req.iban = editReqIban.trim();
+      if (editReqMfo.trim()) req.mfo = editReqMfo.trim();
+      if (editReqAddress.trim()) req.address = editReqAddress.trim();
+      if (editReqEdrpou.trim()) req.edrpou = editReqEdrpou.trim();
+      if (editReqTaxId.trim()) req.taxId = editReqTaxId.trim();
+      if (editReqTaxPayerStatus.trim()) req.taxPayerStatus = editReqTaxPayerStatus.trim();
+      body.documentRequisites = Object.keys(req).length ? (req as Record<string, unknown>) : null;
       if (editClientIdVal !== "" || editGroupIdVal !== "" || editToken !== "") {
         body.credentials = {};
         if (editClientIdVal !== "") body.credentials.clientId = editClientIdVal.trim() || undefined;
@@ -396,12 +447,15 @@ export default function FopSettingsPage() {
 
         {editId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-              <h3 className="text-lg font-semibold text-zinc-900">Редактировать ФОП</h3>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Залиште App ID, Group client ID і TOKEN порожніми, щоб не змінювати поточні значення.
-              </p>
-              <div className="mt-4 space-y-3">
+            <div className="flex max-h-[90vh] w-full max-w-md flex-col rounded-xl border border-zinc-200 bg-white shadow-lg">
+              <div className="flex-none p-6 pb-0">
+                <h3 className="text-lg font-semibold text-zinc-900">Редактировать ФОП</h3>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Залиште App ID, Group client ID і TOKEN порожніми, щоб не змінювати поточні значення.
+                </p>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto p-6 pt-4">
+                <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">Название</label>
                   <input
@@ -431,18 +485,105 @@ export default function FopSettingsPage() {
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Реквизити для документів (JSON)</label>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    legalName, taxId, address, bankDetails тощо для счёта/РН.
-                  </p>
-                  <textarea
-                    value={editDocumentRequisites}
-                    onChange={(e) => setEditDocumentRequisites(e.target.value)}
-                    placeholder='{"legalName": "...", "taxId": "...", "address": "..."}'
-                    rows={4}
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-mono text-zinc-900 placeholder:text-zinc-400"
-                  />
+                <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-zinc-600">Реквизити для документів (рахунок/РН)</span>
+                    <button
+                      type="button"
+                      onClick={() => void fetchRequisitesFromBank()}
+                      disabled={loadingRequisites || (!editAccountHasToken && !editToken.trim())}
+                      className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {loadingRequisites ? "Завантаження…" : "Заповнити з Приват24"}
+                    </button>
+                  </div>
+                  {!editAccountHasToken && !editToken.trim() && (
+                    <p className="text-xs text-amber-600">
+                      Введіть TOKEN (та за потреби App ID / Group client ID) нижче і натисніть кнопку, або збережіть їх і натисніть «Сохранить».
+                    </p>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-zinc-500">Назва (legalName)</label>
+                      <input
+                        type="text"
+                        value={editReqLegalName}
+                        onChange={(e) => setEditReqLegalName(e.target.value)}
+                        placeholder="Фонова О. О. ФОП"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500">Р/р (IBAN)</label>
+                      <input
+                        type="text"
+                        value={editReqIban}
+                        onChange={(e) => setEditReqIban(e.target.value)}
+                        placeholder="UA153052990000026007050597127"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500">МФО</label>
+                      <input
+                        type="text"
+                        value={editReqMfo}
+                        onChange={(e) => setEditReqMfo(e.target.value)}
+                        placeholder="305299"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-zinc-500">Банк (bankDetails)</label>
+                      <input
+                        type="text"
+                        value={editReqBankDetails}
+                        onChange={(e) => setEditReqBankDetails(e.target.value)}
+                        placeholder='АТ КБ "ПРИВАТБАНК"'
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-zinc-500">Юр. адреса</label>
+                      <input
+                        type="text"
+                        value={editReqAddress}
+                        onChange={(e) => setEditReqAddress(e.target.value)}
+                        placeholder="49069, Дніпропетровська обл., місто Дніпро, ..."
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500">ЄДРПОУ</label>
+                      <input
+                        type="text"
+                        value={editReqEdrpou}
+                        onChange={(e) => setEditReqEdrpou(e.target.value)}
+                        placeholder="3531102191"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500">ІПН (taxId)</label>
+                      <input
+                        type="text"
+                        value={editReqTaxId}
+                        onChange={(e) => setEditReqTaxId(e.target.value)}
+                        placeholder="3531102191"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-zinc-500">Статус платника (taxPayerStatus)</label>
+                      <input
+                        type="text"
+                        value={editReqTaxPayerStatus}
+                        onChange={(e) => setEditReqTaxPayerStatus(e.target.value)}
+                        placeholder="Платник єдиного податку"
+                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">App ID</label>
@@ -474,8 +615,9 @@ export default function FopSettingsPage() {
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </div>
+                </div>
               </div>
-              <div className="mt-5 flex justify-end gap-2">
+              <div className="flex-none border-t border-zinc-100 p-6 pt-4 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditId(null)}

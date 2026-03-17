@@ -44,6 +44,20 @@ export class BankAccountsController {
     return this.service.listForOrder();
   }
 
+  /** Fetch requisites (legalName, bankDetails) from Privat24 by account IBAN. GET = use saved credentials; POST body { token?, clientId?, id? } = use these instead (e.g. from form before save). */
+  @Get(":id/requisites-from-bank")
+  getRequisitesFromBank(@Param("id") id: string) {
+    return this.service.getRequisitesFromBank(id, undefined);
+  }
+
+  @Post(":id/requisites-from-bank")
+  getRequisitesFromBankPost(
+    @Param("id") id: string,
+    @Body() body: { token?: string; clientId?: string; id?: string },
+  ) {
+    return this.service.getRequisitesFromBank(id, body);
+  }
+
   @Get(":id")
   get(@Param("id") id: string) {
     return this.service.getById(id);
