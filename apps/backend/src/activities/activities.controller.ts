@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import type { ActivityType } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
@@ -9,6 +9,12 @@ type CreateBody = {
   title?: string;
   body: string;
   occurredAt?: string;
+};
+
+type UpdateActivityBody = {
+  body?: string;
+  title?: string;
+  pinnedAt?: string | null;
 };
 
 @Controller()
@@ -85,5 +91,24 @@ export class ActivitiesController {
     if (!req.user) throw new BadRequestException("User not found in request");
     const item = await this.activitiesService.createForCompany(id, body, req.user);
     return { item };
+  }
+
+  // -------- ACTIVITY BY ID (update / delete) --------
+  @Patch("/activities/:id")
+  async updateOne(
+    @Param("id") id: string,
+    @Body() body: UpdateActivityBody,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) throw new BadRequestException("User not found in request");
+    const item = await this.activitiesService.updateOne(id, body, req.user);
+    return { item };
+  }
+
+  @Delete("/activities/:id")
+  async deleteOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    if (!req.user) throw new BadRequestException("User not found in request");
+    await this.activitiesService.deleteOne(id, req.user);
+    return { ok: true };
   }
 }

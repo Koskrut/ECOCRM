@@ -1,5 +1,7 @@
 "use client";
 
+import { Pencil, Phone, Trash2 } from "lucide-react";
+
 type CallMeta = {
   direction?: string;
   status?: string;
@@ -20,6 +22,7 @@ export type CallTimelineItem = {
   createdAt: string;
   createdBy: string;
   createdByName?: string;
+  pinnedAt?: string | null;
   call?: CallMeta;
 };
 
@@ -28,6 +31,15 @@ type Props = {
   /** When set, body is expandable/collapsible like in ContactTimeline COMMENT/MEETING cards */
   isExpanded?: boolean;
   onToggle?: () => void;
+  /** When set, show Edit button and call on edit click */
+  onEdit?: () => void;
+  /** When set, show Delete button and call on delete click */
+  onDelete?: () => void;
+  /** When true, show "Видалити? Так / Ні" confirm */
+  showDeleteConfirm?: boolean;
+  onConfirmDelete?: () => void;
+  onCancelDelete?: () => void;
+  actionLoading?: boolean;
 };
 
 function formatDuration(sec?: number): string | null {
@@ -65,7 +77,17 @@ function recordingLabel(status?: string): string {
   return s;
 }
 
-export function CallCard({ item, isExpanded = false, onToggle }: Props) {
+export function CallCard({
+  item,
+  isExpanded = false,
+  onToggle,
+  onEdit,
+  onDelete,
+  showDeleteConfirm = false,
+  onConfirmDelete,
+  onCancelDelete,
+  actionLoading = false,
+}: Props) {
   const call = item.call ?? {};
   const dir = directionLabel(call.direction);
   const st = statusLabel(call.status);
@@ -80,11 +102,18 @@ export function CallCard({ item, isExpanded = false, onToggle }: Props) {
     fromLabel && (!toLabel || fromLabel === toLabel);
 
   const hasBody = item.body.trim().length > 0;
-  const canExpand = hasBody && onToggle;
+  const canExpand = hasBody && onToggle && !showDeleteConfirm;
+  const hasActions = onEdit != null || onDelete != null;
+
+  const hasRecording =
+    !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
 
   return (
-    <div className="rounded-md border border-zinc-200 p-3 bg-zinc-50">
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
+        <div className="flex shrink-0 items-center pt-0.5">
+          <Phone className="h-5 w-5 text-emerald-600" aria-hidden />
+        </div>
         <div
           className={
             canExpand
@@ -136,9 +165,40 @@ export function CallCard({ item, isExpanded = false, onToggle }: Props) {
                 {durationText}
               </span>
             )}
-            {hasBody && onToggle && (
+            {hasRecording && (
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
+                С записью
+              </span>
+            )}
+            {hasBody && onToggle && !showDeleteConfirm && (
               <span className="text-xs text-zinc-500">
                 {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+              </span>
+            )}
+            {hasActions && !showDeleteConfirm && (
+              <span className="ml-auto flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {onEdit && (
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={onEdit}
+                    className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+                    title="Редагувати"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={onDelete}
+                    className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
+                    title="Видалити"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </span>
             )}
           </div>
@@ -157,17 +217,46 @@ export function CallCard({ item, isExpanded = false, onToggle }: Props) {
             </div>
           )}
 
-          {hasBody && isExpanded && (
-            <div className="mt-2 rounded bg-zinc-50 p-2 whitespace-pre-wrap text-sm text-zinc-700 border border-zinc-100">
-              {item.body}
+          {hasBody && !showDeleteConfirm && (
+            <div
+              className={`overflow-hidden transition-all duration-200 ease-out ${
+                isExpanded ? "mt-2 opacity-100" : "max-h-0 mt-0 opacity-0"
+              }`}
+            >
+              <div className="rounded bg-zinc-50 p-2 whitespace-pre-wrap text-sm text-zinc-700 border border-zinc-100">
+                {item.body}
+              </div>
             </div>
           )}
 
+          {showDeleteConfirm && (
+            <div className="mt-2 flex items-center gap-2 text-sm" onClick={(e) => e.stopPropagation()}>
+              <span className="text-zinc-600">Видалити?</span>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onConfirmDelete}
+                className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                Так
+              </button>
+              <button
+                type="button"
+                onClick={onCancelDelete}
+                className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Ні
+              </button>
+            </div>
+          )}
+
+          {!showDeleteConfirm && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span>{occurredAt}</span>
             <span>·</span>
             <span>by {item.createdByName ?? item.createdBy}</span>
           </div>
+          )}
         </div>
 
         <div className="flex w-40 flex-col items-end gap-2">

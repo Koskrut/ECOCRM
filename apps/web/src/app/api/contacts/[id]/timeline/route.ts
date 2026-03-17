@@ -9,6 +9,7 @@ type ActivityItem = {
   body: string;
   occurredAt?: string;
   createdAt?: string;
+  pinnedAt?: string | null;
   createdBy?: string;
   createdByName?: string;
   call?: {
@@ -33,6 +34,7 @@ type TimelineItem = {
   body: string;
   occurredAt: string;
   createdAt: string;
+  pinnedAt?: string | null;
   createdBy: string;
   createdByName?: string;
   call?: {
@@ -99,12 +101,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       body: a.body ?? "",
       occurredAt,
       createdAt,
+      pinnedAt: a.pinnedAt ?? undefined,
       createdBy: a.createdBy ?? "system",
       createdByName: a.createdByName ?? a.createdBy ?? "system",
       call,
     };
   });
 
-  items.sort((x, y) => +new Date(y.occurredAt) - +new Date(x.occurredAt));
   return NextResponse.json({ items });
 }

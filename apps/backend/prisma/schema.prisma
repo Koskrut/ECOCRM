@@ -316,6 +316,8 @@ model Contact {
   city String?
   /** Тип клиента: врач/техник (Bitrix UF_CRM_1756361960817). */
   clientType String?
+  /** Статус клієнта (Bitrix UF_CRM_1755068668186). */
+  status String?
   legacySource String?
   legacyId   Int?
   legacyRaw  Json?
@@ -975,6 +977,7 @@ model Activity {
   title      String?
   body       String
   occurredAt DateTime?
+  pinnedAt   DateTime?
   createdBy  String
   createdAt  DateTime     @default(now())
 

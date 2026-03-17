@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { ActivityType } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -41,7 +41,7 @@ export class ActivitiesService {
     await this.assertContactAccess(contactId, actor);
     const items = await this.prisma.activity.findMany({
       where: { contactId },
-      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
       include: {
         call: true,
       },
@@ -66,7 +66,7 @@ export class ActivitiesService {
     await this.assertLeadAccess(leadId, actor);
     const items = await this.prisma.activity.findMany({
       where: { leadId },
-      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
       include: {
         call: true,
       },
@@ -102,6 +102,62 @@ export class ActivitiesService {
         createdBy: user.id,
         companyId,
       },
+    });
+  }
+
+  // ---------- UPDATE / DELETE (by activity id) ----------
+  async updateOne(
+    activityId: string,
+    dto: { body?: string; title?: string; pinnedAt?: string | null },
+    actor: AuthUser,
+  ) {
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      select: { id: true, contactId: true, leadId: true, companyId: true, orderId: true },
+    });
+    if (!activity) throw new NotFoundException("Activity not found");
+    if (activity.contactId) await this.assertContactAccess(activity.contactId, actor);
+    else if (activity.leadId) await this.assertLeadAccess(activity.leadId, actor);
+    else if (activity.companyId) {
+      // listForCompany has no assert; allow update if user exists
+      if (!actor) throw new ForbiddenException("Unauthorized");
+    } else if (activity.orderId) await this.assertOrderAccess(activity.orderId, actor);
+    else throw new ForbiddenException("Activity has no linked entity");
+
+    const data: { body?: string; title?: string; pinnedAt?: Date | null } = {};
+    if (dto.body !== undefined) data.body = dto.body;
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.pinnedAt !== undefined) {
+      data.pinnedAt =
+        dto.pinnedAt === null || dto.pinnedAt === ""
+          ? null
+          : (() => {
+              const d = new Date(dto.pinnedAt!);
+              if (Number.isNaN(d.getTime())) throw new BadRequestException("pinnedAt must be valid ISO or null");
+              return d;
+            })();
+    }
+    return this.prisma.activity.update({
+      where: { id: activityId },
+      data,
+    });
+  }
+
+  async deleteOne(activityId: string, actor: AuthUser) {
+    const activity = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      select: { id: true, contactId: true, leadId: true, companyId: true, orderId: true },
+    });
+    if (!activity) throw new NotFoundException("Activity not found");
+    if (activity.contactId) await this.assertContactAccess(activity.contactId, actor);
+    else if (activity.leadId) await this.assertLeadAccess(activity.leadId, actor);
+    else if (activity.companyId) {
+      if (!actor) throw new ForbiddenException("Unauthorized");
+    } else if (activity.orderId) await this.assertOrderAccess(activity.orderId, actor);
+    else throw new ForbiddenException("Activity has no linked entity");
+
+    return this.prisma.activity.delete({
+      where: { id: activityId },
     });
   }
 
