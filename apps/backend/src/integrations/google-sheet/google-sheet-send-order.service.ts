@@ -3,6 +3,23 @@ import type { OrderStatus, PaymentMethod } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 
+/**
+ * Payload sent to Google Apps Script (POST JSON).
+ * Script must write rows in this exact column order (one row per item):
+ * 1. Дата
+ * 2. ID сделки в 1С (dealId)
+ * 3. ответственный (как Id контакта в 1С) (responsibleFullName)
+ * 4. Код контрагента в 1С (counterpartyCode1C)
+ * 5. форма оплаты (paymentMethod)
+ * 6. ФОП (fopCode)
+ * 7. Склад (warehouseCode)
+ * 8. продукция (Артикул) (item.sku)
+ * 9. продукция (кол-во) (item.qty)
+ * 10. продукция (цена) (item.price)
+ * 11. курс (exchangeRate)
+ * 12. Статус (status)
+ * 13–16. Номер РН, Дата РН, Номер Счета, Дата Счета — пусто (заполняет 1С).
+ */
 export type GoogleSheetOrderPayload = {
   date: string;
   dealId: string;
