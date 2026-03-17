@@ -411,14 +411,8 @@ export function TtnModal({
       return parts || <span className="font-normal text-zinc-400">Не вибрано</span>;
     }
 
-    const wh = [
-      selectedProfile.warehouseType ? `${selectedProfile.warehouseType}` : "",
-      selectedProfile.warehouseNumber ? `№${selectedProfile.warehouseNumber}` : "",
-      selectedProfile.warehouseRef ? `(${selectedProfile.warehouseRef.slice(0, 8)}…)` : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    return wh || <span className="font-normal text-zinc-400">Не вибрано</span>;
+    const number = selectedProfile.warehouseNumber?.trim();
+    return number ? `№${number}` : <span className="font-normal text-zinc-400">Не вибрано</span>;
   })();
 
   const inputClass = "mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none";
@@ -542,7 +536,28 @@ export function TtnModal({
                   {selectedProfile ? (
                     <div className="mt-2 rounded-lg border border-zinc-200 bg-white p-3 text-sm">
                       <div className="text-xs text-zinc-500">Попередній перегляд</div>
-                      <div className="mt-1 font-medium text-zinc-900">{profileLabelText}</div>
+                      {(() => {
+                        const lbl = selectedProfile.label?.trim();
+                        const isRedundantLabel =
+                          lbl === "Поштомат" ||
+                          lbl === "Відділення" ||
+                          lbl === "Кур'єрська доставка";
+                        return lbl && !isRedundantLabel ? (
+                          <div className="mt-1 font-medium text-zinc-900">{lbl}</div>
+                        ) : null;
+                      })()}
+                      <div className="mt-1 text-zinc-700">
+                        <span className="text-zinc-500">Отримувач:</span>{" "}
+                        {[selectedProfile.lastName, selectedProfile.firstName].filter(Boolean).join(" ") || (
+                          <span className="font-normal text-zinc-400">—</span>
+                        )}
+                      </div>
+                      <div className="mt-1 text-zinc-700">
+                        <span className="text-zinc-500">Телефон:</span>{" "}
+                        {selectedProfile.phone?.trim() || (
+                          <span className="font-normal text-zinc-400">—</span>
+                        )}
+                      </div>
                       <div className="mt-1 text-zinc-700">
                         {selectedProfile.deliveryType === "WAREHOUSE" && "Відділення"}
                         {selectedProfile.deliveryType === "POSTOMAT" && "Поштомат"}
