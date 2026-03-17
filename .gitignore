@@ -19,6 +19,9 @@ docker-compose.override.yml
 **/dist/
 **/.DS_Store
 
+# Google Apps Script (local copy, do not track)
+docs/google-sheet-webapp.gs
+
 # backups / temp
 crm_dump.sql
 *.bak
