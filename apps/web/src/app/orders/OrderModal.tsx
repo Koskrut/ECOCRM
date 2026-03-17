@@ -353,15 +353,6 @@ export function OrderModal({
   const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
 
-  useEffect(() => {
-    // #region agent log
-    if (typeof console !== "undefined" && console.debug) {
-      console.debug("[OrderModal delete condition]", { effectiveRole, hasOrder: !!order, isCreate, isAdmin, showDelete: !!(!isCreate && order && isAdmin) });
-    }
-    fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasOrder:!!order,isCreate,isAdmin,showDelete:!!(!isCreate&&order&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
-    // #endregion
-  }, [effectiveRole, order, isCreate, isAdmin]);
-
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
     try {
@@ -427,6 +418,25 @@ export function OrderModal({
     [searchContacts, companyId],
   );
 
+  const applyOrderToState = useCallback((data: OrderDetails) => {
+    const orderWithFields = {
+      ...data,
+      paymentMethod: data.paymentMethod ?? null,
+      documentsRequested: data.documentsRequested ?? null,
+    };
+    setOrder(orderWithFields);
+    setCompanyId(data.companyId ?? null);
+    setClientId(data.clientId ?? null);
+    setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
+    setPaymentType(data.paymentType ?? null);
+    setPaymentMethod(data.paymentMethod ?? null);
+    setBankAccountId(data.bankAccountId ?? null);
+    setWarehouseId(data.warehouseId ?? null);
+    setDocumentsRequested(data.documentsRequested ?? null);
+    setDiscountAmount(Number(data.discountAmount ?? 0));
+    setComment(data.comment ?? "");
+  }, []);
+
   const refreshOrder = useCallback(async () => {
     if (!orderId) return;
     setLoading(true);
@@ -438,29 +448,14 @@ export function OrderModal({
       });
       if (!r.ok) throw new Error(`Failed to load order (${r.status})`);
       const data = (await r.json()) as OrderDetails;
-      const orderWithFields = {
-        ...data,
-        paymentMethod: data.paymentMethod ?? null,
-        documentsRequested: data.documentsRequested ?? null,
-      };
-      setOrder(orderWithFields);
-      setCompanyId(data.companyId ?? null);
-      setClientId(data.clientId ?? null);
-      setDeliveryMethod(data.deliveryMethod ?? "PICKUP");
-      setPaymentType(data.paymentType ?? null);
-      setPaymentMethod(data.paymentMethod ?? null);
-      setBankAccountId(data.bankAccountId ?? null);
-      setWarehouseId(data.warehouseId ?? null);
-      setDocumentsRequested(data.documentsRequested ?? null);
-      setDiscountAmount(Number(data.discountAmount ?? 0));
-      setComment(data.comment ?? "");
+      applyOrderToState(data);
     } catch (e) {
       setOrder(null);
       setError(e instanceof Error ? e.message : "Failed to load order");
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, orderId]);
+  }, [apiBaseUrl, orderId, applyOrderToState]);
 
   const refreshTimeline = useCallback(async () => {
     if (!orderId) return;
@@ -575,21 +570,9 @@ export function OrderModal({
       .get<{ user?: { role?: string } }>("/auth/me")
       .then((res) => {
         const role = res.data?.user?.role ?? null;
-        // #region agent log
-        if (typeof console !== "undefined" && console.debug) {
-          console.debug("[OrderModal auth/me]", { role, rawUser: res.data?.user });
-        }
-        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
-        // #endregion
         setUserRole(role);
       })
-      .catch((err) => {
-        // #region agent log
-        if (typeof console !== "undefined" && console.debug) {
-          console.debug("[OrderModal auth/me failed]", err?.message, (err as any)?.response?.status);
-        }
-        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'OrderModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
+      .catch(() => {
         setUserRole(null);
       });
   }, [userRoleProp]);
@@ -667,9 +650,10 @@ export function OrderModal({
   );
 
   const patchOrder = useCallback(
-    async (payload: Record<string, any>) => {
+    async (payload: Record<string, any>, options?: { silent?: boolean }) => {
       if (!orderId) return;
-      setSaving(true);
+      const silent = options?.silent === true;
+      if (!silent) setSaving(true);
       try {
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}`, {
           method: "PATCH",
@@ -679,39 +663,23 @@ export function OrderModal({
           cache: "no-store",
         });
         const resBody = await r.json().catch(() => ({}));
-        // #region agent log
-        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
-          body: JSON.stringify({
-            sessionId: "975001",
-            location: "OrderModal.tsx:patchOrder",
-            message: "PATCH response",
-            data: {
-              status: r.status,
-              ok: r.ok,
-              payloadSent: payload,
-              bodyDeliveryMethod: resBody?.deliveryMethod,
-            },
-            timestamp: Date.now(),
-            hypothesisId: "H2",
-          }),
-        }).catch(() => {});
-        // #endregion
         if (!r.ok) {
           throw new Error(resBody?.message || `Failed to update order (${r.status})`);
         }
-        await Promise.all([refreshOrder(), refreshTimeline()]);
+        if (resBody && typeof resBody === "object" && "id" in resBody) {
+          applyOrderToState(resBody as OrderDetails);
+        }
         onSaved?.();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to save");
-        // rollback view to server state
-        await refreshOrder();
+        if (!silent) {
+          alert(e instanceof Error ? e.message : "Failed to save");
+          await refreshOrder();
+        }
       } finally {
-        setSaving(false);
+        if (!silent) setSaving(false);
       }
     },
-    [apiBaseUrl, onSaved, orderId, refreshOrder, refreshTimeline],
+    [apiBaseUrl, onSaved, orderId, refreshOrder, applyOrderToState],
   );
 
   const createOrder = useCallback(async () => {
@@ -1699,25 +1667,8 @@ export function OrderModal({
                                 const current = order?.deliveryMethod ?? null;
                                 if (current != null && v === current) return;
                                 setDeliveryMethod(v);
-                                // #region agent log
-                                fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
-                                  body: JSON.stringify({
-                                    sessionId: "975001",
-                                    location: "OrderModal.tsx:delivery onChange",
-                                    message: "delivery selected",
-                                    data: { value: v, payload: { deliveryMethod: v } },
-                                    timestamp: Date.now(),
-                                    hypothesisId: "H1",
-                                  }),
-                                }).catch(() => {});
-                                // #endregion
                                 try {
                                   await patchOrder({ deliveryMethod: v });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, deliveryMethod: v } : prev));
-                                  }
                                 } finally {
                                   setEditing(null);
                                 }
@@ -1733,8 +1684,13 @@ export function OrderModal({
                           <button
                             type="button"
                             onClick={() => {
-                              setDeliveryMethod(order.deliveryMethod ?? "PICKUP");
+                              const next = order.deliveryMethod ?? "PICKUP";
+                              setDeliveryMethod(next);
                               setEditing("delivery");
+                              // Persist default in background when order has no deliveryMethod (onChange never fires when value unchanged)
+                              if (order.deliveryMethod == null && next === "PICKUP") {
+                                patchOrder({ deliveryMethod: "PICKUP" }, { silent: true });
+                              }
                             }}
                             className="mt-1 font-medium text-zinc-900 hover:underline"
                           >

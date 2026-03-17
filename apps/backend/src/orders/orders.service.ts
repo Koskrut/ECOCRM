@@ -332,23 +332,6 @@ export class OrdersService {
   }
 
   async update(id: string, dto: UpdateOrderDto, actor?: AuthUser) {
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
-      body: JSON.stringify({
-        sessionId: "975001",
-        location: "orders.service.ts:update",
-        message: "PATCH dto received",
-        data: {
-          hasDeliveryMethod: "deliveryMethod" in dto,
-          deliveryMethod: dto.deliveryMethod,
-        },
-        timestamp: Date.now(),
-        hypothesisId: "H3",
-      }),
-    }).catch(() => {});
-    // #endregion
     const existing = await this.prisma.order.findUnique({
       where: { id },
       include: {
@@ -425,20 +408,6 @@ export class OrdersService {
       data,
       include: ORDER_INCLUDE,
     });
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "975001" },
-      body: JSON.stringify({
-        sessionId: "975001",
-        location: "orders.service.ts:update",
-        message: "after prisma.update",
-        data: { updatedDeliveryMethod: updated.deliveryMethod },
-        timestamp: Date.now(),
-        hypothesisId: "H3",
-      }),
-    }).catch(() => {});
-    // #endregion
     return this.mapToEntity(updated);
   }
 
