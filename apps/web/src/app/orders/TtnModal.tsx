@@ -158,14 +158,16 @@ export function TtnModal({
       });
 
       const data = res.data;
+      const dataRecord = data as Record<string, unknown>;
+      const dataData = dataRecord?.data as Record<string, unknown> | undefined;
       const itemsArray =
         Array.isArray(data)
           ? data
-          : Array.isArray((data as Record<string, unknown>)?.items)
+          : Array.isArray(dataRecord?.items)
             ? (data as { items: NpShippingProfile[] }).items
-            : Array.isArray((data as Record<string, unknown>)?.data?.items)
+            : Array.isArray(dataData?.items)
               ? (data as { data: { items: NpShippingProfile[] } }).data.items
-              : Array.isArray((data as Record<string, unknown>)?.data)
+              : Array.isArray(dataRecord?.data)
                 ? (data as { data: NpShippingProfile[] }).data
                 : [];
       const rawItems = itemsArray;
