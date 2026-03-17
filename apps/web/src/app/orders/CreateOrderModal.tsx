@@ -208,7 +208,7 @@ export function CreateOrderModal({
             <div>
               <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
               <SearchableSelect
-                options={contacts.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName}` }))}
+                options={contacts.map((c) => ({ id: c.id, label: `${c.lastName} ${c.firstName}` }))}
                 value={clientId}
                 onChange={(val) => setClientId(val)}
                 isLoading={loadingContacts}

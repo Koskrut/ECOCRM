@@ -276,7 +276,7 @@ function LeadsPageContent() {
                 >
                   <td className="px-4 py-4">
                     <div className="font-medium text-zinc-900">
-                      {l.fullName || l.name || [l.firstName, l.lastName].filter(Boolean).join(" ") || l.companyName || "No name"}
+                      {l.fullName || l.name || [l.lastName, l.firstName].filter(Boolean).join(" ") || l.companyName || "No name"}
                     </div>
                     <div className="text-xs text-zinc-500">
                       {l.phone || l.email || "—"}

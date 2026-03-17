@@ -156,7 +156,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     () =>
       allContactsForLink.map((c) => ({
         id: c.id,
-        label: `${c.firstName} ${c.lastName} — ${formatPhoneDisplay(c.phone)}`,
+        label: `${c.lastName} ${c.firstName} — ${formatPhoneDisplay(c.phone)}`,
       })),
     [allContactsForLink],
   );
@@ -977,7 +977,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 flex-1 truncate font-medium text-zinc-900">
-                        {c.firstName} {c.lastName}
+                        {c.lastName} {c.firstName}
                       </span>
                       {onOpenContact ? (
                         <span className="shrink-0 text-zinc-400" aria-hidden>→</span>
@@ -1158,7 +1158,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                           className="flex items-center justify-between gap-2 px-3 py-2"
                         >
                           <span className="min-w-0 flex-1">
-                            {c.firstName} {c.lastName}
+                            {c.lastName} {c.firstName}
                             {c.phone ? ` — ${formatPhoneDisplay(c.phone)}` : ""}
                           </span>
                           <div className="flex shrink-0 items-center gap-0.5">

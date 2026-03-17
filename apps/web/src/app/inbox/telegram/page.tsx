@@ -35,12 +35,12 @@ function formatTime(iso: string): string {
 
 function conversationTitle(c: ConversationItem): string {
   if (c.contact) {
-    return [c.contact.firstName, c.contact.lastName].filter(Boolean).join(" ") || c.contact.phone;
+    return [c.contact.lastName, c.contact.firstName].filter(Boolean).join(" ") || c.contact.phone;
   }
   if (c.lead) {
     return (
       c.lead.fullName ||
-      [c.lead.firstName, c.lead.lastName].filter(Boolean).join(" ") ||
+      [c.lead.lastName, c.lead.firstName].filter(Boolean).join(" ") ||
       c.lead.phone ||
       "Лид"
     );
@@ -473,7 +473,7 @@ function InboxTelegramContent() {
             {selected.contact && (
               <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
                 <p className="font-medium text-zinc-900">
-                  {selected.contact.firstName} {selected.contact.lastName}
+                  {selected.contact.lastName} {selected.contact.firstName}
                 </p>
                 <p className="mt-1 text-zinc-600">{selected.contact.phone}</p>
                 <a
@@ -488,7 +488,7 @@ function InboxTelegramContent() {
               <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
                 <p className="font-medium text-zinc-900">
                   {selected.lead.fullName ||
-                    [selected.lead.firstName, selected.lead.lastName]
+                    [selected.lead.lastName, selected.lead.firstName]
                       .filter(Boolean)
                       .join(" ") ||
                     "Лид"}
@@ -552,7 +552,7 @@ function InboxTelegramContent() {
                             disabled={linkContactLoading}
                             className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-200 disabled:opacity-50"
                           >
-                            {c.firstName} {c.lastName} — {c.phone}
+                            {c.lastName} {c.firstName} — {c.phone}
                           </button>
                         </li>
                       ))}

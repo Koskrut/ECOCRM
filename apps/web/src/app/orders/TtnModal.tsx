@@ -394,7 +394,7 @@ export function TtnModal({
   const profileLabelText =
     selectedProfile?.label?.trim() ||
     (selectedProfile
-      ? `${selectedProfile.firstName ?? ""} ${selectedProfile.lastName ?? ""} • ${selectedProfile.phone ?? ""}`.trim()
+      ? `${selectedProfile.lastName ?? ""} ${selectedProfile.firstName ?? ""} • ${selectedProfile.phone ?? ""}`.trim()
       : "");
 
   const previewAddress = (() => {
@@ -532,7 +532,7 @@ export function TtnModal({
                     {profiles.map((p) => (
                       <option key={p.id} value={p.id}>
                         {(p.label && p.label.trim()) ||
-                          `${p.firstName ?? ""} ${p.lastName ?? ""} • ${p.phone ?? ""} • ${
+                          `${p.lastName ?? ""} ${p.firstName ?? ""} • ${p.phone ?? ""} • ${
                             p.cityName ?? p.cityRef ?? ""
                           }`.trim()}
                       </option>

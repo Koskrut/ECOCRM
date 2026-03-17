@@ -761,7 +761,7 @@ export class LeadsService {
     }
 
     const fullName =
-      parsed.fullName || [parsed.firstName, parsed.lastName].filter(Boolean).join(" ") || null;
+      parsed.fullName || [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null;
     const lead = await this.prisma.lead.create({
       data: {
         companyId,

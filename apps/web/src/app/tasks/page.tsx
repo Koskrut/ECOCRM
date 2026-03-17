@@ -176,7 +176,7 @@ export default function TasksPage() {
           { params: { q: linkSearch, page: 1, pageSize: 20 } } as never,
         );
         const list = r.data?.items ?? [];
-        setLinkOptions(list.map((c) => ({ id: c.id, label: `${c.firstName} ${c.lastName} — ${formatPhoneDisplay(c.phone)}` })));
+        setLinkOptions(list.map((c) => ({ id: c.id, label: `${c.lastName} ${c.firstName} — ${formatPhoneDisplay(c.phone)}` })));
       } else if (linkType === "company") {
         const r = await apiHttp.get<{ items: { id: string; name: string }[] }>("/companies", {
           params: { search: linkSearch, page: 1, pageSize: 20 } } as never,

@@ -411,7 +411,7 @@ function OrdersPageContent() {
 
   const getClientLabel = (order: OrderSummary) => {
     if (order.client) {
-      const full = `${order.client.firstName ?? ""} ${order.client.lastName ?? ""}`.trim();
+      const full = `${order.client.lastName ?? ""} ${order.client.firstName ?? ""}`.trim();
       return full || "—";
     }
     return order.company?.name ?? "—";

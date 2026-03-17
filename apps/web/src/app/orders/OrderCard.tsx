@@ -46,7 +46,7 @@ export function OrderCard({
 }) {
   const clientName =
     order.client != null
-      ? `${order.client.firstName} ${order.client.lastName}`.trim() || "—"
+      ? `${order.client.lastName} ${order.client.firstName}`.trim() || "—"
       : order.company?.name ?? "—";
 
   return (

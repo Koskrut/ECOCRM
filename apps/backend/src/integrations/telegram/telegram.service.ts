@@ -166,8 +166,8 @@ export class TelegramService {
               firstName: parsed.firstName,
               lastName: parsed.lastName ?? "Telegram",
               middleName: null,
-              fullName: [parsed.firstName, parsed.lastName].filter(Boolean).join(" ") || null,
-              name: [parsed.firstName, parsed.lastName].filter(Boolean).join(" ") || null,
+              fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+              name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
               phone: parsed.phone,
               phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
             },
@@ -221,7 +221,7 @@ export class TelegramService {
               dataToUpdate.firstName !== undefined ? dataToUpdate.firstName : lead.firstName;
             const nextLast =
               dataToUpdate.lastName !== undefined ? dataToUpdate.lastName : lead.lastName;
-            dataToUpdate.fullName = [nextFirst, nextLast].filter(Boolean).join(" ") || null;
+            dataToUpdate.fullName = [nextLast, nextFirst].filter(Boolean).join(" ") || null;
             dataToUpdate.name = dataToUpdate.fullName;
             await this.prisma.lead.update({ where: { id: leadId }, data: dataToUpdate });
           }

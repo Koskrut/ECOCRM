@@ -285,7 +285,7 @@ export function OrdersKanban({
                 items.map((o) => {
                   const clientName =
                     o.client != null
-                      ? `${o.client.firstName} ${o.client.lastName}`.trim() || "—"
+                      ? `${o.client.lastName} ${o.client.firstName}`.trim() || "—"
                       : o.company?.name ?? "—";
                   return (
                     <button

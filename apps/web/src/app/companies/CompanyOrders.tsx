@@ -110,7 +110,7 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
               <td className="px-4 py-3 text-sm font-medium text-zinc-900">{o.orderNumber}</td>
               <td className="px-4 py-3 text-sm text-zinc-700">{o.status}</td>
               <td className="px-4 py-3 text-sm text-zinc-700">
-                {o.client ? `${o.client.firstName} ${o.client.lastName}` : "—"}
+                {o.client ? `${o.client.lastName} ${o.client.firstName}` : "—"}
               </td>
               <td className="px-4 py-3 text-sm text-zinc-700">
                 {o.totalAmount} {o.currency}

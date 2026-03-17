@@ -45,8 +45,8 @@ export class TelegramAiService {
     });
 
     const contactName = conv.contact
-      ? [conv.contact.firstName, conv.contact.lastName].filter(Boolean).join(" ") || "Клієнт"
-      : conv.lead?.fullName || [conv.lead?.firstName, conv.lead?.lastName].filter(Boolean).join(" ") || "Клієнт";
+      ? [conv.contact.lastName, conv.contact.firstName].filter(Boolean).join(" ") || "Клієнт"
+      : conv.lead?.fullName || [conv.lead?.lastName, conv.lead?.firstName].filter(Boolean).join(" ") || "Клієнт";
 
     const historyLines = messages.map((m) => {
       const who = m.direction === MessageDirection.INBOUND ? contactName : "Менеджер";

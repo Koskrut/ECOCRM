@@ -71,7 +71,7 @@ export default function CabinetAddressesPage() {
                   )}
                   {(profile.firstName || profile.lastName) && (
                     <p className="mt-1 text-sm text-zinc-600">
-                      {[profile.firstName, profile.lastName].filter(Boolean).join(" ")}
+                      {[profile.lastName, profile.firstName].filter(Boolean).join(" ")}
                     </p>
                   )}
                   {profile.phone && (

@@ -443,7 +443,7 @@ function PaymentsContent() {
       filterBySearch(
         addCashContacts,
         addCashContactSearch,
-        (c) => [c.firstName, c.lastName, c.phone].filter(Boolean).join(" "),
+        (c) => [c.lastName, c.firstName, c.phone].filter(Boolean).join(" "),
       ).slice(0, 15),
     [addCashContacts, addCashContactSearch],
   );
@@ -500,7 +500,7 @@ function PaymentsContent() {
         ? filterBySearch(
             allocateContacts,
             allocateContactSearch,
-            (c) => [c.firstName, c.lastName, c.phone].filter(Boolean).join(" "),
+            (c) => [c.lastName, c.firstName, c.phone].filter(Boolean).join(" "),
           ).slice(0, 15)
         : [],
     [allocateContacts, allocateContactSearch],
@@ -549,7 +549,7 @@ function PaymentsContent() {
         ? filterBySearch(
             editContacts,
             editContactSearch,
-            (c) => [c.firstName, c.lastName, c.phone].filter(Boolean).join(" "),
+            (c) => [c.lastName, c.firstName, c.phone].filter(Boolean).join(" "),
           ).slice(0, 15)
         : [],
     [editContacts, editContactSearch],
@@ -1280,7 +1280,7 @@ function PaymentsContent() {
                           type="button"
                           onClick={() => {
                             setAddCashContactId(c.id);
-                            setAddCashContactName([c.firstName, c.lastName].filter(Boolean).join(" ") || c.phone);
+                            setAddCashContactName([c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone);
                             setAddCashContactSearch("");
                             setAddCashOrderId(null);
                             setAddCashOrderNumber("");
@@ -1288,7 +1288,7 @@ function PaymentsContent() {
                           }}
                           className="w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                         >
-                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
+                          {[c.lastName, c.firstName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                         </button>
                       </li>
                     ))}
@@ -1530,7 +1530,7 @@ function PaymentsContent() {
                           type="button"
                           onClick={() => {
                             setAllocateContactId(c.id);
-                            setAllocateContactName([c.firstName, c.lastName].filter(Boolean).join(" ") || c.phone);
+                            setAllocateContactName([c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone);
                             setAllocateContactSearch("");
                             setSelectedOrderId(null);
                             setAllocateOrderNumber("");
@@ -1538,7 +1538,7 @@ function PaymentsContent() {
                           }}
                           className="w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                         >
-                          {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
+                          {[c.lastName, c.firstName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                         </button>
                       </li>
                     ))}
@@ -1831,7 +1831,7 @@ function PaymentsContent() {
                         type="button"
                         onClick={() => {
                           setEditContactId(c.id);
-                          setEditContactName([c.firstName, c.lastName].filter(Boolean).join(" ") || c.phone);
+                          setEditContactName([c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone);
                           setEditContactSearch("");
                           setEditOrderId("");
                           setEditOrderNumber("");
@@ -1839,7 +1839,7 @@ function PaymentsContent() {
                         }}
                         className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100"
                       >
-                        {[c.firstName, c.lastName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
+                        {[c.lastName, c.firstName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
                       </button>
                     </li>
                   ))}

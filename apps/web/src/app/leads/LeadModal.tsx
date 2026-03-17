@@ -121,7 +121,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
   const title = useMemo(() => {
     if (!lead) return "Lead";
-    return lead.fullName || lead.name || [lead.firstName, lead.middleName, lead.lastName].filter(Boolean).join(" ") || lead.companyName || "Lead";
+    return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
 
   useEffect(() => {
@@ -1003,7 +1003,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                               }`}
                             >
                               <div className="font-medium text-zinc-900">
-                                {c.firstName} {c.lastName}
+                                {c.lastName} {c.firstName}
                               </div>
                               <div className="text-xs text-zinc-500">
                                 {formatPhoneDisplay(c.phone)} {c.email ? `• ${c.email}` : ""}

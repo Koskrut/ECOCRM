@@ -32,7 +32,7 @@ function DeliverySummary({ data }: { data: unknown }) {
     const addr = [streetName, building, flat].filter(Boolean).join(", ");
     if (addr) parts.push(addr);
   }
-  if (firstName || lastName) parts.push([firstName, lastName].filter(Boolean).join(" "));
+  if (firstName || lastName) parts.push([lastName, firstName].filter(Boolean).join(" "));
   if (phone) parts.push(phone);
   if (parts.length === 0) return null;
   return (

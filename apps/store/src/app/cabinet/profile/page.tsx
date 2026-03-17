@@ -146,7 +146,7 @@ export default function CabinetProfilePage() {
                   Ім&apos;я
                 </dt>
                 <dd className="mt-1 text-zinc-900">
-                  {me.firstName} {me.lastName}
+                  {me.lastName} {me.firstName}
                 </dd>
               </div>
               <div>

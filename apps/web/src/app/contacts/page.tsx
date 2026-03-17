@@ -479,12 +479,12 @@ function ContactsPageContent() {
                         checked={selectedIds.has(c.id)}
                         onChange={() => toggleSelect(c.id)}
                         className="h-4 w-4 rounded border-zinc-300"
-                        aria-label={`Выбрать ${c.firstName} ${c.lastName}`}
+                        aria-label={`Выбрать ${c.lastName} ${c.firstName}`}
                       />
                     </label>
                   </td>
                   <td className="px-4 py-4 font-medium text-zinc-900">
-                    {c.firstName} {c.lastName}
+                    {c.lastName} {c.firstName}
                   </td>
                   <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
                   <td className="px-4 py-4 text-zinc-600">{c.email || "—"}</td>

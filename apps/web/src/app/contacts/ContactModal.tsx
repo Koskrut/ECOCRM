@@ -1133,7 +1133,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       await visitsApi.create({
         contactId: contact.id,
         companyId: contact.companyId ?? undefined,
-        title: `${contact.firstName} ${contact.lastName}`.trim() || "Visit",
+        title: `${contact.lastName} ${contact.firstName}`.trim() || "Visit",
         phone: contact.phone ?? undefined,
         addressText: contact.address ?? undefined,
         lat: effectiveLat,

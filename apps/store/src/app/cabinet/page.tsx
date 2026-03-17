@@ -64,7 +64,7 @@ export default function CabinetOverviewPage() {
         Огляд
       </h1>
       <p className="mt-1 text-zinc-600">
-        Вітаємо, {me.firstName} {me.lastName}
+        Вітаємо, {me.lastName} {me.firstName}
       </p>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">

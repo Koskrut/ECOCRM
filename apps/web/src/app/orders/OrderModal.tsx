@@ -863,13 +863,13 @@ export function OrderModal({
   const contactOptions = useMemo(() => {
     const list = contacts.map((c) => ({
       id: c.id,
-      label: `${c.firstName} ${c.lastName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
+      label: `${c.lastName} ${c.firstName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
     }));
     if (clientId && order?.client && !contacts.some((c) => c.id === clientId)) {
       return [
         {
           id: order.client.id,
-          label: `${order.client.firstName} ${order.client.lastName} — ${order.client.phone}`,
+          label: `${order.client.lastName} ${order.client.firstName} — ${order.client.phone}`,
         },
         ...list,
       ];
@@ -1436,7 +1436,7 @@ export function OrderModal({
                             className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
                           >
                             {order.client
-                              ? `${order.client.firstName} ${order.client.lastName} — ${order.client.phone}`
+                              ? `${order.client.lastName} ${order.client.firstName} — ${order.client.phone}`
                               : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать клиента...</span>}
                           </button>
                         )}
