@@ -20,6 +20,17 @@ type BankAccount = {
   };
 };
 
+type RequisitesFromBank = {
+  legalName?: string;
+  taxId?: string;
+  address?: string;
+  bankDetails?: string;
+  iban?: string;
+  mfo?: string;
+  edrpou?: string;
+  taxPayerStatus?: string;
+};
+
 function getApiErrorMessage(e: unknown, fallback: string) {
   const msg =
     (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
@@ -153,11 +164,11 @@ export default function FopSettingsPage() {
           }
         : undefined;
       const res = await (payload
-        ? apiHttp.post<{ legalName?: string; taxId?: string; address?: string; bankDetails?: string; iban?: string; mfo?: string }>(
+        ? apiHttp.post<RequisitesFromBank>(
             `/bank/accounts/${editId}/requisites-from-bank`,
             payload,
           )
-        : apiHttp.get<{ legalName?: string; taxId?: string; address?: string; bankDetails?: string; iban?: string; mfo?: string }>(
+        : apiHttp.get<RequisitesFromBank>(
             `/bank/accounts/${editId}/requisites-from-bank`,
           ));
       const data = res.data || {};
