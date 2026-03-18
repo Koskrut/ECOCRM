@@ -351,7 +351,6 @@ export class BitrixInitialImportService {
         if (existing) continue;
 
         const body = bitrixNpDataToProfilePayload(npData, label);
-        await this.enrichBitrixProfileWithNpRefs(body);
         await this.prisma.contactShippingProfile.create({
           data: {
             contactId: c.id,
@@ -400,51 +399,6 @@ export class BitrixInitialImportService {
       `[BitrixInitialImportService] NP shipping profiles from Bitrix legacyRaw: processed=${processedCount} withNpData=${withNpDataCount} created=${created}`,
     );
     return created;
-  }
-
-  /**
-   * Enrich Bitrix-derived NP profile payload with cityRef / warehouseRef from NP catalog.
-   * Uses fuzzy match on cityName and warehouseNumber.
-   */
-  private async enrichBitrixProfileWithNpRefs(body: Record<string, unknown>): Promise<void> {
-    const cityName = typeof body.cityName === "string" ? body.cityName.trim() : "";
-    const warehouseNumber = typeof body.warehouseNumber === "string" ? body.warehouseNumber.trim() : "";
-
-    if (!body.cityRef && cityName) {
-      const cityNameNorm = cityName.replace(/^місто\s+/i, "").replace(/^м\.\s*/i, "").split(",")[0]?.trim() || cityName;
-      const pattern = `%${cityNameNorm.replace(/%/g, "\\%")}%`;
-      const cities = await this.prisma.$queryRaw<Array<{ ref: string; description: string }>>`
-        SELECT ref, description FROM "NpCity"
-        WHERE "isActive" = true AND description ILIKE ${pattern}
-        ORDER BY LENGTH(description) ASC
-        LIMIT 1
-      `;
-      const city = cities[0];
-      if (city) {
-        body.cityRef = city.ref;
-        if (!body.cityName) body.cityName = city.description;
-      }
-    }
-
-    if (!body.warehouseRef && body.cityRef && warehouseNumber) {
-      const wh = await this.prisma.npWarehouse.findFirst({
-        where: {
-          cityRef: String(body.cityRef),
-          isActive: true,
-          OR: [
-            { number: warehouseNumber },
-            { number: { contains: warehouseNumber } },
-            { description: { contains: warehouseNumber, mode: "insensitive" } },
-          ],
-        },
-      });
-      if (wh) {
-        const whExt = wh as Record<string, unknown>;
-        body.warehouseRef = wh.ref;
-        body.warehouseNumber = (whExt.number as string) ?? warehouseNumber;
-        body.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
-      }
-    }
   }
 
   private async importUsersBulk(
