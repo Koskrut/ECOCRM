@@ -49,9 +49,13 @@ export class OrderReturnsService {
     this.assertAccess(order, actor);
 
     const currentStage = order.orderStage ?? undefined;
-    if (currentStage !== "RECEIVED" && currentStage !== "COMPLETED") {
+    const canCreateReturn =
+      currentStage === "RECEIVED" ||
+      currentStage === "COMPLETED" ||
+      currentStage === "RETURN_IN_PROGRESS";
+    if (!canCreateReturn) {
       throw new BadRequestException(
-        "Return can only be created for orders in RECEIVED or COMPLETED stage",
+        "Return can only be created for orders in RECEIVED, COMPLETED or RETURN_IN_PROGRESS stage",
       );
     }
 
