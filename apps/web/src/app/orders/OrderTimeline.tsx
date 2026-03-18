@@ -79,7 +79,7 @@ export function OrderTimeline({ orderId }: Props) {
         : "Написать комментарий...";
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
+    <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm max-lg:h-auto lg:h-full">
       <div className="border-b border-zinc-200 p-4">
         <div className="flex items-center gap-2">
           <button

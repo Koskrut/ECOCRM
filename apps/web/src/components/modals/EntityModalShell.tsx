@@ -86,15 +86,15 @@ export function EntityModalShell({
           <div className="shrink-0 border-b border-zinc-200 px-5">{tabsUnderHeader}</div>
         ) : null}
 
-        {/* Body: left 7 cols, right 5 cols (or left full width when no right) */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-12">
+        {/* Body: on mobile single scroll column (left then right, one flow). On lg: grid 7+5 cols, columns scroll independently. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto lg:grid lg:grid-cols-12 lg:gap-0 lg:overflow-visible">
           <div
-            className={`min-h-0 overflow-auto p-5 ${right != null ? "lg:col-span-7" : "lg:col-span-12"}`}
+            className={`min-h-0 shrink-0 p-5 lg:min-h-0 lg:overflow-auto ${right != null ? "lg:col-span-7" : "lg:col-span-12"}`}
           >
             {left}
           </div>
           {right != null ? (
-            <div className="min-h-0 border-t border-zinc-200 overflow-auto p-5 lg:col-span-5 lg:border-t-0 lg:border-l">
+            <div className="min-h-0 shrink-0 border-t border-zinc-200 p-5 max-lg:w-full lg:min-h-0 lg:col-span-5 lg:border-t-0 lg:border-l lg:overflow-auto">
               {right}
             </div>
           ) : null}
