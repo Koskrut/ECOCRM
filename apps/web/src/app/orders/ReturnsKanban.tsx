@@ -87,9 +87,12 @@ function isKnownStatus(s: string): s is ReturnStatus {
 export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
+  refreshKey = 0,
 }: {
   onOpenOrder: (orderId: string) => void;
   onOpenReturn?: (returnId: string) => void;
+  /** Increment to force refetch (e.g. after creating a return from order modal). */
+  refreshKey?: number;
 }) {
   const [list, setList] = useState<ReturnsListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -115,7 +118,7 @@ export function ReturnsKanban({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const patchStatus = useCallback(async (returnId: string, status: ReturnStatus) => {
     await apiHttp.patch(`/order-returns/${returnId}/status`, { status });

@@ -172,6 +172,7 @@ function OrdersPageContent() {
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
@@ -591,6 +592,7 @@ function OrdersPageContent() {
         {view === "returns" ? (
           <ReturnsKanban
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
+            refreshKey={returnsRefreshKey}
           />
         ) : view === "financial" ? (
           <div className="space-y-3">
@@ -905,7 +907,10 @@ function OrdersPageContent() {
           apiBaseUrl={apiBaseUrl}
           orderId={activeOrderId}
           onClose={closeOrderModal}
-          onSaved={() => void fetchOrders()}
+          onSaved={() => {
+            void fetchOrders();
+            if (view === "returns") setReturnsRefreshKey((k) => k + 1);
+          }}
           onOpenCompany={(id) => console.log("Open company", id)}
           onOpenContact={(id) => console.log("Open contact", id)}
           userRole={userRole}

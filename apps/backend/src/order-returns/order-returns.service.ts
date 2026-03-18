@@ -67,7 +67,9 @@ export class OrderReturnsService {
     const merged = new Map<string, number>();
     for (const it of dto.items) {
       const oi = orderItemIds.get(it.orderItemId);
-      if (!oi) throw new BadRequestException(`Order item ${it.orderItemId} not found in order`);
+      if (!oi) {
+        throw new BadRequestException(`Order item ${it.orderItemId} not found in order`);
+      }
       const qty = Math.min(Math.max(1, Math.floor(it.qtyReturned)), oi.qty);
       merged.set(oi.id, Math.min((merged.get(oi.id) ?? 0) + qty, oi.qty));
     }

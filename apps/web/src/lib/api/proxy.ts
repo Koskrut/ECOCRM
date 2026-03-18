@@ -28,6 +28,8 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
   // не пересылать условный GET — бэкенд иначе отдаёт 304 без тела, и прокси отдаёт пустой ответ
   headers.delete("if-none-match");
   headers.delete("if-modified-since");
+  // не пересылать Transfer-Encoding — при пересылке тела строкой бэкенд должен использовать Content-Length
+  headers.delete("transfer-encoding");
 
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
@@ -43,21 +45,35 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
 
   const body = hasBody ? await req.text() : undefined;
 
-  let r: Response;
-  try {
-    r = await fetch(target.toString(), {
+  const outgoingHeaders: Headers =
+    body !== undefined && body !== null
+      ? (() => {
+          const h = new Headers();
+          h.set("Content-Type", "application/json");
+          h.set("Content-Length", new TextEncoder().encode(body).length.toString());
+          if (token) h.set("Authorization", `Bearer ${token}`);
+          return h;
+        })()
+      : headers;
+
+  const doFetch = () =>
+    fetch(target.toString(), {
       method,
-      headers,
+      headers: outgoingHeaders,
       body,
       cache: "no-store",
     });
+
+  let r: Response;
+  try {
+    r = await doFetch();
   } catch (e) {
     const cause = (e as { cause?: { code?: string } })?.cause;
     const isConnectionReset = cause?.code === "ECONNRESET" || (e as Error).message?.includes("ECONNRESET");
     if (isConnectionReset) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       try {
-        r = await fetch(target.toString(), { method, headers, body, cache: "no-store" });
+        r = await doFetch();
       } catch {
         return NextResponse.json(
           { message: "Backend unavailable. Start the API server (e.g. npm run dev in apps/backend)." },
