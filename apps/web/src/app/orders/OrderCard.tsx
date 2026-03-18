@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Truck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 
 export type OrderCardOrder = {
@@ -11,6 +12,7 @@ export type OrderCardOrder = {
   orderStage?: string | null;
   totalAmount: number;
   currency: string;
+  exchangeRate?: number | null;
   createdAt: string;
   owner?: { id: string; fullName: string } | null;
   paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
@@ -90,7 +92,7 @@ export function OrderCard({
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Сума</div>
       <div className="text-sm font-medium text-zinc-900">
-        {order.totalAmount.toFixed(2)} {order.currency}
+        {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
       </div>
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Клієнт</div>

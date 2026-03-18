@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Filter, Search, Truck } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { FinancialKanban } from "./FinancialKanban";
@@ -36,6 +37,7 @@ type OrderSummary = {
   isPaid?: boolean;
   hasTtn?: boolean;
   currency: string;
+  exchangeRate?: number | null;
   paymentType?: "PREPAYMENT" | "DEFERRED" | null;
   createdAt: string;
   itemsCount: number;
@@ -755,7 +757,7 @@ function OrdersPageContent() {
                           {order.itemsCount}
                         </td>
                         <td className="px-4 py-4 text-right font-medium text-zinc-900">
-                          {order.totalAmount.toFixed(2)} {order.currency}
+                          {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
                         </td>
                       </tr>
                     ))

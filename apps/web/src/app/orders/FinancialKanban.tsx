@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { StatusBadge } from "../../components/StatusBadge";
 
 /** Phase 4: Financial view — columns by financialStatus, no drag-and-drop. */
@@ -26,6 +27,7 @@ type FinancialOrder = {
   paidAmount: number;
   debtAmount: number;
   currency: string;
+  exchangeRate?: number | null;
   paymentType?: string | null;
   createdAt: string;
   company?: { id: string; name: string } | null;
@@ -222,17 +224,17 @@ export function FinancialKanban({
                       <div className="mt-2 flex justify-between gap-2 text-xs">
                         <span className="text-zinc-500">Сума</span>
                         <span className="font-medium text-zinc-900">
-                          {o.totalAmount} {o.currency}
+                          {formatOrderAmount(o.totalAmount, o.currency, o.exchangeRate)}
                         </span>
                       </div>
                       <div className="flex justify-between gap-2 text-xs">
                         <span className="text-zinc-500">Оплачено</span>
-                        <span className="text-zinc-700">{o.paidAmount} {o.currency}</span>
+                        <span className="text-zinc-700">{formatOrderAmount(o.paidAmount, o.currency, o.exchangeRate)}</span>
                       </div>
                       <div className="flex justify-between gap-2 text-xs">
                         <span className="text-zinc-500">Борг</span>
                         <span className={o.debtAmount > 0 ? "font-medium text-amber-700" : "text-zinc-600"}>
-                          {o.debtAmount} {o.currency}
+                          {formatOrderAmount(o.debtAmount, o.currency, o.exchangeRate)}
                         </span>
                       </div>
                       <div className="mt-1.5 flex justify-between gap-2 text-xs">

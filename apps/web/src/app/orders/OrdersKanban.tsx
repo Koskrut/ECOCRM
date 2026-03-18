@@ -2,6 +2,7 @@
 
 import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../../components/StatusBadge";
 
@@ -41,6 +42,7 @@ type BoardOrder = {
   orderStage?: string | null;
   totalAmount: number;
   currency: string;
+  exchangeRate?: number | null;
   paymentType?: string | null;
   debtAmount?: number;
   updatedAt?: string;
@@ -371,7 +373,7 @@ export function OrdersKanban({
                           Сума
                         </div>
                         <div className="text-sm font-medium text-zinc-900">
-                          {o.totalAmount} {o.currency}
+                          {formatOrderAmount(o.totalAmount, o.currency, o.exchangeRate)}
                         </div>
                         <div className="mt-2 text-[10px] font-medium uppercase text-zinc-500">
                           Клієнт

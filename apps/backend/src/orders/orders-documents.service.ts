@@ -217,8 +217,19 @@ export class OrdersDocumentsService {
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 14;
     doc.font("Helvetica-Bold");
-    const totalStr = `Разом: ${order.totalAmount.toFixed(2)} ${order.currency}`;
+    const totalStr = this.formatDocumentTotal(order);
     doc.text(totalStr, 380, doc.y);
+  }
+
+  private formatDocumentTotal(
+    order: { totalAmount: number; currency: string; exchangeRate?: number | null },
+  ): string {
+    const main = `Разом: ${order.totalAmount.toFixed(2)} ${order.currency === "USD" ? "$" : order.currency}`;
+    if (order.currency === "USD" && order.exchangeRate != null && order.exchangeRate > 0) {
+      const uah = Math.round(order.totalAmount * order.exchangeRate);
+      return `${main} (${uah} ₴)`;
+    }
+    return main;
   }
 
   private drawWaybill(
@@ -287,7 +298,7 @@ export class OrdersDocumentsService {
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 14;
     doc.font("Helvetica-Bold");
-    const totalStr = `Разом: ${order.totalAmount.toFixed(2)} ${order.currency}`;
+    const totalStr = this.formatDocumentTotal(order);
     doc.text(totalStr, 380, doc.y);
   }
 }

@@ -5,6 +5,7 @@ import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "@/lib/api/client";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
@@ -101,6 +102,8 @@ type OrderDetails = {
   createdAt: string;
   items: OrderItem[];
   currency: string;
+  /** UAH per 1 USD — fixed at order creation. */
+  exchangeRate?: number | null;
   /** TTN records (from Bitrix import or NP creation); status from cron sync or NP API */
   ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
 };
@@ -176,18 +179,18 @@ type OrderModalProps = {
 type StepDef = {
   key: string;
   label: string;
-  color: "zinc" | "blue" | "amber" | "violet" | "emerald" | "red";
+  color: "zinc" | "sky" | "amber" | "emerald" | "red";
 };
 
-/** Phase 3: orderStage steps (main flow + service). */
+/** Phase 3: orderStage steps (main flow + service). Harmonized: accent/sky for flow, amber for wait, emerald for done, red for negative. */
 const ORDER_STAGE_STEPS: StepDef[] = [
   { key: "NEW", label: "Новий", color: "zinc" },
-  { key: "CONFIRMED", label: "Підтверджено", color: "blue" },
+  { key: "CONFIRMED", label: "Підтверджено", color: "sky" },
   { key: "AWAITING_PAYMENT", label: "Очікує оплату", color: "amber" },
-  { key: "AWAITING_STOCK", label: "Очікує склад", color: "violet" },
-  { key: "READY_TO_SHIP", label: "Готово до відправки", color: "amber" },
-  { key: "SHIPPED", label: "Відправлено", color: "blue" },
-  { key: "AWAITING_RECEIPT", label: "Очікує отримання", color: "amber" },
+  { key: "AWAITING_STOCK", label: "Очікує склад", color: "sky" },
+  { key: "READY_TO_SHIP", label: "Готово до відправки", color: "sky" },
+  { key: "SHIPPED", label: "Відправлено", color: "sky" },
+  { key: "AWAITING_RECEIPT", label: "Очікує отримання", color: "sky" },
   { key: "RECEIVED", label: "Отримано", color: "emerald" },
   { key: "COMPLETED", label: "Завершено", color: "emerald" },
   { key: "CANCELED", label: "Скасовано", color: "red" },
@@ -227,19 +230,14 @@ function Stepper({
       };
     }
     switch (c) {
-      case "blue":
+      case "sky":
         return {
-          on: "bg-blue-600 text-white border-blue-600",
+          on: "bg-sky-600 text-white border-sky-600",
           off: "bg-zinc-100 text-zinc-600 border-zinc-200",
         };
-        case "amber":
+      case "amber":
         return {
           on: "bg-amber-500 text-white border-amber-500",
-          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
-        };
-      case "violet":
-        return {
-          on: "bg-violet-500 text-white border-violet-500",
           off: "bg-zinc-100 text-zinc-600 border-zinc-200",
         };
       case "emerald":
@@ -1382,11 +1380,21 @@ export function OrderModal({
                                 className="text-zinc-600 hover:underline"
                               >
                                 {it.price.toFixed(2)}
+                                {order.currency === "USD" && order.exchangeRate != null && order.exchangeRate > 0 ? (
+                                  <span className="ml-1 text-zinc-500 font-normal">
+                                    ({Math.round(it.price * order.exchangeRate)} ₴)
+                                  </span>
+                                ) : null}
                               </button>
                             )}
                             <span className="text-zinc-500">=</span>
                             <span className="w-14 text-right font-medium text-zinc-900">
                               {it.lineTotal.toFixed(2)}
+                              {order.currency === "USD" && order.exchangeRate != null && order.exchangeRate > 0 ? (
+                                <span className="ml-1 text-zinc-500 font-normal">
+                                  ({Math.round(it.lineTotal * order.exchangeRate)} ₴)
+                                </span>
+                              ) : null}
                             </span>
                           </div>
                           <button
@@ -1991,8 +1999,8 @@ export function OrderModal({
                       <div>
                         <div className="text-xs text-zinc-500">Paid / Debt</div>
                         <div className="mt-1 text-zinc-700">
-                          {order.currency ?? "UAH"} {Number(order.paidAmount ?? 0).toFixed(2)} /{" "}
-                          {Number(order.debtAmount ?? 0).toFixed(2)}
+                          {formatOrderAmount(Number(order.paidAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)} /{" "}
+                          {formatOrderAmount(Number(order.debtAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)}
                         </div>
                         {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
                           <div className="mt-0.5 text-xs text-zinc-500">
@@ -2103,7 +2111,7 @@ export function OrderModal({
                       <div>
                         <div className="text-xs text-zinc-500">Total</div>
                         <div className="mt-1 font-semibold text-zinc-900">
-                          {order.totalAmount.toFixed(2)} {order.currency}
+                          {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
                         </div>
                       </div>
                     </div>
@@ -2173,6 +2181,7 @@ export function OrderModal({
                   totalAmount={Number(order.totalAmount ?? 0)}
                   paymentStatus={(order as { paymentStatus?: string }).paymentStatus}
                   currency={order.currency}
+                  exchangeRate={order.exchangeRate ?? null}
                   onSaved={async () => {
                     await refreshOrder();
                     onSaved?.();

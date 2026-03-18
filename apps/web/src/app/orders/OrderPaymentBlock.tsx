@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 
 type PaymentItem = {
   id: string;
@@ -43,6 +44,8 @@ export type OrderPaymentBlockProps = {
   totalAmount: number;
   paymentStatus?: string;
   currency: string;
+  /** UAH per 1 USD — fixed at order creation; used to show amount in UAH next to USD. */
+  exchangeRate?: number | null;
   /** Called after payment added/updated; can be async. Parent should refetch order and optionally refresh list. */
   onSaved?: () => void | Promise<void>;
 };
@@ -56,6 +59,7 @@ export function OrderPaymentBlock({
   totalAmount,
   paymentStatus,
   currency,
+  exchangeRate,
   onSaved,
 }: OrderPaymentBlockProps) {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
@@ -133,7 +137,7 @@ export function OrderPaymentBlock({
           <span className="font-medium text-zinc-900">{statusLabel ?? "Payment"}</span>
           {" · "}
           <span>
-            {paidAmount.toFixed(2)} / {totalAmount.toFixed(2)} {currency}
+            {formatOrderAmount(paidAmount, currency, exchangeRate)} / {formatOrderAmount(totalAmount, currency, exchangeRate)}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">

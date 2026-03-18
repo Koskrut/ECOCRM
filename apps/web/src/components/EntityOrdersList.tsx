@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 
 type OrderListItem = {
@@ -10,6 +11,7 @@ type OrderListItem = {
   status: string;
   totalAmount: number;
   currency?: string;
+  exchangeRate?: number | null;
   createdAt: string;
 };
 
@@ -102,10 +104,7 @@ export function EntityOrdersList({
               </div>
 
               <div className="whitespace-nowrap text-sm text-zinc-900">
-                {Number.isFinite(o.totalAmount) ? o.totalAmount.toFixed(2) : o.totalAmount}
-                {o.currency ? (
-                  <span className="ml-1 text-xs text-zinc-500">{o.currency}</span>
-                ) : null}
+                {formatOrderAmount(Number(o.totalAmount), o.currency ?? "UAH", o.exchangeRate)}
               </div>
             </div>
           </button>

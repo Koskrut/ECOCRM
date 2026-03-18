@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 
 type OrderItem = {
@@ -10,6 +11,7 @@ type OrderItem = {
   status: string;
   totalAmount: number;
   currency: string;
+  exchangeRate?: number | null;
   createdAt: string;
   comment?: string | null;
   client?: { id: string; firstName: string; lastName: string; phone: string };
@@ -113,7 +115,7 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
                 {o.client ? `${o.client.lastName} ${o.client.firstName}` : "—"}
               </td>
               <td className="px-4 py-3 text-sm text-zinc-700">
-                {o.totalAmount} {o.currency}
+                {formatOrderAmount(o.totalAmount, o.currency, o.exchangeRate)}
               </td>
               <td className="px-4 py-3 text-sm text-zinc-600">
                 {new Date(o.createdAt).toLocaleString()}

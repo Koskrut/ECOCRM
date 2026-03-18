@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 
 /** Phase 5: Returns kanban — columns by ReturnStatus, drag-and-drop to change status (validated on backend). */
@@ -23,6 +24,7 @@ type ReturnOrder = {
   debtAmount?: number;
   paidAmount?: number;
   currency?: string;
+  exchangeRate?: number | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
 };
@@ -241,7 +243,7 @@ export function ReturnsKanban({
                       </div>
                       {r.order.debtAmount != null && (
                         <div className="mt-1 text-xs text-amber-700">
-                          Борг: {r.order.debtAmount} {r.order.currency ?? "UAH"}
+                          Борг: {formatOrderAmount(r.order.debtAmount, r.order.currency ?? "UAH", r.order.exchangeRate)}
                         </div>
                       )}
                       <div className="mt-1 text-xs text-zinc-400">
