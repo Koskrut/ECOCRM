@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { GoogleSheetModule } from "../integrations/google-sheet/google-sheet.module";
+import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentsModule } from "../payments/payments.module";
 import { SettingsModule } from "../settings/settings.module";
@@ -10,7 +11,14 @@ import { OrdersService } from "./orders.service";
 import { OrderStatusService } from "./order-status.service";
 
 @Module({
-  imports: [PrismaModule, PaymentsModule, WarehousesModule, SettingsModule, GoogleSheetModule],
+  imports: [
+    PrismaModule,
+    PaymentsModule,
+    WarehousesModule,
+    SettingsModule,
+    GoogleSheetModule,
+    OrderReturnsModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, OrderStatusService, OrdersDocumentsService],
   exports: [OrdersService],

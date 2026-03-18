@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { OrderStatus, PaymentMethod } from "@prisma/client";
+import type { PaymentMethod } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 
@@ -31,7 +31,8 @@ export type GoogleSheetOrderPayload = {
   warehouseCode: string | null;
   items: Array<{ sku: string; qty: number; price: number }>;
   exchangeRate: number | null;
-  status: OrderStatus;
+  /** Phase 7: orderStage (or legacy status string for compat). */
+  status: string;
 };
 
 const SEND_ORDER_INCLUDE = {
@@ -97,7 +98,7 @@ export class GoogleSheetSendOrderService {
       warehouseCode,
       items,
       exchangeRate: order.exchangeRate ?? null,
-      status: order.status as OrderStatus,
+      status: (order.orderStage ?? order.status ?? "NEW") as string,
     };
   }
 

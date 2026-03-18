@@ -5,7 +5,12 @@ import { NpClient } from "./np-client.service";
 import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
 import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
 import { Prisma } from "@prisma/client";
-import type { Carrier, OrderStatus as PrismaOrderStatus } from "@prisma/client";
+import type { Carrier, OrderStage, OrderStatus as PrismaOrderStatus } from "@prisma/client";
+import {
+  computeFinancialStatusFromOrder,
+  legacyStatusToOrderUpdate,
+  orderStageToLegacyStatus,
+} from "../orders/order-status-sync.mapper";
 import { PrismaService } from "../prisma/prisma.service";
 
 type SenderCache = {
@@ -612,7 +617,7 @@ export class NpTtnService {
   // Persist TTN to Order.deliveryData (+ move NEW -> IN_WORK)
   // ======================
   private async persistOrderDeliveryDataWithTtn(
-    order: { id: string; status: string; deliveryData?: unknown },
+    order: { id: string; status?: string | null; orderStage?: string | null; deliveryData?: unknown },
     resolved: { data: Record<string, unknown> },
     saved: {
       documentNumber: string;
@@ -672,11 +677,43 @@ export class NpTtnService {
       },
     };
 
+    const isNew =
+      (order as { orderStage?: string | null }).orderStage === "NEW" ||
+      order.status === "NEW";
+    let statusUpdate: Record<string, unknown> = isNew
+      ? {
+          orderStage: "CONFIRMED" as const,
+          deliveryStatus: "NOT_SHIPPED" as const,
+        }
+      : {};
+    if (Object.keys(statusUpdate).length > 0) {
+      const full = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: {
+          paymentType: true,
+          paidAmount: true,
+          totalAmount: true,
+          debtAmount: true,
+          paymentDueDate: true,
+          orderStage: true,
+        },
+      });
+      if (full) {
+        statusUpdate.financialStatus = computeFinancialStatusFromOrder({
+          paymentType: full.paymentType,
+          totalAmount: Number(full.totalAmount),
+          paidAmount: Number(full.paidAmount),
+          debtAmount: Number(full.debtAmount),
+          paymentDueDate: full.paymentDueDate ?? undefined,
+          orderStage: (statusUpdate.orderStage as OrderStage) ?? full.orderStage ?? undefined,
+        });
+      }
+    }
     await this.prisma.order.update({
       where: { id: order.id },
       data: {
         deliveryData: nextDeliveryData as Prisma.InputJsonValue,
-        ...(order.status === "NEW" ? { status: "IN_WORK" } : {}),
+        ...statusUpdate,
       },
     });
   }
@@ -808,19 +845,27 @@ export class NpTtnService {
   async syncActiveTtns(opts?: { limit?: number }) {
     const limit = Math.min(Math.max(Number(opts?.limit ?? 200), 1), 1000);
 
-    // Заказы с ТТН (из приложения — deliveryData.novaPoshta.ttn — или из Bitrix — OrderTtn)
+    // Phase 7: filter by orderStage only; exclude closed stages
+    const closedStages: OrderStage[] = ["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS"];
     const orders = await this.prisma.order.findMany({
       where: {
         deliveryMethod: "NOVA_POSHTA" as Carrier,
-        status: { notIn: ["SUCCESS", "CANCELED", "RETURNING"] as PrismaOrderStatus[] },
         OR: [
+          { orderStage: null },
+          { orderStage: { notIn: closedStages } },
+        ],
+        AND: [
           {
-            deliveryData: {
-              path: ["novaPoshta", "ttn", "number"],
-              not: Prisma.JsonNull,
-            },
+            OR: [
+              {
+                deliveryData: {
+                  path: ["novaPoshta", "ttn", "number"],
+                  not: Prisma.JsonNull,
+                },
+              },
+              { ttns: { some: {} } },
+            ],
           },
-          { ttns: { some: {} } },
         ],
       },
       orderBy: { updatedAt: "desc" },
@@ -837,7 +882,7 @@ export class NpTtnService {
     });
 
     const docs = orders
-      .map((o) => {
+      .map((o: { id: string; deliveryData: unknown; ttns?: { documentNumber: string }[] }) => {
         const fromDeliveryData = (
           ((o.deliveryData as Record<string, unknown>)?.novaPoshta as Record<string, unknown>)
             ?.ttn as Record<string, unknown>
@@ -977,7 +1022,12 @@ export class NpTtnService {
       select: {
         id: true,
         status: true,
+        orderStage: true,
         debtAmount: true,
+        paymentType: true,
+        paidAmount: true,
+        totalAmount: true,
+        paymentDueDate: true,
         deliveryMethod: true,
         deliveryData: true,
         ttns: {
@@ -1003,8 +1053,9 @@ export class NpTtnService {
       },
     };
 
-    const currentStatus = String(order.status) as OrderStatus;
-    const mapped = this.mapNpToOrderStatus({
+    // Phase 7: when status is null, derive current from orderStage so we don't overwrite COMPLETED with older NP status
+    const currentStatus = (order.status ? String(order.status) : orderStageToLegacyStatus(order.orderStage ?? "NEW", { debtAmount: order.debtAmount })) as OrderStatus;
+    const mappedLegacy = this.mapNpToOrderStatus({
       npCode: status?.StatusCode != null ? String(status.StatusCode) : undefined,
       npText: status?.Status != null ? String(status.Status) : undefined,
       debtAmount: order.debtAmount,
@@ -1015,11 +1066,20 @@ export class NpTtnService {
     };
 
     if (
-      mapped &&
-      mapped !== currentStatus &&
-      this.shouldAdvanceOrderStatus(currentStatus, mapped)
+      mappedLegacy &&
+      mappedLegacy !== currentStatus &&
+      this.shouldAdvanceOrderStatus(currentStatus, mappedLegacy)
     ) {
-      updateData.status = mapped as PrismaOrderStatus;
+      const newFields = legacyStatusToOrderUpdate(mappedLegacy as PrismaOrderStatus, {
+        paymentType: order.paymentType,
+        paidAmount: order.paidAmount,
+        totalAmount: order.totalAmount,
+        debtAmount: order.debtAmount,
+        paymentDueDate: order.paymentDueDate,
+      });
+      updateData.orderStage = newFields.orderStage;
+      updateData.deliveryStatus = newFields.deliveryStatus;
+      updateData.financialStatus = newFields.financialStatus;
     }
 
     await this.prisma.$transaction(async (tx) => {

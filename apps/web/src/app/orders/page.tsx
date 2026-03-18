@@ -7,8 +7,10 @@ import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
+import { FinancialKanban } from "./FinancialKanban";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
+import { ReturnsKanban } from "./ReturnsKanban";
 import {
   OrdersFiltersPopover,
   type HasTtnFilter,
@@ -26,6 +28,7 @@ type OrderSummary = {
   companyId: string | null;
   clientId: string | null;
   status: string;
+  orderStage?: string | null;
   totalAmount: number;
   paidAmount?: number;
   debtAmount?: number;
@@ -47,20 +50,36 @@ type OrdersListResponse = {
   pageSize: number;
 };
 
-type OrdersView = "list" | "kanban";
+type OrdersView = "list" | "kanban" | "financial" | "returns";
 
 const DEFAULT_PAGE_SIZE = 50;
 
-const ORDER_STATUS_OPTIONS: { value: string; label: string }[] = [
+/** Phase 3: primary filter by orderStage (human-readable). */
+const ORDER_STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Усі стадії" },
-  { value: "NEW", label: "NEW" },
-  { value: "IN_WORK", label: "IN_WORK" },
-  { value: "READY_TO_SHIP", label: "READY_TO_SHIP" },
-  { value: "SHIPPED", label: "SHIPPED" },
-  { value: "CONTROL_PAYMENT", label: "CONTROL_PAYMENT" },
-  { value: "SUCCESS", label: "SUCCESS" },
-  { value: "RETURNING", label: "RETURNING" },
-  { value: "CANCELED", label: "CANCELED" },
+  { value: "NEW", label: "Новий" },
+  { value: "CONFIRMED", label: "Підтверджено" },
+  { value: "AWAITING_PAYMENT", label: "Очікує оплату" },
+  { value: "AWAITING_STOCK", label: "Очікує на склад" },
+  { value: "READY_TO_SHIP", label: "Готово до відправки" },
+  { value: "SHIPPED", label: "Відправлено" },
+  { value: "AWAITING_RECEIPT", label: "Очікує отримання" },
+  { value: "RECEIVED", label: "Отримано" },
+  { value: "COMPLETED", label: "Завершено" },
+  { value: "CANCELED", label: "Скасовано" },
+  { value: "REFUSED", label: "Відмова" },
+  { value: "RETURN_IN_PROGRESS", label: "Повернення" },
+];
+
+/** Phase 4: financial board filter options */
+const FINANCIAL_STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Усі фін. статуси" },
+  { value: "INVOICE_PENDING", label: "Потрібно виставити рахунок" },
+  { value: "AWAITING_PAYMENT", label: "Очікуємо оплату" },
+  { value: "DUE_SOON", label: "Термін скоро" },
+  { value: "OVERDUE", label: "Прострочено" },
+  { value: "PAID", label: "Оплачено" },
+  { value: "CLOSED", label: "Закрито" },
 ];
 
 function getErrMessage(e: unknown, fallback: string) {
@@ -95,8 +114,30 @@ function OrdersPageContent() {
     return Number.isFinite(raw) && raw > 0 ? raw : 1;
   });
   const [pageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [view, setView] = useState<OrdersView>(() =>
-    searchParams.get("view") === "kanban" ? "kanban" : "list",
+  const [view, setView] = useState<OrdersView>(() => {
+    const v = searchParams.get("view");
+    if (v === "kanban") return "kanban";
+    if (v === "financial") return "financial";
+    if (v === "returns") return "returns";
+    return "list";
+  });
+  const [financialStatusFilter, setFinancialStatusFilter] = useState<string>(
+    () => searchParams.get("financialStatus") ?? "",
+  );
+  const [financialOverdue, setFinancialOverdue] = useState<boolean>(() =>
+    searchParams.get("financialOverdue") === "true",
+  );
+  const [financialDueSoon, setFinancialDueSoon] = useState<boolean>(() =>
+    searchParams.get("financialDueSoon") === "true",
+  );
+  const [financialHasDebt, setFinancialHasDebt] = useState<boolean>(() =>
+    searchParams.get("financialHasDebt") === "true",
+  );
+  const [financialHasDueDate, setFinancialHasDueDate] = useState<boolean>(() =>
+    searchParams.get("financialHasDueDate") === "true",
+  );
+  const [orderStageFilter, setOrderStageFilter] = useState<string>(
+    () => searchParams.get("orderStage") ?? "",
   );
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get("status") ?? "");
   const [ownerIdFilter, setOwnerIdFilter] = useState<string>(() => searchParams.get("ownerId") ?? "");
@@ -139,7 +180,13 @@ function OrdersPageContent() {
     const params = new URLSearchParams();
     if (orderIdFromUrl) params.set("orderId", orderIdFromUrl);
     if (view !== "list") params.set("view", view);
+    if (financialStatusFilter) params.set("financialStatus", financialStatusFilter);
+    if (financialOverdue) params.set("financialOverdue", "true");
+    if (financialDueSoon) params.set("financialDueSoon", "true");
+    if (financialHasDebt) params.set("financialHasDebt", "true");
+    if (financialHasDueDate) params.set("financialHasDueDate", "true");
     if (page > 1) params.set("page", String(page));
+    if (orderStageFilter) params.set("orderStage", orderStageFilter);
     if (statusFilter) params.set("status", statusFilter);
     if (ownerIdFilter) params.set("ownerId", ownerIdFilter);
     if (amountFrom) params.set("amountFrom", amountFrom);
@@ -175,8 +222,14 @@ function OrdersPageContent() {
     searchParams,
     sortBy,
     sortDir,
+    orderStageFilter,
     statusFilter,
     view,
+    financialStatusFilter,
+    financialOverdue,
+    financialDueSoon,
+    financialHasDebt,
+    financialHasDueDate,
   ]);
 
   useEffect(() => {
@@ -238,7 +291,7 @@ function OrdersPageContent() {
         pageSize,
         withCompanyClient: true,
       };
-      if (statusFilter) params.status = statusFilter;
+      if (orderStageFilter) params.orderStage = orderStageFilter;
       if (ownerIdFilter) params.ownerId = ownerIdFilter;
       if (paymentTypeFilter) params.paymentType = paymentTypeFilter;
       if (paymentStatusFilter) params.paymentStatus = paymentStatusFilter;
@@ -289,12 +342,13 @@ function OrdersPageContent() {
     q,
     sortBy,
     sortDir,
+    orderStageFilter,
     statusFilter,
   ]);
 
   useEffect(() => {
-    void fetchOrders();
-  }, [fetchOrders]);
+    if (view !== "financial" && view !== "returns") void fetchOrders();
+  }, [fetchOrders, view]);
 
   const openExistingOrder = (id: string) => {
     setActiveOrderId(id);
@@ -351,6 +405,7 @@ function OrdersPageContent() {
 
   const applyPopoverFilters = (next: OrdersFiltersState) => {
     setAppendOnNextFetch(false);
+    setOrderStageFilter(next.orderStage);
     setStatusFilter(next.status);
     setOwnerIdFilter(next.ownerId);
     setAmountFrom(next.amountFrom);
@@ -367,6 +422,7 @@ function OrdersPageContent() {
 
   const resetAllFilters = () => {
     setAppendOnNextFetch(false);
+    setOrderStageFilter("");
     setStatusFilter("");
     setOwnerIdFilter("");
     setAmountFrom("");
@@ -384,6 +440,7 @@ function OrdersPageContent() {
   };
 
   const filtersState: OrdersFiltersState = {
+    orderStage: orderStageFilter,
     status: statusFilter,
     ownerId: ownerIdFilter,
     amountFrom,
@@ -398,6 +455,7 @@ function OrdersPageContent() {
   };
 
   const activeFiltersCount = [
+    orderStageFilter,
     statusFilter,
     ownerIdFilter,
     amountFrom,
@@ -469,6 +527,24 @@ function OrdersPageContent() {
                 >
                   Kanban
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setView("financial")}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    view === "financial" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  Фінанси
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setView("returns")}
+                  className={`rounded-md px-3 py-1.5 text-sm ${
+                    view === "returns" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  Повернення
+                </button>
               </div>
               <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
                 <Search className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
@@ -495,18 +571,101 @@ function OrdersPageContent() {
               open={filtersOpen}
               value={filtersState}
               ownerOptions={owners}
-              statusOptions={ORDER_STATUS_OPTIONS}
+              orderStageOptions={ORDER_STAGE_OPTIONS}
               onClose={() => setFiltersOpen(false)}
               onApply={applyPopoverFilters}
               onReset={resetAllFilters}
             />
           </div>
           <div className="mt-2 text-sm text-zinc-500">
-            Всего: {total} | Страница {page} из {totalPages}
+            {view === "financial"
+              ? "Фінансова дошка — за станом оплат і термінів"
+              : view === "returns"
+                ? "Канбан повернень замовлень"
+                : `Всего: ${total} | Страница ${page} из ${totalPages}`}
           </div>
         </div>
 
-        {view === "list" ? (
+        {view === "returns" ? (
+          <ReturnsKanban
+            onOpenOrder={(orderId) => openExistingOrder(orderId)}
+          />
+        ) : view === "financial" ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-2">
+              <span className="text-xs font-medium text-zinc-500">Фільтри:</span>
+              <select
+                value={financialStatusFilter}
+                onChange={(e) => setFinancialStatusFilter(e.target.value)}
+                className="rounded border border-zinc-200 px-2 py-1 text-sm"
+              >
+                {FINANCIAL_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value || "_"} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={paymentTypeFilter}
+                onChange={(e) => setPaymentTypeFilter(e.target.value)}
+                className="rounded border border-zinc-200 px-2 py-1 text-sm"
+              >
+                <option value="">Тип оплати: будь-який</option>
+                <option value="PREPAYMENT">Предоплата</option>
+                <option value="DEFERRED">Отсрочка</option>
+              </select>
+              <label className="flex items-center gap-1 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={financialOverdue}
+                  onChange={(e) => setFinancialOverdue(e.target.checked)}
+                />
+                Прострочено
+              </label>
+              <label className="flex items-center gap-1 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={financialDueSoon}
+                  onChange={(e) => setFinancialDueSoon(e.target.checked)}
+                />
+                Термін скоро
+              </label>
+              <label className="flex items-center gap-1 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={financialHasDebt}
+                  onChange={(e) => setFinancialHasDebt(e.target.checked)}
+                />
+                Є борг
+              </label>
+              <label className="flex items-center gap-1 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={financialHasDueDate}
+                  onChange={(e) => setFinancialHasDueDate(e.target.checked)}
+                />
+                Є срок оплати
+              </label>
+            </div>
+            <FinancialKanban
+              onOpenOrder={(id) => openExistingOrder(id)}
+              filters={{
+                financialStatus: financialStatusFilter || undefined,
+                paymentType: paymentTypeFilter || undefined,
+                overdue: financialOverdue ? "true" : undefined,
+                dueSoon: financialDueSoon ? "true" : undefined,
+                hasDebt: financialHasDebt ? "true" : undefined,
+                hasDueDate: financialHasDueDate ? "true" : undefined,
+                ownerId: ownerIdFilter || undefined,
+                q: q || undefined,
+                dateFrom: dateFrom || undefined,
+                dateTo: dateTo || undefined,
+                sortBy: "paymentDueDate",
+                sortDir: "asc",
+              }}
+            />
+          </div>
+        ) : view === "list" ? (
           <>
             {/* Desktop + Tablet: table */}
             <div className="hidden sm:block overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -586,7 +745,11 @@ function OrdersPageContent() {
                           )}
                         </td>
                         <td className="px-4 py-4">
-                          <StatusBadge variant="order" status={order.status} />
+                          <StatusBadge
+                            variant="order"
+                            status={order.status}
+                            orderStage={order.orderStage}
+                          />
                         </td>
                         <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
                           {order.itemsCount}
@@ -706,6 +869,7 @@ function OrdersPageContent() {
           <OrdersKanban
             onOpenOrder={(id) => openExistingOrder(id)}
             filters={{
+              orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,
               ownerId: ownerIdFilter || undefined,
               amountFrom: amountFrom || undefined,

@@ -14,6 +14,10 @@ import {
   firstEmailFromRest,
   parseBitrixProductNameForSku,
 } from "./bitrix.mapper";
+import {
+  computeFinancialStatusFromOrder,
+  orderStageToDeliveryStatus,
+} from "../../orders/order-status-sync.mapper";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
@@ -243,13 +247,18 @@ export class BitrixDeltaSyncService {
         const existing = await this.prisma.order.findUnique({
           where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
         });
+        const financialStatus = computeFinancialStatusFromOrder({
+          totalAmount: data.totalAmount,
+          paidAmount: data.paidAmount,
+          debtAmount: data.debtAmount,
+          orderStage: data.orderStage,
+        });
         const payload = {
           orderNumber: data.orderNumber,
           companyId: data.companyId,
           clientId: data.clientId,
           contactId: data.contactId,
           ownerId: data.ownerId,
-          status: data.status,
           paymentMethod: data.paymentMethod ?? undefined,
           documentsRequested: data.documentsRequested ?? undefined,
           deliveryMethod: data.deliveryMethod ?? undefined,
@@ -266,6 +275,9 @@ export class BitrixDeltaSyncService {
           syncedAt: data.syncedAt,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
+          orderStage: data.orderStage,
+          deliveryStatus: orderStageToDeliveryStatus(data.orderStage),
+          financialStatus,
         };
         let orderId: string;
         if (existing) {
@@ -453,13 +465,18 @@ export class BitrixDeltaSyncService {
     const existing = await this.prisma.order.findUnique({
       where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
     });
+    const financialStatus = computeFinancialStatusFromOrder({
+      totalAmount: data.totalAmount,
+      paidAmount: data.paidAmount,
+      debtAmount: data.debtAmount,
+      orderStage: data.orderStage,
+    });
     const payload = {
       orderNumber: data.orderNumber,
       companyId: data.companyId,
       clientId: data.clientId,
       contactId: data.contactId,
       ownerId: data.ownerId,
-      status: data.status,
       paymentMethod: data.paymentMethod ?? undefined,
       documentsRequested: data.documentsRequested ?? undefined,
       deliveryMethod: data.deliveryMethod ?? undefined,
@@ -476,6 +493,9 @@ export class BitrixDeltaSyncService {
       syncedAt: data.syncedAt,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
+      orderStage: data.orderStage,
+      deliveryStatus: orderStageToDeliveryStatus(data.orderStage),
+      financialStatus,
     };
     let orderId: string;
     if (existing) {

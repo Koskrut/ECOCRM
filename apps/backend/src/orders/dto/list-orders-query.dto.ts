@@ -1,8 +1,22 @@
-import { OrderPaymentStatus, OrderStatus, PaymentType } from "@prisma/client";
+import {
+  OrderFinancialStatus,
+  OrderPaymentStatus,
+  OrderStage,
+  OrderStatus,
+  PaymentType,
+} from "@prisma/client";
 import { Transform, Type } from "class-transformer";
 import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
 
-const ORDER_SORT_FIELDS = ["createdAt", "totalAmount", "status", "orderNumber"] as const;
+const ORDER_SORT_FIELDS = [
+  "createdAt",
+  "totalAmount",
+  "status",
+  "orderNumber",
+  "orderStage",
+  "financialStatus",
+  "paymentDueDate",
+] as const;
 type OrderSortField = (typeof ORDER_SORT_FIELDS)[number];
 
 export class ListOrdersQueryDto {
@@ -34,6 +48,39 @@ export class ListOrdersQueryDto {
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
+
+  @IsOptional()
+  @IsEnum(OrderStage)
+  orderStage?: OrderStage;
+
+  @IsOptional()
+  @IsEnum(OrderFinancialStatus)
+  financialStatus?: OrderFinancialStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  financialBoard?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  overdue?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  dueSoon?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  hasDebt?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  hasDueDate?: boolean;
 
   @IsOptional()
   @IsString()

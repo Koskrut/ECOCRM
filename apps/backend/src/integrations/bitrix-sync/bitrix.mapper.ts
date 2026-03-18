@@ -1,4 +1,11 @@
-import type { DeliveryMethod, OrderStatus, PaymentMethod, UserRole } from "@prisma/client";
+import type {
+  DeliveryMethod,
+  OrderStage,
+  OrderStatus,
+  PaymentMethod,
+  UserRole,
+} from "@prisma/client";
+import { legacyStatusToOrderStage } from "../../orders/order-status-sync.mapper";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
 
 /** Bitrix UF_CRM_1753079162490 (область) enum ID → название (b_user_field_enum, USER_FIELD_ID = 114). */
@@ -411,6 +418,17 @@ export function mapBitrixDealStageToOrderStatus(
   return "NEW";
 }
 
+/**
+ * Phase 7: Bitrix deal stage → OrderStage (new model). Uses legacy mapper + conversion.
+ */
+export function mapBitrixDealStageToOrderStage(
+  stageId: string | null | undefined,
+  stageSemanticId?: string | null,
+): OrderStage {
+  const legacy = mapBitrixDealStageToOrderStatus(stageId, stageSemanticId);
+  return legacyStatusToOrderStage(legacy);
+}
+
 /** Parse Bitrix date string (e.g. "2024-01-15T12:30:00+03:00") to Date; returns null if invalid. */
 export function parseBitrixDate(value: unknown): Date | null {
   if (value == null) return null;
@@ -435,6 +453,7 @@ export function mapBitrixDealToPrisma(
   contactId: string | null;
   ownerId: string;
   status: OrderStatus;
+  orderStage: OrderStage;
   paymentMethod: PaymentMethod | null;
   documentsRequested: boolean | null;
   deliveryMethod: DeliveryMethod | null;
@@ -471,6 +490,7 @@ export function mapBitrixDealToPrisma(
   const createdAt = parseBitrixDate(row["DATE_CREATE"]) ?? now;
   const updatedAt = parseBitrixDate(row["DATE_MODIFY"]) ?? createdAt;
 
+  const orderStage = mapBitrixDealStageToOrderStage(stageId, stageSemanticId);
   return {
     orderNumber,
     companyId,
@@ -478,6 +498,7 @@ export function mapBitrixDealToPrisma(
     contactId,
     ownerId,
     status: mapBitrixDealStageToOrderStatus(stageId, stageSemanticId),
+    orderStage,
     paymentMethod,
     documentsRequested,
     deliveryMethod,

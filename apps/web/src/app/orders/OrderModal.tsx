@@ -73,6 +73,8 @@ type OrderDetails = {
   client?: { id: string; firstName: string; lastName: string; phone: string };
 
   status: string;
+  /** Phase 3: main axis for UI */
+  orderStage?: string | null;
   deliveryMethod: string | null;
   paymentType?: string | null;
   /** CASH | FOP — способ оплаты (from Bitrix UF_CRM_1753787869056) */
@@ -88,6 +90,10 @@ type OrderDetails = {
   waybillDate?: string | null;
   paidAmount?: number;
   debtAmount?: number;
+  /** Phase 5: sum of closed return amounts (reduces effective total/debt). */
+  returnAdjustmentAmount?: number | null;
+  /** Phase 4: payment due date for deferred (ISO date string). */
+  paymentDueDate?: string | null;
 
   discountAmount: number;
   totalAmount: number;
@@ -170,44 +176,50 @@ type OrderModalProps = {
 type StepDef = {
   key: string;
   label: string;
-  color: "zinc" | "blue" | "amber" | "emerald" | "red";
+  color: "zinc" | "blue" | "amber" | "violet" | "emerald" | "red";
 };
 
-const ORDER_STEPS: StepDef[] = [
-  { key: "NEW", label: "New", color: "zinc" },
-  { key: "IN_WORK", label: "In work", color: "blue" },
-  { key: "READY_TO_SHIP", label: "Ready", color: "amber" },
-  { key: "SHIPPED", label: "Shipped", color: "blue" },
-  { key: "CONTROL_PAYMENT", label: "Payment", color: "amber" },
-  { key: "SUCCESS", label: "Success", color: "emerald" },
-  { key: "RETURNING", label: "Returning", color: "red" },
-  { key: "CANCELED", label: "Canceled", color: "red" },
+/** Phase 3: orderStage steps (main flow + service). */
+const ORDER_STAGE_STEPS: StepDef[] = [
+  { key: "NEW", label: "Новий", color: "zinc" },
+  { key: "CONFIRMED", label: "Підтверджено", color: "blue" },
+  { key: "AWAITING_PAYMENT", label: "Очікує оплату", color: "amber" },
+  { key: "AWAITING_STOCK", label: "Очікує склад", color: "violet" },
+  { key: "READY_TO_SHIP", label: "Готово до відправки", color: "amber" },
+  { key: "SHIPPED", label: "Відправлено", color: "blue" },
+  { key: "AWAITING_RECEIPT", label: "Очікує отримання", color: "amber" },
+  { key: "RECEIVED", label: "Отримано", color: "emerald" },
+  { key: "COMPLETED", label: "Завершено", color: "emerald" },
+  { key: "CANCELED", label: "Скасовано", color: "red" },
+  { key: "REFUSED", label: "Відмова", color: "red" },
+  { key: "RETURN_IN_PROGRESS", label: "Повернення", color: "red" },
 ];
 
-function stepIndex(status: string) {
-  const idx = ORDER_STEPS.findIndex((s) => s.key === status);
+function stepIndex(stage: string) {
+  const idx = ORDER_STAGE_STEPS.findIndex((s) => s.key === stage);
   return idx >= 0 ? idx : 0;
 }
 
 function Stepper({
-  status,
+  stage,
   onStepClick,
   disabled,
   hasPayment,
 }: {
-  status: string;
+  stage: string;
   onStepClick?: (stepKey: string) => void;
   disabled?: boolean;
-  /** When true, Payment step is shown green (paid). */
+  /** When true, payment-related step is shown green (paid). */
   hasPayment?: boolean;
 }) {
-  const activeIdx = stepIndex(status);
+  const activeIdx = stepIndex(stage);
 
-  const isCanceled = status === "CANCELED";
-  const isReturning = status === "RETURNING";
+  const isCanceled = stage === "CANCELED";
+  const isRefused = stage === "REFUSED";
+  const isReturning = stage === "RETURN_IN_PROGRESS";
 
   const colorClasses = (c: StepDef["color"], stepKey?: string) => {
-    const usePaymentGreen = stepKey === "CONTROL_PAYMENT" && hasPayment;
+    const usePaymentGreen = stepKey === "AWAITING_PAYMENT" && hasPayment;
     if (usePaymentGreen) {
       return {
         on: "bg-emerald-600 text-white border-emerald-600",
@@ -220,9 +232,14 @@ function Stepper({
           on: "bg-blue-600 text-white border-blue-600",
           off: "bg-zinc-100 text-zinc-600 border-zinc-200",
         };
-      case "amber":
+        case "amber":
         return {
           on: "bg-amber-500 text-white border-amber-500",
+          off: "bg-zinc-100 text-zinc-600 border-zinc-200",
+        };
+      case "violet":
+        return {
+          on: "bg-violet-500 text-white border-violet-500",
           off: "bg-zinc-100 text-zinc-600 border-zinc-200",
         };
       case "emerald":
@@ -245,18 +262,19 @@ function Stepper({
 
   const isDone = (s: StepDef, idx: number) => {
     if (isCanceled) return s.key === "CANCELED";
-    if (isReturning) return s.key === "RETURNING";
+    if (isRefused) return s.key === "REFUSED";
+    if (isReturning) return s.key === "RETURN_IN_PROGRESS";
     return idx <= activeIdx;
   };
 
   return (
     <div className="border-b border-zinc-200 px-6 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        {ORDER_STEPS.map((s, idx) => {
+        {ORDER_STAGE_STEPS.map((s, idx) => {
           const done = isDone(s, idx);
           const cls = colorClasses(s.color, s.key);
           const canClick = onStepClick && !disabled;
-          const showOn = s.key === "CONTROL_PAYMENT" && hasPayment ? true : done;
+          const showOn = s.key === "AWAITING_PAYMENT" && hasPayment ? true : done;
           const badge = <Badge className={showOn ? cls.on : cls.off}>{s.label}</Badge>;
           return canClick ? (
             <button
@@ -280,7 +298,7 @@ function Stepper({
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "bankAccount" | "warehouse" | "documents" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "paymentDueDate" | "bankAccount" | "warehouse" | "documents" | "delivery" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -319,6 +337,7 @@ export function OrderModal({
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [documentsRequested, setDocumentsRequested] = useState<boolean | null>(null);
+  const [paymentDueDate, setPaymentDueDate] = useState<string>("");
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
 
@@ -348,6 +367,13 @@ export function OrderModal({
 
   // TTN
   const [showTtnModal, setShowTtnModal] = useState(false);
+
+  // Phase 5: returns
+  const [orderReturns, setOrderReturns] = useState<Array<{ id: string; status: string; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }>>([]);
+  const [returnsLoading, setReturnsLoading] = useState(false);
+  const [showCreateReturnForm, setShowCreateReturnForm] = useState(false);
+  const [createReturnSubmitting, setCreateReturnSubmitting] = useState(false);
+  const [returnItemQtys, setReturnItemQtys] = useState<Record<string, number>>({});
 
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
@@ -437,6 +463,14 @@ export function OrderModal({
     setBankAccountId(data.bankAccountId ?? null);
     setWarehouseId(data.warehouseId ?? null);
     setDocumentsRequested(data.documentsRequested ?? null);
+    setPaymentDueDate(
+      data.paymentDueDate
+        ? (typeof data.paymentDueDate === "string"
+            ? data.paymentDueDate
+            : new Date(data.paymentDueDate).toISOString()
+          ).slice(0, 10)
+        : "",
+    );
     setDiscountAmount(Number(data.discountAmount ?? 0));
     setComment(data.comment ?? "");
   }, []);
@@ -478,18 +512,37 @@ export function OrderModal({
     }
   }, [apiBaseUrl, orderId]);
 
-  const setOrderStatus = useCallback(
-    async (toStatus: string) => {
+  const refreshReturns = useCallback(async () => {
+    if (!orderId) return;
+    setReturnsLoading(true);
+    try {
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, { cache: "no-store", credentials: "include" });
+      if (!r.ok) return setOrderReturns([]);
+      const data = (await r.json()) as { items?: Array<{ id: string; status: string; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }> };
+      setOrderReturns(data.items ?? []);
+    } catch {
+      setOrderReturns([]);
+    } finally {
+      setReturnsLoading(false);
+    }
+  }, [apiBaseUrl, orderId]);
+
+  /** Phase 3: PATCH /orders/:id/stage with toStage */
+  const setOrderStage = useCallback(
+    async (toStage: string) => {
       if (!orderId) return;
       setStatusUpdating(true);
       try {
-        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/status`, {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/stage`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ toStatus }),
+          body: JSON.stringify({ toStage }),
           credentials: "include",
         });
-        if (!r.ok) throw new Error(`Failed to update status (${r.status})`);
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error((errData?.message as string) || `Failed to update stage (${r.status})`);
+        }
         await refreshOrder();
         onSaved?.();
       } finally {
@@ -557,6 +610,7 @@ export function OrderModal({
 
     void refreshOrder();
     void refreshTimeline();
+    void refreshReturns();
   }, [
     isCreate,
     orderId,
@@ -565,6 +619,7 @@ export function OrderModal({
     fetchCompanies,
     fetchContacts,
     refreshOrder,
+    refreshReturns,
     refreshTimeline,
   ]);
 
@@ -977,8 +1032,8 @@ export function OrderModal({
     !isCreate && order ? (
       <div className="space-y-2">
         <Stepper
-          status={order.status}
-          onStepClick={setOrderStatus}
+          stage={order.orderStage ?? order.status}
+          onStepClick={setOrderStage}
           disabled={statusUpdating}
           hasPayment={Number(order.paidAmount ?? 0) > 0}
         />
@@ -1531,6 +1586,75 @@ export function OrderModal({
                       </div>
 
                       <div>
+                        <div className="text-xs text-zinc-500">Срок оплати</div>
+                        {editing === "paymentDueDate" ? (
+                          <div className="mt-1 flex items-center gap-2">
+                            <input
+                              type="date"
+                              value={paymentDueDate}
+                              onChange={(e) => setPaymentDueDate(e.target.value)}
+                              className="rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                              disabled={saving}
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const v = paymentDueDate.trim() ? paymentDueDate.trim() : null;
+                                try {
+                                  await patchOrder({ paymentDueDate: v });
+                                  if (order) {
+                                    setOrder((prev) => (prev ? { ...prev, paymentDueDate: v ?? undefined } : prev));
+                                  }
+                                } finally {
+                                  setEditing(null);
+                                }
+                              }}
+                              className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
+                            >
+                              Зберегти
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentDueDate(
+                                  order.paymentDueDate
+                                    ? (typeof order.paymentDueDate === "string"
+                                        ? order.paymentDueDate
+                                        : new Date(order.paymentDueDate).toISOString()
+                                      ).slice(0, 10)
+                                    : "",
+                                );
+                                setEditing(null);
+                              }}
+                              className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
+                            >
+                              Скасувати
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentDueDate(
+                                order.paymentDueDate
+                                  ? (typeof order.paymentDueDate === "string"
+                                      ? order.paymentDueDate
+                                      : new Date(order.paymentDueDate).toISOString()
+                                    ).slice(0, 10)
+                                  : "",
+                              );
+                              setEditing("paymentDueDate");
+                            }}
+                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                          >
+                            {order.paymentDueDate
+                              ? new Date(order.paymentDueDate).toLocaleDateString("uk-UA")
+                              : <span className="font-normal text-zinc-400">Не вказано</span>}
+                          </button>
+                        )}
+                      </div>
+
+                      <div>
                         <div className="text-xs text-zinc-500">Способ оплаты</div>
                         {editing === "paymentMethod" ? (
                           <div className="mt-1">
@@ -1702,6 +1826,127 @@ export function OrderModal({
                         </div>
                       )}
 
+                      {/* Phase 5: returns */}
+                      <div>
+                        <div className="text-xs font-medium text-zinc-500">Повернення</div>
+                        {returnsLoading ? (
+                          <div className="mt-1 text-xs text-zinc-500">Завантаження…</div>
+                        ) : orderReturns.length > 0 ? (
+                          <ul className="mt-1 space-y-0.5 text-sm text-zinc-700">
+                            {orderReturns.map((ret) => (
+                              <li key={ret.id}>
+                                Повернення від {new Date(ret.requestedAt).toLocaleDateString("uk-UA")} — {ret.status}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="mt-0.5 text-xs text-zinc-400">Немає повернень</div>
+                        )}
+                        {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED") && !showCreateReturnForm && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowCreateReturnForm(true);
+                              setReturnItemQtys(
+                                Object.fromEntries((order.items ?? []).map((it) => [it.id, 0])),
+                              );
+                            }}
+                            className="mt-2 rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                          >
+                            Оформити повернення
+                          </button>
+                        )}
+                        {showCreateReturnForm && order.items && order.items.length > 0 && (
+                          <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                            <div className="text-xs font-medium text-zinc-700">Позиції для повернення</div>
+                            {(order.items as OrderItem[]).map((it) => (
+                              <div key={it.id} className="mt-1.5 flex items-center gap-2 text-sm">
+                                <span className="min-w-0 flex-1 truncate text-zinc-700">{it.productName ?? "—"}</span>
+                                <span className="shrink-0 text-zinc-500">макс {it.qty}</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={it.qty}
+                                  value={returnItemQtys[it.id] ?? 0}
+                                  onChange={(e) =>
+                                    setReturnItemQtys((prev) => ({
+                                      ...prev,
+                                      [it.id]: Math.max(0, Math.min(it.qty, Number(e.target.value) || 0)),
+                                    }))
+                                  }
+                                  className="w-16 rounded border border-zinc-300 px-2 py-0.5 text-right text-sm"
+                                />
+                              </div>
+                            ))}
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                type="button"
+                                disabled={createReturnSubmitting}
+                                onClick={async () => {
+                                  const items = (order.items as OrderItem[])
+                                    .map((it) => ({
+                                      orderItemId: it.id,
+                                      qtyReturned: returnItemQtys[it.id] ?? 0,
+                                    }))
+                                    .filter((x) => x.qtyReturned > 0);
+                                  if (items.length === 0) {
+                                    alert("Оберіть кількість хоча б по одній позиції");
+                                    return;
+                                  }
+                                  setCreateReturnSubmitting(true);
+                                  try {
+                                    const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ items }),
+                                      credentials: "include",
+                                    });
+                                    if (!r.ok) {
+                                      const err = await r.json().catch(() => ({}));
+                                      throw new Error((err as { message?: string }).message ?? "Failed to create return");
+                                    }
+                                    setShowCreateReturnForm(false);
+                                    setReturnItemQtys({});
+                                    await Promise.all([refreshReturns(), refreshOrder()]);
+                                    onSaved?.();
+                                  } catch (e) {
+                                    alert(e instanceof Error ? e.message : "Помилка створення повернення");
+                                  } finally {
+                                    setCreateReturnSubmitting(false);
+                                  }
+                                }}
+                                className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                              >
+                                {createReturnSubmitting ? "…" : "Створити повернення"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowCreateReturnForm(false);
+                                  setReturnItemQtys({});
+                                }}
+                                className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100"
+                              >
+                                Скасувати
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReturnItemQtys(
+                                    Object.fromEntries(
+                                      (order.items as OrderItem[]).map((it) => [it.id, it.qty]),
+                                    ),
+                                  )
+                                }
+                                className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100"
+                              >
+                                Повернути все
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       <div>
                         <div className="text-xs text-zinc-500">PDF документи</div>
                         <div className="mt-1 flex flex-wrap gap-2">
@@ -1749,6 +1994,11 @@ export function OrderModal({
                           {order.currency ?? "UAH"} {Number(order.paidAmount ?? 0).toFixed(2)} /{" "}
                           {Number(order.debtAmount ?? 0).toFixed(2)}
                         </div>
+                        {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
+                          <div className="mt-0.5 text-xs text-zinc-500">
+                            Корекція по поверненнях: −{Number(order.returnAdjustmentAmount).toFixed(2)}
+                          </div>
+                        )}
                       </div>
 
                       <div>

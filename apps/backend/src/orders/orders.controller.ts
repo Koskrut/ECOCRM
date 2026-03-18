@@ -11,18 +11,21 @@ import {
   Req,
   StreamableFile,
 } from "@nestjs/common";
-import type { OrderStatus } from "@prisma/client";
+import type { OrderStage, OrderStatus } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
 import { PaymentsService } from "../payments/payments.service";
+import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersService } from "./orders.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
+import type { CreateOrderReturnDto } from "../order-returns/dto/create-order-return.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
 import type { UpdateOrderItemDto } from "./dto/update-order-item.dto";
 import { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
+import type { UpdateOrderStageDto } from "./dto/update-order-stage.dto";
 import type { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
 
 @Controller("orders")
@@ -32,6 +35,7 @@ export class OrdersController {
     private readonly payments: PaymentsService,
     private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
     private readonly ordersDocuments: OrdersDocumentsService,
+    private readonly orderReturns: OrderReturnsService,
   ) {}
 
   @Get()
@@ -42,6 +46,20 @@ export class OrdersController {
   @Get(":id/payments")
   getPayments(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.payments.listByOrderId(id, req.user);
+  }
+
+  @Get(":id/returns")
+  getReturns(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.orderReturns.listByOrderId(id, req.user);
+  }
+
+  @Post(":id/returns")
+  createReturn(
+    @Param("id") id: string,
+    @Body() dto: CreateOrderReturnDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orderReturns.create(id, dto, req.user);
   }
 
   @Get(":id/timeline")
@@ -102,6 +120,21 @@ export class OrdersController {
     await this.orders.getById(id, req.user);
     await this.googleSheetSendOrder.sendOrderToSheet(id);
     return { ok: true };
+  }
+
+  @Patch(":id/stage")
+  setStage(
+    @Param("id") id: string,
+    @Body() dto: UpdateOrderStageDto,
+    @Req() req: Request & { user?: AuthUser; body?: Record<string, unknown> },
+  ) {
+    const raw = req.body ?? {};
+    const toStage =
+      dto.toStage ?? (raw.toStage as string) ?? (raw.orderStage as string);
+    if (toStage == null) {
+      throw new BadRequestException("toStage or orderStage is required");
+    }
+    return this.orders.setOrderStage(id, toStage as OrderStage, req.user, dto.reason ?? null);
   }
 
   @Patch(":id/status")

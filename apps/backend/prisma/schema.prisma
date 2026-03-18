@@ -188,6 +188,51 @@ enum OrderSource {
   STORE
 }
 
+// --- New order model (Phase 1): separate axes ---
+enum OrderStage {
+  NEW
+  CONFIRMED
+  AWAITING_PAYMENT
+  AWAITING_STOCK
+  READY_TO_SHIP
+  SHIPPED
+  AWAITING_RECEIPT
+  RECEIVED
+  COMPLETED
+  CANCELED
+  REFUSED
+  RETURN_IN_PROGRESS
+}
+
+enum DeliveryStatus {
+  NOT_SHIPPED
+  SHIPPED
+  IN_TRANSIT
+  AWAITING_RECEIPT
+  RECEIVED
+  REFUSED
+  RETURN_TO_WAREHOUSE
+}
+
+enum OrderFinancialStatus {
+  INVOICE_PENDING
+  AWAITING_PAYMENT
+  DUE_SOON
+  OVERDUE
+  PAID
+  CLOSED
+}
+
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  IN_TRANSIT_BACK
+  RECEIVED_BY_WAREHOUSE
+  INSPECTION
+  REFUND_OR_ADJUSTMENT
+  CLOSED
+}
+
 // --- MODELS ---
 
 model User {
@@ -812,7 +857,8 @@ model Order {
   contactId String?
 
   ownerId        String
-  status         OrderStatus
+  /** @deprecated Phase 7: use orderStage. Kept for backward compat; no longer written. */
+  status         OrderStatus?
   currency       String
   subtotalAmount Float
   discountAmount Float
@@ -847,6 +893,14 @@ model Order {
   /** Курс сделки для таблицы/документов. */
   exchangeRate        Float?
 
+  // --- New order model (Phase 1): keep status for compatibility ---
+  orderStage       OrderStage?
+  deliveryStatus  DeliveryStatus?
+  financialStatus OrderFinancialStatus?
+  paymentDueDate  DateTime?
+  /// Phase 5: sum of amounts from closed returns (reduces effective total for debt calc).
+  returnAdjustmentAmount Float @default(0)
+
   company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   warehouse    Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
@@ -862,8 +916,9 @@ model Order {
   activities    Activity[]
   tasks        Task[]
 
-  ttns OrderTtn[]
-  payments Payment[]
+  ttns       OrderTtn[]
+  payments   Payment[]
+  returns    OrderReturn[]
 
   @@index([companyId])
   @@index([clientId])
@@ -872,6 +927,8 @@ model Order {
   @@index([warehouseId])
   @@index([status])
   @@index([orderSource])
+  @@index([orderStage])
+  @@index([financialStatus])
   @@unique([legacySource, legacyId])
 }
 
@@ -898,7 +955,8 @@ model OrderItem {
   product Product? @relation(fields: [productId], references: [id])
 
   // связи с конкретными ТТН (частичная отгрузка)
-  ttnItems OrderTtnItem[]
+  ttnItems     OrderTtnItem[]
+  returnItems  OrderReturnItem[]
 
   @@unique([orderId, productId], name: "orderId_productId")
   @@unique([legacySource, legacyId])
@@ -911,6 +969,9 @@ model OrderStatusHistory {
   orderId    String
   fromStatus OrderStatus?
   toStatus   OrderStatus
+  /** Phase 7: primary axis for timeline; set when recording stage change. */
+  fromOrderStage OrderStage?
+  toOrderStage   OrderStage?
   changedBy  String
   reason     String?
   createdAt  DateTime     @default(now())
@@ -919,6 +980,7 @@ model OrderStatusHistory {
 
   @@index([orderId])
   @@index([toStatus])
+  @@index([toOrderStage])
   @@index([createdAt])
 }
 
@@ -969,6 +1031,39 @@ model OrderTtnItem {
   @@index([ttnId])
   @@index([orderItemId])
   @@unique([ttnId, orderItemId])
+}
+
+/// Return request for an order (Phase 1: new model).
+model OrderReturn {
+  id          String       @id @default(cuid())
+  orderId     String
+  status      ReturnStatus
+  requestedAt DateTime     @default(now())
+  closedAt    DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items OrderReturnItem[]
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model OrderReturnItem {
+  id             String   @id @default(cuid())
+  orderReturnId  String
+  orderItemId    String
+  qtyReturned   Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orderReturn OrderReturn @relation(fields: [orderReturnId], references: [id], onDelete: Cascade)
+  orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@unique([orderReturnId, orderItemId])
+  @@index([orderReturnId])
+  @@index([orderItemId])
 }
 
 model Activity {

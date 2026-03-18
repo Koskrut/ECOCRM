@@ -7,6 +7,10 @@ import {
 } from "@nestjs/common";
 import { PaymentSourceType, PaymentStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import {
+  computeFinancialStatusFromOrder,
+  orderStageToDeliveryStatus,
+} from "../orders/order-status-sync.mapper";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AllocatePaymentDto } from "./dto/allocate-payment.dto";
 import type { AllocateSplitDto } from "./dto/allocate-split.dto";
@@ -508,13 +512,46 @@ export class PaymentsService {
     }, 0);
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
+      select: {
+        totalAmount: true,
+        returnAdjustmentAmount: true,
+        paymentType: true,
+        paymentDueDate: true,
+        orderStage: true,
+      },
     });
     if (!order) return;
     const total = Number(order.totalAmount);
-    const debtAmount = Math.max(0, total - paidAmount);
+    const adjustment = Number(order.returnAdjustmentAmount ?? 0);
+    const effectiveTotal = Math.max(0, total - adjustment);
+    const debtAmount = Math.max(0, effectiveTotal - paidAmount);
+    const financialStatus = computeFinancialStatusFromOrder({
+      paymentType: order.paymentType,
+      totalAmount: effectiveTotal,
+      paidAmount,
+      debtAmount,
+      paymentDueDate: order.paymentDueDate ?? undefined,
+      orderStage: order.orderStage ?? undefined,
+    });
+
+    const stage = order.orderStage ?? null;
+    const autoComplete = stage === "RECEIVED" && debtAmount <= 0.00001;
+    const nextStage = autoComplete ? "COMPLETED" : stage;
+    const deliveryStatus = nextStage
+      ? orderStageToDeliveryStatus(nextStage as import("@prisma/client").OrderStage)
+      : undefined;
+
     await this.prisma.order.update({
       where: { id: orderId },
-      data: { paidAmount, debtAmount },
+      data: {
+        paidAmount,
+        debtAmount,
+        financialStatus,
+        ...(autoComplete && {
+          orderStage: "COMPLETED",
+          deliveryStatus,
+        }),
+      },
     });
   }
 }

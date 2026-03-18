@@ -19,6 +19,10 @@ import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "../../contacts/bitrix-np-mapper";
+import {
+  computeFinancialStatusFromOrder,
+  orderStageToDeliveryStatus,
+} from "../../orders/order-status-sync.mapper";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 
 const LEGACY_SOURCE = "bitrix";
@@ -1121,13 +1125,18 @@ export class BitrixInitialImportService {
             orderNumber,
           );
           if (d.ttnNumber) withTtn.push({ legacyId: id, ttnNumber: d.ttnNumber });
+          const financialStatus = computeFinancialStatusFromOrder({
+            totalAmount: d.totalAmount,
+            paidAmount: d.paidAmount,
+            debtAmount: d.debtAmount,
+            orderStage: d.orderStage,
+          });
           return {
             orderNumber: d.orderNumber,
             companyId: d.companyId,
             clientId: d.clientId,
             contactId: d.contactId,
             ownerId: d.ownerId,
-            status: d.status,
             paymentMethod: d.paymentMethod ?? null,
             documentsRequested: d.documentsRequested ?? null,
             deliveryMethod: d.deliveryMethod ?? undefined,
@@ -1145,6 +1154,9 @@ export class BitrixInitialImportService {
             createdAt: d.createdAt,
             updatedAt: d.updatedAt,
             orderSource: "CRM" as const,
+            orderStage: d.orderStage,
+            deliveryStatus: orderStageToDeliveryStatus(d.orderStage),
+            financialStatus,
           };
         });
         const r = await this.prisma.order.createMany({ data, skipDuplicates: true });
@@ -1195,6 +1207,12 @@ export class BitrixInitialImportService {
                 loggedWriteSample = true;
               }
               const orderId = existingByLegacyId.get(id)!.id;
+              const financialStatus = computeFinancialStatusFromOrder({
+                totalAmount: d.totalAmount,
+                paidAmount: d.paidAmount,
+                debtAmount: d.debtAmount,
+                orderStage: d.orderStage,
+              });
               await tx.order.update({
                 where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
                 data: {
@@ -1202,7 +1220,6 @@ export class BitrixInitialImportService {
                   clientId: d.clientId,
                   contactId: d.contactId,
                   ownerId: d.ownerId,
-                  status: d.status,
                   paymentMethod: d.paymentMethod ?? null,
                   documentsRequested: d.documentsRequested ?? null,
                   deliveryMethod: d.deliveryMethod ?? undefined,
@@ -1217,6 +1234,9 @@ export class BitrixInitialImportService {
                   syncedAt: d.syncedAt,
                   createdAt: d.createdAt,
                   updatedAt: d.updatedAt,
+                  orderStage: d.orderStage,
+                  deliveryStatus: orderStageToDeliveryStatus(d.orderStage),
+                  financialStatus,
                 },
               });
               if (d.ttnNumber) await ensureOrderTtnFromBitrix(tx, orderId, d.ttnNumber);
@@ -1869,13 +1889,23 @@ export class BitrixInitialImportService {
     const orderNumber = `BITRIX-${id}`;
     try {
       const data = mapBitrixDealToPrisma(row, companyId, clientId, contactId, ownerId, orderNumber);
+      const financialStatus = computeFinancialStatusFromOrder({
+        totalAmount: data.totalAmount,
+        paidAmount: data.paidAmount,
+        debtAmount: data.debtAmount,
+        orderStage: data.orderStage,
+      });
       const existed = await this.prisma.order.findUnique({
         where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
       });
+      const { status: _s, ...orderData } = data;
       await this.prisma.order.upsert({
         where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
         create: {
-          ...data,
+          ...orderData,
+          orderStage: data.orderStage,
+          deliveryStatus: orderStageToDeliveryStatus(data.orderStage),
+          financialStatus,
           legacyRaw: data.legacyRaw as object,
         },
         update: {
@@ -1883,7 +1913,6 @@ export class BitrixInitialImportService {
           clientId: data.clientId,
           contactId: data.contactId,
           ownerId: data.ownerId,
-          status: data.status,
           currency: data.currency,
           subtotalAmount: data.subtotalAmount,
           discountAmount: data.discountAmount,
@@ -1895,6 +1924,9 @@ export class BitrixInitialImportService {
           syncedAt: data.syncedAt,
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
+          orderStage: data.orderStage,
+          deliveryStatus: orderStageToDeliveryStatus(data.orderStage),
+          financialStatus,
         },
       });
       return existed ? "updated" : "created";

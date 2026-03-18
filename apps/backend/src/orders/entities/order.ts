@@ -1,4 +1,12 @@
-import type { DeliveryMethod, OrderStatus, PaymentMethod, PaymentType } from "@prisma/client";
+import type {
+  DeliveryStatus,
+  OrderFinancialStatus,
+  OrderStage,
+  OrderStatus,
+  DeliveryMethod,
+  PaymentMethod,
+  PaymentType,
+} from "@prisma/client";
 
 export type OrderCompany = {
   id: string;
@@ -24,7 +32,8 @@ export type OrderItem = {
 export type Order = {
   id: string;
   orderNumber: string;
-  status: OrderStatus;
+  /** @deprecated Phase 7: use orderStage. May be null. */
+  status?: OrderStatus | null;
 
   ownerId: string;
 
@@ -64,6 +73,12 @@ export type Order = {
   waybillNumber?: string | null;
   waybillDate?: string | null;
   exchangeRate?: number | null;
+
+  /** Phase 1: new order model fields (optional for backward compatibility). */
+  orderStage?: OrderStage | null;
+  deliveryStatus?: DeliveryStatus | null;
+  financialStatus?: OrderFinancialStatus | null;
+  paymentDueDate?: string | null;
 
   createdAt: string;
   updatedAt: string;

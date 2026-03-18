@@ -8,6 +8,7 @@ export type OrderCardOrder = {
   id: string;
   orderNumber: string;
   status: string;
+  orderStage?: string | null;
   totalAmount: number;
   currency: string;
   createdAt: string;
@@ -15,6 +16,7 @@ export type OrderCardOrder = {
   paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
   isPaid?: boolean;
   hasTtn?: boolean;
+  debtAmount?: number;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
   clientId?: string | null;
@@ -77,8 +79,13 @@ export function OrderCard({
         </div>
       </div>
 
-      <div className="mt-3">
-        <StatusBadge variant="order" status={order.status} />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <StatusBadge variant="order" status={order.status} orderStage={order.orderStage} />
+        {order.orderStage === "RECEIVED" && (order.debtAmount ?? 0) > 0 && (
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+            Неоплачено
+          </span>
+        )}
       </div>
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Сума</div>

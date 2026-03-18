@@ -58,4 +58,9 @@ export class UpdateOrderDto {
   @IsOptional()
   @IsString()
   warehouseId?: string | null;
+
+  /** Phase 4: payment due date for deferred orders (ISO date string or null to clear). */
+  @IsOptional()
+  @IsString()
+  paymentDueDate?: string | null;
 }

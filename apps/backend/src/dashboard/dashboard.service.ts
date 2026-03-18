@@ -44,7 +44,8 @@ export type DashboardStats = {
     leadsConversionPercent: number;
     debtTotal: number;
   };
-  ordersByStatus: { status: string; count: number }[];
+  /** Phase 7: grouped by orderStage (new model). */
+  ordersByStage: { orderStage: string; count: number }[];
   leadsByStatus: { status: string; count: number }[];
   leadsBySource: { source: string; count: number }[];
   revenueByDay: { date: string; totalAmount: number; count: number }[];
@@ -62,7 +63,7 @@ export class DashboardService {
     const [
       ordersAgg,
       ordersCount,
-      ordersByStatusRows,
+      ordersByStageRows,
       leadsCount,
       leadsWonCount,
       leadsByStatusRows,
@@ -75,7 +76,7 @@ export class DashboardService {
       }),
       this.prisma.order.count({ where: orderWhere }),
       this.prisma.order.groupBy({
-        by: ["status"],
+        by: ["orderStage"],
         where: orderWhere,
         _count: { id: true },
       }),
@@ -96,6 +97,7 @@ export class DashboardService {
       this.getRevenueByDay(orderWhere),
     ]);
 
+    // KPI revenue: gross totalAmount (debtTotal already reflects returnAdjustmentAmount via recalcOrder)
     const revenue = Number(ordersAgg._sum.totalAmount ?? 0);
     const debtTotal = Number(ordersAgg._sum.debtAmount ?? 0);
     const conversionPercent = leadsCount > 0 ? Math.round((leadsWonCount / leadsCount) * 100) : 0;
@@ -108,25 +110,31 @@ export class DashboardService {
         leadsConversionPercent: conversionPercent,
         debtTotal,
       },
-      ordersByStatus: ordersByStatusRows.map((r) => ({ status: r.status, count: r._count.id })),
+      ordersByStage: ordersByStageRows.map((r) => ({
+        orderStage: r.orderStage ?? "NEW",
+        count: r._count.id,
+      })),
       leadsByStatus: leadsByStatusRows.map((r) => ({ status: r.status, count: r._count.id })),
       leadsBySource: leadsBySourceRows.map((r) => ({ source: r.source, count: r._count.id })),
       revenueByDay: revenueByDayRows,
     };
   }
 
+  /** Revenue by day: uses effective total (totalAmount − returnAdjustmentAmount) for consistency with debt. */
   private async getRevenueByDay(
     orderWhere: Prisma.OrderWhereInput,
   ): Promise<{ date: string; totalAmount: number; count: number }[]> {
     const orders = await this.prisma.order.findMany({
       where: orderWhere,
-      select: { createdAt: true, totalAmount: true },
+      select: { createdAt: true, totalAmount: true, returnAdjustmentAmount: true },
     });
     const byDay = new Map<string, { totalAmount: number; count: number }>();
     for (const o of orders) {
       const date = o.createdAt.toISOString().slice(0, 10);
       const cur = byDay.get(date) ?? { totalAmount: 0, count: 0 };
-      cur.totalAmount += Number(o.totalAmount ?? 0);
+      const total = Number(o.totalAmount ?? 0);
+      const adj = Number(o.returnAdjustmentAmount ?? 0);
+      cur.totalAmount += Math.max(0, total - adj);
       cur.count += 1;
       byDay.set(date, cur);
     }

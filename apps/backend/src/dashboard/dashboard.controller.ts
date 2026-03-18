@@ -19,7 +19,7 @@ export class DashboardController {
 
   /**
    * GET /dashboard/stats?period=week|month
-   * Returns: kpi, ordersByStatus, leadsByStatus, leadsBySource, revenueByDay
+   * Returns: kpi, ordersByStage, leadsByStatus, leadsBySource, revenueByDay
    */
   @Get("stats")
   async getStats(

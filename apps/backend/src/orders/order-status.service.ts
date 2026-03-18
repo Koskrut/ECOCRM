@@ -51,7 +51,7 @@ export class OrderStatusService {
     orderId: string,
     toStatus: OrderStatus,
     actor: string,
-    fromStatus: OrderStatus,
+    fromStatus: OrderStatus | null,
     reason?: string,
     tx?: Prisma.TransactionClient,
   ): Promise<void> {

@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
+import type { OrderFinancialStatus, OrderStage } from "@prisma/client";
 import { OrderPaymentStatus, OrderSource, OrderStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
@@ -17,6 +18,13 @@ import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
 import type { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import type { UpdateOrderDto } from "./dto/update-order.dto";
+import {
+  computeFinancialStatusFromOrder,
+  legacyStatusToOrderStage,
+  orderStageToDeliveryStatus,
+  orderStageToLegacyStatus,
+} from "./order-status-sync.mapper";
+import { validateOrderStageTransition } from "./order-stage-transitions";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -70,11 +78,29 @@ export class OrdersService {
     if (q?.companyId) where.companyId = String(q.companyId);
     if (q?.clientId) where.clientId = String(q.clientId);
     if (q?.contactId) where.contactId = String(q.contactId);
-    if (q?.board === true) {
-      where.status = { notIn: [OrderStatus.SUCCESS, OrderStatus.CANCELED, OrderStatus.RETURNING] };
+    if (q?.board === true && q?.financialBoard !== true) {
+      // Phase 3: board shows "active" orders by orderStage; skip when financial board requested
+      const closedStages: OrderStage[] = [
+        "COMPLETED",
+        "CANCELED",
+        "REFUSED",
+        "RETURN_IN_PROGRESS",
+      ];
+      where.OR = [
+        { orderStage: { notIn: closedStages } },
+        { orderStage: null },
+      ];
     } else if (q?.status) {
-      where.status = q.status as OrderStatus;
+      // Phase 7: map legacy status filter to orderStage so UI/API still works
+      const stage = legacyStatusToOrderStage(q.status as OrderStatus);
+      where.orderStage = stage;
     }
+    if (q?.orderStage) where.orderStage = q.orderStage as OrderStage;
+    if (q?.financialStatus) where.financialStatus = q.financialStatus as OrderFinancialStatus;
+    if (q?.overdue === true) andWhere.push({ financialStatus: "OVERDUE" });
+    if (q?.dueSoon === true) andWhere.push({ financialStatus: "DUE_SOON" });
+    if (q?.hasDebt === true) andWhere.push({ debtAmount: { gt: 0 } });
+    if (q?.hasDueDate === true) andWhere.push({ paymentDueDate: { not: null } });
     if (q?.ownerId) where.ownerId = String(q.ownerId);
     if (actor?.role === UserRole.MANAGER) {
       where.OR = [{ ownerId: actor.id }, { orderSource: OrderSource.STORE }];
@@ -236,7 +262,12 @@ export class OrdersService {
               }
             : null,
           status: o.status,
+          orderStage: o.orderStage ?? null,
+          deliveryStatus: o.deliveryStatus ?? null,
+          financialStatus: o.financialStatus ?? null,
+          paymentDueDate: o.paymentDueDate ?? null,
           totalAmount: o.totalAmount,
+          returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
           paidAmount: o.paidAmount,
           debtAmount: o.debtAmount,
           paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
@@ -286,7 +317,6 @@ export class OrdersService {
     if (!ownerId) throw new BadRequestException("ownerId is required");
     const orderSource = dto.orderSource ?? OrderSource.CRM;
     const currency = "UAH";
-    const status = OrderStatus.NEW;
     const discountAmount = this.num(dto.discountAmount, 0);
     const paidAmount = 0;
     const a = this.calc(0, discountAmount, paidAmount);
@@ -303,6 +333,13 @@ export class OrdersService {
         if (!row) throw new InternalServerErrorException("OrderNumberSeq not initialized");
         const orderNumber = String(row.assigned);
 
+        const financialStatus = computeFinancialStatusFromOrder({
+          totalAmount: a.total,
+          paidAmount: a.paid,
+          debtAmount: a.debt,
+          paymentType: dto.paymentType ?? null,
+          orderStage: "NEW",
+        });
         return tx.order.create({
           data: {
             orderNumber,
@@ -311,7 +348,6 @@ export class OrdersService {
             contactId: dto.contactId ?? null,
             ownerId,
             orderSource,
-            status,
             currency,
             subtotalAmount: a.subtotal,
             discountAmount: a.discount,
@@ -326,6 +362,9 @@ export class OrdersService {
             documentsRequested: dto.documentsRequested ?? null,
             paymentType: dto.paymentType ?? null,
             deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
+            orderStage: "NEW",
+            deliveryStatus: "NOT_SHIPPED",
+            financialStatus,
           },
           include: ORDER_INCLUDE,
         });
@@ -395,6 +434,16 @@ export class OrdersService {
     if ("deliveryData" in dto)
       data.deliveryData = (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined;
 
+    if ("paymentDueDate" in dto) {
+      const raw = dto.paymentDueDate;
+      if (raw === null || raw === "" || raw === undefined) {
+        data.paymentDueDate = null;
+      } else {
+        const parsed = new Date(raw as string);
+        data.paymentDueDate = Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+    }
+
     // amounts
     const nextDiscount =
       "discountAmount" in dto ? this.num(dto.discountAmount, 0) : existing.discountAmount;
@@ -404,10 +453,37 @@ export class OrdersService {
     if ("discountAmount" in dto) data.discountAmount = a.discount;
     if ("paidAmount" in dto) data.paidAmount = a.paid;
 
-    // keep totals consistent
+    // keep totals consistent and sync financialStatus when amounts or payment context change
     if ("discountAmount" in dto || "paidAmount" in dto) {
       data.totalAmount = a.total;
       data.debtAmount = a.debt;
+      data.financialStatus = computeFinancialStatusFromOrder({
+        paymentType: existing.paymentType,
+        totalAmount: a.total,
+        paidAmount: a.paid,
+        debtAmount: a.debt,
+        paymentDueDate: existing.paymentDueDate,
+        orderStage: existing.orderStage ?? undefined,
+      });
+    } else if ("paymentDueDate" in dto || "paymentType" in dto) {
+      const nextDue =
+        "paymentDueDate" in dto
+          ? (data.paymentDueDate as Date | null) ?? existing.paymentDueDate
+          : existing.paymentDueDate;
+      const nextType =
+        ("paymentType" in dto ? data.paymentType : existing.paymentType) as PaymentType | null;
+      const effectiveTotal = Math.max(
+        0,
+        (existing.totalAmount ?? 0) - (existing.returnAdjustmentAmount ?? 0),
+      );
+      data.financialStatus = computeFinancialStatusFromOrder({
+        paymentType: nextType ?? undefined,
+        totalAmount: effectiveTotal,
+        paidAmount: existing.paidAmount,
+        debtAmount: existing.debtAmount,
+        paymentDueDate: nextDue ?? undefined,
+        orderStage: existing.orderStage ?? undefined,
+      });
     }
 
     const updated = await this.prisma.order.update({
@@ -522,36 +598,78 @@ export class OrdersService {
     return { ok: true };
   }
 
-  async setStatus(
+  /**
+   * Phase 2: Single entry point for changing order stage. Validates transitions and business rules,
+   * updates orderStage, deliveryStatus, financialStatus, and legacy status; writes history.
+   */
+  async setOrderStage(
     id: string,
-    dto: { toStatus: OrderStatus; reason?: string | null; changedBy: string },
-    actor?: AuthUser,
+    toStage: OrderStage,
+    actor: AuthUser | undefined,
+    reason?: string | null,
   ) {
-    const toStatus = dto.toStatus;
-    const changedBy = dto.changedBy;
-    const reason = dto.reason ?? null;
-
-    const current = await this.prisma.order.findUnique({ where: { id } });
+    const changedBy = actor?.id ?? "system";
+    const current = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        ownerId: true,
+        orderStage: true,
+        status: true,
+        paymentType: true,
+        paidAmount: true,
+        totalAmount: true,
+        debtAmount: true,
+        paymentDueDate: true,
+      },
+    });
     if (!current) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(current, actor);
+
+    validateOrderStageTransition(current.orderStage, toStage, {
+      orderStage: current.orderStage,
+      paymentType: current.paymentType,
+      paidAmount: current.paidAmount,
+      totalAmount: current.totalAmount,
+      debtAmount: current.debtAmount,
+    });
+
+    const deliveryStatus = orderStageToDeliveryStatus(toStage);
+    const financialStatus = computeFinancialStatusFromOrder({
+      paymentType: current.paymentType,
+      paidAmount: current.paidAmount,
+      totalAmount: current.totalAmount,
+      debtAmount: current.debtAmount,
+      paymentDueDate: current.paymentDueDate,
+      orderStage: toStage,
+    });
+    const legacyStatus = orderStageToLegacyStatus(toStage, {
+      debtAmount: current.debtAmount,
+    });
 
     await this.prisma.orderStatusHistory.create({
       data: {
         orderId: id,
-        fromStatus: current.status,
-        toStatus,
+        fromStatus: current.status ?? undefined,
+        toStatus: legacyStatus,
+        fromOrderStage: current.orderStage ?? undefined,
+        toOrderStage: toStage,
         changedBy,
-        reason,
+        reason: reason ?? null,
       },
     });
 
     const updated = await this.prisma.order.update({
       where: { id },
-      data: { status: toStatus },
+      data: {
+        orderStage: toStage,
+        deliveryStatus,
+        financialStatus,
+      },
       include: ORDER_INCLUDE,
     });
 
-    if (toStatus === OrderStatus.READY_TO_SHIP) {
+    if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
         if (sendOnReadyToShip) {
           this.googleSheetSendOrder.sendOrderToSheet(id).catch((err) => {
@@ -562,6 +680,16 @@ export class OrdersService {
     }
 
     return this.mapToEntity(updated);
+  }
+
+  /** Legacy endpoint: accepts legacy status, maps to orderStage and delegates to setOrderStage. */
+  async setStatus(
+    id: string,
+    dto: { toStatus: OrderStatus; reason?: string | null; changedBy: string },
+    actor?: AuthUser,
+  ) {
+    const toStage = legacyStatusToOrderStage(dto.toStatus);
+    return this.setOrderStage(id, toStage, actor, dto.reason ?? null);
   }
 
   async getTimeline(orderId: string, actor?: AuthUser) {
@@ -588,14 +716,24 @@ export class OrdersService {
     ]);
 
     const items = [
-      ...history.map((h) => ({
-        id: h.id,
-        type: "STATUS",
-        at: h.createdAt,
-        title: `Status → ${h.toStatus}`,
-        body: h.reason ?? null,
-        meta: { from: h.fromStatus, to: h.toStatus, changedBy: h.changedBy },
-      })),
+      ...history.map((h) => {
+        const toStage = (h as { toOrderStage?: string | null }).toOrderStage;
+        const fromStage = (h as { fromOrderStage?: string | null }).fromOrderStage;
+        const title =
+          toStage != null ? `Stage → ${toStage}` : `Status → ${h.toStatus}`;
+        return {
+          id: h.id,
+          type: "STATUS",
+          at: h.createdAt,
+          title,
+          body: h.reason ?? null,
+          meta: {
+            from: fromStage ?? h.fromStatus,
+            to: toStage ?? h.toStatus,
+            changedBy: h.changedBy,
+          },
+        };
+      }),
       ...activities.map((a) => ({
         id: a.id,
         type: "ACTIVITY",
@@ -626,6 +764,14 @@ export class OrdersService {
 
     const subtotal = order.items.reduce((sum, it) => sum + (it.lineTotal ?? 0), 0);
     const a = this.calc(subtotal, order.discountAmount, order.paidAmount);
+    const financialStatus = computeFinancialStatusFromOrder({
+      paymentType: order.paymentType,
+      totalAmount: a.total,
+      paidAmount: order.paidAmount,
+      debtAmount: a.debt,
+      paymentDueDate: order.paymentDueDate,
+      orderStage: order.orderStage ?? undefined,
+    });
 
     const updated = await this.prisma.order.update({
       where: { id: orderId },
@@ -633,6 +779,7 @@ export class OrdersService {
         subtotalAmount: a.subtotal,
         totalAmount: a.total,
         debtAmount: a.debt,
+        financialStatus,
       },
       include: ORDER_INCLUDE,
     });
@@ -682,6 +829,11 @@ export class OrdersService {
       waybillNumber: o.waybillNumber ?? null,
       waybillDate: o.waybillDate ?? null,
       exchangeRate: o.exchangeRate ?? null,
+      orderStage: o.orderStage ?? null,
+      deliveryStatus: o.deliveryStatus ?? null,
+      financialStatus: o.financialStatus ?? null,
+      paymentDueDate: o.paymentDueDate ?? null,
+      returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
       company: o.company ?? null,

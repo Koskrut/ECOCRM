@@ -36,21 +36,25 @@ type DashboardStats = {
     leadsConversionPercent: number;
     debtTotal: number;
   };
-  ordersByStatus: { status: string; count: number }[];
+  ordersByStage: { orderStage: string; count: number }[];
   leadsByStatus: { status: string; count: number }[];
   leadsBySource: { source: string; count: number }[];
   revenueByDay: { date: string; totalAmount: number; count: number }[];
 };
 
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  NEW: "New",
-  IN_WORK: "In progress",
-  READY_TO_SHIP: "Ready to ship",
-  SHIPPED: "Shipped",
-  CONTROL_PAYMENT: "Payment control",
-  SUCCESS: "Success",
-  RETURNING: "Returning",
-  CANCELED: "Canceled",
+const ORDER_STAGE_LABELS: Record<string, string> = {
+  NEW: "Новий",
+  CONFIRMED: "Підтверджено",
+  AWAITING_PAYMENT: "Очікує оплату",
+  AWAITING_STOCK: "Очікує на склад",
+  READY_TO_SHIP: "Готово до відправки",
+  SHIPPED: "Відправлено",
+  AWAITING_RECEIPT: "Очікує отримання",
+  RECEIVED: "Отримано",
+  COMPLETED: "Завершено",
+  CANCELED: "Скасовано",
+  REFUSED: "Відмова",
+  RETURN_IN_PROGRESS: "Повернення",
 };
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
@@ -186,13 +190,13 @@ export default function DashboardPage() {
     leadsConversionPercent: 0,
     debtTotal: 0,
   };
-  const ordersByStatus = data?.ordersByStatus ?? [];
+  const ordersByStage = data?.ordersByStage ?? [];
   const leadsByStatus = data?.leadsByStatus ?? [];
   const leadsBySource = data?.leadsBySource ?? [];
   const revenueByDay = data?.revenueByDay ?? [];
 
-  const ordersByStatusDisplay = ordersByStatus.map((r) => ({
-    name: ORDER_STATUS_LABELS[r.status] ?? r.status,
+  const ordersByStageDisplay = ordersByStage.map((r) => ({
+    name: ORDER_STAGE_LABELS[r.orderStage] ?? r.orderStage,
     count: r.count,
   }));
   const leadsByStatusDisplay = leadsByStatus.map((r) => ({
@@ -344,12 +348,12 @@ export default function DashboardPage() {
         </div>
 
         <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-zinc-700">Orders by status</h2>
+          <h2 className="mb-4 text-sm font-semibold text-zinc-700">Orders by stage</h2>
           <div className="h-72">
-            {ordersByStatusDisplay.length > 0 ? (
+            {ordersByStageDisplay.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={ordersByStatusDisplay}
+                  data={ordersByStageDisplay}
                   layout="vertical"
                   margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
                 >

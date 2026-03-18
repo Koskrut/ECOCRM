@@ -8,6 +8,7 @@ import { CompaniesModule } from "./companies/companies.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { LeadsModule } from "./leads/leads.module";
 import { ContactsModule } from "./contacts/contacts.module";
+import { OrderReturnsModule } from "./order-returns/order-returns.module";
 import { OrdersModule } from "./orders/orders.module";
 import { ProductsModule } from "./products/products.module";
 import { UsersModule } from "./users/users.module";
@@ -38,6 +39,7 @@ import { WarehousesModule } from "./warehouses/warehouses.module";
     ActivitiesModule,
     VisitsModule,
     TasksModule,
+    OrderReturnsModule,
     OrdersModule,
     ProductsModule,
     CompaniesModule,

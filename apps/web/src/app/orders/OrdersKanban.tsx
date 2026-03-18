@@ -19,23 +19,30 @@ function formatRelativeTime(createdAt: string): string {
   return date.toLocaleDateString("uk-UA", { day: "numeric", month: "short", year: "numeric" });
 }
 
-type OrderStatus =
+/** Phase 3: orderStage as main axis. */
+type OrderStage =
   | "NEW"
-  | "IN_WORK"
+  | "CONFIRMED"
+  | "AWAITING_PAYMENT"
+  | "AWAITING_STOCK"
   | "READY_TO_SHIP"
   | "SHIPPED"
-  | "CONTROL_PAYMENT"
-  | "SUCCESS"
-  | "RETURNING"
-  | "CANCELED";
+  | "AWAITING_RECEIPT"
+  | "RECEIVED"
+  | "COMPLETED"
+  | "CANCELED"
+  | "REFUSED"
+  | "RETURN_IN_PROGRESS";
 
 type BoardOrder = {
   id: string;
   orderNumber: string;
   status: string;
+  orderStage?: string | null;
   totalAmount: number;
   currency: string;
   paymentType?: string | null;
+  debtAmount?: number;
   updatedAt?: string;
   createdAt?: string;
   company?: { id: string; name: string } | null;
@@ -50,12 +57,13 @@ type OrdersListResponse = {
 };
 
 type BoardColumn = {
-  id: OrderStatus;
+  id: OrderStage;
   title: string;
   items: BoardOrder[];
 };
 
 type BoardFilters = {
+  orderStage?: string;
   status?: string;
   ownerId?: string;
   amountFrom?: string;
@@ -70,39 +78,42 @@ type BoardFilters = {
   sortDir?: "asc" | "desc";
 };
 
-const STATUS_ORDER: OrderStatus[] = [
+/** Main row: active stages (board API excludes COMPLETED, CANCELED, REFUSED, RETURN_IN_PROGRESS). */
+const MAIN_STAGE_ORDER: OrderStage[] = [
   "NEW",
-  "IN_WORK",
+  "CONFIRMED",
+  "AWAITING_PAYMENT",
+  "AWAITING_STOCK",
   "READY_TO_SHIP",
   "SHIPPED",
-  "CONTROL_PAYMENT",
-  "SUCCESS",
-  "RETURNING",
-  "CANCELED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
 ];
 
-/** Only active statuses shown on the board; closed/failed are excluded. */
-const BOARD_STATUS_ORDER: OrderStatus[] = [
-  "NEW",
-  "IN_WORK",
-  "READY_TO_SHIP",
-  "SHIPPED",
-  "CONTROL_PAYMENT",
-];
-
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  NEW: "NEW",
-  IN_WORK: "IN_WORK",
-  READY_TO_SHIP: "READY_TO_SHIP",
-  SHIPPED: "SHIPPED",
-  CONTROL_PAYMENT: "CONTROL_PAYMENT",
-  SUCCESS: "SUCCESS",
-  RETURNING: "RETURNING",
-  CANCELED: "CANCELED",
+const STAGE_LABELS: Record<OrderStage, string> = {
+  NEW: "Новий",
+  CONFIRMED: "Підтверджено",
+  AWAITING_PAYMENT: "Очікує оплату",
+  AWAITING_STOCK: "Очікує на склад",
+  READY_TO_SHIP: "Готово до відправки",
+  SHIPPED: "Відправлено",
+  AWAITING_RECEIPT: "Очікує отримання",
+  RECEIVED: "Отримано",
+  COMPLETED: "Завершено",
+  CANCELED: "Скасовано",
+  REFUSED: "Відмова",
+  RETURN_IN_PROGRESS: "Повернення",
 };
 
-function isKnownStatus(s: string): s is OrderStatus {
-  return (STATUS_ORDER as string[]).includes(s);
+function isKnownStage(s: string): s is OrderStage {
+  return Object.keys(STAGE_LABELS).includes(s);
+}
+
+/** Resolve display stage: backend may return null orderStage for legacy data → treat as NEW. */
+function resolveStage(o: BoardOrder): OrderStage {
+  const st = o.orderStage ?? o.status;
+  if (st && isKnownStage(st)) return st;
+  return "NEW";
 }
 
 export function OrdersKanban({
@@ -116,32 +127,32 @@ export function OrdersKanban({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [dragging, setDragging] = useState<{ orderId: string; from: OrderStatus } | null>(null);
-  const [dragOver, setDragOver] = useState<OrderStatus | null>(null);
+  const [dragging, setDragging] = useState<{ orderId: string; from: OrderStage } | null>(null);
+  const [dragOver, setDragOver] = useState<OrderStage | null>(null);
 
   const columns: BoardColumn[] = useMemo(() => {
     const items = list?.items ?? [];
-
-    const map: Record<OrderStatus, BoardOrder[]> = {
+    const map: Record<OrderStage, BoardOrder[]> = {
       NEW: [],
-      IN_WORK: [],
+      CONFIRMED: [],
+      AWAITING_PAYMENT: [],
+      AWAITING_STOCK: [],
       READY_TO_SHIP: [],
       SHIPPED: [],
-      CONTROL_PAYMENT: [],
-      SUCCESS: [],
-      RETURNING: [],
+      AWAITING_RECEIPT: [],
+      RECEIVED: [],
+      COMPLETED: [],
       CANCELED: [],
+      REFUSED: [],
+      RETURN_IN_PROGRESS: [],
     };
-
     for (const o of items) {
-      const st = String(o.status ?? "");
-      if (isKnownStatus(st)) map[st].push(o);
-      else map.NEW.push({ ...o, status: "NEW" }); // чтобы ничего не терялось
+      const st = resolveStage(o);
+      map[st].push(o);
     }
-
-    return BOARD_STATUS_ORDER.map((st) => ({
+    return MAIN_STAGE_ORDER.map((st) => ({
       id: st,
-      title: STATUS_LABELS[st],
+      title: STAGE_LABELS[st],
       items: map[st],
     }));
   }, [list]);
@@ -150,7 +161,12 @@ export function OrdersKanban({
     setLoading(true);
     setErr(null);
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = {
+        board: "true",
+        withCompanyClient: "true",
+        pageSize: "100",
+      };
+      if (filters?.orderStage) params.orderStage = filters.orderStage;
       if (filters?.status) params.status = filters.status;
       if (filters?.ownerId) params.ownerId = filters.ownerId;
       if (filters?.amountFrom) params.amountFrom = filters.amountFrom;
@@ -164,7 +180,7 @@ export function OrdersKanban({
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
 
-      const res = await apiHttp.get<OrdersListResponse>("/orders/board", { params });
+      const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
       setList(res.data ?? { items: [] });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load board");
@@ -178,6 +194,7 @@ export function OrdersKanban({
     filters?.dateFrom,
     filters?.dateTo,
     filters?.hasTtn,
+    filters?.orderStage,
     filters?.ownerId,
     filters?.paymentStatus,
     filters?.paymentType,
@@ -191,24 +208,25 @@ export function OrdersKanban({
     void load();
   }, [load]);
 
-  const patchStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
-    const res = await apiHttp.patch(`/orders/${orderId}/status`, { status, reason });
+  /** Phase 3: PATCH /orders/:id/stage with toStage. */
+  const patchStage = useCallback(async (orderId: string, toStage: OrderStage, reason?: string) => {
+    const res = await apiHttp.patch(`/orders/${orderId}/stage`, { toStage, reason });
     return res.data ?? null;
-  };
+  }, []);
 
-  const moveLocal = (orderId: string, to: OrderStatus) => {
+  const moveLocal = (orderId: string, to: OrderStage) => {
     setList((prev) => {
       if (!prev) return prev;
       const next = [...(prev.items ?? [])];
       const idx = next.findIndex((x) => x.id === orderId);
       if (idx === -1) return prev;
-      next[idx] = { ...next[idx], status: to };
+      next[idx] = { ...next[idx], orderStage: to };
       return { ...prev, items: next };
     });
   };
 
   const handleDrop = useCallback(
-    async (orderId: string, to: OrderStatus) => {
+    async (orderId: string, to: OrderStage) => {
       const from = dragging?.from;
       if (from && from === to) {
         setDragging(null);
@@ -216,8 +234,8 @@ export function OrdersKanban({
       }
       moveLocal(orderId, to);
       try {
-        await patchStatus(orderId, to, "Moved in board");
-        if (to === "SUCCESS" || to === "CANCELED" || to === "RETURNING") {
+        await patchStage(orderId, to, "Moved in board");
+        if (["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS"].includes(to)) {
           void load();
         }
       } catch (error) {
@@ -227,146 +245,146 @@ export function OrdersKanban({
         setDragging(null);
       }
     },
-    [dragging],
+    [dragging, load, patchStage],
   );
 
   if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
   if (err) return <div className="text-sm text-red-600">{err}</div>;
   if (!list) return null;
 
-  const finalDropZones: { id: OrderStatus; label: string; className: string }[] = [
-    { id: "SUCCESS", label: "Успешная", className: "border-emerald-300 bg-emerald-50/80" },
-    { id: "CANCELED", label: "Проваленная", className: "border-red-300 bg-red-50/80" },
+  const finalDropZones: { id: OrderStage; label: string; className: string }[] = [
+    { id: "COMPLETED", label: "Завершено", className: "border-emerald-300 bg-emerald-50/80" },
+    { id: "CANCELED", label: "Скасовано", className: "border-red-300 bg-red-50/80" },
+    { id: "REFUSED", label: "Відмова", className: "border-orange-300 bg-orange-50/80" },
+    { id: "RETURN_IN_PROGRESS", label: "Повернення", className: "border-amber-300 bg-amber-50/80" },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      {columns.map((col) => {
-        const st = col.id;
-        const items = col.items ?? [];
-        const isOver = dragOver === st;
+      <div className="flex flex-nowrap gap-4 overflow-x-auto pb-2">
+        {columns.map((col) => {
+          const st = col.id;
+          const items = col.items ?? [];
+          const isOver = dragOver === st;
 
-        return (
-          <div
-            key={st}
-            className={[
-              "rounded-lg border bg-zinc-50/80 transition-colors",
-              isOver ? "border-zinc-900" : "border-zinc-200",
-            ].join(" ")}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
-              <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
-              <div className="text-xs text-zinc-500">{items.length}</div>
-            </div>
-
+          return (
             <div
+              key={st}
               className={[
-                "min-h-[200px] space-y-3 p-3 transition-colors",
-                isOver ? "bg-zinc-50" : "",
+                "flex-shrink-0 w-[220px] min-w-[220px] rounded-lg border bg-zinc-50/80 transition-colors",
+                isOver ? "border-zinc-900" : "border-zinc-200",
               ].join(" ")}
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                setDragOver(st);
-              }}
-              onDragLeave={() => setDragOver((cur) => (cur === st ? null : cur))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(null);
-                const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
-                if (!orderId) return;
-                void handleDrop(orderId, st);
-              }}
             >
-              {items.length === 0 ? (
-                <div className="text-xs text-zinc-500">Empty</div>
-              ) : (
-                items.map((o) => {
-                  const clientName =
-                    o.client != null
-                      ? `${o.client.lastName} ${o.client.firstName}`.trim() || "—"
-                      : o.company?.name ?? "—";
-                  return (
-                    <button
-                      key={o.id}
-                      type="button"
-                      onClick={() => {
-                        if (isTextSelected()) return;
-                        onOpenOrder(o.id);
-                      }}
-                      draggable
-                      onDragStart={(e) => {
-                        const st0 = isKnownStatus(String(o.status))
-                          ? (String(o.status) as OrderStatus)
-                          : "NEW";
-                        setDragging({ orderId: o.id, from: st0 });
-                        e.dataTransfer.setData("text/plain", o.id);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setDragOver(st);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDragOver(null);
-                        const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
-                        if (!orderId) return;
-                        void handleDrop(orderId, st);
-                      }}
-                      onDragEnd={() => {
-                        setDragging(null);
-                        setDragOver(null);
-                      }}
-                      className={[
-                        "w-full rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md",
-                        dragging?.orderId === o.id ? "opacity-60" : "",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-medium text-zinc-900">{o.orderNumber}</span>
-                        {o.paymentType && (
-                          <span
-                            className={[
-                              "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                              o.paymentType === "PREPAYMENT"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-amber-100 text-amber-800",
-                            ].join(" ")}
-                          >
-                            {o.paymentType === "PREPAYMENT" ? "Предопл." : "Отсрочка"}
-                          </span>
-                        )}
-                      </div>
-                      {o.createdAt && (
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {formatRelativeTime(o.createdAt)}
+              <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
+                <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
+                <div className="text-xs text-zinc-500">{items.length}</div>
+              </div>
+
+              <div
+                className={[
+                  "min-h-[200px] space-y-3 p-3 transition-colors",
+                  isOver ? "bg-zinc-50" : "",
+                ].join(" ")}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragOver(st);
+                }}
+                onDragLeave={() => setDragOver((cur) => (cur === st ? null : cur))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(null);
+                  const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
+                  if (!orderId) return;
+                  void handleDrop(orderId, st);
+                }}
+              >
+                {items.length === 0 ? (
+                  <div className="text-xs text-zinc-500">Empty</div>
+                ) : (
+                  items.map((o) => {
+                    const clientName =
+                      o.client != null
+                        ? `${o.client.lastName} ${o.client.firstName}`.trim() || "—"
+                        : o.company?.name ?? "—";
+                    const stage = resolveStage(o);
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => {
+                          if (isTextSelected()) return;
+                          onOpenOrder(o.id);
+                        }}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragging({ orderId: o.id, from: stage });
+                          e.dataTransfer.setData("text/plain", o.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          setDragOver(st);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOver(null);
+                          const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
+                          if (!orderId) return;
+                          void handleDrop(orderId, st);
+                        }}
+                        onDragEnd={() => {
+                          setDragging(null);
+                          setDragOver(null);
+                        }}
+                        className={[
+                          "w-full rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md",
+                          dragging?.orderId === o.id ? "opacity-60" : "",
+                        ].join(" ")}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-medium text-zinc-900">{o.orderNumber}</span>
+                          {o.paymentType && (
+                            <span
+                              className={[
+                                "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                                o.paymentType === "PREPAYMENT"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-amber-100 text-amber-800",
+                              ].join(" ")}
+                            >
+                              {o.paymentType === "PREPAYMENT" ? "Предопл." : "Отсрочка"}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      <div className="mt-2">
-                        <StatusBadge variant="order" status={o.status} />
-                      </div>
-                      <div className="mt-3 text-[10px] font-medium uppercase text-zinc-500">
-                        Сума
-                      </div>
-                      <div className="text-sm font-medium text-zinc-900">
-                        {o.totalAmount} {o.currency}
-                      </div>
-                      <div className="mt-2 text-[10px] font-medium uppercase text-zinc-500">
-                        Клієнт
-                      </div>
-                      <div className="mt-0.5 truncate text-xs text-zinc-700">{clientName}</div>
-                    </button>
-                  );
-                })
-              )}
+                        {o.createdAt && (
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {formatRelativeTime(o.createdAt)}
+                          </div>
+                        )}
+                        <div className="mt-2">
+                          <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
+                        </div>
+                        <div className="mt-3 text-[10px] font-medium uppercase text-zinc-500">
+                          Сума
+                        </div>
+                        <div className="text-sm font-medium text-zinc-900">
+                          {o.totalAmount} {o.currency}
+                        </div>
+                        <div className="mt-2 text-[10px] font-medium uppercase text-zinc-500">
+                          Клієнт
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-zinc-700">{clientName}</div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
       </div>
 
       {dragging && (

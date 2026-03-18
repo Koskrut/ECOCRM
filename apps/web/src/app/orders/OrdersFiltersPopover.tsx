@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export type OrderSortBy = "createdAt" | "totalAmount" | "status" | "orderNumber";
+export type OrderSortBy = "createdAt" | "totalAmount" | "status" | "orderNumber" | "orderStage";
 export type OrderSortDir = "asc" | "desc";
 export type OrderPaymentStatus = "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
 export type HasTtnFilter = "" | "true" | "false";
 
 export type OrdersFiltersState = {
+  orderStage: string;
   status: string;
   ownerId: string;
   amountFrom: string;
@@ -30,7 +31,8 @@ type Props = {
   open: boolean;
   value: OrdersFiltersState;
   ownerOptions: OwnerOption[];
-  statusOptions: { value: string; label: string }[];
+  /** Phase 3: primary stage filter (orderStage) */
+  orderStageOptions: { value: string; label: string }[];
   onClose: () => void;
   onApply: (next: OrdersFiltersState) => void;
   onReset: () => void;
@@ -39,7 +41,7 @@ type Props = {
 const SORT_BY_OPTIONS: { value: OrderSortBy; label: string }[] = [
   { value: "createdAt", label: "Дата" },
   { value: "totalAmount", label: "Сумма" },
-  { value: "status", label: "Статус" },
+  { value: "orderStage", label: "Стадія" },
   { value: "orderNumber", label: "Номер" },
 ];
 
@@ -67,7 +69,7 @@ export function OrdersFiltersPopover({
   open,
   value,
   ownerOptions,
-  statusOptions,
+  orderStageOptions,
   onClose,
   onApply,
   onReset,
@@ -95,7 +97,7 @@ export function OrdersFiltersPopover({
 
   const hasActiveFilters = useMemo(() => {
     return Boolean(
-      draft.status ||
+      draft.orderStage ||
         draft.ownerId ||
         draft.amountFrom ||
         draft.amountTo ||
@@ -127,13 +129,14 @@ export function OrdersFiltersPopover({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <select
-          value={draft.status}
-          onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
+          value={draft.orderStage}
+          onChange={(e) => setDraft((p) => ({ ...p, orderStage: e.target.value }))}
           className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+          aria-label="Стадія замовлення"
         >
-          {statusOptions.map((opt) => (
+          {orderStageOptions.map((opt) => (
             <option key={opt.value || "_all"} value={opt.value}>
-              {opt.value ? opt.label : "Все статусы"}
+              {opt.value ? opt.label : "Усі стадії"}
             </option>
           ))}
         </select>
