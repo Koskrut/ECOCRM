@@ -1850,7 +1850,7 @@ export function OrderModal({
                         ) : (
                           <div className="mt-0.5 text-xs text-zinc-400">Немає повернень</div>
                         )}
-                        {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED") && !showCreateReturnForm && (
+                        {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED" || order.orderStage === "RETURN_IN_PROGRESS") && !showCreateReturnForm && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1975,25 +1975,6 @@ export function OrderModal({
                             РН (PDF)
                           </a>
                         </div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">1С / таблиця</div>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            try {
-                              await apiHttp.post(`/orders/${order.id}/send-to-sheet`);
-                              setOrder((prev) => prev ? { ...prev } : prev);
-                            } catch (e) {
-                              const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? (e instanceof Error ? e.message : "Помилка");
-                              alert(msg);
-                            }
-                          }}
-                          className="mt-1 rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Відправити в 1С
-                        </button>
                       </div>
 
                       <div>

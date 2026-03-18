@@ -22,7 +22,10 @@ import { SettingsService } from "../../settings/settings.service";
  */
 export type GoogleSheetOrderPayload = {
   date: string;
+  /** CRM Order.id (cuid) — для обратного push документов из 1С. */
   dealId: string;
+  /** Номер заказа (orderNumber) — отображается в колонке «ID сделки». */
+  orderNumber?: string;
   responsibleFullName: string;
   contactId: string | null;
   counterpartyCode1C: string | null;
@@ -90,6 +93,7 @@ export class GoogleSheetSendOrderService {
     return {
       date: (order.createdAt as Date).toISOString(),
       dealId: order.id,
+      orderNumber: order.orderNumber,
       responsibleFullName,
       contactId,
       counterpartyCode1C,

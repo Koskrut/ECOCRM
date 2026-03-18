@@ -252,6 +252,7 @@ model User {
 
   contacts     Contact[]
   leads        Lead[]
+  orders       Order[]
   payments     Payment[]
   visits       Visit[]
   routePlans   RoutePlan[]
@@ -902,6 +903,7 @@ model Order {
   returnAdjustmentAmount Float @default(0)
 
   company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   warehouse    Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
@@ -923,6 +925,7 @@ model Order {
   @@index([companyId])
   @@index([clientId])
   @@index([contactId])
+  @@index([ownerId])
   @@index([bankAccountId])
   @@index([warehouseId])
   @@index([status])
