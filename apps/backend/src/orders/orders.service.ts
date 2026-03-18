@@ -316,13 +316,21 @@ export class OrdersService {
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
     const orderSource = dto.orderSource ?? OrderSource.CRM;
-    const currency = "UAH";
+    const currency = "USD";
     const discountAmount = this.num(dto.discountAmount, 0);
     const paidAmount = 0;
     const a = this.calc(0, discountAmount, paidAmount);
 
     const warehouseId =
       dto.warehouseId ?? (await this.warehousesService.getDefaultWarehouseId());
+    let exchangeRate: number | null = null;
+    try {
+      const rates = await this.settings.getExchangeRates();
+      exchangeRate = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+    } catch (e) {
+      this.logger.warn(`getExchangeRates failed at order create, exchangeRate will be null: ${e}`);
+    }
+
     try {
       const order = await this.prisma.$transaction(async (tx) => {
         const rows = await tx.$queryRaw<[{ assigned: number }]>`
@@ -365,6 +373,7 @@ export class OrdersService {
             orderStage: "NEW",
             deliveryStatus: "NOT_SHIPPED",
             financialStatus,
+            exchangeRate,
           },
           include: ORDER_INCLUDE,
         });
