@@ -104,4 +104,23 @@ export class SettingsController {
   setStoreConfig(@Body() body: Partial<StoreConfig>) {
     return this.settings.setStoreConfig(body);
   }
+
+  @Get("org-chart")
+  @Roles(UserRole.ADMIN)
+  getOrgChartStructure() {
+    return this.settings.getOrgChartStructure();
+  }
+
+  @Patch("org-chart")
+  @Roles(UserRole.ADMIN)
+  setOrgChartStructure(
+    @Body()
+    body: {
+      assignments?: Record<string, string | null>;
+      extraSlots?: string[];
+      regions?: Record<string, string[]>;
+    }
+  ) {
+    return this.settings.setOrgChartStructure(body);
+  }
 }

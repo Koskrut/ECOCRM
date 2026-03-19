@@ -15,6 +15,7 @@ import {
   MapPin,
   MessageCircle,
   ListTodo,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -39,6 +40,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Visits", icon: MapPin, href: "/visits" },
 ];
 
+const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };
 const paymentsItem: MenuItem = { label: "Payments", icon: Wallet, href: "/payments" };
 const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
 
@@ -63,7 +65,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   }, []);
   const menuItems =
     role === "ADMIN"
-      ? [...baseMenuItems, paymentsItem, settingsItem]
+      ? [...baseMenuItems, analyticsItem, paymentsItem, settingsItem]
       : role === "MANAGER"
         ? [...baseMenuItems, paymentsItem]
         : baseMenuItems;

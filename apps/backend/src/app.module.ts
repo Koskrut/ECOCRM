@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
 import { CompaniesModule } from "./companies/companies.module";
+import { AnalyticsModule } from "./analytics/analytics.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { LeadsModule } from "./leads/leads.module";
 import { ContactsModule } from "./contacts/contacts.module";
@@ -35,6 +36,7 @@ import { WarehousesModule } from "./warehouses/warehouses.module";
     NpModule,
     PaymentsModule,
     AuthModule,
+    AnalyticsModule,
     DashboardModule,
     ActivitiesModule,
     VisitsModule,

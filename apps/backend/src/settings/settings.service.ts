@@ -84,6 +84,7 @@ export type StoreConfig = {
 };
 
 const STORE_CONFIG_KEY = "store_config";
+const ORG_CHART_STRUCTURE_KEY = "org_chart_structure";
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
   theme: {
@@ -738,6 +739,45 @@ export class SettingsService {
     await this.prisma.systemSetting.upsert({
       where: { id: STORE_CONFIG_KEY },
       create: { id: STORE_CONFIG_KEY, value: next as Prisma.InputJsonValue },
+      update: { value: next as Prisma.InputJsonValue },
+    });
+    return next;
+  }
+
+  /** Структура отдела: назначения, доп. слоты, области. */
+  async getOrgChartStructure(): Promise<{
+    assignments: Record<string, string | null>;
+    extraSlots: string[];
+    regions: Record<string, string[]>;
+  }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: ORG_CHART_STRUCTURE_KEY },
+    });
+    const v = row?.value && typeof row.value === "object" ? (row.value as Record<string, unknown>) : null;
+    return {
+      assignments: (v?.assignments && typeof v.assignments === "object" ? v.assignments : {}) as Record<
+        string,
+        string | null
+      >,
+      extraSlots: Array.isArray(v?.extraSlots) ? (v.extraSlots as string[]) : [],
+      regions: (v?.regions && typeof v.regions === "object" ? v.regions : {}) as Record<string, string[]>,
+    };
+  }
+
+  async setOrgChartStructure(body: {
+    assignments?: Record<string, string | null>;
+    extraSlots?: string[];
+    regions?: Record<string, string[]>;
+  }): Promise<{ assignments: Record<string, string | null>; extraSlots: string[]; regions: Record<string, string[]> }> {
+    const current = await this.getOrgChartStructure();
+    const next = {
+      assignments: body.assignments ?? current.assignments,
+      extraSlots: Array.isArray(body.extraSlots) ? body.extraSlots : current.extraSlots,
+      regions: body.regions ?? current.regions,
+    };
+    await this.prisma.systemSetting.upsert({
+      where: { id: ORG_CHART_STRUCTURE_KEY },
+      create: { id: ORG_CHART_STRUCTURE_KEY, value: next as Prisma.InputJsonValue },
       update: { value: next as Prisma.InputJsonValue },
     });
     return next;
