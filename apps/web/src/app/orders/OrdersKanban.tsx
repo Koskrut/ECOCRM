@@ -131,6 +131,8 @@ export function OrdersKanban({
 
   const [dragging, setDragging] = useState<{ orderId: string; from: OrderStage } | null>(null);
   const [dragOver, setDragOver] = useState<OrderStage | null>(null);
+  /** На мобильных: индекс выбранной колонки (одна колонка на экран). */
+  const [selectedStageIndex, setSelectedStageIndex] = useState(0);
 
   const columns: BoardColumn[] = useMemo(() => {
     const items = list?.items ?? [];
@@ -210,6 +212,12 @@ export function OrdersKanban({
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (columns.length > 0 && selectedStageIndex >= columns.length) {
+      setSelectedStageIndex(Math.max(0, columns.length - 1));
+    }
+  }, [columns.length, selectedStageIndex]);
+
   /** Phase 3: PATCH /orders/:id/stage with toStage. */
   const patchStage = useCallback(async (orderId: string, toStage: OrderStage, reason?: string) => {
     const res = await apiHttp.patch(`/orders/${orderId}/stage`, { toStage, reason });
@@ -263,17 +271,42 @@ export function OrdersKanban({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-nowrap gap-4 overflow-x-auto pb-2">
-        {columns.map((col) => {
+      {/* Мобильный переключатель стадий: одна колонка на экран */}
+      <div className="md:hidden overflow-x-auto overflow-y-hidden pb-2 -mx-1">
+        <div className="flex gap-2 flex-nowrap min-w-0">
+          {columns.map((col, idx) => (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => setSelectedStageIndex(idx)}
+              className={[
+                "shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors",
+                selectedStageIndex === idx
+                  ? "border-accent-500 bg-accent-500 text-white"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              ].join(" ")}
+            >
+              <span className="whitespace-nowrap">{col.title}</span>
+              <span className="ml-1.5 text-xs opacity-80">({(col.items ?? []).length})</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 md:flex-row md:flex-nowrap md:gap-4 md:overflow-x-auto pb-2">
+        {columns.map((col, colIndex) => {
           const st = col.id;
           const items = col.items ?? [];
           const isOver = dragOver === st;
+          const isSelectedOnMobile = colIndex === selectedStageIndex;
 
           return (
             <div
               key={st}
               className={[
-                "flex-shrink-0 w-[220px] min-w-[220px] rounded-lg border bg-zinc-50/80 transition-colors",
+                "rounded-lg border bg-zinc-50/80 transition-colors",
+                "w-full min-w-0 md:w-[220px] md:min-w-[220px] md:flex-shrink-0",
+                isSelectedOnMobile ? "block" : "hidden md:block",
                 isOver ? "border-zinc-900" : "border-zinc-200",
               ].join(" ")}
             >
