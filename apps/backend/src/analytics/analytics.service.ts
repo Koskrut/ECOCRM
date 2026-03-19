@@ -64,11 +64,7 @@ export class AnalyticsService {
 
     const orders = await this.prisma.order.findMany({
       where: orderWhere,
-      select: {
-        clientId: true,
-        totalAmount: true,
-        returnAdjustmentAmount: true,
-        ownerId: true,
+      include: {
         client: { select: { region: true } },
         owner: { select: { id: true, fullName: true } },
       },
