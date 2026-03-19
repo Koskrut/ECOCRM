@@ -1,4 +1,4 @@
-import { Prisma, PrismaClientKnownRequestError } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
@@ -145,7 +145,7 @@ export class ProductStore {
       if (!product) throw new Error("Product not found after create");
       return product;
     } catch (err) {
-      if (err instanceof PrismaClientKnownRequestError && err.code === "P2002") {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         throw new ConflictException("Товар с таким артикулом уже существует");
       }
       throw err;
