@@ -1305,28 +1305,56 @@ export function OrderModal({
                           </div>
                           <div className="flex items-center gap-1">
                             {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
-                              <input
-                                type="number"
-                                min={1}
-                                value={editingItem.value}
-                                onChange={(e) =>
-                                  setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
-                                }
-                                onBlur={async (e) => {
-                                  const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
-                                  await patchOrderItem(it.id, { qty: val });
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
-                                    void patchOrderItem(it.id, { qty: val });
+                              <div className="flex flex-col items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = Math.max(1, Number(editingItem.value) || 1);
+                                    const next = cur + 1;
+                                    setEditingItem((prev) => (prev ? { ...prev, value: String(next) } : null));
+                                    void patchOrderItem(it.id, { qty: next });
+                                  }}
+                                  aria-label="Увеличить количество"
+                                  className="flex h-8 w-9 shrink-0 items-center justify-center rounded border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
+                                >
+                                  +
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={editingItem.value}
+                                  onChange={(e) =>
+                                    setEditingItem((prev) => (prev ? { ...prev, value: e.target.value } : null))
                                   }
-                                  if (e.key === "Escape") setEditingItem(null);
-                                }}
-                                autoFocus
-                                className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-right text-sm"
-                              />
+                                  onBlur={async (e) => {
+                                    const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
+                                    await patchOrderItem(it.id, { qty: val });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      const val = Math.max(1, Number((e.target as HTMLInputElement).value) || 1);
+                                      void patchOrderItem(it.id, { qty: val });
+                                    }
+                                    if (e.key === "Escape") setEditingItem(null);
+                                  }}
+                                  autoFocus
+                                  className="w-12 rounded border border-zinc-300 px-1 py-0.5 text-right text-sm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const cur = Math.max(1, Number(editingItem.value) || 1);
+                                    const next = Math.max(1, cur - 1);
+                                    setEditingItem((prev) => (prev ? { ...prev, value: String(next) } : null));
+                                    void patchOrderItem(it.id, { qty: next });
+                                  }}
+                                  aria-label="Уменьшить количество"
+                                  className="flex h-8 w-9 shrink-0 items-center justify-center rounded border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                                >
+                                  −
+                                </button>
+                              </div>
                             ) : (
                               <button
                                 type="button"
