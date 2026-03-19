@@ -9,10 +9,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { Public } from "../auth/public.decorator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
@@ -68,17 +70,27 @@ export class ProductsController {
   @Post()
   public async create(
     @Body() body: { sku?: string; name?: string; unit?: string; basePrice?: number; showOnStore?: boolean },
+    @Req() req: Request & { body?: Record<string, unknown> },
   ) {
-    const sku = body?.sku?.trim();
+    const raw = req.body ?? {};
+    const sku = (body?.sku ?? raw.sku)?.toString?.()?.trim();
     if (!sku) {
       throw new BadRequestException("Артикул обязателен");
     }
+    const name = body?.name ?? raw.name;
+    const unit = body?.unit ?? raw.unit;
+    const basePrice = body?.basePrice ?? raw.basePrice;
+    const showOnStore = body?.showOnStore ?? raw.showOnStore;
     return this.productStore.create({
       sku,
-      name: body.name,
-      unit: body.unit,
-      basePrice: body.basePrice,
-      showOnStore: body.showOnStore,
+      name: name != null ? String(name).trim() || undefined : undefined,
+      unit: unit != null ? String(unit).trim() : undefined,
+      basePrice:
+        basePrice !== undefined && basePrice !== null && !Number.isNaN(Number(basePrice))
+          ? Math.max(0, Number(basePrice))
+          : undefined,
+      showOnStore:
+        showOnStore !== undefined && showOnStore !== null ? Boolean(showOnStore) : undefined,
     });
   }
 
