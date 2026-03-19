@@ -63,7 +63,36 @@ export type StockUploadResult = {
   notFound: string[];
 };
 
+export type CreateProductPayload = {
+  sku: string;
+  name?: string;
+  unit?: string;
+  basePrice?: number;
+  showOnStore?: boolean;
+};
+
 export const productsApi = {
+  createProduct: async (payload: CreateProductPayload): Promise<ProductCatalogItem> => {
+    const r = await fetch("/api/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Create failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+    return r.json() as Promise<ProductCatalogItem>;
+  },
+
   listCatalog: async (params: {
     search?: string;
     page?: number;

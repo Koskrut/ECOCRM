@@ -546,6 +546,165 @@ function StockUploadByWarehousesModal({
   );
 }
 
+function AddProductModal({
+  open,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [sku, setSku] = useState("");
+  const [name, setName] = useState("");
+  const [unit, setUnit] = useState("pcs");
+  const [basePrice, setBasePrice] = useState("");
+  const [showOnStore, setShowOnStore] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = useCallback(() => {
+    setSku("");
+    setName("");
+    setUnit("pcs");
+    setBasePrice("");
+    setShowOnStore(true);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const skuTrim = sku.trim();
+    if (!skuTrim) {
+      setError("Укажите артикул");
+      return;
+    }
+    const priceNum = basePrice.trim() === "" ? 0 : Number(basePrice);
+    if (Number.isNaN(priceNum) || priceNum < 0) {
+      setError("Цена должна быть неотрицательным числом");
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await productsApi.createProduct({
+        sku: skuTrim,
+        name: name.trim() || undefined,
+        unit: unit.trim() || "pcs",
+        basePrice: priceNum,
+        showOnStore,
+      });
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка создания");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold text-zinc-900">
+          Добавить позицию
+        </h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label htmlFor="add-product-sku" className="mb-1 block text-sm font-medium text-zinc-700">
+              Артикул <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="add-product-sku"
+              type="text"
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="например 00.105"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label htmlFor="add-product-name" className="mb-1 block text-sm font-medium text-zinc-700">
+              Название
+            </label>
+            <input
+              id="add-product-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="если пусто — будет артикул"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-product-unit" className="mb-1 block text-sm font-medium text-zinc-700">
+              Ед.
+            </label>
+            <input
+              id="add-product-unit"
+              type="text"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="pcs"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="add-product-price" className="mb-1 block text-sm font-medium text-zinc-700">
+              Цена
+            </label>
+            <input
+              id="add-product-price"
+              type="text"
+              inputMode="decimal"
+              value={basePrice}
+              onChange={(e) => setBasePrice(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            />
+          </div>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showOnStore}
+              onChange={(e) => setShowOnStore(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+            />
+            <span className="text-sm text-zinc-700">Показывать на сайте</span>
+          </label>
+          {error && (
+            <p className="text-sm text-red-600" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn-primary"
+            >
+              {submitting ? "Создание…" : "Создать"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Отмена
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function CatalogPageContent() {
   const [items, setItems] = useState<ProductCatalogItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -553,6 +712,7 @@ function CatalogPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [searchDebounced, setSearchDebounced] = useState("");
+  const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadByWarehousesModalOpen, setUploadByWarehousesModalOpen] = useState(false);
   const [syncImagesModalOpen, setSyncImagesModalOpen] = useState(false);
@@ -627,6 +787,13 @@ function CatalogPageContent() {
             onChange={(e) => setSearch(e.target.value)}
             className="rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
+          <button
+            type="button"
+            onClick={() => setAddProductModalOpen(true)}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Добавить позицию
+          </button>
           <button
             type="button"
             onClick={() => setSyncImagesModalOpen(true)}
@@ -794,6 +961,11 @@ function CatalogPageContent() {
         </div>
       )}
 
+      <AddProductModal
+        open={addProductModalOpen}
+        onClose={() => setAddProductModalOpen(false)}
+        onSuccess={loadCatalog}
+      />
       <StockUploadModal
         open={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}

@@ -65,6 +65,23 @@ export class ProductsController {
     };
   }
 
+  @Post()
+  public async create(
+    @Body() body: { sku?: string; name?: string; unit?: string; basePrice?: number; showOnStore?: boolean },
+  ) {
+    const sku = body?.sku?.trim();
+    if (!sku) {
+      throw new BadRequestException("Артикул обязателен");
+    }
+    return this.productStore.create({
+      sku,
+      name: body.name,
+      unit: body.unit,
+      basePrice: body.basePrice,
+      showOnStore: body.showOnStore,
+    });
+  }
+
   @Post("images/sync")
   public syncProductImages(
     @Body() body: { folderId?: string },

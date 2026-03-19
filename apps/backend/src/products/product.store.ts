@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
-import { Injectable } from "@nestjs/common";
+import { Prisma, PrismaClientKnownRequestError } from "@prisma/client";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
@@ -47,6 +47,14 @@ export type BulkStockUpdateResult = {
   updated: number;
   created: number;
   notFound: string[];
+};
+
+export type CreateProductData = {
+  sku: string;
+  name?: string;
+  unit?: string;
+  basePrice?: number;
+  showOnStore?: boolean;
 };
 
 @Injectable()
@@ -107,6 +115,41 @@ export class ProductStore {
       row as PrismaProduct,
       primary ? { url: primary.url, imageId: primary.id } : null,
     );
+  }
+
+  public async create(data: CreateProductData): Promise<Product> {
+    const skuTrim = data.sku?.trim();
+    if (!skuTrim) {
+      throw new BadRequestException("Артикул обязателен");
+    }
+    const name = data.name?.trim() || skuTrim;
+    const unit = data.unit?.trim() || "pcs";
+    const basePrice =
+      data.basePrice !== undefined && data.basePrice !== null && !Number.isNaN(data.basePrice)
+        ? Math.max(0, Number(data.basePrice))
+        : 0;
+    const showOnStore = data.showOnStore ?? true;
+    try {
+      const row = await this.prisma.product.create({
+        data: {
+          sku: skuTrim,
+          name,
+          unit,
+          basePrice,
+          stock: 0,
+          isActive: true,
+          showOnStore,
+        },
+      });
+      const product = await this.findById(row.id);
+      if (!product) throw new Error("Product not found after create");
+      return product;
+    } catch (err) {
+      if (err instanceof PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("Товар с таким артикулом уже существует");
+      }
+      throw err;
+    }
   }
 
   public async updateStockBySku(sku: string, stock: number): Promise<boolean> {

@@ -1,6 +1,8 @@
+import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { API_URL } from "@/lib/api/config";
+import { proxyToBackend } from "@/lib/api/proxy.server";
 
 export async function GET(req: Request) {
   const token = (await cookies()).get("token")?.value;
@@ -21,4 +23,8 @@ export async function GET(req: Request) {
     status: r.status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+export async function POST(req: NextRequest) {
+  return proxyToBackend(req, "products");
 }
