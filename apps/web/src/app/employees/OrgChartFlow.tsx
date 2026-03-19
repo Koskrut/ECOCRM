@@ -83,7 +83,9 @@ export function getRegionsForEmployee(
   employeeId: string
 ): string[] {
   const slotId = Object.entries(assignments).find(([, id]) => id === employeeId)?.[0];
-  return (slotId && regionAssignments[slotId]) ?? [];
+  if (!slotId) return [];
+  const regions = regionAssignments[slotId];
+  return Array.isArray(regions) ? regions : [];
 }
 
 const BASE_MANAGER_SLOTS = ["lead1", "lead2", "admin-manager", "m1-1", "m1-2", "m2-1", "m2-2"] as const;
