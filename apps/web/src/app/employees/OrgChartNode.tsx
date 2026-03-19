@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { Handle, type NodeProps, Position } from "@xyflow/react";
+import { Handle, type Node, type NodeProps, Position } from "@xyflow/react";
 
 export type OrgNodeData = {
   label: string;
@@ -23,7 +23,7 @@ const roleLabels = {
   manager: "Менеджер",
 };
 
-function OrgChartNodeComponent({ data, selected }: NodeProps<OrgNodeData>) {
+function OrgChartNodeComponent({ data, selected }: NodeProps<Node<OrgNodeData>>) {
   const style = roleStyles[data.role ?? "manager"];
   const roleLabel = roleLabels[data.role ?? "manager"];
 

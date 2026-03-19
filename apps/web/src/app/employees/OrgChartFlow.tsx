@@ -165,7 +165,7 @@ function nextExtraSlotId(extraSlotIds: string[], underLead: "lead1" | "lead2"): 
   return `${prefix}${maxNum + 1}`;
 }
 
-const nodeTypes: NodeTypes = { orgNode: OrgChartNode };
+const nodeTypes: NodeTypes = { orgNode: OrgChartNode as NodeTypes[string] };
 
 function buildNodesFromEmployees(
   employees: Employee[],
@@ -188,9 +188,9 @@ function buildNodesFromEmployees(
     e ? (e.fullName?.trim() || e.email) : fallback;
   const regions = (slotId: string) => regionAssignments[slotId] ?? [];
 
-  const lead1 = get(assignments.lead1 ?? undefined);
-  const lead2 = get(assignments.lead2 ?? undefined);
-  const adminManager = get(assignments["admin-manager"] ?? undefined);
+  const lead1 = get(assignments.lead1 ?? null);
+  const lead2 = get(assignments.lead2 ?? null);
+  const adminManager = get(assignments["admin-manager"] ?? null);
 
   const baseNodes: Node<OrgNodeData>[] = [
     {
@@ -241,9 +241,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 0, y: 280 },
       data: {
-        label: slot(get(assignments["m1-1"] ?? undefined), "Менеджер 1.1"),
+        label: slot(get(assignments["m1-1"] ?? null), "Менеджер 1.1"),
         role: "manager",
-        subtitle: get(assignments["m1-1"] ?? undefined)?.email,
+        subtitle: get(assignments["m1-1"] ?? null)?.email,
         regions: regions("m1-1"),
       },
     },
@@ -252,9 +252,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 240, y: 280 },
       data: {
-        label: slot(get(assignments["m1-2"] ?? undefined), "Менеджер 1.2"),
+        label: slot(get(assignments["m1-2"] ?? null), "Менеджер 1.2"),
         role: "manager",
-        subtitle: get(assignments["m1-2"] ?? undefined)?.email,
+        subtitle: get(assignments["m1-2"] ?? null)?.email,
         regions: regions("m1-2"),
       },
     },
@@ -263,9 +263,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 440, y: 280 },
       data: {
-        label: slot(get(assignments["m2-1"] ?? undefined), "Менеджер 2.1"),
+        label: slot(get(assignments["m2-1"] ?? null), "Менеджер 2.1"),
         role: "manager",
-        subtitle: get(assignments["m2-1"] ?? undefined)?.email,
+        subtitle: get(assignments["m2-1"] ?? null)?.email,
         regions: regions("m2-1"),
       },
     },
@@ -274,9 +274,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 680, y: 280 },
       data: {
-        label: slot(get(assignments["m2-2"] ?? undefined), "Менеджер 2.2"),
+        label: slot(get(assignments["m2-2"] ?? null), "Менеджер 2.2"),
         role: "manager",
-        subtitle: get(assignments["m2-2"] ?? undefined)?.email,
+        subtitle: get(assignments["m2-2"] ?? null)?.email,
         regions: regions("m2-2"),
       },
     },
@@ -285,7 +285,7 @@ function buildNodesFromEmployees(
   const lead1Extras = extraSlotIds.filter((id) => id.startsWith("m1-")).sort();
   const lead2Extras = extraSlotIds.filter((id) => id.startsWith("m2-")).sort();
   const lead1ExtraNodes: Node<OrgNodeData>[] = lead1Extras.map((slotId, i) => {
-    const emp = get(assignments[slotId] ?? undefined);
+    const emp = get(assignments[slotId] ?? null);
     return {
       id: slotId,
       type: "orgNode",
@@ -299,7 +299,7 @@ function buildNodesFromEmployees(
     };
   });
   const lead2ExtraNodes: Node<OrgNodeData>[] = lead2Extras.map((slotId, i) => {
-    const emp = get(assignments[slotId] ?? undefined);
+    const emp = get(assignments[slotId] ?? null);
     return {
       id: slotId,
       type: "orgNode",
