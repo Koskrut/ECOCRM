@@ -465,13 +465,19 @@ function PaymentsContent() {
     }
   }, []);
 
-  const fetchContactsForAllocate = useCallback(async () => {
+  const searchContactsForAllocate = useCallback(async (q: string) => {
+    const term = q.trim();
+    if (term.length < 3) {
+      setAllocateContacts([]);
+      return;
+    }
     setAllocateContactsLoading(true);
     try {
-      const r = await apiHttp.get<{ items: ContactOption[] }>(
-        "/contacts?page=1&pageSize=300",
+      const r = await apiHttp.get<{ items: ContactOption[]; total?: number }>(
+        `/contacts?page=1&pageSize=50&q=${encodeURIComponent(term)}`,
       );
-      setAllocateContacts(r.data?.items ?? []);
+      const items = r.data?.items ?? [];
+      setAllocateContacts(items);
     } catch {
       setAllocateContacts([]);
     } finally {
@@ -497,18 +503,26 @@ function PaymentsContent() {
   const allocateContactCandidates = useMemo(
     () =>
       allocateContactSearch.trim().length >= 3
-        ? filterBySearch(
-            allocateContacts,
-            allocateContactSearch,
-            (c) => [c.lastName, c.firstName, c.phone].filter(Boolean).join(" "),
-          ).slice(0, 15)
+        ? allocateContacts.slice(0, 15)
         : [],
     [allocateContacts, allocateContactSearch],
   );
 
   useEffect(() => {
-    if (allocateTxId) void fetchContactsForAllocate();
-  }, [allocateTxId, fetchContactsForAllocate]);
+    if (allocateTxId) {
+      setAllocateContacts([]);
+    }
+  }, [allocateTxId]);
+
+  useEffect(() => {
+    const q = allocateContactSearch.trim();
+    if (q.length < 3) {
+      setAllocateContacts([]);
+      return;
+    }
+    const t = setTimeout(() => void searchContactsForAllocate(allocateContactSearch), 300);
+    return () => clearTimeout(t);
+  }, [allocateContactSearch, searchContactsForAllocate]);
 
   useEffect(() => {
     if (allocateContactId) void fetchUnpaidOrdersForAllocate(allocateContactId);
@@ -819,33 +833,6 @@ function PaymentsContent() {
           >
             + Add payment
           </button>
-        )}
-        {mode === "fop" && (
-          <>
-            <button
-              type="button"
-              onClick={() => void runBankSync()}
-              disabled={bankSyncLoading}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
-            >
-              {bankSyncLoading ? "Синхронізація…" : "Обновить оплаты сейчас"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void runBankSync({ forYesterday: true })}
-              disabled={bankSyncLoading}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
-            >
-              Синхронизировать за вчера
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAddStatement(true)}
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
-            >
-              + Add statement
-            </button>
-          </>
         )}
       </div>
 
@@ -1522,6 +1509,9 @@ function PaymentsContent() {
                   placeholder="Search contact (min 3 chars)…"
                   className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                 />
+                {allocateContactSearch.trim().length >= 3 && allocateContactsLoading && (
+                  <div className="mt-1 py-2 text-sm text-zinc-500">Searching…</div>
+                )}
                 {allocateContactCandidates.length > 0 && (
                   <ul className="mt-1 max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
                     {allocateContactCandidates.map((c) => (
