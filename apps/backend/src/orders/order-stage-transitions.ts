@@ -21,12 +21,12 @@ const STAGES: OrderStage[] = [
   "RETURN_IN_PROGRESS",
 ];
 
-/** Normal flow + reasonable direct skips. Terminal stages cannot be left. */
+/** Normal flow + reasonable direct skips. Terminal stages cannot be left. Back to NEW allowed from pre-shipment only. */
 const ALLOWED_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
   NEW: ["CONFIRMED", "CANCELED"],
-  CONFIRMED: ["AWAITING_PAYMENT", "AWAITING_STOCK", "READY_TO_SHIP", "CANCELED"],
-  AWAITING_PAYMENT: ["READY_TO_SHIP", "CONFIRMED", "CANCELED"],
-  AWAITING_STOCK: ["READY_TO_SHIP", "CONFIRMED", "CANCELED"],
+  CONFIRMED: ["AWAITING_PAYMENT", "AWAITING_STOCK", "READY_TO_SHIP", "CANCELED", "NEW"],
+  AWAITING_PAYMENT: ["READY_TO_SHIP", "CONFIRMED", "CANCELED", "NEW"],
+  AWAITING_STOCK: ["READY_TO_SHIP", "CONFIRMED", "CANCELED", "NEW"],
   READY_TO_SHIP: ["SHIPPED", "CONFIRMED", "CANCELED"],
   SHIPPED: ["AWAITING_RECEIPT", "REFUSED"],
   AWAITING_RECEIPT: ["RECEIVED", "REFUSED"],
