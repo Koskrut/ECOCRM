@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
@@ -10,6 +10,7 @@ import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
+import { tasksApi } from "@/lib/api/resources/tasks";
 
 // =====================
 // Small local UI helpers
@@ -39,6 +40,23 @@ function Badge({ children, className }: { children: React.ReactNode; className?:
       )}
     >
       {children}
+    </span>
+  );
+}
+
+/** Small numeric pill for modal sub-tabs (e.g. Items / Activity / Tasks). Hidden when count is 0. */
+function TabCountBubble({ count, active }: { count: number; active: boolean }) {
+  if (count <= 0) return null;
+  const label = count > 99 ? "99+" : String(count);
+  return (
+    <span
+      className={cx(
+        "ml-1.5 inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums",
+        active ? "bg-white/20 text-white" : "bg-zinc-200/90 text-zinc-700",
+      )}
+      aria-hidden
+    >
+      {label}
     </span>
   );
 }
@@ -137,6 +155,21 @@ function stockAtWarehouse(
   return w?.qty ?? 0;
 }
 
+function toIsoDateLocal(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function deferredDueDateFrom(baseIsoLike?: string | null): string {
+  const base = baseIsoLike ? new Date(baseIsoLike) : new Date();
+  if (Number.isNaN(base.getTime())) return "";
+  const due = new Date(base);
+  due.setDate(due.getDate() + 10);
+  return toIsoDateLocal(due);
+}
+
 type CompanyOption = { id: string; name: string };
 
 type ContactOption = {
@@ -208,18 +241,99 @@ function Stepper({
   onStepClick,
   disabled,
   hasPayment,
+  isAdmin,
 }: {
   stage: string;
   onStepClick?: (stepKey: string) => void;
   disabled?: boolean;
   /** When true, payment-related step is shown green (paid). */
   hasPayment?: boolean;
+  isAdmin?: boolean;
 }) {
   const activeIdx = stepIndex(stage);
+  const wheelRef = useRef<HTMLDivElement>(null);
+  const wheelItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const wheelRafRef = useRef<number | null>(null);
+  const wheelSettleTimerRef = useRef<number | null>(null);
+  const managerMenuRef = useRef<HTMLDivElement>(null);
+  const suppressScrollApplyUntilRef = useRef<number>(0);
+  const lastEmittedKeyRef = useRef<string | null>(null);
+  const [managerMenuOpen, setManagerMenuOpen] = useState(false);
 
   const isCanceled = stage === "CANCELED";
   const isRefused = stage === "REFUSED";
   const isReturning = stage === "RETURN_IN_PROGRESS";
+
+  const centerActiveChip = useCallback(
+    () => {
+      const el = wheelRef.current;
+      const btn = wheelItemRefs.current[activeIdx];
+      if (!el || !btn) return;
+      const targetLeft = Math.max(0, btn.offsetLeft + btn.offsetWidth / 2 - el.clientWidth / 2);
+      suppressScrollApplyUntilRef.current = Date.now() + 220;
+      el.scrollTo({ left: targetLeft, behavior: "auto" });
+    },
+    [activeIdx],
+  );
+
+  useLayoutEffect(() => {
+    centerActiveChip();
+  }, [centerActiveChip, stage]);
+
+  useEffect(() => {
+    const onResize = () => centerActiveChip();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [centerActiveChip]);
+
+  useEffect(() => {
+    lastEmittedKeyRef.current = stage;
+  }, [stage]);
+
+  const getNearestStepFromScroll = useCallback((el: HTMLDivElement) => {
+    const centerX = el.scrollLeft + el.clientWidth / 2;
+    let bestIdx = 0;
+    let bestDist = Number.POSITIVE_INFINITY;
+    ORDER_STAGE_STEPS.forEach((_, idx) => {
+      const btn = wheelItemRefs.current[idx];
+      if (!btn) return;
+      const btnCenter = btn.offsetLeft + btn.offsetWidth / 2;
+      const dist = Math.abs(btnCenter - centerX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = idx;
+      }
+    });
+    return { nearestIdx: bestIdx, nearest: ORDER_STAGE_STEPS[bestIdx], centerX, bestDist };
+  }, []);
+
+  useEffect(() => {
+    const el = wheelRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current);
+      wheelRafRef.current = requestAnimationFrame(() => {
+        const { nearestIdx, nearest } = getNearestStepFromScroll(el);
+
+        if (wheelSettleTimerRef.current != null) window.clearTimeout(wheelSettleTimerRef.current);
+        wheelSettleTimerRef.current = window.setTimeout(() => {
+          if (Date.now() < suppressScrollApplyUntilRef.current) return;
+          if (!onStepClick || disabled || !nearest?.key) return;
+          if (nearest.key === lastEmittedKeyRef.current) return;
+          lastEmittedKeyRef.current = nearest.key;
+          onStepClick(nearest.key);
+        }, 140);
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current);
+      if (wheelSettleTimerRef.current != null) window.clearTimeout(wheelSettleTimerRef.current);
+      wheelRafRef.current = null;
+      wheelSettleTimerRef.current = null;
+    };
+  }, [stage, disabled, onStepClick, getNearestStepFromScroll]);
 
   const colorClasses = (c: StepDef["color"], stepKey?: string) => {
     const usePaymentGreen = stepKey === "AWAITING_PAYMENT" && hasPayment;
@@ -265,9 +379,94 @@ function Stepper({
     return idx <= activeIdx;
   };
 
+  const roleBasedTransitionOptions = useMemo(() => {
+    // Manager has restricted list; all other roles can pick any stage except current.
+    if (isAdmin) return ORDER_STAGE_STEPS.filter((s) => s.key !== stage);
+    const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
+    return ORDER_STAGE_STEPS.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));
+  }, [isAdmin, stage, activeIdx]);
+
+  useEffect(() => {
+    if (!managerMenuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!managerMenuRef.current?.contains(e.target as Node)) setManagerMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [managerMenuOpen]);
+
   return (
     <div className="border-b border-zinc-200 px-6 py-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="md:hidden">
+        <div className="relative">
+          {roleBasedTransitionOptions.length > 0 ? (
+            <div ref={managerMenuRef} className="absolute left-0 top-0 z-20">
+              <button
+                type="button"
+                onClick={() => setManagerMenuOpen((v) => !v)}
+                disabled={disabled}
+                aria-label="Открыть список доступных статусов"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 shadow-sm disabled:opacity-50"
+              >
+                ▾
+              </button>
+              {managerMenuOpen ? (
+                <div className="mt-1 min-w-[180px] rounded-md border border-zinc-200 bg-white p-1 shadow-lg">
+                  {roleBasedTransitionOptions.map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => {
+                        setManagerMenuOpen(false);
+                        onStepClick?.(opt.key);
+                      }}
+                      className="block w-full rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div
+            ref={wheelRef}
+            className="overflow-x-auto overflow-y-hidden snap-x snap-mandatory [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <div className="flex items-center gap-0.5 px-[calc(50%-3.5rem)]">
+            {ORDER_STAGE_STEPS.map((s, idx) => {
+              const isActive = s.key === stage;
+              const distance = Math.abs(idx - activeIdx);
+              return (
+                <button
+                  key={s.key}
+                  ref={(el) => {
+                    wheelItemRefs.current[idx] = el;
+                  }}
+                  type="button"
+                  onClick={() => {
+                    if (!onStepClick || disabled) return;
+                    const next = ORDER_STAGE_STEPS[Math.min(activeIdx + 1, ORDER_STAGE_STEPS.length - 1)];
+                    const target = isActive ? next?.key ?? s.key : s.key;
+                    lastEmittedKeyRef.current = target;
+                    onStepClick(target);
+                  }}
+                  disabled={disabled || !onStepClick}
+                  className={cx(
+                    "block h-10 w-28 shrink-0 snap-center rounded-md px-1 text-center text-sm transition disabled:cursor-not-allowed",
+                    isActive ? "font-semibold text-zinc-900" : "font-medium text-zinc-600",
+                    distance >= 2 ? "opacity-40" : distance === 1 ? "opacity-70" : "opacity-100",
+                  )}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="hidden flex-wrap items-center gap-2 md:flex">
         {ORDER_STAGE_STEPS.map((s, idx) => {
           const done = isDone(s, idx);
           const cls = colorClasses(s.color, s.key);
@@ -296,7 +495,7 @@ function Stepper({
 // Main
 // =====================
 
-type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "paymentDueDate" | "bankAccount" | "warehouse" | "documents" | "delivery" | "discount" | "comment";
+type EditingField = null | "company" | "client" | "paymentType" | "paymentMethod" | "paymentDueDate" | "bankAccount" | "warehouse" | "discount" | "comment";
 
 export function OrderModal({
   apiBaseUrl,
@@ -329,12 +528,14 @@ export function OrderModal({
   const [clientId, setClientId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
   const [paymentType, setPaymentType] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<string | null>("FOP");
   const [bankAccountId, setBankAccountId] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
-  const [documentsRequested, setDocumentsRequested] = useState<boolean | null>(null);
+  /** From GET /bank/accounts/for-order — user's default FOP id (if visible). */
+  const [forOrderDefaultBankId, setForOrderDefaultBankId] = useState<string | null>(null);
+  const [documentsRequested, setDocumentsRequested] = useState<boolean>(false);
   const [paymentDueDate, setPaymentDueDate] = useState<string>("");
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [comment, setComment] = useState<string>("");
@@ -342,7 +543,12 @@ export function OrderModal({
   // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchWrapRef = useRef<HTMLDivElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
+  const priceInputRef = useRef<HTMLInputElement>(null);
+  const qtyControlsWrapRef = useRef<HTMLDivElement>(null);
+  const qtyIncBtnRef = useRef<HTMLButtonElement>(null);
+  const qtyDecBtnRef = useRef<HTMLButtonElement>(null);
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<ProductSearchItem[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -362,6 +568,10 @@ export function OrderModal({
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [timelineError, setTimelineError] = useState<string | null>(null);
+  /** Activity tab badge; kept in sync with refreshTimeline + OrderTimeline. */
+  const [activityTabCount, setActivityTabCount] = useState(0);
+  /** Tasks tab badge; prefetch + EntityTasksList updates. */
+  const [tasksTabCount, setTasksTabCount] = useState(0);
 
   // TTN
   const [showTtnModal, setShowTtnModal] = useState(false);
@@ -372,6 +582,8 @@ export function OrderModal({
   const [showCreateReturnForm, setShowCreateReturnForm] = useState(false);
   const [createReturnSubmitting, setCreateReturnSubmitting] = useState(false);
   const [returnItemQtys, setReturnItemQtys] = useState<Record<string, number>>({});
+  const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
+  const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
@@ -450,7 +662,7 @@ export function OrderModal({
     const orderWithFields = {
       ...data,
       paymentMethod: data.paymentMethod ?? null,
-      documentsRequested: data.documentsRequested ?? null,
+      documentsRequested: data.documentsRequested ?? false,
     };
     setOrder(orderWithFields);
     setCompanyId(data.companyId ?? null);
@@ -460,7 +672,7 @@ export function OrderModal({
     setPaymentMethod(data.paymentMethod ?? null);
     setBankAccountId(data.bankAccountId ?? null);
     setWarehouseId(data.warehouseId ?? null);
-    setDocumentsRequested(data.documentsRequested ?? null);
+    setDocumentsRequested(data.documentsRequested ?? false);
     setPaymentDueDate(
       data.paymentDueDate
         ? (typeof data.paymentDueDate === "string"
@@ -501,9 +713,12 @@ export function OrderModal({
       const r = await fetch(`${apiBaseUrl}/orders/${orderId}/timeline`, { cache: "no-store" });
       if (!r.ok) throw new Error(`Failed to load timeline (${r.status})`);
       const data = (await r.json()) as TimelineResponse;
-      setTimeline(data.items || []);
+      const tItems = data.items || [];
+      setTimeline(tItems);
+      setActivityTabCount(tItems.length);
     } catch (e) {
       setTimeline([]);
+      setActivityTabCount(0);
       setTimelineError(e instanceof Error ? e.message : "Failed to load timeline");
     } finally {
       setTimelineLoading(false);
@@ -524,6 +739,40 @@ export function OrderModal({
       setReturnsLoading(false);
     }
   }, [apiBaseUrl, orderId]);
+
+  useEffect(() => {
+    if (!orderId || isCreate) {
+      setTasksTabCount(0);
+      return;
+    }
+    let cancelled = false;
+    void tasksApi
+      .list({ orderId, pageSize: 1 })
+      .then((r) => {
+        if (!cancelled) setTasksTabCount(r.total);
+      })
+      .catch(() => {
+        if (!cancelled) setTasksTabCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, isCreate]);
+
+  useEffect(() => {
+    if (!returnsDocsMenuOpen) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = returnsDocsMenuRef.current;
+      const t = e.target;
+      if (el && t instanceof Node && !el.contains(t)) setReturnsDocsMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [returnsDocsMenuOpen]);
 
   /** Phase 3: PATCH /orders/:id/stage with toStage */
   const setOrderStage = useCallback(
@@ -555,20 +804,40 @@ export function OrderModal({
     (async () => {
       try {
         const [whRes, fopRes] = await Promise.all([
-          fetch(`${apiBaseUrl}/warehouses`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
-          fetch(`${apiBaseUrl}/bank/accounts/for-order`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
+          fetch(`${apiBaseUrl}/warehouses`, { cache: "no-store", credentials: "include" }).then((r) =>
+            r.ok ? r.json() : [],
+          ),
+          fetch(`${apiBaseUrl}/bank/accounts/for-order`, { cache: "no-store", credentials: "include" }).then((r) =>
+            r.ok ? r.json() : null,
+          ),
         ]);
-        if (mounted) {
-          setWarehouses(Array.isArray(whRes) ? whRes : []);
-          setFopAccounts(Array.isArray(fopRes) ? fopRes : []);
-          if (isCreate && whRes?.length > 0 && warehouseId === null) {
+        if (!mounted) return;
+        setWarehouses(Array.isArray(whRes) ? whRes : []);
+        let list: Array<{ id: string; name: string }> = [];
+        let defBank: string | null = null;
+        if (Array.isArray(fopRes)) {
+          list = fopRes;
+        } else if (fopRes && typeof fopRes === "object") {
+          const acc = (fopRes as { accounts?: unknown }).accounts;
+          list = Array.isArray(acc) ? (acc as Array<{ id: string; name: string }>) : [];
+          const d = (fopRes as { defaultBankAccountId?: string | null }).defaultBankAccountId;
+          defBank = typeof d === "string" && d.trim() ? d.trim() : null;
+        }
+        setFopAccounts(list);
+        setForOrderDefaultBankId(defBank);
+        if (isCreate && Array.isArray(whRes) && whRes.length > 0) {
+          setWarehouseId((prev) => {
+            if (prev != null) return prev;
             const defaultWh = whRes.find((w: { name: string }) => w.name === "Днепр") ?? whRes[0];
-            setWarehouseId(defaultWh.id);
-          }
+            return defaultWh.id;
+          });
         }
       } catch {
-        if (mounted) setWarehouses([]);
-        if (mounted) setFopAccounts([]);
+        if (mounted) {
+          setWarehouses([]);
+          setFopAccounts([]);
+          setForOrderDefaultBankId(null);
+        }
       }
     })();
     return () => {
@@ -576,12 +845,23 @@ export function OrderModal({
     };
   }, [apiBaseUrl, isCreate]);
 
+  /** Create mode in modal: pick default FOP from for-order (explicit id or first in list). */
+  useEffect(() => {
+    if (!isCreate || paymentMethod !== "FOP" || fopAccounts.length === 0) return;
+    const pick =
+      forOrderDefaultBankId && fopAccounts.some((a) => a.id === forOrderDefaultBankId)
+        ? forOrderDefaultBankId
+        : fopAccounts[0].id;
+    setBankAccountId((prev) => (prev == null ? pick : prev));
+  }, [isCreate, paymentMethod, fopAccounts, forOrderDefaultBankId]);
+
   // init
   useEffect(() => {
     setError(null);
     setTimelineError(null);
     setEditing(null);
     setEditingItem(null);
+    setReturnsDocsMenuOpen(false);
     setShowAddForm(false);
     setSelectedProduct(null);
     setSearch("");
@@ -597,12 +877,18 @@ export function OrderModal({
       setClientId(pClientId);
       setDeliveryMethod("PICKUP");
       setPaymentType(null);
+      setPaymentDueDate("");
+      setPaymentMethod("FOP");
+      setBankAccountId(null);
+      setDocumentsRequested(false);
       setDiscountAmount(0);
       setComment("");
       void fetchCompanies();
       void fetchContacts(pCompanyId);
       setOrder(null);
       setTimeline([]);
+      setActivityTabCount(0);
+      setTasksTabCount(0);
       return;
     }
 
@@ -779,7 +1065,44 @@ export function OrderModal({
     [apiBaseUrl, onSaved, orderId, refreshOrder, applyOrderToState],
   );
 
+  /**
+   * «Новый заказ» на странице сначала создаётся через POST и открывается с реальным orderId
+   * (isCreate === false). Тогда подставляем ФОП сотрудника, если в заказе ещё нет счёта.
+   */
+  useEffect(() => {
+    if (!orderId || isCreate || !order) return;
+    if (order.id !== orderId) return;
+    if (order.bankAccountId) return;
+    const pm = order.paymentMethod ?? paymentMethod ?? "FOP";
+    if (pm !== "FOP") return;
+    if (fopAccounts.length === 0) return;
+
+    const pick =
+      forOrderDefaultBankId && fopAccounts.some((a) => a.id === forOrderDefaultBankId)
+        ? forOrderDefaultBankId
+        : fopAccounts[0].id;
+    const accName = fopAccounts.find((a) => a.id === pick)?.name;
+
+    void (async () => {
+      await patchOrder({ bankAccountId: pick }, { silent: true });
+      setBankAccountId(pick);
+      setOrder((prev) =>
+        prev && prev.id === order.id
+          ? {
+              ...prev,
+              bankAccountId: pick,
+              bankAccount: accName ? { id: pick, name: accName } : prev.bankAccount,
+            }
+          : prev,
+      );
+    })();
+  }, [orderId, isCreate, order, paymentMethod, fopAccounts, forOrderDefaultBankId, patchOrder]);
+
   const createOrder = useCallback(async () => {
+    if (!paymentType) {
+      alert("Оберіть тип оплати");
+      return;
+    }
     setSaving(true);
     try {
       const r = await fetch(`${apiBaseUrl}/orders`, {
@@ -790,10 +1113,15 @@ export function OrderModal({
           clientId,
           contactId: clientId,
           deliveryMethod,
-          paymentMethod: (paymentMethod === "FOP" ? "FOP" : "CASH") as "CASH" | "FOP",
-          bankAccountId: paymentMethod === "FOP" ? bankAccountId : null,
+          paymentType,
+          paymentDueDate:
+            paymentType === "DEFERRED"
+              ? (paymentDueDate.trim() || deferredDueDateFrom(null))
+              : null,
+          paymentMethod: ((paymentMethod ?? "FOP") === "CASH" ? "CASH" : "FOP") as "CASH" | "FOP",
+          bankAccountId: (paymentMethod ?? "FOP") === "FOP" ? bankAccountId : null,
           warehouseId: warehouseId ?? undefined,
-          documentsRequested: documentsRequested ?? undefined,
+          documentsRequested: documentsRequested,
           comment: comment.trim() ? comment.trim() : null,
           discountAmount: Number(discountAmount) || 0,
         }),
@@ -811,7 +1139,22 @@ export function OrderModal({
     } finally {
       setSaving(false);
     }
-  }, [apiBaseUrl, clientId, comment, companyId, deliveryMethod, discountAmount, documentsRequested, paymentMethod, bankAccountId, warehouseId, onClose, onSaved]);
+  }, [
+    apiBaseUrl,
+    bankAccountId,
+    clientId,
+    comment,
+    companyId,
+    deliveryMethod,
+    discountAmount,
+    documentsRequested,
+    paymentDueDate,
+    paymentMethod,
+    paymentType,
+    warehouseId,
+    onClose,
+    onSaved,
+  ]);
 
   // product search debounce
   useEffect(() => {
@@ -851,7 +1194,7 @@ export function OrderModal({
   const handleSelectProduct = (p: ProductSearchItem) => {
     setSelectedProduct(p);
     setPrice(p.basePrice);
-    setSearch(p.name);
+    setSearch(p.sku ? `${p.sku} ${p.name}` : p.name);
     setSearchResults([]);
     setSearchError(null);
     requestAnimationFrame(() => qtyInputRef.current?.focus());
@@ -974,6 +1317,11 @@ export function OrderModal({
     return list;
   }, [contacts, clientId, order?.client, companyId]);
 
+  const shouldShowCompanyField = useMemo(() => {
+    const selectedContact = clientId ? contacts.find((c) => c.id === clientId) : null;
+    return Boolean(selectedContact?.companyId || order?.companyId);
+  }, [clientId, contacts, order?.companyId]);
+
   const deleteOrder = useCallback(async () => {
     if (!orderId || !order || !confirm("Удалить заказ? Это действие нельзя отменить.")) return;
     setDeleting(true);
@@ -999,30 +1347,106 @@ export function OrderModal({
 
   const orderHeaderActions = (
     <>
-      {userRoleProp != null && (
-        <span className="rounded bg-zinc-200 px-2 py-0.5 text-[10px] font-medium text-zinc-600">
-          {String(userRoleProp)}
-        </span>
-      )}
-      {!isCreate && order && (
-        isAdmin ? (
+      {!isCreate && order ? (
+        <div ref={returnsDocsMenuRef} className="relative">
           <button
             type="button"
-            onClick={() => void deleteOrder()}
-            disabled={deleting}
-            className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+            onClick={() => setReturnsDocsMenuOpen((o) => !o)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50"
+            aria-expanded={returnsDocsMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Меню: документи, повернення, дії"
+            title="Документи та повернення"
           >
-            {deleting ? "Удаление…" : "Удалить заказ"}
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </button>
-        ) : (
-          <span
-            className="rounded-md border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-500"
-            title={effectiveRole != null ? `Ваша роль: ${effectiveRole}. Удалять может только ADMIN.` : "Роль не загружена. Удалять может только ADMIN."}
-          >
-            Удалить заказ (только ADMIN)
-          </span>
-        )
-      )}
+          {returnsDocsMenuOpen ? (
+            <div
+              className="absolute right-0 top-full z-[100] mt-1 w-[min(100vw-2rem,20rem)] rounded-lg border border-zinc-200 bg-white shadow-lg"
+              role="menu"
+            >
+              <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-auto p-3">
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-zinc-600">PDF документи</div>
+                  <div className="flex flex-col gap-1.5">
+                    <a
+                      href={`/api/orders/${order.id}/documents/invoice`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      role="menuitem"
+                      onClick={() => setReturnsDocsMenuOpen(false)}
+                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Рахунок (PDF)
+                    </a>
+                    <a
+                      href={`/api/orders/${order.id}/documents/waybill`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      role="menuitem"
+                      onClick={() => setReturnsDocsMenuOpen(false)}
+                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                    >
+                      РН (PDF)
+                    </a>
+                  </div>
+                </div>
+                <div className="border-t border-zinc-100 pt-3">
+                  <div className="mb-1.5 text-xs font-medium text-zinc-600">Повернення</div>
+                  {returnsLoading ? (
+                    <div className="text-xs text-zinc-500">Завантаження…</div>
+                  ) : orderReturns.length > 0 ? (
+                    <ul className="space-y-1 text-sm text-zinc-700">
+                      {orderReturns.map((ret) => (
+                        <li key={ret.id}>
+                          Повернення від {new Date(ret.requestedAt).toLocaleDateString("uk-UA")} — {ret.status}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-xs text-zinc-400">Немає повернень</div>
+                  )}
+                  {(order.orderStage === "RECEIVED" ||
+                    order.orderStage === "COMPLETED" ||
+                    order.orderStage === "RETURN_IN_PROGRESS") &&
+                    !showCreateReturnForm && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setReturnsDocsMenuOpen(false);
+                          setShowCreateReturnForm(true);
+                          setReturnItemQtys(Object.fromEntries((order.items ?? []).map((it) => [it.id, 0])));
+                        }}
+                        className="mt-2 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Оформити повернення
+                      </button>
+                    )}
+                </div>
+                {isAdmin ? (
+                  <div className="border-t border-zinc-200 pt-3">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={deleting}
+                      onClick={() => {
+                        setReturnsDocsMenuOpen(false);
+                        void deleteOrder();
+                      }}
+                      className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-2 text-left text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      {deleting ? "Удаление…" : "Удалить заказ"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </>
   );
 
@@ -1034,35 +1458,39 @@ export function OrderModal({
           onStepClick={setOrderStage}
           disabled={statusUpdating}
           hasPayment={Number(order.paidAmount ?? 0) > 0}
+          isAdmin={isAdmin}
         />
-        <div className="flex gap-1 border-b border-zinc-200 pb-2">
+        <div className="flex flex-wrap gap-1 border-b border-zinc-200 pb-2">
           <button
             type="button"
             onClick={() => setLeftTab("main")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Main
           </button>
           <button
             type="button"
             onClick={() => setLeftTab("items")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "items" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "items" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Items
+            <TabCountBubble count={order.items?.length ?? 0} active={leftTab === "items"} />
           </button>
           <button
             type="button"
             onClick={() => setLeftTab("activity")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Activity
+            <TabCountBubble count={activityTabCount} active={leftTab === "activity"} />
           </button>
           <button
             type="button"
             onClick={() => setLeftTab("tasks")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leftTab === "tasks" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "tasks" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Tasks
+            <TabCountBubble count={tasksTabCount} active={leftTab === "tasks"} />
           </button>
         </div>
       </div>
@@ -1075,6 +1503,13 @@ export function OrderModal({
         subtitle={!isCreate && order ? formatDt(order.createdAt) : undefined}
         headerActions={orderHeaderActions}
         tabsUnderHeader={tabsUnderHeader}
+        onEscape={() => {
+          if (returnsDocsMenuOpen) {
+            setReturnsDocsMenuOpen(false);
+            return true;
+          }
+          return false;
+        }}
         left={(
           isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
@@ -1120,14 +1555,32 @@ export function OrderModal({
 
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">Delivery</label>
-                  <select
-                    value={deliveryMethod}
-                    onChange={(e) => setDeliveryMethod(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                  >
-                    <option value="PICKUP">Pickup</option>
-                    <option value="NOVA_POSHTA">Nova Poshta</option>
-                  </select>
+                  <div className="mt-1 inline-flex w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
+                    <button
+                      type="button"
+                      aria-pressed={deliveryMethod === "PICKUP"}
+                      onClick={() => setDeliveryMethod("PICKUP")}
+                      className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                        deliveryMethod === "PICKUP"
+                          ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                          : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                      }`}
+                    >
+                      Самовывоз
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={deliveryMethod === "NOVA_POSHTA"}
+                      onClick={() => setDeliveryMethod("NOVA_POSHTA")}
+                      className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                        deliveryMethod === "NOVA_POSHTA"
+                          ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                          : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                      }`}
+                    >
+                      Нова Пошта
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -1180,11 +1633,11 @@ export function OrderModal({
           ) : (
             leftTab === "activity" ? (
               <EntitySection title="Activity">
-                <OrderTimeline orderId={orderId!} />
+                <OrderTimeline orderId={orderId!} onItemsCountChange={setActivityTabCount} />
               </EntitySection>
             ) : leftTab === "tasks" ? (
               <EntitySection title="Tasks">
-                <EntityTasksList orderId={orderId!} />
+                <EntityTasksList orderId={orderId!} onCountChange={setTasksTabCount} />
               </EntitySection>
             ) : leftTab === "items" ? (
               <EntitySection
@@ -1199,9 +1652,65 @@ export function OrderModal({
                   </button>
                 }
               >
+                <div className="mb-4 max-w-md">
+                  <div className="text-xs text-zinc-500">Склад отгрузки</div>
+                  {editing === "warehouse" ? (
+                    <div className="mt-1">
+                      <select
+                        value={warehouseId ?? ""}
+                        onChange={async (e) => {
+                          const v = e.target.value || null;
+                          setWarehouseId(v);
+                          try {
+                            await patchOrder({ warehouseId: v });
+                            if (order) {
+                              setOrder((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      warehouseId: v,
+                                      warehouse: v
+                                        ? warehouses.find((w) => w.id === v)
+                                          ? { id: v, name: warehouses.find((w) => w.id === v)!.name }
+                                          : prev.warehouse
+                                        : null,
+                                    }
+                                  : prev,
+                              );
+                            }
+                          } finally {
+                            setEditing(null);
+                          }
+                        }}
+                        className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                        disabled={saving}
+                      >
+                        {warehouses.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWarehouseId(order.warehouseId ?? null);
+                        setEditing("warehouse");
+                      }}
+                      className="mt-1 font-medium text-zinc-900 hover:underline"
+                    >
+                      {order.warehouse?.name ??
+                        (warehouseId ? warehouses.find((w) => w.id === warehouseId)?.name : null) ?? (
+                          <span className="font-normal text-zinc-400">Выберите склад...</span>
+                        )}
+                    </button>
+                  )}
+                </div>
                 {showAddForm ? (
                   <div className="mb-3 flex flex-wrap items-end gap-2">
-                    <div className="relative min-w-0 flex-1" style={{ minWidth: "120px" }}>
+                    <div ref={searchWrapRef} className="relative w-32 shrink-0 sm:w-40">
                       <input
                         ref={searchInputRef}
                         value={search}
@@ -1225,11 +1734,13 @@ export function OrderModal({
                               }}
                               className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-50"
                             >
-                              <span className="truncate font-medium text-zinc-900">{p.name}</span>
+                              <span className="min-w-0 flex-1 truncate font-medium text-zinc-900">
+                                {p.sku ? `${p.sku} ${p.name}` : p.name}
+                              </span>
                               <span className="shrink-0 text-xs text-zinc-500">
                                 {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !== undefined
                                   ? `Ост. ${stockAtWarehouse(p, order?.warehouseId) ?? p.stock}`
-                                  : p.sku}
+                                  : ""}
                               </span>
                             </button>
                           ))}
@@ -1237,36 +1748,57 @@ export function OrderModal({
                       ) : null}
                       {searchLoading ? <div className="mt-0.5 text-[10px] text-zinc-500">Searching…</div> : null}
                       {searchError ? <div className="mt-0.5 text-[10px] text-red-600">{searchError}</div> : null}
-                      {selectedProduct ? (
-                        <div className="mt-0.5 text-[10px] text-zinc-600">
-                          {selectedProduct.name}
-                          {(stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined && (
-                            <span className="ml-1 text-zinc-500">
-                              Ост. {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
                     </div>
-                    <input
-                      ref={qtyInputRef}
-                      type="number"
-                      min={1}
-                      value={qty}
-                      onChange={(e) => setQty(Math.max(1, Number(e.target.value)))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleAddItemSubmit();
-                        }
-                      }}
-                      className="w-14 rounded-md border border-zinc-300 px-2 py-1.5 text-right text-sm"
-                      placeholder="Qty"
-                    />
+                    <div
+                      ref={qtyControlsWrapRef}
+                      className="flex h-[34px] shrink-0 items-stretch overflow-hidden rounded-md border border-zinc-300 bg-white"
+                    >
+                      <input
+                        ref={qtyInputRef}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={qty}
+                        onChange={(e) => {
+                          const onlyDigits = e.target.value.replace(/\D/g, "").slice(0, 3);
+                          setQty(Math.min(999, Math.max(1, Number(onlyDigits) || 1)));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleAddItemSubmit();
+                          }
+                        }}
+                        maxLength={3}
+                        className="w-10 border-0 px-1 py-1.5 text-right text-sm focus:outline-none"
+                        placeholder="Qty"
+                      />
+                      <div className="flex w-6 flex-col border-l border-zinc-300">
+                        <button
+                          ref={qtyIncBtnRef}
+                          type="button"
+                          onClick={() => setQty((v) => Math.min(999, v + 1))}
+                          aria-label="Увеличить количество"
+                          className="flex flex-1 items-center justify-center border-b border-zinc-300 text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
+                        >
+                          +
+                        </button>
+                        <button
+                          ref={qtyDecBtnRef}
+                          type="button"
+                          onClick={() => setQty((v) => Math.max(1, v - 1))}
+                          aria-label="Уменьшить количество"
+                          className="flex flex-1 items-center justify-center text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
+                        >
+                          −
+                        </button>
+                      </div>
+                    </div>
                     <input
                       type="number"
                       min={0}
                       step={0.01}
+                      ref={priceInputRef}
                       value={price}
                       onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
                       onKeyDown={(e) => {
@@ -1275,7 +1807,12 @@ export function OrderModal({
                           void handleAddItemSubmit();
                         }
                       }}
-                      className="w-20 rounded-md border border-zinc-300 px-2 py-1.5 text-right text-sm"
+                      disabled={!isAdmin}
+                      className={`w-14 rounded-md border px-1.5 py-1.5 text-right text-sm ${
+                        isAdmin
+                          ? "border-zinc-300"
+                          : "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-500"
+                      }`}
                       placeholder="Price"
                     />
                     <button
@@ -1286,6 +1823,16 @@ export function OrderModal({
                     >
                       {submittingItem ? "…" : "Add"}
                     </button>
+                    {selectedProduct ? (
+                      <div className="w-full text-[10px] text-zinc-600">
+                        {selectedProduct.sku ? `${selectedProduct.sku} ${selectedProduct.name}` : selectedProduct.name}
+                        {(stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock) !== undefined ? (
+                          <span className="ml-1 text-zinc-500">
+                            Ост. {stockAtWarehouse(selectedProduct, order?.warehouseId) ?? selectedProduct.stock}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {submitError ? <span className="w-full text-[10px] text-red-600 sm:w-auto">{submitError}</span> : null}
                   </div>
                 ) : null}
@@ -1450,66 +1997,8 @@ export function OrderModal({
             ) : (
               <>
               <EntitySection title="About order">
-                <div className="rounded-md border border-zinc-200 bg-white p-4">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <div className="text-xs text-zinc-500">Company</div>
-                        {editing === "company" ? (
-                          <div className="mt-1">
-                            <SearchableSelectLite
-                              value={companyId}
-                              options={companies.map((c) => ({ id: c.id, label: c.name }))}
-                              placeholder="Select company…"
-                              disabled={saving}
-                              isLoading={loadingCompanies}
-                              onChange={async (id) => {
-                                setCompanyId(id);
-                                setClientId(null);
-                                const selectedCompany = id ? companies.find((c) => c.id === id) : null;
-                                try {
-                                  await patchOrder({
-                                    companyId: id,
-                                    clientId: null,
-                                    contactId: null,
-                                  });
-                                  if (order && id && selectedCompany) {
-                                    setOrder((prev) =>
-                                      prev
-                                        ? {
-                                            ...prev,
-                                            companyId: id,
-                                            company: {
-                                              id: selectedCompany.id,
-                                              name: selectedCompany.name,
-                                            },
-                                          }
-                                        : prev,
-                                    );
-                                  }
-                                  await fetchContacts(id);
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }}
-                              onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
-                              createLabel="Create company"
-                            />
-                            <div className="mt-1 text-xs text-zinc-500">ESC — cancel</div>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setEditing("company");
-                              await ensureListsForCompanyClient(companyId);
-                            }}
-                            className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
-                          >
-                            {order.company ? order.company.name : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать компанию...</span>}
-                          </button>
-                        )}
-                      </div>
-
+                    <div className="rounded-md border border-zinc-200 bg-white p-4">
+                    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2 md:gap-4 [&>*]:min-w-0">
                       <div>
                         <div className="text-xs text-zinc-500">Client</div>
                         {editing === "client" ? (
@@ -1577,78 +2066,208 @@ export function OrderModal({
                         )}
                       </div>
 
-                      <div>
-                        <div className="text-xs text-zinc-500">Payment type</div>
-                        {editing === "paymentType" ? (
-                          <div className="mt-1">
-                            <select
-                              value={paymentType ?? ""}
-                              onChange={async (e) => {
-                                const v = e.target.value || null;
-                                setPaymentType(v);
-                                try {
-                                  await patchOrder({ paymentType: v });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, paymentType: v } : prev));
+                      {shouldShowCompanyField ? (
+                        <div>
+                          <div className="text-xs text-zinc-500">Company</div>
+                          {editing === "company" ? (
+                            <div className="mt-1">
+                              <SearchableSelectLite
+                                value={companyId}
+                                options={companies.map((c) => ({ id: c.id, label: c.name }))}
+                                placeholder="Select company…"
+                                disabled={saving}
+                                isLoading={loadingCompanies}
+                                onChange={async (id) => {
+                                  setCompanyId(id);
+                                  setClientId(null);
+                                  const selectedCompany = id ? companies.find((c) => c.id === id) : null;
+                                  try {
+                                    await patchOrder({
+                                      companyId: id,
+                                      clientId: null,
+                                      contactId: null,
+                                    });
+                                    if (order && id && selectedCompany) {
+                                      setOrder((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              companyId: id,
+                                              company: {
+                                                id: selectedCompany.id,
+                                                name: selectedCompany.name,
+                                              },
+                                            }
+                                          : prev,
+                                      );
+                                    }
+                                    await fetchContacts(id);
+                                  } finally {
+                                    setEditing(null);
                                   }
-                                } finally {
-                                  setEditing(null);
-                                }
+                                }}
+                                onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
+                                createLabel="Create company"
+                              />
+                              <div className="mt-1 text-xs text-zinc-500">ESC — cancel</div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setEditing("company");
+                                await ensureListsForCompanyClient(companyId);
                               }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
+                              className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
                             >
-                              <option value="">Выберите...</option>
-                              <option value="PREPAYMENT">Предоплата</option>
-                              <option value="DEFERRED">Отсрочка</option>
-                            </select>
+                              {order.company ? order.company.name : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать компанию...</span>}
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+
+                      <div>
+                        <div className="text-xs text-zinc-500">Total</div>
+                        {order.currency === "USD" ? (
+                          <div className="mt-1">
+                            <div className="text-2xl font-semibold tabular-nums tracking-tight text-zinc-900">
+                              {Number(order.totalAmount).toFixed(2)} $
+                            </div>
+                            {order.exchangeRate != null && Number(order.exchangeRate) > 0 ? (
+                              <div className="mt-1 text-sm tabular-nums text-zinc-500">
+                                {Math.round(Number(order.totalAmount) * Number(order.exchangeRate))} ₴
+                              </div>
+                            ) : null}
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaymentType(order.paymentType ?? null);
-                              setEditing("paymentType");
-                            }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
-                          >
-                            {order.paymentType === "PREPAYMENT"
-                              ? "Предоплата"
-                              : order.paymentType === "DEFERRED"
-                                ? "Отсрочка"
-                                : <span className="font-normal text-zinc-400">Выберите тип оплаты...</span>}
-                          </button>
+                          <div className="mt-1 font-semibold text-zinc-900">
+                            {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
+                          </div>
                         )}
                       </div>
 
                       <div>
-                        <div className="text-xs text-zinc-500">Срок оплати</div>
-                        {editing === "paymentDueDate" ? (
-                          <div className="mt-1 flex items-center gap-2">
-                            <input
-                              type="date"
-                              value={paymentDueDate}
-                              onChange={(e) => setPaymentDueDate(e.target.value)}
-                              className="rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
-                            />
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const v = paymentDueDate.trim() ? paymentDueDate.trim() : null;
-                                try {
-                                  await patchOrder({ paymentDueDate: v });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, paymentDueDate: v ?? undefined } : prev));
+                        <div className="text-xs text-zinc-500">Paid / Debt</div>
+                        <div className="mt-1 text-zinc-700">
+                          {formatOrderAmount(Number(order.paidAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)} /{" "}
+                          {formatOrderAmount(Number(order.debtAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)}
+                        </div>
+                        {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
+                          <div className="mt-0.5 text-xs text-zinc-500">
+                            Корекція по поверненнях: −{Number(order.returnAdjustmentAmount).toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs text-zinc-500">
+                          Условия оплаты{" "}
+                          <span className="text-red-600" title="Обязательное поле">
+                            *
+                          </span>
+                        </div>
+                        <div
+                          className={`mt-1 flex w-full max-w-full rounded-lg border bg-zinc-100 p-0.5 shadow-inner ${
+                            !(order.paymentType ?? paymentType)
+                              ? "border-red-300 ring-2 ring-red-100"
+                              : "border-zinc-200"
+                          }`}
+                          role="group"
+                          aria-label="Условия оплаты, обязательное поле"
+                        >
+                          <button
+                            type="button"
+                            disabled={saving}
+                            aria-pressed={(order.paymentType ?? paymentType) === "PREPAYMENT"}
+                            onClick={async () => {
+                              const v = "PREPAYMENT";
+                              setPaymentType(v);
+                              await patchOrder({ paymentType: v });
+                              if (order) setOrder((prev) => (prev ? { ...prev, paymentType: v } : prev));
+                            }}
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              (order.paymentType ?? paymentType) === "PREPAYMENT"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
+                          >
+                            Предоплата
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            aria-pressed={(order.paymentType ?? paymentType) === "DEFERRED"}
+                            onClick={async () => {
+                              const v = "DEFERRED";
+                              const nextDueDate = paymentDueDate.trim()
+                                || (order?.paymentDueDate ? String(order.paymentDueDate).slice(0, 10) : "")
+                                || deferredDueDateFrom(order?.createdAt ?? null);
+                              setPaymentType(v);
+                              setPaymentDueDate(nextDueDate);
+                              await patchOrder({ paymentType: v, paymentDueDate: nextDueDate });
+                              if (order) {
+                                setOrder((prev) => (prev ? { ...prev, paymentType: v, paymentDueDate: nextDueDate } : prev));
+                              }
+                            }}
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              (order.paymentType ?? paymentType) === "DEFERRED"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
+                          >
+                            Отсрочка
+                          </button>
+                        </div>
+                      </div>
+
+                      {(order.paymentType ?? paymentType) === "DEFERRED" ? (
+                        <div>
+                          <div className="text-xs text-zinc-500">Срок оплати</div>
+                          {editing === "paymentDueDate" ? (
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="date"
+                                value={paymentDueDate}
+                                onChange={(e) => setPaymentDueDate(e.target.value)}
+                                className="rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+                                disabled={saving}
+                              />
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const v = paymentDueDate.trim() ? paymentDueDate.trim() : null;
+                                  try {
+                                    await patchOrder({ paymentDueDate: v });
+                                    if (order) {
+                                      setOrder((prev) => (prev ? { ...prev, paymentDueDate: v ?? undefined } : prev));
+                                    }
+                                  } finally {
+                                    setEditing(null);
                                   }
-                                } finally {
+                                }}
+                                className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
+                              >
+                                Зберегти
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPaymentDueDate(
+                                    order.paymentDueDate
+                                      ? (typeof order.paymentDueDate === "string"
+                                          ? order.paymentDueDate
+                                          : new Date(order.paymentDueDate).toISOString()
+                                        ).slice(0, 10)
+                                      : "",
+                                  );
                                   setEditing(null);
-                                }
-                              }}
-                              className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
-                            >
-                              Зберегти
-                            </button>
+                                }}
+                                className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
+                              >
+                                Скасувати
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               type="button"
                               onClick={() => {
@@ -1658,83 +2277,68 @@ export function OrderModal({
                                         ? order.paymentDueDate
                                         : new Date(order.paymentDueDate).toISOString()
                                       ).slice(0, 10)
-                                    : "",
+                                    : deferredDueDateFrom(order.createdAt),
                                 );
-                                setEditing(null);
+                                setEditing("paymentDueDate");
                               }}
-                              className="rounded border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-50"
+                              className="mt-1 font-medium text-zinc-900 hover:underline"
                             >
-                              Скасувати
+                              {order.paymentDueDate
+                                ? new Date(order.paymentDueDate).toLocaleDateString("uk-UA")
+                                : new Date(deferredDueDateFrom(order.createdAt)).toLocaleDateString("uk-UA")}
                             </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaymentDueDate(
-                                order.paymentDueDate
-                                  ? (typeof order.paymentDueDate === "string"
-                                      ? order.paymentDueDate
-                                      : new Date(order.paymentDueDate).toISOString()
-                                    ).slice(0, 10)
-                                  : "",
-                              );
-                              setEditing("paymentDueDate");
-                            }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
-                          >
-                            {order.paymentDueDate
-                              ? new Date(order.paymentDueDate).toLocaleDateString("uk-UA")
-                              : <span className="font-normal text-zinc-400">Не вказано</span>}
-                          </button>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      ) : null}
 
                       <div>
                         <div className="text-xs text-zinc-500">Способ оплаты</div>
-                        {editing === "paymentMethod" ? (
-                          <div className="mt-1">
-                            <select
-                              value={paymentMethod ?? ""}
-                              onChange={async (e) => {
-                                const v = e.target.value || null;
-                                setPaymentMethod(v);
-                                try {
-                                  await patchOrder({ paymentMethod: v });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, paymentMethod: v } : prev));
-                                  }
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
-                            >
-                              <option value="">Выберите...</option>
-                              <option value="CASH">Готівка</option>
-                              <option value="FOP">ФОП</option>
-                            </select>
-                          </div>
-                        ) : (
+                        <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
                             type="button"
-                            onClick={() => {
-                              setPaymentMethod(order.paymentMethod ?? null);
-                              setEditing("paymentMethod");
+                            disabled={saving}
+                            aria-pressed={(order.paymentMethod ?? paymentMethod ?? "FOP") === "CASH"}
+                            onClick={async () => {
+                              const v = "CASH";
+                              setPaymentMethod(v);
+                              await patchOrder({ paymentMethod: v, bankAccountId: null });
+                              if (order) {
+                                setOrder((prev) => (prev ? { ...prev, paymentMethod: v, bankAccountId: null, bankAccount: null } : prev));
+                              }
+                              setBankAccountId(null);
                             }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              (order.paymentMethod ?? paymentMethod ?? "FOP") === "CASH"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
                           >
-                            {(order.paymentMethod ?? paymentMethod) === "CASH"
-                              ? "Готівка"
-                              : (order.paymentMethod ?? paymentMethod) === "FOP"
-                                ? "ФОП"
-                                : <span className="font-normal text-zinc-400">Выберите способ оплаты...</span>}
+                            Готівка
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            aria-pressed={(order.paymentMethod ?? paymentMethod ?? "FOP") === "FOP"}
+                            onClick={async () => {
+                              const v = "FOP";
+                              setPaymentMethod(v);
+                              await patchOrder({ paymentMethod: v });
+                              if (order) {
+                                setOrder((prev) => (prev ? { ...prev, paymentMethod: v } : prev));
+                              }
+                            }}
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              (order.paymentMethod ?? paymentMethod ?? "FOP") === "FOP"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
+                          >
+                            ФОП
+                          </button>
+                        </div>
                       </div>
 
-                      {(order.paymentMethod ?? paymentMethod) === "FOP" ? (
+                      {(order.paymentMethod ?? paymentMethod ?? "FOP") === "FOP" ? (
                         <div>
                           <div className="text-xs text-zinc-500">ФОП (банк)</div>
                           {editing === "bankAccount" ? (
@@ -1773,83 +2377,45 @@ export function OrderModal({
                       ) : null}
 
                       <div>
-                        <div className="text-xs text-zinc-500">Склад отгрузки</div>
-                        {editing === "warehouse" ? (
-                          <div className="mt-1">
-                            <select
-                              value={warehouseId ?? ""}
-                              onChange={async (e) => {
-                                const v = e.target.value || null;
-                                setWarehouseId(v);
-                                try {
-                                  await patchOrder({ warehouseId: v });
-                                  if (order) setOrder((prev) => (prev ? { ...prev, warehouseId: v, warehouse: v ? (warehouses.find((w) => w.id === v) ? { id: v, name: warehouses.find((w) => w.id === v)!.name } : prev.warehouse) : null } : prev));
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
-                            >
-                              {warehouses.map((w) => (
-                                <option key={w.id} value={w.id}>{w.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => { setWarehouseId(order.warehouseId ?? null); setEditing("warehouse"); }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
-                          >
-                            {order.warehouse?.name ?? (warehouseId ? warehouses.find((w) => w.id === warehouseId)?.name : null) ?? <span className="font-normal text-zinc-400">Выберите склад...</span>}
-                          </button>
-                        )}
-                      </div>
-
-                      <div>
                         <div className="text-xs text-zinc-500">Документы</div>
-                        {editing === "documents" ? (
-                          <div className="mt-1">
-                            <select
-                              value={documentsRequested === true ? "yes" : documentsRequested === false ? "no" : ""}
-                              onChange={async (e) => {
-                                const raw = e.target.value;
-                                const v = raw === "yes" ? true : raw === "no" ? false : null;
-                                setDocumentsRequested(v);
-                                try {
-                                  await patchOrder({ documentsRequested: v });
-                                  if (order) {
-                                    setOrder((prev) => (prev ? { ...prev, documentsRequested: v } : prev));
-                                  }
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
-                            >
-                              <option value="">Выберите...</option>
-                              <option value="yes">Да</option>
-                              <option value="no">Нет</option>
-                            </select>
-                          </div>
-                        ) : (
+                        <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
                             type="button"
-                            onClick={() => {
-                              setDocumentsRequested(order.documentsRequested ?? null);
-                              setEditing("documents");
+                            disabled={saving}
+                            aria-pressed={!(order.documentsRequested ?? documentsRequested ?? false)}
+                            onClick={async () => {
+                              const v = false;
+                              setDocumentsRequested(v);
+                              await patchOrder({ documentsRequested: v });
+                              if (order) setOrder((prev) => (prev ? { ...prev, documentsRequested: v } : prev));
                             }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              !(order.documentsRequested ?? documentsRequested ?? false)
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
                           >
-                            {(order.documentsRequested ?? documentsRequested) === true
-                              ? "Да"
-                              : (order.documentsRequested ?? documentsRequested) === false
-                                ? "Нет"
-                                : <span className="font-normal text-zinc-400">Выберите...</span>}
+                            Нет
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            aria-pressed={(order.documentsRequested ?? documentsRequested ?? false) === true}
+                            onClick={async () => {
+                              const v = true;
+                              setDocumentsRequested(v);
+                              await patchOrder({ documentsRequested: v });
+                              if (order) setOrder((prev) => (prev ? { ...prev, documentsRequested: v } : prev));
+                            }}
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition sm:px-3 ${
+                              (order.documentsRequested ?? documentsRequested ?? false) === true
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
+                          >
+                            Да
+                          </button>
+                        </div>
                       </div>
 
                       {(order.invoiceNumber ?? order.invoiceDate ?? order.waybillNumber ?? order.waybillDate) && (
@@ -1862,38 +2428,10 @@ export function OrderModal({
                         </div>
                       )}
 
-                      {/* Phase 5: returns */}
-                      <div>
-                        <div className="text-xs font-medium text-zinc-500">Повернення</div>
-                        {returnsLoading ? (
-                          <div className="mt-1 text-xs text-zinc-500">Завантаження…</div>
-                        ) : orderReturns.length > 0 ? (
-                          <ul className="mt-1 space-y-0.5 text-sm text-zinc-700">
-                            {orderReturns.map((ret) => (
-                              <li key={ret.id}>
-                                Повернення від {new Date(ret.requestedAt).toLocaleDateString("uk-UA")} — {ret.status}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="mt-0.5 text-xs text-zinc-400">Немає повернень</div>
-                        )}
-                        {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED" || order.orderStage === "RETURN_IN_PROGRESS") && !showCreateReturnForm && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowCreateReturnForm(true);
-                              setReturnItemQtys(
-                                Object.fromEntries((order.items ?? []).map((it) => [it.id, 0])),
-                              );
-                            }}
-                            className="mt-2 rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                          >
-                            Оформити повернення
-                          </button>
-                        )}
-                        {showCreateReturnForm && order.items && order.items.length > 0 && (
-                          <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                      {showCreateReturnForm && order.items && order.items.length > 0 ? (
+                        <div className="col-span-2">
+                          <div className="text-xs font-medium text-zinc-600">Оформлення повернення</div>
+                          <div className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
                             <div className="text-xs font-medium text-zinc-700">Позиції для повернення</div>
                             {(order.items as OrderItem[]).map((it) => (
                               <div key={it.id} className="mt-1.5 flex items-center gap-2 text-sm">
@@ -1914,7 +2452,7 @@ export function OrderModal({
                                 />
                               </div>
                             ))}
-                            <div className="mt-2 flex gap-2">
+                            <div className="mt-2 flex flex-wrap gap-2">
                               <button
                                 type="button"
                                 disabled={createReturnSubmitting}
@@ -1980,85 +2518,59 @@ export function OrderModal({
                               </button>
                             </div>
                           </div>
-                        )}
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">PDF документи</div>
-                        <div className="mt-1 flex flex-wrap gap-2">
-                          <a
-                            href={`/api/orders/${order.id}/documents/invoice`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-                          >
-                            Рахунок (PDF)
-                          </a>
-                          <a
-                            href={`/api/orders/${order.id}/documents/waybill`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="rounded border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-                          >
-                            РН (PDF)
-                          </a>
                         </div>
-                      </div>
-
-                      <div>
-                        <div className="text-xs text-zinc-500">Paid / Debt</div>
-                        <div className="mt-1 text-zinc-700">
-                          {formatOrderAmount(Number(order.paidAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)} /{" "}
-                          {formatOrderAmount(Number(order.debtAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)}
-                        </div>
-                        {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
-                          <div className="mt-0.5 text-xs text-zinc-500">
-                            Корекція по поверненнях: −{Number(order.returnAdjustmentAmount).toFixed(2)}
-                          </div>
-                        )}
-                      </div>
+                      ) : null}
 
                       <div>
                         <div className="text-xs text-zinc-500">Delivery</div>
-                        {editing === "delivery" ? (
-                          <div className="mt-1">
-                            <select
-                              value={deliveryMethod}
-                              onChange={async (e) => {
-                                const v = e.target.value;
-                                const current = order?.deliveryMethod ?? null;
-                                if (current != null && v === current) return;
-                                setDeliveryMethod(v);
-                                try {
-                                  await patchOrder({ deliveryMethod: v });
-                                } finally {
-                                  setEditing(null);
-                                }
-                              }}
-                              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                              disabled={saving}
-                            >
-                              <option value="PICKUP">Pickup</option>
-                              <option value="NOVA_POSHTA">Nova Poshta</option>
-                            </select>
-                          </div>
-                        ) : (
+                        <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
                             type="button"
-                            onClick={() => {
-                              const next = order.deliveryMethod ?? "PICKUP";
-                              setDeliveryMethod(next);
-                              setEditing("delivery");
-                              // Persist default in background when order has no deliveryMethod (onChange never fires when value unchanged)
-                              if (order.deliveryMethod == null && next === "PICKUP") {
-                                patchOrder({ deliveryMethod: "PICKUP" }, { silent: true });
+                            disabled={saving}
+                            aria-pressed={(order.deliveryMethod ?? deliveryMethod) === "PICKUP"}
+                            onClick={async () => {
+                              const v = "PICKUP" as const;
+                              if (order.deliveryMethod === v) return;
+                              setDeliveryMethod(v);
+                              try {
+                                await patchOrder({ deliveryMethod: v });
+                                if (order) setOrder((prev) => (prev ? { ...prev, deliveryMethod: v } : prev));
+                              } catch {
+                                setDeliveryMethod(order.deliveryMethod ?? "PICKUP");
                               }
                             }}
-                            className="mt-1 font-medium text-zinc-900 hover:underline"
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                              (order.deliveryMethod ?? deliveryMethod) === "PICKUP"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
                           >
-                            {order.deliveryMethod ?? <span className="font-normal text-zinc-400">Выберите метод доставки...</span>}
+                            Самовывоз
                           </button>
-                        )}
+                          <button
+                            type="button"
+                            disabled={saving}
+                            aria-pressed={(order.deliveryMethod ?? deliveryMethod) === "NOVA_POSHTA"}
+                            onClick={async () => {
+                              const v = "NOVA_POSHTA" as const;
+                              if (order.deliveryMethod === v) return;
+                              setDeliveryMethod(v);
+                              try {
+                                await patchOrder({ deliveryMethod: v });
+                                if (order) setOrder((prev) => (prev ? { ...prev, deliveryMethod: v } : prev));
+                              } catch {
+                                setDeliveryMethod(order.deliveryMethod ?? "PICKUP");
+                              }
+                            }}
+                            className={`min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-semibold transition ${
+                              (order.deliveryMethod ?? deliveryMethod) === "NOVA_POSHTA"
+                                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200"
+                                : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
+                            }`}
+                          >
+                            Нова Пошта
+                          </button>
+                        </div>
                       </div>
 
                       {order.deliveryMethod === "NOVA_POSHTA" ? (
@@ -2117,12 +2629,6 @@ export function OrderModal({
                         </div>
                       ) : null}
 
-                      <div>
-                        <div className="text-xs text-zinc-500">Total</div>
-                        <div className="mt-1 font-semibold text-zinc-900">
-                          {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
-                        </div>
-                      </div>
                     </div>
 
                     <div className="mt-4">
@@ -2204,7 +2710,7 @@ export function OrderModal({
         right={
           !isCreate && order && orderId && leftTab === "main" ? (
             <EntitySection title="Activity">
-              <OrderTimeline orderId={orderId} />
+              <OrderTimeline orderId={orderId} onItemsCountChange={setActivityTabCount} />
             </EntitySection>
           ) : null
         }

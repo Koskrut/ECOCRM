@@ -8,6 +8,8 @@ type Props = {
   companyId?: string | null;
   leadId?: string | null;
   orderId?: string | null;
+  /** Called after list loads or changes (total from API). */
+  onCountChange?: (total: number) => void;
 };
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
@@ -34,6 +36,7 @@ export function EntityTasksList({
   companyId,
   leadId,
   orderId,
+  onCountChange,
 }: Props) {
   const [items, setItems] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
@@ -60,6 +63,7 @@ export function EntityTasksList({
     if (!hasEntity) {
       setItems([]);
       setTotal(0);
+      onCountChange?.(0);
       setLoading(false);
       return;
     }
@@ -69,14 +73,16 @@ export function EntityTasksList({
       const res = await tasksApi.list(query());
       setItems(res.items);
       setTotal(res.total);
+      onCountChange?.(res.total);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load tasks");
       setItems([]);
       setTotal(0);
+      onCountChange?.(0);
     } finally {
       setLoading(false);
     }
-  }, [hasEntity, query]);
+  }, [hasEntity, query, onCountChange]);
 
   useEffect(() => {
     void load();

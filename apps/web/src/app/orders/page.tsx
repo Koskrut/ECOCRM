@@ -372,6 +372,7 @@ function OrdersPageContent() {
         companyId: null,
         clientId: null,
         deliveryMethod: "PICKUP",
+        documentsRequested: false,
         comment: null,
         discountAmount: 0,
       });

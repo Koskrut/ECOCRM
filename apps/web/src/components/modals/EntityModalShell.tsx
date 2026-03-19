@@ -62,14 +62,14 @@ export function EntityModalShell({
         aria-modal
       >
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between overflow-visible border-b border-zinc-200 px-5 py-4">
           <div className="min-w-0 pr-2">
             <div className="text-base font-semibold text-zinc-900">{title}</div>
             {subtitle != null ? (
-              <div className="mt-0.5 text-sm text-zinc-500">{subtitle}</div>
+              <div className="mt-0.5 text-xs text-zinc-500">{subtitle}</div>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="relative flex shrink-0 items-center gap-2 overflow-visible">
             {headerActions}
             <button
               type="button"

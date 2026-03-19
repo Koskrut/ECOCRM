@@ -7,11 +7,14 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
 import { BankAccountsService } from "./bank-accounts.service";
 import { BankSyncService } from "./bank-sync.service";
@@ -40,8 +43,25 @@ export class BankAccountsController {
   /** List active accounts for order form (id, name only). Available to managers. */
   @Get("for-order")
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
-  listForOrder() {
-    return this.service.listForOrder();
+  listForOrder(@Req() req: Request & { user?: AuthUser }) {
+    return this.service.listForOrder(req.user?.id);
+  }
+
+  @Get("visibility")
+  getVisibilitySettings() {
+    return this.service.getVisibilitySettings();
+  }
+
+  @Patch("visibility")
+  updateVisibilitySettings(
+    @Body()
+    body: {
+      accountId: string;
+      userIds: string[];
+      defaultForUserIds?: string[];
+    },
+  ) {
+    return this.service.updateVisibilitySettings(body);
   }
 
   /** Fetch requisites (legalName, bankDetails) from Privat24 by account IBAN. GET = use saved credentials; POST body { token?, clientId?, id? } = use these instead (e.g. from form before save). */

@@ -50,8 +50,6 @@ export type OrderPaymentBlockProps = {
   onSaved?: () => void | Promise<void>;
 };
 
-type SyncStatusAccount = { id: string; name: string; lastSyncAt: string | null; lastBookedAt: string | null };
-
 export function OrderPaymentBlock({
   orderId,
   apiBaseUrl,
@@ -66,8 +64,6 @@ export function OrderPaymentBlock({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddCash, setShowAddCash] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<SyncStatusAccount[]>([]);
-  const [syncLoading, setSyncLoading] = useState(false);
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -88,44 +84,11 @@ export function OrderPaymentBlock({
     }
   }, [apiBaseUrl, orderId]);
 
-  const fetchSyncStatus = useCallback(async () => {
-    try {
-      const r = await fetch(`${apiBaseUrl}/bank/sync/status`, { credentials: "include" });
-      if (!r.ok) return;
-      const data = (await r.json()) as { accounts?: SyncStatusAccount[] };
-      setSyncStatus(Array.isArray(data.accounts) ? data.accounts : []);
-    } catch {
-      setSyncStatus([]);
-    }
-  }, [apiBaseUrl]);
-
   useEffect(() => {
     void fetchPayments();
-    void fetchSyncStatus();
-  }, [fetchPayments, fetchSyncStatus]);
-
-  const runSync = useCallback(async () => {
-    setSyncLoading(true);
-    try {
-      const r = await fetch(`${apiBaseUrl}/bank/sync`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error(await r.text());
-      await fetchPayments();
-      await fetchSyncStatus();
-      await Promise.resolve(onSaved?.());
-    } catch {
-      // Error could be shown via a small toast; for now just stop loading
-    } finally {
-      setSyncLoading(false);
-    }
-  }, [apiBaseUrl, fetchPayments, fetchSyncStatus, onSaved]);
+  }, [fetchPayments]);
 
   const statusLabel = paymentStatus ? PAYMENT_STATUS_LABELS[paymentStatus] ?? paymentStatus : null;
-  const lastSync = syncStatus.length > 0 && syncStatus[0]?.lastSyncAt
-    ? new Date(syncStatus[0].lastSyncAt).toLocaleString()
-    : null;
 
   return (
     <div className="space-y-3">
@@ -150,9 +113,6 @@ export function OrderPaymentBlock({
           </button>
         </div>
       </div>
-      {lastSync && (
-        <p className="text-xs text-zinc-400">Остання синхронізація: {lastSync}</p>
-      )}
 
       {error ? (
         <p className="text-xs text-red-600">{error}</p>
@@ -237,6 +197,8 @@ type AddCashPaymentModalProps = {
   onSaved: () => void;
 };
 
+const CASH_PAYMENT_CURRENCIES = ["USD", "UAH", "EUR"] as const;
+
 function AddCashPaymentModal({
   apiBaseUrl,
   orderId,
@@ -245,6 +207,11 @@ function AddCashPaymentModal({
   onSaved,
 }: AddCashPaymentModalProps) {
   const [amount, setAmount] = useState("");
+  const [paymentCurrency, setPaymentCurrency] = useState(() =>
+    currency && CASH_PAYMENT_CURRENCIES.includes(currency as (typeof CASH_PAYMENT_CURRENCIES)[number])
+      ? currency
+      : "USD",
+  );
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 16));
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -266,6 +233,7 @@ function AddCashPaymentModal({
         body: JSON.stringify({
           orderId,
           amount: num,
+          currency: paymentCurrency,
           paidAt: new Date(paidAt).toISOString(),
           note: note.trim() || undefined,
         }),
@@ -288,15 +256,29 @@ function AddCashPaymentModal({
         <h3 className="text-sm font-semibold text-zinc-900">Cash payment</h3>
         <div className="mt-3 space-y-2">
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Amount ({currency})</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-            />
+            <span className="block text-xs font-medium text-zinc-600">Сума</span>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              />
+              <select
+                value={paymentCurrency}
+                onChange={(e) => setPaymentCurrency(e.target.value)}
+                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                aria-label="Валюта"
+              >
+                {CASH_PAYMENT_CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-zinc-600">Date & time</label>

@@ -14,7 +14,8 @@
     "seed": "ts-node prisma/seed.ts",
     "np-sync": "ts-node scripts/run-np-sync.ts",
     "bitrix:import": "NODE_OPTIONS='--max-old-space-size=4096' ts-node scripts/run-bitrix-import.ts",
-    "bitrix:delete-np-profiles": "ts-node scripts/delete-bitrix-np-profiles.ts"
+    "bitrix:delete-np-profiles": "ts-node scripts/delete-bitrix-np-profiles.ts",
+    "np:fill-refs": "ts-node scripts/fill-np-refs-in-profiles.ts"
   },
   "keywords": [],
   "author": "",

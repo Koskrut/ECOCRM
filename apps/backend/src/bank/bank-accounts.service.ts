@@ -1,4 +1,3 @@
-import { appendFileSync } from "node:fs";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { BankAccount, BankProvider } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -8,17 +7,8 @@ import type { UpdateBankAccountDto } from "./dto/update-bank-account.dto";
 import type { Privat24Credentials } from "./privat24.client";
 import { Privat24Client } from "./privat24.client";
 
-const DEBUG_LOG_PATH = "/Users/konstantin/CRM/.cursor/debug-f04031.log";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function debugLog(msg: string, data: Record<string, unknown> = {}) {
-  try {
-    appendFileSync(
-      DEBUG_LOG_PATH,
-      JSON.stringify({ timestamp: Date.now(), location: "bank-accounts.service", message: msg, data }) + "\n",
-    );
-  } catch (_) {}
-}
 
 function maskValue(value: string | undefined): string {
   if (!value || value.length < 4) return value ? "••••" : "";
@@ -26,6 +16,11 @@ function maskValue(value: string | undefined): string {
 }
 
 type CredentialsPayload = Record<string, unknown> | null;
+const BANK_VISIBILITY_SETTING_ID = "bankAccountVisibilityByUser";
+const USER_DEFAULT_BANK_SETTING_ID = "userDefaultBankAccountId";
+
+type VisibilityMap = Record<string, string[]>;
+type UserDefaultMap = Record<string, string>;
 
 function maskCredentials(credentials: CredentialsPayload): {
   clientIdMasked?: string;
@@ -56,6 +51,38 @@ function toMasked(account: BankAccount): Omit<BankAccount, "credentials"> & { cr
 export class BankAccountsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async getVisibilityMap(): Promise<VisibilityMap> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: BANK_VISIBILITY_SETTING_ID },
+    });
+    if (!row || typeof row.value !== "object" || row.value == null) return {};
+    return row.value as VisibilityMap;
+  }
+
+  private async getUserDefaultMap(): Promise<UserDefaultMap> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: USER_DEFAULT_BANK_SETTING_ID },
+    });
+    if (!row || typeof row.value !== "object" || row.value == null) return {};
+    return row.value as UserDefaultMap;
+  }
+
+  private async saveVisibilityMap(map: VisibilityMap) {
+    await this.prisma.systemSetting.upsert({
+      where: { id: BANK_VISIBILITY_SETTING_ID },
+      update: { value: map as Prisma.InputJsonValue },
+      create: { id: BANK_VISIBILITY_SETTING_ID, value: map as Prisma.InputJsonValue },
+    });
+  }
+
+  private async saveUserDefaultMap(map: UserDefaultMap) {
+    await this.prisma.systemSetting.upsert({
+      where: { id: USER_DEFAULT_BANK_SETTING_ID },
+      update: { value: map as Prisma.InputJsonValue },
+      create: { id: USER_DEFAULT_BANK_SETTING_ID, value: map as Prisma.InputJsonValue },
+    });
+  }
+
   async create(dto: CreateBankAccountDto) {
     const created = await this.prisma.bankAccount.create({
       data: {
@@ -83,14 +110,110 @@ export class BankAccountsService {
     return accounts.map(toMasked);
   }
 
-  /** For order form: active accounts, id and name only. */
-  async listForOrder(): Promise<Array<{ id: string; name: string }>> {
+  /** For order form: active accounts visible to user, with user's default first. */
+  async listForOrder(
+    userId?: string,
+  ): Promise<{ accounts: Array<{ id: string; name: string }>; defaultBankAccountId: string | null }> {
     const accounts = await this.prisma.bankAccount.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     });
-    return accounts;
+    if (!userId) {
+      return { accounts, defaultBankAccountId: null };
+    }
+
+    const [visibilityMap, userDefaultMap] = await Promise.all([
+      this.getVisibilityMap(),
+      this.getUserDefaultMap(),
+    ]);
+
+    const visible = accounts.filter((acc) => {
+      const userIds = visibilityMap[acc.id];
+      if (!Array.isArray(userIds) || userIds.length === 0) return true;
+      return userIds.includes(userId);
+    });
+
+    const defaultBankId = userDefaultMap[userId] ?? null;
+    const defaultInVisible =
+      defaultBankId && visible.some((a) => a.id === defaultBankId) ? defaultBankId : null;
+
+    let ordered = [...visible];
+    if (defaultBankId) {
+      const idx = ordered.findIndex((x) => x.id === defaultBankId);
+      if (idx > 0) {
+        const [chosen] = ordered.splice(idx, 1);
+        ordered = [chosen, ...ordered];
+      }
+    }
+
+    return { accounts: ordered, defaultBankAccountId: defaultInVisible };
+  }
+
+  async getVisibilitySettings() {
+    const [users, accounts, visibilityMap, userDefaultMap] = await Promise.all([
+      this.prisma.user.findMany({
+        orderBy: [{ fullName: "asc" }, { email: "asc" }],
+        select: { id: true, fullName: true, email: true, role: true },
+      }),
+      this.prisma.bankAccount.findMany({
+        where: { isActive: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      this.getVisibilityMap(),
+      this.getUserDefaultMap(),
+    ]);
+
+    return { users, accounts, visibilityMap, userDefaultMap };
+  }
+
+  async updateVisibilitySettings(body: {
+    accountId: string;
+    userIds: string[];
+    defaultForUserIds?: string[];
+  }) {
+    const accountId = String(body.accountId || "").trim();
+    if (!accountId) throw new BadRequestException("accountId is required");
+
+    const account = await this.prisma.bankAccount.findUnique({
+      where: { id: accountId },
+      select: { id: true },
+    });
+    if (!account) throw new NotFoundException("Bank account not found");
+
+    const userIds = Array.from(new Set((body.userIds ?? []).map((x) => String(x).trim()).filter(Boolean)));
+    const defaultForUserIds = Array.from(
+      new Set((body.defaultForUserIds ?? []).map((x) => String(x).trim()).filter(Boolean)),
+    );
+
+    const existingUsers = await this.prisma.user.findMany({
+      where: { id: { in: Array.from(new Set([...userIds, ...defaultForUserIds])) } },
+      select: { id: true },
+    });
+    const validUserIds = new Set(existingUsers.map((u) => u.id));
+    const cleanVisible = userIds.filter((id) => validUserIds.has(id));
+    const cleanDefaults = defaultForUserIds.filter((id) => validUserIds.has(id));
+
+    const [visibilityMap, userDefaultMap] = await Promise.all([
+      this.getVisibilityMap(),
+      this.getUserDefaultMap(),
+    ]);
+
+    visibilityMap[accountId] = cleanVisible;
+
+    // Remove old defaults that pointed to this account, then set new defaults.
+    Object.keys(userDefaultMap).forEach((uid) => {
+      if (userDefaultMap[uid] === accountId) delete userDefaultMap[uid];
+    });
+    cleanDefaults.forEach((uid) => {
+      userDefaultMap[uid] = accountId;
+      // If a user has default on this account, ensure visibility is granted.
+      if (!visibilityMap[accountId].includes(uid)) visibilityMap[accountId].push(uid);
+    });
+
+    await Promise.all([this.saveVisibilityMap(visibilityMap), this.saveUserDefaultMap(userDefaultMap)]);
+    return { ok: true, visibilityMap, userDefaultMap };
   }
 
   async getById(id: string) {
@@ -152,14 +275,6 @@ export class BankAccountsService {
       if (staleUuidId || (dtoHasClientId && !dtoHasId && existingId && existingClientId && existingId === existingClientId)) {
         next.id = undefined;
       }
-      debugLog("update credentials merge", {
-        accountId: id,
-        dtoCredentialsKeys: Object.keys(dto.credentials),
-        nextKeys: Object.keys(next),
-        hasId: "id" in next && next.id != null,
-        clearedLegacyId:
-          staleUuidId || (dtoHasClientId && !dtoHasId && existingId != null && existingId === existingClientId),
-      });
       data.credentials = next as object;
     }
 

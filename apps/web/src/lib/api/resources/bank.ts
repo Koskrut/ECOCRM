@@ -12,8 +12,13 @@ export type BankAccountItem = {
 export type BankAccountForOrderItem = { id: string; name: string };
 
 export async function listBankAccountsForOrder(): Promise<BankAccountForOrderItem[]> {
-  const res = await apiHttp.get<BankAccountForOrderItem[]>("/bank/accounts/for-order");
-  return res.data;
+  const res = await apiHttp.get<
+    | BankAccountForOrderItem[]
+    | { accounts: BankAccountForOrderItem[]; defaultBankAccountId?: string | null }
+  >("/bank/accounts/for-order");
+  const d = res.data;
+  if (Array.isArray(d)) return d;
+  return Array.isArray(d?.accounts) ? d.accounts : [];
 }
 
 export async function deleteBankAccount(id: string): Promise<void> {

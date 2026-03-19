@@ -330,18 +330,51 @@ export class BitrixInitialImportService {
     for (;;) {
       const contacts = await this.prisma.contact.findMany({
         where: { legacySource: LEGACY_SOURCE, legacyRaw: { not: Prisma.JsonNull } },
-        select: { id: true, legacyRaw: true },
+        select: { id: true, legacyId: true, legacyRaw: true },
         take: batchSize,
         skip: offset,
         orderBy: { id: "asc" },
       });
       if (contacts.length === 0) break;
 
+      const NP_REF_KEYS = ["UF_CRM_1754036697135", "UF_CRM_1754036521022"] as const;
+      let npRefLogCount = 0;
+      const NP_REF_LOG_LIMIT = 5;
+
       for (const c of contacts) {
         processedCount += 1;
         const raw = c.legacyRaw as Record<string, unknown> | null | undefined;
         const npData = extractNpDataFromBitrixLegacyRaw(raw);
         if (npData) withNpDataCount += 1;
+        if (npData && npRefLogCount < NP_REF_LOG_LIMIT) {
+          npRefLogCount += 1;
+          const refsInRaw: Record<string, unknown> = {};
+          for (const k of NP_REF_KEYS) {
+            if (raw && k in raw) refsInRaw[k] = raw[k];
+          }
+          const ufKeys = raw ? Object.keys(raw).filter((key) => key.startsWith("UF_CRM_")) : [];
+          fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
+            body: JSON.stringify({
+              sessionId: "1d520f",
+              hypothesisId: "bitrix-ref",
+              location: "bitrix.initial-import:ensureNpProfilesFromBitrixContacts",
+              message: "NP profile: legacyRaw ref fields check",
+              data: {
+                contactId: c.id,
+                legacyId: c.legacyId,
+                refsInRaw,
+                npDataCityRef: npData.cityRef,
+                npDataWarehouseRef: npData.warehouseRef,
+                ufKeysCount: ufKeys.length,
+                hasCityRefKey: raw && "UF_CRM_1754036697135" in raw,
+                hasWarehouseRefKey: raw && "UF_CRM_1754036521022" in raw,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        }
         if (!npData) continue;
 
         const existing = await this.prisma.contactShippingProfile.findFirst({
@@ -660,10 +693,37 @@ export class BitrixInitialImportService {
     const emailsByElement = this.groupFieldMultiByElement(multiRows, "EMAIL");
 
     const contactUfByLegacyId = await this.loadContactUfBatch(pool, elementIds);
+    let ufMergeLogCount = 0;
     for (const row of batch) {
       const id = Number(row["ID"]);
       const uf = contactUfByLegacyId.get(id);
-      if (uf) Object.assign(row, uf);
+      if (uf) {
+        Object.assign(row, uf);
+        if (ufMergeLogCount < 3) {
+          ufMergeLogCount += 1;
+          const npRefKeys = ["UF_CRM_1754036697135", "UF_CRM_1754036521022"];
+          const refsFromUts: Record<string, unknown> = {};
+          for (const k of npRefKeys) {
+            if (k in row) refsFromUts[k] = (row as Record<string, unknown>)[k];
+          }
+          fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
+            body: JSON.stringify({
+              sessionId: "1d520f",
+              hypothesisId: "bitrix-uts",
+              location: "bitrix.initial-import:processContactBatch(merge UTS)",
+              message: "Contact row after merge with b_uts_crm_contact: NP ref keys",
+              data: {
+                legacyId: id,
+                refsFromUts,
+                utsKeysCount: Object.keys(uf).length,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+        }
+      }
     }
 
     const legacyIds = elementIds;

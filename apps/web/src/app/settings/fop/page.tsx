@@ -20,6 +20,13 @@ type BankAccount = {
   };
 };
 
+type UserLite = {
+  id: string;
+  email: string;
+  fullName?: string | null;
+  role: string;
+};
+
 type RequisitesFromBank = {
   legalName?: string;
   taxId?: string;
@@ -74,16 +81,34 @@ export default function FopSettingsPage() {
   const [editAccountHasToken, setEditAccountHasToken] = useState(false);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserLite[]>([]);
+  const [visibilityMap, setVisibilityMap] = useState<Record<string, string[]>>({});
+  const [userDefaultBankMap, setUserDefaultBankMap] = useState<Record<string, string>>({});
+  const [editVisibleUserIds, setEditVisibleUserIds] = useState<string[]>([]);
+  const [editDefaultUserIds, setEditDefaultUserIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiHttp.get<BankAccount[]>("/bank/accounts");
-      setAccounts(Array.isArray(res.data) ? res.data : []);
+      const [accountsRes, visibilityRes] = await Promise.all([
+        apiHttp.get<BankAccount[]>("/bank/accounts"),
+        apiHttp.get<{
+          users?: UserLite[];
+          visibilityMap?: Record<string, string[]>;
+          userDefaultMap?: Record<string, string>;
+        }>("/bank/accounts/visibility"),
+      ]);
+      setAccounts(Array.isArray(accountsRes.data) ? accountsRes.data : []);
+      setUsers(Array.isArray(visibilityRes.data?.users) ? visibilityRes.data.users : []);
+      setVisibilityMap(visibilityRes.data?.visibilityMap ?? {});
+      setUserDefaultBankMap(visibilityRes.data?.userDefaultMap ?? {});
     } catch (e) {
       setError(getApiErrorMessage(e, "Failed to load FOPs"));
       setAccounts([]);
+      setUsers([]);
+      setVisibilityMap({});
+      setUserDefaultBankMap({});
     } finally {
       setLoading(false);
     }
@@ -147,6 +172,12 @@ export default function FopSettingsPage() {
     setEditGroupIdVal("");
     setEditToken("");
     setEditAccountHasToken(!!acc.credentialsMasked?.tokenMasked);
+    const visible = visibilityMap[acc.id] ?? [];
+    setEditVisibleUserIds(visible);
+    const defaults = Object.entries(userDefaultBankMap)
+      .filter(([, bankId]) => bankId === acc.id)
+      .map(([userId]) => userId);
+    setEditDefaultUserIds(defaults);
     setError(null);
   }
 
@@ -220,6 +251,11 @@ export default function FopSettingsPage() {
         if (editToken !== "") body.credentials.token = editToken.trim() || undefined;
       }
       await apiHttp.patch(`/bank/accounts/${editId}`, body);
+      await apiHttp.patch("/bank/accounts/visibility", {
+        accountId: editId,
+        userIds: editVisibleUserIds,
+        defaultForUserIds: editDefaultUserIds,
+      });
       setEditId(null);
       await load();
     } catch (e) {
@@ -308,6 +344,22 @@ export default function FopSettingsPage() {
                     {acc.externalCode && (
                       <div className="mt-0.5 text-xs text-zinc-600">Код 1С: {acc.externalCode}</div>
                     )}
+                    <div className="mt-0.5 text-xs text-zinc-600">
+                      Доступ:{" "}
+                      {(visibilityMap[acc.id] ?? []).length > 0
+                        ? users
+                            .filter((u) => (visibilityMap[acc.id] ?? []).includes(u.id))
+                            .map((u) => u.fullName?.trim() || u.email)
+                            .join(", ")
+                        : "всем"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-zinc-600">
+                      По умолчанию:{" "}
+                      {users
+                        .filter((u) => userDefaultBankMap[u.id] === acc.id)
+                        .map((u) => u.fullName?.trim() || u.email)
+                        .join(", ") || "—"}
+                    </div>
                     <div className="mt-0.5 text-xs text-zinc-500">
                       ID: {acc.credentialsMasked?.clientIdMasked ?? acc.credentialsMasked?.idMasked ?? "—"} · TOKEN:{" "}
                       {acc.credentialsMasked?.tokenMasked ?? "—"}
@@ -625,6 +677,56 @@ export default function FopSettingsPage() {
                     placeholder="Залиште порожнім, щоб не змінювати"
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs font-medium text-zinc-700">Сотрудники с доступом к ФОП</div>
+                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                    {users.map((u) => {
+                      const label = u.fullName?.trim() || u.email;
+                      return (
+                        <label key={`vis-${u.id}`} className="flex items-center gap-2 text-xs text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={editVisibleUserIds.includes(u.id)}
+                            onChange={(e) => {
+                              setEditVisibleUserIds((prev) =>
+                                e.target.checked ? Array.from(new Set([...prev, u.id])) : prev.filter((id) => id !== u.id),
+                              );
+                              if (!e.target.checked) {
+                                setEditDefaultUserIds((prev) => prev.filter((id) => id !== u.id));
+                              }
+                            }}
+                          />
+                          <span>{label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 text-xs font-medium text-zinc-700">ФОП по умолчанию для сотрудников</div>
+                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                    {users
+                      .filter((u) => editVisibleUserIds.includes(u.id))
+                      .map((u) => {
+                        const label = u.fullName?.trim() || u.email;
+                        return (
+                          <label key={`def-${u.id}`} className="flex items-center gap-2 text-xs text-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={editDefaultUserIds.includes(u.id)}
+                              onChange={(e) =>
+                                setEditDefaultUserIds((prev) =>
+                                  e.target.checked ? Array.from(new Set([...prev, u.id])) : prev.filter((id) => id !== u.id),
+                                )
+                              }
+                            />
+                            <span>{label}</span>
+                          </label>
+                        );
+                      })}
+                    {editVisibleUserIds.length === 0 ? (
+                      <div className="text-xs text-zinc-500">Сначала выберите сотрудников с доступом.</div>
+                    ) : null}
+                  </div>
                 </div>
                 </div>
               </div>

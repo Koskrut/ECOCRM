@@ -18,9 +18,11 @@ type TimelineResponse = { items: TimelineItem[] };
 
 type Props = {
   orderId: string;
+  /** Fired when timeline item count changes (load / add activity). */
+  onItemsCountChange?: (count: number) => void;
 };
 
-export function OrderTimeline({ orderId }: Props) {
+export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -37,17 +39,20 @@ export function OrderTimeline({ orderId }: Props) {
     setErr(null);
     try {
       const res = await apiHttp.get<TimelineResponse>(timelineUrl);
-      setItems(res.data?.items || []);
+      const next = res.data?.items || [];
+      setItems(next);
+      onItemsCountChange?.(next.length);
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Failed to load timeline");
       setErr(msg);
       setItems([]);
+      onItemsCountChange?.(0);
     } finally {
       setLoading(false);
     }
-  }, [timelineUrl]);
+  }, [timelineUrl, onItemsCountChange]);
 
   useEffect(() => {
     void load();
