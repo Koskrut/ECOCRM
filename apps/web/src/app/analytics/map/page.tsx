@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Map as MapIcon, ArrowLeft } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
+import { UkraineOblastMap } from "@/components/maps/UkraineOblastMap";
 
 type MeResponse = { user?: { role?: string } };
 
@@ -58,12 +59,14 @@ export default function AnalyticsMapPage() {
             <MapIcon className="h-7 w-7 text-zinc-600" />
             Карта
           </h1>
-          <p className="mb-6 text-zinc-600">
-            Карта тимчасово відключена. Інтерактивна карта областей буде доступна пізніше.
+          <p className="mb-8 text-sm text-zinc-600">
+            Інтерактивна карта областей: два відділи продажів, зум по кліку на відділ або область,
+            дані з аналітики за місяць.
           </p>
+          <UkraineOblastMap />
           <Link
             href="/analytics"
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+            className="mt-10 inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
           >
             <ArrowLeft className="h-4 w-4" />
             Назад до аналітики
