@@ -17,6 +17,8 @@ export type ProductCatalogItem = {
   primaryImageUrl: string | null;
   primaryImageId: string | null;
   stockByWarehouse?: StockByWarehouseItem[];
+  /** Only present when search returns inactive matches; false = deactivated. */
+  isActive?: boolean;
 };
 
 export type ProductImageItem = {
@@ -134,6 +136,26 @@ export const productsApi = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ showOnStore }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Update failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+  },
+
+  updateIsActive: async (id: string, isActive: boolean): Promise<void> => {
+    const r = await fetch(`/api/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive }),
       credentials: "include",
     });
     if (!r.ok) {

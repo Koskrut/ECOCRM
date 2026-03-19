@@ -14,6 +14,8 @@ type ProductListItem = Pick<
 
 export type ProductListItemWithStockByWarehouse = ProductListItem & {
   stockByWarehouse?: StockByWarehouseItem[];
+  /** Present when listing catalog with search (includes inactive matches). */
+  isActive?: boolean;
 };
 
 type ProductListResult = {
@@ -420,6 +422,14 @@ export class ProductStore {
     return result.count > 0;
   }
 
+  public async setActive(id: string): Promise<boolean> {
+    const result = await this.prisma.product.updateMany({
+      where: { id },
+      data: { isActive: true },
+    });
+    return result.count > 0;
+  }
+
   public async updateShowOnStore(id: string, showOnStore: boolean): Promise<boolean> {
     const result = await this.prisma.product.updateMany({
       where: { id },
@@ -451,29 +461,28 @@ export class ProductStore {
       total = totalCount;
     } else {
       const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
+      // Include inactive products in search so existing deactivated SKUs are visible and can be reactivated
       const rowsResult = await this.prisma.$queryRaw<
-        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>
+        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean; isActive: boolean }>
       >`
-        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore"
+        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", "isActive"
         FROM "Product"
-        WHERE "isActive" = true
-          AND (
-            sku ILIKE ${searchPattern}
-            OR name ILIKE ${searchPattern}
-            OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
-          )
-        ORDER BY name
+        WHERE (
+          sku ILIKE ${searchPattern}
+          OR name ILIKE ${searchPattern}
+          OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
+        )
+        ORDER BY "isActive" DESC, name
         LIMIT ${pagination.limit} OFFSET ${pagination.offset}
       `;
       const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*)::int AS count
         FROM "Product"
-        WHERE "isActive" = true
-          AND (
-            sku ILIKE ${searchPattern}
-            OR name ILIKE ${searchPattern}
-            OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
-          )
+        WHERE (
+          sku ILIKE ${searchPattern}
+          OR name ILIKE ${searchPattern}
+          OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
+        )
       `;
       rows = rowsResult;
       total = Number(count);

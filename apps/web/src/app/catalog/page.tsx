@@ -85,6 +85,40 @@ function CatalogRowDeleteButton({
   );
 }
 
+function ActivateProductButton({
+  productId,
+  productName,
+  onActivated,
+}: {
+  productId: string;
+  productName: string;
+  onActivated: () => void;
+}) {
+  const [activating, setActivating] = useState(false);
+  const handleActivate = async () => {
+    setActivating(true);
+    try {
+      await productsApi.updateIsActive(productId, true);
+      onActivated();
+    } catch {
+      // ignore; could show toast
+    } finally {
+      setActivating(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleActivate}
+      disabled={activating}
+      className="ml-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+      title="Сделать активным"
+    >
+      {activating ? "…" : "Активировать"}
+    </button>
+  );
+}
+
 function ProductImagesModal({
   productId,
   productName,
@@ -846,7 +880,6 @@ function CatalogPageContent() {
                       {wh}
                     </th>
                   ))}
-                  <th className="px-4 py-3">Всего</th>
                   <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
                     На сайте
                   </th>
@@ -858,7 +891,7 @@ function CatalogPageContent() {
                 return (
                   <tbody key={category} className="border-t border-zinc-200">
                     <tr>
-                      <td colSpan={8 + WAREHOUSE_ORDER.length} className="p-0">
+                      <td colSpan={7 + WAREHOUSE_ORDER.length} className="p-0">
                         <button
                           type="button"
                           onClick={() => toggleCategory(category)}
@@ -886,7 +919,10 @@ function CatalogPageContent() {
                     </tr>
                     {!isCollapsed &&
                       categoryItems.map((p) => (
-                        <tr key={p.id} className="border-t border-zinc-100 hover:bg-zinc-50">
+                        <tr
+                          key={p.id}
+                          className={`border-t border-zinc-100 hover:bg-zinc-50 ${p.isActive === false ? "bg-zinc-100/60" : ""}`}
+                        >
                           <td className="px-2 py-2">
                             <button
                               type="button"
@@ -907,7 +943,21 @@ function CatalogPageContent() {
                               )}
                             </button>
                           </td>
-                          <td className="px-4 py-3 font-mono text-zinc-900">{p.sku}</td>
+                          <td className="px-4 py-3 font-mono text-zinc-900">
+                            {p.sku}
+                            {p.isActive === false && (
+                              <>
+                                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
+                                  неактивен
+                                </span>
+                                <ActivateProductButton
+                                  productId={p.id}
+                                  productName={p.name}
+                                  onActivated={loadCatalog}
+                                />
+                              </>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-zinc-900">{p.name}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.unit}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.basePrice}</td>
@@ -916,9 +966,6 @@ function CatalogPageContent() {
                               {qtyAtWarehouse(p, wh)}
                             </td>
                           ))}
-                          <td className="px-4 py-3 font-medium tabular-nums text-zinc-900">
-                            {p.stock}
-                          </td>
                           <td className="px-2 py-3 text-center">
                             <label className="inline-flex cursor-pointer items-center gap-1.5">
                               <input

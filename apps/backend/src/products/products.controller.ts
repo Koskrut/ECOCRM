@@ -190,7 +190,7 @@ export class ProductsController {
   @Patch(":id")
   public async patch(
     @Param("id") id: string,
-    @Body() body: { stock?: number; showOnStore?: boolean },
+    @Body() body: { stock?: number; showOnStore?: boolean; isActive?: boolean },
   ): Promise<{ ok: boolean }> {
     if (body.stock !== undefined) {
       const ok = await this.productStore.updateStockById(id, body.stock);
@@ -198,6 +198,12 @@ export class ProductsController {
     }
     if (body.showOnStore !== undefined) {
       const ok = await this.productStore.updateShowOnStore(id, body.showOnStore);
+      if (!ok) throw new BadRequestException("Product not found");
+    }
+    if (body.isActive !== undefined) {
+      const ok = body.isActive
+        ? await this.productStore.setActive(id)
+        : await this.productStore.setInactive(id);
       if (!ok) throw new BadRequestException("Product not found");
     }
     return { ok: true };
