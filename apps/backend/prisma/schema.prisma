@@ -1280,7 +1280,6 @@ model Payment {
   bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
   createdBy User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([bankTransactionId])
   @@index([orderId])
   @@index([bankTransactionId])
   @@index([paidAt])

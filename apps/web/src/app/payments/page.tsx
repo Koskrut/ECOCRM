@@ -722,6 +722,9 @@ function PaymentsContent() {
 
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H1", location: "payments/page.tsx:submitSplit:start", message: "split submit started", data: { splitRows, validCount: valid.length, splitFromEditPaymentId: splitFromEditPayment?.id ?? null, splitTxId: splitTx?.id ?? null }, timestamp: Date.now() }) }).catch(() => {});
+    // #endregion
     if (valid.length === 0) {
       alert(t.payments.errors.splitNeedOrder);
       return;
@@ -745,6 +748,9 @@ function PaymentsContent() {
     setSplitSubmitting(true);
     try {
       if (splitFromEditPayment) {
+        // #region agent log
+        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments/page.tsx:submitSplit:request-payment-split", message: "posting payment split", data: { paymentId: splitFromEditPayment.id, allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })) }, timestamp: Date.now() }) }).catch(() => {});
+        // #endregion
         await apiHttp.post(`/payments/${splitFromEditPayment.id}/split`, {
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
@@ -752,6 +758,9 @@ function PaymentsContent() {
         setSplitContactId(null);
         setSplitClientOrders([]);
       } else if (splitTx) {
+        // #region agent log
+        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments/page.tsx:submitSplit:request-allocate-split", message: "posting transaction split", data: { transactionId: splitTx.id, allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })) }, timestamp: Date.now() }) }).catch(() => {});
+        // #endregion
         await apiHttp.post("/payments/allocate-split", {
           transactionId: splitTx.id,
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
@@ -766,7 +775,13 @@ function PaymentsContent() {
       setSplitOrderForRowIndex(null);
       setSplitOrderSearch("");
       await fetchPayments();
+      // #region agent log
+      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H3", location: "payments/page.tsx:submitSplit:success", message: "split submit success", data: { refreshedAfterSplit: true }, timestamp: Date.now() }) }).catch(() => {});
+      // #endregion
     } catch (e) {
+      // #region agent log
+      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H4", location: "payments/page.tsx:submitSplit:error", message: "split submit failed", data: { error: e instanceof Error ? e.message : String(e) }, timestamp: Date.now() }) }).catch(() => {});
+      // #endregion
       alert(e instanceof Error ? e.message : t.payments.errors.splitFailed);
     } finally {
       setSplitSubmitting(false);
