@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Truck } from "lucide-react";
+import { CheckCircle2, MailPlus } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
@@ -68,7 +68,7 @@ export function OrderCard({
             <span>{order.orderNumber}</span>
             {order.hasTtn && (
               <span title="ТТН создана" className="inline-flex text-blue-600">
-                <Truck className="h-4 w-4" />
+                <MailPlus className="h-4 w-4" />
               </span>
             )}
             {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (

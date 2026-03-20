@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Filter, Search, Truck } from "lucide-react";
+import { CheckCircle2, Filter, MailPlus, Search } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -717,7 +717,7 @@ function OrdersPageContent() {
                             <span>{order.orderNumber}</span>
                             {order.hasTtn && (
                               <span title="ТТН создана" className="inline-flex text-blue-600">
-                                <Truck className="h-4 w-4" />
+                                <MailPlus className="h-4 w-4" />
                               </span>
                             )}
                             {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (
