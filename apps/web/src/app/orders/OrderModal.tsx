@@ -87,6 +87,7 @@ type OrderDetails = {
   companyId: string | null;
   clientId: string | null;
   contactId: string | null;
+  ownerId?: string | null;
   deliveryData?: any;
   company?: { id: string; name: string };
   client?: { id: string; firstName: string; lastName: string; phone: string };
@@ -520,8 +521,10 @@ export function OrderModal({
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
+  const [users, setUsers] = useState<Array<{ id: string; fullName: string; email: string }>>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // local editable values
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -650,6 +653,19 @@ export function OrderModal({
     },
     [apiBaseUrl],
   );
+
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await apiHttp.get<{ items: { id: string; fullName: string; email: string }[] }>("/users");
+      const loaded = Array.isArray(res.data?.items) ? res.data.items : [];
+      setUsers(loaded);
+    } catch {
+      setUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
 
   const onContactSearchQueryChange = useCallback(
     (q: string) => {
@@ -895,6 +911,7 @@ export function OrderModal({
     void refreshOrder();
     void refreshTimeline();
     void refreshReturns();
+    void fetchUsers();
   }, [
     isCreate,
     orderId,
@@ -905,6 +922,7 @@ export function OrderModal({
     refreshOrder,
     refreshReturns,
     refreshTimeline,
+    fetchUsers,
   ]);
 
   useEffect(() => {
@@ -1316,6 +1334,15 @@ export function OrderModal({
     }
     return list;
   }, [contacts, clientId, order?.client, companyId]);
+
+  const responsibleOptions = useMemo<Option[]>(
+    () =>
+      users.map((u) => ({
+        id: u.id,
+        label: u.fullName || u.email,
+      })),
+    [users],
+  );
 
   const shouldShowCompanyField = useMemo(() => {
     const selectedContact = clientId ? contacts.find((c) => c.id === clientId) : null;
@@ -2685,6 +2712,24 @@ export function OrderModal({
                       {editing === "comment" ? (
                         <div className="mt-1 text-xs text-zinc-500">Blur — save • Ctrl/⌘ + Enter — save</div>
                       ) : null}
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="text-xs text-zinc-500">Відповідальний</div>
+                      <div className="mt-1">
+                        <SearchableSelectLite
+                          value={order.ownerId ?? ""}
+                          options={responsibleOptions}
+                          placeholder="Оберіть відповідального…"
+                          disabled={saving || loadingUsers}
+                          isLoading={loadingUsers}
+                          onChange={async (id) => {
+                            const next = id || null;
+                            await patchOrder({ ownerId: next });
+                            setOrder((prev) => (prev ? { ...prev, ownerId: next } : prev));
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
               </EntitySection>

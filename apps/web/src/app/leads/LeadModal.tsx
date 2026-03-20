@@ -1157,6 +1157,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                         onChange={(e) => setDealComment(e.target.value)}
                       />
                     </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-zinc-600">
+                        Responsible
+                      </label>
+                      <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-700">
+                        {lead?.owner?.fullName ?? "—"}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

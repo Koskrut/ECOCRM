@@ -420,6 +420,15 @@ export class OrdersService {
     if ("contactId" in dto) {
       data.contact = dto.contactId ? { connect: { id: dto.contactId } } : { disconnect: true };
     }
+    if ("ownerId" in dto) {
+      const nextOwnerId = dto.ownerId ?? null;
+      if (actor?.role === UserRole.MANAGER && nextOwnerId !== actor.id) {
+        throw new ForbiddenException("You can only assign order to yourself");
+      }
+      if (nextOwnerId) {
+        data.owner = { connect: { id: nextOwnerId } };
+      }
+    }
     if ("bankAccountId" in dto) {
       data.bankAccount = dto.bankAccountId
         ? { connect: { id: dto.bankAccountId } }
@@ -506,7 +515,7 @@ export class OrdersService {
   async addItem(orderId: string, dto: AddOrderItemDto, actor?: AuthUser) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, currency: true },
     });
     if (!order) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(order, actor);
@@ -514,6 +523,27 @@ export class OrdersService {
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
     const price = dto.price;
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
+      body: JSON.stringify({
+        sessionId: "7e31bf",
+        runId: "pre-fix",
+        hypothesisId: "H5",
+        location: "orders.service.ts:addItem:input",
+        message: "OrdersService.addItem input",
+        data: {
+          orderId,
+          orderCurrency: order.currency,
+          productId,
+          qty,
+          price,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     const existing = await this.prisma.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },

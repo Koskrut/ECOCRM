@@ -5,6 +5,10 @@ import { IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min } from
 export class UpdateOrderDto {
   @IsOptional()
   @IsString()
+  ownerId?: string | null;
+
+  @IsOptional()
+  @IsString()
   companyId?: string | null;
 
   @IsOptional()
