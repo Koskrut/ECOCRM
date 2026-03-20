@@ -1540,7 +1540,7 @@ export function OrderModal({
         left={(
           isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-xs font-medium text-zinc-600 mb-1">Company</label>
                   <SearchableSelectLite
@@ -2025,8 +2025,8 @@ export function OrderModal({
               <>
               <EntitySection title="About order">
                     <div className="rounded-md border border-zinc-200 bg-white p-4">
-                    <div className="grid grid-cols-1 gap-4 text-sm lg:grid-cols-2 lg:gap-4 [&>*]:min-w-0">
-                      <div>
+                    <div className="grid grid-cols-1 gap-4 text-sm xl:grid-cols-2 xl:gap-4 [&>*]:min-w-0">
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">Client</div>
                         {editing === "client" ? (
                           <div className="mt-1">
@@ -2084,7 +2084,7 @@ export function OrderModal({
                               setEditing("client");
                               await ensureListsForCompanyClient(companyId);
                             }}
-                            className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
+                            className="mt-1 min-h-9 w-full rounded-md px-2 py-1.5 text-left text-zinc-900 hover:bg-zinc-50"
                           >
                             {order.client
                               ? `${order.client.lastName} ${order.client.firstName} — ${order.client.phone}`
@@ -2094,7 +2094,7 @@ export function OrderModal({
                       </div>
 
                       {shouldShowCompanyField ? (
-                        <div>
+                        <div className="min-w-0">
                           <div className="text-xs text-zinc-500">Company</div>
                           {editing === "company" ? (
                             <div className="mt-1">
@@ -2145,7 +2145,7 @@ export function OrderModal({
                                 setEditing("company");
                                 await ensureListsForCompanyClient(companyId);
                               }}
-                              className="mt-1 w-full text-left font-medium text-zinc-900 hover:underline"
+                              className="mt-1 min-h-9 w-full rounded-md px-2 py-1.5 text-left text-zinc-900 hover:bg-zinc-50"
                             >
                               {order.company ? order.company.name : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать компанию...</span>}
                             </button>
@@ -2153,7 +2153,7 @@ export function OrderModal({
                         </div>
                       ) : null}
 
-                      <div>
+                      <div className="min-w-0 xl:justify-self-end xl:pl-4 xl:text-right">
                         <div className="text-xs text-zinc-500">Total</div>
                         {order.currency === "USD" ? (
                           <div className="mt-1">
@@ -2173,9 +2173,9 @@ export function OrderModal({
                         )}
                       </div>
 
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">Paid / Debt</div>
-                        <div className="mt-1 break-words text-zinc-700">
+                        <div className="mt-1 min-h-9 break-all leading-6 text-zinc-700">
                           {formatOrderAmount(Number(order.paidAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)} /{" "}
                           {formatOrderAmount(Number(order.debtAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)}
                         </div>
@@ -2186,7 +2186,7 @@ export function OrderModal({
                         )}
                       </div>
 
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">
                           Условия оплаты{" "}
                           <span className="text-red-600" title="Обязательное поле">
@@ -2308,7 +2308,7 @@ export function OrderModal({
                                 );
                                 setEditing("paymentDueDate");
                               }}
-                              className="mt-1 font-medium text-zinc-900 hover:underline"
+                              className="mt-1 min-h-9 rounded-md px-2 py-1.5 text-left text-zinc-900 hover:bg-zinc-50"
                             >
                               {order.paymentDueDate
                                 ? new Date(order.paymentDueDate).toLocaleDateString("uk-UA")
@@ -2318,7 +2318,7 @@ export function OrderModal({
                         </div>
                       ) : null}
 
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">Способ оплаты</div>
                         <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
@@ -2395,7 +2395,7 @@ export function OrderModal({
                             <button
                               type="button"
                               onClick={() => { setBankAccountId(order.bankAccountId ?? null); setEditing("bankAccount"); }}
-                              className="mt-1 font-medium text-zinc-900 hover:underline"
+                              className="mt-1 min-h-9 rounded-md px-2 py-1.5 text-left text-zinc-900 hover:bg-zinc-50"
                             >
                               {order.bankAccount?.name ?? (bankAccountId ? fopAccounts.find((a) => a.id === bankAccountId)?.name : null) ?? <span className="font-normal text-zinc-400">Выберите ФОП...</span>}
                             </button>
@@ -2403,7 +2403,7 @@ export function OrderModal({
                         </div>
                       ) : null}
 
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">Документы</div>
                         <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
@@ -2456,7 +2456,7 @@ export function OrderModal({
                       )}
 
                       {showCreateReturnForm && order.items && order.items.length > 0 ? (
-                        <div className="col-span-2">
+                        <div className="col-span-1 xl:col-span-2">
                           <div className="text-xs font-medium text-zinc-600">Оформлення повернення</div>
                           <div className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
                             <div className="text-xs font-medium text-zinc-700">Позиції для повернення</div>
@@ -2548,7 +2548,7 @@ export function OrderModal({
                         </div>
                       ) : null}
 
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs text-zinc-500">Delivery</div>
                         <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
                           <button
@@ -2650,7 +2650,7 @@ export function OrderModal({
                       ) : null}
 
                       {order.deliveryMethod === "NOVA_POSHTA" ? (
-                        <div className="col-span-2">
+                        <div className="col-span-1 xl:col-span-2">
                           <div className="text-xs text-zinc-500">NP status</div>
                           <div className="mt-1 text-zinc-700">{ttnStatusLabel ?? <span className="font-normal text-zinc-400">Нет данных</span>}</div>
                         </div>

@@ -310,30 +310,6 @@ function OrdersPageContent() {
       const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
 
       const nextItems = res.data?.items || [];
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
-        body: JSON.stringify({
-          sessionId: "7e31bf",
-          runId: "pre-fix",
-          hypothesisId: "H1",
-          location: "orders/page.tsx:fetchOrders:response_items",
-          message: "Orders list response sample",
-          data: {
-            total: res.data?.total ?? 0,
-            sample: nextItems.slice(0, 3).map((o) => ({
-              id: o.id,
-              orderNumber: o.orderNumber,
-              totalAmount: o.totalAmount,
-              currency: o.currency,
-              exchangeRate: o.exchangeRate ?? null,
-            })),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setOrders((prev) => {
         if (!appendOnNextFetch) return nextItems;
         const merged = [...prev];

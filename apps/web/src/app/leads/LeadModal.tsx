@@ -110,15 +110,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
 
-  useEffect(() => {
-    // #region agent log
-    if (typeof console !== "undefined" && console.debug) {
-      console.debug("[LeadModal delete condition]", { effectiveRole, hasLead: !!lead, isAdmin, showDelete: !!(lead && isAdmin) });
-    }
-    fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:headerActions',message:'delete button condition',data:{effectiveRole,hasLead:!!lead,isAdmin,showDelete:!!(lead&&isAdmin)},timestamp:Date.now(),hypothesisId:'H3-H5'})}).catch(()=>{});
-    // #endregion
-  }, [effectiveRole, lead, isAdmin]);
-
   const title = useMemo(() => {
     if (!lead) return "Lead";
     return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Lead";
@@ -130,21 +121,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       .get<{ user?: { role?: string } }>("/auth/me")
       .then((res) => {
         const role = res.data?.user?.role ?? null;
-        // #region agent log
-        if (typeof console !== "undefined" && console.debug) {
-          console.debug("[LeadModal auth/me]", { role, rawUser: res.data?.user });
-        }
-        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:auth/me',message:'auth/me response',data:{role,rawUser:res.data?.user,roleType:typeof role},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
-        // #endregion
         setUserRole(role);
       })
-      .catch((err) => {
-        // #region agent log
-        if (typeof console !== "undefined" && console.debug) {
-          console.debug("[LeadModal auth/me failed]", err?.message, (err as any)?.response?.status);
-        }
-        fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d4138d'},body:JSON.stringify({sessionId:'d4138d',location:'LeadModal.tsx:auth/me',message:'auth/me failed',data:{errMsg:err?.message,status:(err as any)?.response?.status},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
+      .catch(() => {
         setUserRole(null);
       });
   }, [userRoleProp]);
@@ -761,7 +740,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               onChange={(e) => setEditLastName(e.target.value)}
               onBlur={() => {
                 if (editLastName !== (lead.lastName ?? "")) {
-                  fetch('http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0f7630'},body:JSON.stringify({sessionId:'0f7630',location:'LeadModal.tsx:714',message:'Updating lastName',data:{lastName:editLastName},timestamp:Date.now(),hypothesisId:'A',runId:'test'})}).catch(()=>{});
                   void patchLead({ lastName: editLastName.trim() || null });
                 }
               }}

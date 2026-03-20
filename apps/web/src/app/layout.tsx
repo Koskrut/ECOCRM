@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { AppShell } from "./shell";
+import type { Viewport } from "next";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -10,6 +11,12 @@ const plusJakarta = Plus_Jakarta_Sans({
 export const metadata = {
   title: "CRM",
   description: "CRM",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 const bodyBg = "#f4f4f5"; // zinc-50, чтобы не было белого мелькания до загрузки CSS

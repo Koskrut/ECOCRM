@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 export type EntityModalShellProps = {
   title: React.ReactNode;
@@ -36,8 +36,6 @@ export function EntityModalShell({
   onClose,
   onEscape,
 }: EntityModalShellProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -55,7 +53,6 @@ export function EntityModalShell({
       onClick={() => canClose && onClose()}
     >
       <div
-        ref={containerRef}
         className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -86,15 +83,15 @@ export function EntityModalShell({
           <div className="shrink-0 border-b border-zinc-200 px-5">{tabsUnderHeader}</div>
         ) : null}
 
-        {/* Body: on mobile single scroll column (left then right, one flow). On lg: grid 7+5 cols, columns scroll independently. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto lg:grid lg:grid-cols-12 lg:gap-0 lg:overflow-visible">
+        {/* Body: on narrow viewports single scroll column (left then right). On xl: grid 7+5 cols, columns scroll independently. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto xl:grid xl:grid-cols-12 xl:gap-0 xl:overflow-visible">
           <div
-            className={`min-h-0 shrink-0 p-5 lg:min-h-0 lg:overflow-auto ${right != null ? "lg:col-span-7" : "lg:col-span-12"}`}
+            className={`min-h-0 shrink-0 p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
           >
             {left}
           </div>
           {right != null ? (
-            <div className="min-h-0 shrink-0 border-t border-zinc-200 p-5 max-lg:w-full lg:min-h-0 lg:col-span-5 lg:border-t-0 lg:border-l lg:overflow-auto">
+            <div className="min-h-0 shrink-0 border-t border-zinc-200 p-5 max-xl:w-full xl:min-h-0 xl:col-span-5 xl:border-t-0 xl:border-l xl:overflow-auto">
               {right}
             </div>
           ) : null}
