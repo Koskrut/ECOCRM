@@ -1,26 +1,16 @@
 import { Body, Controller, Get, Post, Query } from "@nestjs/common";
-import { SettingsService } from "../../settings/settings.service";
 import { StoreCheckoutService } from "./store-checkout.service";
 import { StoreCheckoutDto } from "./dto/store-checkout.dto";
+import { UKRAINE_REGIONS } from "./uk-regions";
 
 @Controller("store/checkout")
 export class StoreCheckoutController {
-  constructor(
-    private readonly storeCheckout: StoreCheckoutService,
-    private readonly settings: SettingsService,
-  ) {}
+  constructor(private readonly storeCheckout: StoreCheckoutService) {}
 
+  /** Повний перелік областей України (не залежить від org-chart). */
   @Get("regions")
-  async getRegions() {
-    const org = await this.settings.getOrgChartStructure();
-    const uniq = new Set<string>();
-    for (const values of Object.values(org.regions ?? {})) {
-      for (const region of values ?? []) {
-        const v = String(region ?? "").trim();
-        if (v) uniq.add(v);
-      }
-    }
-    return { items: Array.from(uniq).sort((a, b) => a.localeCompare(b, "uk")) };
+  getRegions() {
+    return { items: [...UKRAINE_REGIONS] };
   }
 
   @Post()

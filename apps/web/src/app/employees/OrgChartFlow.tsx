@@ -24,7 +24,7 @@ const ORG_STORAGE_KEY = "crm_org_chart_assignments";
 const EXTRA_SLOTS_KEY = "crm_org_chart_extra_slots";
 const REGIONS_STORAGE_KEY = "crm_org_chart_regions";
 
-/** Список областей для выбора (укр. названия). */
+/** Список областей для выбора (укр. названия). Дублює apps/backend/src/store/checkout/uk-regions.ts — змінюйте обидва. */
 const ORG_REGIONS_LIST = [
   "Вінницька",
   "Волинська",
