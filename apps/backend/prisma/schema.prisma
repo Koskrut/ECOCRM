@@ -871,6 +871,8 @@ model Order {
   legacyId       Int?
   legacyRaw      Json?
   syncedAt       DateTime?
+  /// Last NP status sync (cron bulk or manual); drives fair selection order for bulk sync.
+  lastNpStatusSyncAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -932,6 +934,7 @@ model Order {
   @@index([orderSource])
   @@index([orderStage])
   @@index([financialStatus])
+  @@index([lastNpStatusSyncAt])
   @@unique([legacySource, legacyId])
 }
 

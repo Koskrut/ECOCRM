@@ -967,7 +967,10 @@ export class NpTtnService {
           },
         ],
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [
+        { lastNpStatusSyncAt: { sort: "asc", nulls: "first" } },
+        { id: "asc" },
+      ],
       take: limit,
       select: {
         id: true,
@@ -1032,6 +1035,12 @@ export class NpTtnService {
         const updated = await this.persistOrderNpStatus(item.orderId, status);
         if (updated) updatedOrders++;
       }
+
+      const syncedAt = new Date();
+      await this.prisma.order.updateMany({
+        where: { id: { in: chunk.map((c) => c.orderId) } },
+        data: { lastNpStatusSyncAt: syncedAt },
+      });
     }
 
     return { ok: true, checked, updatedOrders, skipped };
@@ -1162,6 +1171,7 @@ export class NpTtnService {
 
     const updateData: Prisma.OrderUpdateInput = {
       deliveryData: nextDeliveryData as Prisma.InputJsonValue,
+      lastNpStatusSyncAt: new Date(),
     };
 
     if (
