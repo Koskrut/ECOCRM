@@ -2025,7 +2025,7 @@ export function OrderModal({
               <>
               <EntitySection title="About order">
                     <div className="rounded-md border border-zinc-200 bg-white p-4">
-                    <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2 md:gap-4 [&>*]:min-w-0">
+                    <div className="grid grid-cols-1 gap-4 text-sm lg:grid-cols-2 lg:gap-4 [&>*]:min-w-0">
                       <div>
                         <div className="text-xs text-zinc-500">Client</div>
                         {editing === "client" ? (
@@ -2175,7 +2175,7 @@ export function OrderModal({
 
                       <div>
                         <div className="text-xs text-zinc-500">Paid / Debt</div>
-                        <div className="mt-1 text-zinc-700">
+                        <div className="mt-1 break-words text-zinc-700">
                           {formatOrderAmount(Number(order.paidAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)} /{" "}
                           {formatOrderAmount(Number(order.debtAmount ?? 0), order.currency ?? "UAH", order.exchangeRate)}
                         </div>
