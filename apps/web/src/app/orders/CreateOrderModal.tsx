@@ -146,7 +146,6 @@ export function CreateOrderModal({
 
     try {
       const mockOwnerId = "user-1";
-
       const res = await apiHttp.post("/orders", {
         ownerId: mockOwnerId,
         companyId,

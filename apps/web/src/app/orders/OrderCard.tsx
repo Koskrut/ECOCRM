@@ -52,6 +52,29 @@ export function OrderCard({
     order.client != null
       ? `${order.client.lastName} ${order.client.firstName}`.trim() || "—"
       : order.company?.name ?? "—";
+  const formattedAmount = formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate);
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
+    body: JSON.stringify({
+      sessionId: "7e31bf",
+      runId: "pre-fix",
+      hypothesisId: "H2",
+      location: "orders/OrderCard.tsx:render:amount",
+      message: "OrderCard amount render",
+      data: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+        currency: order.currency,
+        exchangeRate: order.exchangeRate ?? null,
+        formattedAmount,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   return (
     <button
@@ -92,7 +115,7 @@ export function OrderCard({
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Сума</div>
       <div className="text-sm font-medium text-zinc-900">
-        {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
+        {formattedAmount}
       </div>
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Клієнт</div>

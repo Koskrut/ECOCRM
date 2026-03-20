@@ -43,6 +43,9 @@ async function proxy(
   const storeToken = (await cookies()).get("store_token")?.value;
   const headers = new Headers(req.headers);
   headers.delete("host");
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  headers.delete("connection");
   if (storeToken) headers.set("Authorization", `Bearer ${storeToken}`);
 
   let body: ArrayBuffer | string | undefined;
