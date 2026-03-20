@@ -139,6 +139,8 @@ export async function checkout(body: {
   lastName?: string;
   email?: string;
   comment?: string;
+  password?: string;
+  region: string;
   deliveryMethod: string;
   deliveryData?: CheckoutDeliveryData | null;
   paymentMethod?: string;
@@ -151,6 +153,10 @@ export async function checkout(body: {
     setPasswordToken: string | null;
     alreadyHadAccount: boolean;
   }>("/checkout", { method: "POST", body });
+}
+
+export async function getCheckoutRegions() {
+  return api<{ items: string[] }>("/checkout/regions");
 }
 
 export type NpCityItem = {

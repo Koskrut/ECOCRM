@@ -1,10 +1,27 @@
-import { Body, Controller, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { SettingsService } from "../../settings/settings.service";
 import { StoreCheckoutService } from "./store-checkout.service";
-import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
+import { StoreCheckoutDto } from "./dto/store-checkout.dto";
 
 @Controller("store/checkout")
 export class StoreCheckoutController {
-  constructor(private readonly storeCheckout: StoreCheckoutService) {}
+  constructor(
+    private readonly storeCheckout: StoreCheckoutService,
+    private readonly settings: SettingsService,
+  ) {}
+
+  @Get("regions")
+  async getRegions() {
+    const org = await this.settings.getOrgChartStructure();
+    const uniq = new Set<string>();
+    for (const values of Object.values(org.regions ?? {})) {
+      for (const region of values ?? []) {
+        const v = String(region ?? "").trim();
+        if (v) uniq.add(v);
+      }
+    }
+    return { items: Array.from(uniq).sort((a, b) => a.localeCompare(b, "uk")) };
+  }
 
   @Post()
   async runCheckout(

@@ -1,7 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { NpDeliveryType, NpRecipientType, OrderSource } from "@prisma/client";
-import { randomBytes } from "crypto";
-import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
@@ -270,15 +268,54 @@ export class StoreCheckoutService {
       }
     }
 
-    const storeOwnerId = process.env.STORE_OWNER_ID;
-    if (!storeOwnerId) throw new BadRequestException("Store not configured (STORE_OWNER_ID)");
+    const region = (dto.region ?? "").trim();
+    if (!region) throw new BadRequestException("Оберіть область");
+    const org = await this.settings.getOrgChartStructure();
+    const normalizedRegion = region.toLocaleLowerCase("uk");
+    let ownerIdFromRegion: string | null = null;
+    for (const [slotId, regions] of Object.entries(org.regions ?? {})) {
+      const matches = (regions ?? []).some(
+        (r) => String(r ?? "").trim().toLocaleLowerCase("uk") === normalizedRegion,
+      );
+      if (!matches) continue;
+      const assigned = org.assignments?.[slotId];
+      if (assigned) {
+        ownerIdFromRegion = assigned;
+        break;
+      }
+    }
+    const storeOwnerId = process.env.STORE_OWNER_ID?.trim() || null;
+    const ownerId = ownerIdFromRegion || storeOwnerId;
+    if (!ownerId) {
+      throw new BadRequestException("Для обраної області не призначено менеджера");
+    }
 
     const rates = await this.settings.getExchangeRates();
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
+      body: JSON.stringify({
+        sessionId: "7e31bf",
+        runId: "pre-fix",
+        hypothesisId: "H3",
+        location: "store-checkout.service.ts:checkout:rates",
+        message: "Checkout rates and cart subtotal",
+        data: {
+          UAH_TO_USD: rates.UAH_TO_USD,
+          uahPerUsd,
+          cartItemsCount: cart.items.length,
+          cartSubtotalRaw: cart.items.reduce((s, i) => s + i.price * i.qty, 0),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     const order = await this.ordersService.create(
       {
-        ownerId: storeOwnerId,
+        ownerId,
         clientId: contact.id,
         contactId: contact.id,
         orderSource: OrderSource.STORE,
@@ -292,10 +329,32 @@ export class StoreCheckoutService {
     ) as { id: string; orderNumber: string };
 
     for (const item of cart.items) {
-      const priceUah = Math.round(item.price * uahPerUsd * 100) / 100;
+      const priceUsd = Math.round(item.price * 100) / 100;
+      // #region agent log
+      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
+        body: JSON.stringify({
+          sessionId: "7e31bf",
+          runId: "pre-fix",
+          hypothesisId: "H4",
+          location: "store-checkout.service.ts:checkout:add_item",
+          message: "Adding order item from cart",
+          data: {
+            orderId: order.id,
+            productId: item.productId,
+            qty: item.qty,
+            cartPriceRaw: item.price,
+            derivedPriceToOrder: priceUsd,
+            previousIncorrectUahPrice: Math.round(item.price * uahPerUsd * 100) / 100,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       await this.ordersService.addItem(
         order.id,
-        { productId: item.productId, qty: item.qty, price: priceUah },
+        { productId: item.productId, qty: item.qty, price: priceUsd },
         undefined,
       );
     }
@@ -308,22 +367,17 @@ export class StoreCheckoutService {
       where: { contactId: contact.id },
     });
     if (!customer) {
-      const tempPassword = randomBytes(24).toString("hex");
+      const rawPassword = (dto.password ?? "").trim();
+      if (rawPassword.length < 6) {
+        throw new BadRequestException("Пароль має бути не менше 6 символів");
+      }
       customer = await this.prisma.customer.create({
         data: {
           contactId: contact.id,
           email: dto.email?.trim() || null,
-          passwordHash: hashPassword(tempPassword),
+          passwordHash: hashPassword(rawPassword),
         },
       });
-      const secret = process.env.JWT_SECRET;
-      if (secret) {
-        setPasswordToken = signJwt(
-          { contactId: contact.id, purpose: "set-password", sub: customer.id },
-          secret,
-          { expiresInSeconds: 60 * 60 * 24 },
-        );
-      }
     } else {
       alreadyHadAccount = true;
     }

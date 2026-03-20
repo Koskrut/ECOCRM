@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkout,
+  getCheckoutRegions,
   getMe,
   getMyShippingProfiles,
   getNpCities,
@@ -22,6 +23,33 @@ import { Button } from "@/components/Button";
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
 
+function formatUaPhoneInput(value: string): string {
+  const rawDigits = value.replace(/\D/g, "");
+  if (!rawDigits) return "";
+
+  let digits = rawDigits;
+  if (digits.startsWith("380")) {
+    digits = `0${digits.slice(3)}`;
+  } else if (digits.startsWith("80")) {
+    digits = `0${digits.slice(2)}`;
+  } else if (!digits.startsWith("0")) {
+    digits = `0${digits}`;
+  }
+  digits = digits.slice(0, 10);
+
+  const area = digits.slice(0, 3);
+  const first = digits.slice(3, 6);
+  const second = digits.slice(6, 8);
+  const third = digits.slice(8, 10);
+
+  let out = "+38";
+  if (area) out += ` (${area}${area.length === 3 ? ")" : ""}`;
+  if (first) out += ` ${first}`;
+  if (second) out += `-${second}`;
+  if (third) out += `-${third}`;
+  return out;
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
@@ -29,6 +57,9 @@ export default function CheckoutPage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [comment, setComment] = useState("");
+  const [password, setPassword] = useState("");
+  const [region, setRegion] = useState("");
+  const [checkoutRegions, setCheckoutRegions] = useState<string[]>([]);
   const [deliveryMethod, setDeliveryMethod] = useState<"PICKUP" | "NOVA_POSHTA">("PICKUP");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +81,9 @@ export default function CheckoutPage() {
   const [npRecipientFirstName, setNpRecipientFirstName] = useState("");
   const [npRecipientMiddleName, setNpRecipientMiddleName] = useState("");
   const [npRecipientPhone, setNpRecipientPhone] = useState("");
+  const [npRecipientLastNameDirty, setNpRecipientLastNameDirty] = useState(false);
+  const [npRecipientFirstNameDirty, setNpRecipientFirstNameDirty] = useState(false);
+  const [npRecipientPhoneDirty, setNpRecipientPhoneDirty] = useState(false);
   const [npStreetQuery, setNpStreetQuery] = useState("");
   const [npStreetOptions, setNpStreetOptions] = useState<Array<{ ref: string; street: string }>>([]);
   const [npStreetsSyncing, setNpStreetsSyncing] = useState(false);
@@ -62,6 +96,9 @@ export default function CheckoutPage() {
   const [npContactPersonFirstName, setNpContactPersonFirstName] = useState("");
   const [npContactPersonLastName, setNpContactPersonLastName] = useState("");
   const [npContactPersonPhone, setNpContactPersonPhone] = useState("");
+  const [npContactPersonFirstNameDirty, setNpContactPersonFirstNameDirty] = useState(false);
+  const [npContactPersonLastNameDirty, setNpContactPersonLastNameDirty] = useState(false);
+  const [npContactPersonPhoneDirty, setNpContactPersonPhoneDirty] = useState(false);
   const [npSaveAsProfile, setNpSaveAsProfile] = useState(false);
   const [npProfileLabel, setNpProfileLabel] = useState("");
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -74,9 +111,15 @@ export default function CheckoutPage() {
         setFirstName(me.firstName ?? "");
         setLastName(me.lastName ?? "");
         setEmail(me.email ?? "");
-        setPhone(me.phone ?? "");
+        setPhone(formatUaPhoneInput(me.phone ?? ""));
       })
       .catch(() => setLoggedIn(false));
+  }, []);
+
+  useEffect(() => {
+    getCheckoutRegions()
+      .then((r) => setCheckoutRegions(r.items ?? []))
+      .catch(() => setCheckoutRegions([]));
   }, []);
 
   useEffect(() => {
@@ -153,6 +196,50 @@ export default function CheckoutPage() {
       setNpProfileId(shippingProfiles[0].id);
     }
   }, [deliveryMethod, shippingProfiles, npProfileId, npAddressMode]);
+
+  useEffect(() => {
+    if (deliveryMethod !== "NOVA_POSHTA" || npAddressMode !== "new") return;
+    if (npRecipientType === "PERSON") {
+      if (!npRecipientPhoneDirty && npRecipientPhone !== phone) {
+        setNpRecipientPhone(phone);
+      }
+      if (!npRecipientFirstNameDirty && npRecipientFirstName !== firstName) {
+        setNpRecipientFirstName(firstName);
+      }
+      if (!npRecipientLastNameDirty && npRecipientLastName !== lastName) {
+        setNpRecipientLastName(lastName);
+      }
+      return;
+    }
+    if (!npContactPersonPhoneDirty && npContactPersonPhone !== phone) {
+      setNpContactPersonPhone(phone);
+    }
+    if (!npContactPersonFirstNameDirty && npContactPersonFirstName !== firstName) {
+      setNpContactPersonFirstName(firstName);
+    }
+    if (!npContactPersonLastNameDirty && npContactPersonLastName !== lastName) {
+      setNpContactPersonLastName(lastName);
+    }
+  }, [
+    deliveryMethod,
+    npAddressMode,
+    npRecipientType,
+    phone,
+    firstName,
+    lastName,
+    npRecipientPhone,
+    npRecipientFirstName,
+    npRecipientLastName,
+    npRecipientPhoneDirty,
+    npRecipientFirstNameDirty,
+    npRecipientLastNameDirty,
+    npContactPersonPhone,
+    npContactPersonFirstName,
+    npContactPersonLastName,
+    npContactPersonPhoneDirty,
+    npContactPersonFirstNameDirty,
+    npContactPersonLastNameDirty,
+  ]);
 
   useEffect(() => {
     if (!profileDropdownOpen) return;
@@ -237,6 +324,17 @@ export default function CheckoutPage() {
     setError(null);
     setSubmitting(true);
     try {
+      const phoneDigits = phone.replace(/\D/g, "");
+      if (!region.trim()) {
+        setError("Оберіть область");
+        setSubmitting(false);
+        return;
+      }
+      if (!loggedIn && phoneDigits.length >= 10 && password.trim().length < 6) {
+        setError("Придумайте пароль (мінімум 6 символів)");
+        setSubmitting(false);
+        return;
+      }
       const sessionId = getCartSessionId();
       let deliveryData: CheckoutDeliveryData | null | undefined;
       if (deliveryMethod === "NOVA_POSHTA") {
@@ -327,9 +425,11 @@ export default function CheckoutPage() {
       const result = await checkout({
         phone: phone.trim(),
         firstName: firstName.trim(),
-        lastName: lastName.trim() || undefined,
+        lastName: lastName.trim(),
         email: email.trim() || undefined,
         comment: comment.trim() || undefined,
+        password: !loggedIn ? password.trim() : undefined,
+        region: region.trim(),
         deliveryMethod,
         deliveryData: deliveryData ?? null,
         sessionId,
@@ -368,8 +468,10 @@ export default function CheckoutPage() {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(formatUaPhoneInput(e.target.value))}
               required
+              inputMode="tel"
+              placeholder="+38 (0XX) XXX-XX-XX"
               className={inputClass}
             />
           </div>
@@ -384,11 +486,12 @@ export default function CheckoutPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-zinc-700">Прізвище</label>
+            <label className="block text-sm font-medium text-zinc-700">Прізвище *</label>
             <input
               type="text"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
+              required
               className={inputClass}
             />
           </div>
@@ -401,6 +504,39 @@ export default function CheckoutPage() {
               className={inputClass}
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">Область *</label>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              required
+              className={inputClass}
+            >
+              <option value="">Оберіть область</option>
+              {checkoutRegions.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          {!loggedIn && phone.replace(/\D/g, "").length >= 10 && (
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">Придумайте пароль *</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={6}
+                required
+                placeholder="Мінімум 6 символів"
+                className={inputClass}
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Після оформлення цим паролем можна увійти в кабінет.
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-zinc-700">Спосіб доставки *</label>
             <div className="mt-2 space-y-2">
@@ -821,7 +957,10 @@ export default function CheckoutPage() {
                         <input
                           type="text"
                           value={npRecipientLastName}
-                          onChange={(e) => setNpRecipientLastName(e.target.value)}
+                          onChange={(e) => {
+                            setNpRecipientLastName(e.target.value);
+                            setNpRecipientLastNameDirty(true);
+                          }}
                           placeholder="Прізвище"
                           className={inputClass}
                         />
@@ -832,7 +971,10 @@ export default function CheckoutPage() {
                           <input
                             type="text"
                             value={npRecipientFirstName}
-                            onChange={(e) => setNpRecipientFirstName(e.target.value)}
+                            onChange={(e) => {
+                              setNpRecipientFirstName(e.target.value);
+                              setNpRecipientFirstNameDirty(true);
+                            }}
                             placeholder="Ім'я"
                             className={inputClass}
                           />
@@ -853,8 +995,12 @@ export default function CheckoutPage() {
                         <input
                           type="tel"
                           value={npRecipientPhone}
-                          onChange={(e) => setNpRecipientPhone(e.target.value)}
-                          placeholder="0XXXXXXXXX"
+                          onChange={(e) => {
+                            setNpRecipientPhone(formatUaPhoneInput(e.target.value));
+                            setNpRecipientPhoneDirty(true);
+                          }}
+                          inputMode="tel"
+                          placeholder="+38 (0XX) XXX-XX-XX"
                           className={inputClass}
                         />
                       </div>
@@ -887,14 +1033,20 @@ export default function CheckoutPage() {
                           <input
                             type="text"
                             value={npContactPersonFirstName}
-                            onChange={(e) => setNpContactPersonFirstName(e.target.value)}
+                            onChange={(e) => {
+                              setNpContactPersonFirstName(e.target.value);
+                              setNpContactPersonFirstNameDirty(true);
+                            }}
                             placeholder="Ім'я"
                             className={inputClass}
                           />
                           <input
                             type="text"
                             value={npContactPersonLastName}
-                            onChange={(e) => setNpContactPersonLastName(e.target.value)}
+                            onChange={(e) => {
+                              setNpContactPersonLastName(e.target.value);
+                              setNpContactPersonLastNameDirty(true);
+                            }}
                             placeholder="Прізвище"
                             className={inputClass}
                           />
@@ -905,8 +1057,12 @@ export default function CheckoutPage() {
                         <input
                           type="tel"
                           value={npContactPersonPhone}
-                          onChange={(e) => setNpContactPersonPhone(e.target.value)}
-                          placeholder="0XXXXXXXXX"
+                          onChange={(e) => {
+                            setNpContactPersonPhone(formatUaPhoneInput(e.target.value));
+                            setNpContactPersonPhoneDirty(true);
+                          }}
+                          inputMode="tel"
+                          placeholder="+38 (0XX) XXX-XX-XX"
                           className={inputClass}
                         />
                       </div>

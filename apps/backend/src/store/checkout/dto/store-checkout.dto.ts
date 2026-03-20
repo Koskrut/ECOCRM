@@ -167,6 +167,15 @@ export class StoreCheckoutDto {
   @IsString()
   comment?: string;
 
+  @IsString()
+  @MinLength(1, { message: "Оберіть область" })
+  region!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: "Пароль має бути не менше 6 символів" })
+  password?: string;
+
   @IsEnum(DeliveryMethod)
   deliveryMethod!: DeliveryMethod;
 
