@@ -1,5 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
+import { Prisma, UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { BankAccountsService } from "./bank-accounts.service";
 
 type ListParams = {
   unmatched?: boolean;
@@ -14,18 +17,31 @@ type ListParams = {
 
 @Injectable()
 export class BankTransactionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bankAccounts: BankAccountsService,
+  ) {}
 
-  async list(params: ListParams) {
-    const where: {
-      bankAccountId?: string;
-      payments?: { none: {} };
-      bookedAt?: { gte?: Date; lte?: Date };
-    } = {};
-    if (params.bankAccountId) where.bankAccountId = params.bankAccountId;
+  async list(params: ListParams, actor?: AuthUser) {
+    const where: Prisma.BankTransactionWhereInput = {};
+    if (actor && actor.role !== UserRole.ADMIN) {
+      const visibleIds = await this.bankAccounts.getVisibleBankAccountIds(actor.id);
+      if (params.bankAccountId) {
+        if (!visibleIds.includes(params.bankAccountId)) {
+          throw new ForbiddenException("You do not have access to this bank account");
+        }
+        where.bankAccountId = params.bankAccountId;
+      } else {
+        where.bankAccountId = visibleIds.length > 0 ? { in: visibleIds } : { in: [] };
+      }
+    } else if (params.bankAccountId) {
+      where.bankAccountId = params.bankAccountId;
+    }
     if (params.unmatched) where.payments = { none: {} };
-    if (params.from) where.bookedAt = { ...where.bookedAt, gte: new Date(params.from) };
-    if (params.to) where.bookedAt = { ...where.bookedAt, lte: new Date(params.to) };
+    const bookedAt: Prisma.DateTimeFilter = {};
+    if (params.from) bookedAt.gte = new Date(params.from);
+    if (params.to) bookedAt.lte = new Date(params.to);
+    if (params.from || params.to) where.bookedAt = bookedAt;
 
     const [items, total] = await Promise.all([
       this.prisma.bankTransaction.findMany({

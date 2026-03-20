@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { Injectable, Logger } from "@nestjs/common";
-import { TransactionDirection } from "@prisma/client";
+import { Prisma, TransactionDirection } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { RawBankTransaction } from "./providers/types";
 import { Privat24Provider } from "./providers/privat24.provider";
@@ -50,6 +50,8 @@ export class BankSyncService {
     bankAccountId?: string,
     dateFromStr?: string,
     dateToStr?: string,
+    /** When set (e.g. LEAD/MANAGER), only these account IDs may be synced. */
+    restrictToAccountIds?: string[],
   ): Promise<{
     accounts: number;
     transactionsImported: number;
@@ -67,9 +69,18 @@ export class BankSyncService {
       }
     }
 
-    const where = { provider: "PRIVAT24" as const, isActive: true };
+    const baseWhere: Prisma.BankAccountWhereInput = {
+      provider: "PRIVAT24",
+      isActive: true,
+    };
+    if (bankAccountId) {
+      baseWhere.id = bankAccountId;
+    } else if (restrictToAccountIds !== undefined) {
+      baseWhere.id =
+        restrictToAccountIds.length > 0 ? { in: restrictToAccountIds } : { in: [] };
+    }
     const accounts = await this.prisma.bankAccount.findMany({
-      where: bankAccountId ? { ...where, id: bankAccountId } : where,
+      where: baseWhere,
     });
     if (bankAccountId && accounts.length === 0) {
       debugLog("syncAll invalid bankAccountId filter", { bankAccountId });
@@ -133,11 +144,18 @@ export class BankSyncService {
     };
   }
 
-  async getSyncStatus(): Promise<{
+  async getSyncStatus(restrictToAccountIds?: string[]): Promise<{
     accounts: { id: string; name: string; lastSyncAt: Date | null; lastBookedAt: Date | null }[];
   }> {
+    const where: Prisma.BankAccountWhereInput = { provider: "PRIVAT24", isActive: true };
+    if (restrictToAccountIds !== undefined) {
+      if (restrictToAccountIds.length === 0) {
+        return { accounts: [] };
+      }
+      where.id = { in: restrictToAccountIds };
+    }
     const accounts = await this.prisma.bankAccount.findMany({
-      where: { provider: "PRIVAT24", isActive: true },
+      where,
       select: { id: true, name: true, lastSyncAt: true, lastBookedAt: true },
     });
     return {

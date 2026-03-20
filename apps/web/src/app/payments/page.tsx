@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { strings as t } from "@/locales";
 
 type BankAccount = { id: string; name: string; currency: string };
 
@@ -76,7 +77,7 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
 
 export default function PaymentsPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<div>{t.common.loading}</div>}>
       <PaymentsContent />
     </Suspense>
   );
@@ -175,6 +176,11 @@ function PaymentsContent() {
   const [splitOrderForRowIndex, setSplitOrderForRowIndex] = useState<number | null>(null);
   const [splitSubmitting, setSplitSubmitting] = useState(false);
   const [bankSyncLoading, setBankSyncLoading] = useState(false);
+  const [splitContactId, setSplitContactId] = useState<string | null>(null);
+  const [splitClientOrders, setSplitClientOrders] = useState<OrderOption[]>([]);
+  const [splitClientOrdersLoading, setSplitClientOrdersLoading] = useState(false);
+  const defaultFopAppliedRef = useRef(false);
+  const [defaultBankFromApi, setDefaultBankFromApi] = useState<string | null>(null);
 
   useEffect(() => {
     apiHttp
@@ -185,12 +191,32 @@ function PaymentsContent() {
 
   const fetchAccounts = useCallback(async () => {
     try {
-      const r = await apiHttp.get<BankAccount[]>("/bank/accounts");
-      setAccounts(Array.isArray(r.data) ? r.data : []);
+      const r = await apiHttp.get<
+        | BankAccount[]
+        | { accounts: BankAccount[]; defaultBankAccountId?: string | null }
+      >("/bank/accounts/for-order");
+      const d = r.data;
+      if (Array.isArray(d)) {
+        setAccounts(d);
+        setDefaultBankFromApi(null);
+      } else {
+        setAccounts(Array.isArray(d?.accounts) ? d.accounts : []);
+        setDefaultBankFromApi(d?.defaultBankAccountId ?? null);
+      }
     } catch {
       setAccounts([]);
+      setDefaultBankFromApi(null);
     }
   }, []);
+
+  useEffect(() => {
+    if (defaultFopAppliedRef.current) return;
+    if (bankAccountId !== "") return;
+    if (!defaultBankFromApi) return;
+    if (!accounts.some((a) => a.id === defaultBankFromApi)) return;
+    defaultFopAppliedRef.current = true;
+    setBankAccountId(defaultBankFromApi);
+  }, [bankAccountId, defaultBankFromApi, accounts, setBankAccountId]);
 
   const fetchPayments = useCallback(
     async (bankIdOverride?: string) => {
@@ -207,7 +233,7 @@ function PaymentsContent() {
         setPayments(items);
         setPaymentsTotal(r.data?.total ?? 0);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load payments");
+        setError(e instanceof Error ? e.message : t.payments.errors.loadPayments);
         // Keep previous payments so the list does not disappear on transient 500
         // setPayments([]);
         // setPaymentsTotal(0);
@@ -229,7 +255,7 @@ function PaymentsContent() {
       );
       setUnmatched(r.data?.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : t.payments.errors.load);
       setUnmatched([]);
     } finally {
       setUnmatchedLoading(false);
@@ -273,7 +299,7 @@ function PaymentsContent() {
         await fetchUnmatched();
         await fetchAccounts();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Sync failed");
+        setError(e instanceof Error ? e.message : t.payments.errors.syncFailed);
       } finally {
         setBankSyncLoading(false);
       }
@@ -357,7 +383,7 @@ function PaymentsContent() {
       setImportFile(null);
       await fetchUnmatched();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Import failed");
+      alert(e instanceof Error ? e.message : t.payments.errors.importFailed);
     } finally {
       setImporting(false);
     }
@@ -579,12 +605,12 @@ function PaymentsContent() {
 
   const submitAddCashPayment = async () => {
     if (!addCashOrderId) {
-      alert("Select an order");
+      alert(t.payments.errors.selectOrder);
       return;
     }
     const num = parseFloat(addCashAmount.replace(/,/g, "."));
     if (!Number.isFinite(num) || num <= 0) {
-      alert("Enter a positive amount");
+      alert(t.payments.errors.positiveAmount);
       return;
     }
     setAddCashSubmitting(true);
@@ -607,11 +633,25 @@ function PaymentsContent() {
       setAddCashNote("");
       await fetchPayments("");
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to add payment");
+      alert(e instanceof Error ? e.message : t.payments.errors.addPaymentFailed);
     } finally {
       setAddCashSubmitting(false);
     }
   };
+
+  const loadSplitClientOrders = useCallback(async (contactId: string) => {
+    setSplitClientOrdersLoading(true);
+    try {
+      const r = await apiHttp.get<{ items: OrderOption[] }>(
+        `/orders?contactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true`,
+      );
+      setSplitClientOrders(r.data?.items ?? []);
+    } catch {
+      setSplitClientOrders([]);
+    } finally {
+      setSplitClientOrdersLoading(false);
+    }
+  }, []);
 
   const searchOrdersForSplit = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -669,7 +709,7 @@ function PaymentsContent() {
       setView("payments");
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Allocation failed");
+      alert(e instanceof Error ? e.message : t.payments.errors.allocationFailed);
     } finally {
       setAllocating(null);
     }
@@ -683,17 +723,23 @@ function PaymentsContent() {
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
     if (valid.length === 0) {
-      alert("Add at least one order with amount");
+      alert(t.payments.errors.splitNeedOrder);
       return;
     }
     const amounts = valid.map((r) => parseFloat(r.amount.replace(/,/g, ".")));
     if (amounts.some((a) => !Number.isFinite(a) || a <= 0)) {
-      alert("All amounts must be positive numbers");
+      alert(t.payments.errors.splitPositive);
       return;
     }
     const total = amounts.reduce((s, a) => s + a, 0);
     if (Math.abs(total - splitTotalAmount) > 0.01) {
-      alert(`Total ${total.toFixed(2)} must equal ${splitTotalAmount.toFixed(2)} ${splitCurrency}`);
+      alert(
+        t.payments.errors.splitTotal(
+          total.toFixed(2),
+          splitTotalAmount.toFixed(2),
+          splitCurrency,
+        ),
+      );
       return;
     }
     setSplitSubmitting(true);
@@ -703,12 +749,16 @@ function PaymentsContent() {
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
         setSplitFromEditPayment(null);
+        setSplitContactId(null);
+        setSplitClientOrders([]);
       } else if (splitTx) {
         await apiHttp.post("/payments/allocate-split", {
           transactionId: splitTx.id,
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
         setSplitTx(null);
+        setSplitContactId(null);
+        setSplitClientOrders([]);
         await fetchUnmatched();
         setView("payments");
       }
@@ -717,7 +767,7 @@ function PaymentsContent() {
       setSplitOrderSearch("");
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Split failed");
+      alert(e instanceof Error ? e.message : t.payments.errors.splitFailed);
     } finally {
       setSplitSubmitting(false);
     }
@@ -754,7 +804,7 @@ function PaymentsContent() {
         payload.paidAt = new Date(editPaidAt).toISOString();
         if (userRole === "ADMIN") {
           const num = parseFloat(editAmount.replace(/,/g, "."));
-          if (!Number.isFinite(num) || num <= 0) throw new Error("Invalid amount");
+          if (!Number.isFinite(num) || num <= 0) throw new Error(t.payments.errors.invalidAmount);
           payload.amount = num;
         }
       }
@@ -768,7 +818,7 @@ function PaymentsContent() {
       setEditPayment(null);
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Update failed");
+      alert(e instanceof Error ? e.message : t.payments.errors.updateFailed);
     } finally {
       setSavingPayment(false);
     }
@@ -786,7 +836,7 @@ function PaymentsContent() {
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-4">
-            <h1 className="text-2xl font-bold text-zinc-900">Payments</h1>
+            <h1 className="text-2xl font-bold text-zinc-900">{t.payments.pageTitle}</h1>
             <div className="flex rounded-lg border border-zinc-200 p-0.5">
               <button
                 type="button"
@@ -795,7 +845,7 @@ function PaymentsContent() {
                   mode === "cash" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
                 }`}
               >
-                Cash
+                {t.payments.cash}
               </button>
               <button
                 type="button"
@@ -804,13 +854,11 @@ function PaymentsContent() {
                   mode === "fop" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
                 }`}
               >
-                FOP
+                {t.payments.fop}
               </button>
             </div>
           </div>
-          <p className="mt-1 text-sm text-zinc-500">
-            Список платежей и непривязанных банковских операций. Переключатель ФОП — выбор банковского счёта. ФОПы настраиваются в Settings → ФОП.
-          </p>
+          <p className="mt-1 text-sm text-zinc-500">{t.payments.subtitle}</p>
         </div>
         {mode === "cash" && (
           <button
@@ -831,7 +879,7 @@ function PaymentsContent() {
             }}
             className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
           >
-            + Add payment
+            {t.payments.addPayment}
           </button>
         )}
       </div>
@@ -851,7 +899,7 @@ function PaymentsContent() {
                         : "text-zinc-600 hover:bg-zinc-100"
                     }`}
                   >
-                    All
+                    {t.payments.all}
                   </button>
                   <button
                     type="button"
@@ -862,17 +910,17 @@ function PaymentsContent() {
                         : "text-zinc-600 hover:bg-zinc-100"
                     }`}
                   >
-                    Unmatched
+                    {t.payments.unmatchedTab}
                   </button>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-zinc-600">
-                  Банковский счёт (ФОП)
+                  {t.payments.bankAccountLabel}
                   <select
                     value={bankAccountId}
                     onChange={(e) => setBankAccountId(e.target.value)}
                     className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
                   >
-                    <option value="">Все</option>
+                    <option value="">{t.payments.allAccountsOption}</option>
                     {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name} ({a.currency})
@@ -886,27 +934,27 @@ function PaymentsContent() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search…"
+              placeholder={t.common.search}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none w-40"
             />
           </div>
         </div>
 
         {error && <p className="px-4 py-2 text-sm text-red-600">{error}</p>}
-        {loading && <p className="px-4 py-6 text-sm text-zinc-500">Loading…</p>}
+        {loading && <p className="px-4 py-6 text-sm text-zinc-500">{t.common.loading}</p>}
 
         {!loading && mode === "cash" && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">FOP</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3">Counterparty</th>
-                  <th className="px-4 py-3 w-24">Action</th>
+                  <th className="px-4 py-3">{t.payments.date}</th>
+                  <th className="px-4 py-3">{t.payments.order}</th>
+                  <th className="px-4 py-3">{t.payments.source}</th>
+                  <th className="px-4 py-3">{t.payments.fopCol}</th>
+                  <th className="px-4 py-3 text-right">{t.payments.amount}</th>
+                  <th className="px-4 py-3">{t.payments.counterparty}</th>
+                  <th className="px-4 py-3 w-24">{t.payments.action}</th>
                 </tr>
               </thead>
               <tbody>
@@ -927,19 +975,19 @@ function PaymentsContent() {
                         p.orderId
                       )}
                     </td>
-                    <td className="px-4 py-3">Cash</td>
-                    <td className="px-4 py-3">—</td>
+                    <td className="px-4 py-3">{t.payments.sourceCash}</td>
+                    <td className="px-4 py-3">{t.payments.dash}</td>
                     <td className="px-4 py-3 text-right font-medium">
                       {formatPaymentAmount(p)}
                     </td>
-                    <td className="px-4 py-3 max-w-xs truncate">{p.note ?? "—"}</td>
+                    <td className="px-4 py-3 max-w-xs truncate">{p.note ?? t.payments.dash}</td>
                     <td className="px-4 py-3">
                       <button
                         type="button"
                         onClick={() => openEdit(p)}
                         className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                       >
-                        Edit
+                        {t.payments.edit}
                       </button>
                     </td>
                   </tr>
@@ -947,7 +995,7 @@ function PaymentsContent() {
                 {cashPayments.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
-                      No cash payments
+                      {t.payments.noCashPayments}
                     </td>
                   </tr>
                 )}
@@ -959,20 +1007,20 @@ function PaymentsContent() {
         {!loading && mode === "fop" && view === "payments" && (
           <>
             <p className="px-4 py-2 text-sm text-zinc-600">
-              Банковские платежи (привязанные к заказам): {bankPayments.length}
-              {search.trim() ? ` (поиск: «${search.trim()}»)` : ""}
+              {t.payments.bankLinkedIntro(bankPayments.length)}
+              {search.trim() ? t.payments.bankLinkedSearch(search.trim()) : ""}
             </p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Order</th>
-                    <th className="px-4 py-3">Source</th>
-                    <th className="px-4 py-3">FOP</th>
-                    <th className="px-4 py-3 text-right">Amount</th>
-                    <th className="px-4 py-3">Counterparty</th>
-                    <th className="px-4 py-3 w-24">Action</th>
+                    <th className="px-4 py-3">{t.payments.date}</th>
+                    <th className="px-4 py-3">{t.payments.order}</th>
+                    <th className="px-4 py-3">{t.payments.source}</th>
+                    <th className="px-4 py-3">{t.payments.fopCol}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.amount}</th>
+                    <th className="px-4 py-3">{t.payments.counterparty}</th>
+                    <th className="px-4 py-3 w-24">{t.payments.action}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -982,7 +1030,7 @@ function PaymentsContent() {
                       className="border-t border-zinc-100 hover:bg-zinc-50"
                     >
                       <td className="px-4 py-3 text-zinc-600">
-                        {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : "—"}
+                        {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : t.payments.dash}
                       </td>
                       <td className="px-4 py-3">
                         {p.sameTransactionOrderNumbers?.length ? (
@@ -1013,15 +1061,15 @@ function PaymentsContent() {
                           p.orderId
                         )}
                       </td>
-                      <td className="px-4 py-3">Bank</td>
+                      <td className="px-4 py-3">{t.payments.bankKind}</td>
                       <td className="px-4 py-3">
-                        {p.bankTransaction?.bankAccount?.name ?? "—"}
+                        {p.bankTransaction?.bankAccount?.name ?? t.payments.dash}
                       </td>
                       <td className="px-4 py-3 text-right font-medium">
                         {formatPaymentAmount(p)}
                       </td>
                       <td className="px-4 py-3 max-w-xs truncate">
-                        {p.bankTransaction?.counterpartyName ?? p.note ?? "—"}
+                        {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -1029,7 +1077,7 @@ function PaymentsContent() {
                           onClick={() => openEdit(p)}
                           className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                         >
-                          Edit
+                          {t.payments.edit}
                         </button>
                       </td>
                     </tr>
@@ -1039,8 +1087,8 @@ function PaymentsContent() {
                       <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                         {search.trim() &&
                         payments.filter((p) => p.sourceType === "BANK").length > 0
-                          ? "Нет банковских платежей по вашему поиску. Очистите поле Search."
-                          : "No bank payments"}
+                          ? t.payments.noBankMatchSearch
+                          : t.payments.noBankPayments}
                       </td>
                     </tr>
                   )}
@@ -1051,18 +1099,18 @@ function PaymentsContent() {
             {filteredUnmatched.length > 0 && (
               <>
                 <p className="px-4 pt-4 text-sm text-zinc-600">
-                  Непривязанные банковские операции: {filteredUnmatched.length}
+                  {t.payments.unmatchedIntro(filteredUnmatched.length)}
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                       <tr>
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">FOP</th>
-                        <th className="px-4 py-3 text-right">Amount</th>
-                        <th className="px-4 py-3">Description</th>
-                        <th className="px-4 py-3">Counterparty</th>
-                        <th className="px-4 py-3 w-32">Action</th>
+                        <th className="px-4 py-3">{t.payments.date}</th>
+                        <th className="px-4 py-3">{t.payments.fopCol}</th>
+                        <th className="px-4 py-3 text-right">{t.payments.amount}</th>
+                        <th className="px-4 py-3">{t.payments.description}</th>
+                        <th className="px-4 py-3">{t.payments.counterparty}</th>
+                        <th className="px-4 py-3 w-32">{t.payments.action}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1084,10 +1132,10 @@ function PaymentsContent() {
                             className="px-4 py-3 max-w-xs truncate"
                             title={tx.description ?? ""}
                           >
-                            {tx.description ?? "—"}
+                            {tx.description ?? t.payments.dash}
                           </td>
                           <td className="px-4 py-3">
-                            {tx.counterpartyName ?? "—"}
+                            {tx.counterpartyName ?? t.payments.dash}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1">
@@ -1106,11 +1154,13 @@ function PaymentsContent() {
                                 }}
                                 className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                               >
-                                Allocate to order
+                                {t.payments.allocateToOrder}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => {
+                                  setSplitContactId(null);
+                                  setSplitClientOrders([]);
                                   setSplitTx(tx);
                                   setSplitRows([
                                     { orderId: "", orderNumber: "", amount: "" },
@@ -1120,7 +1170,7 @@ function PaymentsContent() {
                                 }}
                                 className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                               >
-                                Distribute
+                                {t.payments.distribute}
                               </button>
                             </div>
                           </td>
@@ -1139,12 +1189,12 @@ function PaymentsContent() {
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">FOP</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3">Description</th>
-                  <th className="px-4 py-3">Counterparty</th>
-                  <th className="px-4 py-3 w-32">Action</th>
+                  <th className="px-4 py-3">{t.payments.date}</th>
+                  <th className="px-4 py-3">{t.payments.fopCol}</th>
+                  <th className="px-4 py-3 text-right">{t.payments.amount}</th>
+                  <th className="px-4 py-3">{t.payments.description}</th>
+                  <th className="px-4 py-3">{t.payments.counterparty}</th>
+                  <th className="px-4 py-3 w-32">{t.payments.action}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1158,9 +1208,9 @@ function PaymentsContent() {
                       +{tx.amount.toFixed(2)} {tx.currency}
                     </td>
                     <td className="px-4 py-3 max-w-xs truncate" title={tx.description ?? ""}>
-                      {tx.description ?? "—"}
+                      {tx.description ?? t.payments.dash}
                     </td>
-                    <td className="px-4 py-3">{tx.counterpartyName ?? "—"}</td>
+                    <td className="px-4 py-3">{tx.counterpartyName ?? t.payments.dash}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         <button
@@ -1178,11 +1228,13 @@ function PaymentsContent() {
                           }}
                           className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                         >
-                          Allocate to order
+                          {t.payments.allocateToOrder}
                         </button>
                         <button
                           type="button"
                           onClick={() => {
+                            setSplitContactId(null);
+                            setSplitClientOrders([]);
                             setSplitTx(tx);
                             setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
                             setSplitOrderSearch("");
@@ -1190,7 +1242,7 @@ function PaymentsContent() {
                           }}
                           className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                         >
-                          Distribute
+                          {t.payments.distribute}
                         </button>
                       </div>
                     </td>
@@ -1199,7 +1251,7 @@ function PaymentsContent() {
                 {filteredUnmatched.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
-                      No unmatched transactions
+                      {t.payments.noUnmatched}
                     </td>
                   </tr>
                 )}
@@ -1210,17 +1262,25 @@ function PaymentsContent() {
 
         {!loading && mode === "cash" && (
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
-            {search ? `${cashPayments.length} of ${payments.filter((p) => p.sourceType === "CASH").length}` : payments.filter((p) => p.sourceType === "CASH").length} cash
+            {t.payments.cashCount(
+              cashPayments.length,
+              payments.filter((p) => p.sourceType === "CASH").length,
+              !!search.trim(),
+            )}
           </p>
         )}
         {!loading && mode === "fop" && view === "payments" && (
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
-            {search ? `${bankPayments.length} of ${payments.filter((p) => p.sourceType === "BANK").length}` : payments.filter((p) => p.sourceType === "BANK").length} bank
+            {t.payments.bankCount(
+              bankPayments.length,
+              payments.filter((p) => p.sourceType === "BANK").length,
+              !!search.trim(),
+            )}
           </p>
         )}
         {!loading && mode === "fop" && view === "unmatched" && (
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
-            {search ? `${filteredUnmatched.length} of ${unmatched.length}` : unmatched.length} unmatched
+            {t.payments.unmatchedCount(filteredUnmatched.length, unmatched.length, !!search.trim())}
           </p>
         )}
       </section>
@@ -1228,7 +1288,7 @@ function PaymentsContent() {
       {showAddCashPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-zinc-900">Add payment (cash)</h3>
+            <h3 className="text-lg font-semibold text-zinc-900">{t.payments.addCashTitle}</h3>
             <div className="mt-4 space-y-3">
               <div className="relative">
                 <input
@@ -1256,7 +1316,7 @@ function PaymentsContent() {
                       setAddCashOrderNumber("");
                     }
                   }}
-                  placeholder="Contact (name or phone, min 3 chars)"
+                  placeholder={t.payments.addCashContactPh}
                   className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                 />
                 {addCashContactSearch.trim().length >= 3 && addCashContactCandidates.length > 0 && !addCashContactId && (
@@ -1286,11 +1346,11 @@ function PaymentsContent() {
                 <div>
                   {addCashOrdersLoading ? (
                     <div className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500">
-                      Loading orders…
+                      {t.payments.loadingOrders}
                     </div>
                   ) : addCashOrders.length === 0 ? (
                     <div className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500">
-                      No unpaid orders for this contact
+                      {t.payments.noUnpaidOrders}
                     </div>
                   ) : (
                     <>
@@ -1299,7 +1359,7 @@ function PaymentsContent() {
                         readOnly
                         value={addCashOrderId ? addCashOrderNumber : ""}
                         onClick={() => setAddCashOrderId(null)}
-                        placeholder="Order (select below)"
+                        placeholder={t.payments.selectOrderBelow}
                         className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 read-only:bg-zinc-50"
                       />
                       <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 py-1">
@@ -1317,7 +1377,7 @@ function PaymentsContent() {
                             >
                               {o.orderNumber}
                               {o.totalAmount != null ? ` · ${o.totalAmount} UAH` : ""}
-                              {o.debtAmount != null && o.debtAmount > 0 ? ` (debt ${o.debtAmount})` : ""}
+                              {o.debtAmount != null && o.debtAmount > 0 ? t.payments.debtSuffix(o.debtAmount) : ""}
                             </button>
                           </li>
                         ))}
@@ -1333,7 +1393,7 @@ function PaymentsContent() {
                         }}
                         className="mt-1 text-xs text-zinc-500 underline hover:text-zinc-700"
                       >
-                        Change contact
+                        {t.payments.changeContact}
                       </button>
                     </>
                   )}
@@ -1345,7 +1405,7 @@ function PaymentsContent() {
                   inputMode="decimal"
                   value={addCashAmount}
                   onChange={(e) => setAddCashAmount(e.target.value)}
-                  placeholder="Amount"
+                  placeholder={t.payments.amountPlaceholder}
                   className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                 />
                 <div className="flex rounded-lg border border-zinc-200 p-0.5">
@@ -1376,7 +1436,7 @@ function PaymentsContent() {
                 type="text"
                 value={addCashNote}
                 onChange={(e) => setAddCashNote(e.target.value)}
-                placeholder="Note (optional)"
+                placeholder={t.payments.noteOptional}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>
@@ -1397,7 +1457,7 @@ function PaymentsContent() {
                 disabled={addCashSubmitting}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -1405,7 +1465,7 @@ function PaymentsContent() {
                 disabled={!addCashOrderId || !addCashAmount.trim() || addCashSubmitting}
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {addCashSubmitting ? "Saving…" : "Add payment"}
+                {addCashSubmitting ? t.payments.saving : t.payments.addPaymentSubmit}
               </button>
             </div>
           </div>
@@ -1415,19 +1475,17 @@ function PaymentsContent() {
       {showAddStatement && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
-            <h3 className="text-sm font-semibold text-zinc-900">Add statement</h3>
-            <p className="mt-1 text-xs text-zinc-500">
-              Upload CSV: date, amount, description, counterpartyName (or Ukrainian equivalents)
-            </p>
+            <h3 className="text-sm font-semibold text-zinc-900">{t.payments.addStatementShort}</h3>
+            <p className="mt-1 text-xs text-zinc-500">{t.payments.addStatementCsvHint}</p>
             <div className="mt-3 space-y-3">
               <div>
-                <label className="block text-xs font-medium text-zinc-600">Bank account (FOP)</label>
+                <label className="block text-xs font-medium text-zinc-600">{t.payments.bankAccountLabel}</label>
                 <select
                   value={selectedAccountId ?? ""}
                   onChange={(e) => setSelectedAccountId(e.target.value || null)}
                   className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                 >
-                  <option value="">Select account…</option>
+                  <option value="">{t.payments.selectAccount}</option>
                   {accounts.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.currency})
@@ -1436,7 +1494,7 @@ function PaymentsContent() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-600">CSV file</label>
+                <label className="block text-xs font-medium text-zinc-600">{t.payments.csvFile}</label>
                 <input
                   type="file"
                   accept=".csv,text/csv"
@@ -1456,7 +1514,7 @@ function PaymentsContent() {
                 disabled={importing}
                 className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -1464,7 +1522,7 @@ function PaymentsContent() {
                 disabled={!selectedAccountId || !importFile || importing}
                 className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {importing ? "Importing…" : "Import"}
+                {importing ? t.payments.importing : t.payments.import}
               </button>
             </div>
           </div>
@@ -1474,13 +1532,11 @@ function PaymentsContent() {
       {allocateTxId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-zinc-900">Allocate to order</h3>
-            <p className="mt-1 text-sm text-zinc-500">
-              Find contact (min 3 chars), then choose unpaid order — or distribute across orders.
-            </p>
+            <h3 className="text-lg font-semibold text-zinc-900">{t.payments.allocateModalTitle}</h3>
+            <p className="mt-1 text-sm text-zinc-500">{t.payments.allocateModalHint}</p>
             <div className="mt-4 space-y-3">
               <div>
-                <label className="block text-xs font-medium text-zinc-500">Contact</label>
+                <label className="block text-xs font-medium text-zinc-500">{t.payments.contact}</label>
                 <input
                   type="text"
                   value={allocateContactId ? allocateContactName : allocateContactSearch}
@@ -1506,11 +1562,11 @@ function PaymentsContent() {
                       setAllocateContactSearch(allocateContactName);
                     }
                   }}
-                  placeholder="Search contact (min 3 chars)…"
+                  placeholder={t.payments.contactSearchPlaceholder}
                   className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                 />
                 {allocateContactSearch.trim().length >= 3 && allocateContactsLoading && (
-                  <div className="mt-1 py-2 text-sm text-zinc-500">Searching…</div>
+                  <div className="mt-1 py-2 text-sm text-zinc-500">{t.payments.searching}</div>
                 )}
                 {allocateContactCandidates.length > 0 && (
                   <ul className="mt-1 max-h-40 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
@@ -1537,14 +1593,14 @@ function PaymentsContent() {
               </div>
               {allocateContactId && (
                 <div>
-                  <label className="block text-xs font-medium text-zinc-500">Order (unpaid)</label>
+                  <label className="block text-xs font-medium text-zinc-500">{t.payments.orderUnpaid}</label>
                   {allocateOrdersLoading ? (
                     <div className="mt-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500">
-                      Loading orders…
+                      {t.payments.loadingOrders}
                     </div>
                   ) : allocateOrders.length === 0 ? (
                     <div className="mt-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-500">
-                      No unpaid orders for this contact
+                      {t.payments.noUnpaidOrders}
                     </div>
                   ) : (
                     <>
@@ -1556,7 +1612,7 @@ function PaymentsContent() {
                           setSelectedOrderId(null);
                           setAllocateOrderNumber("");
                         }}
-                        placeholder="Select order below"
+                        placeholder={t.payments.selectOrderBelow}
                         className="mt-1 w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 read-only:bg-zinc-50"
                       />
                       <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 py-1">
@@ -1575,7 +1631,7 @@ function PaymentsContent() {
                               {o.orderNumber}
                               {o.totalAmount != null ? ` · ${o.totalAmount}` : ""}
                               {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                ? ` (debt ${(o as { debtAmount?: number }).debtAmount})`
+                                ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
                                 : ""}
                             </button>
                           </li>
@@ -1592,7 +1648,7 @@ function PaymentsContent() {
                         }}
                         className="mt-1 text-xs text-zinc-500 underline hover:text-zinc-700"
                       >
-                        Change contact
+                        {t.payments.changeContact}
                       </button>
                     </>
                   )}
@@ -1603,18 +1659,26 @@ function PaymentsContent() {
               <button
                 type="button"
                 onClick={() => {
+                  const cid = allocateContactId;
                   if (allocateTx) {
                     setSplitTx(allocateTx);
                     setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
                     setSplitOrderSearch("");
                     setSplitOrderForRowIndex(null);
+                    if (cid) {
+                      setSplitContactId(cid);
+                      void loadSplitClientOrders(cid);
+                    } else {
+                      setSplitContactId(null);
+                      setSplitClientOrders([]);
+                    }
                   }
                   closeAllocateModal();
                 }}
                 disabled={!!allocating}
                 className="text-sm text-zinc-600 underline hover:text-zinc-900 disabled:opacity-50"
               >
-                Or distribute across orders →
+                {t.payments.distributeAcrossOrders}
               </button>
               <div className="flex gap-2">
                 <button
@@ -1623,7 +1687,7 @@ function PaymentsContent() {
                   disabled={!!allocating}
                   className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  Cancel
+                  {t.common.cancel}
                 </button>
                 <button
                   type="button"
@@ -1631,7 +1695,7 @@ function PaymentsContent() {
                   disabled={!selectedOrderId || !!allocating}
                   className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {allocating ? "Allocating…" : "Allocate"}
+                  {allocating ? t.payments.allocating : t.payments.allocate}
                 </button>
               </div>
             </div>
@@ -1642,9 +1706,13 @@ function PaymentsContent() {
       {(splitTx || splitFromEditPayment) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-zinc-900">Distribute payment</h3>
+            <h3 className="text-lg font-semibold text-zinc-900">{t.payments.distributeModalTitle}</h3>
             <p className="mt-1 text-sm text-zinc-500">
-              {splitFromEditPayment ? "Payment" : "Transaction"}: {splitTotalAmount.toFixed(2)} {splitCurrency}. Split across orders — total must match.
+              {t.payments.distributeModalHint(
+                splitFromEditPayment ? t.payments.kindPayment : t.payments.kindTransaction,
+                splitTotalAmount.toFixed(2),
+                splitCurrency,
+              )}
             </p>
             <div className="mt-4 space-y-3">
               {splitRows.map((row, idx) => (
@@ -1652,11 +1720,57 @@ function PaymentsContent() {
                   <div className="min-w-0 flex-1">
                     {splitOrderForRowIndex === idx ? (
                       <>
+                        {splitContactId && (
+                          <div className="mb-2">
+                            {splitClientOrdersLoading ? (
+                              <p className="text-xs text-zinc-500">{t.payments.loadingClientOrders}</p>
+                            ) : splitClientOrders.length > 0 ? (
+                              <>
+                                <p className="mb-1 text-xs font-medium text-zinc-500">
+                                  {t.payments.clientOrders}
+                                </p>
+                                <ul className="mb-2 max-h-28 overflow-auto rounded border border-zinc-200 bg-white py-1">
+                                  {splitClientOrders.map((o) => (
+                                    <li key={o.id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSplitRows((prev) => {
+                                            const next = [...prev];
+                                            next[idx] = {
+                                              ...next[idx]!,
+                                              orderId: o.id,
+                                              orderNumber: o.orderNumber,
+                                            };
+                                            return next;
+                                          });
+                                          setSplitOrderForRowIndex(null);
+                                          setSplitOrderSearch("");
+                                          setSplitOrderCandidates([]);
+                                        }}
+                                        className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
+                                      >
+                                        {o.orderNumber}
+                                        {o.totalAmount != null ? ` · ${o.totalAmount}` : ""}
+                                        {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
+                                          ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
+                                          : ""}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </>
+                            ) : (
+                              <p className="mb-2 text-xs text-zinc-500">{t.payments.noOrdersForContact}</p>
+                            )}
+                          </div>
+                        )}
+                        <p className="mb-1 text-xs text-zinc-500">{t.payments.searchOtherOrders}</p>
                         <input
                           type="text"
                           value={splitOrderSearch}
                           onChange={(e) => setSplitOrderSearch(e.target.value)}
-                          placeholder="Order number…"
+                          placeholder={t.payments.orderNumberPlaceholder}
                           className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
                           autoFocus
                         />
@@ -1691,7 +1805,7 @@ function PaymentsContent() {
                         onClick={() => setSplitOrderForRowIndex(idx)}
                         className="text-left text-sm text-zinc-700 underline hover:text-zinc-900"
                       >
-                        {row.orderNumber || "Select order…"}
+                        {row.orderNumber || t.payments.selectOrder}
                       </button>
                     )}
                   </div>
@@ -1706,7 +1820,7 @@ function PaymentsContent() {
                         return next;
                       })
                     }
-                    placeholder="Amount"
+                    placeholder={t.payments.amountPlaceholder}
                     className="w-24 rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
                   />
                   <button
@@ -1716,7 +1830,7 @@ function PaymentsContent() {
                     }
                     className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                   >
-                    Remove
+                    {t.payments.remove}
                   </button>
                 </div>
               ))}
@@ -1727,18 +1841,20 @@ function PaymentsContent() {
                 }
                 className="rounded border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                + Add order
+                {t.payments.addOrder}
               </button>
             </div>
             <p className="mt-2 text-sm text-zinc-600">
-              Total:{" "}
-              {splitRows
-                .reduce(
-                  (s, r) => s + (parseFloat(r.amount.replace(/,/g, ".")) || 0),
-                  0,
-                )
-                .toFixed(2)}{" "}
-              {splitCurrency} / {splitTotalAmount.toFixed(2)} {splitCurrency}
+              {t.payments.totalProgress(
+                splitCurrency,
+                splitRows
+                  .reduce(
+                    (s, r) => s + (parseFloat(r.amount.replace(/,/g, ".")) || 0),
+                    0,
+                  )
+                  .toFixed(2),
+                splitTotalAmount.toFixed(2),
+              )}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1748,11 +1864,13 @@ function PaymentsContent() {
                   setSplitFromEditPayment(null);
                   setSplitRows([]);
                   setSplitOrderForRowIndex(null);
+                  setSplitContactId(null);
+                  setSplitClientOrders([]);
                 }}
                 disabled={splitSubmitting}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -1769,7 +1887,7 @@ function PaymentsContent() {
                 }
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {splitSubmitting ? "Saving…" : "Distribute"}
+                {splitSubmitting ? t.payments.saving : t.payments.distribute}
               </button>
             </div>
           </div>
@@ -1779,13 +1897,15 @@ function PaymentsContent() {
       {editPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-            <h3 className="text-lg font-semibold text-zinc-900">Edit payment</h3>
+            <h3 className="text-lg font-semibold text-zinc-900">{t.payments.editPaymentTitle}</h3>
             <p className="mt-0.5 text-xs text-zinc-500">
-              {editPayment.sourceType === "CASH" ? "Cash" : "Bank"} · change order via contact below
+              {t.payments.editPaymentHint(
+                editPayment.sourceType === "CASH" ? t.payments.cashKind : t.payments.bankKind,
+              )}
             </p>
             {editPayment.sameTransactionOrderNumbers && editPayment.sameTransactionOrderNumbers.length > 0 && (
               <p className="mt-1 text-sm text-zinc-600">
-                Orders: {editPayment.sameTransactionOrderNumbers.join(", ")}
+                {t.payments.ordersColon} {editPayment.sameTransactionOrderNumbers.join(", ")}
               </p>
             )}
             <div className="mt-4 space-y-3">
@@ -1810,7 +1930,7 @@ function PaymentsContent() {
                     setEditContactSearch(editContactName);
                   }
                 }}
-                placeholder="Contact (min 3 chars to change order)"
+                placeholder={t.payments.contactMinChars}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
               {editContactCandidates.length > 0 && (
@@ -1839,11 +1959,11 @@ function PaymentsContent() {
                 <div className="space-y-1">
                   {editContactOrdersLoading ? (
                     <div className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-500">
-                      Loading orders…
+                      {t.payments.loadingOrders}
                     </div>
                   ) : editContactOrders.length === 0 ? (
                     <div className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-500">
-                      No unpaid orders
+                      {t.payments.noUnpaidOrdersEdit}
                     </div>
                   ) : (
                     <>
@@ -1889,7 +2009,7 @@ function PaymentsContent() {
                             }
                             const valid = rows.filter((r) => parseFloat(r.amount) > 0);
                             if (valid.length === 0) {
-                              alert("No amounts to distribute");
+                              alert(t.payments.errors.noAmountsSplit);
                               return;
                             }
                             setSavingPayment(true);
@@ -1905,14 +2025,14 @@ function PaymentsContent() {
                               setEditOrderNumber("");
                               await fetchPayments();
                             } catch (e) {
-                              alert(e instanceof Error ? e.message : "Distribute failed");
+                              alert(e instanceof Error ? e.message : t.payments.distributeFailed);
                             } finally {
                               setSavingPayment(false);
                             }
                           }}
                           className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
                         >
-                          {savingPayment ? "Distributing…" : `Distribute across orders (${editContactOrders.length})`}
+                          {savingPayment ? t.payments.distributing : t.payments.splitAcrossOrders(editContactOrders.length)}
                         </button>
                       )}
                       <input
@@ -1923,7 +2043,7 @@ function PaymentsContent() {
                           setEditOrderId("");
                           setEditOrderNumber("");
                         }}
-                        placeholder="Order (select below)"
+                        placeholder={t.payments.selectOrderBelow}
                         className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 read-only:bg-zinc-50"
                       />
                       <ul className="max-h-24 overflow-auto rounded-lg border border-zinc-200 py-0.5">
@@ -1941,7 +2061,7 @@ function PaymentsContent() {
                             >
                               {o.orderNumber}
                               {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                ? ` (debt ${(o as { debtAmount?: number }).debtAmount})`
+                                ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
                                 : ""}
                             </button>
                           </li>
@@ -1958,7 +2078,7 @@ function PaymentsContent() {
                         }}
                         className="text-xs text-zinc-500 underline hover:text-zinc-700"
                       >
-                        Change contact
+                        {t.payments.changeContact}
                       </button>
                     </>
                   )}
@@ -1969,7 +2089,7 @@ function PaymentsContent() {
                   type="text"
                   readOnly
                   value={editOrderNumber || editOrderId || ""}
-                  placeholder="Order (current)"
+                  placeholder={t.payments.orderCurrent}
                   className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600"
                 />
               )}
@@ -1981,7 +2101,7 @@ function PaymentsContent() {
                     value={editAmount}
                     onChange={(e) => setEditAmount(e.target.value)}
                     disabled={userRole !== "ADMIN"}
-                    placeholder={`Amount (${editPayment.currency})`}
+                    placeholder={t.payments.amountInCurrency(editPayment.currency)}
                     className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100 disabled:text-zinc-500"
                   />
                   <input
@@ -1998,14 +2118,14 @@ function PaymentsContent() {
                 value={editAmountUsd}
                 onChange={(e) => setEditAmountUsd(e.target.value)}
                 disabled={userRole !== "ADMIN"}
-                placeholder="Amount (USD), fixed"
+                placeholder={t.payments.amountUsdFixed}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100 disabled:text-zinc-500"
               />
               <input
                 type="text"
                 value={editNote}
                 onChange={(e) => setEditNote(e.target.value)}
-                placeholder="Note"
+                placeholder={t.payments.notePlaceholder}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>
@@ -2015,7 +2135,7 @@ function PaymentsContent() {
                 onClick={() => setEditPayment(null)}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
               >
-                Cancel
+                {t.common.cancel}
               </button>
               <button
                 type="button"
@@ -2023,7 +2143,7 @@ function PaymentsContent() {
                 disabled={savingPayment}
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {savingPayment ? "Saving…" : "Save"}
+                {savingPayment ? t.payments.saving : t.common.save}
               </button>
             </div>
           </div>

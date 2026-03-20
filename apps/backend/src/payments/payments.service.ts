@@ -5,8 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { PaymentSourceType, PaymentStatus, UserRole } from "@prisma/client";
+import { PaymentSourceType, PaymentStatus, Prisma, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { BankAccountsService } from "../bank/bank-accounts.service";
 import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
@@ -47,9 +48,10 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly bankAccounts: BankAccountsService,
   ) {}
 
-  async list(params: ListPaymentsParams) {
+  async list(params: ListPaymentsParams, actor?: AuthUser) {
     let rates: ExchangeRates;
     try {
       rates = await this.settings.getExchangeRates();
@@ -57,9 +59,34 @@ export class PaymentsService {
       this.logger.warn(`getExchangeRates failed, using defaults: ${e}`);
       rates = { UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 };
     }
-    const where: { bankTransaction?: { bankAccountId?: string } } = {};
-    if (params.bankAccountId) {
-      where.bankTransaction = { bankAccountId: params.bankAccountId };
+
+    let where: Prisma.PaymentWhereInput = {};
+    if (actor && actor.role !== UserRole.ADMIN) {
+      const visibleIds = await this.bankAccounts.getVisibleBankAccountIds(actor.id);
+      if (params.bankAccountId) {
+        if (!visibleIds.includes(params.bankAccountId)) {
+          throw new ForbiddenException("You do not have access to this bank account");
+        }
+      }
+      const bankAccountIdFilter: Prisma.StringFilter | string = params.bankAccountId
+        ? params.bankAccountId
+        : visibleIds.length > 0
+          ? { in: visibleIds }
+          : { in: [] };
+      const bankBranch: Prisma.PaymentWhereInput = {
+        sourceType: PaymentSourceType.BANK,
+        bankTransaction:
+          typeof bankAccountIdFilter === "string"
+            ? { bankAccountId: bankAccountIdFilter }
+            : { bankAccountId: bankAccountIdFilter },
+      };
+      const cashBranch: Prisma.PaymentWhereInput =
+        actor.role === UserRole.MANAGER
+          ? { sourceType: PaymentSourceType.CASH, order: { ownerId: actor.id } }
+          : { sourceType: PaymentSourceType.CASH };
+      where = { OR: [bankBranch, cashBranch] };
+    } else if (params.bankAccountId) {
+      where = { bankTransaction: { bankAccountId: params.bankAccountId } };
     }
 
     try {
@@ -316,7 +343,7 @@ export class PaymentsService {
       });
       await this.recalcOrder(a.orderId);
     }
-    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 });
+    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
   }
 
   async createCash(dto: CreateCashPaymentDto, actor?: AuthUser) {
@@ -492,7 +519,7 @@ export class PaymentsService {
       await this.recalcOrder(oid);
     }
 
-    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 });
+    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
   }
 
   async recalcOrder(orderId: string): Promise<void> {

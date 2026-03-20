@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
+import { strings } from "@/locales";
 
 type MenuItem = {
   label: string;
@@ -41,7 +42,7 @@ const baseMenuItems: MenuItem[] = [
 ];
 
 const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };
-const paymentsItem: MenuItem = { label: "Payments", icon: Wallet, href: "/payments" };
+const paymentsItem: MenuItem = { label: strings.nav.payments, icon: Wallet, href: "/payments" };
 const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
 
 type SidebarProps = {
@@ -66,7 +67,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const menuItems =
     role === "ADMIN"
       ? [...baseMenuItems, analyticsItem, paymentsItem, settingsItem]
-      : role === "MANAGER"
+      : role === "MANAGER" || role === "LEAD"
         ? [...baseMenuItems, paymentsItem]
         : baseMenuItems;
 

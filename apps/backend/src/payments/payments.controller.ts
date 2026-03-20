@@ -17,16 +17,19 @@ export class PaymentsController {
   constructor(private readonly service: PaymentsService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  list(@Query() q: ListPaymentsQueryDto) {
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  list(@Query() q: ListPaymentsQueryDto, @Req() req: Request & { user?: AuthUser }) {
     const pagination = normalizePagination(
       { page: q.page, pageSize: q.pageSize },
       { page: 1, pageSize: 50 },
     );
-    return this.service.list({
-      bankAccountId: q.bankAccountId,
-      ...pagination,
-    });
+    return this.service.list(
+      {
+        bankAccountId: q.bankAccountId,
+        ...pagination,
+      },
+      req.user,
+    );
   }
 
   @Post("allocate")

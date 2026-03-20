@@ -113,11 +113,14 @@ export class BankAccountsService {
   /** For order form: active accounts visible to user, with user's default first. */
   async listForOrder(
     userId?: string,
-  ): Promise<{ accounts: Array<{ id: string; name: string }>; defaultBankAccountId: string | null }> {
+  ): Promise<{
+    accounts: Array<{ id: string; name: string; currency: string }>;
+    defaultBankAccountId: string | null;
+  }> {
     const accounts = await this.prisma.bankAccount.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: { id: true, name: true, currency: true },
     });
     if (!userId) {
       return { accounts, defaultBankAccountId: null };
@@ -148,6 +151,25 @@ export class BankAccountsService {
     }
 
     return { accounts: ordered, defaultBankAccountId: defaultInVisible };
+  }
+
+  /**
+   * Active bank account IDs visible to the user (same rules as listForOrder).
+   * Used to scope payments, transactions, and sync for non-admin users.
+   */
+  async getVisibleBankAccountIds(userId: string): Promise<string[]> {
+    const accounts = await this.prisma.bankAccount.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    const visibilityMap = await this.getVisibilityMap();
+    return accounts
+      .filter((acc) => {
+        const userIds = visibilityMap[acc.id];
+        if (!Array.isArray(userIds) || userIds.length === 0) return true;
+        return userIds.includes(userId);
+      })
+      .map((a) => a.id);
   }
 
   async getVisibilitySettings() {

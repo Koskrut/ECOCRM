@@ -8,8 +8,8 @@ export type BankAccountItem = {
   isActive: boolean;
 };
 
-/** For order form: list active FOP (id, name). */
-export type BankAccountForOrderItem = { id: string; name: string };
+/** For order form: list active FOP (id, name, currency). */
+export type BankAccountForOrderItem = { id: string; name: string; currency?: string };
 
 export async function listBankAccountsForOrder(): Promise<BankAccountForOrderItem[]> {
   const res = await apiHttp.get<
