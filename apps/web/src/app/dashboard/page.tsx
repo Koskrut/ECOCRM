@@ -42,6 +42,22 @@ type DashboardStats = {
   revenueByDay: { date: string; totalAmount: number; count: number }[];
 };
 
+/** Logical funnel order for charts (matches main order board). */
+const ORDER_STAGE_CHART_ORDER: string[] = [
+  "NEW",
+  "AWAITING_PAYMENT",
+  "AWAITING_STOCK",
+  "CONFIRMED",
+  "READY_TO_SHIP",
+  "SHIPPED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
+  "COMPLETED",
+  "CANCELED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+];
+
 const ORDER_STAGE_LABELS: Record<string, string> = {
   NEW: "Новий",
   CONFIRMED: "Підтверджено",
@@ -195,10 +211,16 @@ export default function DashboardPage() {
   const leadsBySource = data?.leadsBySource ?? [];
   const revenueByDay = data?.revenueByDay ?? [];
 
-  const ordersByStageDisplay = ordersByStage.map((r) => ({
-    name: ORDER_STAGE_LABELS[r.orderStage] ?? r.orderStage,
-    count: r.count,
-  }));
+  const ordersByStageDisplay = [...ordersByStage]
+    .sort((a, b) => {
+      const ia = ORDER_STAGE_CHART_ORDER.indexOf(a.orderStage);
+      const ib = ORDER_STAGE_CHART_ORDER.indexOf(b.orderStage);
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    })
+    .map((r) => ({
+      name: ORDER_STAGE_LABELS[r.orderStage] ?? r.orderStage,
+      count: r.count,
+    }));
   const leadsByStatusDisplay = leadsByStatus.map((r) => ({
     name: LEAD_STATUS_LABELS[r.status] ?? r.status,
     value: r.count,

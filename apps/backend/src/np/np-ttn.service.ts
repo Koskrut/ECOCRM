@@ -22,6 +22,20 @@ type SenderCache = {
   senderAddressName?: string; // только для debug, в payload не отправляем
 };
 
+/** First TTN on a NEW order: advance stage without using CONFIRMED (that comes after stock). */
+function orderStageAfterFirstTtnFromNew(order: {
+  paymentType: string | null;
+  paidAmount: unknown;
+  totalAmount: unknown;
+}): OrderStage {
+  if (order.paymentType === "PREPAYMENT") {
+    const total = Number(order.totalAmount ?? 0);
+    const paid = Number(order.paidAmount ?? 0);
+    if (total > 0.00001 && paid < total - 0.00001) return "AWAITING_PAYMENT";
+  }
+  return "AWAITING_STOCK";
+}
+
 type OrderStatus =
   | "NEW"
   | "IN_WORK"
@@ -699,7 +713,7 @@ export class NpTtnService {
   }
 
   // ======================
-  // Persist TTN to Order.deliveryData (+ move NEW -> IN_WORK)
+  // Persist TTN to Order.deliveryData (+ move NEW -> AWAITING_PAYMENT or AWAITING_STOCK)
   // ======================
   private async persistOrderDeliveryDataWithTtn(
     order: { id: string; status?: string | null; orderStage?: string | null; deliveryData?: unknown },
@@ -765,13 +779,8 @@ export class NpTtnService {
     const isNew =
       (order as { orderStage?: string | null }).orderStage === "NEW" ||
       order.status === "NEW";
-    let statusUpdate: Record<string, unknown> = isNew
-      ? {
-          orderStage: "CONFIRMED" as const,
-          deliveryStatus: "NOT_SHIPPED" as const,
-        }
-      : {};
-    if (Object.keys(statusUpdate).length > 0) {
+    let statusUpdate: Record<string, unknown> = {};
+    if (isNew) {
       const full = await this.prisma.order.findUnique({
         where: { id: order.id },
         select: {
@@ -784,14 +793,19 @@ export class NpTtnService {
         },
       });
       if (full) {
-        statusUpdate.financialStatus = computeFinancialStatusFromOrder({
-          paymentType: full.paymentType,
-          totalAmount: Number(full.totalAmount),
-          paidAmount: Number(full.paidAmount),
-          debtAmount: Number(full.debtAmount),
-          paymentDueDate: full.paymentDueDate ?? undefined,
-          orderStage: (statusUpdate.orderStage as OrderStage) ?? full.orderStage ?? undefined,
-        });
+        const orderStage = orderStageAfterFirstTtnFromNew(full);
+        statusUpdate = {
+          orderStage,
+          deliveryStatus: "NOT_SHIPPED" as const,
+          financialStatus: computeFinancialStatusFromOrder({
+            paymentType: full.paymentType,
+            totalAmount: Number(full.totalAmount),
+            paidAmount: Number(full.paidAmount),
+            debtAmount: Number(full.debtAmount),
+            paymentDueDate: full.paymentDueDate ?? undefined,
+            orderStage,
+          }),
+        };
       }
     }
     await this.prisma.order.update({

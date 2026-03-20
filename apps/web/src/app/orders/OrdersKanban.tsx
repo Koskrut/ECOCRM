@@ -83,9 +83,9 @@ type BoardFilters = {
 /** Main row: active stages (board API excludes COMPLETED, CANCELED, REFUSED, RETURN_IN_PROGRESS). */
 const MAIN_STAGE_ORDER: OrderStage[] = [
   "NEW",
-  "CONFIRMED",
   "AWAITING_PAYMENT",
   "AWAITING_STOCK",
+  "CONFIRMED",
   "READY_TO_SHIP",
   "SHIPPED",
   "AWAITING_RECEIPT",

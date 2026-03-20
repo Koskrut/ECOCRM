@@ -1,6 +1,8 @@
 /**
  * Phase 2: Allowed orderStage transitions and business validations.
  * Single source of truth for "can we go from A to B?" and prepayment/deferred rules.
+ *
+ * Linear flow: NEW → (PREPAYMENT only: AWAITING_PAYMENT) → AWAITING_STOCK → CONFIRMED → READY_TO_SHIP → …
  */
 
 import type { OrderStage, PaymentType } from "@prisma/client";
@@ -8,9 +10,9 @@ import { BadRequestException } from "@nestjs/common";
 
 const STAGES: OrderStage[] = [
   "NEW",
-  "CONFIRMED",
   "AWAITING_PAYMENT",
   "AWAITING_STOCK",
+  "CONFIRMED",
   "READY_TO_SHIP",
   "SHIPPED",
   "AWAITING_RECEIPT",
@@ -21,12 +23,12 @@ const STAGES: OrderStage[] = [
   "RETURN_IN_PROGRESS",
 ];
 
-/** Normal flow + reasonable direct skips. Terminal stages cannot be left. Back to NEW allowed from pre-shipment only. */
+/** Graph edges; validateOrderStageTransition adds payment-type rules for NEW and AWAITING_PAYMENT. */
 const ALLOWED_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
-  NEW: ["CONFIRMED", "CANCELED"],
-  CONFIRMED: ["AWAITING_PAYMENT", "AWAITING_STOCK", "READY_TO_SHIP", "CANCELED", "NEW"],
-  AWAITING_PAYMENT: ["READY_TO_SHIP", "CONFIRMED", "CANCELED", "NEW"],
-  AWAITING_STOCK: ["READY_TO_SHIP", "CONFIRMED", "CANCELED", "NEW"],
+  NEW: ["AWAITING_PAYMENT", "AWAITING_STOCK", "CANCELED"],
+  AWAITING_PAYMENT: ["AWAITING_STOCK", "NEW", "CANCELED"],
+  AWAITING_STOCK: ["CONFIRMED", "NEW", "CANCELED"],
+  CONFIRMED: ["READY_TO_SHIP", "AWAITING_STOCK", "CANCELED", "NEW"],
   READY_TO_SHIP: ["SHIPPED", "CONFIRMED", "CANCELED"],
   SHIPPED: ["AWAITING_RECEIPT", "REFUSED"],
   AWAITING_RECEIPT: ["RECEIVED", "REFUSED"],
@@ -74,6 +76,10 @@ function resolveCurrentStage(current: OrderStage | null | undefined, fallback: O
   return fallback;
 }
 
+function isPrepayment(ctx: OrderContext): boolean {
+  return ctx.paymentType === "PREPAYMENT";
+}
+
 /**
  * Validates transition from current stage to toStage and business rules.
  * Throws BadRequestException with a message if not allowed.
@@ -94,6 +100,27 @@ export function validateOrderStageTransition(
     throw new BadRequestException(
       `Transition from stage ${from} to ${toStage} is not allowed. Allowed from ${from}: ${allowed?.join(", ") ?? "none"}.`,
     );
+  }
+
+  // AWAITING_PAYMENT exists only for prepayment orders
+  if (toStage === "AWAITING_PAYMENT" && !isPrepayment(ctx)) {
+    throw new BadRequestException(
+      "Awaiting payment stage is only for prepayment orders. Change payment type to prepayment or use another stage.",
+    );
+  }
+
+  // NEW: prepayment → only AWAITING_PAYMENT (+ CANCELED already ok); deferred/null → only AWAITING_STOCK
+  if (from === "NEW") {
+    if (isPrepayment(ctx) && toStage === "AWAITING_STOCK") {
+      throw new BadRequestException(
+        "Prepayment orders must move to Awaiting payment before awaiting stock.",
+      );
+    }
+    if (!isPrepayment(ctx) && toStage === "AWAITING_PAYMENT") {
+      throw new BadRequestException(
+        "Awaiting payment is only for prepayment. For deferred payment, move to Awaiting stock.",
+      );
+    }
   }
 
   // CANCELED: only before SHIPPED

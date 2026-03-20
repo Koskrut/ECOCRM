@@ -216,12 +216,12 @@ type StepDef = {
   color: "zinc" | "sky" | "amber" | "emerald" | "red";
 };
 
-/** Phase 3: orderStage steps (main flow + service). Harmonized: accent/sky for flow, amber for wait, emerald for done, red for negative. */
-const ORDER_STAGE_STEPS: StepDef[] = [
+/** Full orderStage list (canonical order). AWAITING_PAYMENT is hidden in UI unless prepayment or order is already in that stage. */
+const ORDER_STAGE_STEPS_ALL: StepDef[] = [
   { key: "NEW", label: "Новий", color: "zinc" },
-  { key: "CONFIRMED", label: "Підтверджено", color: "sky" },
   { key: "AWAITING_PAYMENT", label: "Очікує оплату", color: "amber" },
   { key: "AWAITING_STOCK", label: "Очікує склад", color: "sky" },
+  { key: "CONFIRMED", label: "Підтверджено", color: "sky" },
   { key: "READY_TO_SHIP", label: "Готово до відправки", color: "sky" },
   { key: "SHIPPED", label: "Відправлено", color: "sky" },
   { key: "AWAITING_RECEIPT", label: "Очікує отримання", color: "sky" },
@@ -232,8 +232,8 @@ const ORDER_STAGE_STEPS: StepDef[] = [
   { key: "RETURN_IN_PROGRESS", label: "Повернення", color: "red" },
 ];
 
-function stepIndex(stage: string) {
-  const idx = ORDER_STAGE_STEPS.findIndex((s) => s.key === stage);
+function stepIndexInSteps(stage: string, steps: StepDef[]) {
+  const idx = steps.findIndex((s) => s.key === stage);
   return idx >= 0 ? idx : 0;
 }
 
@@ -243,6 +243,7 @@ function Stepper({
   disabled,
   hasPayment,
   isAdmin,
+  paymentType,
 }: {
   stage: string;
   onStepClick?: (stepKey: string) => void;
@@ -250,8 +251,20 @@ function Stepper({
   /** When true, payment-related step is shown green (paid). */
   hasPayment?: boolean;
   isAdmin?: boolean;
+  paymentType?: "PREPAYMENT" | "DEFERRED" | string | null;
 }) {
-  const activeIdx = stepIndex(stage);
+  const showAwaitingPaymentStep =
+    paymentType === "PREPAYMENT" || stage === "AWAITING_PAYMENT";
+
+  const steps = useMemo(
+    () =>
+      ORDER_STAGE_STEPS_ALL.filter(
+        (s) => s.key !== "AWAITING_PAYMENT" || showAwaitingPaymentStep,
+      ),
+    [showAwaitingPaymentStep],
+  );
+
+  const activeIdx = stepIndexInSteps(stage, steps);
   const wheelRef = useRef<HTMLDivElement>(null);
   const wheelItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const wheelRafRef = useRef<number | null>(null);
@@ -295,7 +308,7 @@ function Stepper({
     const centerX = el.scrollLeft + el.clientWidth / 2;
     let bestIdx = 0;
     let bestDist = Number.POSITIVE_INFINITY;
-    ORDER_STAGE_STEPS.forEach((_, idx) => {
+    steps.forEach((_, idx) => {
       const btn = wheelItemRefs.current[idx];
       if (!btn) return;
       const btnCenter = btn.offsetLeft + btn.offsetWidth / 2;
@@ -305,8 +318,8 @@ function Stepper({
         bestIdx = idx;
       }
     });
-    return { nearestIdx: bestIdx, nearest: ORDER_STAGE_STEPS[bestIdx], centerX, bestDist };
-  }, []);
+    return { nearestIdx: bestIdx, nearest: steps[bestIdx], centerX, bestDist };
+  }, [steps]);
 
   useEffect(() => {
     const el = wheelRef.current;
@@ -334,7 +347,7 @@ function Stepper({
       wheelRafRef.current = null;
       wheelSettleTimerRef.current = null;
     };
-  }, [stage, disabled, onStepClick, getNearestStepFromScroll]);
+  }, [stage, disabled, onStepClick, getNearestStepFromScroll, steps]);
 
   const colorClasses = (c: StepDef["color"], stepKey?: string) => {
     const usePaymentGreen = stepKey === "AWAITING_PAYMENT" && hasPayment;
@@ -382,10 +395,10 @@ function Stepper({
 
   const roleBasedTransitionOptions = useMemo(() => {
     // Manager has restricted list; all other roles can pick any stage except current.
-    if (isAdmin) return ORDER_STAGE_STEPS.filter((s) => s.key !== stage);
+    if (isAdmin) return ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage);
     const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
-    return ORDER_STAGE_STEPS.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));
-  }, [isAdmin, stage, activeIdx]);
+    return steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));
+  }, [isAdmin, stage, activeIdx, steps]);
 
   useEffect(() => {
     if (!managerMenuOpen) return;
@@ -435,7 +448,7 @@ function Stepper({
             className="overflow-x-auto overflow-y-hidden snap-x snap-mandatory [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
           >
             <div className="flex items-center gap-0.5 px-[calc(50%-3.5rem)]">
-            {ORDER_STAGE_STEPS.map((s, idx) => {
+            {steps.map((s, idx) => {
               const isActive = s.key === stage;
               const distance = Math.abs(idx - activeIdx);
               return (
@@ -447,7 +460,7 @@ function Stepper({
                   type="button"
                   onClick={() => {
                     if (!onStepClick || disabled) return;
-                    const next = ORDER_STAGE_STEPS[Math.min(activeIdx + 1, ORDER_STAGE_STEPS.length - 1)];
+                    const next = steps[Math.min(activeIdx + 1, steps.length - 1)];
                     const target = isActive ? next?.key ?? s.key : s.key;
                     lastEmittedKeyRef.current = target;
                     onStepClick(target);
@@ -468,7 +481,7 @@ function Stepper({
         </div>
       </div>
       <div className="hidden flex-wrap items-center gap-2 md:flex">
-        {ORDER_STAGE_STEPS.map((s, idx) => {
+        {steps.map((s, idx) => {
           const done = isDone(s, idx);
           const cls = colorClasses(s.color, s.key);
           const canClick = onStepClick && !disabled;
@@ -1486,6 +1499,7 @@ export function OrderModal({
           disabled={statusUpdating}
           hasPayment={Number(order.paidAmount ?? 0) > 0}
           isAdmin={isAdmin}
+          paymentType={order.paymentType ?? paymentType ?? null}
         />
         <div className="flex flex-wrap gap-1 border-b border-zinc-200 pb-2">
           <button

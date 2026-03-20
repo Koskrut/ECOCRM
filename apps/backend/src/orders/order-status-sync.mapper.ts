@@ -102,7 +102,7 @@ function computeFinancialStatus(
 
   // Zero total: treat as CLOSED only if order is not in early stage (avoid "Новий" in "Закрито")
   if (total <= 0) {
-    const earlyStages: OrderStage[] = ["NEW", "CONFIRMED", "AWAITING_PAYMENT", "AWAITING_STOCK"];
+    const earlyStages: OrderStage[] = ["NEW", "AWAITING_PAYMENT", "AWAITING_STOCK", "CONFIRMED"];
     const isEarly = ctx.orderStage != null && earlyStages.includes(ctx.orderStage);
     return isEarly ? "INVOICE_PENDING" : "CLOSED";
   }

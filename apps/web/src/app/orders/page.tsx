@@ -60,9 +60,9 @@ const DEFAULT_PAGE_SIZE = 50;
 const ORDER_STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Усі стадії" },
   { value: "NEW", label: "Новий" },
-  { value: "CONFIRMED", label: "Підтверджено" },
   { value: "AWAITING_PAYMENT", label: "Очікує оплату" },
   { value: "AWAITING_STOCK", label: "Очікує на склад" },
+  { value: "CONFIRMED", label: "Підтверджено" },
   { value: "READY_TO_SHIP", label: "Готово до відправки" },
   { value: "SHIPPED", label: "Відправлено" },
   { value: "AWAITING_RECEIPT", label: "Очікує отримання" },
