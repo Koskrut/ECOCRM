@@ -294,9 +294,6 @@ export class PaymentsService {
   }
 
   async allocateSplit(dto: AllocateSplitDto, actor?: AuthUser) {
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments.service.ts:allocateSplit:entry", message: "allocateSplit called", data: { transactionId: dto.transactionId, allocationsCount: dto.allocations?.length ?? 0, orderIds: dto.allocations?.map((a) => a.orderId) ?? [] }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     if (actor?.role !== UserRole.ADMIN) {
       throw new ForbiddenException("Only ADMIN can allocate bank transactions");
     }
@@ -328,7 +325,6 @@ export class PaymentsService {
       if (!order) throw new NotFoundException(`Order not found: ${a.orderId}`);
     }
     const rates = await this.settings.getExchangeRates();
-    let createdCount = 0;
     for (const a of dto.allocations) {
       const amt = Number(a.amount);
       const amountUsd = convertToUsd(amt, tx.currency, rates);
@@ -345,12 +341,8 @@ export class PaymentsService {
           createdByUserId: actor?.id ?? null,
         },
       });
-      createdCount += 1;
       await this.recalcOrder(a.orderId);
     }
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H3", location: "payments.service.ts:allocateSplit:after-create", message: "allocateSplit created payments", data: { transactionId: tx.id, createdCount }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
   }
 
@@ -461,9 +453,6 @@ export class PaymentsService {
   }
 
   async splitPayment(id: string, dto: SplitPaymentDto, actor?: AuthUser) {
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments.service.ts:splitPayment:entry", message: "splitPayment called", data: { paymentId: id, allocationsCount: dto.allocations?.length ?? 0, orderIds: dto.allocations?.map((a) => a.orderId) ?? [] }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     const payment = await this.prisma.payment.findUnique({
       where: { id },
       include: { order: { select: { id: true, ownerId: true } } },
@@ -505,7 +494,6 @@ export class PaymentsService {
 
     await this.prisma.payment.delete({ where: { id } });
 
-    let createdCount = 0;
     for (const a of dto.allocations) {
       const amount = Number(a.amount);
       const amountUsd =
@@ -525,17 +513,35 @@ export class PaymentsService {
           createdByUserId: actor?.id ?? null,
         },
       });
-      createdCount += 1;
     }
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H3", location: "payments.service.ts:splitPayment:after-create", message: "splitPayment created payments", data: { paymentId: id, createdCount, bankTransactionId: payment.bankTransactionId }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
 
     for (const oid of orderIds) {
       await this.recalcOrder(oid);
     }
 
     return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
+  }
+
+  async unallocateBankPayment(id: string, actor?: AuthUser) {
+    if (actor?.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can unallocate bank payments");
+    }
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        orderId: true,
+        sourceType: true,
+        bankTransactionId: true,
+      },
+    });
+    if (!payment) throw new NotFoundException("Payment not found");
+    if (payment.sourceType !== PaymentSourceType.BANK || !payment.bankTransactionId) {
+      throw new BadRequestException("Only allocated bank payments can be unallocated");
+    }
+    await this.prisma.payment.delete({ where: { id: payment.id } });
+    await this.recalcOrder(payment.orderId);
+    return { ok: true };
   }
 
   async recalcOrder(orderId: string): Promise<void> {

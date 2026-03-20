@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -66,5 +66,11 @@ export class PaymentsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.service.splitPayment(id, dto, req.user);
+  }
+
+  @Delete(":id/allocation")
+  @Roles(UserRole.ADMIN)
+  unallocate(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.service.unallocateBankPayment(id, req.user);
   }
 }

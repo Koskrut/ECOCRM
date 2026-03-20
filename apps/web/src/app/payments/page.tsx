@@ -55,6 +55,8 @@ type OrderOption = {
   totalAmount?: number;
   paidAmount?: number;
   debtAmount?: number;
+  currency?: string;
+  exchangeRate?: number | null;
   createdAt?: string;
 };
 
@@ -73,6 +75,29 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
     return `${p.amount.toFixed(2)} $`;
   }
   return `${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
+}
+
+function getOrderAmounts(order: OrderOption): { usd: number; uah: number } {
+  const amount = Number(order.debtAmount ?? order.totalAmount ?? 0);
+  const currency = String(order.currency ?? "USD").toUpperCase();
+  const rate = Number(order.exchangeRate ?? 0);
+  if (currency === "UAH") {
+    return { usd: rate > 0 ? amount / rate : 0, uah: amount };
+  }
+  if (currency === "USD") {
+    return { usd: amount, uah: rate > 0 ? amount * rate : amount * 41 };
+  }
+  return { usd: amount, uah: rate > 0 ? amount * rate : amount };
+}
+
+function formatOrderAmounts(order: OrderOption): string {
+  const { usd, uah } = getOrderAmounts(order);
+  return `${usd.toFixed(2)} $ / ${uah.toFixed(2)} ₴`;
+}
+
+function getSuggestedAmountUah(order: OrderOption): string {
+  const { uah } = getOrderAmounts(order);
+  return uah > 0 ? uah.toFixed(2) : "";
 }
 
 export default function PaymentsPage() {
@@ -722,9 +747,6 @@ function PaymentsContent() {
 
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H1", location: "payments/page.tsx:submitSplit:start", message: "split submit started", data: { splitRows, validCount: valid.length, splitFromEditPaymentId: splitFromEditPayment?.id ?? null, splitTxId: splitTx?.id ?? null }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     if (valid.length === 0) {
       alert(t.payments.errors.splitNeedOrder);
       return;
@@ -748,9 +770,6 @@ function PaymentsContent() {
     setSplitSubmitting(true);
     try {
       if (splitFromEditPayment) {
-        // #region agent log
-        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments/page.tsx:submitSplit:request-payment-split", message: "posting payment split", data: { paymentId: splitFromEditPayment.id, allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })) }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
         await apiHttp.post(`/payments/${splitFromEditPayment.id}/split`, {
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
@@ -758,9 +777,6 @@ function PaymentsContent() {
         setSplitContactId(null);
         setSplitClientOrders([]);
       } else if (splitTx) {
-        // #region agent log
-        fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H2", location: "payments/page.tsx:submitSplit:request-allocate-split", message: "posting transaction split", data: { transactionId: splitTx.id, allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })) }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
         await apiHttp.post("/payments/allocate-split", {
           transactionId: splitTx.id,
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
@@ -775,13 +791,7 @@ function PaymentsContent() {
       setSplitOrderForRowIndex(null);
       setSplitOrderSearch("");
       await fetchPayments();
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H3", location: "payments/page.tsx:submitSplit:success", message: "split submit success", data: { refreshedAfterSplit: true }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
     } catch (e) {
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "2b5c5a" }, body: JSON.stringify({ sessionId: "2b5c5a", runId: "pre-fix", hypothesisId: "H4", location: "payments/page.tsx:submitSplit:error", message: "split submit failed", data: { error: e instanceof Error ? e.message : String(e) }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
       alert(e instanceof Error ? e.message : t.payments.errors.splitFailed);
     } finally {
       setSplitSubmitting(false);
@@ -834,6 +844,22 @@ function PaymentsContent() {
       await fetchPayments();
     } catch (e) {
       alert(e instanceof Error ? e.message : t.payments.errors.updateFailed);
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const submitUnallocate = async () => {
+    if (!editPayment) return;
+    if (editPayment.sourceType !== "BANK") return;
+    setSavingPayment(true);
+    try {
+      await apiHttp.delete(`/payments/${editPayment.id}/allocation`);
+      setEditPayment(null);
+      await fetchUnmatched();
+      await fetchPayments();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : t.payments.errors.unallocateFailed);
     } finally {
       setSavingPayment(false);
     }
@@ -1644,7 +1670,7 @@ function PaymentsContent() {
                               }`}
                             >
                               {o.orderNumber}
-                              {o.totalAmount != null ? ` · ${o.totalAmount}` : ""}
+                              {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
                               {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
                                 ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
                                 : ""}
@@ -1756,6 +1782,7 @@ function PaymentsContent() {
                                               ...next[idx]!,
                                               orderId: o.id,
                                               orderNumber: o.orderNumber,
+                                              amount: getSuggestedAmountUah(o),
                                             };
                                             return next;
                                           });
@@ -1766,7 +1793,7 @@ function PaymentsContent() {
                                         className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
                                       >
                                         {o.orderNumber}
-                                        {o.totalAmount != null ? ` · ${o.totalAmount}` : ""}
+                                        {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
                                         {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
                                           ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
                                           : ""}
@@ -1798,7 +1825,12 @@ function PaymentsContent() {
                                   onClick={() => {
                                     setSplitRows((prev) => {
                                       const next = [...prev];
-                                      next[idx] = { ...next[idx]!, orderId: o.id, orderNumber: o.orderNumber };
+                                      next[idx] = {
+                                        ...next[idx]!,
+                                        orderId: o.id,
+                                        orderNumber: o.orderNumber,
+                                        amount: getSuggestedAmountUah(o),
+                                      };
                                       return next;
                                     });
                                     setSplitOrderForRowIndex(null);
@@ -1808,6 +1840,7 @@ function PaymentsContent() {
                                   className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
                                 >
                                   {o.orderNumber}
+                                  {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
                                 </button>
                               </li>
                             ))}
@@ -2145,6 +2178,16 @@ function PaymentsContent() {
               />
             </div>
             <div className="mt-5 flex justify-end gap-2">
+              {editPayment.sourceType === "BANK" && (
+                <button
+                  type="button"
+                  onClick={() => void submitUnallocate()}
+                  disabled={savingPayment}
+                  className="mr-auto rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                >
+                  {savingPayment ? t.payments.unallocating : t.payments.unallocate}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setEditPayment(null)}

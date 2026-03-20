@@ -109,6 +109,8 @@ export const en = {
     distributeFailed: "Distribute failed",
     distributing: "Distributing…",
     splitAcrossOrders: (n: number) => `Distribute across orders (${n})`,
+    unallocate: "Cancel allocation",
+    unallocating: "Cancelling allocation…",
     errors: {
       loadPayments: "Failed to load payments",
       load: "Failed to load",
@@ -126,6 +128,7 @@ export const en = {
       updateFailed: "Update failed",
       noAmountsSplit: "No amounts to distribute",
       invalidAmount: "Invalid amount",
+      unallocateFailed: "Failed to cancel allocation",
     },
   },
 } as const;

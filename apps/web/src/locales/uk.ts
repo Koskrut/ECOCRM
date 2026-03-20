@@ -111,6 +111,8 @@ export const uk = {
     distributeFailed: "Не вдалося розподілити",
     distributing: "Розподіл…",
     splitAcrossOrders: (n: number) => `Розподілити по замовленнях (${n})`,
+    unallocate: "Скасувати прив’язку",
+    unallocating: "Скасування прив’язки…",
     errors: {
       loadPayments: "Не вдалося завантажити платежі",
       load: "Не вдалося завантажити",
@@ -128,6 +130,7 @@ export const uk = {
       invalidAmount: "Некоректна сума",
       splitTotal: (total: string, expected: string, cur: string) =>
         `Разом ${total} має дорівнювати ${expected} ${cur}`,
+      unallocateFailed: "Не вдалося скасувати прив’язку",
     },
   },
 } as const;

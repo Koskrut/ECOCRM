@@ -270,6 +270,7 @@ export class OrdersService {
           returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
           paidAmount: o.paidAmount,
           debtAmount: o.debtAmount,
+          exchangeRate: o.exchangeRate ?? null,
           paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
           isPaid: paidAmount >= totalAmount && totalAmount > 0,
           currency: o.currency,
