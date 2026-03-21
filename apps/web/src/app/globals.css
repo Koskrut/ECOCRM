@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Явне сканування (v4): уникнути пропуску класів у рідких маршрутах */
+@source "../**/*.{js,ts,jsx,tsx,mdx}";
 
 @theme {
   /* Accent: голубой–синий градиент; solid для focus */
