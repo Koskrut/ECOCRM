@@ -18,6 +18,7 @@ import {
   autocompleteAddress,
   geocodePlace,
   geocodeText,
+  mergeFormattedAddressWithUserDetail,
   type PlaceSuggestion,
 } from "@/lib/googlePlacesNew";
 
@@ -935,6 +936,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const handleSelectAddressSuggestion = useCallback(
     async (suggestion: PlaceSuggestion) => {
       if (!mapsApiKey) return;
+      const userTypedBeforeSelect = address.trim();
       setAddress(suggestion.description);
       setAddressSuggestions([]);
       setShowAddressSuggestions(false);
@@ -946,15 +948,19 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           setAddressError("Address service temporarily unavailable.");
           return;
         }
+        const merged = mergeFormattedAddressWithUserDetail(
+          userTypedBeforeSelect,
+          result.formattedAddress || suggestion.description,
+        );
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);
-        setAddress(result.formattedAddress || suggestion.description);
+        setAddress(merged);
         setAddressStatus("google");
         if (!isCreate) {
           try {
             await patchContact({
-              address: result.formattedAddress || suggestion.description,
+              address: merged,
               lat: result.lat,
               lng: result.lng,
               googlePlaceId: result.placeId,
@@ -970,7 +976,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         setIsGeocodeLoading(false);
       }
     },
-    [isCreate, mapsApiKey, patchContact],
+    [address, isCreate, mapsApiKey, patchContact],
   );
 
   const geocodeFromAddressText = useCallback(
@@ -987,15 +993,17 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           setAddressError("Address service temporarily unavailable.");
           return;
         }
+        const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);
-        setAddress(result.formattedAddress || query);
+        setAddress(merged);
         setAddressStatus("geocoded");
+        lastGeocodedAddressRef.current = merged.trim();
         if (!isCreate) {
           try {
             await patchContact({
-              address: result.formattedAddress || query,
+              address: merged,
               lat: result.lat,
               lng: result.lng,
               googlePlaceId: result.placeId,

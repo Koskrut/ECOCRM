@@ -39,6 +39,67 @@ type PlacesSearchTextResponse = {
 
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 
+/** Prefer full addresses / buildings; `route` keeps partial street matches while typing. */
+export const ADDRESS_AUTOCOMPLETE_PRIMARY_TYPES = [
+  "street_address",
+  "premise",
+  "subpremise",
+  "route",
+] as const;
+
+/** Building numbers from user input (UA/RU/Latin), e.g. 15, 15А, 15/2 */
+const HOUSE_NUMBER_RE =
+  /\b\d{1,4}[а-яА-Яa-zA-ZёЁіІїЇєЄ]?(?:\/\d+[а-яА-Яa-zA-ZёЁіІїЇєЄ]?)?\b/gu;
+
+function normalizeAddressCompare(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Keeps house numbers (and similar tokens) the user typed when Google returns only a street/city line.
+ */
+export function mergeFormattedAddressWithUserDetail(
+  userTyped: string,
+  apiFormatted: string,
+): string {
+  const user = userTyped.trim();
+  const api = apiFormatted.trim();
+  if (!api) return user || api;
+  if (!user) return api;
+
+  const apiNorm = normalizeAddressCompare(api);
+  const userNorm = normalizeAddressCompare(user);
+
+  if (userNorm.length > apiNorm.length && userNorm.includes(apiNorm)) {
+    return user;
+  }
+
+  const tokens = [...user.matchAll(HOUSE_NUMBER_RE)].map((m) => m[0]);
+  const missing = tokens.filter((t) => {
+    const tn = normalizeAddressCompare(t);
+    if (!tn) return false;
+    return !new RegExp(`(^|[\\s,])${escapeRegExp(tn)}($|[\\s,])`).test(apiNorm);
+  });
+  if (missing.length === 0) return api;
+
+  const commaIdx = api.indexOf(",");
+  if (commaIdx === -1) {
+    return `${api} ${missing.join(" ")}`.trim();
+  }
+  const first = api.slice(0, commaIdx).trim();
+  const rest = api.slice(commaIdx).trim();
+  return `${first} ${missing.join(" ")}${rest.startsWith(",") ? "" : ", "}${rest}`.trim();
+}
+
 function buildPlacesHeaders(mapsApiKey: string, fieldMask?: string) {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -51,22 +112,48 @@ function buildPlacesHeaders(mapsApiKey: string, fieldMask?: string) {
 export async function autocompleteAddress(
   mapsApiKey: string,
   input: string,
-  opts?: { languageCode?: string; regionCode?: string; limit?: number },
+  opts?: {
+    languageCode?: string;
+    regionCode?: string;
+    limit?: number;
+    /** Empty = no type filter (legacy behavior). Default = address-oriented types. */
+    includedPrimaryTypes?: readonly string[];
+  },
 ): Promise<PlaceSuggestion[]> {
   const query = input.trim();
   if (!query || !mapsApiKey) return [];
+
+  const primaryTypes =
+    opts?.includedPrimaryTypes !== undefined
+      ? opts.includedPrimaryTypes
+      : ADDRESS_AUTOCOMPLETE_PRIMARY_TYPES;
 
   const body = {
     input: query,
     languageCode: opts?.languageCode ?? "ru",
     ...(opts?.regionCode ? { includedRegionCodes: [opts.regionCode] } : {}),
+    ...(primaryTypes.length > 0 ? { includedPrimaryTypes: [...primaryTypes] } : {}),
   };
 
-  const res = await fetch(`${PLACES_BASE_URL}/places:autocomplete`, {
-    method: "POST",
-    headers: buildPlacesHeaders(mapsApiKey),
-    body: JSON.stringify(body),
-  });
+  const tryFetch = async (payload: Record<string, unknown>) =>
+    fetch(`${PLACES_BASE_URL}/places:autocomplete`, {
+      method: "POST",
+      headers: buildPlacesHeaders(mapsApiKey),
+      body: JSON.stringify(payload),
+    });
+
+  let res = await tryFetch(body);
+
+  if (!res.ok && primaryTypes.length > 0) {
+    const errPayload = await safeJson(res);
+    console.warn("Places autocomplete failed (retry without type filter)", res.status, errPayload);
+    const fallbackBody = {
+      input: query,
+      languageCode: opts?.languageCode ?? "ru",
+      ...(opts?.regionCode ? { includedRegionCodes: [opts.regionCode] } : {}),
+    };
+    res = await tryFetch(fallbackBody);
+  }
 
   if (!res.ok) {
     console.warn("Places autocomplete failed", res.status, await safeJson(res));

@@ -17,6 +17,7 @@ import {
   autocompleteAddress,
   geocodePlace,
   geocodeText,
+  mergeFormattedAddressWithUserDetail,
   type PlaceSuggestion,
 } from "@/lib/googlePlacesNew";
 
@@ -421,6 +422,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const handleSelectAddressSuggestion = useCallback(
     async (suggestion: PlaceSuggestion, forCreate: boolean) => {
       if (!mapsApiKey) return;
+      const userTypedBeforeSelect = (forCreate ? address : editAddress).trim();
       if (forCreate) {
         setAddress(suggestion.description);
       } else {
@@ -436,18 +438,22 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           setAddressError("Address service temporarily unavailable.");
           return;
         }
+        const merged = mergeFormattedAddressWithUserDetail(
+          userTypedBeforeSelect,
+          result.formattedAddress || suggestion.description,
+        );
         if (forCreate) {
           setLat(result.lat);
           setLng(result.lng);
           setGooglePlaceId(result.placeId);
-          setAddress(result.formattedAddress || suggestion.description);
+          setAddress(merged);
         } else {
           setEditLat(result.lat);
           setEditLng(result.lng);
           setEditGooglePlaceId(result.placeId);
-          setEditAddress(result.formattedAddress || suggestion.description);
+          setEditAddress(merged);
           void patchCompany({
-            address: result.formattedAddress || suggestion.description,
+            address: merged,
             lat: result.lat,
             lng: result.lng,
             googlePlaceId: result.placeId,
@@ -460,7 +466,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         setIsGeocodeLoading(false);
       }
     },
-    [mapsApiKey, patchCompany],
+    [address, editAddress, mapsApiKey, patchCompany],
   );
 
   const geocodeFromAddressText = useCallback(
@@ -477,18 +483,20 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           setAddressError("Address service temporarily unavailable.");
           return;
         }
+        const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
+        lastGeocodedAddressRef.current = merged.trim();
         if (forCreate) {
           setLat(result.lat);
           setLng(result.lng);
           setGooglePlaceId(result.placeId);
-          setAddress(result.formattedAddress || query);
+          setAddress(merged);
         } else {
           setEditLat(result.lat);
           setEditLng(result.lng);
           setEditGooglePlaceId(result.placeId);
-          setEditAddress(result.formattedAddress || query);
+          setEditAddress(merged);
           void patchCompany({
-            address: result.formattedAddress || query,
+            address: merged,
             lat: result.lat,
             lng: result.lng,
             googlePlaceId: result.placeId,
