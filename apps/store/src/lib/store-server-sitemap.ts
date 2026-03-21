@@ -23,7 +23,7 @@ export async function fetchAllActiveStoreProductIds(): Promise<string[]> {
       url.searchParams.set("pageSize", String(PAGE_SIZE));
 
       const res = await fetch(url.toString(), {
-        next: { revalidate: 3600 },
+        cache: "no-store",
       });
 
       if (!res.ok) {

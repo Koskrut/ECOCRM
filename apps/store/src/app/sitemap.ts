@@ -2,8 +2,7 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
 import { fetchAllActiveStoreProductIds } from "@/lib/store-server-sitemap";
 
-/** Regenerate sitemap periodically; aligns with product list fetch revalidate. */
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
