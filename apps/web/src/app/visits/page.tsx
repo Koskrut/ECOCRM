@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
+import { Save } from "lucide-react";
 
 type GoogleMapsPublicConfig = {
   mapsApiKey: string | null;
@@ -679,7 +680,7 @@ export default function VisitsPage() {
   return (
     <div ref={visitsRootRef} className="flex min-h-screen flex-col bg-zinc-50">
       <div className="border-b border-zinc-200 bg-white px-4 py-2 sm:px-6 sm:py-3">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-2">
               <h1 className="text-lg font-semibold text-zinc-900 sm:text-xl">Visits planning</h1>
@@ -695,10 +696,36 @@ export default function VisitsPage() {
             <button
               type="button"
               onClick={() => setMapSheetOpen(true)}
-              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 md:hidden"
             >
               Карта
             </button>
+            <div className="flex flex-wrap items-center gap-2 px-0 py-1 sm:py-1.5">
+              <button
+                type="button"
+                onClick={handlePrevDay}
+                className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm hover:bg-zinc-50"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={handleToday}
+                className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50"
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                onClick={handleNextDay}
+                className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm hover:bg-zinc-50"
+              >
+                →
+              </button>
+              <div className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm tabular-nums text-zinc-700">
+                {format(date, "yyyy-MM-dd")}
+              </div>
+            </div>
             {!routeSessionState?.session?.isActive ? (
               <button
                 type="button"
@@ -941,8 +968,8 @@ export default function VisitsPage() {
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 p-4 md:flex-row">
-        <div className="flex w-full min-w-0 flex-col gap-3 md:w-[42%] md:max-w-md">
+      <div className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(260px,340px)] md:items-stretch">
+        <div className="flex min-w-0 flex-col gap-3">
         <section className="flex min-h-[280px] w-full flex-col rounded-lg border border-zinc-200 bg-white md:min-h-0">
           <div className="border-b border-zinc-200 px-3 py-2">
             <div className="text-sm font-semibold text-zinc-900">Backlog (planned, unscheduled)</div>
@@ -1065,67 +1092,69 @@ export default function VisitsPage() {
                     }}
                     onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
                     className={[
-                      "group/card relative cursor-grab rounded-md border px-2 py-1.5 pb-6 pr-12 text-xs shadow-sm hover:bg-zinc-100",
+                      "group/card relative cursor-grab rounded-md border px-2 py-1.5 pr-[7.5rem] text-xs shadow-sm hover:bg-zinc-100",
                       routeSessionState?.session?.isActive && routeSessionState.session.currentVisitId === v.id
                         ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
                         : "border-zinc-200 bg-zinc-50",
                     ].join(" ")}
                   >
-                    <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 absolute right-1 top-1 z-[1] flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
-                          if (!slot) {
-                            alert(
-                              "На выбранный день нет свободного окна под длительность этого визита.",
-                            );
-                            return;
-                          }
-                          handleDropToSlot(v, slot);
-                          requestAnimationFrame(() => {
-                            scheduleSectionRef.current?.scrollIntoView({
-                              behavior: "smooth",
-                              block: "nearest",
+                    <div className="absolute right-1 top-1 z-[1] flex items-center gap-1">
+                      <span className="shrink-0 rounded-md bg-zinc-200/90 px-1.5 py-1 text-[10px] font-semibold tabular-nums leading-none text-zinc-900">
+                        {v.durationMin ?? 60} мин
+                      </span>
+                      <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
+                            if (!slot) {
+                              alert(
+                                "На выбранный день нет свободного окна под длительность этого визита.",
+                              );
+                              return;
+                            }
+                            handleDropToSlot(v, slot);
+                            requestAnimationFrame(() => {
+                              scheduleSectionRef.current?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "nearest",
+                              });
                             });
-                          });
-                        }}
-                        className="rounded p-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
-                        title="На ближайшее свободное время в выбранный день"
-                        aria-label="На ближайшее свободное время в выбранный день"
-                      >
-                        ↓
-                      </button>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleRemoveVisit(v);
-                        }}
-                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600"
-                        title="Remove visit"
-                        aria-label="Remove visit"
-                      >
-                        ×
-                      </button>
+                          }}
+                          className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-sm font-semibold leading-none text-emerald-700 hover:bg-emerald-100"
+                          title="На ближайшее свободное время в выбранный день"
+                          aria-label="На ближайшее свободное время в выбранный день"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleRemoveVisit(v);
+                          }}
+                          className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-base font-medium leading-none text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
+                          title="Remove visit"
+                          aria-label="Remove visit"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
-                    <span className="absolute bottom-1 right-1 z-[1] rounded bg-zinc-200/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-zinc-900">
-                      {v.durationMin ?? 60} мин
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-baseline justify-between gap-2">
-                        <span className="min-w-0 flex-1 truncate font-medium leading-tight text-zinc-900">
+                    <div className="min-w-0 w-full">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="min-w-0 truncate font-medium leading-tight text-zinc-900">
                           {nameLine}
                         </span>
-                        <span className="max-w-[48%] shrink-0 truncate text-right text-[11px] tabular-nums text-zinc-600">
+                        <span className="min-w-0 truncate text-[11px] tabular-nums text-zinc-600">
                           {v.phone ?? "—"}
                         </span>
                       </div>
-                      <div className="mt-1 min-w-0 pr-10 text-[11px] leading-snug text-zinc-600">
-                        <div className="line-clamp-2">
+                      <div className="mt-1 w-full min-w-0 text-[11px] leading-snug text-zinc-600">
+                        <div className="line-clamp-2 break-words">
                           {v.addressText?.trim() ? (
                             v.addressText
                           ) : (
@@ -1133,7 +1162,7 @@ export default function VisitsPage() {
                           )}
                         </div>
                         {v.purpose?.trim() ? (
-                          <div className="mt-0.5 line-clamp-2 text-zinc-700">{v.purpose}</div>
+                          <div className="mt-0.5 line-clamp-2 break-words text-zinc-700">{v.purpose}</div>
                         ) : null}
                       </div>
                     </div>
@@ -1143,66 +1172,50 @@ export default function VisitsPage() {
             )}
           </div>
         </section>
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2">
-          <button
-            type="button"
-            onClick={handlePrevDay}
-            className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
-          >
-            ←
-          </button>
-          <button
-            type="button"
-            onClick={handleToday}
-            className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-50"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={handleNextDay}
-            className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
-          >
-            →
-          </button>
-          <div className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700">
-            {format(date, "yyyy-MM-dd")}
-          </div>
-        </div>
         </div>
 
         <section
-          ref={scheduleSectionRef}
-          className={[
-            "flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border bg-white transition-shadow",
-            isDraggingFromBacklog
-              ? "border-blue-400 ring-2 ring-blue-200 ring-offset-2 ring-offset-zinc-50"
-              : "border-zinc-200",
-          ].join(" ")}
-        >
-          <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Day schedule</div>
-              {dayConflicts.size > 0 && (
-                <div className="mt-0.5 text-xs text-amber-600">
-                  Some visits overlap in time — please review.
-                </div>
-              )}
+            ref={scheduleSectionRef}
+            className={[
+              "flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border bg-white transition-shadow md:min-h-0",
+              isDraggingFromBacklog
+                ? "border-blue-400 ring-2 ring-blue-200 ring-offset-2 ring-offset-zinc-50"
+                : "border-zinc-200",
+            ].join(" ")}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Day schedule</div>
+                {dayConflicts.size > 0 && (
+                  <div className="mt-0.5 text-xs text-amber-600">
+                    Some visits overlap in time — please review.
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveRoute()}
+                disabled={savingRoute || hasScheduledWithoutCoords || scheduledVisits.length === 0}
+                title={
+                  hasScheduledWithoutCoords
+                    ? "Укажите точки для всех"
+                    : savingRoute
+                      ? "Сохранение…"
+                      : "Сохранить маршрут"
+                }
+                className="inline-flex shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 p-2 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Save className="h-4 w-4" aria-hidden />
+                <span className="sr-only">
+                  {hasScheduledWithoutCoords
+                    ? "Укажите точки для всех"
+                    : savingRoute
+                      ? "Сохранение маршрута"
+                      : "Сохранить маршрут"}
+                </span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleSaveRoute()}
-              disabled={savingRoute || hasScheduledWithoutCoords || scheduledVisits.length === 0}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {hasScheduledWithoutCoords
-                ? "Укажите точки для всех"
-                : savingRoute
-                  ? "Saving…"
-                  : "Save route"}
-            </button>
-          </div>
-          <div className="flex flex-1 overflow-auto">
+            <div className="flex flex-1 overflow-auto">
             {(() => {
               const dayStart = slots[0]?.start;
               const dayEnd = slots[slots.length - 1]?.end;
@@ -1501,6 +1514,41 @@ export default function VisitsPage() {
                 </>
               );
             })()}
+            </div>
+          </section>
+
+        <section
+          className="max-md:hidden flex min-h-0 min-w-0 flex-col rounded-lg border border-zinc-200 bg-white md:min-h-[min(560px,calc(100vh-200px))]"
+          aria-label="Карта маршрута"
+        >
+          <div className="shrink-0 border-b border-zinc-200 px-3 py-2">
+            <div className="text-sm font-semibold text-zinc-900">Карта</div>
+            {routePlan && routePlan.stops?.length ? (
+              <div className="text-[11px] text-zinc-500">
+                Маршрут сохранён ({routePlan.stops.length} остановок)
+              </div>
+            ) : (
+              <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
+            )}
+          </div>
+          <div className="relative min-h-[280px] flex-1 p-2">
+            {mapsConfigError ? (
+              <div className="flex h-full min-h-[200px] items-center justify-center px-3 text-center text-xs text-amber-600">
+                {mapsConfigError}
+              </div>
+            ) : !mapsApiKey ? (
+              <div className="flex h-full min-h-[200px] items-center justify-center px-3 text-center text-xs text-zinc-500">
+                Loading Google Maps configuration…
+              </div>
+            ) : (
+              <VisitsMapContent
+                mapsApiKey={mapsApiKey}
+                centerLatLng={centerLatLng}
+                scheduledVisits={scheduledVisits}
+                onMarkerDragEnd={handleMarkerDragEnd}
+                routeAnchors={routeAnchors}
+              />
+            )}
           </div>
         </section>
       </div>
@@ -1525,7 +1573,10 @@ export default function VisitsPage() {
       ) : null}
 
       {mapSheetOpen ? (
-        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40" role="presentation">
+        <div
+          className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40 md:hidden"
+          role="presentation"
+        >
           <button
             type="button"
             aria-label="Close map"
