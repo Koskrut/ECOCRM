@@ -1,22 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-
-type PublicPayPayload = {
-  status: string;
-  effectiveStatus: string;
-  amount: number;
-  currency: string;
-  purpose: string;
-  expiresAt: string;
-  recipientName: string;
-  iban: string;
-  edrpou: string | null;
-  mfo: string | null;
-  bankName: string | null;
-  nbuDeeplink: string;
-  qrPngDataUrl: string;
-};
+import React from "react";
+import type { PublicPayPayload } from "./public-pay.types";
 
 const STATUS_UA: Record<string, string> = {
   PENDING: "Очікує оплату",
@@ -25,104 +10,13 @@ const STATUS_UA: Record<string, string> = {
   CANCELED: "Скасовано",
 };
 
-export function PayPageClient({ token }: { token: string }) {
-  const [data, setData] = useState<PublicPayPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      const ac = new AbortController();
-      const tid = setTimeout(() => ac.abort(), 35_000);
-      const apiPath = `/api/public/payment-requests/${encodeURIComponent(token)}`;
-      const fetchUrl =
-        typeof window !== "undefined" ? `${window.location.origin}${apiPath}` : apiPath;
-      // #region agent log
-      void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
-        body: JSON.stringify({
-          sessionId: "c6a409",
-          hypothesisId: "H2",
-          location: "PayPageClient.tsx:fetchStart",
-          message: "public pay fetch",
-          data: { tokenLen: token.length, fetchUrlLen: fetchUrl.length, origin: typeof window !== "undefined" ? window.location.origin : "" },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      try {
-        const r = await fetch(fetchUrl, {
-          cache: "no-store",
-          credentials: "omit",
-          signal: ac.signal,
-        });
-        // #region agent log
-        void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
-          body: JSON.stringify({
-            sessionId: "c6a409",
-            hypothesisId: "H2",
-            location: "PayPageClient.tsx:fetchDone",
-            message: "public pay response",
-            data: { ok: r.ok, status: r.status },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        if (!r.ok) {
-          if (r.status === 404) {
-            setError("Посилання не знайдено.");
-          } else {
-            setError((await r.text()) || `Помилка ${r.status}`);
-          }
-          setData(null);
-          return;
-        }
-        const j = (await r.json()) as PublicPayPayload;
-        if (!cancelled) setData(j);
-      } catch (e) {
-        // #region agent log
-        void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
-          body: JSON.stringify({
-            sessionId: "c6a409",
-            hypothesisId: "H2",
-            location: "PayPageClient.tsx:fetchCatch",
-            message: "public pay error",
-            data: {
-              name: e instanceof Error ? e.name : "unknown",
-              msg: e instanceof Error ? String(e.message).slice(0, 120) : "non-Error",
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        if (!cancelled) {
-          const aborted = e instanceof Error && e.name === "AbortError";
-          setError(
-            aborted
-              ? "Час очікування вичерпано. Перевірте зв’язок і оновіть сторінку."
-              : e instanceof Error
-                ? e.message
-                : "Помилка мережі",
-          );
-        }
-      } finally {
-        clearTimeout(tid);
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
+export function PayPageClient({
+  initialData,
+  initialError,
+}: {
+  initialData: PublicPayPayload | null;
+  initialError: string | null;
+}) {
   const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -130,6 +24,9 @@ export function PayPageClient({ token }: { token: string }) {
       /* ignore */
     }
   };
+
+  const data = initialData;
+  const error = initialError;
 
   return (
     <div className="min-h-dvh bg-zinc-50 px-4 py-8 text-zinc-900">
@@ -139,9 +36,7 @@ export function PayPageClient({ token }: { token: string }) {
           <p className="mt-1 text-xs text-zinc-500">ECOCRM — безпечне посилання на оплату</p>
         </div>
 
-        {loading ? (
-          <p className="text-center text-sm text-zinc-500">Завантаження…</p>
-        ) : error ? (
+        {error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm text-red-800">{error}</div>
         ) : data ? (
           <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
