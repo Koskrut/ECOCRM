@@ -6,6 +6,7 @@ import { StoreConfigProvider } from "@/context/StoreConfigContext";
 import { Header } from "@/components/Header";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
+import { SITE_URL } from "@/lib/site";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,10 +23,8 @@ const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
 });
 
-const BASE_URL = "https://www.suprex.dental";
-
 export const metadata: Metadata = {
-  metadataBase: new URL(BASE_URL),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "SUPREX — стоматологічні компоненти сумісності",
     template: "%s | SUPREX",
@@ -37,7 +36,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     type: "website",
-    url: BASE_URL,
+    url: SITE_URL,
     siteName: "SUPREX",
     locale: "uk_UA",
     title: "SUPREX — стоматологічні компоненти сумісності",
