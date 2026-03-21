@@ -1,8 +1,11 @@
 import type { NextRequest } from "next/server";
-import { proxy, config as proxyConfig } from "./src/proxy";
+import { proxy } from "./src/proxy";
 
 export function middleware(req: NextRequest) {
   return proxy(req);
 }
 
-export const config = proxyConfig;
+// Must be a literal here — Next.js parses this at compile time (Turbopack).
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
