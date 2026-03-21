@@ -348,6 +348,7 @@ export function OrderPaymentBlock({
           orderId={orderId}
           orderNumber={orderNumber}
           currency={currency}
+          exchangeRate={exchangeRate}
           debtAmount={debtAmount}
           onClose={() => setShowPayLinkModal(false)}
           onCreated={async () => {
@@ -374,6 +375,7 @@ type CreatePaymentLinkModalProps = {
   orderId: string;
   orderNumber: string;
   currency: string;
+  exchangeRate?: number | null;
   debtAmount: number;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
@@ -384,18 +386,32 @@ function CreatePaymentLinkModal({
   orderId,
   orderNumber,
   currency,
+  exchangeRate,
   debtAmount,
   onClose,
   onCreated,
 }: CreatePaymentLinkModalProps) {
-  const [amount, setAmount] = useState(() =>
-    debtAmount > 0 ? String(debtAmount.toFixed(2)) : "",
-  );
+  const [amount, setAmount] = useState(() => {
+    if (debtAmount <= 0) return "";
+    if (currency === "USD" && exchangeRate != null && exchangeRate > 0) {
+      return String((Math.round(debtAmount * exchangeRate * 100) / 100).toFixed(2));
+    }
+    return String(debtAmount.toFixed(2));
+  });
   const [purpose, setPurpose] = useState(() => `Оплата замовлення ${orderNumber}`);
   const [expiresLocal, setExpiresLocal] = useState(defaultExpiresLocal);
   const [receiverCode, setReceiverCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const parsedAmountForPreview = parseFloat(amount.replace(/,/g, "."));
+  const usdEquivalent =
+    currency === "USD" &&
+    exchangeRate != null &&
+    exchangeRate > 0 &&
+    Number.isFinite(parsedAmountForPreview)
+      ? Math.round((parsedAmountForPreview / exchangeRate) * 100) / 100
+      : null;
 
   const submit = async () => {
     const num = parseFloat(amount.replace(/,/g, "."));
@@ -471,7 +487,9 @@ function CreatePaymentLinkModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Сума ({currency})</label>
+            <label className="block text-xs font-medium text-zinc-600">
+              {currency === "USD" || currency === "UAH" ? "Сума платежу (грн)" : `Сума (${currency})`}
+            </label>
             <input
               type="text"
               inputMode="decimal"
@@ -479,6 +497,29 @@ function CreatePaymentLinkModal({
               onChange={(e) => setAmount(e.target.value)}
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
             />
+            {currency === "USD" ? (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Сума в посиланні та QR НБУ — у гривнях (те саме, що ви вводите).
+                {exchangeRate != null && exchangeRate > 0 ? (
+                  <span className="block">
+                    Курс замовлення для довідки: {exchangeRate} ₴ за 1&nbsp;$
+                    {usdEquivalent != null ? (
+                      <span className="mt-0.5 block font-medium text-zinc-700">
+                        ≈ {usdEquivalent.toFixed(2)} $
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="block">Додайте курс у замовленні — покажемо еквівалент у $.</span>
+                )}
+              </p>
+            ) : currency === "UAH" ? (
+              <p className="mt-1 text-[11px] text-zinc-500">Сума в платіжному посиланні та QR — у гривнях (UAH).</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Сума та валюта в посиланні/QR відповідають полю вище ({currency}).
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-zinc-600">Призначення платежу</label>

@@ -205,17 +205,31 @@ export class PaymentRequestsService {
       orderCompany: order.company ?? null,
       clientCompany: order.client?.company ?? null,
     });
-    const currency = (order.currency || "UAH").trim().toUpperCase().slice(0, 3);
-    if (currency.length !== 3) {
+    const orderCurrency = (order.currency || "UAH").trim().toUpperCase().slice(0, 3);
+    if (orderCurrency.length !== 3) {
       throw new BadRequestException("Invalid order currency");
+    }
+
+    /** USD-замовлення: у CRM передають суму посилання вже в грн; UAH — без змін; інші валюти — сума та код валюти з поля. */
+    let paymentAmount: number;
+    let paymentCurrency: string;
+    if (orderCurrency === "USD") {
+      paymentAmount = Math.round(dto.amount * 100) / 100;
+      paymentCurrency = "UAH";
+    } else {
+      paymentAmount = Math.round(dto.amount * 100) / 100;
+      paymentCurrency = orderCurrency;
+    }
+    if (paymentAmount <= 0) {
+      throw new BadRequestException("Amount must be positive");
     }
 
     const nbuDeeplink = buildNbuPaymentDeeplink({
       recipientName,
       iban,
       receiverCode,
-      currency,
-      amount: dto.amount,
+      currency: paymentCurrency,
+      amount: paymentAmount,
       purpose: dto.purpose,
       displayText: dto.displayText,
     });
@@ -226,8 +240,8 @@ export class PaymentRequestsService {
       data: {
         orderId,
         status: "PENDING",
-        amount: new Prisma.Decimal(dto.amount.toFixed(2)),
-        currency,
+        amount: new Prisma.Decimal(paymentAmount.toFixed(2)),
+        currency: paymentCurrency,
         purpose: dto.purpose.trim(),
         expiresAt,
         recipientName,
