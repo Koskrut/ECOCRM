@@ -8,6 +8,7 @@ import { validateLoginDto } from "./dto/login.dto";
 import type { RegisterDto } from "./dto/register.dto";
 import { validateRegisterDto } from "./dto/register.dto";
 import type { ValidationError } from "../common/validation";
+import { PrismaService } from "../prisma/prisma.service";
 
 const assertValid = (errors: ValidationError[]): void => {
   if (errors.length === 0) {
@@ -19,7 +20,10 @@ const assertValid = (errors: ValidationError[]): void => {
 
 @Controller("/auth")
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly authService: AuthService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Public()
   @Post("/register")
@@ -101,8 +105,24 @@ export class AuthController {
       throw new BadRequestException("User not found in request");
     }
 
+    const extra = await this.prisma.user.findUnique({
+      where: { id: request.user.id },
+      select: {
+        routeStartLat: true,
+        routeStartLng: true,
+        routeEndLat: true,
+        routeEndLng: true,
+        routeStartLabel: true,
+        routeEndLabel: true,
+        leadId: true,
+      },
+    });
+
     return {
-      user: request.user,
+      user: {
+        ...request.user,
+        ...extra,
+      },
     };
   }
 }

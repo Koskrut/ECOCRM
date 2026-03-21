@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
   visitsApi,
@@ -45,6 +46,7 @@ type VisitsMapContentProps = {
   centerLatLng: { lat: number; lng: number };
   scheduledVisits: Visit[];
   onMarkerDragEnd: (visit: Visit, e: google.maps.MapMouseEvent) => void;
+  routeAnchors?: { start?: { lat: number; lng: number }; end?: { lat: number; lng: number } };
 };
 
 function computeVisitLayout(visits: VisitInterval[]): Map<string, VisitLayout> {
@@ -106,11 +108,68 @@ function isOverlapping(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): bool
   return aStart < bEnd && bStart < aEnd;
 }
 
+/** First timeline slot on `selectedDate` where the visit fits without overlapping scheduled visits; from now onward if the selected day is today. */
+/** Русский порядок: фамилия, имя, отчество. */
+function formatContactNameLastFirst(c: {
+  lastName: string;
+  firstName: string;
+  middleName?: string | null;
+}): string {
+  return [c.lastName, c.firstName, c.middleName]
+    .filter((s) => Boolean(s?.trim()))
+    .join(" ")
+    .trim();
+}
+
+function findNearestAvailableSlot(
+  visit: Visit,
+  slots: TimelineSlot[],
+  scheduledOnDay: Visit[],
+  selectedDate: Date,
+): TimelineSlot | null {
+  const durationMin = visit.durationMin ?? 60;
+  const durationMs = durationMin * 60 * 1000;
+  const dayStart = slots[0]?.start;
+  const dayEnd = slots[slots.length - 1]?.end;
+  if (!dayStart || !dayEnd) return null;
+
+  const selectedStr = format(selectedDate, "yyyy-MM-dd");
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const isSelectedToday = selectedStr === todayStr;
+
+  const intervals = scheduledOnDay
+    .filter((v) => v.startsAt && v.endsAt)
+    .map((v) => ({
+      s: new Date(v.startsAt!).getTime(),
+      e: new Date(v.endsAt!).getTime(),
+    }))
+    .sort((a, b) => a.s - b.s);
+
+  const overlaps = (startMs: number, endMs: number) => {
+    for (const iv of intervals) {
+      if (startMs < iv.e && endMs > iv.s) return true;
+    }
+    return false;
+  };
+
+  const minStartMs = isSelectedToday ? Math.max(dayStart.getTime(), Date.now()) : dayStart.getTime();
+
+  for (const slot of slots) {
+    const startMs = slot.start.getTime();
+    if (startMs < minStartMs) continue;
+    const endMs = startMs + durationMs;
+    if (endMs > dayEnd.getTime()) break;
+    if (!overlaps(startMs, endMs)) return slot;
+  }
+  return null;
+}
+
 function VisitsMapContent({
   mapsApiKey,
   centerLatLng,
   scheduledVisits,
   onMarkerDragEnd,
+  routeAnchors,
 }: VisitsMapContentProps) {
   const { isLoaded, loadError } = useLoadScript({
     id: "google-map-script",
@@ -144,6 +203,14 @@ function VisitsMapContent({
         fullscreenControl: false,
       }}
     >
+      {routeAnchors?.start ? (
+        <Marker position={routeAnchors.start} label="A" />
+      ) : null}
+      {routeAnchors?.end &&
+      (routeAnchors.end.lat !== routeAnchors.start?.lat ||
+        routeAnchors.end.lng !== routeAnchors.start?.lng) ? (
+        <Marker position={routeAnchors.end} label="B" />
+      ) : null}
       {scheduledVisits
         .filter((v) => v.lat != null && v.lng != null)
         .map((v, idx) => (
@@ -184,13 +251,62 @@ export default function VisitsPage() {
   const [hoverSlotKey, setHoverSlotKey] = useState<string | null>(null);
   const [hoveredVisitId, setHoveredVisitId] = useState<string | null>(null);
 
+  const scheduleSectionRef = useRef<HTMLElement | null>(null);
+  const visitsRootRef = useRef<HTMLDivElement | null>(null);
+  const dragSessionRef = useRef(0);
+  const cancelledDragSessionRef = useRef<number | null>(null);
+
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [mapsConfigError, setMapsConfigError] = useState<string | null>(null);
+  const [mapSheetOpen, setMapSheetOpen] = useState(false);
+  const [routeAnchors, setRouteAnchors] = useState<{
+    start?: { lat: number; lng: number };
+    end?: { lat: number; lng: number };
+  }>({});
+
+  const [pendingSchedule, setPendingSchedule] = useState<{
+    visit: Visit;
+    slot: TimelineSlot;
+  } | null>(null);
+  const [purposeDraft, setPurposeDraft] = useState("");
+
+  const [contactQuery, setContactQuery] = useState("");
+  const [contactHits, setContactHits] = useState<
+    { id: string; firstName: string; lastName: string; phone: string }[]
+  >([]);
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
+  const [newVisitPurpose, setNewVisitPurpose] = useState("");
+  const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
+  const [pendingContactId, setPendingContactId] = useState<string | null>(null);
 
   const dateParam = useMemo(() => format(date, "yyyy-MM-dd"), [date]);
   const slots = useMemo(() => getSlotsForDate(date), [date]);
 
   const scheduledVisits = dayVisits;
+
+  const isDraggingFromBacklog = useMemo(
+    () => dragVisitId != null && backlog.some((v) => v.id === dragVisitId),
+    [dragVisitId, backlog],
+  );
+
+  const cancelBacklogDrag = useCallback(() => {
+    if (!isDraggingFromBacklog) return;
+    cancelledDragSessionRef.current = dragSessionRef.current;
+    setDragVisitId(null);
+    setHoverSlotKey(null);
+  }, [isDraggingFromBacklog]);
+
+  useEffect(() => {
+    if (!isDraggingFromBacklog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        cancelBacklogDrag();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDraggingFromBacklog, cancelBacklogDrag]);
 
   const hasScheduledWithoutCoords = scheduledVisits.some((v) => v.lat == null || v.lng == null);
 
@@ -245,7 +361,53 @@ export default function VisitsPage() {
     void loadData();
   }, [loadData]);
 
-  const handleDropToSlot = async (visit: Visit, slot: TimelineSlot) => {
+  useEffect(() => {
+    apiHttp
+      .get<{
+        user?: {
+          routeStartLat?: number | null;
+          routeStartLng?: number | null;
+          routeEndLat?: number | null;
+          routeEndLng?: number | null;
+        };
+      }>("/auth/me")
+      .then((res) => {
+        const u = res.data?.user;
+        if (!u) return;
+        const start =
+          u.routeStartLat != null && u.routeStartLng != null
+            ? { lat: u.routeStartLat, lng: u.routeStartLng }
+            : undefined;
+        const endRaw =
+          u.routeEndLat != null && u.routeEndLng != null
+            ? { lat: u.routeEndLat, lng: u.routeEndLng }
+            : start;
+        setRouteAnchors({ start, end: endRaw });
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const q = contactQuery.trim();
+    if (q.length < 2) {
+      setContactHits([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void apiHttp
+        .get<{
+          items?: { id: string; firstName: string; lastName: string; phone: string }[];
+          total?: number;
+        }>("/contacts", { params: { q, pageSize: 15 } } as never)
+        .then((r) => {
+          setContactHits(r.data?.items ?? []);
+        })
+        .catch(() => setContactHits([]));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [contactQuery]);
+
+  const applyScheduleToSlot = async (visit: Visit, slot: TimelineSlot, purpose: string) => {
     const durationMinutes = visit.durationMin ?? 60;
     const startsAt = slot.start;
     const endsAt = new Date(startsAt.getTime() + durationMinutes * 60 * 1000);
@@ -254,6 +416,7 @@ export default function VisitsPage() {
         status: "SCHEDULED",
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
+        purpose: purpose.trim(),
       });
       setBacklog((prev) => prev.filter((v) => v.id !== visit.id));
       setDayVisits((prev) => {
@@ -268,6 +431,15 @@ export default function VisitsPage() {
       alert(e instanceof Error ? e.message : "Failed to schedule visit");
       void loadData();
     }
+  };
+
+  const handleDropToSlot = (visit: Visit, slot: TimelineSlot) => {
+    if (visit.status === "PLANNED_UNASSIGNED") {
+      setPurposeDraft(visit.purpose?.trim() ?? "");
+      setPendingSchedule({ visit, slot });
+      return;
+    }
+    void applyScheduleToSlot(visit, slot, visit.purpose ?? "");
   };
 
   const handleMoveOnTimeline = async (visit: Visit, deltaMinutes: number) => {
@@ -333,12 +505,15 @@ export default function VisitsPage() {
 
   const centerLatLng = useMemo(() => {
     const withCoords = scheduledVisits.filter((v) => v.lat != null && v.lng != null);
-    if (withCoords.length === 0) {
-      return { lat: 50.4501, lng: 30.5234 }; // Kyiv as default
+    if (withCoords.length > 0) {
+      const first = withCoords[0];
+      return { lat: first.lat as number, lng: first.lng as number };
     }
-    const first = withCoords[0];
-    return { lat: first.lat as number, lng: first.lng as number };
-  }, [scheduledVisits]);
+    if (routeAnchors.start) {
+      return routeAnchors.start;
+    }
+    return { lat: 50.4501, lng: 30.5234 }; // Kyiv as default
+  }, [scheduledVisits, routeAnchors.start]);
 
   const handleMarkerDragEnd = async (visit: Visit, e: google.maps.MapMouseEvent) => {
     if (!e.latLng) return;
@@ -476,41 +651,54 @@ export default function VisitsPage() {
     { value: "FAILED", label: "Неудача" },
   ] as const;
 
+  const handleCreateBacklogFromContact = async () => {
+    if (!pendingContactId) return;
+    if (!newVisitPurpose.trim()) {
+      alert("Укажите цель встречи.");
+      return;
+    }
+    setCreatingBacklogVisit(true);
+    try {
+      const v = await visitsApi.create({
+        contactId: pendingContactId,
+        purpose: newVisitPurpose.trim(),
+      });
+      setBacklog((prev) => [v, ...prev]);
+      setPendingContactId(null);
+      setNewVisitPurpose("");
+      setContactQuery("");
+      setContactHits([]);
+      setContactPickerOpen(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Не удалось создать визит");
+    } finally {
+      setCreatingBacklogVisit(false);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50">
-      <div className="border-b border-zinc-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900">Visits planning</h1>
-            <p className="text-sm text-zinc-500">
+    <div ref={visitsRootRef} className="flex min-h-screen flex-col bg-zinc-50">
+      <div className="border-b border-zinc-200 bg-white px-4 py-2 sm:px-6 sm:py-3">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h1 className="text-lg font-semibold text-zinc-900 sm:text-xl">Visits planning</h1>
+              <Link href="/visits/history" className="text-xs font-medium text-emerald-700 hover:underline">
+                История
+              </Link>
+            </div>
+            <p className="hidden text-sm text-zinc-500 sm:block">
               Plan field visits for the day, arrange them on a timeline, and save the route.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={handlePrevDay}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
+              onClick={() => setMapSheetOpen(true)}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
             >
-              ←
+              Карта
             </button>
-            <button
-              type="button"
-              onClick={handleToday}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-50"
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={handleNextDay}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
-            >
-              →
-            </button>
-            <div className="ml-2 rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700">
-              {format(date, "yyyy-MM-dd")}
-            </div>
             {!routeSessionState?.session?.isActive ? (
               <button
                 type="button"
@@ -526,7 +714,7 @@ export default function VisitsPage() {
                     setRouteSessionLoading(false);
                   }
                 }}
-                className="ml-2 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
               >
                 {routeSessionLoading ? "…" : "Начать день/маршрут"}
               </button>
@@ -753,10 +941,71 @@ export default function VisitsPage() {
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-4 p-4">
-        <section className="flex w-1/4 flex-col rounded-lg border border-zinc-200 bg-white">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 p-4 md:flex-row">
+        <div className="flex w-full min-w-0 flex-col gap-3 md:w-[42%] md:max-w-md">
+        <section className="flex min-h-[280px] w-full flex-col rounded-lg border border-zinc-200 bg-white md:min-h-0">
           <div className="border-b border-zinc-200 px-3 py-2">
             <div className="text-sm font-semibold text-zinc-900">Backlog (planned, unscheduled)</div>
+            <div className="mt-2 space-y-2">
+              <button
+                type="button"
+                onClick={() => setContactPickerOpen((o) => !o)}
+                className="text-xs font-medium text-emerald-700 hover:underline"
+              >
+                + Добавить из контакта
+              </button>
+              {contactPickerOpen ? (
+                <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
+                  <input
+                    type="search"
+                    placeholder="Поиск контакта (мин. 2 символа)…"
+                    className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                    value={contactQuery}
+                    onChange={(e) => setContactQuery(e.target.value)}
+                  />
+                  {contactHits.length > 0 ? (
+                    <ul className="mt-1 max-h-32 overflow-auto text-xs">
+                      {contactHits.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            className={
+                              "w-full rounded px-1 py-1 text-left hover:bg-white " +
+                              (pendingContactId === c.id ? "bg-white ring-1 ring-emerald-300" : "")
+                            }
+                            onClick={() => {
+                              setPendingContactId(c.id);
+                              setNewVisitPurpose("");
+                            }}
+                          >
+                            {c.firstName} {c.lastName} · {c.phone}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {pendingContactId ? (
+                    <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2">
+                      <label className="text-[10px] font-medium text-zinc-600">Цель встречи *</label>
+                      <input
+                        className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                        value={newVisitPurpose}
+                        onChange={(e) => setNewVisitPurpose(e.target.value)}
+                        placeholder="Например: презентация, оплата…"
+                      />
+                      <button
+                        type="button"
+                        disabled={creatingBacklogVisit}
+                        onClick={() => void handleCreateBacklogFromContact()}
+                        className="mt-1 w-full rounded bg-zinc-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                      >
+                        {creatingBacklogVisit ? "…" : "В backlog"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div
             className="flex-1 space-y-2 overflow-auto p-3"
@@ -790,57 +1039,147 @@ export default function VisitsPage() {
             {backlog.length === 0 ? (
               <div className="text-xs text-zinc-500">No backlog visits.</div>
             ) : (
-              backlog.map((v) => (
-                <div
-                  key={v.id}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(
-                      "application/json",
-                      JSON.stringify({ visitId: v.id }),
-                    );
-                    e.dataTransfer.effectAllowed = "move";
-                    setDragVisitId(v.id);
-                  }}
-                  onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
-                  className={[
-                    "group relative cursor-grab rounded-md border px-3 py-2 pr-8 text-xs shadow-sm hover:bg-zinc-100",
-                    routeSessionState?.session?.isActive && routeSessionState.session.currentVisitId === v.id
-                      ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
-                      : "border-zinc-200 bg-zinc-50",
-                  ].join(" ")}
-                >
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleRemoveVisit(v);
+              backlog.map((v) => {
+                const contactName = v.contact ? formatContactNameLastFirst(v.contact) : "";
+                const nameLine = contactName || v.title?.trim() || "—";
+                return (
+                  <div
+                    key={v.id}
+                    draggable
+                    onDragStart={(e) => {
+                      dragSessionRef.current += 1;
+                      const session = dragSessionRef.current;
+                      cancelledDragSessionRef.current = null;
+                      e.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({ visitId: v.id, session }),
+                      );
+                      e.dataTransfer.effectAllowed = "move";
+                      setDragVisitId(v.id);
+                      requestAnimationFrame(() => {
+                        scheduleSectionRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "nearest",
+                        });
+                      });
                     }}
-                    className="absolute right-1.5 top-1.5 rounded p-0.5 text-zinc-400 opacity-0 hover:bg-zinc-200 hover:text-zinc-600 group-hover:opacity-100"
-                    title="Remove visit"
-                    aria-label="Remove visit"
+                    onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
+                    className={[
+                      "group/card relative cursor-grab rounded-md border px-2 py-1.5 pb-6 pr-12 text-xs shadow-sm hover:bg-zinc-100",
+                      routeSessionState?.session?.isActive && routeSessionState.session.currentVisitId === v.id
+                        ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
+                        : "border-zinc-200 bg-zinc-50",
+                    ].join(" ")}
                   >
-                    ×
-                  </button>
-                  <div className="font-medium text-zinc-900">
-                    {v.title || v.addressText || "Visit"}
+                    <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 absolute right-1 top-1 z-[1] flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
+                          if (!slot) {
+                            alert(
+                              "На выбранный день нет свободного окна под длительность этого визита.",
+                            );
+                            return;
+                          }
+                          handleDropToSlot(v, slot);
+                          requestAnimationFrame(() => {
+                            scheduleSectionRef.current?.scrollIntoView({
+                              behavior: "smooth",
+                              block: "nearest",
+                            });
+                          });
+                        }}
+                        className="rounded p-0.5 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100"
+                        title="На ближайшее свободное время в выбранный день"
+                        aria-label="На ближайшее свободное время в выбранный день"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRemoveVisit(v);
+                        }}
+                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600"
+                        title="Remove visit"
+                        aria-label="Remove visit"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <span className="absolute bottom-1 right-1 z-[1] rounded bg-zinc-200/90 px-1.5 py-px text-[10px] font-semibold tabular-nums text-zinc-900">
+                      {v.durationMin ?? 60} мин
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-baseline justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate font-medium leading-tight text-zinc-900">
+                          {nameLine}
+                        </span>
+                        <span className="max-w-[48%] shrink-0 truncate text-right text-[11px] tabular-nums text-zinc-600">
+                          {v.phone ?? "—"}
+                        </span>
+                      </div>
+                      <div className="mt-1 min-w-0 pr-10 text-[11px] leading-snug text-zinc-600">
+                        <div className="line-clamp-2">
+                          {v.addressText?.trim() ? (
+                            v.addressText
+                          ) : (
+                            <span className="text-amber-800">Адрес не указан</span>
+                          )}
+                        </div>
+                        {v.purpose?.trim() ? (
+                          <div className="mt-0.5 line-clamp-2 text-zinc-700">{v.purpose}</div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {v.phone ? v.phone : "Phone not set"}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {v.addressText || <span className="text-amber-600">Нужно указать точку</span>}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    Duration: {v.durationMin ?? 60} min
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2">
+          <button
+            type="button"
+            onClick={handlePrevDay}
+            className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            onClick={handleToday}
+            className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm hover:bg-zinc-50"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={handleNextDay}
+            className="rounded-md border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50"
+          >
+            →
+          </button>
+          <div className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700">
+            {format(date, "yyyy-MM-dd")}
+          </div>
+        </div>
+        </div>
 
-        <section className="flex min-w-0 w-[45%] flex-col rounded-lg border border-zinc-200 bg-white">
+        <section
+          ref={scheduleSectionRef}
+          className={[
+            "flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border bg-white transition-shadow",
+            isDraggingFromBacklog
+              ? "border-blue-400 ring-2 ring-blue-200 ring-offset-2 ring-offset-zinc-50"
+              : "border-zinc-200",
+          ].join(" ")}
+        >
           <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Day schedule</div>
@@ -918,7 +1257,20 @@ export default function VisitsPage() {
                           const payload = e.dataTransfer.getData("application/json");
                           if (payload) {
                             try {
-                              const parsed = JSON.parse(payload) as { visitId?: string };
+                              const parsed = JSON.parse(payload) as {
+                                visitId?: string;
+                                session?: number;
+                              };
+                              if (
+                                typeof parsed.session === "number" &&
+                                cancelledDragSessionRef.current !== null &&
+                                parsed.session === cancelledDragSessionRef.current
+                              ) {
+                                cancelledDragSessionRef.current = null;
+                                setDragVisitId(null);
+                                setHoverSlotKey(null);
+                                return;
+                              }
                               if (parsed.visitId) visitId = parsed.visitId;
                             } catch {
                               // ignore malformed payload
@@ -1045,7 +1397,7 @@ export default function VisitsPage() {
                             }
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <div className="truncate font-medium text-zinc-900">
+                              <div className="min-w-0 truncate font-medium text-zinc-900">
                                 {v.title || v.addressText || "Visit"}
                               </div>
                               <span className="shrink-0 text-[10px] text-zinc-500">
@@ -1064,6 +1416,9 @@ export default function VisitsPage() {
                                   : ""}
                               </span>
                             </div>
+                            {v.purpose ? (
+                              <div className="mt-0.5 line-clamp-2 text-[10px] text-zinc-600">{v.purpose}</div>
+                            ) : null}
                             <div className="mt-0.5 truncate text-[11px] text-zinc-500">
                               {v.addressText || (
                                 <span className="text-amber-600">
@@ -1148,40 +1503,127 @@ export default function VisitsPage() {
             })()}
           </div>
         </section>
-
-        <section className="sticky top-4 flex w-[30%] min-w-[200px] max-h-[70vh] flex-col self-start overflow-hidden rounded-lg border border-zinc-200 bg-white">
-          <div className="shrink-0 border-b border-zinc-200 px-3 py-2">
-            <div className="text-sm font-semibold text-zinc-900">Map</div>
-            {routePlan && routePlan.stops?.length ? (
-              <div className="mt-0.5 text-[11px] text-zinc-500">
-                Route saved for this date ({routePlan.stops.length} stops)
-              </div>
-            ) : (
-              <div className="mt-0.5 text-[11px] text-zinc-500">
-                Route is not saved yet.
-              </div>
-            )}
-          </div>
-          <div className="shrink-0 w-full" style={{ height: "min(50vh, 400px)" }}>
-            {mapsConfigError ? (
-              <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
-                {mapsConfigError}
-              </div>
-            ) : !mapsApiKey ? (
-              <div className="flex h-full items-center justify-center px-3 text-center text-xs text-zinc-500">
-                Loading Google Maps configuration…
-              </div>
-            ) : (
-              <VisitsMapContent
-                mapsApiKey={mapsApiKey}
-                centerLatLng={centerLatLng}
-                scheduledVisits={scheduledVisits}
-                onMarkerDragEnd={handleMarkerDragEnd}
-              />
-            )}
-          </div>
-        </section>
       </div>
+
+      {isDraggingFromBacklog ? (
+        <div
+          className="pointer-events-none fixed inset-0 z-[35] flex items-end justify-center p-4 pb-28 md:items-center md:justify-end md:pb-4 md:pr-6"
+          aria-live="polite"
+        >
+          <div className="pointer-events-auto flex max-w-[220px] flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg">
+            <p className="text-center text-xs text-zinc-600">Перетащите визит на слот расписания</p>
+            <button
+              type="button"
+              onClick={() => cancelBacklogDrag()}
+              className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-100"
+            >
+              Отмена
+            </button>
+            <p className="text-center text-[10px] text-zinc-400">или Esc</p>
+          </div>
+        </div>
+      ) : null}
+
+      {mapSheetOpen ? (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end bg-black/40" role="presentation">
+          <button
+            type="button"
+            aria-label="Close map"
+            className="min-h-0 flex-1 cursor-default"
+            onClick={() => setMapSheetOpen(false)}
+          />
+          <div className="max-h-[85vh] rounded-t-xl border border-zinc-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Карта</div>
+                {routePlan && routePlan.stops?.length ? (
+                  <div className="text-[11px] text-zinc-500">
+                    Маршрут сохранён ({routePlan.stops.length} остановок)
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setMapSheetOpen(false)}
+                className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700"
+              >
+                Закрыть
+              </button>
+            </div>
+            <div className="h-2 w-12 shrink-0 self-center rounded-full bg-zinc-200" aria-hidden />
+            <div className="w-full shrink-0" style={{ height: "min(55vh, 480px)" }}>
+              {mapsConfigError ? (
+                <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
+                  {mapsConfigError}
+                </div>
+              ) : !mapsApiKey ? (
+                <div className="flex h-full items-center justify-center px-3 text-center text-xs text-zinc-500">
+                  Loading Google Maps configuration…
+                </div>
+              ) : (
+                <VisitsMapContent
+                  mapsApiKey={mapsApiKey}
+                  centerLatLng={centerLatLng}
+                  scheduledVisits={scheduledVisits}
+                  onMarkerDragEnd={handleMarkerDragEnd}
+                  routeAnchors={routeAnchors}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingSchedule ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-zinc-900">Цель встречи</h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {pendingSchedule.visit.title || pendingSchedule.visit.addressText || "Визит"}
+            </p>
+            <label className="mt-3 block text-xs font-medium text-zinc-700">Цель *</label>
+            <textarea
+              value={purposeDraft}
+              onChange={(e) => setPurposeDraft(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              placeholder="Зачем едете к клиенту"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingSchedule(null);
+                  setPurposeDraft("");
+                }}
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const text = purposeDraft.trim();
+                  if (!text) {
+                    alert("Укажите цель встречи.");
+                    return;
+                  }
+                  const ps = pendingSchedule;
+                  if (!ps) return;
+                  setPendingSchedule(null);
+                  setPurposeDraft("");
+                  void applyScheduleToSlot(ps.visit, ps.slot, text);
+                }}
+                className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
+              >
+                В план
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {resultModalOpen && resultModalVisit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

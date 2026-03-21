@@ -16,6 +16,7 @@ import {
   MessageCircle,
   ListTodo,
   BarChart3,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -39,6 +40,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
   { label: "Visits", icon: MapPin, href: "/visits" },
+  { label: "Visit history", icon: History, href: "/visits/history" },
 ];
 
 const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };
@@ -167,7 +169,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               const isActive =
                 item.href === "/"
                   ? pathname === "/"
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  : item.href === "/visits"
+                    ? pathname === "/visits"
+                    : item.href === "/visits/history"
+                      ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
+                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
               return (
                 <Link
@@ -221,7 +227,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           const isActive =
             item.href === "/"
               ? pathname === "/"
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              : item.href === "/visits"
+                ? pathname === "/visits"
+                : item.href === "/visits/history"
+                  ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
+                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

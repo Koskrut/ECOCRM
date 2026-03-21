@@ -47,6 +47,13 @@ export class UsersService {
       firstName?: string;
       lastName?: string;
       isActive?: boolean;
+      routeStartLat?: number | null;
+      routeStartLng?: number | null;
+      routeEndLat?: number | null;
+      routeEndLng?: number | null;
+      routeStartLabel?: string | null;
+      routeEndLabel?: string | null;
+      leadId?: string | null;
     },
   ) {
     if (!id) throw new BadRequestException("id is required");
@@ -58,6 +65,34 @@ export class UsersService {
 
     if (payload.password !== undefined) {
       data.passwordHash = payload.password ? `plain:${payload.password}` : "";
+    }
+
+    const setCoord = (v: number | null | undefined) =>
+      v === undefined ? undefined : v === null ? null : v;
+    if (payload.routeStartLat !== undefined) data.routeStartLat = setCoord(payload.routeStartLat);
+    if (payload.routeStartLng !== undefined) data.routeStartLng = setCoord(payload.routeStartLng);
+    if (payload.routeEndLat !== undefined) data.routeEndLat = setCoord(payload.routeEndLat);
+    if (payload.routeEndLng !== undefined) data.routeEndLng = setCoord(payload.routeEndLng);
+    if (payload.routeStartLabel !== undefined) data.routeStartLabel = payload.routeStartLabel;
+    if (payload.routeEndLabel !== undefined) data.routeEndLabel = payload.routeEndLabel;
+
+    if (payload.leadId !== undefined) {
+      if (payload.leadId === id) {
+        throw new BadRequestException("leadId cannot be the same as user id");
+      }
+      if (payload.leadId) {
+        const lead = await this.prisma.user.findUnique({
+          where: { id: payload.leadId },
+          select: { id: true, role: true },
+        });
+        if (!lead) throw new BadRequestException("Lead user not found");
+        if (lead.role !== "LEAD" && lead.role !== "ADMIN") {
+          throw new BadRequestException("leadId must reference a LEAD or ADMIN user");
+        }
+        data.lead = { connect: { id: payload.leadId } };
+      } else {
+        data.lead = { disconnect: true };
+      }
     }
 
     return this.prisma.user.update({

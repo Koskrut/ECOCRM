@@ -524,27 +524,6 @@ export class OrdersService {
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
     const price = dto.price;
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
-      body: JSON.stringify({
-        sessionId: "7e31bf",
-        runId: "pre-fix",
-        hypothesisId: "H5",
-        location: "orders.service.ts:addItem:input",
-        message: "OrdersService.addItem input",
-        data: {
-          orderId,
-          orderCurrency: order.currency,
-          productId,
-          qty,
-          price,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
 
     const existing = await this.prisma.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },

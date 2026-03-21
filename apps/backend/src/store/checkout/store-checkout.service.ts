@@ -292,26 +292,6 @@ export class StoreCheckoutService {
 
     const rates = await this.settings.getExchangeRates();
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
-    // #region agent log
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
-      body: JSON.stringify({
-        sessionId: "7e31bf",
-        runId: "pre-fix",
-        hypothesisId: "H3",
-        location: "store-checkout.service.ts:checkout:rates",
-        message: "Checkout rates and cart subtotal",
-        data: {
-          UAH_TO_USD: rates.UAH_TO_USD,
-          uahPerUsd,
-          cartItemsCount: cart.items.length,
-          cartSubtotalRaw: cart.items.reduce((s, i) => s + i.price * i.qty, 0),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
 
     const order = await this.ordersService.create(
       {
@@ -330,28 +310,6 @@ export class StoreCheckoutService {
 
     for (const item of cart.items) {
       const priceUsd = Math.round(item.price * 100) / 100;
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7e31bf" },
-        body: JSON.stringify({
-          sessionId: "7e31bf",
-          runId: "pre-fix",
-          hypothesisId: "H4",
-          location: "store-checkout.service.ts:checkout:add_item",
-          message: "Adding order item from cart",
-          data: {
-            orderId: order.id,
-            productId: item.productId,
-            qty: item.qty,
-            cartPriceRaw: item.price,
-            derivedPriceToOrder: priceUsd,
-            previousIncorrectUahPrice: Math.round(item.price * uahPerUsd * 100) / 100,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       await this.ordersService.addItem(
         order.id,
         { productId: item.productId, qty: item.qty, price: priceUsd },

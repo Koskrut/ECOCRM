@@ -97,31 +97,6 @@ export class NpTtnService {
     const missingRefs =
       (deliveryType === NpDeliveryType.WAREHOUSE || deliveryType === NpDeliveryType.POSTOMAT) &&
       (!cityRefVal || !warehouseRefVal);
-    // #region agent log
-    if (missingRefs) {
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
-        body: JSON.stringify({
-          sessionId: "1d520f",
-          hypothesisId: "D",
-          location: "np-ttn.service.ts:createFromOrder(before throw)",
-          message: "CityRef/WarehouseRef validation failed",
-          data: {
-            deliveryType,
-            cityRef: cityRefVal,
-            warehouseRef: warehouseRefVal,
-            cityRefFalsy: !cityRefVal,
-            warehouseRefFalsy: !warehouseRefVal,
-            cityRefType: typeof cityRefVal,
-            warehouseRefType: typeof warehouseRefVal,
-            fromProfile: !!resolved.sourceProfile,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
     if (missingRefs) {
       throw new BadRequestException(
         "У профілі доставки відсутні CityRef або WarehouseRef. " +
@@ -222,53 +197,10 @@ export class NpTtnService {
         throw new BadRequestException("profile not found");
 
       const data = { ...profile, ...(dto.draft ?? {}) };
-      // #region agent log
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
-        body: JSON.stringify({
-          sessionId: "1d520f",
-          hypothesisId: "A",
-          location: "np-ttn.service.ts:resolveRecipientData(profile)",
-          message: "resolveRecipientData result (profile + draft)",
-          data: {
-            profileId,
-            hasDraft: !!dto.draft,
-            deliveryType: (data as Record<string, unknown>).deliveryType,
-            cityRef: (data as Record<string, unknown>).cityRef,
-            warehouseRef: (data as Record<string, unknown>).warehouseRef,
-            cityRefType: typeof (data as Record<string, unknown>).cityRef,
-            warehouseRefType: typeof (data as Record<string, unknown>).warehouseRef,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return { sourceProfile: profile, data };
     }
 
     if (!dto.draft) throw new BadRequestException("draft is required if profileId not provided");
-    // #region agent log
-    const draft = dto.draft as unknown as Record<string, unknown>;
-    fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
-      body: JSON.stringify({
-        sessionId: "1d520f",
-        hypothesisId: "C",
-        location: "np-ttn.service.ts:resolveRecipientData(draft)",
-        message: "resolveRecipientData result (draft only)",
-        data: {
-          deliveryType: draft.deliveryType,
-          cityRef: draft.cityRef,
-          warehouseRef: draft.warehouseRef,
-          cityRefType: typeof draft.cityRef,
-          warehouseRefType: typeof draft.warehouseRef,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     return { sourceProfile: null, data: dto.draft };
   }
 
@@ -300,27 +232,6 @@ export class NpTtnService {
       });
       if (wh) resolvedData.warehouseRef = wh.ref;
     }
-    // #region agent log
-    if (resolvedData.cityRef || resolvedData.warehouseRef) {
-      fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "1d520f" },
-        body: JSON.stringify({
-          sessionId: "1d520f",
-          hypothesisId: "resolved",
-          location: "np-ttn.service.ts:tryResolveMissingNpRefsFromCache",
-          message: "Resolved missing refs from NP cache",
-          data: {
-            hadCityName: !!cityName,
-            hadWarehouseNumber: !!warehouseNumber,
-            cityRefAfter: resolvedData.cityRef ?? null,
-            warehouseRefAfter: resolvedData.warehouseRef ?? null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    }
-    // #endregion
   }
 
   // =====================================

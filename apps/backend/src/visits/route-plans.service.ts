@@ -7,6 +7,35 @@ import type { AuthUser } from "../auth/auth.types";
 export class RoutePlansService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Start/end anchors for driving directions; end defaults to start when only start is set. */
+  private async getRouteAnchors(actorId: string): Promise<{
+    origin: { lat: number; lng: number } | null;
+    destination: { lat: number; lng: number } | null;
+  }> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: actorId },
+      select: {
+        routeStartLat: true,
+        routeStartLng: true,
+        routeEndLat: true,
+        routeEndLng: true,
+      },
+    });
+    if (!u) {
+      return { origin: null, destination: null };
+    }
+    const origin =
+      u.routeStartLat != null && u.routeStartLng != null
+        ? { lat: u.routeStartLat, lng: u.routeStartLng }
+        : null;
+    const endExplicit =
+      u.routeEndLat != null && u.routeEndLng != null
+        ? { lat: u.routeEndLat, lng: u.routeEndLng }
+        : null;
+    const destination = endExplicit ?? origin;
+    return { origin, destination };
+  }
+
   private parseDate(dateStr: string): Date {
     const date = new Date(`${dateStr}T00:00:00.000Z`);
     if (Number.isNaN(date.getTime())) {
@@ -128,6 +157,12 @@ export class RoutePlansService {
       if (visit.lat == null || visit.lng == null) {
         throw new BadRequestException("Visit has no coordinates (lat/lng)");
       }
+      const anchors = await this.getRouteAnchors(actor.id);
+      if (anchors.origin) {
+        return {
+          url: `https://www.google.com/maps/dir/?api=1&origin=${anchors.origin.lat},${anchors.origin.lng}&destination=${visit.lat},${visit.lng}`,
+        };
+      }
       const url = `https://www.google.com/maps/dir/?api=1&destination=${visit.lat},${visit.lng}`;
       return { url };
     }
@@ -157,6 +192,17 @@ export class RoutePlansService {
     if (points.length === 0) {
       throw new BadRequestException("No visits with coordinates in route");
     }
+
+    const anchors = await this.getRouteAnchors(actor.id);
+    if (anchors.origin && anchors.destination) {
+      const wp = points.map((v) => `${v.lat},${v.lng}`).join("|");
+      const dest = anchors.destination;
+      const orig = anchors.origin;
+      return {
+        url: `https://www.google.com/maps/dir/?api=1&origin=${orig.lat},${orig.lng}&destination=${dest.lat},${dest.lng}&waypoints=${encodeURIComponent(wp)}`,
+      };
+    }
+
     if (points.length === 1) {
       const v = points[0]!;
       return {

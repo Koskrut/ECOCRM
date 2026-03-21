@@ -161,6 +161,14 @@ enum OrderPaymentStatus {
   OVERPAID
 }
 
+/** Запит на оплату за реквізитами (посилання для клієнта); не плутати з Payment (факт оплати). */
+enum PaymentRequestStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELED
+}
+
 enum ConversationChannel {
   TELEGRAM
 }
@@ -250,10 +258,24 @@ model User {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  /** Руководитель (для LEAD-иерархии и фильтрации визитов). */
+  leadId          String?
+  lead            User?    @relation("UserHierarchy", fields: [leadId], references: [id], onDelete: SetNull)
+  teamMembers     User[]   @relation("UserHierarchy")
+
+  /** Начало/конец дневного маршрута визитов (якоря для Google Maps). */
+  routeStartLat   Float?
+  routeStartLng   Float?
+  routeEndLat     Float?
+  routeEndLng     Float?
+  routeStartLabel String?
+  routeEndLabel   String?
+
   contacts     Contact[]
   leads        Lead[]
   orders       Order[]
   payments     Payment[]
+  paymentRequestsCreated PaymentRequest[] @relation("PaymentRequestCreatedBy")
   visits       Visit[]
   routePlans   RoutePlan[]
   routeSessions RouteSession[]
@@ -263,6 +285,7 @@ model User {
   companies    Company[]
 
   @@unique([legacySource, legacyId])
+  @@index([leadId])
 }
 
 model PasswordResetCode {
@@ -444,6 +467,8 @@ model Visit {
   endsAt         DateTime?
   durationMin    Int            @default(60)
   note           String?
+  /** Цель встречи (при постановке в план). */
+  purpose        String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -922,6 +947,7 @@ model Order {
 
   ttns       OrderTtn[]
   payments   Payment[]
+  paymentRequests PaymentRequest[]
   returns    OrderReturn[]
 
   @@index([companyId])
@@ -1282,10 +1308,48 @@ model Payment {
   company Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
   bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
   createdBy User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  linkedFromPaymentRequest PaymentRequest?
 
   @@index([orderId])
   @@index([bankTransactionId])
   @@index([paidAt])
+}
+
+/// Посилання на оплату за IBAN (snapshot реквізитів); публічний доступ лише за publicToken.
+model PaymentRequest {
+  id     String @id @default(cuid())
+  orderId String
+  status PaymentRequestStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(18, 2)
+  currency String
+  purpose  String
+  expiresAt DateTime
+
+  recipientName String
+  iban          String
+  edrpou        String?
+  mfo           String?
+  bankName      String?
+
+  publicToken String @unique
+  /** Офіційний deeplink НБУ (https://bank.gov.ua/qr/...) — той самий payload, що й для QR. */
+  nbuDeeplink String @db.Text
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  paidAt          DateTime?
+  linkedPaymentId String? @unique
+
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy      User?   @relation("PaymentRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  linkedPayment  Payment? @relation(fields: [linkedPaymentId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([expiresAt])
+  @@index([publicToken])
 }
 
 // --- Telegram Inbox ---

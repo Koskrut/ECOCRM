@@ -22,35 +22,7 @@ export class StoreCabinetController {
   @Get("me/shipping-profiles")
   async getShippingProfiles(@Req() req: RequestWithCustomer) {
     const contactId = req.customer!.contactId;
-    // #region agent log
-    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
-      body: JSON.stringify({
-        sessionId: "9e2801",
-        location: "store-cabinet.controller:getShippingProfiles",
-        message: "store shipping-profiles hit",
-        data: { contactId },
-        timestamp: Date.now(),
-        hypothesisId: "H4",
-      }),
-    }).catch(() => {});
-    // #endregion
     const result = await this.contacts.listShippingProfiles(contactId, undefined);
-    // #region agent log
-    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
-      body: JSON.stringify({
-        sessionId: "9e2801",
-        location: "store-cabinet.controller:listShippingProfiles_result",
-        message: "listShippingProfiles result",
-        data: { contactId, itemCount: result.items?.length ?? 0 },
-        timestamp: Date.now(),
-        hypothesisId: "H5",
-      }),
-    }).catch(() => {});
-    // #endregion
     return result;
   }
 

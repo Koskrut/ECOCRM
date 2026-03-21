@@ -3,6 +3,7 @@ import { GoogleSheetModule } from "../integrations/google-sheet/google-sheet.mod
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
 import { SettingsModule } from "../settings/settings.module";
 import { WarehousesModule } from "../warehouses/warehouses.module";
 import { OrdersController } from "./orders.controller";
@@ -14,6 +15,7 @@ import { OrderStatusService } from "./order-status.service";
   imports: [
     PrismaModule,
     PaymentsModule,
+    PaymentRequestsModule,
     WarehousesModule,
     SettingsModule,
     GoogleSheetModule,

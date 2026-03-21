@@ -129,37 +129,9 @@ export default function CheckoutPage() {
       return;
     }
     setProfilesLoaded(false);
-    // #region agent log
-    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
-      body: JSON.stringify({
-        sessionId: "9e2801",
-        location: "checkout/page.tsx:profiles_fetch",
-        message: "getMyShippingProfiles called",
-        data: { loggedIn: true },
-        timestamp: Date.now(),
-        hypothesisId: "H1",
-      }),
-    }).catch(() => {});
-    // #endregion
     getMyShippingProfiles()
       .then((r) => {
         const items = r.items ?? [];
-        // #region agent log
-        fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
-          body: JSON.stringify({
-            sessionId: "9e2801",
-            location: "checkout/page.tsx:profiles_ok",
-            message: "getMyShippingProfiles response",
-            data: { itemCount: items.length, hasItems: !!r.items },
-            timestamp: Date.now(),
-            hypothesisId: "H2",
-          }),
-        }).catch(() => {});
-        // #endregion
         setShippingProfiles(items);
         if (items.length === 0) {
           setNpAddressMode("new");
@@ -169,21 +141,7 @@ export default function CheckoutPage() {
           setNpProfileId(items[0].id);
         }
       })
-      .catch((err) => {
-        // #region agent log
-        fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "9e2801" },
-          body: JSON.stringify({
-            sessionId: "9e2801",
-            location: "checkout/page.tsx:profiles_err",
-            message: "getMyShippingProfiles failed",
-            data: { errMessage: String(err?.message ?? err) },
-            timestamp: Date.now(),
-            hypothesisId: "H3",
-          }),
-        }).catch(() => {});
-        // #endregion
+      .catch(() => {
         setShippingProfiles([]);
       })
       .finally(() => setProfilesLoaded(true));

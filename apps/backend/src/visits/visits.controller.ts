@@ -31,6 +31,7 @@ export class VisitsController {
         addressText: body.addressText != null ? String(body.addressText) : null,
         lat: typeof body.lat === "number" ? body.lat : body.lat != null ? Number(body.lat) : null,
         lng: typeof body.lng === "number" ? body.lng : body.lng != null ? Number(body.lng) : null,
+        purpose: body.purpose != null ? String(body.purpose) : null,
       },
       req.user,
     );
@@ -49,6 +50,27 @@ export class VisitsController {
   ) {
     const items = await this.visits.getDay(date, req.user);
     return { items };
+  }
+
+  @Get("history")
+  async getHistory(
+    @Query("from") from: string | undefined,
+    @Query("to") to: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.visits.listHistory(
+      {
+        from,
+        to,
+        ownerId,
+        page: page != null ? Number(page) : undefined,
+        pageSize: pageSize != null ? Number(pageSize) : undefined,
+      },
+      req.user,
+    );
   }
 
   @Post(":id/start")
@@ -118,6 +140,7 @@ export class VisitsController {
               : Number(body.durationMin)
             : undefined,
         note: body.note !== undefined ? (body.note as string | null) : undefined,
+        purpose: body.purpose !== undefined ? (body.purpose as string | null) : undefined,
       },
       req.user,
     );

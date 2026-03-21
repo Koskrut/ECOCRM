@@ -24,6 +24,7 @@ type CreateVisitInput = {
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;
+  purpose?: string | null;
 };
 
 type UpdateVisitInput = {
@@ -38,6 +39,7 @@ type UpdateVisitInput = {
   endsAt?: Date | null;
   durationMin?: number | null;
   note?: string | null;
+  purpose?: string | null;
 };
 
 type CompleteVisitInput = {
@@ -160,9 +162,17 @@ export class VisitsService {
       lng: effectiveLng ?? undefined,
       locationSource: locationSource ?? LocationSourceEnum.NONE,
       status: VisitStatusEnum.PLANNED_UNASSIGNED,
+      purpose: body.purpose?.trim() ? body.purpose.trim() : undefined,
     };
 
-    const visit = await this.prisma.visit.create({ data });
+    const visit = await this.prisma.visit.create({
+      data,
+      include: {
+        contact: {
+          select: { firstName: true, lastName: true, middleName: true },
+        },
+      },
+    });
     return visit;
   }
 
@@ -176,6 +186,11 @@ export class VisitsService {
         status: VisitStatusEnum.PLANNED_UNASSIGNED,
       },
       orderBy: { createdAt: "desc" },
+      include: {
+        contact: {
+          select: { firstName: true, lastName: true, middleName: true },
+        },
+      },
     });
   }
 
@@ -237,6 +252,9 @@ export class VisitsService {
 
     if (body.note !== undefined) {
       data.note = body.note;
+    }
+    if (body.purpose !== undefined) {
+      data.purpose = body.purpose?.trim() ?? null;
     }
 
     // Determine next status and times
@@ -429,6 +447,77 @@ export class VisitsService {
     }
 
     return updated;
+  }
+
+  async listHistory(
+    q: {
+      from?: string;
+      to?: string;
+      ownerId?: string;
+      page?: number;
+      pageSize?: number;
+    },
+    actor: AuthUser | undefined,
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const page = Math.max(1, Math.trunc(q.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Math.trunc(q.pageSize ?? 50)));
+    const skip = (page - 1) * pageSize;
+
+    const where: Prisma.VisitWhereInput = {
+      status: VisitStatusEnum.DONE,
+      completedAt: { not: null },
+    };
+
+    if (q.from || q.to) {
+      where.completedAt = {};
+      if (q.from) {
+        const d = new Date(q.from);
+        if (!Number.isNaN(d.getTime())) (where.completedAt as Prisma.DateTimeFilter).gte = d;
+      }
+      if (q.to) {
+        const d = new Date(q.to);
+        if (!Number.isNaN(d.getTime())) (where.completedAt as Prisma.DateTimeFilter).lte = d;
+      }
+    }
+
+    if (actor.role === UserRole.MANAGER || actor.role === UserRole.USER) {
+      where.ownerId = actor.id;
+    } else if (actor.role === UserRole.ADMIN) {
+      if (q.ownerId) where.ownerId = q.ownerId;
+    } else if (actor.role === UserRole.LEAD) {
+      const team = await this.prisma.user.findMany({
+        where: { leadId: actor.id },
+        select: { id: true },
+      });
+      const allowedIds = new Set([actor.id, ...team.map((t) => t.id)]);
+      if (q.ownerId) {
+        if (!allowedIds.has(q.ownerId)) {
+          throw new ForbiddenException("Cannot view this user's visit history");
+        }
+        where.ownerId = q.ownerId;
+      } else {
+        where.ownerId = { in: [...allowedIds] };
+      }
+    }
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.visit.count({ where }),
+      this.prisma.visit.findMany({
+        where,
+        orderBy: { completedAt: "desc" },
+        skip,
+        take: pageSize,
+        include: {
+          owner: { select: { id: true, fullName: true, email: true } },
+          contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        },
+      }),
+    ]);
+
+    return { items, total, page, pageSize };
   }
 }
 

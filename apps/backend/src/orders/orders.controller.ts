@@ -16,6 +16,10 @@ import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
 import { PaymentsService } from "../payments/payments.service";
+import { PaymentRequestsService } from "../payment-requests/payment-requests.service";
+import { CreatePaymentRequestDto } from "../payment-requests/dto/create-payment-request.dto";
+import { Roles } from "../auth/roles.decorator";
+import { UserRole } from "@prisma/client";
 import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersService } from "./orders.service";
@@ -33,6 +37,7 @@ export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly payments: PaymentsService,
+    private readonly paymentRequests: PaymentRequestsService,
     private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
     private readonly ordersDocuments: OrdersDocumentsService,
     private readonly orderReturns: OrderReturnsService,
@@ -46,6 +51,22 @@ export class OrdersController {
   @Get(":id/payments")
   getPayments(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.payments.listByOrderId(id, req.user);
+  }
+
+  @Get(":id/payment-requests")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  listPaymentRequests(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.paymentRequests.listByOrderId(id, req.user);
+  }
+
+  @Post(":id/payment-requests")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  createPaymentRequest(
+    @Param("id") id: string,
+    @Body() dto: CreatePaymentRequestDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.paymentRequests.create(id, dto, req.user);
   }
 
   @Get(":id/returns")

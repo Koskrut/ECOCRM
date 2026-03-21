@@ -277,6 +277,7 @@ export default function EmployeesPage() {
         open={modalOpen}
         mode={modalMode}
         initial={editing}
+        allEmployees={items}
         onClose={() => setModalOpen(false)}
         onSaved={load}
       />

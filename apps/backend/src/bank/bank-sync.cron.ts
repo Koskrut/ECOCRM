@@ -28,20 +28,6 @@ export class BankSyncCron {
   private async run() {
     if (process.env.CRON_ENABLED !== "true") return;
     try {
-      // #region agent log
-      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-        body: JSON.stringify({
-          sessionId: "7a983d",
-          hypothesisId: "H3",
-          location: "bank-sync.cron.ts:run",
-          message: "cron run start",
-          data: {},
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const r = await withRetryOnConnectionClosed(() => this.sync.syncAll(), {
         onBeforeRetry: async () => {
           await this.prisma.$disconnect();
@@ -50,21 +36,7 @@ export class BankSyncCron {
       });
       this.logger.log(`Bank sync done: accounts=${r.accounts}, imported=${r.transactionsImported}, matched=${r.matched}`);
     } catch (e: unknown) {
-      // #region agent log
       const msg = e instanceof Error ? e.message : String(e);
-      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-        body: JSON.stringify({
-          sessionId: "7a983d",
-          hypothesisId: "H3",
-          location: "bank-sync.cron.ts:catch",
-          message: "cron run caught",
-          data: { message: String(msg).slice(0, 300) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       this.logger.error(`Bank sync failed: ${msg}`);
     }
   }

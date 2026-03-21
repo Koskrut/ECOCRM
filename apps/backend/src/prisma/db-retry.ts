@@ -26,76 +26,10 @@ export async function withRetryOnConnectionClosed<T>(
   try {
     return await fn();
   } catch (e: unknown) {
-    // #region agent log
-    const err = e as { code?: string; message?: string };
-    const msg = err?.message ?? (e instanceof Error ? (e as Error).message : String(e));
-    const isMatch = isConnectionClosedError(e);
-    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-      body: JSON.stringify({
-        sessionId: "7a983d",
-        hypothesisId: isMatch ? "H2" : "H1",
-        location: "db-retry.ts:catch",
-        message: "db-retry catch",
-        data: { code: err?.code, message: String(msg).slice(0, 300), isMatch, willRetry: isMatch },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    if (!isMatch) throw e;
+    if (!isConnectionClosedError(e)) throw e;
     await options?.onBeforeRetry?.();
     // Give pool time to drop dead client(s) before acquiring again (pg removes on client error)
     await new Promise((r) => setTimeout(r, 1500));
-    // #region agent log
-    fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-      body: JSON.stringify({
-        sessionId: "7a983d",
-        hypothesisId: "H2",
-        location: "db-retry.ts:retry",
-        message: "db-retry retry start",
-        data: {},
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-    try {
-      const out = await fn();
-      // #region agent log
-      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-        body: JSON.stringify({
-          sessionId: "7a983d",
-          hypothesisId: "H2",
-          location: "db-retry.ts:retrySuccess",
-          message: "db-retry retry success",
-          data: {},
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      return out;
-    } catch (e2) {
-      // #region agent log
-      const err2 = e2 as { code?: string; message?: string };
-      const msg2 = err2?.message ?? (e2 instanceof Error ? (e2 as Error).message : String(e2));
-      fetch("http://localhost:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "7a983d" },
-        body: JSON.stringify({
-          sessionId: "7a983d",
-          hypothesisId: "H2",
-          location: "db-retry.ts:retryFailed",
-          message: "db-retry retry failed",
-          data: { message: String(msg2).slice(0, 300) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      throw e2;
-    }
+    return await fn();
   }
 }

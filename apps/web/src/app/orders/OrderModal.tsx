@@ -2750,9 +2750,15 @@ export function OrderModal({
               <EntitySection title="Payment">
                 <OrderPaymentBlock
                   orderId={orderId!}
+                  orderNumber={order.orderNumber}
                   apiBaseUrl={apiBaseUrl}
                   paidAmount={Number(order.paidAmount ?? 0)}
                   totalAmount={Number(order.totalAmount ?? 0)}
+                  debtAmount={(() => {
+                    const d = order.debtAmount;
+                    if (d != null && Number.isFinite(Number(d))) return Math.max(0, Number(d));
+                    return Math.max(0, Number(order.totalAmount ?? 0) - Number(order.paidAmount ?? 0));
+                  })()}
                   paymentStatus={(order as { paymentStatus?: string }).paymentStatus}
                   currency={order.currency}
                   exchangeRate={order.exchangeRate ?? null}

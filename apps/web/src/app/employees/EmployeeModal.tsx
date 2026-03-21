@@ -9,7 +9,21 @@ export type Employee = {
   email: string;
   fullName?: string | null;
   role: "ADMIN" | "LEAD" | "MANAGER" | "USER";
+  routeStartLat?: number | null;
+  routeStartLng?: number | null;
+  routeEndLat?: number | null;
+  routeEndLng?: number | null;
+  routeStartLabel?: string | null;
+  routeEndLabel?: string | null;
+  leadId?: string | null;
 };
+
+function parseCoord(s: string): number | null | undefined {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t.replace(",", "."));
+  return Number.isFinite(n) ? n : undefined;
+}
 
 function pickMessage(e: unknown, fallback: string) {
   const anyErr = e as { response?: { data?: { message?: string; error?: string } } };
@@ -24,12 +38,15 @@ export function EmployeeModal({
   open,
   mode,
   initial,
+  allEmployees,
   onClose,
   onSaved,
 }: {
   open: boolean;
   mode: "create" | "edit";
   initial: Employee | null;
+  /** For lead assignment dropdown */
+  allEmployees: Employee[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -39,6 +56,14 @@ export function EmployeeModal({
   const [fullName, setFullName] = useState("");
   const [role, setRole] = useState<Employee["role"]>("USER");
   const [password, setPassword] = useState("");
+
+  const [routeStartLat, setRouteStartLat] = useState("");
+  const [routeStartLng, setRouteStartLng] = useState("");
+  const [routeEndLat, setRouteEndLat] = useState("");
+  const [routeEndLng, setRouteEndLng] = useState("");
+  const [routeStartLabel, setRouteStartLabel] = useState("");
+  const [routeEndLabel, setRouteEndLabel] = useState("");
+  const [leadId, setLeadId] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,15 +79,50 @@ export function EmployeeModal({
       setFullName(initial.fullName ?? "");
       setRole(initial.role ?? "USER");
       setPassword("");
+      setRouteStartLat(initial.routeStartLat != null ? String(initial.routeStartLat) : "");
+      setRouteStartLng(initial.routeStartLng != null ? String(initial.routeStartLng) : "");
+      setRouteEndLat(initial.routeEndLat != null ? String(initial.routeEndLat) : "");
+      setRouteEndLng(initial.routeEndLng != null ? String(initial.routeEndLng) : "");
+      setRouteStartLabel(initial.routeStartLabel ?? "");
+      setRouteEndLabel(initial.routeEndLabel ?? "");
+      setLeadId(initial.leadId ?? "");
     } else {
       setEmail("");
       setFullName("");
       setRole("USER");
       setPassword("");
+      setRouteStartLat("");
+      setRouteStartLng("");
+      setRouteEndLat("");
+      setRouteEndLng("");
+      setRouteStartLabel("");
+      setRouteEndLabel("");
+      setLeadId("");
     }
   }, [open, mode, initial]);
 
   const validate = () => {
+    const c = (label: string, s: string) => {
+      const t = s.trim();
+      if (t === "") return null;
+      const n = Number(t.replace(",", "."));
+      return Number.isFinite(n) ? null : `${label}: invalid number`;
+    };
+    const e1 = c("Start lat", routeStartLat);
+    if (e1) return e1;
+    const e2 = c("Start lng", routeStartLng);
+    if (e2) return e2;
+    const e3 = c("End lat", routeEndLat);
+    if (e3) return e3;
+    const e4 = c("End lng", routeEndLng);
+    if (e4) return e4;
+    if (
+      (routeStartLat.trim() !== "") !== (routeStartLng.trim() !== "") ||
+      (routeEndLat.trim() !== "") !== (routeEndLng.trim() !== "")
+    ) {
+      return "Заполните обе координаты для точки или оставьте обе пустыми";
+    }
+
     if (mode === "create") {
       if (email.trim().length === 0) return "Email is required";
       if (!email.includes("@")) return "Invalid email";
@@ -107,7 +167,16 @@ export function EmployeeModal({
 
         if (password.trim().length > 0) payload.password = password.trim();
 
-        await apiHttp.patch(`/users/${initial.id}`, payload);
+        await apiHttp.patch(`/users/${initial.id}`, {
+          ...payload,
+          routeStartLat: parseCoord(routeStartLat),
+          routeStartLng: parseCoord(routeStartLng),
+          routeEndLat: parseCoord(routeEndLat),
+          routeEndLng: parseCoord(routeEndLng),
+          routeStartLabel: routeStartLabel.trim() || null,
+          routeEndLabel: routeEndLabel.trim() || null,
+          leadId: leadId || null,
+        });
 
         // 2) role via dedicated endpoint
         await apiHttp.patch(`/users/${initial.id}/role`, { role });
@@ -220,6 +289,84 @@ export function EmployeeModal({
             <option value="MANAGER">MANAGER</option>
             <option value="ADMIN">ADMIN</option>
           </select>
+
+          {mode === "edit" && initial?.id ? (
+            <>
+              <div className="mt-4 border-t border-zinc-200 pt-3">
+                <div className="text-sm font-semibold text-zinc-900">Маршрут визитов</div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Начальная и конечная точка для построения маршрута в Google Maps (lat, lng).
+                </p>
+                <label className="mt-2 block text-xs font-medium text-zinc-700">Старт — подпись</label>
+                <input
+                  className="mt-0.5 w-full rounded-md border border-zinc-200 px-3 py-1.5 text-sm"
+                  value={routeStartLabel}
+                  onChange={(e) => setRouteStartLabel(e.target.value)}
+                  placeholder="Офис, дом…"
+                />
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-zinc-600">Старт lat</label>
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={routeStartLat}
+                      onChange={(e) => setRouteStartLat(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-600">Старт lng</label>
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={routeStartLng}
+                      onChange={(e) => setRouteStartLng(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <label className="mt-2 block text-xs font-medium text-zinc-700">Финиш — подпись</label>
+                <input
+                  className="mt-0.5 w-full rounded-md border border-zinc-200 px-3 py-1.5 text-sm"
+                  value={routeEndLabel}
+                  onChange={(e) => setRouteEndLabel(e.target.value)}
+                  placeholder="Пусто = как старт"
+                />
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-zinc-600">Финиш lat</label>
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={routeEndLat}
+                      onChange={(e) => setRouteEndLat(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-zinc-600">Финиш lng</label>
+                    <input
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={routeEndLng}
+                      onChange={(e) => setRouteEndLng(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <label className="mt-3 block text-sm font-medium text-zinc-700">Руководитель (для отчётов)</label>
+              <select
+                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={leadId}
+                onChange={(e) => setLeadId(e.target.value)}
+                disabled={saving}
+              >
+                <option value="">— не выбран —</option>
+                {allEmployees
+                  .filter((u) => u.id !== initial.id && (u.role === "LEAD" || u.role === "ADMIN"))
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.fullName || u.email}
+                    </option>
+                  ))}
+              </select>
+            </>
+          ) : null}
 
           <div className="mt-5 flex items-center justify-between">
             <div>

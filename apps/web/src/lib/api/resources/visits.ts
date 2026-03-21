@@ -1,10 +1,17 @@
 import { apiHttp } from "../client";
 
+export type VisitContactSnippet = {
+  firstName: string;
+  lastName: string;
+  middleName?: string | null;
+};
+
 export type Visit = {
   id: string;
   companyId?: string | null;
   contactId?: string | null;
   ownerId: string;
+  contact?: VisitContactSnippet | null;
   title?: string | null;
   phone?: string | null;
   addressText?: string | null;
@@ -25,6 +32,7 @@ export type Visit = {
   resultNote?: string | null;
   nextActionAt?: string | null;
   nextActionNote?: string | null;
+  purpose?: string | null;
 };
 
 export type VisitBacklogResponse = Visit[];
@@ -76,6 +84,23 @@ export type NavigationUrlResponse = {
   url: string;
 };
 
+export type VisitHistoryItem = Visit & {
+  owner?: { id: string; fullName: string; email: string };
+  contact?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+  } | null;
+};
+
+export type VisitHistoryResponse = {
+  items: VisitHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export const visitsApi = {
   create: async (body: {
     contactId?: string;
@@ -85,8 +110,20 @@ export const visitsApi = {
     addressText?: string;
     lat?: number;
     lng?: number;
+    purpose?: string;
   }): Promise<Visit> => {
     const res = await apiHttp.post<Visit>("/visits", body);
+    return res.data;
+  },
+
+  history: async (params: {
+    from?: string;
+    to?: string;
+    ownerId?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<VisitHistoryResponse> => {
+    const res = await apiHttp.get<VisitHistoryResponse>("/visits/history", { params } as never);
     return res.data;
   },
 
@@ -116,6 +153,7 @@ export const visitsApi = {
       endsAt: string;
       durationMin: number;
       note: string | null;
+      purpose: string | null;
     }>,
   ): Promise<Visit> => {
     const res = await apiHttp.patch<Visit>(`/visits/${id}`, body);
