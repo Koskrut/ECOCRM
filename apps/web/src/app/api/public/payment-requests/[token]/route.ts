@@ -8,8 +8,10 @@ export async function GET(
 ) {
   const { token } = await ctx.params;
   const url = `${API_URL.replace(/\/+$/, "")}/public/payment-requests/by-token/${encodeURIComponent(token)}`;
+  const controller = new AbortController();
+  const kill = setTimeout(() => controller.abort(), 25_000);
   try {
-    const r = await fetch(url, { cache: "no-store" });
+    const r = await fetch(url, { cache: "no-store", signal: controller.signal });
     const text = await r.text();
     return new NextResponse(text, {
       status: r.status,
@@ -17,7 +19,13 @@ export async function GET(
         "Content-Type": r.headers.get("content-type") ?? "application/json",
       },
     });
-  } catch {
-    return NextResponse.json({ message: "Backend unavailable" }, { status: 502 });
+  } catch (e: unknown) {
+    const aborted = e instanceof Error && e.name === "AbortError";
+    return NextResponse.json(
+      { message: aborted ? "Backend timeout" : "Backend unavailable" },
+      { status: aborted ? 504 : 502 },
+    );
+  } finally {
+    clearTimeout(kill);
   }
 }

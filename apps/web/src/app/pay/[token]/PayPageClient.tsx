@@ -35,9 +35,13 @@ export function PayPageClient({ token }: { token: string }) {
     (async () => {
       setLoading(true);
       setError(null);
+      const ac = new AbortController();
+      const tid = setTimeout(() => ac.abort(), 35_000);
       try {
         const r = await fetch(`/api/public/payment-requests/${encodeURIComponent(token)}`, {
           cache: "no-store",
+          credentials: "omit",
+          signal: ac.signal,
         });
         if (!r.ok) {
           if (r.status === 404) {
@@ -51,8 +55,18 @@ export function PayPageClient({ token }: { token: string }) {
         const j = (await r.json()) as PublicPayPayload;
         if (!cancelled) setData(j);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Помилка мережі");
+        if (!cancelled) {
+          const aborted = e instanceof Error && e.name === "AbortError";
+          setError(
+            aborted
+              ? "Час очікування вичерпано. Перевірте зв’язок і оновіть сторінку."
+              : e instanceof Error
+                ? e.message
+                : "Помилка мережі",
+          );
+        }
       } finally {
+        clearTimeout(tid);
         if (!cancelled) setLoading(false);
       }
     })();
@@ -199,7 +213,18 @@ export function PayPageClient({ token }: { token: string }) {
               </div>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <p className="text-center text-sm text-zinc-500">
+            Не вдалося показати дані.{" "}
+            <button
+              type="button"
+              className="font-medium text-emerald-800 underline underline-offset-2"
+              onClick={() => window.location.reload()}
+            >
+              Оновити сторінку
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );
