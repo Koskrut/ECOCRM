@@ -7,8 +7,9 @@ import { Sidebar } from "@/components/Sidebar";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // без shell (логин/публичные)
-  const noShell = pathname === "/login";
+  // без shell (логин / публична оплата за посиланням)
+  const path = pathname ?? "";
+  const noShell = path === "/login" || path.startsWith("/pay/");
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // ширина сайдбара: 240 (w-60) или 64 (w-16)

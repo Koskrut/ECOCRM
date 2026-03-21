@@ -8,7 +8,8 @@ export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const isLoginPage = pathname === LOGIN_PATH;
   const isApi = pathname.startsWith("/api");
-  const willRedirect = !token && !isLoginPage && !isApi;
+  const isPublicPay = pathname.startsWith("/pay/");
+  const willRedirect = !token && !isLoginPage && !isApi && !isPublicPay;
 
   if (willRedirect) {
     const loginUrl = new URL(LOGIN_PATH, req.url);
