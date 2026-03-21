@@ -37,12 +37,43 @@ export function PayPageClient({ token }: { token: string }) {
       setError(null);
       const ac = new AbortController();
       const tid = setTimeout(() => ac.abort(), 35_000);
+      const apiPath = `/api/public/payment-requests/${encodeURIComponent(token)}`;
+      const fetchUrl =
+        typeof window !== "undefined" ? `${window.location.origin}${apiPath}` : apiPath;
+      // #region agent log
+      void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
+        body: JSON.stringify({
+          sessionId: "c6a409",
+          hypothesisId: "H2",
+          location: "PayPageClient.tsx:fetchStart",
+          message: "public pay fetch",
+          data: { tokenLen: token.length, fetchUrlLen: fetchUrl.length, origin: typeof window !== "undefined" ? window.location.origin : "" },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       try {
-        const r = await fetch(`/api/public/payment-requests/${encodeURIComponent(token)}`, {
+        const r = await fetch(fetchUrl, {
           cache: "no-store",
           credentials: "omit",
           signal: ac.signal,
         });
+        // #region agent log
+        void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
+          body: JSON.stringify({
+            sessionId: "c6a409",
+            hypothesisId: "H2",
+            location: "PayPageClient.tsx:fetchDone",
+            message: "public pay response",
+            data: { ok: r.ok, status: r.status },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (!r.ok) {
           if (r.status === 404) {
             setError("Посилання не знайдено.");
@@ -55,6 +86,23 @@ export function PayPageClient({ token }: { token: string }) {
         const j = (await r.json()) as PublicPayPayload;
         if (!cancelled) setData(j);
       } catch (e) {
+        // #region agent log
+        void fetch("http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "c6a409" },
+          body: JSON.stringify({
+            sessionId: "c6a409",
+            hypothesisId: "H2",
+            location: "PayPageClient.tsx:fetchCatch",
+            message: "public pay error",
+            data: {
+              name: e instanceof Error ? e.name : "unknown",
+              msg: e instanceof Error ? String(e.message).slice(0, 120) : "non-Error",
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (!cancelled) {
           const aborted = e instanceof Error && e.name === "AbortError";
           setError(

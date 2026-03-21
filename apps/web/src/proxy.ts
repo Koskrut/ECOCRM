@@ -8,7 +8,8 @@ export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const isLoginPage = pathname === LOGIN_PATH;
   const isApi = pathname.startsWith("/api");
-  const isPublicPay = pathname.startsWith("/pay/");
+  /** /pay, /pay/, /pay/<token> — без урахування регістру (iOS / проксі інколи дають інший casing). */
+  const isPublicPay = /^\/pay(\/|$)/i.test(pathname);
   const willRedirect = !token && !isLoginPage && !isApi && !isPublicPay;
 
   if (willRedirect) {
