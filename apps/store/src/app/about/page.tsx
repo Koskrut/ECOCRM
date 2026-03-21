@@ -1,3 +1,14 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Про нас",
+  description:
+    "Інформація про компанію SUPREX, нашу команду та напрямки роботи у сфері стоматологічних компонентів.",
+  alternates: {
+    canonical: "/about",
+  },
+};
+
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">

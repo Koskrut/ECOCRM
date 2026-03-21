@@ -22,9 +22,32 @@ const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
 });
 
+const BASE_URL = "https://www.suprex.dental";
+
 export const metadata: Metadata = {
-  title: "SUPREX — Каталог компонентів",
-  description: "Інтернет-магазин стоматологічних компонентів сумісності",
+  metadataBase: new URL(BASE_URL),
+  title: {
+    default: "SUPREX — стоматологічні компоненти сумісності",
+    template: "%s | SUPREX",
+  },
+  description:
+    "SUPREX — каталог стоматологічних компонентів сумісності: платформи, аналоги, формувачі ясен, трансфери та інші компоненти.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: BASE_URL,
+    siteName: "SUPREX",
+    locale: "uk_UA",
+    title: "SUPREX — стоматологічні компоненти сумісності",
+    description:
+      "Каталог стоматологічних компонентів сумісності SUPREX.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

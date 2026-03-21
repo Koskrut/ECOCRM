@@ -1,3 +1,14 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Про виробництво",
+  description:
+    "Інформація про виробництво стоматологічних компонентів SUPREX, контроль якості та виробничі можливості.",
+  alternates: {
+    canonical: "/about-production",
+  },
+};
+
 export default function AboutProductionPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">

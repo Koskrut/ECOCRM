@@ -1,3 +1,14 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Контакти",
+  description:
+    "Контакти SUPREX: адреса, телефон та email для зв’язку щодо стоматологічних компонентів.",
+  alternates: {
+    canonical: "/contacts",
+  },
+};
+
 export default function ContactsPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
@@ -20,8 +31,8 @@ export default function ContactsPage() {
         <p>
           <span className="font-medium text-zinc-700">Email:</span>
           <br />
-          <a href="mailto:[email protected]" className="text-[var(--primary)] hover:underline">
-            [email protected]
+          <a href="mailto:info@suprex.dental" className="text-[var(--primary)] hover:underline">
+            info@suprex.dental
           </a>
         </p>
       </div>

@@ -7,7 +7,7 @@ import { formatPhoneDisplay } from "@/lib/formatPhone";
 const DEFAULT_COMPANY = "SUPREX";
 const DEFAULT_ADDRESS = "Дніпро, просп. Б. Хмельницкого 147";
 const DEFAULT_PHONE = "+380673597488";
-const DEFAULT_EMAIL = "[email protected]";
+const DEFAULT_EMAIL = "info@suprex.dental";
 
 export function Footer() {
   const { config } = useStoreConfig();
