@@ -308,6 +308,8 @@ export async function getOrders(page = 1, pageSize = 20) {
       id: string;
       orderNumber: string;
       status: string;
+      currency: string;
+      exchangeRate: number | null;
       totalAmount: number;
       paidAmount: number;
       debtAmount: number;
@@ -326,6 +328,8 @@ export async function getOrder(id: string) {
     id: string;
     orderNumber: string;
     status: string;
+    currency: string;
+    exchangeRate: number | null;
     totalAmount: number;
     paidAmount: number;
     debtAmount: number;

@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getMe, getOrders, getTelegramLink } from "@/lib/api";
 import { Button } from "@/components/Button";
-import { formatCabinetDateShort } from "@/lib/cabinet-utils";
-import { orderStatusLabel } from "@/lib/cabinet-utils";
+import { formatCabinetDateShort, formatCabinetMoney, orderStatusLabel } from "@/lib/cabinet-utils";
 
 export default function CabinetOverviewPage() {
   const [me, setMe] = useState<Awaited<ReturnType<typeof getMe>> | null>(null);
@@ -139,7 +138,9 @@ export default function CabinetOverviewPage() {
                 <span className="ml-2 text-sm text-zinc-500">
                   {formatCabinetDateShort(o.createdAt)}
                 </span>
-                <span className="ml-2 font-medium">{o.totalAmount} грн</span>
+                <span className="ml-2 font-medium">
+                  {formatCabinetMoney(o.totalAmount, o.currency, o.exchangeRate)}
+                </span>
               </li>
             ))}
           </ul>

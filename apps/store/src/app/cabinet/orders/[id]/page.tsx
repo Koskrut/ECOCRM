@@ -4,8 +4,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getOrder } from "@/lib/api";
-import { orderStatusLabel } from "@/lib/cabinet-utils";
-import { formatCabinetDate } from "@/lib/cabinet-utils";
+import {
+  deliveryMethodLabel,
+  formatCabinetLineMoney,
+  formatCabinetMoney,
+  formatCabinetDate,
+  orderStatusLabel,
+  paymentMethodLabel,
+} from "@/lib/cabinet-utils";
 
 function DeliverySummary({ data }: { data: unknown }) {
   const d = data as Record<string, unknown> | null;
@@ -92,11 +98,14 @@ export default function CabinetOrderPage() {
         Створено: {formatCabinetDate(order.createdAt)}
       </p>
       <p className="mt-1 font-medium">
-        Сума: {order.totalAmount} грн (оплачено: {order.paidAmount} грн)
+        Сума: {formatCabinetMoney(order.totalAmount, order.currency, order.exchangeRate)} (оплачено:{" "}
+        {formatCabinetMoney(order.paidAmount, order.currency, order.exchangeRate)})
       </p>
       {(order.deliveryMethod || order.paymentMethod) && (
         <p className="mt-1 text-sm text-zinc-500">
-          {[order.deliveryMethod, order.paymentMethod].filter(Boolean).join(" · ")}
+          {[deliveryMethodLabel(order.deliveryMethod), paymentMethodLabel(order.paymentMethod)]
+            .filter(Boolean)
+            .join(" · ")}
         </p>
       )}
       <DeliverySummary data={order.deliveryData} />
@@ -114,7 +123,8 @@ export default function CabinetOrderPage() {
           >
             <span className="text-zinc-900">{i.name} ({i.sku})</span>
             <span className="text-zinc-600">
-              {i.qty} × {i.price} = {i.lineTotal} грн
+              {i.qty} × {formatCabinetLineMoney(i.price, order.currency, order.exchangeRate)} ={" "}
+              {formatCabinetLineMoney(i.lineTotal, order.currency, order.exchangeRate)}
             </span>
           </li>
         ))}

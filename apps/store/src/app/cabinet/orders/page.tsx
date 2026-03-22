@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getOrders } from "@/lib/api";
-import { orderStatusLabel } from "@/lib/cabinet-utils";
-import { formatCabinetDateShort } from "@/lib/cabinet-utils";
+import {
+  deliveryMethodLabel,
+  formatCabinetMoney,
+  formatCabinetDateShort,
+  orderStatusLabel,
+  paymentMethodLabel,
+} from "@/lib/cabinet-utils";
 
 const PAGE_SIZE = 10;
 
@@ -79,11 +84,15 @@ export default function CabinetOrdersPage() {
                   <span className="text-sm text-zinc-500">
                     {formatCabinetDateShort(o.createdAt)}
                   </span>
-                  <span className="ml-auto font-medium">{o.totalAmount} грн</span>
+                  <span className="ml-auto font-medium">
+                    {formatCabinetMoney(o.totalAmount, o.currency, o.exchangeRate)}
+                  </span>
                 </div>
                 {(o.deliveryMethod || o.paymentMethod) && (
                   <p className="mt-2 text-xs text-zinc-500">
-                    {[o.deliveryMethod, o.paymentMethod].filter(Boolean).join(" · ")}
+                    {[deliveryMethodLabel(o.deliveryMethod), paymentMethodLabel(o.paymentMethod)]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 )}
               </li>
