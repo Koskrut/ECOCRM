@@ -1,8 +1,15 @@
-# Nginx + HTTPS для crm.suprex.dental, www.suprex.dental и api.suprex.dental
+# Nginx + HTTPS для crm.suprex.dental, www.suprex.dental, api.suprex.dental и apex suprex.dental
+
+## Целевая схема
+
+**Рекомендуется:** `suprex.dental` (apex) только **301 → `https://www.suprex.dental`** — публичный магазин на `www`, CRM на `crm`, API на `api`. Так не пересекается default vhost с CRM и не нужен отдельный upstream для корня.
+
+Альтернатива (редко): отдавать с apex тот же store, что и `www` — тогда в одном `server` укажите `server_name www.suprex.dental suprex.dental;` и расширьте сертификат на apex (без редиректа возможны дубли URL для SEO).
 
 ## 1. DNS
 
-У регистратора домена suprex.dental:
+У регистратора / Cloudflare для suprex.dental:
+- **suprex.dental** (apex, `@`) → A на IP сервера (как у `www`)
 - **crm.suprex.dental** → A-запись на IP сервера
 - **www.suprex.dental** → A-запись на IP сервера
 - **api.suprex.dental** → A-запись на IP сервера
@@ -25,10 +32,12 @@ sudo nginx -t && sudo systemctl reload nginx
 ## 4. Получить SSL-сертификаты
 
 ```bash
-sudo certbot --nginx -d crm.suprex.dental -d www.suprex.dental -d api.suprex.dental
+sudo certbot --nginx -d crm.suprex.dental -d www.suprex.dental -d api.suprex.dental -d suprex.dental
 ```
 
-Certbot сам добавит в конфиг блоки `listen 443 ssl` и пути к сертификатам. После этого перезагрузите nginx:
+Certbot сам добавит в конфиг блоки `listen 443 ssl` и пути к сертификатам. Для **apex** после появления `server { listen 443 ssl; server_name suprex.dental; ... }` убедитесь, что внутри него задан редирект на магазин, например: `return 301 https://www.suprex.dental$request_uri;` (если certbot оставил заглушку или `proxy_pass` — замените вручную). Иначе при HTTPS с Cloudflare → origin запрос снова может попасть не в тот vhost.
+
+После этого перезагрузите nginx:
 
 ```bash
 sudo systemctl reload nginx
@@ -39,11 +48,11 @@ sudo systemctl reload nginx
 В `/opt/crm/.env` должны быть строки (см. .env.production.example):
 
 ```
-CORS_ORIGIN=https://crm.suprex.dental,https://www.suprex.dental
+CORS_ORIGIN=https://crm.suprex.dental,https://www.suprex.dental,https://suprex.dental
 PUBLIC_BASE_URL=https://api.suprex.dental
 ```
 
-Перезапустите backend:
+Дополнительно можно перечислить IP-оригины для отладки через запятую (как в `.env.production.example`). После **любой** смены `CORS_ORIGIN` пересоздайте/перезапустите контейнер backend, иначе Nest останется со старым значением:
 
 ```bash
 cd /opt/crm
@@ -62,9 +71,11 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d backend
 
 ## 7. Проверка
 
+- `curl -sI https://suprex.dental/` → **301**, `Location: https://www.suprex.dental/...`
 - https://crm.suprex.dental — CRM, вход
 - https://www.suprex.dental — магазин
 - https://api.suprex.dental — бекенд (например, GET /health или любой публичный эндпоинт)
+- CORS: `curl -sI -X OPTIONS 'https://api.suprex.dental/auth/login' -H 'Origin: https://www.suprex.dental' -H 'Access-Control-Request-Method: POST'` — в ответе должен быть `Access-Control-Allow-Origin` (повторите с `Origin: https://crm.suprex.dental` и при необходимости `https://suprex.dental`)
 
 ## 8. SEO cleanup для www.suprex.dental (после миграции с WordPress)
 
