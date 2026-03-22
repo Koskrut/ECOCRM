@@ -17,6 +17,7 @@ import {
   ListTodo,
   BarChart3,
   History,
+  PhoneCall,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -41,6 +42,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
   { label: "Visits", icon: MapPin, href: "/visits" },
   { label: "Visit history", icon: History, href: "/visits/history" },
+  { label: "AI Calls", icon: PhoneCall, href: "/outbound/campaigns" },
 ];
 
 const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };

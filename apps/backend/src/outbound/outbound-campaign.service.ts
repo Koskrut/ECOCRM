@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { OutboundAttemptStatus, OutboundTargetType, type Prisma } from "@prisma/client";
+import type { ReviewAttemptDto } from "./dto/review-attempt.dto";
 import { PrismaService } from "../prisma/prisma.service";
 import { getPhoneNormalizedDigits } from "../common/phone.utils";
 import type { CreateOutboundCampaignDto } from "./dto/create-outbound-campaign.dto";
@@ -58,6 +59,129 @@ export class OutboundCampaignService {
     return this.prisma.outboundCampaign.findMany({
       orderBy: { createdAt: "desc" },
       include: { _count: { select: { attempts: true } } },
+    });
+  }
+
+  async listCampaignsWithStats() {
+    const [campaigns, stats] = await Promise.all([
+      this.prisma.outboundCampaign.findMany({
+        orderBy: { createdAt: "desc" },
+        include: { _count: { select: { attempts: true } } },
+      }),
+      this.prisma.outboundCallAttempt.groupBy({
+        by: ["campaignId", "status"],
+        _count: { id: true },
+      }),
+    ]);
+    const statsMap = new Map<string, Record<string, number>>();
+    for (const s of stats) {
+      if (!statsMap.has(s.campaignId)) statsMap.set(s.campaignId, {});
+      statsMap.get(s.campaignId)![s.status] = s._count.id;
+    }
+    return campaigns.map((c) => ({ ...c, statsByStatus: statsMap.get(c.id) ?? {} }));
+  }
+
+  async listAttempts(query: {
+    page?: number;
+    pageSize?: number;
+    campaignId?: string;
+    status?: string;
+    scenarioCode?: string;
+    needsReview?: boolean;
+    callLinked?: boolean;
+  }) {
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 30));
+    const skip = (page - 1) * pageSize;
+    const statuses = query.status
+      ? (query.status.split(",").filter(Boolean) as OutboundAttemptStatus[])
+      : undefined;
+
+    const where: Prisma.OutboundCallAttemptWhereInput = {
+      ...(query.campaignId && { campaignId: query.campaignId }),
+      ...(statuses?.length && { status: { in: statuses } }),
+      ...(query.scenarioCode && { scenarioCode: query.scenarioCode }),
+      ...(query.callLinked === true && { callId: { not: null } }),
+      ...(query.callLinked === false && { callId: null }),
+      ...(query.needsReview === true && {
+        outcome: { path: ["analysis", "needsReview"], equals: true } as object,
+      }),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.outboundCallAttempt.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { updatedAt: "desc" },
+        include: {
+          campaign: { select: { id: true, name: true, targetType: true } },
+          lead: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              fullName: true,
+              phone: true,
+              status: true,
+              source: true,
+            },
+          },
+          contact: {
+            select: { id: true, firstName: true, lastName: true, phone: true },
+          },
+        },
+      }),
+      this.prisma.outboundCallAttempt.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
+  }
+
+  async getAttemptById(id: string) {
+    return this.prisma.outboundCallAttempt.findUnique({
+      where: { id },
+      include: {
+        campaign: true,
+        lead: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            fullName: true,
+            phone: true,
+            status: true,
+            source: true,
+            message: true,
+            ownerId: true,
+            owner: { select: { id: true, fullName: true } },
+          },
+        },
+        contact: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+            email: true,
+            status: true,
+            ownerId: true,
+            owner: { select: { id: true, fullName: true } },
+          },
+        },
+        call: {
+          select: {
+            id: true,
+            provider: true,
+            externalId: true,
+            direction: true,
+            startedAt: true,
+            endedAt: true,
+            durationSec: true,
+            status: true,
+            recordingUrl: true,
+          },
+        },
+      },
     });
   }
 
@@ -186,5 +310,48 @@ export class OutboundCampaignService {
     const c = await this.prisma.outboundCampaign.findUnique({ where: { id } });
     if (!c) throw new NotFoundException("Campaign not found");
     return c;
+  }
+
+  async reviewAttempt(id: string, dto: ReviewAttemptDto) {
+    const attempt = await this.prisma.outboundCallAttempt.findUnique({ where: { id } });
+    if (!attempt) throw new NotFoundException("Attempt not found");
+
+    const currentOutcome = (attempt.outcome ?? {}) as Record<string, unknown>;
+    const currentAnalysis = (currentOutcome.analysis ?? {}) as Record<string, unknown>;
+
+    const newAnalysis: Record<string, unknown> = { ...currentAnalysis };
+    if (dto.markReviewed) {
+      newAnalysis.needsReview = false;
+      newAnalysis.reviewedAt = new Date().toISOString();
+    }
+
+    const newOutcome: Record<string, unknown> = {
+      ...currentOutcome,
+      analysis: newAnalysis,
+    };
+
+    if (dto.managerNote !== undefined) {
+      newOutcome.managerNote = dto.managerNote.trim() || null;
+    }
+
+    if (dto.overrideOutcomeKey) {
+      const scenario = this.scenarios.resolve(attempt.scenarioCode, attempt.scenarioVersion);
+      const mapping = this.scenarios.findOutcomeMapping(scenario, dto.overrideOutcomeKey);
+      if (!mapping) {
+        throw new BadRequestException(
+          `Unknown outcomeKey "${dto.overrideOutcomeKey}" for scenario ${attempt.scenarioCode}`,
+        );
+      }
+      newOutcome.outcomeKey = dto.overrideOutcomeKey;
+      newOutcome.bucket = mapping.crm.bucket;
+      newAnalysis.needsReview = false;
+      newAnalysis.reviewedAt = new Date().toISOString();
+      newOutcome.analysis = newAnalysis;
+    }
+
+    return this.prisma.outboundCallAttempt.update({
+      where: { id },
+      data: { outcome: newOutcome as Prisma.InputJsonValue },
+    });
   }
 }
