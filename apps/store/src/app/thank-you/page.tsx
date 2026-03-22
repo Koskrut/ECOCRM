@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/Button";
+import { PUBLIC_SITE_URL } from "@/lib/public-site-url";
 
 function ThankYouContent() {
   const searchParams = useSearchParams();
@@ -79,13 +80,23 @@ function ThankYouContent() {
             Пароль збережено. Тепер ви можете увійти в кабінет.
           </p>
         ) : null}
-        <div className="mt-6 flex flex-wrap gap-4 border-t border-[var(--border)] pt-4">
-          <Link href="/" className="text-[var(--primary)] hover:underline">
-            Повернутися в каталог
-          </Link>
-          <Link href="/login" className="text-[var(--primary)] hover:underline">
-            Вхід в кабінет
-          </Link>
+        <div className="mt-6 space-y-4 border-t border-[var(--border)] pt-4">
+          <a
+            href={PUBLIC_SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex min-h-[44px] w-full items-center justify-center rounded-lg border border-[var(--primary)] bg-[var(--primary)] px-4 py-3 text-center text-sm font-semibold text-white transition hover:opacity-90"
+          >
+            Перейти на сайт SUPREX
+          </a>
+          <div className="flex flex-wrap gap-4">
+            <Link href="/" className="text-[var(--primary)] hover:underline">
+              Повернутися в каталог
+            </Link>
+            <Link href="/login" className="text-[var(--primary)] hover:underline">
+              Вхід в кабінет
+            </Link>
+          </div>
         </div>
       </div>
     </div>
