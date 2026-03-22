@@ -96,7 +96,7 @@ export default function SettingsHomePage() {
           >
             <div className="text-sm font-semibold text-zinc-900">Інтернет-магазин</div>
             <div className="mt-1 text-sm text-zinc-500">
-              Тема, баннери на головній та контакти для магазину
+              Тема, баннери, контакти, URL CRM для оплати з магазину
             </div>
           </Link>
 

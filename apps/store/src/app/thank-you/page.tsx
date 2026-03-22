@@ -6,9 +6,11 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/Button";
 import { createCheckoutPaymentLink } from "@/lib/api";
 import { buildPublicPayUrl, getCrmPayPageOrigin } from "@/lib/crm-pay-url";
+import { useStoreConfig } from "@/context/StoreConfigContext";
 import { PUBLIC_SITE_URL } from "@/lib/public-site-url";
 
 function ThankYouContent() {
+  const { config, loading: storeConfigLoading } = useStoreConfig();
   const searchParams = useSearchParams();
   const orderNumber = searchParams.get("orderNumber") ?? "";
   const setPasswordToken = searchParams.get("setPasswordToken");
@@ -20,19 +22,23 @@ function ThankYouContent() {
   const [payLoading, setPayLoading] = useState(false);
   const [payErr, setPayErr] = useState<string | null>(null);
 
+  const payOriginHint =
+    "Задайте URL у CRM: Налаштування → Інтернет-магазин → «URL CRM для оплати», або NEXT_PUBLIC_CRM_PAY_URL при збірці магазину.";
+
   const handlePay = async () => {
     if (!orderPayToken) return;
-    if (!getCrmPayPageOrigin()) {
-      setPayErr("Не налаштовано адресу сторінки оплати (NEXT_PUBLIC_CRM_PAY_URL).");
+    if (storeConfigLoading) return;
+    if (!getCrmPayPageOrigin(config.crmPayPageUrl)) {
+      setPayErr(`Не налаштовано адресу сторінки оплати. ${payOriginHint}`);
       return;
     }
     setPayErr(null);
     setPayLoading(true);
     try {
       const { payPath } = await createCheckoutPaymentLink(orderPayToken);
-      const url = buildPublicPayUrl(payPath);
+      const url = buildPublicPayUrl(payPath, config.crmPayPageUrl);
       if (!url) {
-        setPayErr("Не налаштовано адресу сторінки оплати (NEXT_PUBLIC_CRM_PAY_URL).");
+        setPayErr(`Не налаштовано адресу сторінки оплати. ${payOriginHint}`);
         return;
       }
       window.location.href = url;
@@ -115,10 +121,10 @@ function ThankYouContent() {
               <Button
                 type="button"
                 className="w-full"
-                disabled={payLoading}
+                disabled={payLoading || storeConfigLoading}
                 onClick={() => void handlePay()}
               >
-                {payLoading ? "Зачекайте…" : "Оплатити замовлення"}
+                {payLoading || storeConfigLoading ? "Зачекайте…" : "Оплатити замовлення"}
               </Button>
             </div>
           ) : null}

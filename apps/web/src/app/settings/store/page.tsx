@@ -32,6 +32,8 @@ type StoreConfig = {
   theme?: StoreTheme;
   banners?: StoreBanner[];
   contact?: StoreContact;
+  /** Базовий URL CRM для сторінки оплати /pay/… (без слеша в кінці). */
+  crmPayPageUrl?: string;
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
@@ -75,6 +77,7 @@ export default function StoreSettingsPage() {
           theme: data.theme ?? { primary: "#1e3a5f", primaryHover: "#152a47", surface: "#f8fafc", border: "#e2e8f0" },
           banners: Array.isArray(data.banners) ? [...data.banners].sort((a, b) => a.order - b.order) : [],
           contact: data.contact ?? {},
+          crmPayPageUrl: typeof data.crmPayPageUrl === "string" ? data.crmPayPageUrl : "",
         });
       }
     } catch (e) {
@@ -150,7 +153,7 @@ export default function StoreSettingsPage() {
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Інтернет-магазин</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Тема, баннери на головній сторінці та контакти для магазину
+            Тема, баннери, контакти, посилання на сторінку оплати в CRM
           </p>
         </div>
 
@@ -315,6 +318,26 @@ export default function StoreSettingsPage() {
                 {(config.banners ?? []).length === 0 && (
                   <p className="text-sm text-zinc-500">Немає баннерів. Додайте хоча б один.</p>
                 )}
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-zinc-900">Оплата замовлень з магазину</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Базовий URL застосунку CRM (де відкривається /pay/…). Без завершального слеша, наприклад{" "}
+                <span className="font-mono text-zinc-600">https://crm.example.com</span>. Якщо порожньо — на магазині
+                використовується змінна середовища NEXT_PUBLIC_CRM_PAY_URL (при збірці).
+              </p>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-zinc-600">URL CRM для оплати</label>
+                <input
+                  type="url"
+                  value={config.crmPayPageUrl ?? ""}
+                  onChange={(e) => setConfig((c) => ({ ...c, crmPayPageUrl: e.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  placeholder="https://…"
+                  autoComplete="off"
+                />
               </div>
             </section>
 

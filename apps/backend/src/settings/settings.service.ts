@@ -81,6 +81,8 @@ export type StoreConfig = {
   theme?: StoreTheme;
   banners?: StoreBanner[];
   contact?: StoreContact;
+  /** Базовий URL CRM (apps/web), де відкривається /pay/[token]. Без завершального слеша. */
+  crmPayPageUrl?: string;
 };
 
 const STORE_CONFIG_KEY = "store_config";
@@ -172,7 +174,12 @@ function mergeStoreConfig(saved: Record<string, unknown> | null): StoreConfig {
         ? (savedContact.email as string)
         : DEFAULT_STORE_CONFIG.contact?.email,
   };
-  return { theme, banners, contact };
+  let crmPayPageUrl: string | undefined;
+  if (typeof saved?.crmPayPageUrl === "string") {
+    const t = saved.crmPayPageUrl.trim().replace(/\/+$/, "");
+    if (t) crmPayPageUrl = t;
+  }
+  return { theme, banners, contact, ...(crmPayPageUrl ? { crmPayPageUrl } : {}) };
 }
 
 export type RingostatConfig = {
@@ -735,7 +742,16 @@ export class SettingsService {
       phone: typeof body.contact?.phone === "string" ? body.contact.phone : current.contact?.phone,
       email: typeof body.contact?.email === "string" ? body.contact.email : current.contact?.email,
     };
-    const next: StoreConfig = { theme: nextTheme, banners: nextBanners, contact: nextContact };
+    const nextCrmPayPageUrl =
+      "crmPayPageUrl" in body && typeof body.crmPayPageUrl === "string"
+        ? body.crmPayPageUrl.trim().replace(/\/+$/, "") || undefined
+        : current.crmPayPageUrl;
+    const next: StoreConfig = {
+      theme: nextTheme,
+      banners: nextBanners,
+      contact: nextContact,
+      ...(nextCrmPayPageUrl ? { crmPayPageUrl: nextCrmPayPageUrl } : {}),
+    };
     await this.prisma.systemSetting.upsert({
       where: { id: STORE_CONFIG_KEY },
       create: { id: STORE_CONFIG_KEY, value: next as Prisma.InputJsonValue },

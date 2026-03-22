@@ -383,6 +383,8 @@ export type StoreConfig = {
     order: number;
   }>;
   contact?: { companyName?: string; address?: string; phone?: string; email?: string };
+  /** Базовий URL CRM для /pay/[token] (без слеша в кінці). */
+  crmPayPageUrl?: string;
 };
 
 export async function getStoreConfig(): Promise<StoreConfig> {
