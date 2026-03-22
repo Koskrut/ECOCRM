@@ -21,6 +21,7 @@ export class StoreCabinetService {
       lastName: contact.lastName,
       phone: contact.phone,
       email: contact.customer.email,
+      region: contact.region ?? null,
       telegramLinked: contact.telegramAccounts.length > 0,
       telegramUsername: contact.telegramAccounts[0]?.username ?? null,
     };

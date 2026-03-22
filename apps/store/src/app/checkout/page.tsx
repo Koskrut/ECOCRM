@@ -85,6 +85,8 @@ export default function CheckoutPage() {
         setLastName(me.lastName ?? "");
         setEmail(me.email ?? "");
         setPhone(formatUaPhoneInput(me.phone ?? ""));
+        const savedRegion = me.region?.trim();
+        if (savedRegion) setRegion(savedRegion);
       })
       .catch(() => setLoggedIn(false));
   }, []);

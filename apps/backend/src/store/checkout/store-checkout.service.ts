@@ -42,6 +42,9 @@ export class StoreCheckoutService {
       throw new BadRequestException("Оберіть спосіб доставки");
     }
 
+    const region = (dto.region ?? "").trim();
+    if (!region) throw new BadRequestException("Оберіть область");
+
     let contact = await this.contactsService.findContactByPhone(phoneNorm);
     const lastName = (dto.lastName ?? "").trim() || "—";
     const email = (dto.email ?? "").trim() || null;
@@ -52,13 +55,14 @@ export class StoreCheckoutService {
           lastName,
           phone: normalizePhoneToE164(rawPhone) ?? (rawPhone || phoneNorm),
           email,
+          region,
         },
         undefined,
       ) as { id: string };
     } else {
       await this.contactsService.update(
         contact.id,
-        { firstName, lastName, email },
+        { firstName, lastName, email, region },
         undefined,
       );
     }
@@ -271,8 +275,6 @@ export class StoreCheckoutService {
       }
     }
 
-    const region = (dto.region ?? "").trim();
-    if (!region) throw new BadRequestException("Оберіть область");
     const org = await this.settings.getOrgChartStructure();
     const normalizedRegion = region.toLocaleLowerCase("uk");
     let ownerIdFromRegion: string | null = null;

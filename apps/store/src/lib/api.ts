@@ -284,6 +284,7 @@ export async function getMe() {
     lastName: string;
     phone: string;
     email: string | null;
+    region: string | null;
     telegramLinked: boolean;
     telegramUsername: string | null;
   }>("/me");
