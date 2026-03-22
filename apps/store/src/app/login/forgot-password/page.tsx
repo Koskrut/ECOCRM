@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/Button";
+import { formatUaPhoneInput, normalizePhone } from "@/lib/formatPhone";
 
 type Step = "phone" | "code";
 
@@ -32,7 +33,7 @@ export default function ForgotPasswordPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim() }),
+        body: JSON.stringify({ phone: normalizePhone(phone) ?? phone.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -66,7 +67,7 @@ export default function ForgotPasswordPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          phone: phone.trim(),
+          phone: normalizePhone(phone) ?? phone.trim(),
           code: code.trim(),
           newPassword,
         }),
@@ -111,8 +112,11 @@ export default function ForgotPasswordPage() {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(formatUaPhoneInput(e.target.value))}
                   required
+                  inputMode="tel"
+                  placeholder="+38 (0XX) XXX-XX-XX"
+                  autoComplete="tel"
                   className={inputClass}
                 />
               </div>

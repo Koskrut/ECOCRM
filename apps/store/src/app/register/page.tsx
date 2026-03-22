@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { register as registerApi } from "@/lib/api";
+import { formatUaPhoneInput, normalizePhone } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 
 export default function RegisterPage() {
@@ -31,7 +32,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await registerApi({
-        phone: phone.trim(),
+        phone: normalizePhone(phone) ?? phone.trim(),
         password,
         firstName: firstName.trim() || undefined,
         lastName: lastName.trim() || undefined,
@@ -66,8 +67,11 @@ export default function RegisterPage() {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(formatUaPhoneInput(e.target.value))}
               required
+              inputMode="tel"
+              placeholder="+38 (0XX) XXX-XX-XX"
+              autoComplete="tel"
               className={inputClass}
             />
           </div>

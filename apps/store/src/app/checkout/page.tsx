@@ -17,38 +17,11 @@ import {
   type ShippingProfile,
 } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
-import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
-
-function formatUaPhoneInput(value: string): string {
-  const rawDigits = value.replace(/\D/g, "");
-  if (!rawDigits) return "";
-
-  let digits = rawDigits;
-  if (digits.startsWith("380")) {
-    digits = `0${digits.slice(3)}`;
-  } else if (digits.startsWith("80")) {
-    digits = `0${digits.slice(2)}`;
-  } else if (!digits.startsWith("0")) {
-    digits = `0${digits}`;
-  }
-  digits = digits.slice(0, 10);
-
-  const area = digits.slice(0, 3);
-  const first = digits.slice(3, 6);
-  const second = digits.slice(6, 8);
-  const third = digits.slice(8, 10);
-
-  let out = "+38";
-  if (area) out += ` (${area}${area.length === 3 ? ")" : ""}`;
-  if (first) out += ` ${first}`;
-  if (second) out += `-${second}`;
-  if (third) out += `-${third}`;
-  return out;
-}
 
 export default function CheckoutPage() {
   const router = useRouter();

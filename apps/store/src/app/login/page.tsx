@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { login } from "@/lib/api";
+import { formatUaPhoneInput, normalizePhone } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 
 function LoginForm() {
@@ -22,7 +23,7 @@ function LoginForm() {
     setLoginDebug(null);
     setLoading(true);
     try {
-      await login(phone.trim(), password);
+      await login(normalizePhone(phone) ?? phone.trim(), password);
       router.push("/cabinet");
       router.refresh();
     } catch (err) {
@@ -64,8 +65,11 @@ function LoginForm() {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(formatUaPhoneInput(e.target.value))}
               required
+              inputMode="tel"
+              placeholder="+38 (0XX) XXX-XX-XX"
+              autoComplete="tel"
               className={inputClass}
             />
           </div>

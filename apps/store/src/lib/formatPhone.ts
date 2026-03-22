@@ -29,3 +29,31 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
   }
   return n;
 }
+
+/** Live input mask: +38 (0XX) XXX-XX-XX (UA mobile, max 10 national digits after leading 0). */
+export function formatUaPhoneInput(value: string): string {
+  const rawDigits = value.replace(/\D/g, "");
+  if (!rawDigits) return "";
+
+  let digits = rawDigits;
+  if (digits.startsWith("380")) {
+    digits = `0${digits.slice(3)}`;
+  } else if (digits.startsWith("80")) {
+    digits = `0${digits.slice(2)}`;
+  } else if (!digits.startsWith("0")) {
+    digits = `0${digits}`;
+  }
+  digits = digits.slice(0, 10);
+
+  const area = digits.slice(0, 3);
+  const first = digits.slice(3, 6);
+  const second = digits.slice(6, 8);
+  const third = digits.slice(8, 10);
+
+  let out = "+38";
+  if (area) out += ` (${area}${area.length === 3 ? ")" : ""}`;
+  if (first) out += ` ${first}`;
+  if (second) out += `-${second}`;
+  if (third) out += `-${third}`;
+  return out;
+}
