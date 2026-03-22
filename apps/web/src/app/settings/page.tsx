@@ -81,6 +81,16 @@ export default function SettingsHomePage() {
           </Link>
 
           <Link
+            href="/settings/outbound-voice"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Outbound voice (AI Calls)</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              HTTP-провайдер исходящих звонков, секрет вебхука, путь и разбор ответа create-call.
+            </div>
+          </Link>
+
+          <Link
             href="/settings/telegram"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
