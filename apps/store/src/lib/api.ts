@@ -259,6 +259,17 @@ export async function login(phone: string, password: string) {
   return data as { customer: { customerId: string; contactId: string } };
 }
 
+function mapStoreRegisterError(apiMessage: string | undefined): string {
+  if (!apiMessage) return "Помилка реєстрації";
+  if (apiMessage === "An account already exists for this phone number") {
+    return "Обліковий запис з цим номером уже є. Увійдіть або скиньте пароль на сторінці входу.";
+  }
+  if (apiMessage === "Invalid phone number") {
+    return "Невірний номер телефону";
+  }
+  return apiMessage;
+}
+
 export async function register(body: {
   phone: string;
   password: string;
@@ -273,7 +284,9 @@ export async function register(body: {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error((data as { message?: string }).message ?? "Registration failed");
+  if (!res.ok) {
+    throw new Error(mapStoreRegisterError((data as { message?: string }).message));
+  }
   return data as { customer: { customerId: string; contactId: string } };
 }
 
@@ -377,6 +390,8 @@ export async function getTelegramLink() {
 }
 
 export type StoreConfig = {
+  /** Mirrors CRM settings; optional on storefront responses. */
+  publicStoreUrl?: string;
   theme?: { primary?: string; primaryHover?: string; surface?: string; border?: string };
   banners?: Array<{
     id: string;

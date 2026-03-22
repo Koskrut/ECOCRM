@@ -9,7 +9,7 @@ import type {
   StoreConfig,
   TelegramConfig,
 } from "./settings.service";
-import type { RingostatConfig } from "./settings.service";
+import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings.service";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -91,6 +91,25 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setRingostatConfig(@Body() body: Partial<RingostatConfig>) {
     return this.settings.setRingostatConfig(body);
+  }
+
+  @Get("outbound-voice")
+  @Roles(UserRole.ADMIN)
+  getOutboundVoiceIntegrationConfig() {
+    return this.settings.getOutboundVoiceIntegrationConfig();
+  }
+
+  @Patch("outbound-voice")
+  @Roles(UserRole.ADMIN)
+  setOutboundVoiceIntegrationConfig(
+    @Body()
+    body: Partial<OutboundVoiceIntegrationConfig> & {
+      isEnabled?: boolean;
+      webhookSecret?: string;
+      apiToken?: string;
+    },
+  ) {
+    return this.settings.setOutboundVoiceIntegrationConfig(body);
   }
 
   @Get("store")

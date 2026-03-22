@@ -26,6 +26,14 @@ type GoogleMapsPublicConfig = {
   mapsApiKey: string | null;
 };
 
+function buildStoreThankYouSetPasswordUrl(publicStoreBase: string, setPasswordToken: string): string {
+  const base = publicStoreBase.trim().replace(/\/+$/, "");
+  const withScheme = /^https?:\/\//i.test(base) ? base : `https://${base}`;
+  const u = new URL("/thank-you", withScheme);
+  u.searchParams.set("setPasswordToken", setPasswordToken);
+  return u.href;
+}
+
 /** Loads Google Maps JS only for map + marker (no legacy Places). */
 function ContactGoogleScriptLoader({
   mapsApiKey,
@@ -710,7 +718,17 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     tempPassword: string;
     setPasswordToken: string;
   } | null>(null);
+  /** Resolved store origin for set-password link (settings or NEXT_PUBLIC_STORE_PUBLIC_URL). */
+  const [resetPasswordPublicStoreBase, setResetPasswordPublicStoreBase] = useState<string | null>(null);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+
+  const resetPasswordFullUrl = useMemo(() => {
+    if (!resetPasswordResult || !resetPasswordPublicStoreBase) return null;
+    return buildStoreThankYouSetPasswordUrl(
+      resetPasswordPublicStoreBase,
+      resetPasswordResult.setPasswordToken,
+    );
+  }, [resetPasswordResult, resetPasswordPublicStoreBase]);
 
   type LeftTabId = "main" | "orders" | "delivery-profiles" | "tasks" | "change-history";
   const [leftTab, setLeftTab] = useState<LeftTabId>("main");
@@ -2053,12 +2071,25 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                   onClick={async () => {
                     setResetPasswordError(null);
                     setResetPasswordResult(null);
+                    setResetPasswordPublicStoreBase(null);
                     setResetPasswordLoading(true);
                     try {
                       const res = await apiHttp.post<{
                         tempPassword: string;
                         setPasswordToken: string;
                       }>(`/contacts/${contactId}/reset-store-password`);
+                      let storeBase = "";
+                      try {
+                        const cfg = await apiHttp.get<{ publicStoreUrl?: string }>("/settings/store");
+                        const u = cfg.data?.publicStoreUrl;
+                        if (typeof u === "string") storeBase = u.trim().replace(/\/+$/, "");
+                      } catch {
+                        /* ignore */
+                      }
+                      if (!storeBase && typeof process.env.NEXT_PUBLIC_STORE_PUBLIC_URL === "string") {
+                        storeBase = process.env.NEXT_PUBLIC_STORE_PUBLIC_URL.replace(/\/+$/, "");
+                      }
+                      setResetPasswordPublicStoreBase(storeBase || null);
                       setResetPasswordResult(res.data);
                     } catch (e: unknown) {
                       const msg = e instanceof Error ? e.message : null;
@@ -2136,6 +2167,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                     onClick={() => {
                       setResetPasswordError(null);
                       setResetPasswordResult(null);
+                      setResetPasswordPublicStoreBase(null);
                     }}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
@@ -2146,11 +2178,11 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             ) : resetPasswordResult ? (
               <>
                 <p className="mt-2 text-sm text-zinc-600">
-                  Временный пароль и ссылка для установки своего пароля (действует 24 ч):
+                  Тимчасовий пароль і посилання для встановлення свого пароля (діє 24 год):
                 </p>
                 <div className="mt-3 space-y-2">
                   <div>
-                    <span className="text-xs text-zinc-500">Временный пароль:</span>
+                    <span className="text-xs text-zinc-500">Тимчасовий пароль:</span>
                     <div className="mt-0.5 flex items-center gap-2">
                       <code className="flex-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm font-mono">
                         {resetPasswordResult.tempPassword}
@@ -2162,12 +2194,50 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         }}
                         className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                       >
-                        Копировать
+                        Копіювати
                       </button>
                     </div>
                   </div>
+                  {resetPasswordFullUrl ? (
+                    <div>
+                      <span className="text-xs text-zinc-500">Посилання для встановлення пароля:</span>
+                      <div className="mt-0.5 space-y-2">
+                        <code className="block max-h-24 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
+                          {resetPasswordFullUrl}
+                        </code>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <a
+                            href={resetPasswordFullUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Відкрити в новій вкладці
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(resetPasswordFullUrl);
+                            }}
+                            className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+                          >
+                            Копіювати посилання
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
+                      Щоб отримати готове посилання, вкажіть «Публічна URL вітрини» в{" "}
+                      <span className="font-medium">Налаштування → Інтернет-магазин</span> або задайте змінну{" "}
+                      <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці CRM. Нижче — токен для
+                      ручної збірки URL.
+                    </p>
+                  )}
                   <div>
-                    <span className="text-xs text-zinc-500">Токен для смены пароля:</span>
+                    <span className="text-xs text-zinc-500">
+                      {resetPasswordPublicStoreBase ? "Токен (для діагностики):" : "Токен:"}
+                    </span>
                     <div className="mt-0.5 flex items-center gap-2">
                       <code className="max-h-20 flex-1 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
                         {resetPasswordResult.setPasswordToken}
@@ -2179,7 +2249,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         }}
                         className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                       >
-                        Копировать
+                        Копіювати
                       </button>
                     </div>
                   </div>
@@ -2190,6 +2260,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                     onClick={() => {
                       setResetPasswordError(null);
                       setResetPasswordResult(null);
+                      setResetPasswordPublicStoreBase(null);
                     }}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >

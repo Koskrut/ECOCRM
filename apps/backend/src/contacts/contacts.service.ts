@@ -6,7 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -376,7 +376,8 @@ export class ContactsService {
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new BadRequestException("JWT not configured");
 
-    const tempPassword = randomBytes(12).toString("hex");
+    /** Short numeric temp password for handoff (6 digits, easy to read aloud). */
+    const tempPassword = String(randomInt(100_000, 1_000_000));
     await this.prisma.customer.update({
       where: { id: customer.id },
       data: { passwordHash: hashPassword(tempPassword) },
@@ -521,6 +522,7 @@ export class ContactsService {
       city: string | null;
       clientType: string | null;
       status: string | null;
+      marketingCallOptOut: boolean;
     }>,
     actor?: AuthUser,
   ) {
@@ -790,6 +792,7 @@ export class ContactsService {
       city: contact.city ?? null,
       clientType: contact.clientType ?? null,
       status: contact.status ?? null,
+      marketingCallOptOut: contact.marketingCallOptOut,
       company: contact.company
         ? {
             id: contact.company.id,

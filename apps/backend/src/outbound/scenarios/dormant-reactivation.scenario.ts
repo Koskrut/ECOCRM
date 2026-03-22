@@ -1,0 +1,210 @@
+import type { ScenarioDefinition } from "./scenario.types";
+
+export const DORMANT_REACTIVATION_SCENARIO_VERSION = "1.0.0";
+
+export const dormantReactivationScenario: ScenarioDefinition = {
+  code: "DORMANT_REACTIVATION",
+  version: DORMANT_REACTIVATION_SCENARIO_VERSION,
+  name: "Dormant customer reactivation",
+  nameUk: "Реактивація «сплячого» клієнта",
+  goal: "Gently re-engage, learn why orders stopped, offer a relevant next step without pressure.",
+  goalUk: "Мʼяко відновити діалог, зʼясувати причину паузи в замовленнях, запропонувати доречний наступний крок.",
+  targetSegment: "Contacts with order history whose last order is older than N days (campaign config).",
+  targetSegmentUk: "Контакти з історією замовлень, останнє замовлення старше N днів (у конфігурації кампанії).",
+  entryConditionsSummary:
+    "Contact has prior orders via clientId; last order date before cutoff; phone present; marketingCallOptOut is false.",
+  entryConditionsSummaryUk:
+    "Є попередні замовлення; останнє до cutoff; є телефон; marketingCallOptOut = false.",
+  requiredContextKeys: [
+    "contact.displayName",
+    "contact.phone",
+    "contact.ownerName",
+    "company.name",
+    "orders.lastOrderDate",
+    "orders.orderCount",
+    "orders.avgOrderTotal",
+    "orders.topProductCategories",
+  ],
+  openings: [
+    "Reference long time since last interaction in general terms; mention product category cluster if in context.",
+    "Keep PII light: avoid listing many SKUs; use category-level hints.",
+  ],
+  openingsUk: [
+    "Згадати, що давно не було контакту; за потреби — категорія закупівель з контексту.",
+    "Без переліку багатьох SKU; лише рівень категорії/лінійки.",
+  ],
+  qualificationQuestions: [
+    "Are these purchases still relevant for you?",
+    "What changed since the last order (supplier, volume, assortment)?",
+    "Would a current price list or catalog help?",
+    "Would a call from your account manager help?",
+  ],
+  qualificationQuestionsUk: [
+    "Чи актуальні для вас такі закупівлі?",
+    "Що змінилося з останнього замовлення (постачальник, обсяг, асортимент)?",
+    "Чи потрібен актуальний прайс чи каталог?",
+    "Чи був би доречний дзвінок від менеджера?",
+  ],
+  branchLogicSummary:
+    "Positive signals → handoff or materials task. Soft no → neutral note. Hard no / opt-out → respect and close.",
+  branchLogicSummaryUk:
+    "Позитив → передача або матеріали. Мʼяка відмова → нейтральна нотатка. Жорстка відмова / opt-out → завершити.",
+  objectionHandlingSummary:
+    "No pressure; acknowledge churn reasons; never blame the customer; do not discuss unpaid balances unless policy explicitly allows.",
+  objectionHandlingSummaryUk:
+    "Без тиску; визнати причини; не обговорювати заборгованість, якщо політика не дозволяє.",
+  allowedActions: [
+    "Offer manager callback.",
+    "Offer to send catalog or price list if business allows.",
+    "Record churn reason for CRM.",
+  ],
+  allowedActionsUk: [
+    "Запропонувати дзвінок менеджера.",
+    "Запропонувати каталог/прайс за політикою.",
+    "Зафіксувати причину відтоку в CRM.",
+  ],
+  forbiddenClaims: [
+    "Personalized discounts not authorized in CRM.",
+    "Promising stock or delivery dates.",
+  ],
+  forbiddenClaimsUk: [
+    "Персональні знижки без підтвердження в CRM.",
+    "Гарантії наявності чи доставки.",
+  ],
+  escalationRules: [
+    "Escalate when the customer requests a human or shows strong reactivation intent.",
+    "Escalate when they report a service or quality issue (sensitive — manager follow-up).",
+  ],
+  escalationRulesUk: [
+    "Передати, якщо просять людину або сильний сигнал реактивації.",
+    "Передати при скарзі на сервіс/якість.",
+  ],
+  successOutcomes: ["Re-engaged, manager handoff", "Re-engaged, materials sent", "Re-engaged, follow-up scheduled"],
+  neutralOutcomes: ["Not now", "No change in needs", "Low priority"],
+  failedOutcomes: ["Permanent churn", "Do not call", "No answer", "Wrong person"],
+  captureFields: [
+    {
+      key: "churn_reason",
+      label: "Churn / pause reason",
+      labelUk: "Причина паузи/відтоку",
+      type: "enum",
+      enumValues: [
+        "switched_supplier",
+        "no_need_now",
+        "price",
+        "quality_issue",
+        "logistics",
+        "staff_change",
+        "other",
+      ],
+    },
+    { key: "churn_reason_detail", label: "Detail", labelUk: "Деталі", type: "string" },
+    {
+      key: "reactivation_signal",
+      label: "Reactivation signal",
+      labelUk: "Сигнал реактивації",
+      type: "enum",
+      enumValues: ["price_list", "manager_call", "samples", "schedule_callback", "none"],
+    },
+    { key: "next_step_summary", label: "Next step summary", labelUk: "Підсумок наступного кроку", type: "string" },
+  ],
+  outcomeMappings: [
+    {
+      outcomeKey: "REACTIVATION_MANAGER_HANDOFF",
+      description: "Wants account manager / strong intent",
+      crm: {
+        bucket: "HANDOFF",
+        createActivityComment: true,
+        activityTitleTemplate: "AI дзвінок: реактивація — передача менеджеру",
+        createFollowUpTask: true,
+        taskTitleTemplate: "Клієнт: реактивація — звʼязатися",
+        taskBodyTemplate: "Контакт готовий до менеджера після AI-реактивації.",
+        taskDueHoursFromNow: 4,
+        assignTaskToLeadOwner: false,
+        assignTaskToContactOwner: true,
+        assignTaskToCampaignDefault: true,
+        appendLeadEventNote: false,
+      },
+    },
+    {
+      outcomeKey: "REACTIVATION_MATERIALS",
+      description: "Wants catalog or price list",
+      crm: {
+        bucket: "SUCCESS",
+        createActivityComment: true,
+        activityTitleTemplate: "AI дзвінок: реактивація — матеріали",
+        createFollowUpTask: true,
+        taskTitleTemplate: "Надіслати матеріали клієнту (реактивація)",
+        taskDueHoursFromNow: 24,
+        assignTaskToLeadOwner: false,
+        assignTaskToContactOwner: true,
+        assignTaskToCampaignDefault: true,
+        appendLeadEventNote: false,
+      },
+    },
+    {
+      outcomeKey: "NEUTRAL_LATER",
+      description: "Not now but polite",
+      crm: {
+        bucket: "NEUTRAL",
+        createActivityComment: true,
+        activityTitleTemplate: "AI дзвінок: реактивація — пізніше",
+        createFollowUpTask: true,
+        taskTitleTemplate: "Повторний контакт (реактивація)",
+        taskDueHoursFromNow: 72,
+        assignTaskToLeadOwner: false,
+        assignTaskToContactOwner: true,
+        assignTaskToCampaignDefault: true,
+        appendLeadEventNote: false,
+      },
+    },
+    {
+      outcomeKey: "CHURN_PERMANENT",
+      description: "Will not buy / switched permanently",
+      crm: {
+        bucket: "FAILED",
+        createActivityComment: true,
+        activityTitleTemplate: "AI дзвінок: реактивація — стійкий відтік",
+        createFollowUpTask: false,
+        assignTaskToLeadOwner: false,
+        assignTaskToContactOwner: false,
+        assignTaskToCampaignDefault: false,
+        appendLeadEventNote: false,
+      },
+    },
+    {
+      outcomeKey: "NO_ANSWER",
+      description: "No answer",
+      crm: {
+        bucket: "FAILED",
+        createActivityComment: true,
+        activityTitleTemplate: "AI дзвінок: реактивація — недозвон",
+        createFollowUpTask: true,
+        taskTitleTemplate: "Повторити дзвінок (реактивація)",
+        taskDueHoursFromNow: 48,
+        assignTaskToLeadOwner: false,
+        assignTaskToContactOwner: true,
+        assignTaskToCampaignDefault: true,
+        appendLeadEventNote: false,
+      },
+    },
+  ],
+  handoffRules: [
+    "If reactivation_signal is manager_call or quality_issue → manager handoff task.",
+    "Assign task to contact owner first; fallback to campaign default assignee.",
+  ],
+  handoffRulesUk: [
+    "Якщо reactivation_signal = manager_call або quality_issue — задача менеджеру.",
+    "Спочатку owner контакту; інакше default з кампанії.",
+  ],
+  followUpRules: [
+    "Materials task within 24h unless customer specified otherwise.",
+    "Permanent churn: comment only; respect marketingCallOptOut if customer requests no calls.",
+  ],
+  followUpRulesUk: [
+    "Матеріали — протягом 24 год, якщо не домовились інакше.",
+    "Стійкий відтік: лише коментар; поважати відмову від дзвінків.",
+  ],
+  systemPromptHints:
+    "Ukrainian, warm professional tone. Reference only high-level purchase patterns from CRM. Never invent order details. Capture churn_reason and reactivation_signal.",
+};

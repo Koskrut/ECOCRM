@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
+import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 
 export type ExchangeRates = {
   UAH_TO_USD: number;
@@ -83,6 +84,8 @@ export type StoreConfig = {
   contact?: StoreContact;
   /** Базовий URL CRM (apps/web), де відкривається /pay/[token]. Без завершального слеша. */
   crmPayPageUrl?: string;
+  /** Публічна URL вітрини (apps/store) для посилань з CRM, напр. встановлення пароля. Без завершального слеша. */
+  publicStoreUrl?: string;
 };
 
 const STORE_CONFIG_KEY = "store_config";
@@ -179,7 +182,18 @@ function mergeStoreConfig(saved: Record<string, unknown> | null): StoreConfig {
     const t = saved.crmPayPageUrl.trim().replace(/\/+$/, "");
     if (t) crmPayPageUrl = t;
   }
-  return { theme, banners, contact, ...(crmPayPageUrl ? { crmPayPageUrl } : {}) };
+  let publicStoreUrl: string | undefined;
+  if (typeof saved?.publicStoreUrl === "string") {
+    const t = saved.publicStoreUrl.trim().replace(/\/+$/, "");
+    if (t) publicStoreUrl = t;
+  }
+  return {
+    theme,
+    banners,
+    contact,
+    ...(crmPayPageUrl ? { crmPayPageUrl } : {}),
+    ...(publicStoreUrl ? { publicStoreUrl } : {}),
+  };
 }
 
 export type RingostatConfig = {
@@ -196,6 +210,16 @@ export type RingostatConfig = {
   pollingEndpoint?: string;
   /** Public URL of backend for webhook (e.g. ngrok). Shown in UI. */
   publicBaseUrl?: string;
+};
+
+/** Outbound AI voice webhook + optional provider API (IntegrationSetting row). */
+export type OutboundVoiceIntegrationConfig = {
+  apiBaseUrl?: string;
+  providerDisplayName?: string;
+  /** Appended to apiBaseUrl for create-call POST (default "/calls"). */
+  createCallPath?: string;
+  /** Top-level JSON keys to read provider session id from create-call response (defaults in runtime secrets). */
+  responseSessionIdKeys?: string[];
 };
 
 function maskToken(value: string | undefined): string {
@@ -693,6 +717,139 @@ export class SettingsService {
     };
   }
 
+  async getOutboundVoiceIntegrationConfig(): Promise<
+    OutboundVoiceIntegrationConfig & {
+      isEnabled: boolean;
+      webhookSecretMasked?: string;
+      apiTokenMasked?: string;
+    }
+  > {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: OUTBOUND_VOICE_PROVIDER },
+    });
+    if (!row) {
+      return {
+        isEnabled: false,
+        webhookSecretMasked: "",
+        apiTokenMasked: "",
+      };
+    }
+    const cfg = (row.config ?? {}) as OutboundVoiceIntegrationConfig;
+    return {
+      isEnabled: row.isEnabled,
+      apiBaseUrl: cfg.apiBaseUrl,
+      providerDisplayName: cfg.providerDisplayName,
+      createCallPath: cfg.createCallPath,
+      responseSessionIdKeys: cfg.responseSessionIdKeys,
+      webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
+      apiTokenMasked: maskToken(row.apiToken ?? undefined),
+    };
+  }
+
+  /** Raw server-side credentials for outbound voice HTTP adapter (not for browser). */
+  async getOutboundVoiceRuntimeSecrets(): Promise<{
+    apiBaseUrl: string | null;
+    apiToken: string | null;
+    createCallPath: string;
+    responseSessionIdKeys: string[];
+  }> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: OUTBOUND_VOICE_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as OutboundVoiceIntegrationConfig;
+    const keys = Array.isArray(cfg.responseSessionIdKeys)
+      ? cfg.responseSessionIdKeys.filter((x): x is string => typeof x === "string")
+      : [];
+    const pathRaw = typeof cfg.createCallPath === "string" ? cfg.createCallPath.trim() : "";
+    return {
+      apiBaseUrl: typeof cfg.apiBaseUrl === "string" && cfg.apiBaseUrl.trim() ? cfg.apiBaseUrl.trim() : null,
+      apiToken: row?.apiToken && String(row.apiToken).trim() ? String(row.apiToken).trim() : null,
+      createCallPath: pathRaw || "/calls",
+      responseSessionIdKeys:
+        keys.length > 0 ? keys : ["id", "call_id", "session_id", "providerSessionId"],
+    };
+  }
+
+  async setOutboundVoiceIntegrationConfig(
+    body: Partial<OutboundVoiceIntegrationConfig> & {
+      isEnabled?: boolean;
+      webhookSecret?: string;
+      apiToken?: string;
+    },
+  ): Promise<
+    OutboundVoiceIntegrationConfig & {
+      isEnabled: boolean;
+      webhookSecretMasked?: string;
+      apiTokenMasked?: string;
+    }
+  > {
+    const existing = await this.prisma.integrationSetting.findFirst({
+      where: { provider: OUTBOUND_VOICE_PROVIDER },
+    });
+    const currentCfg = (existing?.config ?? {}) as OutboundVoiceIntegrationConfig;
+    const nextCfg: OutboundVoiceIntegrationConfig = {
+      apiBaseUrl:
+        typeof body.apiBaseUrl === "string"
+          ? body.apiBaseUrl.trim() || undefined
+          : currentCfg.apiBaseUrl,
+      providerDisplayName:
+        typeof body.providerDisplayName === "string"
+          ? body.providerDisplayName.trim() || undefined
+          : currentCfg.providerDisplayName,
+      createCallPath:
+        typeof body.createCallPath === "string"
+          ? body.createCallPath.trim() || undefined
+          : currentCfg.createCallPath,
+      responseSessionIdKeys: Array.isArray(body.responseSessionIdKeys)
+        ? body.responseSessionIdKeys.filter((x): x is string => typeof x === "string")
+        : currentCfg.responseSessionIdKeys,
+    };
+    if (body.apiBaseUrl === "") nextCfg.apiBaseUrl = undefined;
+    if (body.providerDisplayName === "") nextCfg.providerDisplayName = undefined;
+    if (body.createCallPath === "") nextCfg.createCallPath = undefined;
+
+    const isEnabled =
+      typeof body.isEnabled === "boolean" ? body.isEnabled : (existing?.isEnabled ?? false);
+
+    let webhookSecret =
+      typeof body.webhookSecret === "string"
+        ? body.webhookSecret
+        : existing?.webhookSecret ?? null;
+    if (body.webhookSecret === "") webhookSecret = null;
+
+    let apiToken =
+      typeof body.apiToken === "string" ? body.apiToken : existing?.apiToken ?? null;
+    if (body.apiToken === "") apiToken = null;
+
+    const row = await this.prisma.integrationSetting.upsert({
+      where: existing ? { id: existing.id } : { id: "outbound_voice_default" },
+      create: {
+        id: existing?.id ?? "outbound_voice_default",
+        provider: OUTBOUND_VOICE_PROVIDER,
+        isEnabled,
+        webhookSecret,
+        apiToken,
+        config: nextCfg as Prisma.InputJsonValue,
+      },
+      update: {
+        isEnabled,
+        webhookSecret,
+        apiToken,
+        config: nextCfg as Prisma.InputJsonValue,
+      },
+    });
+
+    return {
+      isEnabled: row.isEnabled,
+      apiBaseUrl: nextCfg.apiBaseUrl,
+      providerDisplayName: nextCfg.providerDisplayName,
+      createCallPath: nextCfg.createCallPath,
+      responseSessionIdKeys: nextCfg.responseSessionIdKeys,
+      webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
+      apiTokenMasked: maskToken(row.apiToken ?? undefined),
+    };
+  }
+
   async getStoreConfig(): Promise<StoreConfig> {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: STORE_CONFIG_KEY },
@@ -746,11 +903,16 @@ export class SettingsService {
       "crmPayPageUrl" in body && typeof body.crmPayPageUrl === "string"
         ? body.crmPayPageUrl.trim().replace(/\/+$/, "") || undefined
         : current.crmPayPageUrl;
+    const nextPublicStoreUrl =
+      "publicStoreUrl" in body && typeof body.publicStoreUrl === "string"
+        ? body.publicStoreUrl.trim().replace(/\/+$/, "") || undefined
+        : current.publicStoreUrl;
     const next: StoreConfig = {
       theme: nextTheme,
       banners: nextBanners,
       contact: nextContact,
       ...(nextCrmPayPageUrl ? { crmPayPageUrl: nextCrmPayPageUrl } : {}),
+      ...(nextPublicStoreUrl ? { publicStoreUrl: nextPublicStoreUrl } : {}),
     };
     await this.prisma.systemSetting.upsert({
       where: { id: STORE_CONFIG_KEY },

@@ -227,6 +227,8 @@ export class ContactsController {
         city: body.city !== undefined ? (body.city != null ? String(body.city) : null) : undefined,
         clientType: body.clientType !== undefined ? (body.clientType != null ? String(body.clientType) : null) : undefined,
         status: body.status !== undefined ? (body.status != null ? String(body.status) : null) : undefined,
+        marketingCallOptOut:
+          body.marketingCallOptOut !== undefined ? Boolean(body.marketingCallOptOut) : undefined,
       },
       req.user,
     );

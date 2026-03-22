@@ -196,6 +196,21 @@ enum OrderSource {
   STORE
 }
 
+enum OutboundTargetType {
+  LEAD
+  CONTACT_DORMANT
+}
+
+enum OutboundAttemptStatus {
+  PENDING
+  QUEUED
+  DIALING
+  COMPLETED
+  FAILED
+  NO_ANSWER
+  CANCELED
+}
+
 // --- New order model (Phase 1): separate axes ---
 enum OrderStage {
   NEW
@@ -387,6 +402,8 @@ model Contact {
   clientType String?
   /** Статус клієнта (Bitrix UF_CRM_1755068668186). */
   status String?
+  /** Відмова від маркетингових/AI дзвінків (outbound compliance). */
+  marketingCallOptOut Boolean @default(false)
   legacySource String?
   legacyId   Int?
   legacyRaw  Json?
@@ -415,6 +432,7 @@ model Contact {
   conversations    Conversation[]
   tasks            Task[]
   customer         Customer?
+  outboundCallAttempts OutboundCallAttempt[]
 
   @@index([companyId])
   @@index([ownerId])
@@ -585,6 +603,7 @@ model Lead {
   conversations    Conversation[]
   tasks            Task[]
   activities       Activity[]
+  outboundCallAttempts OutboundCallAttempt[]
 
   @@index([companyId, status])
   @@index([companyId, source])
@@ -1446,6 +1465,7 @@ model Call {
   updatedAt DateTime @updatedAt
 
   activity Activity? @relation("ActivityCall")
+  outboundCallAttempt OutboundCallAttempt?
 
   @@unique([provider, externalId])
   @@index([fromNormalized])
@@ -1453,6 +1473,59 @@ model Call {
   @@index([startedAt])
   @@index([contactId])
   @@index([leadId])
+}
+
+model OutboundCampaign {
+  id              String             @id @default(cuid())
+  name            String
+  targetType      OutboundTargetType
+  scenarioCode    String
+  scenarioVersion String
+  isActive        Boolean            @default(true)
+  /** maxCallsPerDay, dormantDaysMin, defaultAssigneeUserId, quietHours: { start, end }, timezone */
+  config          Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  attempts OutboundCallAttempt[]
+
+  @@index([isActive])
+  @@index([targetType])
+}
+
+model OutboundCallAttempt {
+  id                 String                @id @default(cuid())
+  campaignId         String
+  targetType         OutboundTargetType
+  leadId             String?
+  contactId          String?
+  companyId          String?
+  phoneNormalized    String
+  scenarioCode       String
+  scenarioVersion    String
+  status             OutboundAttemptStatus @default(PENDING)
+  provider           String?
+  providerSessionId  String?               @unique
+  callId             String?               @unique
+  scheduledAt        DateTime?
+  lastError          String?
+  transcript         String?               @db.Text
+  summary            String?               @db.Text
+  outcome            Json?
+  /** Idempotent processing of provider webhook delivery */
+  webhookProcessedId String?               @unique
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  campaign OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact  Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  call     Call?            @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, status])
+  @@index([status, scheduledAt])
+  @@index([leadId])
+  @@index([contactId])
 }
 
 model IntegrationSetting {

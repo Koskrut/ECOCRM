@@ -1,7 +1,7 @@
 import { Body, Controller, Post, Req, Res } from "@nestjs/common";
 import { Request, Response } from "express";
 import { StoreAuthService } from "./store-auth.service";
-import type { StoreRegisterDto } from "./dto/store-register.dto";
+import { StoreRegisterDto } from "./dto/store-register.dto";
 
 @Controller("store/auth")
 export class StoreAuthController {

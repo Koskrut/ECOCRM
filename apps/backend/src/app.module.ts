@@ -27,6 +27,7 @@ import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhoo
 import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
+import { OutboundModule } from "./outbound/outbound.module";
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { WarehousesModule } from "./warehouses/warehouses.module";
     GoogleSheetModule,
     StoreModule,
     WarehousesModule,
+    OutboundModule,
   ],
   providers: [
     {

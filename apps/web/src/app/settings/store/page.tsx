@@ -34,6 +34,8 @@ type StoreConfig = {
   contact?: StoreContact;
   /** Базовий URL CRM для сторінки оплати /pay/… (без слеша в кінці). */
   crmPayPageUrl?: string;
+  /** Публічна URL вітрини (Next.js store) для посилань з CRM. */
+  publicStoreUrl?: string;
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
@@ -78,6 +80,7 @@ export default function StoreSettingsPage() {
           banners: Array.isArray(data.banners) ? [...data.banners].sort((a, b) => a.order - b.order) : [],
           contact: data.contact ?? {},
           crmPayPageUrl: typeof data.crmPayPageUrl === "string" ? data.crmPayPageUrl : "",
+          publicStoreUrl: typeof data.publicStoreUrl === "string" ? data.publicStoreUrl : "",
         });
       }
     } catch (e) {
@@ -335,6 +338,23 @@ export default function StoreSettingsPage() {
                   value={config.crmPayPageUrl ?? ""}
                   onChange={(e) => setConfig((c) => ({ ...c, crmPayPageUrl: e.target.value }))}
                   className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                  placeholder="https://…"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="mt-4 border-t border-zinc-100 pt-4">
+                <label className="block text-sm font-medium text-zinc-600">Публічна URL вітрини</label>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Базовий URL інтернет-магазину (apps/store), без слеша в кінці, наприклад{" "}
+                  <span className="font-mono text-zinc-600">https://shop.example.com</span>. Потрібен для готового
+                  посилання «встановити пароль» після скидання з картки контакту. Якщо порожньо — у CRM може
+                  використовуватись <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці web.
+                </p>
+                <input
+                  type="url"
+                  value={config.publicStoreUrl ?? ""}
+                  onChange={(e) => setConfig((c) => ({ ...c, publicStoreUrl: e.target.value }))}
+                  className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
                   placeholder="https://…"
                   autoComplete="off"
                 />

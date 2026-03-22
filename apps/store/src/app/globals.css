@@ -80,3 +80,16 @@ body {
   background-size: 200% 200%;
   animation: hero-gradient-shift 14s ease-in-out infinite;
 }
+
+@keyframes cabinet-order-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.cabinet-order-sheet-panel {
+  animation: cabinet-order-sheet-up 0.22s ease-out;
+}
