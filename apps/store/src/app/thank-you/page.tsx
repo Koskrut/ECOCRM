@@ -4,16 +4,44 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/Button";
+import { createCheckoutPaymentLink } from "@/lib/api";
+import { buildPublicPayUrl, getCrmPayPageOrigin } from "@/lib/crm-pay-url";
 import { PUBLIC_SITE_URL } from "@/lib/public-site-url";
 
 function ThankYouContent() {
   const searchParams = useSearchParams();
   const orderNumber = searchParams.get("orderNumber") ?? "";
   const setPasswordToken = searchParams.get("setPasswordToken");
+  const orderPayToken = searchParams.get("orderPayToken");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payErr, setPayErr] = useState<string | null>(null);
+
+  const handlePay = async () => {
+    if (!orderPayToken) return;
+    if (!getCrmPayPageOrigin()) {
+      setPayErr("Не налаштовано адресу сторінки оплати (NEXT_PUBLIC_CRM_PAY_URL).");
+      return;
+    }
+    setPayErr(null);
+    setPayLoading(true);
+    try {
+      const { payPath } = await createCheckoutPaymentLink(orderPayToken);
+      const url = buildPublicPayUrl(payPath);
+      if (!url) {
+        setPayErr("Не налаштовано адресу сторінки оплати (NEXT_PUBLIC_CRM_PAY_URL).");
+        return;
+      }
+      window.location.href = url;
+    } catch (e) {
+      setPayErr(e instanceof Error ? e.message : "Не вдалося підготувати оплату");
+    } finally {
+      setPayLoading(false);
+    }
+  };
 
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,6 +109,19 @@ function ThankYouContent() {
           </p>
         ) : null}
         <div className="mt-6 space-y-4 border-t border-[var(--border)] pt-4">
+          {orderPayToken ? (
+            <div className="space-y-2">
+              {payErr && <p className="text-sm text-red-600">{payErr}</p>}
+              <Button
+                type="button"
+                className="w-full"
+                disabled={payLoading}
+                onClick={() => void handlePay()}
+              >
+                {payLoading ? "Зачекайте…" : "Оплатити замовлення"}
+              </Button>
+            </div>
+          ) : null}
           <a
             href={PUBLIC_SITE_URL}
             target="_blank"

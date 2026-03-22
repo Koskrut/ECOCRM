@@ -64,6 +64,17 @@ export class BankAccountsController {
     return this.service.updateVisibilitySettings(body);
   }
 
+  /** ФОП за замовчуванням для нових замовлень з інтернет-магазину. */
+  @Patch("store-default")
+  setStoreDefault(@Body() body: { bankAccountId?: string | null }) {
+    const raw = body.bankAccountId;
+    const id =
+      raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")
+        ? null
+        : String(raw).trim();
+    return this.service.setStoreDefaultBankAccountId(id);
+  }
+
   /** Fetch requisites (legalName, bankDetails) from Privat24 by account IBAN. GET = use saved credentials; POST body { token?, clientId?, id? } = use these instead (e.g. from form before save). */
   @Get(":id/requisites-from-bank")
   getRequisitesFromBank(@Param("id") id: string) {

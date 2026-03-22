@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { NpDeliveryType, NpRecipientType, OrderSource } from "@prisma/client";
+import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
+import { BankAccountsService } from "../../bank/bank-accounts.service";
 import { OrdersService } from "../../orders/orders.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
@@ -18,6 +20,7 @@ export class StoreCheckoutService {
     private readonly ordersService: OrdersService,
     private readonly cartService: StoreCartService,
     private readonly settings: SettingsService,
+    private readonly bankAccounts: BankAccountsService,
   ) {}
 
   async checkout(dto: StoreCheckoutDto) {
@@ -293,6 +296,8 @@ export class StoreCheckoutService {
     const rates = await this.settings.getExchangeRates();
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
 
+    const bankAccountId = await this.bankAccounts.resolveStoreDefaultBankAccountIdForCheckout();
+
     const order = await this.ordersService.create(
       {
         ownerId,
@@ -304,6 +309,7 @@ export class StoreCheckoutService {
         paymentMethod: dto.paymentMethod ?? undefined,
         paymentType: dto.paymentType ?? undefined,
         deliveryData: (orderDeliveryData ?? undefined) as CreateOrderDto["deliveryData"],
+        bankAccountId: bankAccountId ?? undefined,
       },
       undefined,
     ) as { id: string; orderNumber: string };
@@ -340,12 +346,21 @@ export class StoreCheckoutService {
       alreadyHadAccount = true;
     }
 
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) throw new Error("JWT_SECRET is not set");
+    const orderPayToken = signJwt(
+      { typ: "store_order_pay", orderId: order.id, contactId: contact.id },
+      jwtSecret,
+      { expiresInSeconds: 60 * 60 * 24 * 14 },
+    );
+
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
       contactId: contact.id,
       setPasswordToken,
       alreadyHadAccount,
+      orderPayToken,
     };
   }
 }

@@ -18,9 +18,29 @@ function maskValue(value: string | undefined): string {
 type CredentialsPayload = Record<string, unknown> | null;
 const BANK_VISIBILITY_SETTING_ID = "bankAccountVisibilityByUser";
 const USER_DEFAULT_BANK_SETTING_ID = "userDefaultBankAccountId";
+/** JSON: { bankAccountId: string | null } — ФОП за замовчуванням для нових замовлень з магазину. */
+const STORE_DEFAULT_BANK_SETTING_ID = "storeDefaultBankAccountId";
 
 type VisibilityMap = Record<string, string[]>;
 type UserDefaultMap = Record<string, string>;
+
+function parseStoreDefaultBankFromSettingValue(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const t = value.trim();
+    return t.length ? t : null;
+  }
+  if (typeof value === "object" && !Array.isArray(value) && value !== null) {
+    const id = (value as { bankAccountId?: unknown }).bankAccountId;
+    if (id === null || id === undefined) return null;
+    if (typeof id === "string") {
+      const t = id.trim();
+      return t.length ? t : null;
+    }
+  }
+  return undefined;
+}
 
 function maskCredentials(credentials: CredentialsPayload): {
   clientIdMasked?: string;
@@ -173,7 +193,7 @@ export class BankAccountsService {
   }
 
   async getVisibilitySettings() {
-    const [users, accounts, visibilityMap, userDefaultMap] = await Promise.all([
+    const [users, accounts, visibilityMap, userDefaultMap, storeRow] = await Promise.all([
       this.prisma.user.findMany({
         orderBy: [{ fullName: "asc" }, { email: "asc" }],
         select: { id: true, fullName: true, email: true, role: true },
@@ -185,9 +205,81 @@ export class BankAccountsService {
       }),
       this.getVisibilityMap(),
       this.getUserDefaultMap(),
+      this.prisma.systemSetting.findUnique({
+        where: { id: STORE_DEFAULT_BANK_SETTING_ID },
+        select: { value: true },
+      }),
     ]);
 
-    return { users, accounts, visibilityMap, userDefaultMap };
+    const parsed = storeRow ? parseStoreDefaultBankFromSettingValue(storeRow.value) : undefined;
+    const storeDefaultBankAccountId =
+      parsed === undefined ? null : parsed === null ? null : parsed;
+
+    return { users, accounts, visibilityMap, userDefaultMap, storeDefaultBankAccountId };
+  }
+
+  /**
+   * Для checkout магазину: запис у SystemSetting має пріоритет; якщо запису ще немає — fallback на STORE_DEFAULT_BANK_ACCOUNT_ID.
+   */
+  async resolveStoreDefaultBankAccountIdForCheckout(): Promise<string | null> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: STORE_DEFAULT_BANK_SETTING_ID },
+      select: { value: true },
+    });
+    const parsed = row ? parseStoreDefaultBankFromSettingValue(row.value) : undefined;
+
+    let id: string | null = null;
+    if (parsed === undefined) {
+      id = process.env.STORE_DEFAULT_BANK_ACCOUNT_ID?.trim() || null;
+    } else {
+      id = parsed;
+    }
+
+    if (!id) return null;
+
+    const acc = await this.prisma.bankAccount.findUnique({
+      where: { id },
+      select: { id: true, isActive: true },
+    });
+    if (!acc) {
+      throw new BadRequestException(
+        "У налаштуваннях ФОП обрано рахунок, який не знайдено. Оновіть «ФОП за замовчуванням для магазину» у Налаштування → ФОП.",
+      );
+    }
+    if (!acc.isActive) {
+      throw new BadRequestException(
+        "Рахунок ФОП для магазину вимкнено. Увімкніть його або оберіть інший у Налаштування → ФОП.",
+      );
+    }
+    return acc.id;
+  }
+
+  async setStoreDefaultBankAccountId(bankAccountId: string | null) {
+    let next: string | null = bankAccountId?.trim() || null;
+    if (next) {
+      const acc = await this.prisma.bankAccount.findUnique({
+        where: { id: next },
+        select: { id: true, isActive: true },
+      });
+      if (!acc) throw new NotFoundException("Bank account not found");
+      if (!acc.isActive) {
+        throw new BadRequestException("Оберіть активний рахунок ФОП");
+      }
+    } else {
+      next = null;
+    }
+
+    if (next === null) {
+      await this.prisma.systemSetting.deleteMany({ where: { id: STORE_DEFAULT_BANK_SETTING_ID } });
+    } else {
+      await this.prisma.systemSetting.upsert({
+        where: { id: STORE_DEFAULT_BANK_SETTING_ID },
+        update: { value: { bankAccountId: next } as Prisma.InputJsonValue },
+        create: { id: STORE_DEFAULT_BANK_SETTING_ID, value: { bankAccountId: next } as Prisma.InputJsonValue },
+      });
+    }
+
+    return { ok: true as const, storeDefaultBankAccountId: next };
   }
 
   async updateVisibilitySettings(body: {

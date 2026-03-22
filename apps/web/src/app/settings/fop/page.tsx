@@ -87,6 +87,9 @@ export default function FopSettingsPage() {
   const [editVisibleUserIds, setEditVisibleUserIds] = useState<string[]>([]);
   const [editDefaultUserIds, setEditDefaultUserIds] = useState<string[]>([]);
 
+  const [storeDefaultShopId, setStoreDefaultShopId] = useState("");
+  const [storeDefaultSaving, setStoreDefaultSaving] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -97,18 +100,21 @@ export default function FopSettingsPage() {
           users?: UserLite[];
           visibilityMap?: Record<string, string[]>;
           userDefaultMap?: Record<string, string>;
+          storeDefaultBankAccountId?: string | null;
         }>("/bank/accounts/visibility"),
       ]);
       setAccounts(Array.isArray(accountsRes.data) ? accountsRes.data : []);
       setUsers(Array.isArray(visibilityRes.data?.users) ? visibilityRes.data.users : []);
       setVisibilityMap(visibilityRes.data?.visibilityMap ?? {});
       setUserDefaultBankMap(visibilityRes.data?.userDefaultMap ?? {});
+      setStoreDefaultShopId(visibilityRes.data?.storeDefaultBankAccountId ?? "");
     } catch (e) {
       setError(getApiErrorMessage(e, "Failed to load FOPs"));
       setAccounts([]);
       setUsers([]);
       setVisibilityMap({});
       setUserDefaultBankMap({});
+      setStoreDefaultShopId("");
     } finally {
       setLoading(false);
     }
@@ -265,6 +271,21 @@ export default function FopSettingsPage() {
     }
   }
 
+  async function saveStoreDefaultFop() {
+    setStoreDefaultSaving(true);
+    setError(null);
+    try {
+      await apiHttp.patch("/bank/accounts/store-default", {
+        bankAccountId: storeDefaultShopId.trim() ? storeDefaultShopId.trim() : null,
+      });
+      await load();
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Не вдалося зберегти ФОП для магазину"));
+    } finally {
+      setStoreDefaultSaving(false);
+    }
+  }
+
   async function handleDelete(acc: BankAccount) {
     if (
       !window.confirm(
@@ -300,6 +321,46 @@ export default function FopSettingsPage() {
             Настройка ID и TOKEN для банковских счетов ФОП. Список используется в разделе Платежи для переключения между ФОПами.
           </p>
         </div>
+
+        {!loading && (
+          <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-zinc-900">Інтернет-магазин</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              ФОП за замовчуванням для нових замовлень з магазину (оплата за посиланням, картка замовлення в CRM). Якщо не
+              обрано — за наявності використовується змінна середовища STORE_DEFAULT_BANK_ACCOUNT_ID на бекенді.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="block flex-1 text-xs font-medium text-zinc-600">
+                Рахунок
+                <select
+                  value={storeDefaultShopId}
+                  onChange={(e) => setStoreDefaultShopId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900"
+                >
+                  <option value="">Не обрано</option>
+                  {accounts.map((a) => (
+                    <option
+                      key={a.id}
+                      value={a.id}
+                      disabled={!a.isActive && a.id !== storeDefaultShopId}
+                    >
+                      {a.name} ({a.currency})
+                      {!a.isActive ? " — вимкнено" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void saveStoreDefaultFop()}
+                disabled={storeDefaultSaving}
+                className="rounded-md border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {storeDefaultSaving ? "Збереження…" : "Зберегти"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

@@ -152,7 +152,15 @@ export async function checkout(body: {
     contactId: string;
     setPasswordToken: string | null;
     alreadyHadAccount: boolean;
+    orderPayToken: string;
   }>("/checkout", { method: "POST", body });
+}
+
+export async function createCheckoutPaymentLink(token: string) {
+  return api<{ publicToken: string; payPath: string }>("/checkout/payment-link", {
+    method: "POST",
+    body: { token },
+  });
 }
 
 export async function getCheckoutRegions() {

@@ -392,13 +392,11 @@ export default function CheckoutPage() {
         deliveryData: deliveryData ?? null,
         sessionId,
       });
-      router.push(
-        "/thank-you?orderNumber=" +
-          encodeURIComponent(result.orderNumber) +
-          (result.setPasswordToken
-            ? "&setPasswordToken=" + encodeURIComponent(result.setPasswordToken)
-            : ""),
-      );
+      const q = new URLSearchParams();
+      q.set("orderNumber", result.orderNumber);
+      if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);
+      if (result.orderPayToken) q.set("orderPayToken", result.orderPayToken);
+      router.push("/thank-you?" + q.toString());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Помилка оформлення");
       setSubmitting(false);
