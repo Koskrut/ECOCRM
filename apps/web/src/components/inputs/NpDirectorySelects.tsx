@@ -265,7 +265,7 @@ export function NpWarehouseSelect({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!cityRef || q.trim().length < 1) {
+    if (!cityRef) {
       setOptions([]);
       return;
     }
@@ -275,7 +275,7 @@ export function NpWarehouseSelect({
       setOptions([]);
       apiHttp
         .get<{ status: string; items?: NpWarehouseItem[] }>(
-          `/np/warehouses?cityRef=${encodeURIComponent(cityRef)}&q=${encodeURIComponent(q.trim())}&type=${type}&limit=20`,
+          `/np/warehouses?cityRef=${encodeURIComponent(cityRef)}&q=${encodeURIComponent(q.trim())}&type=${type}&limit=50`,
         )
         .then((res) => {
           const items = res.data?.items ?? [];

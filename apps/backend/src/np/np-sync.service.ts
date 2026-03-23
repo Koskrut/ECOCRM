@@ -288,7 +288,6 @@ export class NpSyncService {
     const limit = Number.isFinite(args.limit) ? Math.min(Math.max(Number(args.limit), 1), 50) : 20;
 
     if (!cityRef) return { status: "BAD_REQUEST", items: [], message: "cityRef is required" };
-    if (q.length < 1) return { status: "MIN_CHARS", items: [], message: "min 1 char" };
 
     // ✅ type filtering:
     // - POSTOMAT => only postomats
@@ -301,21 +300,30 @@ export class NpSyncService {
           ? { isPostomat: false }
           : {};
 
-    const where: Prisma.NpWarehouseWhereInput = {
+    const baseWhere: Prisma.NpWarehouseWhereInput = {
       cityRef,
       isActive: true,
       ...typeFilter,
-      OR: [
-        { number: { equals: q } },
-        { description: { contains: q, mode: "insensitive" } },
-        { shortAddress: { contains: q, mode: "insensitive" } },
-      ],
     };
+
+    const where: Prisma.NpWarehouseWhereInput =
+      q.length > 0
+        ? {
+            ...baseWhere,
+            OR: [
+              { number: { equals: q } },
+              { number: { startsWith: q, mode: "insensitive" } },
+              { number: { contains: q, mode: "insensitive" } },
+              { description: { contains: q, mode: "insensitive" } },
+              { shortAddress: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : baseWhere;
 
     const raw = await this.prisma.npWarehouse.findMany({
       where,
       select: { ref: true, description: true, shortAddress: true, number: true, isPostomat: true },
-      take: limit * 3,
+      orderBy: [{ number: "asc" }, { description: "asc" }],
     });
 
     const numVal = (n: string | null): number => {
@@ -324,12 +332,33 @@ export class NpSyncService {
       return Number.isNaN(v) ? 999999 : v;
     };
 
+    const qLower = q.toLowerCase();
+    const score = (item: (typeof raw)[number]): number => {
+      if (!qLower) return 0;
+
+      const number = (item.number ?? "").toLowerCase();
+      const description = (item.description ?? "").toLowerCase();
+      const shortAddress = (item.shortAddress ?? "").toLowerCase();
+
+      if (number === qLower) return 0;
+      if (number.startsWith(qLower)) return 1;
+      if (description.startsWith(qLower) || shortAddress.startsWith(qLower)) return 2;
+      if (number.includes(qLower)) return 3;
+      if (description.includes(qLower) || shortAddress.includes(qLower)) return 4;
+      return 5;
+    };
+
     const items = raw
       .sort((a, b) => {
+        const scoreA = score(a);
+        const scoreB = score(b);
+        if (scoreA !== scoreB) return scoreA - scoreB;
         if (a.isPostomat !== b.isPostomat) return a.isPostomat ? 1 : -1;
         const na = numVal(a.number);
         const nb = numVal(b.number);
         if (na !== nb) return na - nb;
+        const shortCmp = (a.shortAddress ?? "").localeCompare(b.shortAddress ?? "", "uk");
+        if (shortCmp !== 0) return shortCmp;
         return (a.description ?? "").localeCompare(b.description ?? "", "uk");
       })
       .slice(0, limit);
