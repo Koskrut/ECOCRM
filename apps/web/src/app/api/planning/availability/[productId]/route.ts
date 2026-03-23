@@ -1,0 +1,11 @@
+import type { NextRequest } from "next/server";
+import { proxyToBackend } from "@/lib/api/proxy.server";
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ productId: string }> },
+) {
+  const { productId } = await params;
+  return proxyToBackend(req, `planning/availability/${productId}`);
+}
+

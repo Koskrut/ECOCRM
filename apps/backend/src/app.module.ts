@@ -28,6 +28,7 @@ import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.modu
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
 import { OutboundModule } from "./outbound/outbound.module";
+import { ProductionPlanningModule } from "./production-planning/production-planning.module";
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { OutboundModule } from "./outbound/outbound.module";
     StoreModule,
     WarehousesModule,
     OutboundModule,
+    ProductionPlanningModule,
   ],
   providers: [
     {

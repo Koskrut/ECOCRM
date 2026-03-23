@@ -256,6 +256,55 @@ enum ReturnStatus {
   CLOSED
 }
 
+enum ProductKind {
+  KIT
+  PART
+  OTHER
+}
+
+enum InventorySnapshotSource {
+  MANUAL_PASTE
+  FILE_UPLOAD
+}
+
+enum InventorySnapshotStatus {
+  STAGED
+  POSTED
+  VOID
+}
+
+enum ReservationHardness {
+  HARD
+  SOFT
+}
+
+enum ReservationStatus {
+  ACTIVE
+  RELEASED
+  CONSUMED
+}
+
+enum ProductionBatchStatus {
+  DRAFT
+  IN_PROGRESS
+  DONE
+  CANCELED
+}
+
+enum ProductionStageCode {
+  MECH
+  DEGREASE
+  QC
+  PACK
+  TRANSFER
+}
+
+enum PlanningItemType {
+  QC_QUEUE
+  PACK_QUEUE
+  LAUNCH_LIST
+}
+
 // --- MODELS ---
 
 model User {
@@ -298,6 +347,8 @@ model User {
   outboundMessages      Message[]
   tasks        Task[]
   companies    Company[]
+  importedInventorySnapshots InventorySnapshot[] @relation("InventorySnapshotImportedBy")
+  postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -604,6 +655,7 @@ model Lead {
   tasks            Task[]
   activities       Activity[]
   outboundCallAttempts OutboundCallAttempt[]
+  materialReservations MaterialReservation[]
 
   @@index([companyId, status])
   @@index([companyId, source])
@@ -773,6 +825,8 @@ model Warehouse {
 
   orders              Order[]
   productWarehouseStocks ProductWarehouseStock[]
+  snapshotLines       InventorySnapshotLine[]
+  reservations        MaterialReservation[]
 
   @@index([sortOrder])
 }
@@ -784,6 +838,7 @@ model Product {
   unit            String
   basePrice       Float
   stock           Int            @default(0)
+  kind            ProductKind    @default(OTHER)
   isActive        Boolean        @default(true)
   /** Показывать в каталоге магазина (на сайте). */
   showOnStore     Boolean        @default(true)
@@ -797,8 +852,16 @@ model Product {
   leadItems     LeadItem[]
   cartItems     CartItem[]
   productWarehouseStocks ProductWarehouseStock[]
+  kitBoms       KitBom[]         @relation("KitBomKit")
+  bomComponents KitBomLine[]     @relation("KitBomComponent")
+  stageNorms    StageTimeNorm[]
+  productionBatches ProductionBatch[]
+  snapshotLines InventorySnapshotLine[]
+  reservations MaterialReservation[]
+  weeklyPlanItems WeeklyPlanItem[]
 
   @@index([primaryImageId])
+  @@index([kind])
 }
 
 model ProductWarehouseStock {
@@ -968,6 +1031,9 @@ model Order {
   payments   Payment[]
   paymentRequests PaymentRequest[]
   returns    OrderReturn[]
+  productionBatches ProductionBatch[]
+  reservations MaterialReservation[]
+  weeklyPlanItems WeeklyPlanItem[]
 
   @@index([companyId])
   @@index([clientId])
@@ -1248,6 +1314,210 @@ model SystemSetting {
   id        String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+model KitBom {
+  id            String   @id @default(cuid())
+  kitProductId  String
+  revision      Int
+  effectiveFrom DateTime @default(now())
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  kitProduct Product @relation("KitBomKit", fields: [kitProductId], references: [id], onDelete: Cascade)
+  lines      KitBomLine[]
+
+  @@unique([kitProductId, revision])
+  @@index([kitProductId])
+  @@index([kitProductId, isActive])
+}
+
+model KitBomLine {
+  id                 String   @id @default(cuid())
+  bomId              String
+  componentProductId String
+  qtyPerKit          Decimal  @db.Decimal(18, 4)
+  scrapPct           Decimal? @db.Decimal(5, 2)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  bom       KitBom  @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  component Product @relation("KitBomComponent", fields: [componentProductId], references: [id], onDelete: Restrict)
+
+  @@unique([bomId, componentProductId])
+  @@index([bomId])
+  @@index([componentProductId])
+}
+
+model InventorySnapshot {
+  id           String                  @id @default(cuid())
+  source       InventorySnapshotSource @default(FILE_UPLOAD)
+  status       InventorySnapshotStatus @default(STAGED)
+  note         String?
+  importedAt   DateTime                @default(now())
+  importedById String
+  postedAt     DateTime?
+  postedById   String?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  importedBy User  @relation("InventorySnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  postedBy   User? @relation("InventorySnapshotPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  lines      InventorySnapshotLine[]
+
+  @@index([status, importedAt])
+  @@index([importedById])
+}
+
+model InventorySnapshotLine {
+  id           String   @id @default(cuid())
+  snapshotId   String
+  warehouseId  String?
+  productId    String?
+  skuRaw       String
+  qty          Int
+  warehouseRaw String?
+  createdAt    DateTime @default(now())
+
+  snapshot  InventorySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  warehouse Warehouse?        @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  product   Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId])
+  @@index([warehouseId])
+  @@index([productId])
+  @@index([skuRaw])
+}
+
+model ProductionStage {
+  id        String              @id @default(cuid())
+  code      ProductionStageCode @unique
+  name      String
+  sortOrder Int                 @default(0)
+  isActive  Boolean             @default(true)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  stageNorms StageTimeNorm[]
+  movements  WipMovement[]
+  currentBatches ProductionBatch[]
+
+  @@index([sortOrder])
+}
+
+model StageTimeNorm {
+  id                    String   @id @default(cuid())
+  stageId               String
+  productId             String?
+  expectedDurationHours Float
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  stage   ProductionStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@unique([stageId, productId])
+  @@index([stageId])
+  @@index([productId])
+}
+
+model ProductionBatch {
+  id             String                @id @default(cuid())
+  code           String                @unique
+  productId      String
+  orderId        String?
+  qtyPlanned     Int
+  qtyGood        Int                   @default(0)
+  qtyScrap       Int                   @default(0)
+  status         ProductionBatchStatus @default(DRAFT)
+  currentStageId String?
+  dueAt          DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  order        Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  currentStage ProductionStage? @relation(fields: [currentStageId], references: [id], onDelete: SetNull)
+  movements    WipMovement[]
+  weeklyItems  WeeklyPlanItem[]
+
+  @@index([productId])
+  @@index([orderId])
+  @@index([status, dueAt])
+  @@index([currentStageId])
+}
+
+model WipMovement {
+  id        String   @id @default(cuid())
+  batchId   String
+  stageId   String
+  enteredAt DateTime @default(now())
+  exitedAt  DateTime?
+  qtyInStage Int
+  isCurrent Boolean  @default(true)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  stage ProductionStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  @@index([batchId, isCurrent])
+  @@index([stageId, isCurrent])
+  @@index([enteredAt])
+}
+
+model MaterialReservation {
+  id         String              @id @default(cuid())
+  productId  String
+  warehouseId String?
+  qty        Int
+  hardness   ReservationHardness
+  status     ReservationStatus   @default(ACTIVE)
+  orderId    String?
+  leadId     String?
+  expiresAt  DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  order     Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  lead      Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([productId, status])
+  @@index([warehouseId, status])
+  @@index([orderId, status])
+  @@index([leadId, status])
+  @@index([hardness, status])
+}
+
+model WeeklyPlanItem {
+  id          String           @id @default(cuid())
+  weekStart   DateTime
+  type        PlanningItemType
+  batchId     String?
+  productId   String?
+  orderId     String?
+  qty         Int?
+  title       String
+  details     Json?
+  computedAt  DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  batch   ProductionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  product Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
+  order   Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([weekStart, type])
+  @@index([batchId])
+  @@index([productId])
+  @@index([orderId])
 }
 
 // ===== Payment module =====

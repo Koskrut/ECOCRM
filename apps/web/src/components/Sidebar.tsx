@@ -40,6 +40,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Tasks", icon: ListTodo, href: "/tasks" },
   { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
+  { label: "Planning", icon: BarChart3, href: "/planning" },
   { label: "Visits", icon: MapPin, href: "/visits" },
   { label: "Visit history", icon: History, href: "/visits/history" },
   { label: "AI Calls", icon: PhoneCall, href: "/outbound/campaigns" },

@@ -7,3 +7,4 @@ export * from "./tasks";
 export * from "./visits";
 export * from "./warehouses";
 export * from "./bank";
+export * from "./planning";
