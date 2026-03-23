@@ -84,6 +84,9 @@ type OrderItem = {
 type OrderDetails = {
   id: string;
   orderNumber: string;
+  parentOrderId?: string | null;
+  parent?: { id: string; orderNumber: string } | null;
+  children?: Array<{ id: string; orderNumber: string; orderStage?: string | null }>;
   companyId: string | null;
   clientId: string | null;
   contactId: string | null;
@@ -204,6 +207,8 @@ type OrderModalProps = {
   onOpenContact?: (contactId: string) => void;
   /** Role from parent (e.g. from /auth/me on page). When set, used for admin actions and internal fetch is skipped. */
   userRole?: string | null;
+  /** Open another order in the same host (e.g. child after split). */
+  onOpenOrder?: (orderId: string) => void;
 };
 
 // =====================
@@ -520,6 +525,7 @@ export function OrderModal({
   onOpenCompany,
   onOpenContact,
   userRole: userRoleProp,
+  onOpenOrder,
 }: OrderModalProps) {
   const isCreate = orderId === null;
 
@@ -602,12 +608,27 @@ export function OrderModal({
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [splittingByStock, setSplittingByStock] = useState(false);
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
 
-  const canClose = !saving && !submittingItem && !statusUpdating && !deleting;
+  const canClose = !saving && !submittingItem && !statusUpdating && !deleting && !splittingByStock;
 
   const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
+
+  const canSplitByStock = useMemo(() => {
+    if (!order?.items?.length) return false;
+    const blocked = new Set([
+      "SHIPPED",
+      "AWAITING_RECEIPT",
+      "RECEIVED",
+      "COMPLETED",
+      "CANCELED",
+      "REFUSED",
+      "RETURN_IN_PROGRESS",
+    ]);
+    return !blocked.has(order.orderStage ?? "");
+  }, [order]);
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -768,6 +789,47 @@ export function OrderModal({
       setReturnsLoading(false);
     }
   }, [apiBaseUrl, orderId]);
+
+  const splitOrderByStock = useCallback(async () => {
+    if (!orderId || !order) return;
+    const ok = window.confirm(
+      "Розділити замовлення за залишками на складі? Нестача піде в нове дочірнє замовлення.\n\nОплати залишаться на поточному (батьківському) замовленні — за потреби перенесіть їх вручну.",
+    );
+    if (!ok) return;
+    setSplittingByStock(true);
+    try {
+      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/split-by-stock`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = (await r.json().catch(() => null)) as {
+        parent?: OrderDetails;
+        child?: OrderDetails;
+        message?: string | string[];
+      } | null;
+      if (!r.ok) {
+        const m = body?.message;
+        const msg = Array.isArray(m) ? m.join(", ") : m || `Помилка ${r.status}`;
+        throw new Error(msg);
+      }
+      if (body?.parent) applyOrderToState(body.parent);
+      await refreshTimeline();
+      onSaved?.();
+      const child = body?.child;
+      if (child?.id && onOpenOrder) {
+        const openChild = window.confirm(
+          `Створено дочірнє замовлення №${child.orderNumber}. Відкрити зараз?`,
+        );
+        if (openChild) onOpenOrder(child.id);
+      } else if (child?.orderNumber) {
+        window.alert(`Створено дочірнє замовлення №${child.orderNumber}`);
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Не вдалося розділити");
+    } finally {
+      setSplittingByStock(false);
+    }
+  }, [orderId, order, apiBaseUrl, applyOrderToState, refreshTimeline, onSaved, onOpenOrder]);
 
   useEffect(() => {
     if (!orderId || isCreate) {
@@ -1487,6 +1549,50 @@ export function OrderModal({
           isAdmin={isAdmin}
           paymentType={order.paymentType ?? paymentType ?? null}
         />
+        {order.parent || (order.children && order.children.length > 0) ? (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+            <div className="text-xs font-semibold text-zinc-600">Повʼязані замовлення</div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+              {order.parent ? (
+                <span>
+                  Батьківське:{" "}
+                  {onOpenOrder ? (
+                    <button
+                      type="button"
+                      className="font-medium text-sky-700 underline hover:text-sky-900"
+                      onClick={() => onOpenOrder(order.parent!.id)}
+                    >
+                      №{order.parent.orderNumber}
+                    </button>
+                  ) : (
+                    <span className="font-medium">№{order.parent.orderNumber}</span>
+                  )}
+                </span>
+              ) : null}
+              {order.children && order.children.length > 0 ? (
+                <span className="inline-flex flex-wrap items-center gap-x-1">
+                  <span>Дочірні:</span>
+                  {order.children.map((ch, i) => (
+                    <span key={ch.id}>
+                      {i > 0 ? ", " : null}
+                      {onOpenOrder ? (
+                        <button
+                          type="button"
+                          className="font-medium text-sky-700 underline hover:text-sky-900"
+                          onClick={() => onOpenOrder(ch.id)}
+                        >
+                          №{ch.orderNumber}
+                        </button>
+                      ) : (
+                        <span className="font-medium">№{ch.orderNumber}</span>
+                      )}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-1 border-b border-zinc-200 pb-2">
           <button
             type="button"
@@ -1735,6 +1841,22 @@ export function OrderModal({
                     </button>
                   )}
                 </div>
+                {canSplitByStock ? (
+                  <div className="mb-4">
+                    <button
+                      type="button"
+                      disabled={splittingByStock || saving || statusUpdating}
+                      onClick={() => void splitOrderByStock()}
+                      className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                    >
+                      {splittingByStock ? "Розділення…" : "Розділити за залишками (дочірнє замовлення)"}
+                    </button>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      За рядками з нестачею на складі замовлення частина залишиться тут, решта — у новому замовленні з
+                      посиланням на це.
+                    </p>
+                  </div>
+                ) : null}
                 {showAddForm ? (
                   <div className="mb-3 flex flex-wrap items-end gap-2">
                     <div ref={searchWrapRef} className="relative w-32 shrink-0 sm:w-40">

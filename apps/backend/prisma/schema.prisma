@@ -1011,6 +1011,11 @@ model Order {
   /// Phase 5: sum of amounts from closed returns (reduces effective total for debt calc).
   returnAdjustmentAmount Float @default(0)
 
+  /// Backorder / stock split: child order points to the order it was split from.
+  parentOrderId String?
+  parentOrder   Order?  @relation("OrderSplit", fields: [parentOrderId], references: [id], onDelete: SetNull)
+  childOrders   Order[] @relation("OrderSplit")
+
   company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   owner        User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
@@ -1046,6 +1051,7 @@ model Order {
   @@index([orderStage])
   @@index([financialStatus])
   @@index([lastNpStatusSyncAt])
+  @@index([parentOrderId])
   @@unique([legacySource, legacyId])
 }
 

@@ -8,7 +8,13 @@ import {
 } from "@nestjs/common";
 import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
 import type { OrderFinancialStatus, OrderStage } from "@prisma/client";
-import { OrderPaymentStatus, OrderSource, OrderStatus, UserRole } from "@prisma/client";
+import {
+  ActivityType,
+  OrderPaymentStatus,
+  OrderSource,
+  OrderStatus,
+  UserRole,
+} from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -34,7 +40,23 @@ const ORDER_INCLUDE = {
   warehouse: { select: { id: true, name: true } },
   items: { include: { product: true } },
   ttns: { orderBy: { createdAt: "desc" as const } },
+  parentOrder: { select: { id: true, orderNumber: true } },
+  childOrders: {
+    select: { id: true, orderNumber: true, orderStage: true },
+    orderBy: { createdAt: "asc" as const },
+  },
 } as const;
+
+/** Stages where splitting would conflict with shipment / closure. */
+const SPLIT_BLOCKED_ORDER_STAGES: OrderStage[] = [
+  "SHIPPED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
+  "COMPLETED",
+  "CANCELED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+];
 
 @Injectable()
 export class OrdersService {
@@ -106,6 +128,7 @@ export class OrdersService {
       where.OR = [{ ownerId: actor.id }, { orderSource: OrderSource.STORE }];
     }
     if (q?.paymentType) where.paymentType = q.paymentType;
+    if (q?.parentOrderId) where.parentOrderId = String(q.parentOrderId);
     if (q?.hasTtn === true) where.ttns = { some: {} };
     if (q?.hasTtn === false) where.ttns = { none: {} };
 
@@ -251,6 +274,7 @@ export class OrdersService {
         const base = {
           id: o.id,
           orderNumber: o.orderNumber,
+          parentOrderId: o.parentOrderId ?? null,
           companyId: o.companyId,
           clientId: o.clientId,
           ownerId: o.ownerId,
@@ -603,6 +627,234 @@ export class OrdersService {
     return this.recalcAndReturn(orderId);
   }
 
+  /**
+   * Move shortage quantities to a new child order (parentOrderId). Payments stay on the parent (MVP).
+   * Stock: warehouse row if order.warehouseId and row exists, else Product.stock.
+   */
+  async splitByStock(orderId: string, actor?: AuthUser) {
+    const parent = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!parent) throw new NotFoundException("Order not found");
+    if (actor) this.assertOrderAccess(parent, actor);
+
+    const stage = parent.orderStage ?? "NEW";
+    if (SPLIT_BLOCKED_ORDER_STAGES.includes(stage)) {
+      throw new BadRequestException("Cannot split order in the current stage");
+    }
+
+    if (!parent.items.length) {
+      throw new BadRequestException("Order has no lines to split");
+    }
+
+    for (const it of parent.items) {
+      if (it.qtyShipped > 0) {
+        throw new BadRequestException(
+          "Cannot split: some lines already have shipped quantity. Split only before partial shipment.",
+        );
+      }
+    }
+
+    const productIds = parent.items
+      .map((i) => i.productId)
+      .filter((id): id is string => id != null);
+
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, stock: true },
+          })
+        : [];
+    const productStockById = new Map(products.map((p) => [p.id, p.stock]));
+
+    const warehouseStockByProductId = new Map<string, number>();
+    if (parent.warehouseId && productIds.length > 0) {
+      const whRows = await this.prisma.productWarehouseStock.findMany({
+        where: { warehouseId: parent.warehouseId, productId: { in: productIds } },
+      });
+      for (const r of whRows) {
+        warehouseStockByProductId.set(r.productId, r.qty);
+      }
+    }
+
+    type Plan = {
+      itemId: string;
+      productId: string | null;
+      keepQty: number;
+      moveQty: number;
+      price: number;
+      snapshot: string | null;
+    };
+
+    const plans: Plan[] = [];
+    for (const it of parent.items) {
+      let available = 0;
+      if (it.productId) {
+        if (parent.warehouseId) {
+          if (warehouseStockByProductId.has(it.productId)) {
+            available = warehouseStockByProductId.get(it.productId) ?? 0;
+          } else {
+            available = productStockById.get(it.productId) ?? 0;
+          }
+        } else {
+          available = productStockById.get(it.productId) ?? 0;
+        }
+      }
+
+      const keepQty = Math.min(it.qty, Math.max(0, available));
+      const moveQty = it.qty - keepQty;
+
+      if (moveQty > 0 && !it.productId) {
+        throw new BadRequestException(
+          "Cannot split: lines without a catalog product cannot be moved. Link a product first.",
+        );
+      }
+
+      plans.push({
+        itemId: it.id,
+        productId: it.productId,
+        keepQty,
+        moveQty,
+        price: it.price,
+        snapshot: it.productNameSnapshot,
+      });
+    }
+
+    const totalMove = plans.reduce((s, p) => s + p.moveQty, 0);
+    if (totalMove <= 0) {
+      throw new BadRequestException("Nothing to split: stock covers all lines");
+    }
+
+    const changedBy = actor?.id ?? "system";
+
+    const childId = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<[{ assigned: number }]>`
+        UPDATE "OrderNumberSeq" SET "nextValue" = "nextValue" + 1
+        RETURNING "nextValue" - 1 AS assigned
+      `;
+      const row = rows[0];
+      if (!row) throw new InternalServerErrorException("OrderNumberSeq not initialized");
+      const orderNumber = String(row.assigned);
+
+      const discountAmount = this.num(parent.discountAmount, 0);
+      const paidAmount = 0;
+      const a = this.calc(0, discountAmount, paidAmount);
+      const financialStatus = computeFinancialStatusFromOrder({
+        totalAmount: a.total,
+        paidAmount: a.paid,
+        debtAmount: a.debt,
+        paymentType: parent.paymentType,
+        orderStage: "NEW",
+      });
+
+      const child = await tx.order.create({
+        data: {
+          orderNumber,
+          parentOrderId: parent.id,
+          companyId: parent.companyId,
+          clientId: parent.clientId,
+          contactId: parent.contactId,
+          ownerId: parent.ownerId,
+          orderSource: parent.orderSource,
+          currency: parent.currency,
+          subtotalAmount: a.subtotal,
+          discountAmount: a.discount,
+          totalAmount: a.total,
+          paidAmount: a.paid,
+          debtAmount: a.debt,
+          comment: `Частина замовлення з №${parent.orderNumber}`,
+          deliveryMethod: parent.deliveryMethod,
+          paymentMethod: parent.paymentMethod,
+          bankAccountId: parent.bankAccountId,
+          warehouseId: parent.warehouseId,
+          documentsRequested: parent.documentsRequested,
+          paymentType: parent.paymentType,
+          paymentDueDate: parent.paymentDueDate,
+          exchangeRate: parent.exchangeRate,
+          orderStage: "NEW",
+          deliveryStatus: "NOT_SHIPPED",
+          financialStatus,
+          returnAdjustmentAmount: 0,
+        },
+      });
+
+      for (const p of plans) {
+        if (p.moveQty <= 0) continue;
+
+        const existingChildLine = await tx.orderItem.findUnique({
+          where: {
+            orderId_productId: { orderId: child.id, productId: p.productId! },
+          },
+        });
+        if (existingChildLine) {
+          const nq = existingChildLine.qty + p.moveQty;
+          await tx.orderItem.update({
+            where: { id: existingChildLine.id },
+            data: {
+              qty: nq,
+              lineTotal: nq * existingChildLine.price,
+            },
+          });
+        } else {
+          await tx.orderItem.create({
+            data: {
+              orderId: child.id,
+              productId: p.productId!,
+              productNameSnapshot: p.snapshot,
+              qty: p.moveQty,
+              price: p.price,
+              lineTotal: p.moveQty * p.price,
+            },
+          });
+        }
+
+        if (p.keepQty <= 0) {
+          await tx.orderItem.delete({ where: { id: p.itemId } });
+        } else {
+          await tx.orderItem.update({
+            where: { id: p.itemId },
+            data: {
+              qty: p.keepQty,
+              lineTotal: p.keepQty * p.price,
+            },
+          });
+        }
+      }
+
+      await tx.activity.create({
+        data: {
+          type: ActivityType.COMMENT,
+          title: "Розділення по залишках",
+          body: `Створено дочірнє замовлення №${orderNumber} (нестача на складі). Оплати залишились на цьому замовленні.`,
+          createdBy: changedBy,
+          orderId: parent.id,
+        },
+      });
+      await tx.activity.create({
+        data: {
+          type: ActivityType.COMMENT,
+          title: "Розділення по залишках",
+          body: `Виділено з батьківського замовлення №${parent.orderNumber}.`,
+          createdBy: changedBy,
+          orderId: child.id,
+        },
+      });
+
+      return child.id;
+    });
+
+    await this.recalcAndReturn(orderId);
+    await this.recalcAndReturn(childId);
+
+    const [parentEntity, childEntity] = await Promise.all([
+      this.getById(orderId, actor),
+      this.getById(childId, actor),
+    ]);
+    return { parent: parentEntity, child: childEntity };
+  }
+
   /** Only ADMIN can delete orders. */
   async remove(id: string, actor?: AuthUser) {
     if (!actor || actor.role !== UserRole.ADMIN) {
@@ -818,9 +1070,21 @@ export class OrdersService {
     const items = (o.items as Array<Record<string, unknown>> | undefined) ?? [];
     const paidAmount = Number(o.paidAmount) ?? 0;
     const totalAmount = Number(o.totalAmount) ?? 0;
+    const parentOrder = o.parentOrder as { id: string; orderNumber: string } | null | undefined;
+    const childOrders =
+      (o.childOrders as Array<{ id: string; orderNumber: string; orderStage: string | null }> | undefined) ??
+      [];
+
     return {
       id: o.id,
       orderNumber: o.orderNumber,
+      parentOrderId: o.parentOrderId ?? null,
+      parent: parentOrder ? { id: parentOrder.id, orderNumber: parentOrder.orderNumber } : null,
+      children: childOrders.map((c) => ({
+        id: c.id,
+        orderNumber: c.orderNumber,
+        orderStage: c.orderStage ?? null,
+      })),
       companyId: o.companyId ?? null,
       clientId: o.clientId ?? null,
       contactId: o.contactId ?? null,

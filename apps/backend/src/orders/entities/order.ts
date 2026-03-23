@@ -29,9 +29,21 @@ export type OrderItem = {
   lineTotal: number;
 };
 
+export type OrderLinkRef = {
+  id: string;
+  orderNumber: string;
+};
+
+export type OrderChildRef = OrderLinkRef & {
+  orderStage?: OrderStage | null;
+};
+
 export type Order = {
   id: string;
   orderNumber: string;
+  parentOrderId?: string | null;
+  parent?: OrderLinkRef | null;
+  children?: OrderChildRef[];
   /** @deprecated Phase 7: use orderStage. May be null. */
   status?: OrderStatus | null;
 

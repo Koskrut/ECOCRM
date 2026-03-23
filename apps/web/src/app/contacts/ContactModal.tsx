@@ -2135,6 +2135,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             setOrderId(null);
             setOrdersReloadKey((k) => k + 1);
           }}
+          onOpenOrder={(id) => setOrderId(id)}
         />
       ) : null}
 
@@ -2150,6 +2151,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onSaved={() => {
             setCreateOrderOpen(false);
             setOrdersReloadKey((k) => k + 1);
+          }}
+          onOpenOrder={(id) => {
+            setCreateOrderOpen(false);
+            setOrderId(id);
           }}
         />
       ) : null}

@@ -148,6 +148,11 @@ export class OrdersController {
     return { ok: true };
   }
 
+  @Post(":id/split-by-stock")
+  splitByStock(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.orders.splitByStock(id, req.user);
+  }
+
   @Patch(":id/stage")
   setStage(
     @Param("id") id: string,

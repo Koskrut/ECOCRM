@@ -914,6 +914,7 @@ function OrdersPageContent() {
             void fetchOrders();
             if (view === "returns") setReturnsRefreshKey((k) => k + 1);
           }}
+          onOpenOrder={(id) => openExistingOrder(id)}
           onOpenCompany={(id) => console.log("Open company", id)}
           onOpenContact={(id) => console.log("Open contact", id)}
           userRole={userRole}

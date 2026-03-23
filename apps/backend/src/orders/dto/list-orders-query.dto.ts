@@ -54,6 +54,11 @@ export class ListOrdersQueryDto {
   orderStage?: OrderStage;
 
   @IsOptional()
+  @IsString()
+  /** Only orders split from this parent (child orders). */
+  parentOrderId?: string;
+
+  @IsOptional()
   @IsEnum(OrderFinancialStatus)
   financialStatus?: OrderFinancialStatus;
 

@@ -1338,6 +1338,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             setOrderId(null);
             setOrdersReloadKey((x) => x + 1);
           }}
+          onOpenOrder={(id) => setOrderId(id)}
         />
       ) : null}
     </>
