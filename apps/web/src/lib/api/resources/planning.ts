@@ -78,6 +78,7 @@ export type KitCapacity = {
     qtyPerKit: number;
     available: number;
     ratio: number;
+    product: { sku: string; name: string } | null;
   }>;
 };
 
@@ -115,6 +116,7 @@ export type LaunchRecommendation = {
   suggestedLaunchQty: number;
   reason: string;
   horizonWeeks: number;
+  product: { sku: string; name: string } | null;
 };
 
 export type LaunchRecommendationsResponse = {

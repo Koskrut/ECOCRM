@@ -7,6 +7,7 @@ import {
   type ActiveBom,
   type DemandRules,
   type InventorySnapshot,
+  type KitCapacity,
   type LaunchRecommendationsResponse,
   type PlanningAvailability,
   type ProductionBatch,
@@ -60,11 +61,7 @@ export default function PlanningPage() {
   const [selectedKitId, setSelectedKitId] = useState<string>("");
   const [availability, setAvailability] = useState<PlanningAvailability | null>(null);
   const [bom, setBom] = useState<ActiveBom | null>(null);
-  const [capacity, setCapacity] = useState<{
-    maxBuildNow: number;
-    bottleneckComponentId: string | null;
-    components: Array<{ componentProductId: string; qtyPerKit: number; available: number; ratio: number }>;
-  } | null>(null);
+  const [capacity, setCapacity] = useState<KitCapacity | null>(null);
 
   const [snapshotFile, setSnapshotFile] = useState<File | null>(null);
   const [snapshotNote, setSnapshotNote] = useState("");
@@ -492,8 +489,13 @@ export default function PlanningPage() {
                         title={t.labels.bottleneck}
                         value={
                           capacity.bottleneckComponentId
-                            ? productNameById.get(capacity.bottleneckComponentId)?.name ??
-                              capacity.bottleneckComponentId
+                            ? formatPlanningProductLabel(
+                                capacity.components.find(
+                                  (c) => c.componentProductId === capacity.bottleneckComponentId,
+                                )?.product ?? null,
+                                productNameById.get(capacity.bottleneckComponentId),
+                                capacity.bottleneckComponentId,
+                              )
                             : t.states.none
                         }
                       />
@@ -501,7 +503,11 @@ export default function PlanningPage() {
                     <SimpleTable
                       headers={[t.labels.component, t.labels.qty, t.labels.available, t.labels.ratio]}
                       rows={capacity.components.map((line) => [
-                        productNameById.get(line.componentProductId)?.name ?? line.componentProductId,
+                        formatPlanningProductLabel(
+                          line.product,
+                          productNameById.get(line.componentProductId),
+                          line.componentProductId,
+                        ),
                         String(line.qtyPerKit),
                         String(line.available),
                         line.ratio.toFixed(2),
@@ -1111,6 +1117,16 @@ function BatchMiniList({
   );
 }
 
+function formatPlanningProductLabel(
+  product: { sku: string; name: string } | null | undefined,
+  catalog: ProductCatalogItem | undefined,
+  fallbackId: string,
+): string {
+  if (product) return `${product.sku} — ${product.name}`;
+  if (catalog) return `${catalog.sku} — ${catalog.name}`;
+  return fallbackId;
+}
+
 function RecommendationsTable({
   recommendations,
   productsById,
@@ -1118,6 +1134,7 @@ function RecommendationsTable({
 }: {
   recommendations: Array<{
     productId: string;
+    product: { sku: string; name: string } | null;
     hardNeed: number;
     softNeed: number;
     available: number;
@@ -1141,7 +1158,7 @@ function RecommendationsTable({
         t.labels.launch,
       ]}
       rows={recommendations.map((item) => [
-        productsById.get(item.productId)?.name ?? item.productId,
+        formatPlanningProductLabel(item.product, productsById.get(item.productId), item.productId),
         String(item.available),
         String(item.expectedOutput),
         String(item.hardNeed),

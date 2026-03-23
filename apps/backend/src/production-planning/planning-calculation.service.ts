@@ -85,10 +85,15 @@ export class PlanningCalculationService {
       orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
     });
     if (!bom || bom.lines.length === 0) {
-      return { kitProductId, maxBuildNow: 0, bottleneckComponentId: null, components: [] as unknown[] };
+      return { kitProductId, maxBuildNow: 0, bottleneckComponentId: null, components: [] };
     }
 
-    const components = [];
+    const components: Array<{
+      componentProductId: string;
+      qtyPerKit: number;
+      available: number;
+      ratio: number;
+    }> = [];
     for (const line of bom.lines) {
       const availability = await this.getAvailability(line.componentProductId);
       const ratio = line.qtyPerKit.toNumber() > 0 ? availability.available / line.qtyPerKit.toNumber() : 0;
@@ -99,13 +104,25 @@ export class PlanningCalculationService {
         ratio,
       });
     }
-    components.sort((a, b) => a.ratio - b.ratio);
-    const bottleneck = components[0] ?? null;
+
+    const componentIds = [...new Set(components.map((c) => c.componentProductId))];
+    const componentProducts = await this.prisma.product.findMany({
+      where: { id: { in: componentIds } },
+      select: { id: true, sku: true, name: true },
+    });
+    const componentById = new Map(componentProducts.map((p) => [p.id, { sku: p.sku, name: p.name }]));
+
+    const enriched = components.map((c) => ({
+      ...c,
+      product: componentById.get(c.componentProductId) ?? null,
+    }));
+    enriched.sort((a, b) => a.ratio - b.ratio);
+    const bottleneck = enriched[0] ?? null;
     return {
       kitProductId,
       maxBuildNow: bottleneck ? Math.max(0, Math.floor(bottleneck.ratio)) : 0,
       bottleneckComponentId: bottleneck?.componentProductId ?? null,
-      components,
+      components: enriched,
     };
   }
 
@@ -165,7 +182,22 @@ export class PlanningCalculationService {
     }
 
     recommendations.sort((a, b) => b.deficit - a.deficit);
-    return { horizonWeeks, unresolvedOrderItemIds, recommendations };
+
+    const recProductIds = [...new Set(recommendations.map((r) => r.productId))];
+    const recProducts = await this.prisma.product.findMany({
+      where: { id: { in: recProductIds } },
+      select: { id: true, sku: true, name: true },
+    });
+    const recById = new Map(recProducts.map((p) => [p.id, { sku: p.sku, name: p.name }]));
+
+    return {
+      horizonWeeks,
+      unresolvedOrderItemIds,
+      recommendations: recommendations.map((r) => ({
+        ...r,
+        product: recById.get(r.productId) ?? null,
+      })),
+    };
   }
 }
 
