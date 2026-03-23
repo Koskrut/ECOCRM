@@ -33,13 +33,13 @@ export class PaymentsController {
   }
 
   @Post("allocate")
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   allocate(@Body() dto: AllocatePaymentDto, @Req() req: Request & { user?: AuthUser }) {
     return this.service.allocate(dto, req.user);
   }
 
   @Post("allocate-split")
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   allocateSplit(@Body() dto: AllocateSplitDto, @Req() req: Request & { user?: AuthUser }) {
     return this.service.allocateSplit(dto, req.user);
   }
@@ -59,7 +59,7 @@ export class PaymentsController {
   }
 
   @Post(":id/split")
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   splitPayment(
     @Param("id") id: string,
     @Body() dto: SplitPaymentDto,

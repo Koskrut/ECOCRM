@@ -51,6 +51,14 @@ export class PaymentsService {
     private readonly bankAccounts: BankAccountsService,
   ) {}
 
+  private async ensureCanUseBankTransaction(txBankAccountId: string, actor?: AuthUser): Promise<void> {
+    if (!actor || actor.role === UserRole.ADMIN) return;
+    const visibleIds = await this.bankAccounts.getVisibleBankAccountIds(actor.id);
+    if (!visibleIds.includes(txBankAccountId)) {
+      throw new ForbiddenException("You do not have access to this bank account");
+    }
+  }
+
   async list(params: ListPaymentsParams, actor?: AuthUser) {
     let rates: ExchangeRates;
     try {
@@ -252,14 +260,15 @@ export class PaymentsService {
   }
 
   async allocate(dto: AllocatePaymentDto, actor?: AuthUser) {
-    if (actor?.role !== UserRole.ADMIN) {
-      throw new ForbiddenException("Only ADMIN can allocate bank transactions");
+    if (!actor || ![UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER].includes(actor.role)) {
+      throw new ForbiddenException("You are not allowed to allocate bank transactions");
     }
     const tx = await this.prisma.bankTransaction.findUnique({
       where: { id: dto.transactionId },
       include: { payments: true },
     });
     if (!tx) throw new NotFoundException("Transaction not found");
+    await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
     if ((tx.payments ?? []).length > 0) {
       throw new BadRequestException("Transaction already allocated (use split or edit)");
     }
@@ -268,6 +277,9 @@ export class PaymentsService {
       where: { id: dto.orderId },
     });
     if (!order) throw new NotFoundException("Order not found");
+    if (actor.role === UserRole.MANAGER && order.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only allocate to orders assigned to you");
+    }
 
     const amount = dto.amount != null ? dto.amount : Number(tx.amount);
     if (amount <= 0) throw new BadRequestException("Amount must be positive");
@@ -294,8 +306,8 @@ export class PaymentsService {
   }
 
   async allocateSplit(dto: AllocateSplitDto, actor?: AuthUser) {
-    if (actor?.role !== UserRole.ADMIN) {
-      throw new ForbiddenException("Only ADMIN can allocate bank transactions");
+    if (!actor || ![UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER].includes(actor.role)) {
+      throw new ForbiddenException("You are not allowed to allocate bank transactions");
     }
     if (!dto.allocations?.length) {
       throw new BadRequestException("At least one allocation required");
@@ -305,6 +317,7 @@ export class PaymentsService {
       include: { payments: true },
     });
     if (!tx) throw new NotFoundException("Transaction not found");
+    await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
     const allocatedTotal = (tx.payments ?? []).reduce((s, p) => s + Number(p.amount), 0);
     if (allocatedTotal > 0) {
       throw new BadRequestException("Transaction already has allocations");
@@ -323,6 +336,9 @@ export class PaymentsService {
       }
       const order = await this.prisma.order.findUnique({ where: { id: a.orderId } });
       if (!order) throw new NotFoundException(`Order not found: ${a.orderId}`);
+      if (actor.role === UserRole.MANAGER && order.ownerId !== actor.id) {
+        throw new ForbiddenException("You can only assign to orders assigned to you");
+      }
     }
     const rates = await this.settings.getExchangeRates();
     for (const a of dto.allocations) {

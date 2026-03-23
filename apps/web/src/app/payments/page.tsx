@@ -2178,7 +2178,7 @@ function PaymentsContent() {
               />
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              {editPayment.sourceType === "BANK" && (
+              {editPayment.sourceType === "BANK" && userRole === "ADMIN" && (
                 <button
                   type="button"
                   onClick={() => void submitUnallocate()}
