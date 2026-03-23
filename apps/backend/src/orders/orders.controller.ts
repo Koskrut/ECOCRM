@@ -213,9 +213,22 @@ export class OrdersController {
     @Param("id") id: string,
     @Param("itemId") itemId: string,
     @Body() dto: UpdateOrderItemDto,
-    @Req() req: Request & { user?: AuthUser },
+    @Req() req: Request & { user?: AuthUser; body?: Record<string, unknown> },
   ) {
-    return this.orders.updateItem(id, itemId, dto, req.user);
+    // Workaround: ValidationPipe/class-transformer can strip qty/price; use raw body fallback (same as addItem)
+    const raw = req.body ?? {};
+    const qtyRaw = dto.qty ?? raw.qty;
+    const priceRaw = dto.price ?? raw.price;
+    const merged: { qty?: number; price?: number } = {};
+    if (qtyRaw !== undefined && qtyRaw !== null && qtyRaw !== "") {
+      const q = Number(qtyRaw);
+      if (Number.isFinite(q)) merged.qty = q;
+    }
+    if (priceRaw !== undefined && priceRaw !== null && priceRaw !== "") {
+      const p = Number(priceRaw);
+      if (Number.isFinite(p)) merged.price = p;
+    }
+    return this.orders.updateItem(id, itemId, merged, req.user);
   }
 
   @Delete(":id/items/:itemId")

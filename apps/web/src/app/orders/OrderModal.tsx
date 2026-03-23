@@ -1006,23 +1006,9 @@ export function OrderModal({
           throw new Error((errData?.message as string) || `Failed to update item (${r.status})`);
         }
         const data = (await r.json()) as OrderDetails;
+        // Use server response as source of truth (do not overlay payload — masks failed persistence)
         if (data?.items) {
-          const qty = payload.qty !== undefined ? Number(payload.qty) : undefined;
-          const price = payload.price !== undefined ? Number(payload.price) : undefined;
-          const items =
-            qty !== undefined || price !== undefined
-              ? data.items.map((i) =>
-                  i.id === itemId
-                    ? {
-                        ...i,
-                        qty: qty ?? i.qty,
-                        price: price ?? i.price,
-                        lineTotal: (qty ?? i.qty) * (price ?? i.price),
-                      }
-                    : i,
-                )
-              : data.items;
-          applyOrderToState({ ...data, items });
+          applyOrderToState(data);
         } else {
           await refreshOrder();
         }
