@@ -260,9 +260,6 @@ export class PaymentsService {
   }
 
   async allocate(dto: AllocatePaymentDto, actor?: AuthUser) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f75fb3'},body:JSON.stringify({sessionId:'f75fb3',runId:'pre-fix',hypothesisId:'H1',location:'payments.service.ts:allocate',message:'allocate called',data:{hasActor:Boolean(actor),actorRole:actor?.role ?? null,hasTransactionId:Boolean(dto?.transactionId)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (
       !actor ||
       (actor.role !== UserRole.ADMIN &&
@@ -314,9 +311,6 @@ export class PaymentsService {
   }
 
   async allocateSplit(dto: AllocateSplitDto, actor?: AuthUser) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/6d5146b2-d2ee-43a9-ac82-5385935623c0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f75fb3'},body:JSON.stringify({sessionId:'f75fb3',runId:'pre-fix',hypothesisId:'H1',location:'payments.service.ts:allocateSplit',message:'allocateSplit called',data:{hasActor:Boolean(actor),actorRole:actor?.role ?? null,allocationsCount:Array.isArray(dto?.allocations)?dto.allocations.length:null},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (
       !actor ||
       (actor.role !== UserRole.ADMIN &&
