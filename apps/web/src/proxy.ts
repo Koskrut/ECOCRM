@@ -8,9 +8,16 @@ export function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const isLoginPage = pathname === LOGIN_PATH;
   const isApi = pathname.startsWith("/api");
+  /** Next.js static chunks, HMR, images — must never redirect to login or JS loads as HTML. */
+  const isNextInternal =
+    pathname.startsWith("/_next/") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml";
   /** /pay, /pay/, /pay/<token> — без урахування регістру (iOS / проксі інколи дають інший casing). */
   const isPublicPay = /^\/pay(\/|$)/i.test(pathname);
-  const willRedirect = !token && !isLoginPage && !isApi && !isPublicPay;
+  const willRedirect =
+    !token && !isLoginPage && !isApi && !isPublicPay && !isNextInternal;
 
   if (willRedirect) {
     const loginUrl = new URL(LOGIN_PATH, req.url);
