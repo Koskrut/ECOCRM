@@ -16,6 +16,7 @@ import type { Request } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Roles } from "../auth/roles.decorator";
 import type { AuthUser } from "../auth/auth.types";
+import { BomImportService } from "./bom-import.service";
 import { BomService } from "./bom.service";
 import { DemandRulesService } from "./demand-rules.service";
 import { InventorySnapshotService } from "./inventory-snapshot.service";
@@ -27,6 +28,7 @@ import { WeeklyPlanningJob } from "./weekly-planning.job";
 export class ProductionPlanningController {
   constructor(
     private readonly demandRules: DemandRulesService,
+    private readonly bomImport: BomImportService,
     private readonly bomService: BomService,
     private readonly snapshots: InventorySnapshotService,
     private readonly calculations: PlanningCalculationService,
@@ -63,6 +65,14 @@ export class ProductionPlanningController {
       softStages,
       includeOrderItemsWithoutProductIdAsSoft: body.includeOrderItemsWithoutProductIdAsSoft ?? true,
     });
+  }
+
+  @Post("boms/import")
+  @UseInterceptors(FileInterceptor("file"))
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  importBomFile(@UploadedFile() file: { buffer?: Buffer } | undefined) {
+    if (!file?.buffer) throw new BadRequestException("File is required");
+    return this.bomImport.importFile(file.buffer);
   }
 
   @Get("boms/:kitProductId")

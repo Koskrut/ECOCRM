@@ -120,6 +120,7 @@ export type CheckoutDeliveryData =
       flat?: string;
       firstName?: string;
       lastName?: string;
+      middleName?: string;
       recipientName?: string;
       recipientPhone?: string;
       phone?: string;

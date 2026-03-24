@@ -27,6 +27,7 @@ export const uk = {
     actions: {
       refresh: "Оновити",
       uploadSnapshot: "Завантажити снапшот",
+      uploadBom: "Імпортувати BOM",
       publishSnapshot: "Опублікувати",
       createRevision: "Створити ревізію",
       createBatch: "Створити партію",
@@ -67,6 +68,7 @@ export const uk = {
       source: "Джерело",
       importedAt: "Імпортовано",
       unresolvedSku: "Нерозпізнані SKU",
+      unresolvedKitSku: "Нерозпізнані SKU комплектів",
       unresolvedWarehouses: "Нерозпізнані склади",
       horizon: "Горизонт",
       bottleneck: "Вузьке місце",
@@ -81,6 +83,9 @@ export const uk = {
       components: "Компоненти",
       actions: "Дії",
       result: "Результат",
+      row: "Рядок",
+      rowsWithErrors: "Рядки з помилками",
+      importedKits: "Імпортовано комплектів",
       createdAt: "Створено",
       oneWeek: "1 тиждень",
       twoWeeks: "2 тижні",
@@ -115,6 +120,8 @@ export const uk = {
         "Снапшот спочатку створюється у STAGED, після чого його потрібно опублікувати як актуальну фізику.",
       bomHint:
         "Кожне збереження створює нову активну ревізію BOM для обраного комплекту.",
+      bomUploadHint:
+        "Завантажте Excel або CSV з колонками kitSku, componentSku та qtyPerKit. Ведучий символ ` у SKU ігнорується під час пошуку.",
       batchesHint:
         "Створюйте партії та переводьте їх по етапах, щоб наповнювати WIP, ОТК та пакування.",
       queuesHint:
@@ -132,6 +139,7 @@ export const uk = {
       selectFile: "Спочатку оберіть файл",
       saveRules: "Не вдалося зберегти правила попиту",
       uploadSnapshot: "Не вдалося завантажити снапшот",
+      uploadBom: "Не вдалося імпортувати BOM-файл",
       publishSnapshot: "Не вдалося опублікувати снапшот",
       createRevision: "Не вдалося створити ревізію BOM",
       createBatch: "Не вдалося створити партію",

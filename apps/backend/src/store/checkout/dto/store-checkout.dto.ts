@@ -93,6 +93,10 @@ export class StoreDeliveryDataDto {
   @IsString()
   lastName?: string;
 
+  @IsOptional()
+  @IsString()
+  middleName?: string;
+
   @ValidateIf(personRecipient)
   @IsString()
   @MinLength(1, { message: "Телефон отримувача обов'язковий" })

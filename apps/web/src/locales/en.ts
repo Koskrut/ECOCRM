@@ -26,6 +26,7 @@ export const en = {
     actions: {
       refresh: "Refresh",
       uploadSnapshot: "Upload snapshot",
+      uploadBom: "Import BOM",
       publishSnapshot: "Publish",
       createRevision: "Create revision",
       createBatch: "Create batch",
@@ -66,6 +67,7 @@ export const en = {
       source: "Source",
       importedAt: "Imported at",
       unresolvedSku: "Unresolved SKU",
+      unresolvedKitSku: "Unresolved kit SKU",
       unresolvedWarehouses: "Unresolved warehouses",
       horizon: "Horizon",
       bottleneck: "Bottleneck",
@@ -80,6 +82,9 @@ export const en = {
       components: "Components",
       actions: "Actions",
       result: "Result",
+      row: "Row",
+      rowsWithErrors: "Rows with errors",
+      importedKits: "Imported kits",
       createdAt: "Created at",
       oneWeek: "1 week",
       twoWeeks: "2 weeks",
@@ -114,6 +119,8 @@ export const en = {
         "Snapshots are first staged, then published as the current physical stock baseline.",
       bomHint:
         "Each new save creates a fresh active BOM revision for the selected kit.",
+      bomUploadHint:
+        "Upload an Excel or CSV file with kitSku, componentSku and qtyPerKit columns. Leading ` in SKU values will be ignored during lookup.",
       batchesHint:
         "Create batches and move them through stages to populate WIP, QC and packing queues.",
       queuesHint:
@@ -131,6 +138,7 @@ export const en = {
       selectFile: "Select a file first",
       saveRules: "Failed to save demand rules",
       uploadSnapshot: "Failed to upload snapshot",
+      uploadBom: "Failed to import BOM file",
       publishSnapshot: "Failed to publish snapshot",
       createRevision: "Failed to create BOM revision",
       createBatch: "Failed to create batch",

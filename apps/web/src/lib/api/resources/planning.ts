@@ -69,6 +69,27 @@ export type ActiveBom = {
   lines: BomLine[];
 };
 
+export type BomImportRowError = {
+  rowNumber: number;
+  kitSku: string;
+  componentSku: string;
+  reason: string;
+};
+
+export type BomImportResult = {
+  importedKitCount: number;
+  importedLineCount: number;
+  importedKits: Array<{
+    kitSku: string;
+    kitName: string | null;
+    revision: number;
+    lines: number;
+  }>;
+  unresolvedKitSku: string[];
+  unresolvedComponentSku: string[];
+  rowErrors: BomImportRowError[];
+};
+
 export type KitCapacity = {
   kitProductId: string;
   maxBuildNow: number;
@@ -198,6 +219,20 @@ export const planningApi = {
   ): Promise<ActiveBom> => {
     const res = await apiHttp.post<ActiveBom>(`/planning/boms/${kitProductId}/revision`, payload);
     return res.data;
+  },
+  importBomFile: async (file: File): Promise<BomImportResult> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch("/api/planning/boms/import", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `BOM import failed (${res.status})`);
+    }
+    return res.json() as Promise<BomImportResult>;
   },
   getKitCapacity: async (kitProductId: string): Promise<KitCapacity> => {
     const res = await apiHttp.get<KitCapacity>(`/planning/kits/${kitProductId}/capacity`);

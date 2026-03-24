@@ -87,6 +87,7 @@ export class StoreCheckoutService {
             recipientName?: string;
             firstName?: string;
             lastName?: string;
+            middleName?: string;
             recipientPhone?: string;
             phone?: string;
             companyName?: string;
@@ -148,6 +149,7 @@ export class StoreCheckoutService {
         if (!cityRef) throw new BadRequestException("Місто обов'язкове");
 
         let warehouseRef: string | null = null;
+        let warehouseName: string | null = null;
         let warehouseNumber: string | null = null;
         let warehouseType: string | null = null;
         let streetRef: string | null = null;
@@ -161,10 +163,12 @@ export class StoreCheckoutService {
           const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: whRef } });
           if (wh) {
             warehouseRef = whRef;
+            warehouseName = wh.description ?? dd.warehouseName?.trim() || null;
             warehouseNumber = (wh as { number?: string | null }).number ?? null;
             warehouseType = (wh as { isPostomat?: boolean }).isPostomat ? "POSTOMAT" : "WAREHOUSE";
           } else {
             warehouseRef = whRef;
+            warehouseName = dd.warehouseName?.trim() || null;
             warehouseType = deliveryType;
           }
         } else {
@@ -197,10 +201,12 @@ export class StoreCheckoutService {
           if (last) {
             firstName = name || null;
             lastName = last;
+            middleName = dd.middleName?.trim() || null;
           } else {
             const [firstPart, ...rest] = name.split(/\s+/);
             firstName = firstPart || null;
             lastName = rest.length ? rest.join(" ") : null;
+            middleName = dd.middleName?.trim() || null;
           }
         } else {
           companyName = dd.companyName?.trim() || null;
@@ -222,6 +228,7 @@ export class StoreCheckoutService {
           cityRef,
           cityName,
           warehouseRef,
+          warehouseName,
           warehouseNumber,
           warehouseType,
           streetRef,

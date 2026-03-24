@@ -5,6 +5,7 @@ import { strings } from "@/locales";
 import {
   planningApi,
   type ActiveBom,
+  type BomImportResult,
   type DemandRules,
   type InventorySnapshot,
   type KitCapacity,
@@ -63,6 +64,9 @@ export default function PlanningPage() {
   const [bom, setBom] = useState<ActiveBom | null>(null);
   const [capacity, setCapacity] = useState<KitCapacity | null>(null);
 
+  const [bomImportFile, setBomImportFile] = useState<File | null>(null);
+  const [importingBom, setImportingBom] = useState(false);
+  const [bomImportResult, setBomImportResult] = useState<BomImportResult | null>(null);
   const [snapshotFile, setSnapshotFile] = useState<File | null>(null);
   const [snapshotNote, setSnapshotNote] = useState("");
   const [uploadingSnapshot, setUploadingSnapshot] = useState(false);
@@ -292,6 +296,27 @@ export default function PlanningPage() {
       setError(e instanceof Error ? e.message : t.errors.createRevision);
     } finally {
       setSavingBom(false);
+    }
+  };
+
+  const handleImportBomFile = async () => {
+    if (!bomImportFile) {
+      setError(t.errors.selectFile);
+      return;
+    }
+    setImportingBom(true);
+    try {
+      const result = await planningApi.importBomFile(bomImportFile);
+      setBomImportResult(result);
+      setBomImportFile(null);
+      if (selectedKitId) {
+        await loadBomDetails(selectedKitId);
+      }
+      await handleRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t.errors.uploadBom);
+    } finally {
+      setImportingBom(false);
     }
   };
 
@@ -605,6 +630,73 @@ export default function PlanningPage() {
           {activeTab === "bom" && (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.bomHint}</p>
+              <Panel title={t.actions.uploadBom}>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => setBomImportFile(e.target.files?.[0] ?? null)}
+                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleImportBomFile()}
+                    disabled={importingBom}
+                    className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
+                  >
+                    {importingBom ? strings.common.loading : t.actions.uploadBom}
+                  </button>
+                </div>
+                <p className="mt-3 text-sm text-zinc-500">{t.messages.bomUploadHint}</p>
+                {bomImportResult && (
+                  <div className="mt-4 space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <StatCard title={t.labels.importedKits} value={String(bomImportResult.importedKitCount)} />
+                      <StatCard title={t.labels.components} value={String(bomImportResult.importedLineCount)} />
+                      <StatCard
+                        title={t.labels.unresolvedKitSku}
+                        value={String(bomImportResult.unresolvedKitSku.length)}
+                      />
+                      <StatCard
+                        title={t.labels.rowsWithErrors}
+                        value={String(bomImportResult.rowErrors.length)}
+                      />
+                    </div>
+                    <p>
+                      {t.labels.unresolvedKitSku}:{" "}
+                      {bomImportResult.unresolvedKitSku.length > 0
+                        ? bomImportResult.unresolvedKitSku.join(", ")
+                        : t.states.none}
+                    </p>
+                    <p>
+                      {t.labels.unresolvedSku}:{" "}
+                      {bomImportResult.unresolvedComponentSku.length > 0
+                        ? bomImportResult.unresolvedComponentSku.join(", ")
+                        : t.states.none}
+                    </p>
+                    <SimpleTable
+                      headers={[t.labels.sku, t.labels.name, t.labels.revision, t.labels.components]}
+                      rows={bomImportResult.importedKits.map((item) => [
+                        item.kitSku,
+                        item.kitName ?? t.states.none,
+                        String(item.revision),
+                        String(item.lines),
+                      ])}
+                      noDataLabel={t.states.noData}
+                    />
+                    <SimpleTable
+                      headers={[t.labels.row, t.labels.sku, t.labels.component, t.labels.note]}
+                      rows={bomImportResult.rowErrors.map((item) => [
+                        String(item.rowNumber),
+                        item.kitSku || t.states.none,
+                        item.componentSku || t.states.none,
+                        item.reason,
+                      ])}
+                      noDataLabel={t.states.noData}
+                    />
+                  </div>
+                )}
+              </Panel>
               <Panel title={t.labels.selectedKit}>
                 <ProductLookup
                   query={productSearch}
