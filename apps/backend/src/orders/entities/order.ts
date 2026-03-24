@@ -29,6 +29,21 @@ export type OrderItem = {
   lineTotal: number;
 };
 
+export type OrderShipment = {
+  id: string;
+  status?: string | null;
+  carrier?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  ttns?: Array<{
+    id: string;
+    documentNumber: string;
+    statusCode?: string | null;
+    statusText?: string | null;
+    createdAt?: string;
+  }>;
+};
+
 export type OrderLinkRef = {
   id: string;
   orderNumber: string;
@@ -96,4 +111,5 @@ export type Order = {
   updatedAt: string;
 
   items: OrderItem[];
+  shipments?: OrderShipment[];
 };

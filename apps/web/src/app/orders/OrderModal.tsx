@@ -128,6 +128,11 @@ type OrderDetails = {
   exchangeRate?: number | null;
   /** TTN records (from Bitrix import or NP creation); status from cron sync or NP API */
   ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
+  shipments?: Array<{
+    id: string;
+    status?: string | null;
+    ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
+  }>;
 };
 
 type StockByWarehouseItem = { warehouseId: string; warehouseName: string; qty: number };
@@ -1388,7 +1393,23 @@ export function OrderModal({
   const ttnStatusCode: string | null =
     np?.status?.StatusCode ?? np?.status?.statusCode ?? order?.ttns?.[0]?.statusCode ?? null;
   const ttnStatusLabel = ttnStatusText ? (ttnStatusCode ? `${ttnStatusText} (code ${ttnStatusCode})` : ttnStatusText) : null;
-
+  const shipmentRowsAll = (order?.shipments ?? []).map((s) => ({
+    shipmentId: s.id,
+    shipmentStatus: s.status ?? null,
+    ttnNumber: s.ttns?.[0]?.documentNumber ?? null,
+    ttnStatus: s.ttns?.[0]?.statusText ?? null,
+  }));
+  const formatShipmentStatus = (status: string | null) => {
+    if (!status) return "Невідомо";
+    if (status === "DRAFT") return "Чернетка відправки";
+    if (status === "IN_TRANSIT") return "В дорозі";
+    if (status === "DELIVERED") return "Доставлено";
+    if (status === "CANCELED") return "Скасовано";
+    return status;
+  };
+  const shipmentRows = shipmentRowsAll.filter(
+    (r) => !((r.shipmentStatus ?? "") === "CANCELED" && !r.ttnNumber),
+  );
   const canShowCreateTtnButton = useMemo(() => {
     return !isCreate && !loading && !!order && order.deliveryMethod === "NOVA_POSHTA";
   }, [isCreate, loading, order]);
@@ -2751,9 +2772,108 @@ export function OrderModal({
 
                       {order.deliveryMethod === "NOVA_POSHTA" ? (
                         <div>
-                          <div className="text-xs text-zinc-500">TTN</div>
-                          <div className="mt-1 flex items-center gap-2">
-                            <span className="font-medium text-zinc-900">{ttnNumber ? `№ ${ttnNumber}` : <span className="font-normal text-zinc-400">Не указано</span>}</span>
+                          <div className="text-xs text-zinc-500">Shipments / TTN</div>
+                          <div className="mt-1 space-y-2">
+                            {shipmentRows.length > 0 ? (
+                              shipmentRows.map((row) => (
+                                <div key={row.shipmentId} className="flex items-center gap-2">
+                                  <span className="font-medium text-zinc-900">
+                                    {row.ttnNumber ? `№ ${row.ttnNumber}` : "Без ТТН"}
+                                  </span>
+                                  <span className="text-xs text-zinc-500">
+                                    {formatShipmentStatus(row.shipmentStatus ?? "DRAFT")}
+                                  </span>
+                                  {row.ttnStatus ? <span className="text-xs text-zinc-500">· {row.ttnStatus}</span> : null}
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!confirm("Відв'язати ТТН тільки від цього замовлення?")) return;
+                                      try {
+                                        await apiHttp.delete(`shipments/${row.shipmentId}/np/ttn/unlink`);
+                                        await refreshOrder();
+                                        onSaved?.();
+                                      } catch {
+                                        // ignore
+                                      }
+                                    }}
+                                    className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                                    title="Unlink TTN from this order"
+                                    aria-label="Unlink TTN from this order"
+                                  >
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M10 14l-2 2a3 3 0 01-4-4l2-2m8-4l2-2a3 3 0 114 4l-2 2M8 16l8-8"
+                                      />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!confirm("Скасувати цю ТТН у Новій Пошті?")) return;
+                                      try {
+                                        await apiHttp.delete(`shipments/${row.shipmentId}/np/ttn`);
+                                        await refreshOrder();
+                                        onSaved?.();
+                                      } catch (e) {
+                                        const msg =
+                                          (e as { response?: { data?: { message?: string } } })?.response?.data
+                                            ?.message ??
+                                          (e instanceof Error ? e.message : "Failed to delete TTN in NP");
+                                        alert(msg);
+                                      }
+                                    }}
+                                    className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
+                                    title="Cancel TTN in Nova Poshta"
+                                    aria-label="Cancel TTN in Nova Poshta"
+                                  >
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-zinc-900">
+                                  {ttnNumber ? `№ ${ttnNumber}` : <span className="font-normal text-zinc-400">Не указано</span>}
+                                </span>
+                                {ttnNumber && orderId ? (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (!confirm("Удалить ТТН из заказа?")) return;
+                                      try {
+                                        await apiHttp.delete(`orders/${orderId}/np/ttn`);
+                                        await refreshOrder();
+                                        onSaved?.();
+                                      } catch {
+                                        // ignore
+                                      }
+                                    }}
+                                    className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
+                                    title="Delete TTN"
+                                    aria-label="Delete TTN"
+                                  >
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                      />
+                                    </svg>
+                                  </button>
+                                ) : null}
+                              </div>
+                            )}
                             {canShowCreateTtnButton ? (
                               <button
                                 type="button"
@@ -2764,33 +2884,6 @@ export function OrderModal({
                               >
                                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                              </button>
-                            ) : null}
-                            {ttnNumber && orderId ? (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!confirm("Удалить ТТН из заказа?")) return;
-                                  try {
-                                    await apiHttp.delete(`orders/${orderId}/np/ttn`);
-                                    await refreshOrder();
-                                    onSaved?.();
-                                  } catch {
-                                    // ignore
-                                  }
-                                }}
-                                className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                                title="Delete TTN"
-                                aria-label="Delete TTN"
-                              >
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                  />
                                 </svg>
                               </button>
                             ) : null}

@@ -114,6 +114,10 @@ export class CreateNpTtnDraftDto {
 
 export class CreateNpTtnDto {
   @IsOptional()
+  @IsBoolean()
+  ignoreDuplicateCheck?: boolean;
+
+  @IsOptional()
   @IsString()
   profileId?: string;
 

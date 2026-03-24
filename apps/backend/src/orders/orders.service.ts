@@ -40,6 +40,13 @@ const ORDER_INCLUDE = {
   warehouse: { select: { id: true, name: true } },
   items: { include: { product: true } },
   ttns: { orderBy: { createdAt: "desc" as const } },
+  shipments: {
+    orderBy: { createdAt: "desc" as const },
+    include: {
+      items: true,
+      ttns: { orderBy: { createdAt: "desc" as const } },
+    },
+  },
   parentOrder: { select: { id: true, orderNumber: true } },
   childOrders: {
     select: { id: true, orderNumber: true, orderStage: true },
@@ -129,8 +136,16 @@ export class OrdersService {
     }
     if (q?.paymentType) where.paymentType = q.paymentType;
     if (q?.parentOrderId) where.parentOrderId = String(q.parentOrderId);
-    if (q?.hasTtn === true) where.ttns = { some: {} };
-    if (q?.hasTtn === false) where.ttns = { none: {} };
+    if (q?.hasTtn === true) {
+      andWhere.push({
+        OR: [{ ttns: { some: {} } }, { shipments: { some: { ttns: { some: {} } } } }],
+      });
+    }
+    if (q?.hasTtn === false) {
+      andWhere.push({
+        AND: [{ ttns: { none: {} } }, { shipments: { none: { ttns: { some: {} } } } }],
+      });
+    }
 
     if (q?.amountFrom != null || q?.amountTo != null) {
       const totalAmount: Prisma.FloatFilter = {};
@@ -238,7 +253,7 @@ export class OrdersService {
     const withRelations = q?.withCompanyClient === true;
     const include: Prisma.OrderInclude = {
       items: true,
-      _count: { select: { ttns: true } },
+      _count: { select: { ttns: true, shipments: true } },
     };
     if (withRelations) {
       include.company = true;
@@ -1135,6 +1150,7 @@ export class OrdersService {
         product: it.product ?? null,
       })),
       ttns: o.ttns ?? [],
+      shipments: o.shipments ?? [],
     };
   }
 }

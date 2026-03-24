@@ -1,7 +1,7 @@
 // apps/web/src/app/orders/TtnModal.tsx
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NpCitySelect, NpWarehouseSelect, NpStreetSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
 
@@ -71,6 +71,21 @@ export function TtnModal({
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicateChoice, setDuplicateChoice] = useState<{
+    documentNumber: string;
+    orderId: string;
+    orderNumber?: string;
+    recipientLabel?: string;
+    shipmentId: string;
+    mode: "EXISTING" | "NEW";
+    existingPayload?: { profileId: string; payerType: "Recipient" | "Sender" };
+    newPayload?: Record<string, unknown>;
+  } | null>(null);
+  const duplicateChoiceRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!duplicateChoice) return;
+    duplicateChoiceRef.current?.focus();
+  }, [duplicateChoice, orderId, duplicateChoiceRef]);
 
   const [profiles, setProfiles] = useState<NpShippingProfile[]>([]);
   const [mode, setMode] = useState<"EXISTING" | "NEW">("EXISTING");
@@ -279,6 +294,19 @@ export function TtnModal({
 
   const handleCreate = async () => {
     setError(null);
+    setDuplicateChoice(null);
+    const getBackendErrorData = (err: unknown): Record<string, unknown> => {
+      const fromAxiosStyle =
+        ((err as { response?: { data?: Record<string, unknown> } })?.response?.data as
+          | Record<string, unknown>
+          | undefined) ?? null;
+      if (fromAxiosStyle) return fromAxiosStyle;
+      const fromMapped = (err as { details?: unknown })?.details;
+      if (fromMapped && typeof fromMapped === "object") {
+        return fromMapped as Record<string, unknown>;
+      }
+      return {};
+    };
 
     if (!orderId) {
       setError("orderId is missing");
@@ -306,8 +334,25 @@ export function TtnModal({
         onCreated?.(res.data);
         onClose();
       } catch (e) {
+        const data = getBackendErrorData(e);
+        const code = String(data?.code ?? "");
+        if (code === "DUPLICATE_UNSENT_TTN") {
+          const duplicate = (data?.duplicate ?? {}) as Record<string, unknown>;
+          const duplicateTtn = String(duplicate.documentNumber ?? "");
+          const duplicateOrderId = String(duplicate.orderId ?? "");
+          setDuplicateChoice({
+            documentNumber: duplicateTtn,
+            orderId: duplicateOrderId,
+            orderNumber: String(duplicate.orderNumber ?? ""),
+            recipientLabel: String(duplicate.recipientLabel ?? ""),
+            shipmentId: String(duplicate.shipmentId ?? ""),
+            mode: "EXISTING",
+            existingPayload: { profileId: selectedProfileId.trim(), payerType },
+          });
+          return;
+        }
         const msg =
-          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          String(data?.message ?? "") ||
           (e instanceof Error ? e.message : "Failed to create TTN");
         setError(msg);
       } finally {
@@ -380,10 +425,65 @@ export function TtnModal({
       onCreated?.(res.data);
       onClose();
     } catch (e) {
+      const data = getBackendErrorData(e);
+      const code = String(data?.code ?? "");
+      if (code === "DUPLICATE_UNSENT_TTN") {
+        const duplicate = (data?.duplicate ?? {}) as Record<string, unknown>;
+        const duplicateTtn = String(duplicate.documentNumber ?? "");
+        const duplicateOrderId = String(duplicate.orderId ?? "");
+        setDuplicateChoice({
+          documentNumber: duplicateTtn,
+          orderId: duplicateOrderId,
+          orderNumber: String(duplicate.orderNumber ?? ""),
+          recipientLabel: String(duplicate.recipientLabel ?? ""),
+          shipmentId: String(duplicate.shipmentId ?? ""),
+          mode: "NEW",
+          newPayload: payload as Record<string, unknown>,
+        });
+        return;
+      }
       const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        String(data?.message ?? "") ||
         (e instanceof Error ? e.message : "Failed to create TTN");
       setError(msg);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDuplicateReuse = async () => {
+    if (!duplicateChoice) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await apiHttp.post(`/orders/${orderId}/np/ttn/reuse-existing`, {
+        sourceShipmentId: duplicateChoice.shipmentId || null,
+        sourceDocumentNumber: duplicateChoice.documentNumber || null,
+      });
+      onCreated?.(null);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to reuse existing TTN");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDuplicateCreateNew = async () => {
+    if (!duplicateChoice) return;
+    const createPath = `/orders/${orderId}/np/ttn`;
+    setCreating(true);
+    setError(null);
+    try {
+      const body =
+        duplicateChoice.mode === "EXISTING"
+          ? { ...(duplicateChoice.existingPayload ?? {}), ignoreDuplicateCheck: true }
+          : { ...(duplicateChoice.newPayload ?? {}), ignoreDuplicateCheck: true };
+      const res = await apiHttp.post(createPath, body);
+      onCreated?.(res.data);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create TTN");
     } finally {
       setCreating(false);
     }
@@ -449,6 +549,50 @@ export function TtnModal({
 
         <div className="px-6 py-4 overflow-auto flex-1">
           {error ? <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+          {duplicateChoice ? (
+            <div
+              className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
+              tabIndex={-1}
+              ref={(el) => {
+                duplicateChoiceRef.current = el;
+              }}
+            >
+              <div>
+                Знайдено незавершену ТТН №{duplicateChoice.documentNumber || "?"} у замовленні{" "}
+                {duplicateChoice.orderNumber?.trim() || duplicateChoice.orderId || "?"}
+                {duplicateChoice.recipientLabel?.trim()
+                  ? ` (отримувач: ${duplicateChoice.recipientLabel.trim()})`
+                  : ""}
+                . Оберіть дію:
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleDuplicateReuse}
+                  disabled={creating}
+                  className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm hover:bg-amber-100 disabled:opacity-50"
+                >
+                  Підставити існуючу ТТН
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDuplicateCreateNew}
+                  disabled={creating}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm hover:bg-zinc-100 disabled:opacity-50"
+                >
+                  Створити нову ТТН
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateChoice(null)}
+                  disabled={creating}
+                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Скасувати
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="flex gap-4">

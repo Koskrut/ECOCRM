@@ -1,11 +1,16 @@
 // src/np/np-ttn.service.ts
 
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { NpClient } from "./np-client.service";
 import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
 import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
 import { Prisma } from "@prisma/client";
-import type { Carrier, OrderStage, OrderStatus as PrismaOrderStatus } from "@prisma/client";
+import type {
+  Carrier,
+  OrderStage,
+  OrderStatus as PrismaOrderStatus,
+  ShipmentStatus,
+} from "@prisma/client";
 import {
   computeFinancialStatusFromOrder,
   legacyStatusToOrderUpdate,
@@ -85,6 +90,87 @@ export class NpTtnService {
     const resolved = await this.resolveRecipientData(contactId, dto);
 
     const resolvedData = resolved.data as Record<string, unknown>;
+    const debugPhoneRaw =
+      resolvedData.recipientType === NpRecipientType.PERSON
+        ? String(resolvedData.phone ?? "")
+        : String(resolvedData.contactPersonPhone ?? "");
+    const debugPhoneDigits = debugPhoneRaw.replace(/\D/g, "");
+    const debugPhoneLast4 = debugPhoneDigits.slice(-4);
+    const debugCityRef = String(resolvedData.cityRef ?? "");
+    const debugWarehouseRef = String(resolvedData.warehouseRef ?? "");
+    const duplicateCandidates = await this.prisma.orderTtn.findMany({
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        shipment: { isNot: null },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        documentNumber: true,
+        statusCode: true,
+        statusText: true,
+        shipment: {
+          select: {
+            id: true,
+            orderId: true,
+            recipientSnapshot: true,
+          },
+        },
+      },
+    });
+    const matchedCandidates = duplicateCandidates.filter((c) => {
+      const snap = (c.shipment?.recipientSnapshot ?? {}) as Record<string, unknown>;
+      const snapPhoneRaw =
+        snap.recipientType === NpRecipientType.PERSON
+          ? String(snap.phone ?? "")
+          : String(snap.contactPersonPhone ?? "");
+      const snapPhoneDigits = snapPhoneRaw.replace(/\D/g, "");
+      const snapCityRef = String(snap.cityRef ?? "");
+      const snapWarehouseRef = String(snap.warehouseRef ?? "");
+      return (
+        !!snapPhoneDigits &&
+        snapPhoneDigits === debugPhoneDigits &&
+        snapCityRef === debugCityRef &&
+        snapWarehouseRef === debugWarehouseRef
+      );
+    });
+    const duplicateUnsent = matchedCandidates
+      .filter((m) => !m.statusCode || String(m.statusCode) === "1")
+      .filter((m) => m.shipment?.orderId && m.shipment.orderId !== orderId);
+    if (duplicateUnsent.length > 0 && !dto.ignoreDuplicateCheck) {
+      const first = duplicateUnsent[0]!;
+      const duplicateOrder = first.shipment?.orderId
+        ? await this.prisma.order.findUnique({
+            where: { id: first.shipment.orderId },
+            select: { orderNumber: true },
+          })
+        : null;
+      const firstSnap = (first.shipment?.recipientSnapshot ?? {}) as Record<string, unknown>;
+      const recipientLabel =
+        firstSnap.recipientType === NpRecipientType.PERSON
+          ? [firstSnap.lastName, firstSnap.firstName, firstSnap.phone]
+              .map((v) => String(v ?? "").trim())
+              .filter(Boolean)
+              .join(" ")
+          : [firstSnap.companyName, firstSnap.contactPersonPhone]
+              .map((v) => String(v ?? "").trim())
+              .filter(Boolean)
+              .join(" ");
+      throw new ConflictException({
+        code: "DUPLICATE_UNSENT_TTN",
+        message:
+          `Знайдено незавершену ТТН №${first.documentNumber} у замовленні ${duplicateOrder?.orderNumber ?? first.shipment?.orderId ?? "іншому замовленні"}. ` +
+          "Підтвердьте створення нової ТТН, якщо потрібно дублювати відправку.",
+        duplicate: {
+          documentNumber: first.documentNumber,
+          orderId: first.shipment?.orderId ?? null,
+          orderNumber: duplicateOrder?.orderNumber ?? null,
+          recipientLabel: recipientLabel || null,
+          shipmentId: first.shipment?.id ?? null,
+        },
+      });
+    }
     const deliveryType = resolvedData.deliveryType as string | undefined;
     if (
       deliveryType === NpDeliveryType.WAREHOUSE ||
@@ -133,10 +219,16 @@ export class NpTtnService {
       );
     }
 
+    const shipment = await this.ensureShipmentForOrder({
+      order,
+      recipientSnapshot: resolved.data as Record<string, unknown>,
+    });
+
     // 4) save TTN record
     const saved = await this.prisma.orderTtn.create({
       data: {
         orderId: order.id,
+        shipmentId: shipment.id,
         carrier: "NOVA_POSHTA" as Carrier,
         documentNumber: String(docData.IntDocNumber ?? ""),
         documentRef: docData.Ref != null ? String(docData.Ref) : null,
@@ -166,6 +258,43 @@ export class NpTtnService {
       documentRef: saved.documentRef,
       cost: saved.cost,
     };
+  }
+
+  private async ensureShipmentForOrder(args: {
+    order: { id: string; contactId?: string | null; clientId?: string | null; deliveryData?: unknown };
+    recipientSnapshot?: Record<string, unknown>;
+  }) {
+    const { order, recipientSnapshot } = args;
+    const existing = await this.prisma.shipment.findFirst({
+      where: { orderId: order.id, status: { not: "CANCELED" as ShipmentStatus } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing) {
+      if (recipientSnapshot && Object.keys(recipientSnapshot).length > 0) {
+        await this.prisma.shipment.update({
+          where: { id: existing.id },
+          data: {
+            recipientSnapshot: recipientSnapshot as Prisma.InputJsonValue,
+          },
+        });
+      }
+      return existing;
+    }
+
+    const npFromOrder =
+      ((order.deliveryData as Record<string, unknown> | null)?.novaPoshta as Record<string, unknown>) ??
+      null;
+    return this.prisma.shipment.create({
+      data: {
+        orderId: order.id,
+        contactId: order.contactId ?? order.clientId ?? null,
+        carrier: "NOVA_POSHTA" as Carrier,
+        status: "DRAFT",
+        recipientSnapshot:
+          (recipientSnapshot as Prisma.InputJsonValue | undefined) ??
+          (npFromOrder as Prisma.InputJsonValue | undefined),
+      },
+    });
   }
 
   // ======================
@@ -739,7 +868,10 @@ export class NpTtnService {
     if (!order) throw new NotFoundException("Order not found");
 
     const ttns = await this.prisma.orderTtn.findMany({
-      where: { orderId, carrier: "NOVA_POSHTA" as Carrier },
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        OR: [{ orderId }, { shipment: { orderId } }],
+      },
       select: { documentRef: true },
     });
     const refs = ttns.map((t) => t.documentRef).filter((r): r is string => r != null && r.trim() !== "");
@@ -755,7 +887,14 @@ export class NpTtnService {
     }
 
     await this.prisma.orderTtn.deleteMany({
+      where: {
+        OR: [{ orderId }, { shipment: { orderId } }],
+      },
+    });
+
+    await this.prisma.shipment.updateMany({
       where: { orderId },
+      data: { status: "CANCELED" },
     });
 
     const prev = (order.deliveryData as Record<string, unknown>) ?? {};
@@ -775,12 +914,177 @@ export class NpTtnService {
     return { ok: true };
   }
 
+  async clearTtnFromShipment(shipmentId: string) {
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      select: { id: true, orderId: true },
+    });
+    if (!shipment) throw new NotFoundException("Shipment not found");
+
+    const ttns = await this.prisma.orderTtn.findMany({
+      where: { shipmentId, carrier: "NOVA_POSHTA" as Carrier },
+      select: { documentRef: true, documentNumber: true },
+    });
+    const sharedNumbers = new Set<string>();
+    for (const t of ttns) {
+      const num = String(t.documentNumber ?? "").trim();
+      if (!num) continue;
+      const usage = await this.prisma.orderTtn.count({
+        where: {
+          carrier: "NOVA_POSHTA" as Carrier,
+          documentNumber: num,
+          shipmentId: { not: shipmentId },
+        },
+      });
+      if (usage > 0) sharedNumbers.add(num);
+    }
+    if (sharedNumbers.size > 0) {
+      throw new ConflictException(
+        `TTN ${Array.from(sharedNumbers).join(", ")} прив'язана до інших замовлень. ` +
+          "Використайте «Відв'язати від цього замовлення», щоб не скасовувати документ у НП.",
+      );
+    }
+    const refs = ttns.map((t) => t.documentRef).filter((r): r is string => r != null && r.trim() !== "");
+    if (refs.length > 0) {
+      try {
+        await this.np.call("InternetDocument", "delete", {
+          DocumentRefs: refs.join(","),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new BadRequestException(`NP delete TTN failed: ${msg}`);
+      }
+    }
+
+    await this.prisma.orderTtn.deleteMany({ where: { shipmentId } });
+    await this.prisma.shipment.update({
+      where: { id: shipmentId },
+      data: { status: "CANCELED" },
+    });
+    const orderShipments = await this.prisma.shipment.findMany({
+      where: { orderId: shipment.orderId },
+      select: {
+        id: true,
+        status: true,
+        ttns: { take: 1, select: { id: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return { ok: true };
+  }
+
+  async unlinkTtnFromShipment(shipmentId: string) {
+    const shipment = await this.prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      select: { id: true },
+    });
+    if (!shipment) throw new NotFoundException("Shipment not found");
+
+    await this.prisma.orderTtn.deleteMany({ where: { shipmentId } });
+    await this.prisma.shipment.update({
+      where: { id: shipmentId },
+      data: { status: "CANCELED" },
+    });
+    return { ok: true, unlinkedOnly: true };
+  }
+
+  async reuseExistingTtnForOrder(
+    orderId: string,
+    input?: { sourceShipmentId?: string | null; sourceDocumentNumber?: string | null },
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { contact: true, client: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+
+    const sourceOr: Prisma.OrderTtnWhereInput[] = [];
+    if (input?.sourceShipmentId) sourceOr.push({ shipmentId: input.sourceShipmentId });
+    if (input?.sourceDocumentNumber) sourceOr.push({ documentNumber: input.sourceDocumentNumber });
+    if (sourceOr.length === 0) {
+      throw new BadRequestException("sourceShipmentId or sourceDocumentNumber is required");
+    }
+    const source = await this.prisma.orderTtn.findFirst({
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        OR: sourceOr,
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        shipment: true,
+      },
+    });
+    if (!source) throw new NotFoundException("Source TTN not found");
+
+    const targetShipment = await this.ensureShipmentForOrder({
+      order,
+      recipientSnapshot:
+        (source.shipment?.recipientSnapshot as Record<string, unknown> | undefined) ??
+        undefined,
+    });
+
+    const existing = await this.prisma.orderTtn.findFirst({
+      where: {
+        shipmentId: targetShipment.id,
+        documentNumber: source.documentNumber,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return { ok: true, reused: true, alreadyLinked: true, documentNumber: source.documentNumber };
+    }
+
+    const created = await this.prisma.orderTtn.create({
+      data: {
+        orderId: order.id,
+        shipmentId: targetShipment.id,
+        carrier: "NOVA_POSHTA" as Carrier,
+        documentNumber: source.documentNumber,
+        documentRef: source.documentRef,
+        statusCode: source.statusCode,
+        statusText: source.statusText,
+        cost: source.cost,
+        estimatedDeliveryDate: source.estimatedDeliveryDate,
+        payloadSnapshot: {
+          reusedFrom: {
+            ttnId: source.id,
+            shipmentId: source.shipmentId,
+            orderId: source.shipment?.orderId ?? source.orderId ?? null,
+          },
+          sourceSnapshot: source.payloadSnapshot ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    const snap = (source.shipment?.recipientSnapshot ?? {}) as Record<string, unknown>;
+    await this.persistOrderDeliveryDataWithTtn(
+      order,
+      { data: snap },
+      {
+        documentNumber: created.documentNumber,
+        documentRef: created.documentRef,
+        cost: created.cost,
+        createdAt: created.createdAt,
+      },
+    );
+    return {
+      ok: true,
+      reused: true,
+      alreadyLinked: false,
+      documentNumber: created.documentNumber,
+      sourceOrderId: source.shipment?.orderId ?? source.orderId ?? null,
+    };
+  }
+
   // ======================
   // PUBLIC: get NP status by orderId (+ optional sync)
   // ======================
   async getTtnStatusByOrderId(orderId: string, opts?: { sync?: boolean }) {
     const last = await this.prisma.orderTtn.findFirst({
-      where: { orderId, carrier: "NOVA_POSHTA" as Carrier },
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        OR: [{ orderId }, { shipment: { orderId } }],
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -843,6 +1147,20 @@ export class NpTtnService {
       },
     });
 
+    if (last.shipmentId) {
+      await this.prisma.shipment.update({
+        where: { id: last.shipmentId },
+        data: {
+          status:
+            String(row?.StatusCode ?? "") === "2"
+              ? "CANCELED"
+              : ["9", "10", "11"].includes(String(row?.StatusCode ?? ""))
+                ? "DELIVERED"
+                : "IN_TRANSIT",
+        },
+      });
+    }
+
     // sync order.deliveryData + order.status
     await this.persistOrderNpStatus(orderId, row);
 
@@ -874,6 +1192,7 @@ export class NpTtnService {
                 },
               },
               { ttns: { some: {} } },
+              { shipments: { some: { ttns: { some: {} } } } },
             ],
           },
         ],
@@ -891,17 +1210,34 @@ export class NpTtnService {
           orderBy: { createdAt: "desc" },
           select: { documentNumber: true },
         },
+        shipments: {
+          take: 1,
+          orderBy: { createdAt: "desc" },
+          select: {
+            ttns: {
+              take: 1,
+              orderBy: { createdAt: "desc" },
+              select: { documentNumber: true },
+            },
+          },
+        },
       },
     });
 
     const docs = orders
-      .map((o: { id: string; deliveryData: unknown; ttns?: { documentNumber: string }[] }) => {
+      .map((o: {
+        id: string;
+        deliveryData: unknown;
+        ttns?: { documentNumber: string }[];
+        shipments?: { ttns?: { documentNumber: string }[] }[];
+      }) => {
         const fromDeliveryData = (
           ((o.deliveryData as Record<string, unknown>)?.novaPoshta as Record<string, unknown>)
             ?.ttn as Record<string, unknown>
         )?.number as string | undefined;
         const fromTtns = o.ttns?.[0]?.documentNumber;
-        const ttn = fromDeliveryData ?? fromTtns ?? undefined;
+        const fromShipment = o.shipments?.[0]?.ttns?.[0]?.documentNumber;
+        const ttn = fromDeliveryData ?? fromShipment ?? fromTtns ?? undefined;
         return ttn ? { orderId: o.id, ttn } : null;
       })
       .filter((x): x is { orderId: string; ttn: string } => !!x);

@@ -46,9 +46,30 @@ export class NpTtnController {
     }
   }
 
+  @Post("ttn/:orderId/reuse-existing")
+  async reuseExistingTtn(
+    @Param("orderId") orderId: string,
+    @Body() body: { sourceShipmentId?: string; sourceDocumentNumber?: string },
+  ) {
+    return this.ttn.reuseExistingTtnForOrder(orderId, {
+      sourceShipmentId: body?.sourceShipmentId ?? null,
+      sourceDocumentNumber: body?.sourceDocumentNumber ?? null,
+    });
+  }
+
   // ✅ удалить ТТН из заказа (очистить deliveryData, удалить OrderTtn)
   @Delete("ttn/:orderId")
   async deleteTtn(@Param("orderId") orderId: string) {
     return this.ttn.clearTtnFromOrder(orderId);
+  }
+
+  @Delete("shipment/:shipmentId/ttn")
+  async deleteShipmentTtn(@Param("shipmentId") shipmentId: string) {
+    return this.ttn.clearTtnFromShipment(shipmentId);
+  }
+
+  @Delete("shipment/:shipmentId/ttn/unlink")
+  async unlinkShipmentTtn(@Param("shipmentId") shipmentId: string) {
+    return this.ttn.unlinkTtnFromShipment(shipmentId);
   }
 }

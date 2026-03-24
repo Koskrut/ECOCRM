@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 
-/** Prisma client or transaction client (both have orderTtn). */
-type PrismaWithOrderTtn = Pick<PrismaClient, "orderTtn">;
+/** Prisma client or transaction client for TTN + shipment compatibility. */
+type PrismaWithOrderTtn = Pick<PrismaClient, "orderTtn" | "shipment" | "order">;
 
 /**
  * Ensure an OrderTtn record exists for the order with the given document number (from Bitrix UF_CRM_TTN_NUMBER).
@@ -16,14 +16,41 @@ export async function ensureOrderTtnFromBitrix(
   if (!trimmed) return;
 
   const existing = await prisma.orderTtn.findFirst({
-    where: { orderId, documentNumber: trimmed },
+    where: {
+      documentNumber: trimmed,
+      OR: [{ orderId }, { shipment: { orderId } }],
+    },
     select: { id: true },
   });
   if (existing) return;
 
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, contactId: true, clientId: true },
+  });
+  if (!order) return;
+
+  let shipment = await prisma.shipment.findFirst({
+    where: { orderId, status: { not: "CANCELED" } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!shipment) {
+    shipment = await prisma.shipment.create({
+      data: {
+        orderId,
+        contactId: order.contactId ?? order.clientId ?? null,
+        carrier: "NOVA_POSHTA",
+        status: "DRAFT",
+      },
+      select: { id: true },
+    });
+  }
+
   await prisma.orderTtn.create({
     data: {
       orderId,
+      shipmentId: shipment.id,
       carrier: "NOVA_POSHTA",
       documentNumber: trimmed,
     },

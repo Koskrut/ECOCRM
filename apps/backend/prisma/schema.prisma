@@ -61,6 +61,14 @@ enum Carrier {
   NOVA_POSHTA
 }
 
+enum ShipmentStatus {
+  DRAFT
+  READY
+  IN_TRANSIT
+  DELIVERED
+  CANCELED
+}
+
 enum ActivityType {
   COMMENT
   CALL
@@ -484,6 +492,7 @@ model Contact {
   tasks            Task[]
   customer         Customer?
   outboundCallAttempts OutboundCallAttempt[]
+  shipments         Shipment[]
 
   @@index([companyId])
   @@index([ownerId])
@@ -1033,6 +1042,7 @@ model Order {
   tasks        Task[]
 
   ttns       OrderTtn[]
+  shipments  Shipment[]
   payments   Payment[]
   paymentRequests PaymentRequest[]
   returns    OrderReturn[]
@@ -1079,6 +1089,7 @@ model OrderItem {
 
   // связи с конкретными ТТН (частичная отгрузка)
   ttnItems     OrderTtnItem[]
+  shipmentItems ShipmentItem[]
   returnItems  OrderReturnItem[]
 
   @@unique([orderId, productId], name: "orderId_productId")
@@ -1109,7 +1120,9 @@ model OrderStatusHistory {
 
 model OrderTtn {
   id      String  @id @default(cuid())
-  orderId String
+  /// @deprecated use shipmentId as the source of truth
+  orderId String?
+  shipmentId String?
   carrier Carrier @default(NOVA_POSHTA)
 
   documentNumber String
@@ -1126,15 +1139,54 @@ model OrderTtn {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   // ✅ позиции, которые уехали в этой ТТН
   items OrderTtnItem[]
 
   @@index([orderId])
+  @@index([shipmentId])
   @@index([documentNumber])
   @@index([statusCode])
   @@index([updatedAt])
+}
+
+model Shipment {
+  id                String         @id @default(cuid())
+  orderId           String
+  contactId         String?
+  carrier           Carrier        @default(NOVA_POSHTA)
+  status            ShipmentStatus @default(DRAFT)
+  recipientSnapshot Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact   Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  items     ShipmentItem[]
+  ttns      OrderTtn[]
+
+  @@index([orderId])
+  @@index([contactId])
+  @@index([status])
+  @@index([carrier])
+}
+
+model ShipmentItem {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  orderItemId String
+  qty         Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@unique([shipmentId, orderItemId])
+  @@index([shipmentId])
+  @@index([orderItemId])
 }
 
 //
