@@ -1871,7 +1871,7 @@ export function OrderModal({
                         className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
-                        <div className="absolute top-full left-0 right-0 z-10 mt-0.5 max-h-36 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
+                        <div className="absolute top-full left-0 z-10 mt-0.5 max-h-36 min-w-full max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg w-max">
                           {searchResults.map((p) => (
                             <button
                               key={p.id}
