@@ -163,7 +163,7 @@ export class StoreCheckoutService {
           const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: whRef } });
           if (wh) {
             warehouseRef = whRef;
-            warehouseName = wh.description ?? dd.warehouseName?.trim() || null;
+            warehouseName = wh.description ?? dd.warehouseName?.trim() ?? null;
             warehouseNumber = (wh as { number?: string | null }).number ?? null;
             warehouseType = (wh as { isPostomat?: boolean }).isPostomat ? "POSTOMAT" : "WAREHOUSE";
           } else {
