@@ -367,6 +367,7 @@ export function TtnModal({
       return;
     }
 
+    let draftPayloadForDuplicate: Record<string, unknown> | null = null;
     setCreating(true);
     try {
       let fn = "", ln = "", mn = "", ph = "";
@@ -420,6 +421,7 @@ export function TtnModal({
               }),
         },
       };
+      draftPayloadForDuplicate = payload as Record<string, unknown>;
 
       const res = await apiHttp.post(createPath, payload);
       onCreated?.(res.data);
@@ -438,7 +440,7 @@ export function TtnModal({
           recipientLabel: String(duplicate.recipientLabel ?? ""),
           shipmentId: String(duplicate.shipmentId ?? ""),
           mode: "NEW",
-          newPayload: payload as Record<string, unknown>,
+          newPayload: draftPayloadForDuplicate ?? undefined,
         });
         return;
       }
