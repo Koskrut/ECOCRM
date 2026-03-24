@@ -566,7 +566,6 @@ export function OrderModal({
   const [showAddForm, setShowAddForm] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
-  const searchDropdownRef = useRef<HTMLDivElement>(null);
   const itemsCardRef = useRef<HTMLDivElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -592,9 +591,8 @@ export function OrderModal({
   useLayoutEffect(() => {
     if (!showAddForm || selectedProduct || searchResults.length === 0) return;
     const wrap = searchWrapRef.current;
-    const dropdown = searchDropdownRef.current;
     const itemsCard = itemsCardRef.current;
-    if (!wrap || !dropdown) return;
+    if (!wrap) return;
     const modal = wrap.closest("[role='dialog']") as HTMLElement | null;
     const wrapRect = wrap.getBoundingClientRect();
     const itemsCardRect = itemsCard?.getBoundingClientRect() ?? null;
@@ -1884,7 +1882,7 @@ export function OrderModal({
                 ) : null}
                 {showAddForm ? (
                   <div className="mb-3 flex flex-wrap items-end gap-2">
-                    <div ref={searchWrapRef} className="relative w-32 shrink-0 sm:w-40">
+                    <div ref={searchWrapRef} className="relative min-w-[10rem] flex-[1_1_20rem]">
                       <input
                         ref={searchInputRef}
                         value={search}
@@ -1897,9 +1895,8 @@ export function OrderModal({
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
                         <div
-                          ref={searchDropdownRef}
                           style={searchDropdownMaxWidth ? { maxWidth: `${searchDropdownMaxWidth}px` } : undefined}
-                          className="absolute top-full left-0 z-10 mt-0.5 max-h-36 min-w-full max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg w-max"
+                          className="absolute top-full left-0 z-10 mt-0.5 w-full max-h-36 max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg"
                         >
                           {searchResults.map((p) => (
                             <button
