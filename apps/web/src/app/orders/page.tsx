@@ -172,6 +172,7 @@ function OrdersPageContent() {
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
   const [userRole, setUserRole] = useState<string | null>(null);
 
@@ -395,6 +396,7 @@ function OrdersPageContent() {
     setOrderModalOpen(false);
     setActiveOrderId(null);
     void fetchOrders();
+    setKanbanRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("orderId");
     router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
@@ -875,6 +877,7 @@ function OrdersPageContent() {
         ) : (
           <OrdersKanban
             onOpenOrder={(id) => openExistingOrder(id)}
+            refreshKey={kanbanRefreshKey}
             filters={{
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,
@@ -912,6 +915,7 @@ function OrdersPageContent() {
           onClose={closeOrderModal}
           onSaved={() => {
             void fetchOrders();
+            setKanbanRefreshKey((k) => k + 1);
             if (view === "returns") setReturnsRefreshKey((k) => k + 1);
           }}
           onOpenOrder={(id) => openExistingOrder(id)}

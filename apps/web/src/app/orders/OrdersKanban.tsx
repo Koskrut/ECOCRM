@@ -121,9 +121,11 @@ function resolveStage(o: BoardOrder): OrderStage {
 export function OrdersKanban({
   onOpenOrder,
   filters,
+  refreshKey = 0,
 }: {
   onOpenOrder: (id: string) => void;
   filters?: BoardFilters;
+  refreshKey?: number;
 }) {
   const [list, setList] = useState<OrdersListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -210,7 +212,7 @@ export function OrdersKanban({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   useEffect(() => {
     if (columns.length > 0 && selectedStageIndex >= columns.length) {
