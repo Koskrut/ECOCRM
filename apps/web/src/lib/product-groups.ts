@@ -7,10 +7,10 @@ export const PRODUCT_GROUP_NAMES: Record<string, string> = {
   "02": "Straumann NC",
   "03": "MegaGen AnyRidge",
   "04": "MegaGen AnyOne",
-  "05": "NeoDent",
+  "05": "MIS Seven",
   "06": "ICX",
   "07": "Straumann BLX",
-  "08": "NeoDent Regular",
+  "08": "NeoDent",
   "09": "Straumann RN",
   "10": "OSSTEM Regular",
 };

@@ -9,8 +9,8 @@ export const PRODUCT_GROUPS: { id: string; name: string }[] = [
   { id: "07", name: "Straumann BLX" },
   { id: "03", name: "MegaGen AnyRidge" },
   { id: "04", name: "MegaGen AnyOne" },
-  { id: "05", name: "NeoDent" },
-  { id: "08", name: "NeoDent Regular" },
+  { id: "08", name: "NeoDent" },
+  { id: "05", name: "MIS Seven" },
   { id: "09", name: "Straumann RN" },
   { id: "10", name: "OSSTEM Regular" },
 ];
