@@ -566,6 +566,8 @@ export function OrderModal({
   const [showAddForm, setShowAddForm] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+  const itemsCardRef = useRef<HTMLDivElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
   const qtyControlsWrapRef = useRef<HTMLDivElement>(null);
@@ -576,6 +578,7 @@ export function OrderModal({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
+  const [searchDropdownMaxWidth, setSearchDropdownMaxWidth] = useState<number | null>(null);
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -585,6 +588,27 @@ export function OrderModal({
     field: "qty" | "price";
     value: string;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!showAddForm || selectedProduct || searchResults.length === 0) return;
+    const wrap = searchWrapRef.current;
+    const dropdown = searchDropdownRef.current;
+    const itemsCard = itemsCardRef.current;
+    if (!wrap || !dropdown) return;
+    const modal = wrap.closest("[role='dialog']") as HTMLElement | null;
+    const wrapRect = wrap.getBoundingClientRect();
+    const itemsCardRect = itemsCard?.getBoundingClientRect() ?? null;
+    const modalRect = modal?.getBoundingClientRect() ?? null;
+    const rightBoundary = Math.min(
+      itemsCardRect?.right ?? Number.POSITIVE_INFINITY,
+      modalRect?.right ?? Number.POSITIVE_INFINITY,
+      window.innerWidth - 8,
+    );
+    const computedMaxWidth = Math.max(wrapRect.width, Math.floor(rightBoundary - wrapRect.left - 4));
+    if (searchDropdownMaxWidth !== computedMaxWidth) {
+      setSearchDropdownMaxWidth(computedMaxWidth);
+    }
+  }, [searchDropdownMaxWidth, searchResults.length, selectedProduct, showAddForm]);
 
   // Timeline
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -1773,18 +1797,19 @@ export function OrderModal({
                 <EntityTasksList orderId={orderId!} onCountChange={setTasksTabCount} />
               </EntitySection>
             ) : leftTab === "items" ? (
-              <EntitySection
-                title="Items"
-                rightAction={
-                  <button
-                    type="button"
-                    onClick={() => setShowAddForm((v) => !v)}
-                    className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                  >
-                    {showAddForm ? "Done" : "+ Add item"}
-                  </button>
-                }
-              >
+              <div ref={itemsCardRef}>
+                <EntitySection
+                  title="Items"
+                  rightAction={
+                    <button
+                      type="button"
+                      onClick={() => setShowAddForm((v) => !v)}
+                      className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {showAddForm ? "Done" : "+ Add item"}
+                    </button>
+                  }
+                >
                 <div className="mb-4 max-w-md">
                   <div className="text-xs text-zinc-500">Склад отгрузки</div>
                   {editing === "warehouse" ? (
@@ -1871,7 +1896,11 @@ export function OrderModal({
                         className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
-                        <div className="absolute top-full left-0 z-10 mt-0.5 max-h-36 min-w-full max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg w-max">
+                        <div
+                          ref={searchDropdownRef}
+                          style={searchDropdownMaxWidth ? { maxWidth: `${searchDropdownMaxWidth}px` } : undefined}
+                          className="absolute top-full left-0 z-10 mt-0.5 max-h-36 min-w-full max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg w-max"
+                        >
                           {searchResults.map((p) => (
                             <button
                               key={p.id}
@@ -2143,6 +2172,7 @@ export function OrderModal({
                   )}
                 </ul>
               </EntitySection>
+              </div>
             ) : (
               <>
               <EntitySection title="About order">
