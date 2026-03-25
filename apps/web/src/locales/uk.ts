@@ -181,6 +181,7 @@ export const uk = {
     allAccountsOption: "Усі",
     date: "Дата",
     order: "Замовлення",
+    orderClient: "Контакт",
     source: "Джерело",
     fopCol: "ФОП",
     amount: "Сума",

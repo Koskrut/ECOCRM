@@ -13,6 +13,8 @@ type PaymentItem = {
   id: string;
   orderId: string;
   orderNumber: string | null;
+  /** Display: contact on order (contact ?? client). */
+  contactLabel?: string | null;
   /** For bank payments: all order numbers that share this bank transaction (split). */
   sameTransactionOrderNumbers?: string[] | null;
   sourceType: string;
@@ -350,7 +352,7 @@ function PaymentsContent() {
     () => filterBySearch(
       payments.filter((p) => p.sourceType === "CASH"),
       search,
-      (p) => [p.orderNumber, p.note].filter(Boolean).join(" "),
+      (p) => [p.orderNumber, p.contactLabel, p.note].filter(Boolean).join(" "),
     ),
     [payments, search],
   );
@@ -362,6 +364,7 @@ function PaymentsContent() {
         (p) =>
           [
             p.orderNumber,
+            p.contactLabel,
             ...(p.sameTransactionOrderNumbers ?? []),
             p.bankTransaction?.counterpartyName,
             p.note,
@@ -377,7 +380,9 @@ function PaymentsContent() {
         payments,
         search,
         (p) =>
-          [p.orderNumber, p.bankTransaction?.counterpartyName, p.note].filter(Boolean).join(" "),
+          [p.orderNumber, p.contactLabel, p.bankTransaction?.counterpartyName, p.note]
+            .filter(Boolean)
+            .join(" "),
       ),
     [payments, search],
   );
@@ -991,6 +996,7 @@ function PaymentsContent() {
                 <tr>
                   <th className="px-4 py-3">{t.payments.date}</th>
                   <th className="px-4 py-3">{t.payments.order}</th>
+                  <th className="px-4 py-3">{t.payments.orderClient}</th>
                   <th className="px-4 py-3">{t.payments.source}</th>
                   <th className="px-4 py-3">{t.payments.fopCol}</th>
                   <th className="px-4 py-3 text-right">{t.payments.amount}</th>
@@ -1016,6 +1022,9 @@ function PaymentsContent() {
                         p.orderId
                       )}
                     </td>
+                    <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700" title={p.contactLabel ?? ""}>
+                      {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
+                    </td>
                     <td className="px-4 py-3">{t.payments.sourceCash}</td>
                     <td className="px-4 py-3">{t.payments.dash}</td>
                     <td className="px-4 py-3 text-right font-medium">
@@ -1035,7 +1044,7 @@ function PaymentsContent() {
                 ))}
                 {cashPayments.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
                       {t.payments.noCashPayments}
                     </td>
                   </tr>
@@ -1057,6 +1066,7 @@ function PaymentsContent() {
                   <tr>
                     <th className="px-4 py-3">{t.payments.date}</th>
                     <th className="px-4 py-3">{t.payments.order}</th>
+                    <th className="px-4 py-3">{t.payments.orderClient}</th>
                     <th className="px-4 py-3">{t.payments.source}</th>
                     <th className="px-4 py-3">{t.payments.fopCol}</th>
                     <th className="px-4 py-3 text-right">{t.payments.amount}</th>
@@ -1102,6 +1112,9 @@ function PaymentsContent() {
                           p.orderId
                         )}
                       </td>
+                      <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700" title={p.contactLabel ?? ""}>
+                        {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
+                      </td>
                       <td className="px-4 py-3">{t.payments.bankKind}</td>
                       <td className="px-4 py-3">
                         {p.bankTransaction?.bankAccount?.name ?? t.payments.dash}
@@ -1125,7 +1138,7 @@ function PaymentsContent() {
                   ))}
                   {bankPayments.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                      <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
                         {search.trim() &&
                         payments.filter((p) => p.sourceType === "BANK").length > 0
                           ? t.payments.noBankMatchSearch

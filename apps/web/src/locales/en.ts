@@ -184,6 +184,8 @@ export const en = {
     noBankMatchSearch: "No bank payments match your search. Clear Search.",
     date: "Date",
     order: "Order",
+    /** Contact / client shown for linked payment row */
+    orderClient: "Contact",
     source: "Source",
     fopCol: "FOP",
     amount: "Amount",

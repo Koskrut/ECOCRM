@@ -33,6 +33,22 @@ function convertToUsd(amount: number, currency: string, rates: ExchangeRates): n
   return amount * getRateToUsd(currency, rates);
 }
 
+/** Prefer TTN contact, fallback to legacy client on order. */
+function formatOrderContactLabel(order: {
+  contact: { firstName: string; lastName: string; phone: string } | null;
+  client: { firstName: string; lastName: string; phone: string } | null;
+} | null): string | null {
+  if (!order) return null;
+  const c = order.contact ?? order.client;
+  if (!c) return null;
+  const name = [c.lastName, c.firstName].filter(Boolean).join(" ").trim();
+  const phone = (c.phone ?? "").trim();
+  if (name && phone) return `${name} · ${phone}`;
+  if (name) return name;
+  if (phone) return phone;
+  return null;
+}
+
 type ListPaymentsParams = {
   bankAccountId?: string;
   page: number;
@@ -105,7 +121,14 @@ export class PaymentsService {
           skip: params.offset,
           take: params.limit,
           include: {
-            order: { select: { id: true, orderNumber: true } },
+            order: {
+              select: {
+                id: true,
+                orderNumber: true,
+                contact: { select: { firstName: true, lastName: true, phone: true } },
+                client: { select: { firstName: true, lastName: true, phone: true } },
+              },
+            },
             bankTransaction: {
               select: {
                 id: true,
@@ -156,6 +179,7 @@ export class PaymentsService {
           id: p.id,
           orderId: p.orderId,
           orderNumber: p.order?.orderNumber ?? null,
+          contactLabel: formatOrderContactLabel(p.order),
           sameTransactionOrderNumbers,
           sourceType: p.sourceType,
           amount,
