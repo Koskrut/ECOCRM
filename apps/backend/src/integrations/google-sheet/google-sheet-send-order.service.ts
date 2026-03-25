@@ -12,12 +12,13 @@ import { SettingsService } from "../../settings/settings.service";
  * 4. Код контрагента в 1С (counterpartyCode1C)
  * 5. форма оплаты (paymentMethod)
  * 6. ФОП (fopCode)
- * 7. Склад (warehouseCode)
- * 8. продукция (Артикул) (item.sku)
- * 9. продукция (кол-во) (item.qty)
- * 10. продукция (цена) (item.price)
- * 11. курс (exchangeRate)
- * 12. Статус (status)
+ * 7. Код счета ФОП (fopAccountCode)
+ * 8. Склад (warehouseCode)
+ * 9. продукция (Артикул) (item.sku)
+ * 10. продукция (кол-во) (item.qty)
+ * 11. продукция (цена) (item.price)
+ * 12. курс (exchangeRate)
+ * 13. Статус (status)
  * 13–16. Номер РН, Дата РН, Номер Счета, Дата Счета — пусто (заполняет 1С).
  */
 export type GoogleSheetOrderPayload = {
@@ -31,6 +32,7 @@ export type GoogleSheetOrderPayload = {
   counterpartyCode1C: string | null;
   paymentMethod: string | null;
   fopCode: string | null;
+  fopAccountCode: string | null;
   warehouseCode: string | null;
   items: Array<{ sku: string; qty: number; price: number }>;
   exchangeRate: number | null;
@@ -43,7 +45,7 @@ const SEND_ORDER_INCLUDE = {
   client: true,
   contact: true,
   owner: { select: { id: true, fullName: true } },
-  bankAccount: { select: { id: true, name: true, externalCode: true } },
+  bankAccount: { select: { id: true, name: true, externalCode: true, accountExternalCode: true } },
   warehouse: { select: { id: true, name: true, externalCode: true } },
   items: { include: { product: { select: { id: true, sku: true, name: true } } } },
 } as const;
@@ -76,6 +78,9 @@ export class GoogleSheetSendOrderService {
     const fopCode = order.bankAccount
       ? (order.bankAccount as { externalCode?: string | null }).externalCode ?? null
       : null;
+    const fopAccountCode = order.bankAccount
+      ? (order.bankAccount as { accountExternalCode?: string | null }).accountExternalCode ?? null
+      : null;
     const warehouseCode = order.warehouse
       ? (order.warehouse as { externalCode?: string | null }).externalCode ?? null
       : null;
@@ -99,6 +104,7 @@ export class GoogleSheetSendOrderService {
       counterpartyCode1C,
       paymentMethod: order.paymentMethod as PaymentMethod | null,
       fopCode,
+      fopAccountCode,
       warehouseCode,
       items,
       exchangeRate: order.exchangeRate ?? null,

@@ -112,6 +112,7 @@ export class BankAccountsService {
         iban: dto.iban ?? null,
         accountNumber: dto.accountNumber ?? null,
         externalCode: dto.externalCode ?? null,
+        accountExternalCode: dto.accountExternalCode ?? null,
         documentRequisites:
           dto.documentRequisites == null
             ? Prisma.JsonNull
@@ -351,6 +352,7 @@ export class BankAccountsService {
       syncWindowDays?: number;
       iban?: string | null;
       externalCode?: string | null;
+      accountExternalCode?: string | null;
       documentRequisites?: Prisma.InputJsonValue | typeof Prisma.JsonNull;
       credentials?: object;
     } = {
@@ -359,6 +361,9 @@ export class BankAccountsService {
       ...(dto.syncWindowDays !== undefined && { syncWindowDays: dto.syncWindowDays }),
       ...(dto.iban !== undefined && { iban: dto.iban === "" ? null : dto.iban }),
       ...(dto.externalCode !== undefined && { externalCode: dto.externalCode === "" ? null : dto.externalCode }),
+      ...(dto.accountExternalCode !== undefined && {
+        accountExternalCode: dto.accountExternalCode === "" ? null : dto.accountExternalCode,
+      }),
       ...(dto.documentRequisites !== undefined && {
         documentRequisites:
           dto.documentRequisites == null

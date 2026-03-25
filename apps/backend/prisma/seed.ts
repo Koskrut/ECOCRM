@@ -98,18 +98,33 @@ async function main() {
   // =========================
   await prisma.warehouse.upsert({
     where: { id: "seed-wh-dnipro" },
-    update: { name: "Днепр", sortOrder: 0 },
-    create: { id: "seed-wh-dnipro", name: "Днепр", sortOrder: 0 },
+  update: { name: "Днепр", sortOrder: 0, externalCode: "000000190" },
+  create: {
+    id: "seed-wh-dnipro",
+    name: "Днепр",
+    sortOrder: 0,
+    externalCode: "000000190",
+  },
   });
   await prisma.warehouse.upsert({
     where: { id: "seed-wh-odesa" },
-    update: { name: "Одесса", sortOrder: 1 },
-    create: { id: "seed-wh-odesa", name: "Одесса", sortOrder: 1 },
+  update: { name: "Одесса", sortOrder: 1, externalCode: "000000126" },
+  create: {
+    id: "seed-wh-odesa",
+    name: "Одесса",
+    sortOrder: 1,
+    externalCode: "000000126",
+  },
   });
   await prisma.warehouse.upsert({
     where: { id: "seed-wh-lviv" },
-    update: { name: "Львов", sortOrder: 2 },
-    create: { id: "seed-wh-lviv", name: "Львов", sortOrder: 2 },
+  update: { name: "Львов", sortOrder: 2, externalCode: "000000051" },
+  create: {
+    id: "seed-wh-lviv",
+    name: "Львов",
+    sortOrder: 2,
+    externalCode: "000000051",
+  },
   });
 
   // =========================

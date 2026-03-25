@@ -335,6 +335,8 @@ model User {
   lead            User?    @relation("UserHierarchy", fields: [leadId], references: [id], onDelete: SetNull)
   teamMembers     User[]   @relation("UserHierarchy")
 
+  tasksCreated    Task[]   @relation("TaskCreatedBy")
+
   /** Начало/конец дневного маршрута визитов (якоря для Google Maps). */
   routeStartLat   Float?
   routeStartLng   Float?
@@ -493,11 +495,26 @@ model Contact {
   customer         Customer?
   outboundCallAttempts OutboundCallAttempt[]
   shipments         Shipment[]
+  changeHistory     ContactChangeHistory[]
 
   @@index([companyId])
   @@index([ownerId])
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
+}
+
+model ContactChangeHistory {
+  id        String   @id @default(cuid())
+  contactId String
+  changedBy String?
+  action    String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([createdAt])
 }
 
 model Customer {
@@ -644,6 +661,8 @@ model Lead {
   sourceMeta     Json?
   score          Int          @default(0)
   lastActivityAt DateTime?
+  /** Set when lead is converted to an order — enables exact conversion analytics */
+  convertedOrderId String?   @unique
   legacySource   String?
   legacyId       Int?
   legacyRaw      Json?
@@ -651,6 +670,7 @@ model Lead {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
+  convertedOrder Order? @relation(fields: [convertedOrderId], references: [id], onDelete: SetNull)
   contact     Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
   owner       User?                 @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1040,6 +1060,7 @@ model Order {
   statusHistory OrderStatusHistory[]
   activities    Activity[]
   tasks        Task[]
+  convertedFromLead Lead?
 
   ttns       OrderTtn[]
   shipments  Shipment[]
@@ -1279,6 +1300,8 @@ model Activity {
 model Task {
   id         String     @id @default(cuid())
   assigneeId String
+  /** Хто створив задачу в CRM (видимість для MANAGER: assignee або creator). */
+  createdById String?
   contactId  String?
   companyId  String?
   leadId     String?
@@ -1295,12 +1318,14 @@ model Task {
   legacyId     Int?
 
   assignee User     @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   contact  Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
   company  Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([assigneeId, status])
+  @@index([createdById])
   @@index([dueAt])
   @@index([contactId])
   @@index([companyId])
@@ -1589,6 +1614,8 @@ model BankAccount {
   iban           String?
   /** Код ФОП для 1С/таблицы (напр. 000000123). */
   externalCode   String?      @unique
+  /** Код счета ФОП для 1С/таблицы (напр. 000000456). */
+  accountExternalCode String? @unique
   /** Реквизиты для счёта/РН: legalName, taxId, address, bankDetails и т.д. */
   documentRequisites Json?
   credentials    Json?        // encrypted: cardNumber, clientId, token
