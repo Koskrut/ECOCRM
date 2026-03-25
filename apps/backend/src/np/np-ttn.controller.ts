@@ -39,6 +39,13 @@ export class NpTtnController {
     if ((!dto.profileId || typeof dto.profileId !== "string" || !dto.profileId.trim()) && typeof rawProfileId === "string" && rawProfileId.trim()) {
       (dto as Record<string, unknown>).profileId = rawProfileId.trim();
     }
+    const rawIgnoreDuplicateCheck = raw?.ignoreDuplicateCheck;
+    if (
+      typeof (dto as Record<string, unknown>).ignoreDuplicateCheck !== "boolean" &&
+      typeof rawIgnoreDuplicateCheck === "boolean"
+    ) {
+      (dto as Record<string, unknown>).ignoreDuplicateCheck = rawIgnoreDuplicateCheck;
+    }
     try {
       return await this.ttn.createFromOrder(orderId, dto);
     } catch (err: unknown) {

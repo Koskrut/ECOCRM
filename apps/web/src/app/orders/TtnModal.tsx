@@ -1036,6 +1036,7 @@ export function TtnModal({
             disabled={
               creating ||
               loading ||
+              !!duplicateChoice ||
               (mode === "EXISTING" && (profiles.length === 0 || !selectedProfileId?.trim()))
             }
             className="btn-primary rounded-md px-3 py-2 text-sm"
