@@ -7,10 +7,27 @@ import { InlineEditableField } from "@/components/fields/InlineEditableField";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
-import { ContactTimeline } from "./ContactTimeline";
+import {
+  ContactCardHeaderSubtitleSkeleton,
+  ContactCardHeaderTitleSkeleton,
+} from "./ContactCardHeaderSkeleton";
+import { ContactCardOverviewLayout } from "./ContactCardOverviewLayout";
+import { ContactCardTabsUnderHeader } from "./ContactCardTabsUnderHeader";
+import { ContactQuickActionsMobileBar } from "./ContactQuickActions";
+import { ContactChangeHistory } from "./ContactChangeHistory";
+import type { ContactLeftTabId } from "./ContactCardTabBar";
+import { ContactOrdersSections } from "./ContactOrdersSections";
+import { useContactCard } from "./useContactCard";
+import { useContactCardV2Effective } from "./useContactCardV2Effective";
+import { getContactAboutStrings, getContactPhonesSectionStrings } from "./contact-about-strings";
+import type { ContactPhonesSectionStrings } from "./contact-about-strings";
+import { getDeliveryUiStrings } from "./contact-delivery-strings";
+import type { DeliveryUiStrings } from "./contact-delivery-strings";
+import { getContactModalStrings } from "./contact-modal-strings";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
+import { contactsApi, type ContactChangeHistoryItem } from "@/lib/api/resources/contacts";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
@@ -76,6 +93,7 @@ function AddShippingProfileModal({
   defaultPerson,
   onClose,
   onSaved,
+  strings,
 }: {
   contactId: string;
   profileId?: string;
@@ -84,6 +102,7 @@ function AddShippingProfileModal({
   defaultPerson?: { firstName?: string; lastName?: string; phone?: string } | null;
   onClose: () => void;
   onSaved: () => void;
+  strings: DeliveryUiStrings;
 }) {
   const isEdit = !!profileId && !!initialData;
   const defaultLabel =
@@ -117,15 +136,15 @@ function AddShippingProfileModal({
     e.preventDefault();
     const trimmedLabel = label.trim();
     if (!trimmedLabel) {
-      setError("Label is required.");
+      setError(strings.errLabelRequired);
       return;
     }
     if ((deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && !cityRef) {
-      setError("Select a city from the directory.");
+      setError(strings.errSelectCity);
       return;
     }
     if ((deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && !warehouseRef) {
-      setError("Select a warehouse from the directory.");
+      setError(strings.errSelectWarehouse);
       return;
     }
     setSaving(true);
@@ -153,7 +172,7 @@ function AddShippingProfileModal({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to create profile");
+        (e instanceof Error ? e.message : strings.errFailedSave);
       setError(msg);
     } finally {
       setSaving(false);
@@ -175,7 +194,7 @@ function AddShippingProfileModal({
         <div className="shrink-0 border-b border-zinc-200 px-5 py-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-zinc-900">
-              {isEdit ? "Edit delivery profile" : "Add delivery profile"}
+              {isEdit ? strings.modalTitleEdit : strings.modalTitleAdd}
             </h3>
             <button
               type="button"
@@ -195,30 +214,30 @@ function AddShippingProfileModal({
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Label *</label>
+            <label className="block text-xs font-medium text-zinc-600">{strings.labelField}</label>
             <input
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-              placeholder="e.g. Home, Office"
+              placeholder={strings.labelPlaceholder}
               disabled={saving}
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Recipient type</label>
+            <label className="block text-xs font-medium text-zinc-600">{strings.recipientType}</label>
             <select
               value={recipientType}
               onChange={(e) => setRecipientType(e.target.value as "PERSON" | "COMPANY")}
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
               disabled={saving}
             >
-              <option value="PERSON">Person</option>
-              <option value="COMPANY">Company</option>
+              <option value="PERSON">{strings.recipientPerson}</option>
+              <option value="COMPANY">{strings.recipientCompany}</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Delivery type</label>
+            <label className="block text-xs font-medium text-zinc-600">{strings.deliveryType}</label>
             <select
               value={deliveryType}
               onChange={(e) =>
@@ -227,15 +246,15 @@ function AddShippingProfileModal({
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
               disabled={saving}
             >
-              <option value="WAREHOUSE">Warehouse</option>
-              <option value="POSTOMAT">Postomat</option>
-              <option value="ADDRESS">Address</option>
+              <option value="WAREHOUSE">{strings.warehouse}</option>
+              <option value="POSTOMAT">{strings.postomat}</option>
+              <option value="ADDRESS">{strings.address}</option>
             </select>
           </div>
           {recipientType === "PERSON" && (
             <>
               <div>
-                <label className="block text-xs font-medium text-zinc-600">First name</label>
+                <label className="block text-xs font-medium text-zinc-600">{strings.firstName}</label>
                 <input
                   type="text"
                   value={firstName}
@@ -245,7 +264,7 @@ function AddShippingProfileModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-600">Last name</label>
+                <label className="block text-xs font-medium text-zinc-600">{strings.lastName}</label>
                 <input
                   type="text"
                   value={lastName}
@@ -255,7 +274,7 @@ function AddShippingProfileModal({
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-600">Phone</label>
+                <label className="block text-xs font-medium text-zinc-600">{strings.phone}</label>
                 <input
                   type="text"
                   value={phone}
@@ -267,9 +286,7 @@ function AddShippingProfileModal({
             </>
           )}
           <div>
-            <label className="block text-xs font-medium text-zinc-600">
-              City (from directory)
-            </label>
+            <label className="block text-xs font-medium text-zinc-600">{strings.cityFromDirectory}</label>
             <NpCitySelect
               valueRef={cityRef}
               valueLabel={cityName}
@@ -283,15 +300,13 @@ function AddShippingProfileModal({
                 }
               }}
               disabled={saving}
-              placeholder="Type at least 2 characters…"
+              placeholder={strings.cityPlaceholder}
             />
           </div>
           {(deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && (
             <div>
               <label className="block text-xs font-medium text-zinc-600">
-                {deliveryType === "POSTOMAT"
-                  ? "Postomat (from directory)"
-                  : "Warehouse (from directory)"}
+                {deliveryType === "POSTOMAT" ? strings.postomatFromDirectory : strings.warehouseFromDirectory}
               </label>
               <NpWarehouseSelect
                 key={deliveryType}
@@ -305,7 +320,7 @@ function AddShippingProfileModal({
                   setWarehouseNumber(num ?? "");
                 }}
                 disabled={saving}
-                placeholder="Type to search…"
+                placeholder={strings.warehousePlaceholder}
               />
             </div>
           )}
@@ -317,14 +332,14 @@ function AddShippingProfileModal({
               onClick={onClose}
               className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
-              Cancel
+              {strings.cancel}
             </button>
             <button
               type="submit"
               disabled={saving}
               className="btn-primary"
             >
-              {saving ? "Saving…" : "Add profile"}
+              {saving ? strings.saving : isEdit ? strings.submitEdit : strings.submitAdd}
             </button>
           </div>
         </form>
@@ -337,11 +352,13 @@ function ContactDeliveryProfilesTab({
   isCreate,
   contactId,
   contactPerson,
+  strings,
 }: {
   isCreate: boolean;
   apiBaseUrl: string;
   contactId: string;
   contactPerson?: { firstName: string; lastName: string; phone: string };
+  strings: DeliveryUiStrings;
 }) {
   const [profiles, setProfiles] = useState<ShippingProfile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -368,15 +385,15 @@ function ContactDeliveryProfilesTab({
   }, [loadProfiles]);
 
   if (isCreate) {
-    return <p className="text-sm text-zinc-500">Save the contact first to see delivery profiles.</p>;
+    return <p className="text-sm text-zinc-500">{strings.saveFirst}</p>;
   }
   if (loading && profiles.length === 0) {
-    return <p className="text-sm text-zinc-500">Loading…</p>;
+    return <p className="text-sm text-zinc-500">{strings.loading}</p>;
   }
   return (
     <>
       <EntitySection
-        title="Delivery profiles"
+        title={strings.sectionTitle}
         rightAction={
           <button
             type="button"
@@ -386,12 +403,12 @@ function ContactDeliveryProfilesTab({
             }}
             className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Add profile
+            {strings.addProfile}
           </button>
         }
       >
         {profiles.length === 0 ? (
-          <p className="text-sm text-zinc-500">No delivery profiles yet.</p>
+          <p className="text-sm text-zinc-500">{strings.noProfiles}</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {profiles.map((p) => (
@@ -400,9 +417,9 @@ function ContactDeliveryProfilesTab({
                 className="flex items-start justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="font-medium">{p.label || "Unnamed"}</span>
+                  <span className="font-medium">{p.label || strings.unnamed}</span>
                   {p.isDefault && (
-                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs">Default</span>
+                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs">{strings.defaultBadge}</span>
                   )}
                   {(p.cityName || p.warehouseNumber) && (
                     <div className="mt-1 text-xs text-zinc-500">
@@ -418,8 +435,8 @@ function ContactDeliveryProfilesTab({
                       setEditingProfile(p);
                     }}
                     className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
-                    title="Edit"
-                    aria-label="Edit profile"
+                    title={strings.editTitle}
+                    aria-label={strings.editTitle}
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -433,15 +450,15 @@ function ContactDeliveryProfilesTab({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!confirm(`Delete profile "${p.label || "Unnamed"}"?`)) return;
+                      if (!confirm(strings.deleteConfirm(p.label || strings.unnamed))) return;
                       apiHttp
                         .delete(`/contacts/${contactId}/shipping-profiles/${p.id}`)
                         .then(() => loadProfiles())
                         .catch(() => {});
                     }}
                     className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                    title="Delete"
-                    aria-label="Delete profile"
+                    title={strings.deleteTitle}
+                    aria-label={strings.deleteTitle}
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -469,6 +486,7 @@ function ContactDeliveryProfilesTab({
               ? contactPerson
               : undefined
           }
+          strings={strings}
           onClose={() => {
             setAddModalOpen(false);
             setEditingProfile(null);
@@ -492,11 +510,13 @@ function ContactPhonesSection({
   additionalPhones,
   onUpdated,
   saving,
+  strings,
 }: {
   contactId: string;
   additionalPhones: ContactPhone[];
   onUpdated: () => void;
   saving: boolean;
+  strings: ContactPhonesSectionStrings;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addPhone, setAddPhone] = useState("");
@@ -509,7 +529,7 @@ function ContactPhonesSection({
     e.preventDefault();
     const phone = addPhone.trim();
     if (!phone) {
-      setAddError("Введите номер");
+      setAddError(strings.enterPhone);
       return;
     }
     setAddSaving(true);
@@ -523,7 +543,7 @@ function ContactPhonesSection({
     } catch (err) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (err instanceof Error ? err.message : "Ошибка");
+        (err instanceof Error ? err.message : strings.errorGeneric);
       setAddError(msg);
     } finally {
       setAddSaving(false);
@@ -552,7 +572,7 @@ function ContactPhonesSection({
 
   return (
     <div className="space-y-1 py-1">
-      <label className="text-sm text-zinc-500">Доп. номера</label>
+      <label className="text-sm text-zinc-500">{strings.additionalPhones}</label>
       <ul className="space-y-1 text-sm">
         {additionalPhones.map((p) => (
           <li key={p.id} className="flex items-center justify-between gap-2 rounded border border-zinc-100 bg-zinc-50/50 px-2 py-1.5">
@@ -567,7 +587,7 @@ function ContactPhonesSection({
                 onClick={() => handleSetPrimary(p.id)}
                 disabled={saving || mutatingId !== null}
               >
-                Сделать основным
+                {strings.setPrimary}
               </button>
               <button
                 type="button"
@@ -575,7 +595,7 @@ function ContactPhonesSection({
                 onClick={() => handleDelete(p.id)}
                 disabled={saving || mutatingId !== null}
               >
-                Удалить
+                {strings.remove}
               </button>
             </span>
           </li>
@@ -588,7 +608,7 @@ function ContactPhonesSection({
           onClick={() => setAddOpen(true)}
           disabled={saving}
         >
-          + Добавить номер
+          {strings.addNumber}
         </button>
       ) : (
         <form onSubmit={handleAdd} className="mt-2 space-y-2 rounded border border-zinc-200 bg-white p-2">
@@ -597,22 +617,22 @@ function ContactPhonesSection({
             type="text"
             value={addPhone}
             onChange={(e) => setAddPhone(e.target.value)}
-            placeholder="Номер телефона"
+            placeholder={strings.phonePlaceholder}
             className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
           />
           <input
             type="text"
             value={addLabel}
             onChange={(e) => setAddLabel(e.target.value)}
-            placeholder="Метка (моб., рабочий…)"
+            placeholder={strings.labelPlaceholder}
             className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
           />
           <div className="flex gap-2">
             <button type="button" className="text-sm text-zinc-600 hover:underline" onClick={() => setAddOpen(false)}>
-              Отмена
+              {strings.cancel}
             </button>
             <button type="submit" className="text-sm text-blue-600 hover:underline" disabled={addSaving}>
-              {addSaving ? "Сохранение…" : "Добавить"}
+              {addSaving ? strings.saving : strings.add}
             </button>
           </div>
         </form>
@@ -664,6 +684,11 @@ type Props = {
 
 export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenCompany }: Props) {
   const isCreate = contactId === "new";
+  const contactCardV2 = useContactCardV2Effective();
+  const modalStr = useMemo(() => getContactModalStrings(contactCardV2), [contactCardV2]);
+  const aboutStr = useMemo(() => getContactAboutStrings(contactCardV2), [contactCardV2]);
+  const phonesSectionStr = useMemo(() => getContactPhonesSectionStrings(contactCardV2), [contactCardV2]);
+  const deliveryStr = useMemo(() => getDeliveryUiStrings(contactCardV2), [contactCardV2]);
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(!isCreate);
@@ -729,18 +754,47 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       resetPasswordResult.setPasswordToken,
     );
   }, [resetPasswordResult, resetPasswordPublicStoreBase]);
+  const isResetPasswordDialogOpen = resetPasswordResult !== null || resetPasswordError !== null;
+  const closeResetPasswordDialog = useCallback(() => {
+    setResetPasswordError(null);
+    setResetPasswordResult(null);
+    setResetPasswordPublicStoreBase(null);
+  }, []);
 
-  type LeftTabId = "main" | "orders" | "delivery-profiles" | "tasks" | "change-history";
-  const [leftTab, setLeftTab] = useState<LeftTabId>("main");
+  const [leftTab, setLeftTab] = useState<ContactLeftTabId>("main");
+  const [changeHistory, setChangeHistory] = useState<ContactChangeHistoryItem[]>([]);
+  const [loadingChangeHistory, setLoadingChangeHistory] = useState(false);
+  const [changeHistoryError, setChangeHistoryError] = useState<string | null>(null);
 
   const cancelInlineEditRef = useRef<(() => void) | null>(null);
 
   const canClose = !saving;
 
-  const title = useMemo(() => (isCreate ? "New contact" : "Contact"), [isCreate]);
+  const title = useMemo(() => (isCreate ? modalStr.titleNew : modalStr.titleContact), [isCreate, modalStr]);
 
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
+
+  const {
+    data: cardSnapshot,
+    loading: cardLoading,
+    error: cardError,
+    reload: reloadCard,
+    clear: clearCard,
+  } = useContactCard(contactId, contactCardV2 && !isCreate, modalStr.cardLoadError);
+
+  const paymentOrderId = useMemo(() => {
+    if (!cardSnapshot) return null;
+    for (const items of [
+      cardSnapshot.canonicalOrders.items,
+      cardSnapshot.legacyLinkedOrders.items,
+      cardSnapshot.companyOrders.items,
+    ]) {
+      const row = items.find((o) => Number(o.debtAmount) > 0);
+      if (row) return row.id;
+    }
+    return null;
+  }, [cardSnapshot]);
 
   const toggleMap = useCallback(
     (e: React.MouseEvent) => {
@@ -781,17 +835,15 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       const key = res.data?.mapsApiKey ?? null;
       setMapsApiKey(key);
       if (!key) {
-        setMapsConfigError(
-          "Google Maps API key is not configured. Address autocomplete works only as plain text.",
-        );
+        setMapsConfigError(modalStr.mapsNoApiKey);
       } else {
         setMapsConfigError(null);
       }
     } catch {
       setMapsApiKey(null);
-      setMapsConfigError("Failed to load Google Maps configuration.");
+      setMapsConfigError(modalStr.mapsConfigLoadFailed);
     }
-  }, []);
+  }, [modalStr]);
 
   const refresh = useCallback(async () => {
     if (isCreate) return;
@@ -821,16 +873,27 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       setClientType((data.clientType ?? "") as string);
       setStatus((data.status ?? "") as string);
       await Promise.all([fetchCompanies(), fetchUsers()]);
+      await reloadCard();
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load contact");
+        (e instanceof Error ? e.message : modalStr.errLoadContactFallback);
       setContact(null);
       setErr(msg);
     } finally {
       setLoading(false);
     }
-  }, [contactId, isCreate, fetchCompanies, fetchUsers]);
+  }, [contactId, isCreate, fetchCompanies, fetchUsers, reloadCard, modalStr]);
+
+  useEffect(() => {
+    if (!contactCardV2 || isCreate || !contactId) return;
+    clearCard();
+  }, [contactId, isCreate, clearCard]);
+
+  useEffect(() => {
+    if (!contactCardV2 || isCreate || !contactId || ordersReloadKey === 0) return;
+    void reloadCard();
+  }, [ordersReloadKey, contactId, isCreate, reloadCard]);
 
   useEffect(() => {
     void loadMapsConfig();
@@ -844,8 +907,42 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   }, [mapsApiKey]);
 
   useEffect(() => {
+    setLeftTab("main");
+  }, [contactId]);
+
+  const loadChangeHistory = useCallback(async () => {
+    if (isCreate || !contactId) {
+      setChangeHistory([]);
+      setChangeHistoryError(null);
+      return;
+    }
+    setLoadingChangeHistory(true);
+    setChangeHistoryError(null);
+    try {
+      const items = await contactsApi.getChangeHistory(contactId);
+      setChangeHistory(items);
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : modalStr.errLoadContactFallback);
+      setChangeHistory([]);
+      setChangeHistoryError(msg);
+    } finally {
+      setLoadingChangeHistory(false);
+    }
+  }, [contactId, isCreate, modalStr.errLoadContactFallback]);
+
+  useEffect(() => {
+    if (leftTab === "change-history" && !isCreate) {
+      void loadChangeHistory();
+    }
+  }, [leftTab, isCreate, loadChangeHistory]);
+
+  useEffect(() => {
     setErr(null);
     setContact(null);
+    setChangeHistory([]);
+    setChangeHistoryError(null);
     setOrderId(null);
     setCreateOrderOpen(false);
      setIsMapEnabled(false);
@@ -918,8 +1015,14 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       if (payload.externalCode !== undefined) setExternalCode(payload.externalCode ?? "");
       if (payload.documentDisplayName !== undefined) setDocumentDisplayName(payload.documentDisplayName ?? "");
       onUpdate();
+      if (contactCardV2 && !isCreate) {
+        void reloadCard();
+      }
+      if (leftTab === "change-history" && !isCreate) {
+        void loadChangeHistory();
+      }
     },
-    [contactId, onUpdate],
+    [contactCardV2, contactId, isCreate, leftTab, loadChangeHistory, onUpdate, reloadCard],
   );
 
   useEffect(
@@ -963,7 +1066,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError(modalStr.addressServiceUnavailable);
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(
@@ -988,13 +1091,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           }
         }
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError(modalStr.addressServiceUnavailable);
         console.warn("Places API (New): geocode place failed for", suggestion.placeId);
       } finally {
         setIsGeocodeLoading(false);
       }
     },
-    [address, isCreate, mapsApiKey, patchContact],
+    [address, isCreate, mapsApiKey, patchContact, modalStr],
   );
 
   const geocodeFromAddressText = useCallback(
@@ -1008,7 +1111,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       try {
         const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError(modalStr.addressServiceUnavailable);
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
@@ -1031,13 +1134,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           }
         }
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError(modalStr.addressServiceUnavailable);
         console.warn("Places API (New): geocode text failed for", query);
       } finally {
         setIsGeocodeLoading(false);
       }
     },
-    [isCreate, mapsApiKey, patchContact],
+    [isCreate, mapsApiKey, patchContact, modalStr],
   );
 
   useEffect(() => {
@@ -1062,7 +1165,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       } catch (e) {
         if (autocompleteAbortRef.current !== controller) return;
         setAddressSuggestions([]);
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError(modalStr.addressServiceUnavailable);
         console.warn("Places API (New): autocomplete failed for", query);
       } finally {
         if (autocompleteAbortRef.current === controller) {
@@ -1075,7 +1178,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       controller.abort();
       autocompleteAbortRef.current = null;
     };
-  }, [address, showAddressSuggestions, mapsApiKey]);
+  }, [address, showAddressSuggestions, mapsApiKey, modalStr]);
 
   const handleMarkerDragEnd = useCallback(
     async (e: google.maps.MapMouseEvent) => {
@@ -1098,6 +1201,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   );
 
   const handleEscape = useCallback(() => {
+    if (isResetPasswordDialogOpen) {
+      closeResetPasswordDialog();
+      return true;
+    }
     if (cancelInlineEditRef.current) {
       cancelInlineEditRef.current();
       cancelInlineEditRef.current = null;
@@ -1112,7 +1219,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       return true;
     }
     return false;
-  }, [orderId, createOrderOpen]);
+  }, [closeResetPasswordDialog, createOrderOpen, isResetPasswordDialogOpen, orderId]);
 
   const saveCreate = async () => {
     setSaving(true);
@@ -1137,16 +1244,16 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         ownerId: ownerId || null,
         companyId: companyId || null,
       };
-      if (!payload.firstName) throw new Error("First name is required");
-      if (!payload.lastName) throw new Error("Last name is required");
-      if (!payload.phone) throw new Error("Phone is required");
+      if (!payload.firstName) throw new Error(modalStr.errFirstNameRequired);
+      if (!payload.lastName) throw new Error(modalStr.errLastNameRequired);
+      if (!payload.phone) throw new Error(modalStr.errPhoneRequired);
       await apiHttp.post("/contacts", payload);
       onUpdate();
       onClose();
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed");
+        (e instanceof Error ? e.message : modalStr.errGenericAction);
       setErr(msg);
     } finally {
       setSaving(false);
@@ -1155,7 +1262,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
 
   const scheduleVisit = async () => {
     if (!contact) {
-      alert("Сначала сохраните контакт и заполните адрес, чтобы запланировать встречу.");
+      alert(modalStr.visitAlertSaveContactFirst);
       return;
     }
     const effectiveLat = lat ?? contact.lat ?? null;
@@ -1172,17 +1279,19 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
       await visitsApi.create({
         contactId: contact.id,
         companyId: contact.companyId ?? undefined,
-        title: `${contact.lastName} ${contact.firstName}`.trim() || "Visit",
+        title: `${contact.lastName} ${contact.firstName}`.trim() || modalStr.visitTitleDefault,
         phone: contact.phone ?? undefined,
         addressText: contact.address ?? undefined,
         lat: effectiveLat,
         lng: effectiveLng,
       });
-      alert("Visit added to planned backlog.");
+      alert(modalStr.visitAlertSuccess);
     } catch (e) {
+      const raw = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      const fromApi = typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
       const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to schedule visit");
+        fromApi ??
+        (e instanceof Error && e.message.trim() ? e.message.trim() : modalStr.visitScheduleErrorFallback);
       alert(msg);
     }
   };
@@ -1192,6 +1301,44 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     const b = (contact?.lastName ?? "").trim();
     return `${a} ${b}`.trim() || null;
   }, [contact]);
+
+  const headerSubtitle = useMemo(() => {
+    if (isCreate) return undefined;
+    if (!contactCardV2 || !contact) return fullName ?? undefined;
+    const bits: string[] = [];
+    if (contact.status?.trim()) bits.push(contact.status.trim());
+    if (contact.clientType?.trim()) bits.push(contact.clientType.trim());
+    const geo = [contact.city, contact.region].filter(Boolean).join(", ");
+    if (geo) bits.push(geo);
+    return (
+      <div className="max-w-xl space-y-1">
+        <div className="text-sm font-semibold text-zinc-900">{fullName}</div>
+        {bits.length > 0 ? <div className="text-xs text-zinc-600">{bits.join(" · ")}</div> : null}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+          {contact.company?.name ? (
+            onOpenCompany && contact.companyId ? (
+              <button
+                type="button"
+                className="font-medium text-blue-700 hover:underline"
+                onClick={() => onOpenCompany(contact.companyId!)}
+              >
+                {contact.company.name}
+              </button>
+            ) : (
+              <span>{contact.company.name}</span>
+            )
+          ) : (
+            <span className="text-zinc-400">{modalStr.metaNoCompany}</span>
+          )}
+          {contact.owner?.fullName ? (
+            <span>
+              {modalStr.metaManager}: {contact.owner.fullName}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    );
+  }, [isCreate, contact, fullName, onOpenCompany, contactCardV2, modalStr]);
 
   const REGION_OPTIONS: Array<{ value: string; label: string }> = [
     { value: "", label: "—" },
@@ -1227,8 +1374,8 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   );
 
   const companyOptionsWithEmpty = useMemo(
-    () => [{ id: "", label: "— No company" }, ...companyOptions],
-    [companyOptions],
+    () => [{ id: "", label: aboutStr.placeholderNoCompany }, ...companyOptions],
+    [companyOptions, aboutStr.placeholderNoCompany],
   );
 
   const userOptions = useMemo(
@@ -1241,8 +1388,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   }, []);
 
   const aboutContactSection = useMemo(() => {
+    const a = aboutStr;
     if (loading) {
-      return <div className="text-sm text-zinc-500">Loading…</div>;
+      return <div className="text-sm text-zinc-500">{a.loading}</div>;
     }
     if (err) {
       return (
@@ -1255,55 +1403,55 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     if (isCreate) {
       return (
         <>
-          <label className="block text-sm font-medium text-zinc-700">First name</label>
+          <label className="block text-sm font-medium text-zinc-700">{a.createFirstName}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            placeholder="John"
+            placeholder={a.placeholderJohn}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Last name</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.createLastName}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            placeholder="Doe"
+            placeholder={a.placeholderDoe}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Phone</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.createPhone}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+1…"
+            placeholder={a.placeholderPhone}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Email</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.createEmail}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="john@example.com"
+            placeholder={a.placeholderEmail}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Position</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.createPosition}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={position}
             onChange={(e) => setPosition(e.target.value)}
-            placeholder="Manager"
+            placeholder={a.placeholderManager}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">КОД 1С</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.createExternalCode}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={externalCode}
             onChange={(e) => setExternalCode(e.target.value)}
-            placeholder="Код 1С"
+            placeholder={a.createExternalCodePh}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Область</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldRegion}</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={region}
@@ -1316,41 +1464,41 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               </option>
             ))}
           </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Адрес (инфо)</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldAddressInfo}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={addressInfo}
             onChange={(e) => setAddressInfo(e.target.value)}
-            placeholder="Адрес (инфо)"
+            placeholder={a.createAddressInfoPh}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Город</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldCity}</label>
           <input
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            placeholder="Город"
+            placeholder={a.createCityPh}
             disabled={saving}
           />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Тип клиента</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldClientType}</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={clientType}
             onChange={(e) => setClientType(e.target.value)}
             disabled={saving}
           >
-            <option value="">—</option>
-            <option value="Врач">Врач</option>
-            <option value="Техник">Техник</option>
+            <option value="">{a.placeholderDash}</option>
+            <option value="Врач">{a.clientTypeDoctor}</option>
+            <option value="Техник">{a.clientTypeTech}</option>
           </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Статус</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldStatus}</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             disabled={saving}
           >
-            <option value="">—</option>
+            <option value="">{a.placeholderDash}</option>
             <option value="Клієнт">Клієнт</option>
             <option value="Зацікавленний">Зацікавленний</option>
             <option value="Тимчасово не працює">Тимчасово не працює</option>
@@ -1359,9 +1507,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             <option value="Видалити">Видалити</option>
             <option value="Не працює з імплантами">Не працює з імплантами</option>
           </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Address</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.fieldAddress}</label>
           {addressRequiredForVisit ? (
-            <p className="mt-1 text-sm text-red-600">Заполните адрес для планирования встреч</p>
+            <p className="mt-1 text-sm text-red-600">{a.addressRequiredForVisit}</p>
           ) : null}
           <div className="mt-1 space-y-2">
             <div className="relative">
@@ -1387,7 +1535,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                     void geocodeFromAddressText(address);
                   }
                 }}
-                placeholder="Street, city, index"
+                placeholder={a.placeholderStreetCity}
                 disabled={saving}
               />
               {showAddressSuggestions && addressSuggestions.length > 0 && (
@@ -1409,26 +1557,20 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               )}
             </div>
             <div className="text-xs text-zinc-500">
-              {isAddressLookupLoading && mapsApiKey ? "Searching addresses…" : null}
-              {!isAddressLookupLoading && isGeocodeLoading
-                ? "Searching coordinates from address…"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "google"
-                ? "Address selected from Google (Places API New)"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "geocoded"
-                ? "Address coordinates updated"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "manual" ? "Pin adjusted manually" : null}
+              {isAddressLookupLoading && mapsApiKey ? a.searchingAddresses : null}
+              {!isAddressLookupLoading && isGeocodeLoading ? a.searchingCoords : null}
+              {!isAddressLookupLoading && addressStatus === "google" ? a.addressGoogle : null}
+              {!isAddressLookupLoading && addressStatus === "geocoded" ? a.addressGeocoded : null}
+              {!isAddressLookupLoading && addressStatus === "manual" ? a.addressManual : null}
               {!isAddressLookupLoading && addressError ? addressError : null}
               {!isAddressLookupLoading && !addressError && !mapsApiKey ? mapsConfigError : null}
               {!isAddressLookupLoading && !addressError && mapsApiKey && googleLoadError
-                ? "Google Maps script failed to load."
+                ? a.mapsScriptFailed
                 : null}
             </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-zinc-500">
-              {lat != null && lng != null ? "Координаты установлены" : "Координаты не заданы"}
+              {lat != null && lng != null ? a.coordsSet : a.coordsUnset}
             </span>
             {mapsApiKey ? (
               <button
@@ -1436,7 +1578,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 className="text-xs font-medium text-blue-600 hover:underline"
                 onClick={toggleMap}
               >
-                {isMapEnabled ? "Скрыть карту" : "Показать карту"}
+                {isMapEnabled ? a.mapHide : a.mapShow}
               </button>
             ) : null}
           </div>
@@ -1452,24 +1594,24 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               </div>
           ) : null}
           </div>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Responsible manager</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.responsibleManager}</label>
           <div className="mt-1">
             <SearchableSelectLite
               value={ownerId}
               options={userOptions}
-              placeholder="— Not assigned"
+              placeholder={a.placeholderNotAssigned}
               disabled={saving || loadingUsers}
               isLoading={loadingUsers}
               onChange={(id) => setOwnerId(id)}
             />
           </div>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Company</label>
+          <label className="mt-3 block text-sm font-medium text-zinc-700">{a.company}</label>
           <div className="mt-1 flex gap-2">
             <div className="min-w-0 flex-1">
               <SearchableSelectLite
                 value={companyId ?? ""}
                 options={companyOptionsWithEmpty}
-                placeholder="— No company"
+                placeholder={a.placeholderNoCompany}
                 disabled={saving || loadingCompanies}
                 isLoading={loadingCompanies}
                 onChange={(id) => setCompanyId(id === "" ? null : id)}
@@ -1481,7 +1623,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 onClick={() => onOpenCompany(companyId)}
                 className="shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
               >
-                Open company
+                {a.openCompany}
               </button>
             ) : null}
             {onOpenCompany ? (
@@ -1490,7 +1632,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 onClick={() => onOpenCompany("new")}
                 className="shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
               >
-                Create company
+                {a.createCompany}
               </button>
             ) : null}
           </div>
@@ -1501,7 +1643,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               disabled={saving}
               className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              Запланировать встречу
+              {a.scheduleVisit}
             </button>
           </div>
         </>
@@ -1509,18 +1651,18 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
     }
 
     if (!contact) {
-      return <div className="text-sm text-zinc-500">Not found</div>;
+      return <div className="text-sm text-zinc-500">{a.notFound}</div>;
     }
 
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Last visit</span>
+          <span className="text-sm text-zinc-500">{a.lastVisit}</span>
           <div className="flex items-center gap-3">
             <span className="text-sm text-zinc-900">
               {contact.lastVisitAt
                 ? new Date(contact.lastVisitAt).toLocaleString()
-                : <span className="font-normal text-zinc-400">Нет визитов</span>}
+                : <span className="font-normal text-zinc-400">{a.noVisits}</span>}
             </span>
             <button
               type="button"
@@ -1528,7 +1670,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
               disabled={saving}
               className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              Запланировать встречу
+              {a.scheduleVisit}
             </button>
           </div>
         </div>
@@ -1536,7 +1678,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           {contact.telegramLinked ? (
             <>
               <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800">
-                Telegram подключен
+                {a.telegramConnected}
                 {contact.telegramUsername ? ` @${contact.telegramUsername}` : ""}
               </span>
               {contact.telegramConversationId && (
@@ -1544,18 +1686,18 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                   href={`/inbox/telegram?conversationId=${contact.telegramConversationId}`}
                   className="inline-flex items-center rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                 >
-                  Открыть Telegram чат
+                  {a.openTelegramChat}
                 </a>
               )}
             </>
           ) : (
-            <span className="text-xs text-zinc-500">Telegram не подключен</span>
+            <span className="text-xs text-zinc-500">{a.telegramNotLinked}</span>
           )}
         </div>
         <InlineEditableField
-          label="First name"
+          label={a.fieldFirstName}
           value={contact.firstName}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           required
           disabled={saving}
@@ -1566,9 +1708,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Last name"
+          label={a.fieldLastName}
           value={contact.lastName}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           required
           disabled={saving}
@@ -1579,9 +1721,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Phone (основной)"
+          label={a.fieldPhonePrimary}
           value={formatPhoneDisplay(contact.phone ?? "")}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           required
           disabled={saving}
@@ -1597,48 +1739,49 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             additionalPhones={contact.phones ?? []}
             onUpdated={refresh}
             saving={saving}
+            strings={phonesSectionStr}
           />
         )}
         <InlineEditableField
-          label="Email"
+          label={a.fieldEmail}
           value={contact.email ?? ""}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ email: next })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Position"
+          label={a.fieldPosition}
           value={contact.position ?? ""}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ position: next })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="КОД 1С"
+          label={a.fieldExternalCode}
           value={contact.externalCode ?? ""}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ externalCode: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Як виводити на документ"
+          label={a.fieldDocumentDisplayName}
           value={contact.documentDisplayName ?? ""}
-          placeholder="Напр. ФОП Петров Петр"
+          placeholder={a.placeholderDocumentName}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ documentDisplayName: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Область"
+          label={a.fieldRegion}
           value={contact.region ?? ""}
-          placeholder="—"
+          placeholder={a.placeholderDash}
           kind="select"
           options={REGION_OPTIONS}
           disabled={saving}
@@ -1646,44 +1789,44 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Адрес (инфо)"
+          label={a.fieldAddressInfo}
           value={contact.addressInfo ?? ""}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ addressInfo: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Город"
+          label={a.fieldCity}
           value={contact.city ?? ""}
-          placeholder="Click to add…"
+          placeholder={a.placeholderClickAdd}
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ city: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Тип клиента"
+          label={a.fieldClientType}
           value={contact.clientType ?? ""}
-          placeholder="—"
+          placeholder={a.placeholderDash}
           kind="select"
           options={[
-            { value: "", label: "—" },
-            { value: "Врач", label: "Врач" },
-            { value: "Техник", label: "Техник" },
+            { value: "", label: a.placeholderDash },
+            { value: "Врач", label: a.clientTypeDoctor },
+            { value: "Техник", label: a.clientTypeTech },
           ]}
           disabled={saving}
           onSave={async (next) => patchContact({ clientType: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Статус"
+          label={a.fieldStatus}
           value={contact.status ?? ""}
-          placeholder="—"
+          placeholder={a.placeholderDash}
           kind="select"
           options={[
-            { value: "", label: "—" },
+            { value: "", label: a.placeholderDash },
             { value: "Клієнт", label: "Клієнт" },
             { value: "Зацікавленний", label: "Зацікавленний" },
             { value: "Тимчасово не працює", label: "Тимчасово не працює" },
@@ -1697,9 +1840,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           onRegisterCancel={registerCancel}
         />
         <div className="space-y-1 py-1">
-          <label className="text-sm text-zinc-500">Address</label>
+          <label className="text-sm text-zinc-500">{a.fieldAddress}</label>
           {addressRequiredForVisit ? (
-            <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
+            <p className="text-sm text-red-600">{a.addressRequiredForVisit}</p>
           ) : null}
           <div className="relative">
             <input
@@ -1725,7 +1868,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 }
                 void persistAddressIfChanged();
               }}
-              placeholder="Click to add…"
+              placeholder={a.placeholderClickAdd}
               disabled={saving}
             />
             {showAddressSuggestions && addressSuggestions.length > 0 && (
@@ -1747,26 +1890,20 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             )}
           </div>
           <div className="text-xs text-zinc-500">
-            {isAddressLookupLoading && mapsApiKey ? "Searching addresses…" : null}
-            {!isAddressLookupLoading && isGeocodeLoading
-              ? "Searching coordinates from address…"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "google"
-              ? "Address selected from Google (Places API New)"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "geocoded"
-              ? "Address coordinates updated"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "manual" ? "Pin adjusted manually" : null}
+            {isAddressLookupLoading && mapsApiKey ? a.searchingAddresses : null}
+            {!isAddressLookupLoading && isGeocodeLoading ? a.searchingCoords : null}
+            {!isAddressLookupLoading && addressStatus === "google" ? a.addressGoogle : null}
+            {!isAddressLookupLoading && addressStatus === "geocoded" ? a.addressGeocoded : null}
+            {!isAddressLookupLoading && addressStatus === "manual" ? a.addressManual : null}
             {!isAddressLookupLoading && addressError ? addressError : null}
             {!isAddressLookupLoading && !addressError && !mapsApiKey ? mapsConfigError : null}
             {!isAddressLookupLoading && !addressError && mapsApiKey && googleLoadError
-              ? "Google Maps script failed to load."
+              ? a.mapsScriptFailed
               : null}
           </div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-xs text-zinc-500">
-              {lat != null && lng != null ? "Координаты установлены" : "Координаты не заданы"}
+              {lat != null && lng != null ? a.coordsSet : a.coordsUnset}
             </span>
             {mapsApiKey ? (
               <button
@@ -1774,7 +1911,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 className="text-xs font-medium text-blue-600 hover:underline"
                 onClick={toggleMap}
               >
-                {isMapEnabled ? "Скрыть карту" : "Показать карту"}
+                {isMapEnabled ? a.mapHide : a.mapShow}
               </button>
             ) : null}
           </div>
@@ -1791,12 +1928,12 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           ) : null}
         </div>
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Responsible manager</span>
+          <span className="text-sm text-zinc-500">{a.responsibleManager}</span>
           <SearchableSelectLite
             variant="inline"
             value={ownerId}
             options={userOptions}
-            placeholder="Click to add…"
+            placeholder={a.placeholderClickAdd}
             disabled={saving || loadingUsers}
             isLoading={loadingUsers}
             onChange={async (id) => {
@@ -1806,13 +1943,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
           />
         </div>
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Company</span>
+          <span className="text-sm text-zinc-500">{a.company}</span>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
             <SearchableSelectLite
               variant="inline"
               value={companyId ?? ""}
               options={companyOptionsWithEmpty}
-              placeholder="Click to add…"
+              placeholder={a.placeholderClickAdd}
               disabled={saving || loadingCompanies}
               isLoading={loadingCompanies}
               onChange={async (id) => {
@@ -1821,7 +1958,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 await patchContact({ companyId: next });
               }}
               onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
-              createLabel="Create company"
+              createLabel={a.createCompany}
             />
             {onOpenCompany && companyId ? (
               <button
@@ -1829,15 +1966,15 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 onClick={() => onOpenCompany(companyId)}
                 className="shrink-0 text-sm text-zinc-700 hover:underline"
               >
-                Open company
+                {a.openCompany}
               </button>
             ) : null}
           </div>
         </div>
         <div className="pt-2 text-xs text-zinc-500">
-          Created: {new Date(contact.createdAt).toLocaleString()}
+          {a.created}: {new Date(contact.createdAt).toLocaleString()}
           <br />
-          Updated: {new Date(contact.updatedAt).toLocaleString()}
+          {a.updated}: {new Date(contact.updatedAt).toLocaleString()}
         </div>
       </div>
     );
@@ -1890,87 +2027,101 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   ]);
 
   const tabsUnderHeader = (
-    <div className="flex gap-1 py-2">
-      {(["main", "orders", "delivery-profiles", "tasks", "change-history"] as const).map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          onClick={() => setLeftTab(tab)}
-          className={`rounded px-2 py-1.5 text-sm font-medium ${
-            leftTab === tab ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"
-          }`}
-        >
-          {tab === "main"
-            ? "Main"
-            : tab === "orders"
-              ? "Orders"
-              : tab === "delivery-profiles"
-                ? "Delivery profiles"
-                : tab === "tasks"
-                  ? "Tasks"
-                  : "Change history"}
-        </button>
-      ))}
-    </div>
+    <ContactCardTabsUnderHeader
+      cardV2={contactCardV2}
+      isCreate={isCreate}
+      contact={contact}
+      cardSnapshot={cardSnapshot}
+      cardLoading={cardLoading}
+      listLoading={loading}
+      cardError={cardError}
+      onCreateOrder={() => setCreateOrderOpen(true)}
+      onScheduleVisit={() => void scheduleVisit()}
+      onOpenTasksTab={() => setLeftTab("tasks")}
+      onOpenPaymentOrder={(id) => setOrderId(id)}
+      visitDisabled={saving}
+      paymentOrderId={paymentOrderId}
+      leftTab={leftTab}
+      onTabChange={setLeftTab}
+      labels={modalStr}
+    />
   );
+
+  const mobileBottomBar =
+    contactCardV2 && !isCreate && contact ? (
+      <ContactQuickActionsMobileBar
+        phone={contact.phone}
+        onCreateOrder={() => setCreateOrderOpen(true)}
+        onScheduleVisit={() => void scheduleVisit()}
+        onOpenTasks={() => setLeftTab("tasks")}
+        onOpenPayment={paymentOrderId ? () => setOrderId(paymentOrderId) : undefined}
+        visitDisabled={saving}
+        labels={{
+          quickCall: modalStr.quickCall,
+          quickEmail: modalStr.quickEmail,
+          quickTelegram: modalStr.quickTelegram,
+          quickVisit: modalStr.quickVisit,
+          quickOrderShort: modalStr.quickOrderShort,
+          quickTask: modalStr.quickTask,
+          quickPayment: modalStr.quickPayment,
+          tooltipNoPhone: modalStr.tooltipNoPhone,
+        }}
+      />
+    ) : null;
 
   const leftContent = (
     <div className="min-h-0 overflow-auto">
         {leftTab === "main" && (
           isCreate ? (
             <div className="min-h-0 overflow-auto">
-              <EntitySection
-                title="About contact"
-              >
+              <EntitySection title={modalStr.sectionAbout}>
                 {aboutContactSection}
               </EntitySection>
             </div>
           ) : (
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-2">
-              <div className="min-h-0 overflow-auto border-zinc-200 lg:border-r lg:pr-4">
-                <EntitySection
-                  title="About contact"
-                  rightAction={
-                    contact?.companyId && onOpenCompany ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenCompany(contact.companyId!)}
-                        className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Open company
-                      </button>
-                    ) : null
-                  }
-                >
-                  {aboutContactSection}
-                </EntitySection>
-              </div>
-              <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4">
-                <EntitySection title="Activity">
-                  <ContactTimeline
-                    apiBaseUrl={apiBaseUrl}
-                    contactId={contactId}
-                    showActivityButtons
-                  />
-                </EntitySection>
-              </div>
-            </div>
+            <ContactCardOverviewLayout
+              aboutSection={aboutContactSection}
+              apiBaseUrl={apiBaseUrl}
+              contactId={contactId}
+              sectionAboutTitle={modalStr.sectionAbout}
+              sectionActivityTitle={modalStr.sectionActivity}
+              openCompanyButton={
+                contact?.companyId && onOpenCompany ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenCompany(contact.companyId!)}
+                    className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {modalStr.openCompany}
+                  </button>
+                ) : null
+              }
+            />
           )
         )}
 
         {leftTab === "orders" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see orders.</p>
+              <p className="text-sm text-zinc-500">{modalStr.ordersSaveFirst}</p>
             ) : (
-              <EntitySection title="Orders">
+              <EntitySection title={modalStr.sectionOrders}>
                 <div className="min-h-0 overflow-auto">
-                  <EntityOrdersList
-                    key={ordersReloadKey}
-                    apiBaseUrl={apiBaseUrl}
-                    query={`clientId=${contactId}&pageSize=50`}
-                    onOpenOrder={(id) => setOrderId(id)}
-                  />
+                  {contactCardV2 ? (
+                    <ContactOrdersSections
+                      key={ordersReloadKey}
+                      data={cardSnapshot}
+                      loading={cardLoading || (loading && !cardSnapshot)}
+                      onOpenOrder={(id) => setOrderId(id)}
+                    />
+                  ) : (
+                    <EntityOrdersList
+                      key={ordersReloadKey}
+                      apiBaseUrl={apiBaseUrl}
+                      query={`clientId=${contactId}&pageSize=50`}
+                      onOpenOrder={(id) => setOrderId(id)}
+                    />
+                  )}
                 </div>
               </EntitySection>
             )}
@@ -1980,9 +2131,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         {leftTab === "tasks" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to manage tasks.</p>
+              <p className="text-sm text-zinc-500">{modalStr.tasksSaveFirst}</p>
             ) : (
-              <EntitySection title="Tasks">
+              <EntitySection title={modalStr.sectionTasks}>
                 <EntityTasksList contactId={contactId} />
               </EntitySection>
             )}
@@ -1994,6 +2145,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
             isCreate={isCreate}
             apiBaseUrl={apiBaseUrl}
             contactId={contactId}
+            strings={deliveryStr}
             contactPerson={
               contact
                 ? {
@@ -2009,10 +2161,16 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         {leftTab === "change-history" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see change history.</p>
+              <p className="text-sm text-zinc-500">{modalStr.historySaveFirst}</p>
             ) : (
-              <EntitySection title="Change history">
-                <p className="text-sm text-zinc-500">No change history yet.</p>
+              <EntitySection title={modalStr.sectionChangeHistory}>
+                <ContactChangeHistory
+                  items={changeHistory}
+                  loading={loadingChangeHistory}
+                  error={changeHistoryError}
+                  emptyText={modalStr.noHistory}
+                  v2={contactCardV2}
+                />
               </EntitySection>
             )}
           </>
@@ -2028,7 +2186,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         disabled={saving}
         className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
       >
-        Cancel
+        {modalStr.cancel}
       </button>
       <button
         type="button"
@@ -2036,7 +2194,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         disabled={saving}
         className="btn-primary"
       >
-        {saving ? "Saving…" : "Save"}
+        {saving ? modalStr.saving : modalStr.save}
       </button>
     </div>
   ) : null;
@@ -2053,8 +2211,20 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         />
       ) : null}
       <EntityModalShell
-        title={title}
-        subtitle={!isCreate && fullName ? fullName : undefined}
+        title={
+          !isCreate && loading && !contact && !err ? (
+            <ContactCardHeaderTitleSkeleton />
+          ) : (
+            title
+          )
+        }
+        subtitle={
+          !isCreate && loading && !contact && !err ? (
+            <ContactCardHeaderSubtitleSkeleton />
+          ) : (
+            headerSubtitle
+          )
+        }
         headerActions={
           <>
             {!isCreate && (
@@ -2062,9 +2232,9 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 <button
                   type="button"
                   onClick={() => setCreateOrderOpen(true)}
-                  className="btn-primary py-1.5"
+                  className="hidden rounded-md bg-accent-gradient px-3 py-2 text-sm font-medium text-white shadow-sm sm:inline-flex"
                 >
-                  + Order
+                  {modalStr.addOrder}
                 </button>
                 <button
                   type="button"
@@ -2091,32 +2261,26 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                       }
                       setResetPasswordPublicStoreBase(storeBase || null);
                       setResetPasswordResult(res.data);
+                      if (leftTab === "change-history" && !isCreate) {
+                        void loadChangeHistory();
+                      }
                     } catch (e: unknown) {
                       const msg = e instanceof Error ? e.message : null;
-                      setResetPasswordError(
-                        msg ?? "У контакта нет аккаунта в магазине или произошла ошибка.",
-                      );
+                      setResetPasswordError(msg ?? modalStr.resetPasswordErrorGeneric);
                     } finally {
                       setResetPasswordLoading(false);
                     }
                   }}
                   disabled={resetPasswordLoading}
-                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  className="min-h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  {resetPasswordLoading ? "…" : "Сбросить пароль"}
+                  {resetPasswordLoading ? "…" : modalStr.resetStorePassword}
                 </button>
               </>
             )}
-            <button
-              type="button"
-              onClick={() => canClose && onClose()}
-              disabled={!canClose}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-            >
-              Close
-            </button>
           </>
         }
+        mobileBottomBar={mobileBottomBar}
         tabsUnderHeader={tabsUnderHeader}
         left={leftContent}
         right={null}
@@ -2159,35 +2323,40 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
         />
       ) : null}
 
-      {(resetPasswordResult !== null || resetPasswordError !== null) ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
-            <h3 className="text-sm font-semibold text-zinc-900">Сброс пароля магазина</h3>
+      {isResetPasswordDialogOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={closeResetPasswordDialog}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg"
+            role="dialog"
+            aria-modal
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-zinc-900">{modalStr.resetPasswordTitle}</h3>
             {resetPasswordError ? (
               <>
                 <p className="mt-2 text-sm text-red-600">{resetPasswordError}</p>
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => {
-                      setResetPasswordError(null);
-                      setResetPasswordResult(null);
-                      setResetPasswordPublicStoreBase(null);
-                    }}
+                    onClick={closeResetPasswordDialog}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Закрыть
+                    {modalStr.resetPasswordClose}
                   </button>
                 </div>
               </>
             ) : resetPasswordResult ? (
               <>
                 <p className="mt-2 text-sm text-zinc-600">
-                  Тимчасовий пароль і посилання для встановлення свого пароля (діє 24 год):
+                  {modalStr.resetPasswordIntro}
                 </p>
                 <div className="mt-3 space-y-2">
                   <div>
-                    <span className="text-xs text-zinc-500">Тимчасовий пароль:</span>
+                    <span className="text-xs text-zinc-500">{modalStr.resetPasswordTempLabel}</span>
                     <div className="mt-0.5 flex items-center gap-2">
                       <code className="flex-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm font-mono">
                         {resetPasswordResult.tempPassword}
@@ -2199,13 +2368,13 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         }}
                         className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                       >
-                        Копіювати
+                        {modalStr.copy}
                       </button>
                     </div>
                   </div>
                   {resetPasswordFullUrl ? (
                     <div>
-                      <span className="text-xs text-zinc-500">Посилання для встановлення пароля:</span>
+                      <span className="text-xs text-zinc-500">{modalStr.resetPasswordLinkLabel}</span>
                       <div className="mt-0.5 space-y-2">
                         <code className="block max-h-24 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
                           {resetPasswordFullUrl}
@@ -2217,7 +2386,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                             rel="noopener noreferrer"
                             className="rounded border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-50"
                           >
-                            Відкрити в новій вкладці
+                            {modalStr.openInNewTab}
                           </a>
                           <button
                             type="button"
@@ -2226,22 +2395,19 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                             }}
                             className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                           >
-                            Копіювати посилання
+                            {modalStr.copyLink}
                           </button>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <p className="rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
-                      Щоб отримати готове посилання, вкажіть «Публічна URL вітрини» в{" "}
-                      <span className="font-medium">Налаштування → Інтернет-магазин</span> або задайте змінну{" "}
-                      <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці CRM. Нижче — токен для
-                      ручної збірки URL.
+                      {modalStr.resetPasswordAmberHint}
                     </p>
                   )}
                   <div>
                     <span className="text-xs text-zinc-500">
-                      {resetPasswordPublicStoreBase ? "Токен (для діагностики):" : "Токен:"}
+                      {resetPasswordPublicStoreBase ? modalStr.tokenDiagnosticLabel : modalStr.tokenLabel}
                     </span>
                     <div className="mt-0.5 flex items-center gap-2">
                       <code className="max-h-20 flex-1 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
@@ -2254,7 +2420,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                         }}
                         className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
                       >
-                        Копіювати
+                        {modalStr.copy}
                       </button>
                     </div>
                   </div>
@@ -2262,14 +2428,10 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => {
-                      setResetPasswordError(null);
-                      setResetPasswordResult(null);
-                      setResetPasswordPublicStoreBase(null);
-                    }}
+                    onClick={closeResetPasswordDialog}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Закрыть
+                    {modalStr.resetPasswordClose}
                   </button>
                 </div>
               </>

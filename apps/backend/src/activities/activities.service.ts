@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import type { ActivityType } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { ContactAccessService } from "../contacts/contact-access.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 type CreateActivityBody = {
@@ -13,7 +14,10 @@ type CreateActivityBody = {
 
 @Injectable()
 export class ActivitiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly contactAccess: ContactAccessService,
+  ) {}
 
   // ---------- ORDER ----------
   async listForOrder(orderId: string, actor?: AuthUser) {
@@ -174,15 +178,13 @@ export class ActivitiesService {
   }
 
   private async assertContactAccess(contactId: string, actor?: AuthUser): Promise<void> {
-    if (!actor || actor.role !== UserRole.MANAGER) return;
+    if (!actor) throw new ForbiddenException("Unauthorized");
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
-      select: { ownerId: true },
+      select: { id: true, ownerId: true },
     });
-    if (!contact) return;
-    if (contact.ownerId !== actor.id) {
-      throw new ForbiddenException("You can only access contacts assigned to you");
-    }
+    if (!contact) throw new NotFoundException("Contact not found");
+    await this.contactAccess.assertCanViewContact(contact, actor);
   }
 
   private async assertLeadAccess(leadId: string, actor?: AuthUser): Promise<void> {

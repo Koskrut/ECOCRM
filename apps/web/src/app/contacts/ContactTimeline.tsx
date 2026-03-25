@@ -2,15 +2,67 @@
 
 import { format, isToday, isYesterday } from "date-fns";
 import { uk } from "date-fns/locale";
-import { Calendar, MessageCircle, Pencil, Phone, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle2,
+  ClipboardList,
+  MessageCircle,
+  Pencil,
+  Phone,
+  Pin,
+  PinOff,
+  Shield,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import type { CallTimelineItem } from "./CallCard";
 import { CallCard } from "./CallCard";
 
-type TimelineItem = CallTimelineItem;
+type TimelineActivityItem = CallTimelineItem & {
+  source: "ACTIVITY";
+};
 
-type TimelineResponse = { items: TimelineItem[] };
+type TimelineTaskItem = {
+  id: string;
+  source: "TASK";
+  type: "TASK";
+  title: string;
+  body: string;
+  occurredAt: string;
+  createdAt: string;
+  createdBy: string;
+  createdByName?: string | null;
+  pinnedAt?: string | null;
+  task: {
+    status: string;
+    dueAt?: string | null;
+    completedAt?: string | null;
+    assigneeId: string;
+    assigneeName?: string | null;
+  };
+};
+
+type TimelineAuditItem = {
+  id: string;
+  source: "AUDIT";
+  type: "AUDIT";
+  title: string;
+  body: string;
+  occurredAt: string;
+  createdAt: string;
+  createdBy: string;
+  createdByName?: string | null;
+  pinnedAt?: string | null;
+  audit: {
+    action: string;
+    payload: { field: string; oldValue: string | null; newValue: string | null }[];
+  };
+};
+
+type TimelineItem = TimelineActivityItem | TimelineTaskItem | TimelineAuditItem;
+
+type TimelineResponse = { items: unknown[] };
 
 type Props = {
   apiBaseUrl: string;
@@ -25,11 +77,11 @@ const MEETING_OUTCOME_FAIL = ["FAILED", "NOT_RELEVANT", "NO_DECISION"] as const;
 
 const MEETING_OUTCOME_OPTIONS: { value: string; label: string }[] = [
   { value: "План", label: "План" },
-  { value: "SUCCESS", label: "Успех" },
-  { value: "FOLLOW_UP", label: "Дозвон" },
-  { value: "FAILED", label: "Неудача" },
-  { value: "NO_DECISION", label: "Без решения" },
-  { value: "NOT_RELEVANT", label: "Не релевантно" },
+  { value: "SUCCESS", label: "Успіх" },
+  { value: "FOLLOW_UP", label: "Повторний дзвінок" },
+  { value: "FAILED", label: "Невдача" },
+  { value: "NO_DECISION", label: "Без рішення" },
+  { value: "NOT_RELEVANT", label: "Неактуально" },
 ];
 
 function getMeetingOutcomeBadge(
@@ -43,17 +95,17 @@ function getMeetingOutcomeBadge(
   const upper = outcome.toUpperCase();
   if (outcome === "план" || upper === "ПЛАН") return { variant: "plan", label: "План" };
   if (MEETING_OUTCOME_SUCCESS.includes(upper as (typeof MEETING_OUTCOME_SUCCESS)[number]))
-    return { variant: "success", label: upper === "FOLLOW_UP" ? "Дозвон" : "Успех" };
+    return { variant: "success", label: upper === "FOLLOW_UP" ? "Повторний дзвінок" : "Успіх" };
   if (MEETING_OUTCOME_FAIL.includes(upper as (typeof MEETING_OUTCOME_FAIL)[number]))
     return {
       variant: "fail",
-      label: upper === "FAILED" ? "Неудача" : upper === "NO_DECISION" ? "Без решения" : "Не релевантно",
+      label: upper === "FAILED" ? "Невдача" : upper === "NO_DECISION" ? "Без рішення" : "Неактуально",
     };
   return null;
 }
 
 function meetingTitleWithoutOutcome(title: string): string {
-  return title.replace(/\s*\([^)]+\)\s*$/, "").trim() || "Встреча";
+  return title.replace(/\s*\([^)]+\)\s*$/, "").trim() || "Зустріч";
 }
 
 function dateGroupLabel(date: Date): string {
@@ -72,13 +124,12 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "calls" | "missed" | "withRecording">("all");
+  const [filter, setFilter] = useState<"all" | "calls" | "tasks" | "audit" | "missed" | "withRecording">("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editTitle, setEditTitle] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-
   const timelineUrl = useMemo(
     () => entityType === "lead" ? `leads/${contactId}/activities` : `contacts/${contactId}/timeline`,
     [contactId, entityType],
@@ -88,20 +139,125 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
     [contactId, entityType],
   );
 
+  const titleFor = useCallback((type: string): string => {
+    if (type === "CALL") return "Дзвінок";
+    if (type === "MEETING") return "Зустріч";
+    if (type === "COMMENT") return "Коментар";
+    return type;
+  }, []);
+
+  const normalizeItem = useCallback(
+    (raw: unknown): TimelineItem | null => {
+      if (!raw || typeof raw !== "object") return null;
+      const item = raw as Record<string, unknown>;
+      const source = item.source === "TASK" || item.source === "AUDIT" ? item.source : "ACTIVITY";
+      const occurredAt = String(item.occurredAt ?? item.createdAt ?? new Date().toISOString());
+      const createdAt = String(item.createdAt ?? occurredAt);
+      const createdBy = String(item.createdBy ?? "system");
+      const createdByName =
+        typeof item.createdByName === "string" && item.createdByName.trim().length > 0
+          ? item.createdByName
+          : createdBy;
+
+      if (source === "TASK") {
+        const task = (item.task ?? {}) as Record<string, unknown>;
+        return {
+          id: String(item.id),
+          source: "TASK",
+          type: "TASK",
+          title: String(item.title ?? "Задача"),
+          body: String(item.body ?? ""),
+          occurredAt,
+          createdAt,
+          createdBy,
+          createdByName,
+          pinnedAt: null,
+          task: {
+            status: String(task.status ?? "OPEN"),
+            dueAt: task.dueAt ? String(task.dueAt) : null,
+            completedAt: task.completedAt ? String(task.completedAt) : null,
+            assigneeId: String(task.assigneeId ?? ""),
+            assigneeName:
+              typeof task.assigneeName === "string" && task.assigneeName.trim().length > 0
+                ? task.assigneeName
+                : null,
+          },
+        };
+      }
+
+      if (source === "AUDIT") {
+        const audit = (item.audit ?? {}) as Record<string, unknown>;
+        const payload = Array.isArray(audit.payload)
+          ? audit.payload.map((entry) => {
+              const typed = entry as Record<string, unknown>;
+              return {
+                field: String(typed.field ?? ""),
+                oldValue: typed.oldValue == null ? null : String(typed.oldValue),
+                newValue: typed.newValue == null ? null : String(typed.newValue),
+              };
+            })
+          : [];
+        return {
+          id: String(item.id),
+          source: "AUDIT",
+          type: "AUDIT",
+          title: String(item.title ?? "Аудит"),
+          body: "",
+          occurredAt,
+          createdAt,
+          createdBy,
+          createdByName,
+          pinnedAt: null,
+          audit: {
+            action: String(audit.action ?? item.title ?? "AUDIT"),
+            payload,
+          },
+        };
+      }
+
+      const rawCall = item.call as Record<string, unknown> | undefined;
+      return {
+        id: String(item.id),
+        source: "ACTIVITY",
+        type: String(item.type ?? "COMMENT"),
+        title: String(item.title ?? titleFor(String(item.type ?? "COMMENT"))),
+        body: String(item.body ?? ""),
+        occurredAt,
+        createdAt,
+        pinnedAt: item.pinnedAt ? String(item.pinnedAt) : null,
+        createdBy,
+        createdByName,
+        call: rawCall
+          ? {
+              direction: rawCall.direction ? String(rawCall.direction) : undefined,
+              status: rawCall.status ? String(rawCall.status) : undefined,
+              durationSec: typeof rawCall.durationSec === "number" ? rawCall.durationSec : undefined,
+              recordingStatus: rawCall.recordingStatus ? String(rawCall.recordingStatus) : undefined,
+              recordingUrl: rawCall.recordingUrl ? String(rawCall.recordingUrl) : undefined,
+              startedAt: rawCall.startedAt ? String(rawCall.startedAt) : undefined,
+              from: rawCall.from ? String(rawCall.from) : undefined,
+              to: rawCall.to ? String(rawCall.to) : undefined,
+            }
+          : undefined,
+      };
+    },
+    [titleFor],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
       const res = await apiHttp.get<TimelineResponse>(timelineUrl);
       const data = res.data;
-      setItems(data?.items || []);
+      setItems((data?.items ?? []).map((item) => normalizeItem(item)).filter((item): item is TimelineItem => item !== null));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load timeline");
+      setErr(e instanceof Error ? e.message : "Не вдалося завантажити таймлайн");
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [timelineUrl]);
+  }, [normalizeItem, timelineUrl]);
 
   useEffect(() => {
     void load();
@@ -117,7 +273,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
         body: text.trim(),
       };
       if (mode === "MEETING" && meetingOutcome.trim()) {
-        payload.title = `Встреча (${meetingOutcome.trim()})`;
+        payload.title = `Зустріч (${meetingOutcome.trim()})`;
       }
       await apiHttp.post(activitiesUrl, payload);
       setText("");
@@ -126,7 +282,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to add activity");
+        (e instanceof Error ? e.message : "Не вдалося додати активність");
       setErr(msg);
     } finally {
       setSaving(false);
@@ -143,7 +299,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to update");
+          (e instanceof Error ? e.message : "Не вдалося оновити запис");
         setErr(msg);
       } finally {
         setActionLoading(false);
@@ -162,7 +318,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to delete");
+          (e instanceof Error ? e.message : "Не вдалося видалити запис");
         setErr(msg);
       } finally {
         setActionLoading(false);
@@ -172,9 +328,37 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
   );
 
   const startEdit = useCallback((it: TimelineItem) => {
+    if (it.source !== "ACTIVITY") return;
     setEditingId(it.id);
     setEditBody(it.body ?? "");
     setEditTitle(it.title ?? "");
+  }, []);
+
+  const formatTaskStatus = useCallback((status: string) => {
+    if (status === "OPEN") return "Відкрита";
+    if (status === "IN_PROGRESS") return "В роботі";
+    if (status === "DONE") return "Виконана";
+    if (status === "CANCELED") return "Скасована";
+    return status;
+  }, []);
+
+  const formatAuditAction = useCallback((action: string) => {
+    if (action === "CREATED") return "Створено";
+    if (action === "UPDATED") return "Оновлено";
+    if (action === "OWNER_CHANGED") return "Змінено менеджера";
+    if (action === "COMPANY_RELINKED") return "Змінено компанію";
+    if (action === "RESET_STORE_PASSWORD") return "Скинуто пароль магазину";
+    if (action === "DELIVERY_DEFAULT_CHANGED") return "Змінено профіль доставки";
+    return action;
+  }, []);
+
+  const formatAuditField = useCallback((field: string) => {
+    if (field === "ownerId") return "Менеджер";
+    if (field === "companyId") return "Компанія";
+    if (field === "storePasswordReset") return "Скидання пароля магазину";
+    if (field === "deliveryDefault") return "Профіль доставки";
+    if (field === "status") return "Статус";
+    return field;
   }, []);
 
   return (
@@ -191,7 +375,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                   : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
               }`}
             >
-              Call
+              Дзвінок
             </button>
             <button
               type="button"
@@ -202,7 +386,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                   : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
               }`}
             >
-              Meeting
+              Зустріч
             </button>
             <button
               type="button"
@@ -213,21 +397,21 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                   : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"
               }`}
             >
-              Comment
+              Коментар
             </button>
           </div>
 
           {mode === "MEETING" && (
             <div className="mt-3">
               <label className="mb-1.5 block text-xs font-medium text-zinc-600">
-                Результат встречи
+                Результат зустрічі
               </label>
               <select
                 value={meetingOutcome}
                 onChange={(e) => setMeetingOutcome(e.target.value)}
                 className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200"
               >
-                <option value="">— обратити —</option>
+                <option value="">— оберіть —</option>
                 {MEETING_OUTCOME_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
@@ -243,10 +427,10 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
               rows={3}
               placeholder={
                 mode === "CALL"
-                  ? "Briefly: what was the call about?"
+                  ? "Коротко: про що була розмова?"
                   : mode === "MEETING"
-                    ? "Briefly: meeting outcome?"
-                    : "Write a comment..."
+                    ? "Коротко: який результат зустрічі?"
+                    : "Напишіть коментар..."
               }
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -258,7 +442,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                 onClick={() => void addActivity()}
                 className="btn-primary py-1.5"
               >
-                {saving ? "Saving…" : "Add"}
+                {saving ? "Збереження…" : "Додати"}
               </button>
 
               <button
@@ -266,7 +450,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                 onClick={() => void load()}
                 className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Refresh
+                Оновити
               </button>
             </div>
 
@@ -281,13 +465,13 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
 
       <div className="flex-1 overflow-auto p-4">
         {loading ? (
-          <div className="text-sm text-zinc-500">Loading timeline...</div>
+          <div className="text-sm text-zinc-500">Завантаження таймлайну...</div>
         ) : items.length === 0 ? (
-          <div className="text-sm text-zinc-500">No events yet</div>
+          <div className="text-sm text-zinc-500">Поки немає подій</div>
         ) : (
           <div className="space-y-3">
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-zinc-500">Фильтр:</span>
+              <span className="text-zinc-500">Фільтр:</span>
               <button
                 type="button"
                 onClick={() => setFilter("all")}
@@ -297,7 +481,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                 } text-xs font-medium`}
               >
-                Все
+                Усі
               </button>
               <button
                 type="button"
@@ -308,8 +492,34 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                 } text-xs font-medium`}
               >
-                Звонки
+                Дзвінки
               </button>
+              {entityType === "contact" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setFilter("tasks")}
+                    className={`rounded-full px-3 py-1 ${
+                      filter === "tasks"
+                        ? "bg-violet-600 text-white"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    } text-xs font-medium`}
+                  >
+                    Задачі
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFilter("audit")}
+                    className={`rounded-full px-3 py-1 ${
+                      filter === "audit"
+                        ? "bg-amber-600 text-white"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    } text-xs font-medium`}
+                  >
+                    Аудит
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => setFilter("missed")}
@@ -319,7 +529,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                 } text-xs font-medium`}
               >
-                Пропущенные
+                Пропущені
               </button>
               <button
                 type="button"
@@ -330,28 +540,30 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
                 } text-xs font-medium`}
               >
-                С записью
+                Із записом
               </button>
             </div>
 
             {(() => {
               const filtered = items.filter((it) => {
-                const call = it.call;
+                const call = it.source === "ACTIVITY" ? it.call : undefined;
                 if (filter === "all") return true;
-                if (filter === "calls") return it.type === "CALL";
+                if (filter === "calls") return it.source === "ACTIVITY" && it.type === "CALL";
+                if (filter === "tasks") return it.source === "TASK";
+                if (filter === "audit") return it.source === "AUDIT";
                 if (filter === "missed") {
-                  if (it.type !== "CALL" || !call?.status) return false;
+                  if (it.source !== "ACTIVITY" || it.type !== "CALL" || !call?.status) return false;
                   const s = call.status.toUpperCase();
                   return s.includes("MISSED");
                 }
                 if (filter === "withRecording") {
-                  if (it.type !== "CALL" || !call) return false;
+                  if (it.source !== "ACTIVITY" || it.type !== "CALL" || !call) return false;
                   const status = (call.recordingStatus ?? "").toUpperCase();
                   return !!call.recordingUrl && status === "READY";
                 }
                 return true;
               });
-              const pinned = filtered.filter((it) => it.pinnedAt);
+              const pinned = filtered.filter((it) => it.source === "ACTIVITY" && it.pinnedAt);
               const rest = filtered.filter((it) => !it.pinnedAt);
               const byDateKey = new Map<string, typeof rest>();
               for (const it of rest) {
@@ -363,6 +575,70 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                 (a, b) => new Date(b).getTime() - new Date(a).getTime(),
               );
               const renderItem = (it: TimelineItem) => {
+                if (it.source === "TASK") {
+                  return (
+                    <div key={it.id} className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 shadow-sm">
+                      <div className="flex gap-3">
+                        <div className="flex shrink-0 items-center pt-0.5 text-violet-600">
+                          {it.task.status === "DONE" ? <CheckCircle2 className="h-5 w-5" /> : <ClipboardList className="h-5 w-5" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-zinc-900">{it.title}</span>
+                            <span className="rounded-full border border-violet-200 bg-white px-2 py-0.5 text-xs font-medium text-violet-700">
+                              {formatTaskStatus(it.task.status)}
+                            </span>
+                          </div>
+                          {it.body ? (
+                            <div className="mt-2 rounded border border-violet-100 bg-white p-2 whitespace-pre-wrap text-sm text-zinc-700">
+                              {it.body}
+                            </div>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <span>{new Date(it.occurredAt).toLocaleString()}</span>
+                            {it.task.dueAt ? <span>· До {format(new Date(it.task.dueAt), "d MMM yyyy", { locale: uk })}</span> : null}
+                            <span>· Виконавець: {it.task.assigneeName ?? it.task.assigneeId}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (it.source === "AUDIT") {
+                  return (
+                    <div key={it.id} className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 shadow-sm">
+                      <div className="flex gap-3">
+                        <div className="flex shrink-0 items-center pt-0.5 text-amber-600">
+                          <Shield className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-zinc-900">{formatAuditAction(it.audit.action)}</span>
+                            <span className="rounded-full border border-amber-200 bg-white px-2 py-0.5 text-xs font-medium text-amber-700">
+                              AUDIT
+                            </span>
+                          </div>
+                          {it.audit.payload.length > 0 ? (
+                            <ul className="mt-2 space-y-1 text-sm text-zinc-700">
+                              {it.audit.payload.map((entry, index) => (
+                                <li key={`${it.id}-${index}`}>
+                                  <span className="font-medium">{formatAuditField(entry.field)}:</span>{" "}
+                                  {entry.oldValue ?? "—"} {"->"} {entry.newValue ?? "—"}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                            <span>{new Date(it.occurredAt).toLocaleString()}</span>
+                            <span>· {it.createdByName ?? it.createdBy}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const isExpanded = expandedId === it.id;
                 const hasBody = it.body.trim().length > 0;
                 const outcomeBadge = getMeetingOutcomeBadge(it.title, it.type);
@@ -380,7 +656,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                           <Phone className="h-5 w-5" aria-hidden />
                         </div>
                         <div className="min-w-0 flex-1 space-y-2">
-                          <p className="text-sm font-medium text-zinc-700">Звонок — заметка</p>
+                          <p className="text-sm font-medium text-zinc-700">Дзвінок — нотатка</p>
                           <textarea
                             className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200"
                             rows={3}
@@ -523,7 +799,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                           )}
                           {hasBody && (
                             <span className="text-xs text-zinc-500">
-                              {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+                              {isExpanded ? "▼ згорнути" : "▶ результат і коментарі"}
                             </span>
                           )}
                         </div>
@@ -615,12 +891,16 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                   </div>
                 );
               };
+              if (filtered.length === 0) {
+                return <div className="text-sm text-zinc-500">За поточним фільтром подій немає</div>;
+              }
+
               return (
                 <div className="space-y-6">
                   {pinned.length > 0 && (
                     <section className="rounded-lg bg-amber-50/80 border border-amber-200/60 p-3 space-y-3">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                        Закреплено
+                        Закріплено
                       </h3>
                       <div className="space-y-3">
                         {pinned.map((it) => (

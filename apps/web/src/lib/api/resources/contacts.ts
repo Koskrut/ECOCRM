@@ -25,6 +25,16 @@ export type Contact = {
   status?: string | null;
 };
 
+export type ContactChangeHistoryItem = {
+  id: string;
+  contactId: string;
+  changedBy: string | null;
+  changedByUser: { id: string; fullName: string; email: string } | null;
+  action: string;
+  payload: { field: string; oldValue: string | null; newValue: string | null }[];
+  createdAt: string;
+};
+
 export type ContactsResponse = {
   items: Contact[];
   total: number;
@@ -67,6 +77,11 @@ export const contactsApi = {
 
   get: async (id: string): Promise<Contact> => {
     const res = await apiHttp.get<Contact>(`/contacts/${id}`);
+    return res.data;
+  },
+
+  getChangeHistory: async (id: string): Promise<ContactChangeHistoryItem[]> => {
+    const res = await apiHttp.get<ContactChangeHistoryItem[]>(`/contacts/${id}/change-history`);
     return res.data;
   },
 };

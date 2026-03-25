@@ -91,6 +91,9 @@ export type StoreConfig = {
 const STORE_CONFIG_KEY = "store_config";
 const ORG_CHART_STRUCTURE_KEY = "org_chart_structure";
 
+/** JSON: `{ contactCardV2?: boolean }` — за замовчуванням true, якщо рядка немає. */
+const CONTACT_CARD_UI_KEY = "contact_card_ui";
+
 const DEFAULT_STORE_CONFIG: StoreConfig = {
   theme: {
     primary: "#1e3a5f",
@@ -956,6 +959,29 @@ export class SettingsService {
     await this.prisma.systemSetting.upsert({
       where: { id: ORG_CHART_STRUCTURE_KEY },
       create: { id: ORG_CHART_STRUCTURE_KEY, value: next as Prisma.InputJsonValue },
+      update: { value: next as Prisma.InputJsonValue },
+    });
+    return next;
+  }
+
+  /** Прапор UI карточки контакта v2 (canary / rollback без редеплою). */
+  async getContactCardUi(): Promise<{ contactCardV2: boolean }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: CONTACT_CARD_UI_KEY },
+    });
+    if (!row?.value || typeof row.value !== "object" || row.value === null) {
+      return { contactCardV2: true };
+    }
+    const v = row.value as Record<string, unknown>;
+    return { contactCardV2: v.contactCardV2 !== false };
+  }
+
+  async setContactCardUi(body: { contactCardV2?: boolean }): Promise<{ contactCardV2: boolean }> {
+    const current = await this.getContactCardUi();
+    const next = { contactCardV2: body.contactCardV2 ?? current.contactCardV2 };
+    await this.prisma.systemSetting.upsert({
+      where: { id: CONTACT_CARD_UI_KEY },
+      create: { id: CONTACT_CARD_UI_KEY, value: next as Prisma.InputJsonValue },
       update: { value: next as Prisma.InputJsonValue },
     });
     return next;

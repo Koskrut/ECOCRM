@@ -142,4 +142,15 @@ export class SettingsController {
   ) {
     return this.settings.setOrgChartStructure(body);
   }
+
+  @Get("contact-card-ui")
+  getContactCardUi() {
+    return this.settings.getContactCardUi();
+  }
+
+  @Patch("contact-card-ui")
+  @Roles(UserRole.ADMIN)
+  setContactCardUi(@Body() body: { contactCardV2?: boolean }) {
+    return this.settings.setContactCardUi(body);
+  }
 }

@@ -11,6 +11,16 @@ export default function SettingsHomePage() {
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
+            href="/settings/contact-card-ui"
+            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+          >
+            <div className="text-sm font-semibold text-zinc-900">Contact card UI</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Runtime rollout for the v2 contact card shell and KPI strip
+            </div>
+          </Link>
+
+          <Link
             href="/settings/access"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >

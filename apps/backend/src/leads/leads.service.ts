@@ -531,12 +531,18 @@ export class LeadsService {
       }
     }
 
+    const orderIdForLink =
+      createDeal && deal && typeof deal === "object" && deal !== null && "id" in deal
+        ? String((deal as { id: string }).id)
+        : undefined;
+
     const updatedLead = await this.prisma.lead.update({
       where: { id },
       data: {
         contact: { connect: { id: contactId } },
         status: LeadStatusEnum.WON,
         lastActivityAt: new Date(),
+        ...(orderIdForLink ? { convertedOrder: { connect: { id: orderIdForLink } } } : {}),
       },
     });
 

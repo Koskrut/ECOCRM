@@ -52,28 +52,28 @@ function formatDuration(sec?: number): string | null {
 
 function directionLabel(direction?: string): { label: string; variant: "in" | "out" | "unknown" } {
   const d = (direction ?? "").toUpperCase();
-  if (d === "INBOUND") return { label: "Входящий", variant: "in" };
-  if (d === "OUTBOUND") return { label: "Исходящий", variant: "out" };
-  return { label: "Звонок", variant: "unknown" };
+  if (d === "INBOUND") return { label: "Вхідний", variant: "in" };
+  if (d === "OUTBOUND") return { label: "Вихідний", variant: "out" };
+  return { label: "Дзвінок", variant: "unknown" };
 }
 
 function statusLabel(status?: string): { label: string; variant: "ok" | "missed" | "other" } {
   const s = (status ?? "").toUpperCase();
-  if (!s) return { label: "Неизвестно", variant: "other" };
+  if (!s) return { label: "Невідомо", variant: "other" };
   if (s.includes("MISSED") || s === "NOANSWER" || s.includes("NO_ANSWER"))
-    return { label: "Пропущен", variant: "missed" };
-  if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Отвечен", variant: "ok" };
-  if (s === "BUSY") return { label: "Занято", variant: "other" };
-  if (s === "FAILED") return { label: "Ошибка", variant: "other" };
+    return { label: "Пропущений", variant: "missed" };
+  if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Відповіли", variant: "ok" };
+  if (s === "BUSY") return { label: "Зайнято", variant: "other" };
+  if (s === "FAILED") return { label: "Помилка", variant: "other" };
   return { label: s, variant: "other" };
 }
 
 function recordingLabel(status?: string): string {
   const s = (status ?? "").toUpperCase();
-  if (s === "READY") return "Готова";
-  if (s === "PENDING") return "Обрабатывается";
-  if (s === "FAILED") return "Ошибка";
-  if (!s) return "Нет записи";
+  if (s === "READY") return "Готово";
+  if (s === "PENDING") return "Обробляється";
+  if (s === "FAILED") return "Помилка";
+  if (!s) return "Немає запису";
   return s;
 }
 
@@ -136,7 +136,7 @@ export function CallCard({
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-zinc-900">
-              {item.title || "Звонок"}
+              {item.title || "Дзвінок"}
             </span>
             <span
               className={
@@ -167,12 +167,12 @@ export function CallCard({
             )}
             {hasRecording && (
               <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200">
-                С записью
+                Із записом
               </span>
             )}
             {hasBody && onToggle && !showDeleteConfirm && (
               <span className="text-xs text-zinc-500">
-                {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+                {isExpanded ? "▼ згорнути" : "▶ результат і коментарі"}
               </span>
             )}
             {hasActions && !showDeleteConfirm && (
@@ -254,14 +254,14 @@ export function CallCard({
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span>{occurredAt}</span>
             <span>·</span>
-            <span>by {item.createdByName ?? item.createdBy}</span>
+            <span>Автор: {item.createdByName ?? item.createdBy}</span>
           </div>
           )}
         </div>
 
         <div className="flex w-40 flex-col items-end gap-2">
           <span className="text-xs text-zinc-500">
-            Запись: {recordingLabel(call.recordingStatus)}
+            Запис: {recordingLabel(call.recordingStatus)}
           </span>
           {canPlay ? (
             <audio
@@ -275,7 +275,7 @@ export function CallCard({
               disabled
               className="w-full cursor-not-allowed rounded-md border border-dashed border-zinc-300 px-2 py-1 text-xs text-zinc-500"
             >
-              Нет доступной записи
+              Немає доступного запису
             </button>
           )}
         </div>
