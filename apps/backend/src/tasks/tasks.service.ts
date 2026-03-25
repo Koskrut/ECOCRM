@@ -7,7 +7,6 @@ import {
 import type { Prisma, TaskStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { ContactAccessService } from "../contacts/contact-access.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateTaskDto } from "./dto/create-task.dto";
 import type { ListTasksQueryDto } from "./dto/list-tasks-query.dto";
@@ -15,32 +14,12 @@ import type { UpdateTaskDto } from "./dto/update-task.dto";
 
 @Injectable()
 export class TasksService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly contactAccess: ContactAccessService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private async assertTaskAccess(
-    task: { assigneeId: string; createdById: string | null },
-    actor: AuthUser,
-  ): Promise<void> {
-    if (actor.role === UserRole.ADMIN) {
-      return;
+  private assertTaskAccess(task: { assigneeId: string }, actor: AuthUser): void {
+    if (actor.role === UserRole.MANAGER && task.assigneeId !== actor.id) {
+      throw new ForbiddenException("You can only access your own tasks");
     }
-    if (actor.role === UserRole.MANAGER) {
-      if (task.assigneeId !== actor.id && task.createdById !== actor.id) {
-        throw new ForbiddenException("You can only access your own tasks");
-      }
-      return;
-    }
-    if (actor.role === UserRole.LEAD) {
-      const team = await this.contactAccess.getTeamUserIds(actor.id);
-      if (!team.includes(task.assigneeId)) {
-        throw new ForbiddenException("You can only access tasks assigned to your team");
-      }
-      return;
-    }
-    throw new ForbiddenException("Insufficient permissions");
   }
 
   private async assertEntityAccess(
@@ -50,10 +29,12 @@ export class TasksService {
     if (opts.contactId) {
       const contact = await this.prisma.contact.findUnique({
         where: { id: opts.contactId },
-        select: { id: true, ownerId: true },
+        select: { ownerId: true },
       });
       if (!contact) throw new NotFoundException("Contact not found");
-      await this.contactAccess.assertCanViewContact(contact, actor);
+      if (actor.role === UserRole.MANAGER && contact.ownerId != null && contact.ownerId !== actor.id) {
+        throw new ForbiddenException("You can only create tasks for contacts assigned to you");
+      }
     }
     if (opts.leadId) {
       const lead = await this.prisma.lead.findUnique({
@@ -101,7 +82,6 @@ export class TasksService {
     const task = await this.prisma.task.create({
       data: {
         assigneeId,
-        createdById: actor.id,
         contactId,
         companyId,
         leadId,
@@ -120,14 +100,7 @@ export class TasksService {
     }
     const where: Prisma.TaskWhereInput = {};
     if (actor.role === UserRole.MANAGER) {
-      if (query.contactId) {
-        where.OR = [{ assigneeId: actor.id }, { createdById: actor.id }];
-      } else {
-        where.assigneeId = actor.id;
-      }
-    } else if (actor.role === UserRole.LEAD && query.contactId) {
-      const team = await this.contactAccess.getTeamUserIds(actor.id);
-      where.assigneeId = { in: team };
+      where.assigneeId = actor.id;
     } else if (query.assigneeId) {
       where.assigneeId = query.assigneeId;
     }
@@ -191,7 +164,7 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException("Task not found");
     }
-    await this.assertTaskAccess(task, actor);
+    this.assertTaskAccess(task, actor);
     return task;
   }
 
@@ -203,7 +176,7 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException("Task not found");
     }
-    await this.assertTaskAccess(task, actor);
+    this.assertTaskAccess(task, actor);
 
     const dueAt =
       body.dueAt !== undefined
@@ -231,7 +204,7 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException("Task not found");
     }
-    await this.assertTaskAccess(task, actor);
+    this.assertTaskAccess(task, actor);
     return this.prisma.task.update({
       where: { id },
       data: { status: "DONE", completedAt: new Date() },
@@ -246,7 +219,7 @@ export class TasksService {
     if (!task) {
       throw new NotFoundException("Task not found");
     }
-    await this.assertTaskAccess(task, actor);
+    this.assertTaskAccess(task, actor);
     return this.prisma.task.update({
       where: { id },
       data: { status: "CANCELED" },

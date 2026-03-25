@@ -181,21 +181,6 @@ export class ContactsController {
     return this.contactsService.deleteShippingProfile(id, profileId, req.user);
   }
 
-  @Get(":id/card")
-  async getCard(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.contactsService.getCard(id, req.user);
-  }
-
-  @Get(":id/timeline")
-  async getTimeline(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.contactsService.getTimeline(id, req.user);
-  }
-
-  @Get(":id/change-history")
-  async getChangeHistory(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.contactsService.getChangeHistory(id, req.user);
-  }
-
   @Get(":id")
   async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.contactsService.getById(id, req.user);

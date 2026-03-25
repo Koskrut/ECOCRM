@@ -8,8 +8,6 @@ export type CreateBankAccountDto = {
   accountNumber?: string;
   /** Код ФОП для 1С/таблицы. */
   externalCode?: string | null;
-  /** Код счета ФОП для 1С/таблицы. */
-  accountExternalCode?: string | null;
   /** Реквизиты для документов (счёт/РН). */
   documentRequisites?: Record<string, unknown> | null;
   credentials?: {

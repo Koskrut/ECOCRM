@@ -5,8 +5,6 @@ export type UpdateBankAccountDto = {
   iban?: string;
   /** Код ФОП для 1С/таблицы (напр. 000000123). */
   externalCode?: string | null;
-  /** Код счета ФОП для 1С/таблицы (напр. 000000456). */
-  accountExternalCode?: string | null;
   /** Реквизиты для счёта/РН: { legalName?, taxId?, address?, bankDetails? }. */
   documentRequisites?: Record<string, unknown> | null;
   credentials?: {

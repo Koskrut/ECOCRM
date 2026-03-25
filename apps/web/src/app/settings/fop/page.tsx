@@ -12,7 +12,6 @@ type BankAccount = {
   iban?: string | null;
   isActive: boolean;
   externalCode?: string | null;
-  accountExternalCode?: string | null;
   documentRequisites?: Record<string, unknown> | null;
   credentialsMasked?: {
     clientIdMasked?: string;
@@ -57,7 +56,6 @@ export default function FopSettingsPage() {
   const [addCurrency, setAddCurrency] = useState<"UAH" | "USD" | "EUR">("UAH");
   const [addIban, setAddIban] = useState("");
   const [addExternalCode, setAddExternalCode] = useState("");
-  const [addAccountExternalCode, setAddAccountExternalCode] = useState("");
   const [addClientId, setAddClientId] = useState("");
   const [addGroupId, setAddGroupId] = useState("");
   const [addToken, setAddToken] = useState("");
@@ -67,7 +65,6 @@ export default function FopSettingsPage() {
   const [editName, setEditName] = useState("");
   const [editIban, setEditIban] = useState("");
   const [editExternalCode, setEditExternalCode] = useState("");
-  const [editAccountExternalCode, setEditAccountExternalCode] = useState("");
   const [editReqLegalName, setEditReqLegalName] = useState("");
   const [editReqBankDetails, setEditReqBankDetails] = useState("");
   const [editReqIban, setEditReqIban] = useState("");
@@ -141,7 +138,6 @@ export default function FopSettingsPage() {
         currency: addCurrency,
         iban: addIban.trim() || undefined,
         externalCode: addExternalCode.trim() || undefined,
-        accountExternalCode: addAccountExternalCode.trim() || undefined,
         credentials: {
           clientId: addClientId.trim() || undefined,
           token: addToken.trim() || undefined,
@@ -153,7 +149,6 @@ export default function FopSettingsPage() {
       setAddCurrency("UAH");
       setAddIban("");
       setAddExternalCode("");
-      setAddAccountExternalCode("");
       setAddClientId("");
       setAddGroupId("");
       setAddToken("");
@@ -170,7 +165,6 @@ export default function FopSettingsPage() {
     setEditName(acc.name);
     setEditIban(acc.iban ?? "");
     setEditExternalCode(acc.externalCode ?? "");
-    setEditAccountExternalCode(acc.accountExternalCode ?? "");
     const req = (acc.documentRequisites ?? {}) as Record<string, unknown>;
     setEditReqLegalName(String(req.legalName ?? ""));
     setEditReqBankDetails(String(req.bankDetails ?? ""));
@@ -239,14 +233,12 @@ export default function FopSettingsPage() {
         name: string;
         iban?: string;
         externalCode?: string | null;
-        accountExternalCode?: string | null;
         documentRequisites?: Record<string, unknown> | null;
         credentials?: { clientId?: string; token?: string; id?: string };
       } = {
         name: editName.trim(),
         iban: editIban.trim() || undefined,
         externalCode: editExternalCode.trim() || null,
-        accountExternalCode: editAccountExternalCode.trim() || null,
       };
       const req: Record<string, string> = {};
       if (editReqLegalName.trim()) req.legalName = editReqLegalName.trim();
@@ -413,11 +405,6 @@ export default function FopSettingsPage() {
                     {acc.externalCode && (
                       <div className="mt-0.5 text-xs text-zinc-600">Код 1С: {acc.externalCode}</div>
                     )}
-                    {acc.accountExternalCode && (
-                      <div className="mt-0.5 text-xs text-zinc-600">
-                        Код счета (1С): {acc.accountExternalCode}
-                      </div>
-                    )}
                     <div className="mt-0.5 text-xs text-zinc-600">
                       Доступ:{" "}
                       {(visibilityMap[acc.id] ?? []).length > 0
@@ -521,19 +508,6 @@ export default function FopSettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-zinc-600">Код счета (1С)</label>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Код счета ФОП для інтеграції з таблицею / 1С (напр. 000000456).
-                  </p>
-                  <input
-                    type="text"
-                    value={addAccountExternalCode}
-                    onChange={(e) => setAddAccountExternalCode(e.target.value)}
-                    placeholder="000000456"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div>
                   <label className="block text-xs font-medium text-zinc-600">App ID</label>
                   <p className="mt-0.5 text-xs text-zinc-500">
                     ID додатку з кнопки «ID i Token» (може бути UUID).
@@ -632,16 +606,6 @@ export default function FopSettingsPage() {
                     value={editExternalCode}
                     onChange={(e) => setEditExternalCode(e.target.value)}
                     placeholder="000000123"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Код счета (1С)</label>
-                  <input
-                    type="text"
-                    value={editAccountExternalCode}
-                    onChange={(e) => setEditAccountExternalCode(e.target.value)}
-                    placeholder="000000456"
                     className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </div>
