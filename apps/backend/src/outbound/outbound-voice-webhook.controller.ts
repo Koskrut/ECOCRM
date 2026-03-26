@@ -7,7 +7,7 @@ import {
   Post,
 } from "@nestjs/common";
 import { Public } from "../auth/public.decorator";
-import type { OutboundVoiceWebhookDto } from "./dto/outbound-voice-webhook.dto";
+import { OutboundVoiceWebhookDto } from "./dto/outbound-voice-webhook.dto";
 import { OutboundVoiceWebhookService } from "./outbound-voice-webhook.service";
 
 const WEBHOOK_SECRET_HEADER = "x-outbound-voice-secret";

@@ -17,6 +17,8 @@ import { StoreCatalogController } from "./catalog/store-catalog.controller";
 import { StoreCheckoutController } from "./checkout/store-checkout.controller";
 import { StoreCheckoutPaymentLinkService } from "./checkout/store-checkout-payment-link.service";
 import { StoreCheckoutService } from "./checkout/store-checkout.service";
+import { StoreLeadsController } from "./leads/store-leads.controller";
+import { StoreLeadsService } from "./leads/store-leads.service";
 import { StoreNpController } from "./np/store-np.controller";
 import { StoreConfigController } from "./store-config.controller";
 import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service";
@@ -38,6 +40,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreCatalogController,
     StoreCartController,
     StoreCheckoutController,
+    StoreLeadsController,
     StoreCabinetController,
     StoreCustomerController,
     StoreNpController,
@@ -46,6 +49,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreCartService,
     StoreCheckoutService,
     StoreCheckoutPaymentLinkService,
+    StoreLeadsService,
     StoreCabinetService,
     StoreTelegramLinkService,
   ],
