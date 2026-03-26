@@ -1,0 +1,111 @@
+"use client";
+
+import { useState } from "react";
+import {
+  AnalyticsErrorPanel,
+  AnalyticsFiltersBar,
+  AnalyticsOverviewSkeleton,
+  SimpleTable,
+  formatMoneyUsd,
+  formatMoneyUsdFine,
+  formatNumber,
+  useAnalyticsFetch,
+  useAnalyticsFilters,
+} from "../analytics-ui";
+
+type ManagerRow = {
+  id: string;
+  name: string;
+  bookedRevenue: number;
+  collectedPayments: number;
+  ordersCount: number;
+  avgCheck: number;
+  overdueTasks: number;
+};
+
+type ManagersResponse = {
+  managers: ManagerRow[];
+};
+
+export default function AnalyticsManagersPage() {
+  const filters = useAnalyticsFilters();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { data, loading, error } = useAnalyticsFetch<ManagersResponse>("managers", filters.querySuffix, refreshKey);
+  const rows = data?.managers ?? [];
+
+  const filtersBar = (
+    <AnalyticsFiltersBar
+      dateFrom={filters.dateFrom}
+      dateTo={filters.dateTo}
+      managerId={filters.managerId}
+      managers={filters.managers}
+      rangePreset={filters.rangePreset}
+      comparePrev={filters.comparePrev}
+      onDateFromChange={filters.setDateFrom}
+      onDateToChange={filters.setDateTo}
+      onManagerIdChange={filters.setManagerId}
+      onRangePresetChange={filters.setRangePreset}
+      onComparePrevChange={filters.setComparePrev}
+    />
+  );
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        {filtersBar}
+        <AnalyticsOverviewSkeleton />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-4">
+        {filtersBar}
+        <AnalyticsErrorPanel message={error} onRetry={() => setRefreshKey((k) => k + 1)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-4">
+      {filtersBar}
+      <section className="min-w-0">
+        <h2 className="text-lg font-semibold text-zinc-900">Менеджери</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Booked / collected / orders — за період (як на Sales). Overdue tasks — операційний знімок по виконавцю.
+          Прапорець compare в URL не змінює цей endpoint (немає compare у API).
+        </p>
+        <div className="mt-4 min-w-0 overflow-x-auto">
+          <SimpleTable
+            rows={rows}
+            columns={[
+              { key: "name", title: "Менеджер", render: (row) => row.name },
+              {
+                key: "bookedRevenue",
+                title: "Booked revenue",
+                render: (row) => formatMoneyUsd(row.bookedRevenue),
+              },
+              {
+                key: "collectedPayments",
+                title: "Collected payments",
+                render: (row) => formatMoneyUsd(row.collectedPayments),
+              },
+              { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
+              {
+                key: "avgCheck",
+                title: "Avg check",
+                render: (row) => formatMoneyUsdFine(row.avgCheck),
+              },
+              {
+                key: "overdueTasks",
+                title: "Overdue tasks (snapshot)",
+                render: (row) => formatNumber(row.overdueTasks),
+              },
+            ]}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}

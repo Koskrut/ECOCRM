@@ -38,6 +38,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Companies", icon: Building2, href: "/companies" },
   { label: "Contacts", icon: Users, href: "/contacts" },
   { label: "Tasks", icon: ListTodo, href: "/tasks" },
+  { label: "Прозвін", icon: PhoneCall, href: "/work/calls" },
   { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
   { label: strings.nav.planning, icon: BarChart3, href: "/planning" },
