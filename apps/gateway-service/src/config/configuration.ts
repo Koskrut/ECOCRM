@@ -16,6 +16,19 @@ export interface AppConfig {
   openaiRealtimeVoice: string;
   kyivstarApiBaseUrl: string;
   kyivstarApiToken: string;
+  kyivstarSipRealm: string;
+  kyivstarSipUser: string;
+  kyivstarSipPassword: string;
+  kyivstarSipProxy: string;
+  rtpBindAddress: string;
+  rtpPortStart: number;
+  rtpPortEnd: number;
+  openaiRealtimeWsUrl: string;
+  openaiRealtimeSampleRateHz: number;
+  callMaxDurationSec: number;
+  callMaxTurns: number;
+  realModeEnabled: boolean;
+  realModePercent: number;
 }
 
 function req(name: string, fallback?: string): string {
@@ -55,7 +68,20 @@ export function loadConfiguration(): AppConfig {
     openaiApiKey: opt("OPENAI_API_KEY", ""),
     openaiRealtimeModel: opt("OPENAI_REALTIME_MODEL", "gpt-4o-realtime-preview"),
     openaiRealtimeVoice: opt("OPENAI_REALTIME_VOICE", "alloy"),
+    openaiRealtimeWsUrl: opt("OPENAI_REALTIME_WS_URL", "wss://api.openai.com/v1/realtime"),
+    openaiRealtimeSampleRateHz: optInt("OPENAI_REALTIME_SAMPLE_RATE_HZ", 16_000),
     kyivstarApiBaseUrl: opt("KYIVSTAR_API_BASE_URL", ""),
     kyivstarApiToken: opt("KYIVSTAR_API_TOKEN", ""),
+    kyivstarSipRealm: opt("KYIVSTAR_SIP_REALM", ""),
+    kyivstarSipUser: opt("KYIVSTAR_SIP_USER", ""),
+    kyivstarSipPassword: opt("KYIVSTAR_SIP_PASSWORD", ""),
+    kyivstarSipProxy: opt("KYIVSTAR_SIP_PROXY", ""),
+    rtpBindAddress: opt("RTP_BIND_ADDRESS", "0.0.0.0"),
+    rtpPortStart: optInt("RTP_PORT_START", 30_000),
+    rtpPortEnd: optInt("RTP_PORT_END", 30_999),
+    callMaxDurationSec: optInt("CALL_MAX_DURATION_SEC", 180),
+    callMaxTurns: optInt("CALL_MAX_TURNS", 6),
+    realModeEnabled: opt("REAL_MODE_ENABLED", "false").toLowerCase() === "true",
+    realModePercent: Math.max(0, Math.min(100, optInt("REAL_MODE_PERCENT", 0))),
   };
 }

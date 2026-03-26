@@ -48,18 +48,16 @@ export class OutboundCallsController {
       context: { ...normalized.context, crmContext: normalized.crmContext },
     });
 
-    this.registry.transition(session.externalSessionId, "starting", "orchestrator_start");
-
     const res: CreateOutboundCallResponse = {
       accepted: true,
       provider: providerLabel,
       externalSessionId: session.externalSessionId,
       providerSessionId: session.providerSessionId,
-      status: "starting",
+      status: "queued",
       session_id: session.externalSessionId,
     };
 
-    this.orchestrator.enqueueMockFlow(this.registry.get(session.externalSessionId)!);
+    this.orchestrator.enqueueFlow(this.registry.get(session.externalSessionId)!);
     return res;
   }
 }

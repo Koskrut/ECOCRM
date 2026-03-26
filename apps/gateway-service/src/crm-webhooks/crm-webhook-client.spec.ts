@@ -23,8 +23,21 @@ const baseConfig: AppConfig = {
   openaiApiKey: "",
   openaiRealtimeModel: "",
   openaiRealtimeVoice: "",
+  openaiRealtimeWsUrl: "",
+  openaiRealtimeSampleRateHz: 16000,
   kyivstarApiBaseUrl: "",
   kyivstarApiToken: "",
+  kyivstarSipRealm: "",
+  kyivstarSipUser: "",
+  kyivstarSipPassword: "",
+  kyivstarSipProxy: "",
+  rtpBindAddress: "0.0.0.0",
+  rtpPortStart: 30000,
+  rtpPortEnd: 30999,
+  callMaxDurationSec: 180,
+  callMaxTurns: 6,
+  realModeEnabled: false,
+  realModePercent: 0,
 };
 
 function session(over?: Partial<SessionEntity>): SessionEntity {

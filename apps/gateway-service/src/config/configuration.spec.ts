@@ -1,0 +1,30 @@
+import { afterEach, describe, it } from "node:test";
+import assert from "node:assert";
+import { loadConfiguration } from "./configuration";
+
+describe("loadConfiguration real-mode fields", () => {
+  const snapshot = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...snapshot };
+  });
+
+  it("reads rollout and transport fields", () => {
+    process.env.GATEWAY_API_TOKEN = "token";
+    process.env.CRM_WEBHOOK_SECRET = "secret";
+    process.env.GATEWAY_PROVIDER_MODE = "kyivstar_openai";
+    process.env.REAL_MODE_ENABLED = "true";
+    process.env.REAL_MODE_PERCENT = "25";
+    process.env.RTP_PORT_START = "31000";
+    process.env.RTP_PORT_END = "31999";
+    process.env.OPENAI_REALTIME_WS_URL = "wss://example.openai.test/realtime";
+
+    const cfg = loadConfiguration();
+    assert.strictEqual(cfg.gatewayProviderMode, "kyivstar_openai");
+    assert.strictEqual(cfg.realModeEnabled, true);
+    assert.strictEqual(cfg.realModePercent, 25);
+    assert.strictEqual(cfg.rtpPortStart, 31000);
+    assert.strictEqual(cfg.rtpPortEnd, 31999);
+    assert.strictEqual(cfg.openaiRealtimeWsUrl, "wss://example.openai.test/realtime");
+  });
+});

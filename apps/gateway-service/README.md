@@ -1,14 +1,14 @@
 # gateway-service
 
-Outbound AI call gateway for CRM: accepts `POST /v1/outbound/calls`, runs a **mock** telephony + AI lifecycle (MVP), and POSTs `attempt.*` webhooks back to the CRM. **CRM code is not part of this package** — configure the CRM integration to point at this service.
+Outbound AI call gateway for CRM: accepts `POST /v1/outbound/calls`, runs either **mock** lifecycle or **real-mode integration path** (`kyivstar_openai` + rollout gate), and POSTs `attempt.*` webhooks back to the CRM. **CRM code is not part of this package** — configure the CRM integration to point at this service.
 
 ## Purpose
 
 - Hold **gateway session** state (`externalSessionId` is canonical).
 - Emit **CRM-compatible** realtime webhook payloads (see `crm-webhooks/crm-webhook-mapper.ts`).
-- Provide **honest stubs** for future Kyivstar telephony / OpenAI Realtime — **not production transport**.
+- Provide integration points for Kyivstar call-control and OpenAI Realtime WS with explicit rollout gates.
 
-## What works now (mock mode)
+## What works now
 
 - Bearer auth (`GATEWAY_API_TOKEN` = CRM `apiToken`).
 - Create-call response includes **`session_id`** (same as `externalSessionId`) for CRM `responseSessionIdKeys`.
@@ -16,11 +16,13 @@ Outbound AI call gateway for CRM: accepts `POST /v1/outbound/calls`, runs a **mo
 - Webhook delivery with retries, **delivery log** (in-memory).
 - Debug: `GET /v1/sessions/:id`, `GET /v1/sessions/:id/events`, `GET /v1/mock/scenarios` (Bearer).
 - `GET /health` — no auth.
+- Real-mode orchestration path exists (`runRealLifecycle`) with provider selection, call-state mapping, and media-bridge integration points.
 
-## What is stub / integration point
+## What is still integration-point / partial
 
-- **`KyivstarTelephonyProvider`**, **`OpenAiRealtimeVoiceProvider`** — throw / not wired; real SIP/media or Realtime sessions are **out of scope** for this MVP.
-- **`GATEWAY_PROVIDER_MODE=kyivstar_openai`** — label only; lifecycle still uses **mock** providers until real transport is implemented.
+- **RTP packet plumbing and codec conversion** in media bridge remains environment-specific.
+- Kyivstar provider currently uses synthetic state emission unless real trunk credentials/integration endpoint are wired.
+- OpenAI provider uses WS contract and requires live key/model; audio semantics depend on deployed transport and session policy.
 
 ## Environment (overview)
 
@@ -31,7 +33,8 @@ Copy `.env.example` to `.env`. Required for normal run:
 | `GATEWAY_API_TOKEN` | Bearer secret (same as CRM IntegrationSetting `apiToken`) |
 | `CRM_WEBHOOK_SECRET` | Value for `x-outbound-voice-secret` (same as CRM webhook secret) |
 | `LOG_LEVEL` | `error` \| `warn` \| `log` \| `info` \| `debug` \| `verbose` — wired to Nest logger |
-| `GATEWAY_PROVIDER_MODE` | `mock` (default) or `kyivstar_openai` (label) |
+| `GATEWAY_PROVIDER_MODE` | `mock` (default) or `kyivstar_openai` |
+| `REAL_MODE_ENABLED` / `REAL_MODE_PERCENT` | gradual rollout gate for real path |
 | Webhook retry vars | `CRM_WEBHOOK_*` — see `.env.example` |
 
 ## Mock outcome
@@ -77,7 +80,7 @@ Content-Type: application/json
   "provider": "mock",
   "externalSessionId": "<uuid>",
   "providerSessionId": null,
-  "status": "starting",
+  "status": "queued",
   "session_id": "<same as externalSessionId>"
 }
 ```

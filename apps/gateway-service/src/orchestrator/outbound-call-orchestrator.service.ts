@@ -20,9 +20,13 @@ export class OutboundCallOrchestratorService {
     return this.config.gatewayProviderMode === "kyivstar_openai" ? "kyivstar_openai" : "mock";
   }
 
-  enqueueMockFlow(session: SessionEntity, fetchImpl?: typeof fetch): void {
+  enqueueFlow(session: SessionEntity, fetchImpl?: typeof fetch): void {
     setImmediate(() => {
-      this.lifecycle.runMockLifecycle(session, fetchImpl).catch((e) => {
+      const runReal = this.shouldRunRealForSession(session);
+      const run = runReal
+        ? this.lifecycle.runRealLifecycle(session, fetchImpl)
+        : this.lifecycle.runMockLifecycle(session, fetchImpl);
+      run.catch((e) => {
         this.log.error("Lifecycle failed", {
           externalSessionId: session.externalSessionId,
           attemptId: session.attemptId,
@@ -32,4 +36,20 @@ export class OutboundCallOrchestratorService {
       });
     });
   }
+
+  private shouldRunRealForSession(session: SessionEntity): boolean {
+    if (this.config.gatewayProviderMode !== "kyivstar_openai") return false;
+    if (!this.config.realModeEnabled) return false;
+    if (this.config.realModePercent >= 100) return true;
+    const hash = simpleHash(`${session.attemptId}:${session.externalSessionId}`) % 100;
+    return hash < this.config.realModePercent;
+  }
+}
+
+function simpleHash(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i++) {
+    h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return h;
 }

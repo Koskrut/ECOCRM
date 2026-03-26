@@ -4,9 +4,10 @@ import { CommonNestModule } from "./common/common.module";
 import { StorageModule } from "./storage/storage.module";
 import { ApiModule } from "./api/api.module";
 import { HealthController } from "./health/health.controller";
+import { MediaModule } from "./media/media.module";
 
 @Module({
-  imports: [ConfigModule, CommonNestModule, StorageModule, ApiModule],
+  imports: [ConfigModule, CommonNestModule, StorageModule, MediaModule, ApiModule],
   controllers: [HealthController],
 })
 export class AppModule {}
