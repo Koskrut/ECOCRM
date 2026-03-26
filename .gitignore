@@ -32,6 +32,7 @@ crm_dump.sql
 *.swo
 *~
 package-lock.json
+apps/web/test-results/
 
 # local env
 apps/backend/dev.db

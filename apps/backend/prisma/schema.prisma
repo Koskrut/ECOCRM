@@ -11,18 +11,15 @@ datasource db {
 // --- ENUMS ---
 
 enum OrderStatus {
-  NEW               // создан, не утвержден
-  IN_WORK           // утвержден + есть ТТН (или начат в работе)
-  READY_TO_SHIP     // собран, готов к отправке
-  SHIPPED           // в пути / принято / едет
-  CONTROL_PAYMENT   // получено, но есть долг
-  SUCCESS           // получено и долг=0
-  RETURNING         // возврат / отказ / не вручено
-  CANCELED          // отмена
+  NEW // создан, не утвержден
+  IN_WORK // утвержден + есть ТТН (или начат в работе)
+  READY_TO_SHIP // собран, готов к отправке
+  SHIPPED // в пути / принято / едет
+  CONTROL_PAYMENT // получено, но есть долг
+  SUCCESS // получено и долг=0
+  RETURNING // возврат / отказ / не вручено
+  CANCELED // отмена
 }
-
-
-
 
 enum DeliveryMethod {
   PICKUP
@@ -36,7 +33,7 @@ enum PaymentMethod {
 
 enum PaymentType {
   PREPAYMENT // предоплата
-  DEFERRED   // отсрочка
+  DEFERRED // отсрочка
 }
 
 enum UserRole {
@@ -73,6 +70,10 @@ enum ActivityType {
   COMMENT
   CALL
   MEETING
+  /**
+   * Ручний прозвон з Call Workspace (факт — у ManualCallSession).
+   */
+  MANUAL_CALL
 }
 
 enum VisitStatus {
@@ -169,7 +170,9 @@ enum OrderPaymentStatus {
   OVERPAID
 }
 
-/** Запит на оплату за реквізитами (посилання для клієнта); не плутати з Payment (факт оплати). */
+/**
+ * Запит на оплату за реквізитами (посилання для клієнта); не плутати з Payment (факт оплати).
+ */
 enum PaymentRequestStatus {
   PENDING
   PAID
@@ -217,6 +220,36 @@ enum OutboundAttemptStatus {
   FAILED
   NO_ANSWER
   CANCELED
+}
+
+/**
+ * Очередь ручного прозвону (per-user), окремо від AI OutboundCallAttempt.
+ */
+enum CallQueueItemStatus {
+  PENDING
+  CLAIMED
+  SKIPPED
+  DONE
+  CANCELLED
+}
+
+enum ManualCallSessionStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+enum ManualCallOutcome {
+  NO_ANSWER
+  BUSY
+  WRONG_NUMBER
+  GATEKEEPER
+  NOT_INTERESTED
+  INTERESTED
+  REQUESTED_OFFER
+  REQUESTED_CALLBACK
+  MEETING_SCHEDULED
+  CONVERTED
 }
 
 // --- New order model (Phase 1): separate axes ---
@@ -316,28 +349,32 @@ enum PlanningItemType {
 // --- MODELS ---
 
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  fullName        String
-  passwordHash    String
-  role            UserRole @default(MANAGER)
-  telegramUserId  String?  @unique
-  telegramChatId  String?  @unique
-  legacySource    String?
-  legacyId        Int?
-  legacyRaw       Json?
-  syncedAt        DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(cuid())
+  email          String    @unique
+  fullName       String
+  passwordHash   String
+  role           UserRole  @default(MANAGER)
+  telegramUserId String?   @unique
+  telegramChatId String?   @unique
+  legacySource   String?
+  legacyId       Int?
+  legacyRaw      Json?
+  syncedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  /** Руководитель (для LEAD-иерархии и фильтрации визитов). */
-  leadId          String?
-  lead            User?    @relation("UserHierarchy", fields: [leadId], references: [id], onDelete: SetNull)
-  teamMembers     User[]   @relation("UserHierarchy")
+  /**
+   * Руководитель (для LEAD-иерархии и фильтрации визитов).
+   */
+  leadId      String?
+  lead        User?   @relation("UserHierarchy", fields: [leadId], references: [id], onDelete: SetNull)
+  teamMembers User[]  @relation("UserHierarchy")
 
-  tasksCreated    Task[]   @relation("TaskCreatedBy")
+  tasksCreated Task[] @relation("TaskCreatedBy")
 
-  /** Начало/конец дневного маршрута визитов (якоря для Google Maps). */
+  /**
+   * Начало/конец дневного маршрута визитов (якоря для Google Maps).
+   */
   routeStartLat   Float?
   routeStartLng   Float?
   routeEndLat     Float?
@@ -345,20 +382,22 @@ model User {
   routeStartLabel String?
   routeEndLabel   String?
 
-  contacts     Contact[]
-  leads        Lead[]
-  orders       Order[]
-  payments     Payment[]
-  paymentRequestsCreated PaymentRequest[] @relation("PaymentRequestCreatedBy")
-  visits       Visit[]
-  routePlans   RoutePlan[]
-  routeSessions RouteSession[]
-  assignedConversations Conversation[]
-  outboundMessages      Message[]
-  tasks        Task[]
-  companies    Company[]
+  contacts                   Contact[]
+  leads                      Lead[]
+  orders                     Order[]
+  payments                   Payment[]
+  paymentRequestsCreated     PaymentRequest[]    @relation("PaymentRequestCreatedBy")
+  visits                     Visit[]
+  routePlans                 RoutePlan[]
+  routeSessions              RouteSession[]
+  assignedConversations      Conversation[]
+  outboundMessages           Message[]
+  tasks                      Task[]
+  companies                  Company[]
   importedInventorySnapshots InventorySnapshot[] @relation("InventorySnapshotImportedBy")
   postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
+  callQueueItems             CallQueueItem[]
+  manualCallSessions         ManualCallSession[]
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -388,32 +427,34 @@ model UserTelegramLinkToken {
 }
 
 model Company {
-  id             String    @id @default(cuid())
-  name           String
-  edrpou         String?
-  taxId          String?
-  phone          String?
-  address        String?
-  lat            Float?
-  lng            Float?
-  googlePlaceId  String?
-  legacySource   String?
-  legacyId       Int?
-  legacyRaw      Json?
-  syncedAt       DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  ownerId        String?
+  id            String    @id @default(cuid())
+  name          String
+  edrpou        String?
+  taxId         String?
+  phone         String?
+  address       String?
+  lat           Float?
+  lng           Float?
+  googlePlaceId String?
+  legacySource  String?
+  legacyId      Int?
+  legacyRaw     Json?
+  syncedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  ownerId       String?
 
-  owner        User?     @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  contacts     Contact[]
-  orders       Order[]
-  activities   Activity[]
-  leads        Lead[]
-  payments     Payment[]
-  visits       Visit[]
-  tasks        Task[]
-  changeHistory CompanyChangeHistory[]
+  owner              User?                  @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  contacts           Contact[]
+  orders             Order[]
+  activities         Activity[]
+  leads              Lead[]
+  payments           Payment[]
+  visits             Visit[]
+  tasks              Task[]
+  changeHistory      CompanyChangeHistory[]
+  callQueueItems     CallQueueItem[]
+  manualCallSessions ManualCallSession[]
 
   @@unique([legacySource, legacyId])
   @@index([ownerId])
@@ -423,8 +464,8 @@ model CompanyChangeHistory {
   id        String   @id @default(cuid())
   companyId String
   changedBy String?
-  action    String   // CREATED | UPDATED
-  payload   Json?    // e.g. [{ "field": "name", "oldValue": "x", "newValue": "y" }]
+  action    String // CREATED | UPDATED
+  payload   Json? // e.g. [{ "field": "name", "oldValue": "x", "newValue": "y" }]
   createdAt DateTime @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -434,43 +475,59 @@ model CompanyChangeHistory {
 }
 
 model Contact {
-  id        String   @id @default(cuid())
-  ownerId   String?
-  companyId String?
-  firstName String
-  lastName  String
-  middleName String?
-  phone     String
-  phoneNormalized String?  // цифры телефона для проверки уникальности по всей базе
-  email     String?
-  position  String?
-  address   String?
-  lat       Float?
-  lng       Float?
-  googlePlaceId String?
-  isPrimary Boolean  @default(false)
-  /** Код 1С (импорт из Bitrix UF_CRM_1772007718612). */
-  externalCode String?
-  /** Как выводить на документ (счёт/РН): напр. «ФОП Петров Петр» при контакте Иванов Иван. */
+  id                  String    @id @default(cuid())
+  ownerId             String?
+  companyId           String?
+  firstName           String
+  lastName            String
+  middleName          String?
+  phone               String
+  phoneNormalized     String? // цифры телефона для проверки уникальности по всей базе
+  email               String?
+  position            String?
+  address             String?
+  lat                 Float?
+  lng                 Float?
+  googlePlaceId       String?
+  isPrimary           Boolean   @default(false)
+  /**
+   * Код 1С (импорт из Bitrix UF_CRM_1772007718612).
+   */
+  externalCode        String?
+  /**
+   * Как выводить на документ (счёт/РН): напр. «ФОП Петров Петр» при контакте Иванов Иван.
+   */
   documentDisplayName String?
-  /** Область (Bitrix UF_CRM_1753079162490; fallback UF_CRM_1753079192866). */
-  region String?
-  /** Адрес (инфо) — строка из Bitrix ADDRESS. */
-  addressInfo String?
-  /** Город (Bitrix UF_CRM_1753079682882). */
-  city String?
-  /** Тип клиента: врач/техник (Bitrix UF_CRM_1756361960817). */
-  clientType String?
-  /** Статус клієнта (Bitrix UF_CRM_1755068668186). */
-  status String?
-  /** Відмова від маркетингових/AI дзвінків (outbound compliance). */
-  marketingCallOptOut Boolean @default(false)
-  legacySource String?
-  legacyId   Int?
-  legacyRaw  Json?
-  syncedAt  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /**
+   * Область (Bitrix UF_CRM_1753079162490; fallback UF_CRM_1753079192866).
+   */
+  region              String?
+  /**
+   * Адрес (инфо) — строка из Bitrix ADDRESS.
+   */
+  addressInfo         String?
+  /**
+   * Город (Bitrix UF_CRM_1753079682882).
+   */
+  city                String?
+  /**
+   * Тип клиента: врач/техник (Bitrix UF_CRM_1756361960817).
+   */
+  clientType          String?
+  /**
+   * Статус клієнта (Bitrix UF_CRM_1755068668186).
+   */
+  status              String?
+  /**
+   * Відмова від маркетингових/AI дзвінків (outbound compliance).
+   */
+  marketingCallOptOut Boolean   @default(false)
+  legacySource        String?
+  legacyId            Int?
+  legacyRaw           Json?
+  syncedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   owner   User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -483,24 +540,26 @@ model Contact {
 
   // профили доставки НП (несколько на контакт)
   shippingProfiles ContactShippingProfile[]
-  phones          ContactPhone[]
+  phones           ContactPhone[]
 
-  activities Activity[]
-  leads      Lead[]
-  payments   Payment[]
-  visits     Visit[]
-  telegramAccounts TelegramAccount[]
-  conversations    Conversation[]
-  tasks            Task[]
-  customer         Customer?
+  activities           Activity[]
+  leads                Lead[]
+  payments             Payment[]
+  visits               Visit[]
+  telegramAccounts     TelegramAccount[]
+  conversations        Conversation[]
+  tasks                Task[]
+  customer             Customer?
   outboundCallAttempts OutboundCallAttempt[]
-  shipments         Shipment[]
-  changeHistory     ContactChangeHistory[]
+  shipments            Shipment[]
+  changeHistory        ContactChangeHistory[]
+  callQueueItems       CallQueueItem[]
+  manualCallSessions   ManualCallSession[]
 
-  @@index([companyId])
-  @@index([ownerId])
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
+  @@index([companyId])
+  @@index([ownerId])
 }
 
 model ContactChangeHistory {
@@ -518,16 +577,16 @@ model ContactChangeHistory {
 }
 
 model Customer {
-  id           String    @id @default(cuid())
-  contactId    String    @unique
+  id           String   @id @default(cuid())
+  contactId    String   @unique
   email        String?
   passwordHash String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  contact                   Contact                   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  carts                     Cart[]
-  storePasswordResetCodes    StorePasswordResetCode[]
+  contact                 Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  carts                   Cart[]
+  storePasswordResetCodes StorePasswordResetCode[]
 
   @@index([contactId])
 }
@@ -562,24 +621,26 @@ model Visit {
   endsAt         DateTime?
   durationMin    Int            @default(60)
   note           String?
-  /** Цель встречи (при постановке в план). */
+  /**
+   * Цель встречи (при постановке в план).
+   */
   purpose        String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
   startedAt      DateTime?
-  completedAt   DateTime?
+  completedAt    DateTime?
   outcome        VisitOutcome?
   resultNote     String?
   nextActionAt   DateTime?
   nextActionNote String?
-  activityId     String?        @unique // timeline activity: "план" → updated to result when completed
+  activityId     String?       @unique // timeline activity: "план" → updated to result when completed
 
-  company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  activity  Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
-  routeStops RouteStop[]
+  company                Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact                Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner                  User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  activity               Activity?      @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  routeStops             RouteStop[]
   routeSessionsAsCurrent RouteSession[]
 
   @@index([ownerId, status])
@@ -589,11 +650,11 @@ model Visit {
 }
 
 model RoutePlan {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   ownerId   String
   date      DateTime
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   stops         RouteStop[]
@@ -615,16 +676,16 @@ model RouteSession {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  owner         User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  routePlan     RoutePlan? @relation(fields: [routePlanId], references: [id], onDelete: SetNull)
-  currentVisit  Visit?     @relation(fields: [currentVisitId], references: [id], onDelete: SetNull)
+  owner        User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  routePlan    RoutePlan? @relation(fields: [routePlanId], references: [id], onDelete: SetNull)
+  currentVisit Visit?     @relation(fields: [currentVisitId], references: [id], onDelete: SetNull)
 
   @@unique([ownerId, date])
   @@index([date])
 }
 
 model RouteStop {
-  id          String    @id @default(cuid())
+  id          String @id @default(cuid())
   routePlanId String
   visitId     String
   position    Int
@@ -638,61 +699,65 @@ model RouteStop {
 }
 
 model Lead {
-  id             String       @id @default(cuid())
-  companyId      String
-  ownerId        String?
-  contactId      String?
-  status         LeadStatus   @default(NEW)
-  source         LeadSource   @default(OTHER)
-  channel        LeadChannel?
-  name           String?
-  firstName      String?
-  lastName       String?
-  middleName     String?
-  fullName       String?
-  phone          String?
-  phoneNormalized String?
-  email          String?
-  companyName    String?
-  city           String?
-  message        String?
-  comment        String?
-  statusReason   String?
-  sourceMeta     Json?
-  score          Int          @default(0)
-  lastActivityAt DateTime?
-  /** Set when lead is converted to an order — enables exact conversion analytics */
-  convertedOrderId String?   @unique
-  legacySource   String?
-  legacyId       Int?
-  legacyRaw      Json?
-  syncedAt       DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  companyId        String
+  ownerId          String?
+  contactId        String?
+  status           LeadStatus   @default(NEW)
+  source           LeadSource   @default(OTHER)
+  channel          LeadChannel?
+  name             String?
+  firstName        String?
+  lastName         String?
+  middleName       String?
+  fullName         String?
+  phone            String?
+  phoneNormalized  String?
+  email            String?
+  companyName      String?
+  city             String?
+  message          String?
+  comment          String?
+  statusReason     String?
+  sourceMeta       Json?
+  score            Int          @default(0)
+  lastActivityAt   DateTime?
+  /**
+   * Set when lead is converted to an order — enables exact conversion analytics
+   */
+  convertedOrderId String?      @unique
+  legacySource     String?
+  legacyId         Int?
+  legacyRaw        Json?
+  syncedAt         DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  convertedOrder Order? @relation(fields: [convertedOrderId], references: [id], onDelete: SetNull)
-  contact     Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  owner       User?                 @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items       LeadItem[]
-  attribution LeadMetaAttribution?
-  answers     LeadAnswer[]
-  events      LeadEvent[]
-  identities  LeadIdentity[]
-  telegramAccounts TelegramAccount[]
-  conversations    Conversation[]
-  tasks            Task[]
-  activities       Activity[]
+  convertedOrder       Order?                @relation(fields: [convertedOrderId], references: [id], onDelete: SetNull)
+  contact              Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  owner                User?                 @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items                LeadItem[]
+  attribution          LeadMetaAttribution?
+  answers              LeadAnswer[]
+  events               LeadEvent[]
+  identities           LeadIdentity[]
+  telegramAccounts     TelegramAccount[]
+  conversations        Conversation[]
+  tasks                Task[]
+  activities           Activity[]
   outboundCallAttempts OutboundCallAttempt[]
   materialReservations MaterialReservation[]
+  callQueueItems       CallQueueItem[]
+  manualCallSessions   ManualCallSession[]
 
+  @@unique([legacySource, legacyId])
   @@index([companyId, status])
   @@index([companyId, source])
   @@index([phone])
   @@index([phoneNormalized])
   @@index([email])
   @@index([contactId])
-  @@unique([legacySource, legacyId])
 }
 
 model LeadMetaAttribution {
@@ -733,7 +798,7 @@ model LeadEvent {
   type      LeadEventType
   message   String
   payload   Json?
-  createdAt DateTime     @default(now())
+  createdAt DateTime      @default(now())
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -741,12 +806,12 @@ model LeadEvent {
 }
 
 model LeadIdentity {
-  id        String          @id @default(cuid())
+  id        String           @id @default(cuid())
   leadId    String
   type      LeadIdentityType
   value     String
-  isPrimary Boolean         @default(false)
-  createdAt DateTime        @default(now())
+  isPrimary Boolean          @default(false)
+  createdAt DateTime         @default(now())
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -755,7 +820,7 @@ model LeadIdentity {
 }
 
 model LeadItem {
-  id        String   @id @default(cuid())
+  id        String @id @default(cuid())
   leadId    String
   productId String
   qty       Int
@@ -830,7 +895,7 @@ model ContactPhone {
   contactId       String
   phone           String
   phoneNormalized String
-  label           String?   // e.g. "моб.", "рабочий"
+  label           String? // e.g. "моб.", "рабочий"
   legacySource    String?
   legacyId        Int?
   legacyRaw       Json?
@@ -847,47 +912,51 @@ model Warehouse {
   id           String   @id @default(cuid())
   name         String
   sortOrder    Int      @default(0)
-  /** Код 1С/таблицы для интеграции (напр. 000000190). */
+  /**
+   * Код 1С/таблицы для интеграции (напр. 000000190).
+   */
   externalCode String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  orders              Order[]
+  orders                 Order[]
   productWarehouseStocks ProductWarehouseStock[]
-  snapshotLines       InventorySnapshotLine[]
-  reservations        MaterialReservation[]
+  snapshotLines          InventorySnapshotLine[]
+  reservations           MaterialReservation[]
 
   @@index([sortOrder])
 }
 
 model Product {
-  id              String         @id @default(cuid())
-  sku             String         @unique
-  name            String
-  unit            String
-  basePrice       Float
-  stock           Int            @default(0)
-  kind            ProductKind    @default(OTHER)
-  isActive        Boolean        @default(true)
-  /** Показывать в каталоге магазина (на сайте). */
-  showOnStore     Boolean        @default(true)
-  primaryImageId  String?        @unique
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id             String      @id @default(cuid())
+  sku            String      @unique
+  name           String
+  unit           String
+  basePrice      Float
+  stock          Int         @default(0)
+  kind           ProductKind @default(OTHER)
+  isActive       Boolean     @default(true)
+  /**
+   * Показывать в каталоге магазина (на сайте).
+   */
+  showOnStore    Boolean     @default(true)
+  primaryImageId String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
-  primaryImage ProductImage?  @relation("ProductPrimaryImage", fields: [primaryImageId], references: [id], onDelete: SetNull)
-  images        ProductImage[] @relation("ProductImages")
-  items         OrderItem[]
-  leadItems     LeadItem[]
-  cartItems     CartItem[]
+  primaryImage           ProductImage?           @relation("ProductPrimaryImage", fields: [primaryImageId], references: [id], onDelete: SetNull)
+  images                 ProductImage[]          @relation("ProductImages")
+  items                  OrderItem[]
+  leadItems              LeadItem[]
+  cartItems              CartItem[]
   productWarehouseStocks ProductWarehouseStock[]
-  kitBoms       KitBom[]         @relation("KitBomKit")
-  bomComponents KitBomLine[]     @relation("KitBomComponent")
-  stageNorms    StageTimeNorm[]
-  productionBatches ProductionBatch[]
-  snapshotLines InventorySnapshotLine[]
-  reservations MaterialReservation[]
-  weeklyPlanItems WeeklyPlanItem[]
+  kitBoms                KitBom[]                @relation("KitBomKit")
+  bomComponents          KitBomLine[]            @relation("KitBomComponent")
+  stageNorms             StageTimeNorm[]
+  productionBatches      ProductionBatch[]
+  snapshotLines          InventorySnapshotLine[]
+  reservations           MaterialReservation[]
+  weeklyPlanItems        WeeklyPlanItem[]
 
   @@index([primaryImageId])
   @@index([kind])
@@ -915,18 +984,18 @@ enum ProductImageSource {
 }
 
 model ProductImage {
-  id         String              @id @default(cuid())
-  productId  String
-  source     ProductImageSource
-  fileId     String
-  fileName   String
-  url        String
-  sortOrder  Int                 @default(0)
-  isPrimary  Boolean             @default(false)
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
+  id        String             @id @default(cuid())
+  productId String
+  source    ProductImageSource
+  fileId    String
+  fileName  String
+  url       String
+  sortOrder Int                @default(0)
+  isPrimary Boolean            @default(false)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
 
-  product        Product  @relation("ProductImages", fields: [productId], references: [id], onDelete: Cascade)
+  product          Product  @relation("ProductImages", fields: [productId], references: [id], onDelete: Cascade)
   productAsPrimary Product? @relation("ProductPrimaryImage")
 
   @@unique([productId, source, fileId])
@@ -935,13 +1004,13 @@ model ProductImage {
 }
 
 model Cart {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   customerId String?
-  sessionId   String?   @unique
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  sessionId  String?  @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  customer Customer?   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   items    CartItem[]
 
   @@index([customerId])
@@ -983,8 +1052,8 @@ model OrderNumberSeq {
 }
 
 model Order {
-  id          String @id @default(cuid())
-  orderNumber String @unique
+  id          String  @id @default(cuid())
+  orderNumber String  @unique
   companyId   String?
 
   // старое поле (если используешь как "клиент заказа")
@@ -993,62 +1062,76 @@ model Order {
   // поле — контакт для ТТН
   contactId String?
 
-  ownerId        String
-  /** @deprecated Phase 7: use orderStage. Kept for backward compat; no longer written. */
-  status         OrderStatus?
-  currency       String
-  subtotalAmount Float
-  discountAmount Float
-  totalAmount    Float
-  paidAmount     Float
-  debtAmount     Float
-  comment        String?
-  legacySource   String?
-  legacyId       Int?
-  legacyRaw      Json?
-  syncedAt       DateTime?
+  ownerId            String
+  /**
+   * @deprecated Phase 7: use orderStage. Kept for backward compat; no longer written.
+   */
+  status             OrderStatus?
+  currency           String
+  subtotalAmount     Float
+  discountAmount     Float
+  totalAmount        Float
+  paidAmount         Float
+  debtAmount         Float
+  comment            String?
+  legacySource       String?
+  legacyId           Int?
+  legacyRaw          Json?
+  syncedAt           DateTime?
   /// Last NP status sync (cron bulk or manual); drives fair selection order for bulk sync.
   lastNpStatusSyncAt DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  deliveryMethod      DeliveryMethod?
-  paymentMethod       PaymentMethod?
-  /** Банковский счёт (ФОП) при оплате FOP. */
-  bankAccountId       String?
-  /** Склад отгрузки. */
-  warehouseId         String?
-  /** Bitrix UF_CRM_1753788124915 — Документы (Да/нет). */
-  documentsRequested  Boolean?
-  paymentType         PaymentType?
-  deliveryData        Json?
-  orderSource         OrderSource @default(CRM)
-  /** Номер и дата счёта (из 1С). */
-  invoiceNumber       String?
+  deliveryMethod     DeliveryMethod?
+  paymentMethod      PaymentMethod?
+  /**
+   * Банковский счёт (ФОП) при оплате FOP.
+   */
+  bankAccountId      String?
+  /**
+   * Склад отгрузки.
+   */
+  warehouseId        String?
+  /**
+   * Bitrix UF_CRM_1753788124915 — Документы (Да/нет).
+   */
+  documentsRequested Boolean?
+  paymentType        PaymentType?
+  deliveryData       Json?
+  orderSource        OrderSource     @default(CRM)
+  /**
+   * Номер и дата счёта (из 1С).
+   */
+  invoiceNumber      String?
   invoiceDate        DateTime?
-  /** Номер и дата РН / расходной накладной (из 1С). */
-  waybillNumber       String?
+  /**
+   * Номер и дата РН / расходной накладной (из 1С).
+   */
+  waybillNumber      String?
   waybillDate        DateTime?
-  /** Курс сделки для таблицы/документов. */
-  exchangeRate        Float?
+  /**
+   * Курс сделки для таблицы/документов.
+   */
+  exchangeRate       Float?
 
   // --- New order model (Phase 1): keep status for compatibility ---
-  orderStage       OrderStage?
-  deliveryStatus  DeliveryStatus?
-  financialStatus OrderFinancialStatus?
-  paymentDueDate  DateTime?
+  orderStage             OrderStage?
+  deliveryStatus         DeliveryStatus?
+  financialStatus        OrderFinancialStatus?
+  paymentDueDate         DateTime?
   /// Phase 5: sum of amounts from closed returns (reduces effective total for debt calc).
-  returnAdjustmentAmount Float @default(0)
+  returnAdjustmentAmount Float                 @default(0)
 
   /// Backorder / stock split: child order points to the order it was split from.
   parentOrderId String?
   parentOrder   Order?  @relation("OrderSplit", fields: [parentOrderId], references: [id], onDelete: SetNull)
   childOrders   Order[] @relation("OrderSplit")
 
-  company      Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  bankAccount  BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
-  warehouse    Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  warehouse   Warehouse?   @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   // Order.clientId -> Contact
   client Contact? @relation("OrderClient", fields: [clientId], references: [id], onDelete: SetNull)
@@ -1056,21 +1139,22 @@ model Order {
   // Order.contactId -> Contact (для ТТН)
   contact Contact? @relation("OrderContact", fields: [contactId], references: [id], onDelete: SetNull)
 
-  items         OrderItem[]
-  statusHistory OrderStatusHistory[]
-  activities    Activity[]
-  tasks        Task[]
+  items             OrderItem[]
+  statusHistory     OrderStatusHistory[]
+  activities        Activity[]
+  tasks             Task[]
   convertedFromLead Lead?
 
-  ttns       OrderTtn[]
-  shipments  Shipment[]
-  payments   Payment[]
-  paymentRequests PaymentRequest[]
-  returns    OrderReturn[]
+  ttns              OrderTtn[]
+  shipments         Shipment[]
+  payments          Payment[]
+  paymentRequests   PaymentRequest[]
+  returns           OrderReturn[]
   productionBatches ProductionBatch[]
-  reservations MaterialReservation[]
-  weeklyPlanItems WeeklyPlanItem[]
+  reservations      MaterialReservation[]
+  weeklyPlanItems   WeeklyPlanItem[]
 
+  @@unique([legacySource, legacyId])
   @@index([companyId])
   @@index([clientId])
   @@index([contactId])
@@ -1083,17 +1167,16 @@ model Order {
   @@index([financialStatus])
   @@index([lastNpStatusSyncAt])
   @@index([parentOrderId])
-  @@unique([legacySource, legacyId])
 }
 
 model OrderItem {
-  id                 String   @id @default(cuid())
-  orderId            String
-  productId          String?
-  productNameSnapshot String?  // название из Bitrix при отсутствии Product в ECOCRM
-  qty                Int
-  price              Float
-  lineTotal          Float
+  id                  String  @id @default(cuid())
+  orderId             String
+  productId           String?
+  productNameSnapshot String? // название из Bitrix при отсутствии Product в ECOCRM
+  qty                 Int
+  price               Float
+  lineTotal           Float
 
   // кеш для частичных отправок
   qtyShipped Int @default(0)
@@ -1102,16 +1185,16 @@ model OrderItem {
   legacyId     Int?
   legacyRaw    Json?
   syncedAt     DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id])
 
   // связи с конкретными ТТН (частичная отгрузка)
-  ttnItems     OrderTtnItem[]
+  ttnItems      OrderTtnItem[]
   shipmentItems ShipmentItem[]
-  returnItems  OrderReturnItem[]
+  returnItems   OrderReturnItem[]
 
   @@unique([orderId, productId], name: "orderId_productId")
   @@unique([legacySource, legacyId])
@@ -1120,16 +1203,18 @@ model OrderItem {
 }
 
 model OrderStatusHistory {
-  id         String       @id @default(cuid())
-  orderId    String
-  fromStatus OrderStatus?
-  toStatus   OrderStatus
-  /** Phase 7: primary axis for timeline; set when recording stage change. */
+  id             String       @id @default(cuid())
+  orderId        String
+  fromStatus     OrderStatus?
+  toStatus       OrderStatus
+  /**
+   * Phase 7: primary axis for timeline; set when recording stage change.
+   */
   fromOrderStage OrderStage?
   toOrderStage   OrderStage?
-  changedBy  String
-  reason     String?
-  createdAt  DateTime     @default(now())
+  changedBy      String
+  reason         String?
+  createdAt      DateTime     @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -1140,11 +1225,11 @@ model OrderStatusHistory {
 }
 
 model OrderTtn {
-  id      String  @id @default(cuid())
+  id         String  @id @default(cuid())
   /// @deprecated use shipmentId as the source of truth
-  orderId String?
+  orderId    String?
   shipmentId String?
-  carrier Carrier @default(NOVA_POSHTA)
+  carrier    Carrier @default(NOVA_POSHTA)
 
   documentNumber String
   documentRef    String?
@@ -1160,7 +1245,7 @@ model OrderTtn {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
   // ✅ позиции, которые уехали в этой ТТН
@@ -1183,10 +1268,10 @@ model Shipment {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  order     Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  contact   Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  items     ShipmentItem[]
-  ttns      OrderTtn[]
+  order   Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  items   ShipmentItem[]
+  ttns    OrderTtn[]
 
   @@index([orderId])
   @@index([contactId])
@@ -1202,7 +1287,7 @@ model ShipmentItem {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipment  Shipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
   @@unique([shipmentId, orderItemId])
@@ -1224,9 +1309,9 @@ model OrderTtnItem {
 
   createdAt DateTime @default(now())
 
+  @@unique([ttnId, orderItemId])
   @@index([ttnId])
   @@index([orderItemId])
-  @@unique([ttnId, orderItemId])
 }
 
 /// Return request for an order (Phase 1: new model).
@@ -1239,7 +1324,7 @@ model OrderReturn {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items OrderReturnItem[]
 
   @@index([orderId])
@@ -1247,12 +1332,12 @@ model OrderReturn {
 }
 
 model OrderReturnItem {
-  id             String   @id @default(cuid())
-  orderReturnId  String
-  orderItemId    String
+  id            String   @id @default(cuid())
+  orderReturnId String
+  orderItemId   String
   qtyReturned   Int
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   orderReturn OrderReturn @relation(fields: [orderReturnId], references: [id], onDelete: Cascade)
   orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -1276,54 +1361,58 @@ model Activity {
   contactId String?
   companyId String?
   leadId    String?
-  callId    String?   @unique
+  callId    String? @unique
 
   legacySource String?
   legacyId     Int?
 
-  order   Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  visit   Visit?   // back-relation: visit that uses this timeline activity (one-to-one)
-  call    Call?    @relation("ActivityCall", fields: [callId], references: [id], onDelete: SetNull)
+  order             Order?             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact           Contact?           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lead              Lead?              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  visit             Visit? // back-relation: visit that uses this timeline activity (one-to-one)
+  call              Call?              @relation("ActivityCall", fields: [callId], references: [id], onDelete: SetNull)
+  manualCallSession ManualCallSession?
 
+  @@unique([legacySource, legacyId])
   @@index([orderId])
   @@index([contactId])
   @@index([companyId])
   @@index([leadId])
   @@index([createdAt])
   @@index([callId])
-  @@unique([legacySource, legacyId])
 }
 
 model Task {
-  id         String     @id @default(cuid())
-  assigneeId String
-  /** Хто створив задачу в CRM (видимість для MANAGER: assignee або creator). */
+  id          String     @id @default(cuid())
+  assigneeId  String
+  /**
+   * Хто створив задачу в CRM (видимість для MANAGER: assignee або creator).
+   */
   createdById String?
-  contactId  String?
-  companyId  String?
-  leadId     String?
-  orderId    String?
-  title      String
-  body       String?
-  dueAt      DateTime?
-  status     TaskStatus @default(OPEN)
+  contactId   String?
+  companyId   String?
+  leadId      String?
+  orderId     String?
+  title       String
+  body        String?
+  dueAt       DateTime?
+  status      TaskStatus @default(OPEN)
   completedAt DateTime?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   legacySource String?
   legacyId     Int?
 
-  assignee User     @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
-  createdBy User?   @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  contact  Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  company  Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  order    Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  assignee  User     @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
+  @@unique([legacySource, legacyId])
   @@index([assigneeId, status])
   @@index([createdById])
   @@index([dueAt])
@@ -1331,7 +1420,6 @@ model Task {
   @@index([companyId])
   @@index([leadId])
   @@index([orderId])
-  @@unique([legacySource, legacyId])
 }
 
 // ===== NP Catalog cache (daily sync) =====
@@ -1408,7 +1496,7 @@ model KitBom {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  kitProduct Product @relation("KitBomKit", fields: [kitProductId], references: [id], onDelete: Cascade)
+  kitProduct Product      @relation("KitBomKit", fields: [kitProductId], references: [id], onDelete: Cascade)
   lines      KitBomLine[]
 
   @@unique([kitProductId, revision])
@@ -1446,8 +1534,8 @@ model InventorySnapshot {
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
-  importedBy User  @relation("InventorySnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
-  postedBy   User? @relation("InventorySnapshotPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  importedBy User                    @relation("InventorySnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  postedBy   User?                   @relation("InventorySnapshotPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
   lines      InventorySnapshotLine[]
 
   @@index([status, importedAt])
@@ -1483,8 +1571,8 @@ model ProductionStage {
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 
-  stageNorms StageTimeNorm[]
-  movements  WipMovement[]
+  stageNorms     StageTimeNorm[]
+  movements      WipMovement[]
   currentBatches ProductionBatch[]
 
   @@index([sortOrder])
@@ -1535,16 +1623,16 @@ model ProductionBatch {
 }
 
 model WipMovement {
-  id        String   @id @default(cuid())
-  batchId   String
-  stageId   String
-  enteredAt DateTime @default(now())
-  exitedAt  DateTime?
+  id         String    @id @default(cuid())
+  batchId    String
+  stageId    String
+  enteredAt  DateTime  @default(now())
+  exitedAt   DateTime?
   qtyInStage Int
-  isCurrent Boolean  @default(true)
-  note      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isCurrent  Boolean   @default(true)
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   batch ProductionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   stage ProductionStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
@@ -1555,17 +1643,17 @@ model WipMovement {
 }
 
 model MaterialReservation {
-  id         String              @id @default(cuid())
-  productId  String
+  id          String              @id @default(cuid())
+  productId   String
   warehouseId String?
-  qty        Int
-  hardness   ReservationHardness
-  status     ReservationStatus   @default(ACTIVE)
-  orderId    String?
-  leadId     String?
-  expiresAt  DateTime?
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
+  qty         Int
+  hardness    ReservationHardness
+  status      ReservationStatus   @default(ACTIVE)
+  orderId     String?
+  leadId      String?
+  expiresAt   DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
@@ -1580,18 +1668,18 @@ model MaterialReservation {
 }
 
 model WeeklyPlanItem {
-  id          String           @id @default(cuid())
-  weekStart   DateTime
-  type        PlanningItemType
-  batchId     String?
-  productId   String?
-  orderId     String?
-  qty         Int?
-  title       String
-  details     Json?
-  computedAt  DateTime         @default(now())
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id         String           @id @default(cuid())
+  weekStart  DateTime
+  type       PlanningItemType
+  batchId    String?
+  productId  String?
+  orderId    String?
+  qty        Int?
+  title      String
+  details    Json?
+  computedAt DateTime         @default(now())
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   batch   ProductionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
   product Product?         @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -1606,26 +1694,32 @@ model WeeklyPlanItem {
 // ===== Payment module =====
 
 model BankAccount {
-  id             String       @id @default(cuid())
-  provider       BankProvider @default(PRIVAT24)
-  name           String
-  currency       String
-  accountNumber  String?
-  iban           String?
-  /** Код ФОП для 1С/таблицы (напр. 000000123). */
-  externalCode   String?      @unique
-  /** Код счета ФОП для 1С/таблицы (напр. 000000456). */
-  accountExternalCode String? @unique
-  /** Реквизиты для счёта/РН: legalName, taxId, address, bankDetails и т.д. */
-  documentRequisites Json?
-  credentials    Json?        // encrypted: cardNumber, clientId, token
-  isActive       Boolean      @default(true)
-  lastSyncAt     DateTime?
-  lastBookedAt   DateTime?    // max bookedAt of imported tx for incremental window
-  syncCursor     String?
-  syncWindowDays Int          @default(2) // days overlap for from = lastBookedAt - N
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                  String       @id @default(cuid())
+  provider            BankProvider @default(PRIVAT24)
+  name                String
+  currency            String
+  accountNumber       String?
+  iban                String?
+  /**
+   * Код ФОП для 1С/таблицы (напр. 000000123).
+   */
+  externalCode        String?      @unique
+  /**
+   * Код счета ФОП для 1С/таблицы (напр. 000000456).
+   */
+  accountExternalCode String?      @unique
+  /**
+   * Реквизиты для счёта/РН: legalName, taxId, address, bankDetails и т.д.
+   */
+  documentRequisites  Json?
+  credentials         Json? // encrypted: cardNumber, clientId, token
+  isActive            Boolean      @default(true)
+  lastSyncAt          DateTime?
+  lastBookedAt        DateTime? // max bookedAt of imported tx for incremental window
+  syncCursor          String?
+  syncWindowDays      Int          @default(2) // days overlap for from = lastBookedAt - N
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
   transactions BankTransaction[]
   orders       Order[]
@@ -1634,21 +1728,21 @@ model BankAccount {
 }
 
 model BankTransaction {
-  id               String              @id @default(cuid())
+  id               String               @id @default(cuid())
   bankAccountId    String
-  externalId       String?             // API id when stable; else use dedupKey from hash
-  dedupKey         String              // externalId ?? hash for upsert uniqueness
-  hash             String?             // hash(bookedAt+amount+desc+...) when no externalId
+  externalId       String? // API id when stable; else use dedupKey from hash
+  dedupKey         String // externalId ?? hash for upsert uniqueness
+  hash             String? // hash(bookedAt+amount+desc+...) when no externalId
   bookedAt         DateTime
-  amount           Decimal             @db.Decimal(18, 2)
+  amount           Decimal              @db.Decimal(18, 2)
   currency         String
   direction        TransactionDirection
   description      String?
   counterpartyName String?
   counterpartyIban String?
   rawPayload       Json?
-  importedAt       DateTime            @default(now())
-  createdAt        DateTime            @default(now())
+  importedAt       DateTime             @default(now())
+  createdAt        DateTime             @default(now())
 
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   payments    Payment[]
@@ -1660,28 +1754,30 @@ model BankTransaction {
 }
 
 model Payment {
-  id                 String            @id @default(cuid())
-  orderId            String
-  contactId          String?
-  companyId          String?
-  sourceType         PaymentSourceType
-  amount             Decimal           @db.Decimal(18, 2)
-  currency           String
-  /** Fixed USD equivalent at payment date; only admin can change. */
-  amountUsd          Decimal?          @db.Decimal(18, 2)
-  paidAt             DateTime
-  status             PaymentStatus     @default(COMPLETED)
-  bankTransactionId  String?
-  createdByUserId    String?
-  note               String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                String            @id @default(cuid())
+  orderId           String
+  contactId         String?
+  companyId         String?
+  sourceType        PaymentSourceType
+  amount            Decimal           @db.Decimal(18, 2)
+  currency          String
+  /**
+   * Fixed USD equivalent at payment date; only admin can change.
+   */
+  amountUsd         Decimal?          @db.Decimal(18, 2)
+  paidAt            DateTime
+  status            PaymentStatus     @default(COMPLETED)
+  bankTransactionId String?
+  createdByUserId   String?
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  order   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  contact Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  company Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  bankTransaction BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
-  createdBy User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  order                    Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  contact                  Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company                  Company?         @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  bankTransaction          BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
+  createdBy                User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   linkedFromPaymentRequest PaymentRequest?
 
   @@index([orderId])
@@ -1691,13 +1787,13 @@ model Payment {
 
 /// Посилання на оплату за IBAN (snapshot реквізитів); публічний доступ лише за publicToken.
 model PaymentRequest {
-  id     String @id @default(cuid())
+  id      String               @id @default(cuid())
   orderId String
-  status PaymentRequestStatus @default(PENDING)
+  status  PaymentRequestStatus @default(PENDING)
 
-  amount   Decimal @db.Decimal(18, 2)
-  currency String
-  purpose  String
+  amount    Decimal  @db.Decimal(18, 2)
+  currency  String
+  purpose   String
   expiresAt DateTime
 
   recipientName String
@@ -1707,7 +1803,9 @@ model PaymentRequest {
   bankName      String?
 
   publicToken String @unique
-  /** Офіційний deeplink НБУ (https://bank.gov.ua/qr/...) — той самий payload, що й для QR. */
+  /**
+   * Офіційний deeplink НБУ (https://bank.gov.ua/qr/...) — той самий payload, що й для QR.
+   */
   nbuDeeplink String @db.Text
 
   createdByUserId String?
@@ -1715,11 +1813,11 @@ model PaymentRequest {
   updatedAt       DateTime @updatedAt
 
   paidAt          DateTime?
-  linkedPaymentId String? @unique
+  linkedPaymentId String?   @unique
 
-  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  createdBy      User?   @relation("PaymentRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  linkedPayment  Payment? @relation(fields: [linkedPaymentId], references: [id], onDelete: SetNull)
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy     User?    @relation("PaymentRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  linkedPayment Payment? @relation(fields: [linkedPaymentId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([expiresAt])
@@ -1729,18 +1827,18 @@ model PaymentRequest {
 // --- Telegram Inbox ---
 
 model TelegramAccount {
-  id              String    @id @default(cuid())
-  telegramUserId  String    @unique
-  telegramChatId  String    @unique
-  username        String?
-  firstName       String?
-  lastName        String?
-  middleName      String?
-  phone           String?
-  linkedAt        DateTime  @default(now())
+  id             String    @id @default(cuid())
+  telegramUserId String    @unique
+  telegramChatId String    @unique
+  username       String?
+  firstName      String?
+  lastName       String?
+  middleName     String?
+  phone          String?
+  linkedAt       DateTime  @default(now())
   lastMessageAt  DateTime?
-  contactId       String?
-  leadId          String?
+  contactId      String?
+  leadId         String?
 
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
   lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -1750,21 +1848,21 @@ model TelegramAccount {
 }
 
 model Conversation {
-  id               String             @id @default(cuid())
+  id               String              @id @default(cuid())
   channel          ConversationChannel
-  telegramChatId   String             @unique
+  telegramChatId   String              @unique
   contactId        String?
   leadId           String?
   assignedToUserId String?
-  status           ConversationStatus @default(OPEN)
-  lastMessageAt   DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  status           ConversationStatus  @default(OPEN)
+  lastMessageAt    DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
-  contact  Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  lead     Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  assignedTo User?  @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  messages Message[]
+  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo User?     @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  messages   Message[]
 
   @@index([channel])
   @@index([status])
@@ -1773,14 +1871,14 @@ model Conversation {
 }
 
 model Message {
-  id             String          @id @default(cuid())
+  id             String           @id @default(cuid())
   conversationId String
   direction      MessageDirection
   text           String?
   tgMessageId    String?
   authorUserId   String?
   sentAt         DateTime
-  createdAt      DateTime        @default(now())
+  createdAt      DateTime         @default(now())
   mediaType      String?
   fileId         String?
   fileUrl        String?
@@ -1793,7 +1891,7 @@ model Message {
 }
 
 model Call {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   provider        String
   externalId      String
   direction       String
@@ -1811,16 +1909,17 @@ model Call {
   meta            Json?
   rawPayload      Json
 
-  contactId    String?
-  leadId       String?
-  companyId    String?
+  contactId     String?
+  leadId        String?
+  companyId     String?
   managerUserId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  activity Activity? @relation("ActivityCall")
+  activity            Activity?            @relation("ActivityCall")
   outboundCallAttempt OutboundCallAttempt?
+  manualCallSessions  ManualCallSession[]
 
   @@unique([provider, externalId])
   @@index([fromNormalized])
@@ -1837,7 +1936,9 @@ model OutboundCampaign {
   scenarioCode    String
   scenarioVersion String
   isActive        Boolean            @default(true)
-  /** maxCallsPerDay, dormantDaysMin, defaultAssigneeUserId, quietHours: { start, end }, timezone */
+  /**
+   * maxCallsPerDay, dormantDaysMin, defaultAssigneeUserId, quietHours: { start, end }, timezone
+   */
   config          Json?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -1849,55 +1950,157 @@ model OutboundCampaign {
 }
 
 model OutboundCallAttempt {
-  id                 String                @id @default(cuid())
-  campaignId         String
-  targetType         OutboundTargetType
-  leadId             String?
-  contactId          String?
-  companyId          String?
-  phoneNormalized    String
-  scenarioCode       String
-  scenarioVersion    String
-  status             OutboundAttemptStatus @default(PENDING)
-  provider           String?
-  providerSessionId  String?               @unique
-  callId             String?               @unique
-  scheduledAt        DateTime?
-  lastError          String?
-  transcript         String?               @db.Text
-  summary            String?               @db.Text
-  outcome            Json?
-  /** Idempotent processing of provider webhook delivery */
-  webhookProcessedId String?               @unique
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  id                   String                @id @default(cuid())
+  campaignId           String
+  targetType           OutboundTargetType
+  leadId               String?
+  contactId            String?
+  companyId            String?
+  phoneNormalized      String
+  scenarioCode         String
+  scenarioVersion      String
+  status               OutboundAttemptStatus @default(PENDING)
+  provider             String?
+  providerSessionId    String?               @unique
+  /**
+   * Gateway/external session id when different from providerSessionId
+   */
+  externalSessionId    String?
+  callId               String?               @unique
+  scheduledAt          DateTime?
+  lastError            String?
+  transcript           String?               @db.Text
+  summary              String?               @db.Text
+  outcome              Json?
+  /**
+   * Idempotent processing of final provider webhook delivery
+   */
+  webhookProcessedId   String?               @unique
+  /**
+   * e.g. HTTP_OUTBOUND_VOICE, KYIVSTAR_OPENAI_GATEWAY, STUB
+   */
+  runtimeProvider      String?
+  providerCallId       String?
+  openaiCallId         String?
+  recordingExternalId  String?
+  transcriptStatus     String?
+  summaryStatus        String?
+  classificationStatus String?
+  transferStatus       String?
+  catalogSentAt        DateTime?
+  lastRuntimeEventAt   DateTime?
+  lastRuntimeEventType String?
+  failureCode          String?
+  failureReason        String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
-  campaign OutboundCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  contact  Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  call     Call?            @relation(fields: [callId], references: [id], onDelete: SetNull)
+  campaign             OutboundCampaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead                 Lead?                         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact              Contact?                      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  call                 Call?                         @relation(fields: [callId], references: [id], onDelete: SetNull)
+  runtimeWebhookEvents OutboundRuntimeWebhookEvent[]
 
   @@index([campaignId, status])
   @@index([status, scheduledAt])
   @@index([leadId])
   @@index([contactId])
+  @@index([externalSessionId])
+}
+
+/**
+ * Idempotent log of gateway realtime webhook deliveries (AI outbound).
+ */
+model OutboundRuntimeWebhookEvent {
+  id          String   @id @default(cuid())
+  attemptId   String
+  eventType   String
+  /**
+   * Globally unique delivery id for idempotency (optional for legacy bodies).
+   */
+  deliveryId  String?  @unique
+  payloadJson Json
+  source      String   @default("gateway")
+  createdAt   DateTime @default(now())
+
+  attempt OutboundCallAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@index([eventType])
+}
+
+model CallQueueItem {
+  id         String              @id @default(cuid())
+  assigneeId String
+  leadId     String?
+  contactId  String?
+  companyId  String?
+  status     CallQueueItemStatus @default(PENDING)
+  sortOrder  Int                 @default(0)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  assignee User                @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
+  lead     Lead?               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contact  Contact?            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company  Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  sessions ManualCallSession[]
+
+  @@index([assigneeId, status, sortOrder])
+  @@index([assigneeId, status])
+}
+
+model ManualCallSession {
+  id                       String                  @id @default(cuid())
+  queueItemId              String
+  userId                   String
+  status                   ManualCallSessionStatus @default(OPEN)
+  startedAt                DateTime                @default(now())
+  completedAt              DateTime?
+  outcome                  ManualCallOutcome?
+  note                     String?                 @db.Text
+  callbackAt               DateTime?
+  /**
+   * Нормалізований номер клієнта на момент сесії — для best-effort Ringostat match.
+   */
+  targetPhoneNormalized    String?
+  callId                   String?
+  activityId               String?                 @unique
+  completionIdempotencyKey String?                 @unique
+  leadId                   String?
+  contactId                String?
+  companyId                String?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  queueItem CallQueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  call      Call?         @relation(fields: [callId], references: [id], onDelete: SetNull)
+  activity  Activity?     @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  lead      Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  contact   Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  company   Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@index([queueItemId])
+  @@index([userId, status])
+  @@index([callId])
 }
 
 model IntegrationSetting {
-  id           String   @id @default(cuid())
-  provider     String
-  companyId    String?
-  isEnabled    Boolean  @default(false)
+  id            String    @id @default(cuid())
+  provider      String
+  companyId     String?
+  isEnabled     Boolean   @default(false)
   webhookSecret String?
-  apiToken     String?
-  config       Json?
+  apiToken      String?
+  config        Json?
   lastWebhookAt DateTime?
   lastPollAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  @@index([provider])
   @@unique([provider, companyId])
+  @@index([provider])
 }
 
 model IntegrationSyncState {
@@ -1914,17 +2117,17 @@ model IntegrationSyncState {
 }
 
 model IntegrationWebhookEvent {
-  id              String    @id @default(cuid())
-  integration     String
-  eventType       String
-  entityType      String?
-  entityLegacyId  Int?
-  payload         Json
-  payloadHash     String?
-  status          String?
-  error           String?
-  receivedAt      DateTime  @default(now())
-  processedAt     DateTime?
+  id             String    @id @default(cuid())
+  integration    String
+  eventType      String
+  entityType     String?
+  entityLegacyId Int?
+  payload        Json
+  payloadHash    String?
+  status         String?
+  error          String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
 
   @@index([integration])
   @@index([eventType])

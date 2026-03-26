@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -152,7 +153,10 @@ export class LeadsService {
 
     const withItems = await this.prisma.lead.findUnique({
       where: { id: lead.id },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: { include: { product: true } },
+        convertedOrder: { select: { id: true, orderNumber: true } },
+      },
     });
     return this.mapToEntity(withItems ?? lead);
   }
@@ -175,7 +179,10 @@ export class LeadsService {
         orderBy,
         skip: offset,
         take: limit,
-        include: { owner: { select: { id: true, fullName: true } } },
+        include: {
+          owner: { select: { id: true, fullName: true } },
+          convertedOrder: { select: { id: true, orderNumber: true } },
+        },
       }),
       this.prisma.lead.count({ where }),
     ]);
@@ -239,6 +246,7 @@ export class LeadsService {
         events: { orderBy: { createdAt: "desc" } },
         identities: true,
         owner: { select: { id: true, fullName: true } },
+        convertedOrder: { select: { id: true, orderNumber: true } },
       },
     });
     if (!lead) throw new NotFoundException("Lead not found");
@@ -326,7 +334,10 @@ export class LeadsService {
 
     const updated = await this.prisma.lead.findUnique({
       where: { id },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: { include: { product: true } },
+        convertedOrder: { select: { id: true, orderNumber: true } },
+      },
     });
     return this.mapToEntity(updated!);
   }
@@ -443,6 +454,11 @@ export class LeadsService {
     if (!lead) throw new NotFoundException("Lead not found");
     this.assertLeadAccess(lead, actor);
 
+    const createDeal = dto.createDeal !== false;
+    if (createDeal && lead.convertedOrderId) {
+      throw new ConflictException("Lead already has a conversion order");
+    }
+
     let companyId: string = lead.companyId;
     if (dto.createCompany?.name?.trim()) {
       const company = await this.companiesService.create({
@@ -504,8 +520,8 @@ export class LeadsService {
       throw new BadRequestException("Unsupported contactMode");
     }
 
-    const createDeal = dto.createDeal !== false;
     let deal: unknown = null;
+    let conversionOrderId: string | null = null;
 
     if (createDeal) {
       const comment = this.buildOrderComment(dto.deal);
@@ -520,6 +536,7 @@ export class LeadsService {
 
       deal = await this.ordersService.create(orderDto, actor);
       const orderId = (deal as { id: string }).id;
+      conversionOrderId = orderId;
       const leadItems =
         (lead as { items: Array<{ productId: string; qty: number; price: number }> }).items ?? [];
       for (const it of leadItems) {
@@ -537,6 +554,12 @@ export class LeadsService {
         contact: { connect: { id: contactId } },
         status: LeadStatusEnum.WON,
         lastActivityAt: new Date(),
+        ...(conversionOrderId
+          ? { convertedOrder: { connect: { id: conversionOrderId } } }
+          : {}),
+      },
+      include: {
+        convertedOrder: { select: { id: true, orderNumber: true } },
       },
     });
 
@@ -622,6 +645,11 @@ export class LeadsService {
       ownerId: lead.ownerId ?? null,
       owner: owner ? { id: owner.id, fullName: owner.fullName } : null,
       contactId: lead.contactId ?? null,
+      convertedOrderId: lead.convertedOrderId ?? null,
+      convertedOrder: (() => {
+        const co = lead.convertedOrder as { id: string; orderNumber: string } | null | undefined;
+        return co ? { id: co.id, orderNumber: co.orderNumber } : null;
+      })(),
       status: lead.status,
       source: lead.source,
       channel: lead.channel ?? null,
