@@ -11,6 +11,7 @@
     "lint:fix": "eslint . -c eslint.config.mjs --fix",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:web": "npm run dev --workspace=web",
-    "dev:store": "npm run dev --workspace=store"
+    "dev:store": "npm run dev --workspace=store",
+    "dev:gateway": "npm run dev --workspace=gateway-service"
   }
 }

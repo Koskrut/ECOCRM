@@ -1,0 +1,35 @@
+{
+  "name": "gateway-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI outbound gateway (mock + Kyivstar/OpenAI integration points)",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "ts-node -r dotenv/config src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "test": "node --test --require ts-node/register/transpile-only src/sessions/session-state-machine.spec.ts src/mock/mock-outcome.util.spec.ts src/scenarios/instruction-builder.spec.ts src/crm-webhooks/crm-webhook-mapper.spec.ts src/crm-webhooks/crm-webhook-client.spec.ts src/api/dto/create-outbound-call.dto.spec.ts src/api/normalize-create-outbound-call.spec.ts src/config/log-level.spec.ts src/orchestrator/gateway-integration.spec.ts src/orchestrator/outcome-finalizer.spec.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/platform-express": "^11.1.12",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.3",
+    "dotenv": "^17.2.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.12",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
