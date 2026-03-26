@@ -38,6 +38,28 @@ type ContactSuggestion = {
   email?: string | null;
 };
 
+type PublicLeadSourceMetaView = {
+  intake: string | null;
+  formType: string | null;
+  roleSegment: string | null;
+  capturedAt: string | null;
+  pageUrl: string | null;
+  referrer: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  utmTerm: string | null;
+  gclid: string | null;
+  fbclid: string | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
 export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: userRoleProp }: Props) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -535,6 +557,34 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     }
   };
 
+  const publicSourceMeta = useMemo<PublicLeadSourceMetaView | null>(() => {
+    if (!lead?.sourceMeta) return null;
+    const root = asRecord(lead.sourceMeta);
+    if (!root) return null;
+    const attr = asRecord(root.attribution);
+    const from = (obj: Record<string, unknown> | null, key: string): string | null => {
+      const v = obj?.[key];
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    };
+    const result: PublicLeadSourceMetaView = {
+      intake: from(root, "intake"),
+      formType: from(root, "formType"),
+      roleSegment: from(root, "roleSegment"),
+      capturedAt: from(root, "capturedAt"),
+      pageUrl: from(attr, "pageUrl"),
+      referrer: from(attr, "referrer"),
+      utmSource: from(attr, "utmSource"),
+      utmMedium: from(attr, "utmMedium"),
+      utmCampaign: from(attr, "utmCampaign"),
+      utmContent: from(attr, "utmContent"),
+      utmTerm: from(attr, "utmTerm"),
+      gclid: from(attr, "gclid"),
+      fbclid: from(attr, "fbclid"),
+    };
+    const hasAny = Object.values(result).some(Boolean);
+    return hasAny ? result : null;
+  }, [lead?.sourceMeta]);
+
   const leftContent = loading ? (
     <div className="text-sm text-zinc-500">Loading…</div>
   ) : err ? (
@@ -552,6 +602,27 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div><span className="text-zinc-500">Ad:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
               <div><span className="text-zinc-500">Form:</span> {lead.attribution.formId}</div>
               <div><span className="text-zinc-500">Created (Meta):</span> {new Date(lead.attribution.createdTime).toLocaleString()}</div>
+            </div>
+          </div>
+        </EntitySection>
+      ) : null}
+      {publicSourceMeta ? (
+        <EntitySection title="Public lead attribution">
+          <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-sm">
+            <div className="grid gap-2 text-zinc-700">
+              <div><span className="text-zinc-500">Intake/source:</span> {publicSourceMeta.intake ?? "—"}</div>
+              <div><span className="text-zinc-500">Form type:</span> {publicSourceMeta.formType ?? "—"}</div>
+              <div><span className="text-zinc-500">Role segment:</span> {publicSourceMeta.roleSegment ?? "—"}</div>
+              <div><span className="text-zinc-500">Captured at:</span> {publicSourceMeta.capturedAt ? new Date(publicSourceMeta.capturedAt).toLocaleString() : "—"}</div>
+              <div><span className="text-zinc-500">utm_source:</span> {publicSourceMeta.utmSource ?? "—"}</div>
+              <div><span className="text-zinc-500">utm_medium:</span> {publicSourceMeta.utmMedium ?? "—"}</div>
+              <div><span className="text-zinc-500">utm_campaign:</span> {publicSourceMeta.utmCampaign ?? "—"}</div>
+              <div><span className="text-zinc-500">utm_content:</span> {publicSourceMeta.utmContent ?? "—"}</div>
+              <div><span className="text-zinc-500">utm_term:</span> {publicSourceMeta.utmTerm ?? "—"}</div>
+              <div><span className="text-zinc-500">gclid:</span> {publicSourceMeta.gclid ?? "—"}</div>
+              <div><span className="text-zinc-500">fbclid:</span> {publicSourceMeta.fbclid ?? "—"}</div>
+              <div className="break-all"><span className="text-zinc-500">Page URL:</span> {publicSourceMeta.pageUrl ?? "—"}</div>
+              <div className="break-all"><span className="text-zinc-500">Referrer:</span> {publicSourceMeta.referrer ?? "—"}</div>
             </div>
           </div>
         </EntitySection>
@@ -587,7 +658,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
         </EntitySection>
       ) : null}
-      {!lead.attribution && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
+      {!lead.attribution && !publicSourceMeta && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
         <div className="text-sm text-zinc-500">No source data</div>
       ) : null}
     </div>
