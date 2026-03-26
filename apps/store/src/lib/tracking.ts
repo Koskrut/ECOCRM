@@ -1,4 +1,4 @@
-import { canTrackAnalytics, canTrackMarketing } from "@/lib/consent";
+import { canTrackAnalytics, canTrackMarketing, readConsent } from "@/lib/consent";
 
 export type TrackingEventName =
   | "view_landing"
@@ -66,16 +66,30 @@ function ensureGtmLoaded() {
   window.__suprexGtmLoaded = true;
 }
 
+/** Align Google Consent Mode with our banner (GTM often sets defaults to denied). */
+export function syncGtagConsentFromLocalState() {
+  if (typeof window === "undefined" || typeof window.gtag !== "function") return;
+  const { analytics, marketing } = readConsent();
+  window.gtag("consent", "update", {
+    analytics_storage: analytics ? "granted" : "denied",
+    ad_storage: marketing ? "granted" : "denied",
+    ad_user_data: marketing ? "granted" : "denied",
+    ad_personalization: marketing ? "granted" : "denied",
+  });
+}
+
 function ensureGaLoaded() {
   const { gaId, gtmId } = getRuntimeIds();
   // If GTM is configured, GA should be routed by GTM to avoid duplicate events.
   if (!gaId || gtmId || typeof window === "undefined" || window.__suprexGaLoaded) return;
   window.dataLayer = window.dataLayer ?? [];
   injectScript(`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`);
-  window.gtag = (...args: unknown[]) => {
-    window.dataLayer?.push(args as unknown as Record<string, unknown>);
+  // Canonical stub — must use `arguments` (not rest/spread) for gtag.js queue processing.
+  window.gtag = function gtag() {
+    window.dataLayer?.push(arguments as unknown as Record<string, unknown>);
   };
   window.gtag("js", new Date());
+  syncGtagConsentFromLocalState();
   window.gtag("config", gaId, { anonymize_ip: true });
   window.__suprexGaLoaded = true;
 }

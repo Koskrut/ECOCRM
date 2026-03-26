@@ -3,7 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { captureAttributionFromLocation } from "@/lib/attribution";
-import { ensureTrackingReady, trackEvent } from "@/lib/tracking";
+import { ensureTrackingReady, syncGtagConsentFromLocalState, trackEvent } from "@/lib/tracking";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 
 export function TrackingBootstrap() {
@@ -32,6 +32,7 @@ export function TrackingBootstrap() {
 
   useEffect(() => {
     const onConsentUpdated = () => {
+      syncGtagConsentFromLocalState();
       fireLandingEvent();
     };
     window.addEventListener("suprex:consent-updated", onConsentUpdated as EventListener);
