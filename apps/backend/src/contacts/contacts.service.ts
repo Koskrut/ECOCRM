@@ -22,7 +22,12 @@ import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "./bitrix-np-mapper";
-import type { ContactCardSummaryResponse } from "./contact-card-summary.types";
+import type {
+  ContactCardAnalyticsRange,
+  ContactCardAnalyticsResponse,
+  ContactCardAnalyticsScope,
+  ContactCardSummaryResponse,
+} from "./contact-card-summary.types";
 
 @Injectable()
 export class ContactsService {
@@ -211,6 +216,138 @@ export class ContactsService {
         financeRestricted: hasVisibleScopeGap,
         scopeNote: hasVisibleScopeGap ? "Показаны только доступные вам сделки" : null,
       },
+    };
+  }
+
+  private resolveAnalyticsPeriodStart(range: ContactCardAnalyticsRange): Date {
+    const now = new Date();
+    const from = new Date(now);
+    if (range === "30d") from.setDate(from.getDate() - 30);
+    else if (range === "90d") from.setDate(from.getDate() - 90);
+    else from.setDate(from.getDate() - 365);
+    return from;
+  }
+
+  private bucketFromDate(date: Date, range: ContactCardAnalyticsRange): string {
+    if (range === "365d") {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      return `${y}-${m}`;
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
+  async getCardAnalytics(
+    id: string,
+    opts: { range: ContactCardAnalyticsRange; scope: ContactCardAnalyticsScope },
+    actor?: AuthUser,
+  ): Promise<ContactCardAnalyticsResponse> {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, companyId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const from = this.resolveAnalyticsPeriodStart(opts.range);
+    const to = new Date();
+
+    const requestedScope: ContactCardAnalyticsScope = opts.scope ?? "contact";
+    const effectiveScope: ContactCardAnalyticsScope =
+      requestedScope === "company" && !contact.companyId ? "contact" : requestedScope;
+
+    const where: Prisma.OrderWhereInput = {
+      createdAt: { gte: from, lte: to },
+      ...(effectiveScope === "company" ? { companyId: contact.companyId } : { clientId: id }),
+    };
+    if (actor?.role === UserRole.MANAGER) {
+      where.ownerId = actor.id;
+    }
+
+    const [visibleOrders, totalOrdersInScope] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          id: true,
+          createdAt: true,
+          totalAmount: true,
+          returnAdjustmentAmount: true,
+          items: {
+            select: {
+              productId: true,
+              productNameSnapshot: true,
+              qty: true,
+              lineTotal: true,
+              product: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.order.count({
+        where: {
+          ...(effectiveScope === "company" ? { companyId: contact.companyId } : { clientId: id }),
+        },
+      }),
+    ]);
+
+    const revenueByPeriod = new Map<string, number>();
+    const ordersByPeriod = new Map<string, number>();
+    const topProducts = new Map<string, { productId: string | null; productName: string; qty: number; revenue: number }>();
+
+    let revenue = 0;
+    for (const order of visibleOrders) {
+      const orderRevenue = Math.max(
+        0,
+        Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0),
+      );
+      revenue += orderRevenue;
+
+      const bucket = this.bucketFromDate(order.createdAt, opts.range);
+      revenueByPeriod.set(bucket, (revenueByPeriod.get(bucket) ?? 0) + orderRevenue);
+      ordersByPeriod.set(bucket, (ordersByPeriod.get(bucket) ?? 0) + 1);
+
+      for (const item of order.items) {
+        const key = item.productId ?? `snapshot:${item.productNameSnapshot ?? "Unknown product"}`;
+        const current = topProducts.get(key) ?? {
+          productId: item.productId ?? null,
+          productName: item.product?.name ?? item.productNameSnapshot ?? "Unknown product",
+          qty: 0,
+          revenue: 0,
+        };
+        current.qty += Number(item.qty ?? 0);
+        current.revenue += Number(item.lineTotal ?? 0);
+        topProducts.set(key, current);
+      }
+    }
+
+    const hasVisibleScopeGap =
+      actor?.role === UserRole.MANAGER && totalOrdersInScope > visibleOrders.length;
+
+    return {
+      meta: {
+        range: opts.range,
+        scope: effectiveScope,
+        financeRestricted: hasVisibleScopeGap,
+        scopeNote: hasVisibleScopeGap ? "Показаны только доступные вам сделки" : null,
+        companyScopeAvailable: !!contact.companyId,
+      },
+      kpi: {
+        revenue,
+        ordersCount: visibleOrders.length,
+        avgOrderValue: visibleOrders.length > 0 ? revenue / visibleOrders.length : 0,
+      },
+      series: {
+        revenueByPeriod: Array.from(revenueByPeriod.entries())
+          .map(([date, val]) => ({ date, revenue: val }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+        ordersByPeriod: Array.from(ordersByPeriod.entries())
+          .map(([date, val]) => ({ date, ordersCount: val }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+      },
+      topProducts: Array.from(topProducts.values())
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10),
     };
   }
 

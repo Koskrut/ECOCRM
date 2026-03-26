@@ -13,6 +13,10 @@ import {
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { ContactsService } from "./contacts.service";
+import type {
+  ContactCardAnalyticsRange,
+  ContactCardAnalyticsScope,
+} from "./contact-card-summary.types";
 
 function parseNullableNumber(value: unknown): number | null {
   if (value == null) return null;
@@ -189,6 +193,19 @@ export class ContactsController {
   @Get(":id/card")
   async getCard(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.contactsService.getCardSummary(id, req.user);
+  }
+
+  @Get(":id/card/analytics")
+  async getCardAnalytics(
+    @Param("id") id: string,
+    @Query("range") rangeRaw: string | undefined,
+    @Query("scope") scopeRaw: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const range: ContactCardAnalyticsRange =
+      rangeRaw === "90d" || rangeRaw === "365d" ? rangeRaw : "30d";
+    const scope: ContactCardAnalyticsScope = scopeRaw === "company" ? "company" : "contact";
+    return this.contactsService.getCardAnalytics(id, { range, scope }, req.user);
   }
 
   @Post(":id/reset-store-password")

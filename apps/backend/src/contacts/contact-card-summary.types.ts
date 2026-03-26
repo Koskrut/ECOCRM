@@ -31,3 +31,31 @@ export type ContactCardSummaryResponse = {
   };
 };
 
+export type ContactCardAnalyticsRange = "30d" | "90d" | "365d";
+export type ContactCardAnalyticsScope = "contact" | "company";
+
+export type ContactCardAnalyticsResponse = {
+  meta: {
+    range: ContactCardAnalyticsRange;
+    scope: ContactCardAnalyticsScope;
+    financeRestricted: boolean;
+    scopeNote: string | null;
+    companyScopeAvailable: boolean;
+  };
+  kpi: {
+    revenue: number;
+    ordersCount: number;
+    avgOrderValue: number;
+  };
+  series: {
+    revenueByPeriod: Array<{ date: string; revenue: number }>;
+    ordersByPeriod: Array<{ date: string; ordersCount: number }>;
+  };
+  topProducts: Array<{
+    productId: string | null;
+    productName: string;
+    qty: number;
+    revenue: number;
+  }>;
+};
+

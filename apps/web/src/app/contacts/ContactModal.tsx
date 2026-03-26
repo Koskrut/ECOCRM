@@ -18,6 +18,12 @@ import { ContactCardHeader } from "./card/ContactCardHeader";
 import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
 import { useContactCardSummary } from "./card/useContactCardSummary";
+import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
+import {
+  useContactCardAnalytics,
+  type ContactCardAnalyticsRange,
+  type ContactCardAnalyticsScope,
+} from "./card/useContactCardAnalytics";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
   autocompleteAddress,
@@ -749,6 +755,7 @@ export function ContactModal({
 
   type LeftTabId =
     | "overview"
+    | "analytics"
     | "timeline"
     | "orders"
     | "delivery-profiles"
@@ -757,6 +764,18 @@ export function ContactModal({
   const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
 
   const cardSummary = useContactCardSummary(contactId, !isCreate && isCardV2Enabled);
+  const [analyticsRange, setAnalyticsRange] = useState<ContactCardAnalyticsRange>("30d");
+  const [analyticsScope, setAnalyticsScope] = useState<ContactCardAnalyticsScope>("contact");
+  const cardAnalytics = useContactCardAnalytics(contactId, {
+    range: analyticsRange,
+    scope: analyticsScope,
+    enabled: !isCreate && isCardV2Enabled && leftTab === "analytics",
+  });
+  useEffect(() => {
+    if (!contact?.companyId && analyticsScope === "company") {
+      setAnalyticsScope("contact");
+    }
+  }, [contact?.companyId, analyticsScope]);
 
   const cancelInlineEditRef = useRef<(() => void) | null>(null);
 
@@ -1949,7 +1968,7 @@ export function ContactModal({
   const tabsUnderHeader = (
     <div className="flex gap-1 py-2">
       {(
-        ["overview", "timeline", "orders", "delivery-profiles", "tasks", "change-history"] as const
+        ["overview", "analytics", "timeline", "orders", "delivery-profiles", "tasks", "change-history"] as const
       ).map((tab) => (
         <button
           key={tab}
@@ -1961,6 +1980,8 @@ export function ContactModal({
         >
           {tab === "overview"
             ? "Overview"
+            : tab === "analytics"
+              ? "Analytics"
             : tab === "timeline"
               ? "Timeline"
             : tab === "orders"
@@ -2057,6 +2078,27 @@ export function ContactModal({
                   apiBaseUrl={apiBaseUrl}
                   contactId={contactId}
                   showActivityButtons
+                />
+              </EntitySection>
+            )}
+          </>
+        )}
+
+        {leftTab === "analytics" && (
+          <>
+            {isCreate ? (
+              <p className="text-sm text-zinc-500">Save the contact first to see analytics.</p>
+            ) : (
+              <EntitySection title="Analytics">
+                <ContactAnalyticsTab
+                  analytics={cardAnalytics.data}
+                  loading={cardAnalytics.loading}
+                  error={cardAnalytics.error}
+                  range={analyticsRange}
+                  scope={analyticsScope}
+                  onRangeChange={setAnalyticsRange}
+                  onScopeChange={setAnalyticsScope}
+                  canUseCompanyScope={Boolean(contact?.companyId)}
                 />
               </EntitySection>
             )}
@@ -2276,6 +2318,10 @@ export function ContactModal({
         <OrderModal
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
+          prefill={{
+            clientId: contactId,
+            companyId: contact?.companyId ?? null,
+          }}
           onClose={() => setOrderId(null)}
           onSaved={() => {
             setOrdersReloadKey((k) => k + 1);

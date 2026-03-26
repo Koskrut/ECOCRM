@@ -270,3 +270,127 @@ test("getCardSummary: empty-state summary for contact with no orders/activity/ta
   assert.equal(result.insights.financeRestricted, false);
 });
 
+test("getCardAnalytics: contact scope returns series and top products", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c1",
+        ownerId: "m1",
+        companyId: "co1",
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          id: "o1",
+          createdAt: new Date("2026-03-01T10:00:00.000Z"),
+          totalAmount: 1000,
+          returnAdjustmentAmount: 100,
+          items: [
+            {
+              productId: "p1",
+              productNameSnapshot: "Implant",
+              qty: 2,
+              lineTotal: 500,
+              product: { name: "Implant X" },
+            },
+          ],
+        },
+      ]),
+      count: mockFn(async () => 1),
+    },
+  });
+
+  const result = await service.getCardAnalytics("c1", { range: "30d", scope: "contact" }, manager("m1"));
+  assert.equal(result.meta.scope, "contact");
+  assert.equal(result.kpi.ordersCount, 1);
+  assert.equal(result.kpi.revenue, 900);
+  assert.equal(result.topProducts.length, 1);
+  assert.equal(result.topProducts[0]?.productName, "Implant X");
+  assert.equal(result.series.revenueByPeriod.length, 1);
+});
+
+test("getCardAnalytics: company scope fallback when no company", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c2",
+        ownerId: null,
+        companyId: null,
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => []),
+      count: mockFn(async () => 0),
+    },
+  });
+
+  const result = await service.getCardAnalytics("c2", { range: "90d", scope: "company" });
+  assert.equal(result.meta.scope, "contact");
+  assert.equal(result.meta.companyScopeAvailable, false);
+  assert.equal(result.kpi.ordersCount, 0);
+});
+
+test("getCardAnalytics: manager finance restriction when full scope is larger", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c3",
+        ownerId: "m3",
+        companyId: "co3",
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          id: "o1",
+          createdAt: new Date("2026-03-01T10:00:00.000Z"),
+          totalAmount: 200,
+          returnAdjustmentAmount: 0,
+          items: [],
+        },
+      ]),
+      count: mockFn(async () => 3),
+    },
+  });
+
+  const result = await service.getCardAnalytics("c3", { range: "365d", scope: "contact" }, manager("m3"));
+  assert.equal(result.meta.financeRestricted, true);
+  assert.equal(result.meta.scopeNote, "Показаны только доступные вам сделки");
+});
+
+test("getCardAnalytics: admin sees full scope without restriction", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c4",
+        ownerId: "owner-x",
+        companyId: "co4",
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          id: "o1",
+          createdAt: new Date("2026-03-10T10:00:00.000Z"),
+          totalAmount: 300,
+          returnAdjustmentAmount: 50,
+          items: [],
+        },
+      ]),
+      count: mockFn(async () => 1),
+    },
+  });
+
+  const admin: AuthUser = {
+    id: "admin-1",
+    email: "admin@test.com",
+    fullName: "Admin",
+    role: UserRole.ADMIN,
+  };
+  const result = await service.getCardAnalytics("c4", { range: "30d", scope: "company" }, admin);
+  assert.equal(result.meta.financeRestricted, false);
+  assert.equal(result.meta.scope, "company");
+  assert.equal(result.kpi.revenue, 250);
+});
+
