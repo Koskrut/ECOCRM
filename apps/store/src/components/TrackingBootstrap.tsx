@@ -3,7 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { captureAttributionFromLocation } from "@/lib/attribution";
-import { trackEvent } from "@/lib/tracking";
+import { ensureTrackingReady, trackEvent } from "@/lib/tracking";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 
 export function TrackingBootstrap() {
@@ -14,6 +14,7 @@ export function TrackingBootstrap() {
   const metaPixelId = config.analytics?.metaPixelId;
 
   const fireLandingEvent = useCallback(() => {
+    ensureTrackingReady();
     captureAttributionFromLocation();
     trackEvent("view_landing", { path: pathname });
   }, [pathname]);
@@ -21,6 +22,12 @@ export function TrackingBootstrap() {
   useEffect(() => {
     // Re-fire on route changes and when runtime analytics ids are loaded from CRM settings.
     fireLandingEvent();
+    const retryId = window.setTimeout(() => {
+      fireLandingEvent();
+    }, 300);
+    return () => {
+      window.clearTimeout(retryId);
+    };
   }, [fireLandingEvent, gaId, gtmId, metaPixelId]);
 
   useEffect(() => {

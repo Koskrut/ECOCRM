@@ -101,14 +101,22 @@ function ensureMetaLoaded() {
   window.__suprexMetaLoaded = true;
 }
 
+export function ensureTrackingReady() {
+  if (typeof window === "undefined") return;
+  if (canTrackAnalytics()) {
+    ensureGtmLoaded();
+    ensureGaLoaded();
+  }
+  if (canTrackMarketing()) {
+    ensureMetaLoaded();
+  }
+}
+
 export function trackEvent(eventName: TrackingEventName, payload: TrackingPayload = {}) {
   if (typeof window === "undefined") return;
+  ensureTrackingReady();
   if (!canDispatch(eventName)) return;
   const { gtmId } = getRuntimeIds();
-
-  ensureGtmLoaded();
-  ensureGaLoaded();
-  ensureMetaLoaded();
 
   const eventPayload = {
     event: eventName,
