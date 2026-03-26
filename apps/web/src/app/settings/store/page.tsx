@@ -32,6 +32,11 @@ type StoreConfig = {
   theme?: StoreTheme;
   banners?: StoreBanner[];
   contact?: StoreContact;
+  analytics?: {
+    gaId?: string;
+    gtmId?: string;
+    metaPixelId?: string;
+  };
   /** Базовий URL CRM для сторінки оплати /pay/… (без слеша в кінці). */
   crmPayPageUrl?: string;
   /** Публічна URL вітрини (Next.js store) для посилань з CRM. */
@@ -79,6 +84,7 @@ export default function StoreSettingsPage() {
           theme: data.theme ?? { primary: "#1e3a5f", primaryHover: "#152a47", surface: "#f8fafc", border: "#e2e8f0" },
           banners: Array.isArray(data.banners) ? [...data.banners].sort((a, b) => a.order - b.order) : [],
           contact: data.contact ?? {},
+          analytics: data.analytics ?? {},
           crmPayPageUrl: typeof data.crmPayPageUrl === "string" ? data.crmPayPageUrl : "",
           publicStoreUrl: typeof data.publicStoreUrl === "string" ? data.publicStoreUrl : "",
         });
@@ -358,6 +364,63 @@ export default function StoreSettingsPage() {
                   placeholder="https://…"
                   autoComplete="off"
                 />
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-zinc-900">Аналітика та пікселі (публічний сайт)</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Ці значення використовуються у storefront (apps/store) для підключення GA4 / GTM / Meta Pixel через tracking layer.
+              </p>
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-600">GA4 Measurement ID</label>
+                  <input
+                    type="text"
+                    value={config.analytics?.gaId ?? ""}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        analytics: { ...(c.analytics ?? {}), gaId: e.target.value },
+                      }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                    placeholder="G-XXXXXXXXXX"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-600">GTM Container ID (опціонально)</label>
+                  <input
+                    type="text"
+                    value={config.analytics?.gtmId ?? ""}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        analytics: { ...(c.analytics ?? {}), gtmId: e.target.value },
+                      }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                    placeholder="GTM-XXXXXXX"
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-600">Meta Pixel ID</label>
+                  <input
+                    type="text"
+                    value={config.analytics?.metaPixelId ?? ""}
+                    onChange={(e) =>
+                      setConfig((c) => ({
+                        ...c,
+                        analytics: { ...(c.analytics ?? {}), metaPixelId: e.target.value },
+                      }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+                    placeholder="123456789012345"
+                    autoComplete="off"
+                  />
+                </div>
               </div>
             </section>
 

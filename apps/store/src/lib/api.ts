@@ -393,6 +393,11 @@ export async function getTelegramLink() {
 export type StoreConfig = {
   /** Mirrors CRM settings; optional on storefront responses. */
   publicStoreUrl?: string;
+  analytics?: {
+    gaId?: string;
+    gtmId?: string;
+    metaPixelId?: string;
+  };
   theme?: { primary?: string; primaryHover?: string; surface?: string; border?: string };
   banners?: Array<{
     id: string;

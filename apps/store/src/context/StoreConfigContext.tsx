@@ -3,6 +3,16 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { getStoreConfig, type StoreConfig } from "@/lib/api";
 
+declare global {
+  interface Window {
+    __suprexTrackingConfig?: {
+      gaId?: string;
+      gtmId?: string;
+      metaPixelId?: string;
+    };
+  }
+}
+
 const defaultConfig: StoreConfig = {};
 
 const StoreConfigContext = createContext<{
@@ -54,6 +64,16 @@ export function StoreConfigProvider({ children }: { children: React.ReactNode })
       root.style.removeProperty("--border");
     };
   }, [config.theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const analytics = config.analytics;
+    window.__suprexTrackingConfig = {
+      gaId: analytics?.gaId?.trim() || undefined,
+      gtmId: analytics?.gtmId?.trim() || undefined,
+      metaPixelId: analytics?.metaPixelId?.trim() || undefined,
+    };
+  }, [config.analytics]);
 
   const value = { config, loading, reload: load };
 

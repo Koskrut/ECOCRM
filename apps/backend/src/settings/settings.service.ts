@@ -82,10 +82,17 @@ export type StoreContact = {
   email?: string;
 };
 
+export type StoreAnalytics = {
+  gaId?: string;
+  gtmId?: string;
+  metaPixelId?: string;
+};
+
 export type StoreConfig = {
   theme?: StoreTheme;
   banners?: StoreBanner[];
   contact?: StoreContact;
+  analytics?: StoreAnalytics;
   /** Базовий URL CRM (apps/web), де відкривається /pay/[token]. Без завершального слеша. */
   crmPayPageUrl?: string;
   /** Публічна URL вітрини (apps/store) для посилань з CRM, напр. встановлення пароля. Без завершального слеша. */
@@ -181,6 +188,15 @@ function mergeStoreConfig(saved: Record<string, unknown> | null): StoreConfig {
         ? (savedContact.email as string)
         : DEFAULT_STORE_CONFIG.contact?.email,
   };
+  const savedAnalytics = saved?.analytics as Record<string, unknown> | undefined;
+  const analytics: StoreAnalytics = {
+    gaId: typeof savedAnalytics?.gaId === "string" ? savedAnalytics.gaId.trim() || undefined : undefined,
+    gtmId: typeof savedAnalytics?.gtmId === "string" ? savedAnalytics.gtmId.trim() || undefined : undefined,
+    metaPixelId:
+      typeof savedAnalytics?.metaPixelId === "string"
+        ? savedAnalytics.metaPixelId.trim() || undefined
+        : undefined,
+  };
   let crmPayPageUrl: string | undefined;
   if (typeof saved?.crmPayPageUrl === "string") {
     const t = saved.crmPayPageUrl.trim().replace(/\/+$/, "");
@@ -195,6 +211,7 @@ function mergeStoreConfig(saved: Record<string, unknown> | null): StoreConfig {
     theme,
     banners,
     contact,
+    analytics,
     ...(crmPayPageUrl ? { crmPayPageUrl } : {}),
     ...(publicStoreUrl ? { publicStoreUrl } : {}),
   };
@@ -1012,6 +1029,20 @@ export class SettingsService {
       phone: typeof body.contact?.phone === "string" ? body.contact.phone : current.contact?.phone,
       email: typeof body.contact?.email === "string" ? body.contact.email : current.contact?.email,
     };
+    const nextAnalytics: StoreAnalytics = {
+      gaId:
+        typeof body.analytics?.gaId === "string"
+          ? body.analytics.gaId.trim() || undefined
+          : current.analytics?.gaId,
+      gtmId:
+        typeof body.analytics?.gtmId === "string"
+          ? body.analytics.gtmId.trim() || undefined
+          : current.analytics?.gtmId,
+      metaPixelId:
+        typeof body.analytics?.metaPixelId === "string"
+          ? body.analytics.metaPixelId.trim() || undefined
+          : current.analytics?.metaPixelId,
+    };
     const nextCrmPayPageUrl =
       "crmPayPageUrl" in body && typeof body.crmPayPageUrl === "string"
         ? body.crmPayPageUrl.trim().replace(/\/+$/, "") || undefined
@@ -1024,6 +1055,7 @@ export class SettingsService {
       theme: nextTheme,
       banners: nextBanners,
       contact: nextContact,
+      analytics: nextAnalytics,
       ...(nextCrmPayPageUrl ? { crmPayPageUrl: nextCrmPayPageUrl } : {}),
       ...(nextPublicStoreUrl ? { publicStoreUrl: nextPublicStoreUrl } : {}),
     };
