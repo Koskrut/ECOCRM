@@ -92,6 +92,7 @@ export class OutboundQueueService {
           data: {
             status: OutboundAttemptStatus.DIALING,
             provider: result.provider,
+            runtimeProvider: result.provider,
             providerSessionId: result.providerSessionId,
           },
         });

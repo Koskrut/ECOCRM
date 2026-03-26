@@ -27,6 +27,7 @@ import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhoo
 import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
+import { ManualCallingModule } from "./manual-calling/manual-calling.module";
 import { OutboundModule } from "./outbound/outbound.module";
 import { ProductionPlanningModule } from "./production-planning/production-planning.module";
 
@@ -58,6 +59,7 @@ import { ProductionPlanningModule } from "./production-planning/production-plann
     StoreModule,
     WarehousesModule,
     OutboundModule,
+    ManualCallingModule,
     ProductionPlanningModule,
   ],
   providers: [

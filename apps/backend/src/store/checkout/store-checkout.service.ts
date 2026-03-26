@@ -8,6 +8,7 @@ import { BankAccountsService } from "../../bank/bank-accounts.service";
 import { OrdersService } from "../../orders/orders.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
+import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../cart/store-cart.service";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
@@ -283,19 +284,8 @@ export class StoreCheckoutService {
     }
 
     const org = await this.settings.getOrgChartStructure();
-    const normalizedRegion = region.toLocaleLowerCase("uk");
-    let ownerIdFromRegion: string | null = null;
-    for (const [slotId, regions] of Object.entries(org.regions ?? {})) {
-      const matches = (regions ?? []).some(
-        (r) => String(r ?? "").trim().toLocaleLowerCase("uk") === normalizedRegion,
-      );
-      if (!matches) continue;
-      const assigned = org.assignments?.[slotId];
-      if (assigned) {
-        ownerIdFromRegion = assigned;
-        break;
-      }
-    }
+    const assignment = resolveAssignedManagerForRegion(org, region);
+    const ownerIdFromRegion = assignment?.managerId ?? null;
     const storeOwnerId = process.env.STORE_OWNER_ID?.trim() || null;
     const ownerId = ownerIdFromRegion || storeOwnerId;
     if (!ownerId) {

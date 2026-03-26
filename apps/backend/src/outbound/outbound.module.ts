@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { TelegramModule } from "../integrations/telegram/telegram.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsModule } from "../settings/settings.module";
 import { OutboundController } from "./outbound.controller";
@@ -14,12 +15,14 @@ import { ScenarioRegistryService } from "./scenarios/scenario-registry.service";
 import { StubVoiceRuntimeAdapter } from "./voice-runtime/stub-voice-runtime.adapter";
 import { HttpOutboundVoiceAdapter } from "./voice-runtime/http-outbound-voice.adapter";
 import { SelectingVoiceRuntimeAdapter } from "./voice-runtime/selecting-voice-runtime.adapter";
+import { KyivstarOpenAiGatewayVoiceAdapter } from "./voice-runtime/kyivstar-openai-gateway-voice.adapter";
+import { AiOutboundActionsService } from "./ai-outbound-actions.service";
 import { OutboundCallLinkService } from "./outbound-call-link.service";
 import { OutboundCallLinkReconcileService } from "./outbound-call-link-reconcile.service";
 import { OutboundPostCallAnalysisService } from "./outbound-post-call-analysis.service";
 
 @Module({
-  imports: [PrismaModule, SettingsModule],
+  imports: [PrismaModule, SettingsModule, TelegramModule],
   controllers: [OutboundController, OutboundVoiceWebhookController],
   providers: [
     ScenarioRegistryService,
@@ -32,6 +35,8 @@ import { OutboundPostCallAnalysisService } from "./outbound-post-call-analysis.s
     OutboundVoiceWebhookService,
     StubVoiceRuntimeAdapter,
     HttpOutboundVoiceAdapter,
+    KyivstarOpenAiGatewayVoiceAdapter,
+    AiOutboundActionsService,
     SelectingVoiceRuntimeAdapter,
     OutboundCampaignService,
     OutboundQueueService,

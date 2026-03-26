@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Patch } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
+import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
 import type {
   ExchangeRates,
@@ -38,6 +39,12 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setMetaLeadAdsConfig(@Body() body: Partial<MetaLeadAdsConfig>) {
     return this.settings.setMetaLeadAdsConfig(body);
+  }
+
+  @Get("meta-lead-ads/public")
+  @Public()
+  getMetaLeadAdsPublicConfig() {
+    return this.settings.getMetaLeadAdsPublicConfig();
   }
 
   @Get("google-maps")

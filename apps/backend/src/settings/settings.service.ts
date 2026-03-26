@@ -1,6 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { UKRAINE_REGIONS } from "../store/checkout/uk-regions";
+import { canonicalizeRegionName } from "./org-chart-region-resolver";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 
@@ -19,6 +21,8 @@ export type MetaLeadAdsConfig = {
   webhookVerifyToken?: string;
   pageAccessToken?: string;
   companyId?: string;
+  /** Meta (Facebook) Pixel ID — digits only, for site analytics. */
+  fbPixelId?: string;
 };
 
 const META_LEAD_ADS_KEY = "meta_lead_ads";
@@ -212,6 +216,8 @@ export type RingostatConfig = {
   publicBaseUrl?: string;
 };
 
+export type OutboundVoiceRuntimeMode = "stub" | "generic_http" | "kyivstar_openai_gateway";
+
 /** Outbound AI voice webhook + optional provider API (IntegrationSetting row). */
 export type OutboundVoiceIntegrationConfig = {
   apiBaseUrl?: string;
@@ -220,6 +226,16 @@ export type OutboundVoiceIntegrationConfig = {
   createCallPath?: string;
   /** Top-level JSON keys to read provider session id from create-call response (defaults in runtime secrets). */
   responseSessionIdKeys?: string[];
+  /** Explicit runtime; if omitted, legacy rule applies (URL+token → generic HTTP, else stub). */
+  runtimeMode?: OutboundVoiceRuntimeMode;
+  /** Kyivstar/OpenAI gateway create-call path (default "/v1/outbound/calls"). */
+  gatewayCreateCallPath?: string;
+  /** Public base URL of CRM API for gateway callbacks (e.g. https://crm.example.com). */
+  publicWebhookBaseUrl?: string;
+  requestTimeoutMs?: number;
+  retryMax?: number;
+  transferDefaults?: Record<string, unknown>;
+  catalogDefaults?: Record<string, unknown>;
 };
 
 function maskToken(value: string | undefined): string {
@@ -270,10 +286,12 @@ export class SettingsService {
     const webhookVerifyToken = typeof v.webhookVerifyToken === "string" ? v.webhookVerifyToken : undefined;
     const pageAccessToken = typeof v.pageAccessToken === "string" ? v.pageAccessToken : undefined;
     const companyId = typeof v.companyId === "string" ? v.companyId : undefined;
+    const fbPixelId = typeof v.fbPixelId === "string" ? v.fbPixelId.trim() : undefined;
     return {
       webhookVerifyToken: webhookVerifyToken || undefined,
       pageAccessTokenMasked: maskToken(pageAccessToken),
       companyId: companyId || undefined,
+      fbPixelId: fbPixelId || undefined,
     };
   }
 
@@ -288,10 +306,12 @@ export class SettingsService {
       pageAccessToken:
         typeof config.pageAccessToken === "string" ? config.pageAccessToken : (current.pageAccessToken as string) ?? undefined,
       companyId: typeof config.companyId === "string" ? config.companyId : (current.companyId as string) ?? undefined,
+      fbPixelId: typeof config.fbPixelId === "string" ? config.fbPixelId.trim() : (current.fbPixelId as string) ?? undefined,
     };
     if (config.webhookVerifyToken === "") next.webhookVerifyToken = undefined;
     if (config.pageAccessToken === "") next.pageAccessToken = undefined;
     if (config.companyId === "") next.companyId = undefined;
+    if (config.fbPixelId === "") next.fbPixelId = undefined;
     await this.prisma.systemSetting.upsert({
       where: { id: META_LEAD_ADS_KEY },
       create: { id: META_LEAD_ADS_KEY, value: next as Prisma.InputJsonValue },
@@ -302,7 +322,28 @@ export class SettingsService {
       webhookVerifyToken: next.webhookVerifyToken as string | undefined,
       pageAccessTokenMasked: maskToken(pageAccessToken),
       companyId: next.companyId as string | undefined,
+      fbPixelId: (next.fbPixelId as string | undefined) || undefined,
     };
+  }
+
+  /**
+   * Public pixel id for embedding in the web app (no auth).
+   * DB value wins; optional fallback `FB_PIXEL_ID` on the API server.
+   */
+  async getMetaLeadAdsPublicConfig(): Promise<{ fbPixelId: string | null }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: META_LEAD_ADS_KEY },
+    });
+    let fromDb = "";
+    if (row?.value && typeof row.value === "object") {
+      const v = row.value as Record<string, unknown>;
+      fromDb = typeof v.fbPixelId === "string" ? v.fbPixelId.trim() : "";
+    }
+    const fromEnv = process.env.FB_PIXEL_ID?.trim() ?? "";
+    const raw = fromDb || fromEnv;
+    if (!raw) return { fbPixelId: null };
+    if (!/^\d+$/.test(raw)) return { fbPixelId: null };
+    return { fbPixelId: raw };
   }
 
   async getGoogleMapsConfig(): Promise<{ mapsApiKeyMasked?: string }> {
@@ -732,6 +773,13 @@ export class SettingsService {
         isEnabled: false,
         webhookSecretMasked: "",
         apiTokenMasked: "",
+        runtimeMode: undefined,
+        gatewayCreateCallPath: undefined,
+        publicWebhookBaseUrl: undefined,
+        requestTimeoutMs: undefined,
+        retryMax: undefined,
+        transferDefaults: undefined,
+        catalogDefaults: undefined,
       };
     }
     const cfg = (row.config ?? {}) as OutboundVoiceIntegrationConfig;
@@ -741,6 +789,13 @@ export class SettingsService {
       providerDisplayName: cfg.providerDisplayName,
       createCallPath: cfg.createCallPath,
       responseSessionIdKeys: cfg.responseSessionIdKeys,
+      runtimeMode: cfg.runtimeMode,
+      gatewayCreateCallPath: cfg.gatewayCreateCallPath,
+      publicWebhookBaseUrl: cfg.publicWebhookBaseUrl,
+      requestTimeoutMs: cfg.requestTimeoutMs,
+      retryMax: cfg.retryMax,
+      transferDefaults: cfg.transferDefaults,
+      catalogDefaults: cfg.catalogDefaults,
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),
     };
@@ -748,10 +803,15 @@ export class SettingsService {
 
   /** Raw server-side credentials for outbound voice HTTP adapter (not for browser). */
   async getOutboundVoiceRuntimeSecrets(): Promise<{
+    runtimeMode: OutboundVoiceRuntimeMode | null;
     apiBaseUrl: string | null;
     apiToken: string | null;
     createCallPath: string;
+    gatewayCreateCallPath: string;
     responseSessionIdKeys: string[];
+    publicWebhookBaseUrl: string | null;
+    requestTimeoutMs: number;
+    retryMax: number;
   }> {
     const row = await this.prisma.integrationSetting.findFirst({
       where: { provider: OUTBOUND_VOICE_PROVIDER },
@@ -761,12 +821,31 @@ export class SettingsService {
       ? cfg.responseSessionIdKeys.filter((x): x is string => typeof x === "string")
       : [];
     const pathRaw = typeof cfg.createCallPath === "string" ? cfg.createCallPath.trim() : "";
+    const gwPathRaw = typeof cfg.gatewayCreateCallPath === "string" ? cfg.gatewayCreateCallPath.trim() : "";
+    const envPublic = process.env.OUTBOUND_VOICE_PUBLIC_BASE_URL?.trim();
+    const cfgPublic =
+      typeof cfg.publicWebhookBaseUrl === "string" && cfg.publicWebhookBaseUrl.trim()
+        ? cfg.publicWebhookBaseUrl.trim()
+        : null;
+    const publicWebhookBaseUrl = envPublic || cfgPublic || null;
+    const mode =
+      cfg.runtimeMode === "stub" ||
+      cfg.runtimeMode === "generic_http" ||
+      cfg.runtimeMode === "kyivstar_openai_gateway"
+        ? cfg.runtimeMode
+        : null;
     return {
+      runtimeMode: mode,
       apiBaseUrl: typeof cfg.apiBaseUrl === "string" && cfg.apiBaseUrl.trim() ? cfg.apiBaseUrl.trim() : null,
       apiToken: row?.apiToken && String(row.apiToken).trim() ? String(row.apiToken).trim() : null,
       createCallPath: pathRaw || "/calls",
+      gatewayCreateCallPath: gwPathRaw || "/v1/outbound/calls",
       responseSessionIdKeys:
         keys.length > 0 ? keys : ["id", "call_id", "session_id", "providerSessionId"],
+      publicWebhookBaseUrl,
+      requestTimeoutMs:
+        typeof cfg.requestTimeoutMs === "number" && cfg.requestTimeoutMs > 0 ? cfg.requestTimeoutMs : 30_000,
+      retryMax: typeof cfg.retryMax === "number" && cfg.retryMax >= 0 ? cfg.retryMax : 0,
     };
   }
 
@@ -775,6 +854,8 @@ export class SettingsService {
       isEnabled?: boolean;
       webhookSecret?: string;
       apiToken?: string;
+      /** Pass null to clear explicit runtime mode (restore legacy URL heuristic). */
+      runtimeMode?: OutboundVoiceRuntimeMode | null;
     },
   ): Promise<
     OutboundVoiceIntegrationConfig & {
@@ -803,10 +884,35 @@ export class SettingsService {
       responseSessionIdKeys: Array.isArray(body.responseSessionIdKeys)
         ? body.responseSessionIdKeys.filter((x): x is string => typeof x === "string")
         : currentCfg.responseSessionIdKeys,
+      runtimeMode:
+        body.runtimeMode === "stub" ||
+        body.runtimeMode === "generic_http" ||
+        body.runtimeMode === "kyivstar_openai_gateway"
+          ? body.runtimeMode
+          : body.runtimeMode === null
+            ? undefined
+            : currentCfg.runtimeMode,
+      gatewayCreateCallPath:
+        typeof body.gatewayCreateCallPath === "string"
+          ? body.gatewayCreateCallPath.trim() || undefined
+          : currentCfg.gatewayCreateCallPath,
+      publicWebhookBaseUrl:
+        typeof body.publicWebhookBaseUrl === "string"
+          ? body.publicWebhookBaseUrl.trim() || undefined
+          : currentCfg.publicWebhookBaseUrl,
+      requestTimeoutMs:
+        typeof body.requestTimeoutMs === "number" ? body.requestTimeoutMs : currentCfg.requestTimeoutMs,
+      retryMax: typeof body.retryMax === "number" ? body.retryMax : currentCfg.retryMax,
+      transferDefaults:
+        body.transferDefaults !== undefined ? body.transferDefaults : currentCfg.transferDefaults,
+      catalogDefaults:
+        body.catalogDefaults !== undefined ? body.catalogDefaults : currentCfg.catalogDefaults,
     };
     if (body.apiBaseUrl === "") nextCfg.apiBaseUrl = undefined;
     if (body.providerDisplayName === "") nextCfg.providerDisplayName = undefined;
     if (body.createCallPath === "") nextCfg.createCallPath = undefined;
+    if (body.gatewayCreateCallPath === "") nextCfg.gatewayCreateCallPath = undefined;
+    if (body.publicWebhookBaseUrl === "") nextCfg.publicWebhookBaseUrl = undefined;
 
     const isEnabled =
       typeof body.isEnabled === "boolean" ? body.isEnabled : (existing?.isEnabled ?? false);
@@ -845,6 +951,13 @@ export class SettingsService {
       providerDisplayName: nextCfg.providerDisplayName,
       createCallPath: nextCfg.createCallPath,
       responseSessionIdKeys: nextCfg.responseSessionIdKeys,
+      runtimeMode: nextCfg.runtimeMode,
+      gatewayCreateCallPath: nextCfg.gatewayCreateCallPath,
+      publicWebhookBaseUrl: nextCfg.publicWebhookBaseUrl,
+      requestTimeoutMs: nextCfg.requestTimeoutMs,
+      retryMax: nextCfg.retryMax,
+      transferDefaults: nextCfg.transferDefaults,
+      catalogDefaults: nextCfg.catalogDefaults,
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),
     };
@@ -953,6 +1066,17 @@ export class SettingsService {
       extraSlots: Array.isArray(body.extraSlots) ? body.extraSlots : current.extraSlots,
       regions: body.regions ?? current.regions,
     };
+
+    const known = new Set(UKRAINE_REGIONS);
+    for (const [slotId, regionList] of Object.entries(next.regions ?? {})) {
+      for (const raw of regionList ?? []) {
+        const c = canonicalizeRegionName(String(raw));
+        if (!c || !known.has(c)) {
+          throw new BadRequestException(`Невідома область у слоті ${slotId}: ${String(raw)}`);
+        }
+      }
+    }
+
     await this.prisma.systemSetting.upsert({
       where: { id: ORG_CHART_STRUCTURE_KEY },
       create: { id: ORG_CHART_STRUCTURE_KEY, value: next as Prisma.InputJsonValue },

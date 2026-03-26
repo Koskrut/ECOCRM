@@ -25,10 +25,15 @@ describe("HttpOutboundVoiceAdapter", () => {
 
     const settings = {
       getOutboundVoiceRuntimeSecrets: async () => ({
+        runtimeMode: null as const,
         apiBaseUrl: "https://voice.example/api/",
         apiToken: "secret-token",
         createCallPath: "/calls",
+        gatewayCreateCallPath: "/v1/outbound/calls",
         responseSessionIdKeys: ["session_id"],
+        publicWebhookBaseUrl: null,
+        requestTimeoutMs: 30_000,
+        retryMax: 0,
       }),
     } as unknown as SettingsService;
 
@@ -36,10 +41,11 @@ describe("HttpOutboundVoiceAdapter", () => {
     const result = await adapter.initiateOutboundCall(
       {
         id: "att-1",
+        campaignId: "camp-1",
         phoneNormalized: "380501234567",
         scenarioCode: "LEAD_QUALIFICATION",
         scenarioVersion: "1",
-        campaign: {} as never,
+        campaign: { id: "camp-1" } as never,
       } as never,
       { foo: "bar" },
     );
@@ -50,6 +56,7 @@ describe("HttpOutboundVoiceAdapter", () => {
     assert.strictEqual(hdrs.Authorization, "Bearer secret-token");
     const body = JSON.parse((capturedInit?.body as string) ?? "{}");
     assert.strictEqual(body.attemptId, "att-1");
+    assert.strictEqual(body.scenarioKey, "LEAD_QUALIFICATION@1");
     assert.strictEqual(body.phone, "+380501234567");
     assert.strictEqual(result.provider, "HTTP_OUTBOUND_VOICE");
     assert.strictEqual(result.providerSessionId, "abc-123");

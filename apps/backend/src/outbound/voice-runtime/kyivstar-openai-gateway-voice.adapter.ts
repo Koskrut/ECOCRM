@@ -4,7 +4,7 @@ import { SettingsService } from "../../settings/settings.service";
 import { buildOutboundCreateCallPayload } from "../outbound-create-call-payload.builder";
 import type { OutboundAttemptForDial, VoiceInitiateResult, VoiceRuntimeAdapter } from "./voice-runtime.types";
 
-export const VOICE_PROVIDER_HTTP = "HTTP_OUTBOUND_VOICE";
+export const VOICE_PROVIDER_KYIVSTAR_OPENAI_GATEWAY = "KYIVSTAR_OPENAI_GATEWAY";
 
 function extractSessionIdFromResponse(obj: unknown, keys: string[]): string | null {
   if (!obj || typeof obj !== "object") return null;
@@ -17,8 +17,8 @@ function extractSessionIdFromResponse(obj: unknown, keys: string[]): string | nu
 }
 
 @Injectable()
-export class HttpOutboundVoiceAdapter implements VoiceRuntimeAdapter {
-  private readonly logger = new Logger(HttpOutboundVoiceAdapter.name);
+export class KyivstarOpenAiGatewayVoiceAdapter implements VoiceRuntimeAdapter {
+  private readonly logger = new Logger(KyivstarOpenAiGatewayVoiceAdapter.name);
 
   constructor(private readonly settings: SettingsService) {}
 
@@ -28,11 +28,13 @@ export class HttpOutboundVoiceAdapter implements VoiceRuntimeAdapter {
   ): Promise<VoiceInitiateResult> {
     const secrets = await this.settings.getOutboundVoiceRuntimeSecrets();
     if (!secrets.apiBaseUrl || !secrets.apiToken) {
-      throw new Error("HTTP outbound voice: apiBaseUrl and apiToken must be configured");
+      throw new Error("Kyivstar/OpenAI gateway: apiBaseUrl and apiToken must be configured");
     }
 
     const base = secrets.apiBaseUrl.replace(/\/+$/, "");
-    const path = secrets.createCallPath.startsWith("/") ? secrets.createCallPath : `/${secrets.createCallPath}`;
+    const path = secrets.gatewayCreateCallPath.startsWith("/")
+      ? secrets.gatewayCreateCallPath
+      : `/${secrets.gatewayCreateCallPath}`;
     const url = `${base}${path}`;
 
     const phoneE164 = normalizePhoneToE164(attempt.phoneNormalized) ?? `+${attempt.phoneNormalized}`;
@@ -68,22 +70,22 @@ export class HttpOutboundVoiceAdapter implements VoiceRuntimeAdapter {
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
-      this.logger.warn(`HTTP outbound voice: non-JSON response ${res.status}: ${text.slice(0, 300)}`);
+      this.logger.warn(`Kyivstar gateway: non-JSON response ${res.status}: ${text.slice(0, 300)}`);
     }
 
     if (!res.ok) {
-      throw new Error(`HTTP outbound voice: ${res.status} ${text.slice(0, 500)}`);
+      throw new Error(`Kyivstar/OpenAI gateway: ${res.status} ${text.slice(0, 500)}`);
     }
 
     const sessionId = extractSessionIdFromResponse(json, secrets.responseSessionIdKeys);
     if (!sessionId) {
       throw new Error(
-        `HTTP outbound voice: could not read session id from response (tried keys: ${secrets.responseSessionIdKeys.join(", ")})`,
+        `Kyivstar/OpenAI gateway: could not read session id from response (tried keys: ${secrets.responseSessionIdKeys.join(", ")})`,
       );
     }
 
     return {
-      provider: VOICE_PROVIDER_HTTP,
+      provider: VOICE_PROVIDER_KYIVSTAR_OPENAI_GATEWAY,
       providerSessionId: sessionId,
     };
   }
