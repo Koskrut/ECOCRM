@@ -6,6 +6,8 @@ import { StoreConfigProvider } from "@/context/StoreConfigContext";
 import { Header } from "@/components/Header";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
+import { ConsentBanner } from "@/components/ConsentBanner";
+import { TrackingBootstrap } from "@/components/TrackingBootstrap";
 import { SITE_URL } from "@/lib/site";
 
 const geistSans = Geist({
@@ -60,6 +62,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} ${manrope.variable} antialiased min-h-screen flex flex-col`}
       >
         <StoreConfigProvider>
+          <TrackingBootstrap />
           <Suspense fallback={<header className="h-16 border-b border-[var(--border)] bg-white" />}>
             <Header />
           </Suspense>
@@ -68,6 +71,7 @@ export default function RootLayout({
           </Suspense>
           <main className="flex-1">{children}</main>
           <Footer />
+          <ConsentBanner />
         </StoreConfigProvider>
       </body>
     </html>

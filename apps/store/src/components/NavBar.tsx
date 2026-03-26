@@ -8,6 +8,7 @@ import { getCartSessionId } from "@/lib/cart-session";
 const navLinks = [
   { href: "/", label: "Головна" },
   { href: "/#catalog", label: "Магазин" },
+  { href: "/why-suprex", label: "Чому SUPREX" },
   { href: "/about-production", label: "Про виробництво" },
   { href: "/about", label: "Про нас" },
   { href: "/contacts", label: "Контакти" },

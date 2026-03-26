@@ -13,6 +13,7 @@ import { HeroSlider } from "@/components/HeroSlider";
 import { PopularSystems } from "@/components/PopularSystems";
 import { PromoBanner } from "@/components/PromoBanner";
 import { AboutBlock } from "@/components/AboutBlock";
+import { LeadCtaBlock } from "@/components/cta/LeadCtaBlock";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 import { PRODUCT_GROUPS } from "@/lib/categories";
 
@@ -89,6 +90,10 @@ function HomeContent() {
           <PopularSystems />
           
           <TrustBlock />
+
+          <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+            <LeadCtaBlock compact />
+          </section>
 
           {popularProducts.length > 0 && (
             <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">

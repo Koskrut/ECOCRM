@@ -51,6 +51,12 @@ export function Footer() {
             <Link href="/cabinet" prefetch={false} className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">
               Кабінет
             </Link>
+            <Link href="/privacy-policy" className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">
+              Privacy
+            </Link>
+            <Link href="/cookie-policy" className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">
+              Cookie
+            </Link>
           </nav>
         </div>
         <p className="mt-6 border-t border-[var(--border)] pt-6 text-center text-sm text-zinc-500">
