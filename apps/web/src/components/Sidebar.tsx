@@ -50,6 +50,7 @@ const baseMenuItems: MenuItem[] = [
 const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };
 const paymentsItem: MenuItem = { label: strings.nav.payments, icon: Wallet, href: "/payments" };
 const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
+const managerHiddenHrefs = new Set(["/planning", "/visits/history", "/outbound/campaigns"]);
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -70,11 +71,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
+  const managerMenuItems = baseMenuItems
+    .filter((item) => !managerHiddenHrefs.has(item.href))
+    .concat(paymentsItem);
+
   const menuItems =
     role === "ADMIN"
       ? [...baseMenuItems, analyticsItem, paymentsItem, settingsItem]
       : role === "MANAGER" || role === "LEAD"
-        ? [...baseMenuItems, paymentsItem]
+        ? managerMenuItems
         : baseMenuItems;
 
   // Detect mobile on mount

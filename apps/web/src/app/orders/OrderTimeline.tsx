@@ -9,7 +9,8 @@ type TimelineItem = {
   type: string;
   title: string;
   body: string;
-  occurredAt: string;
+  occurredAt?: string;
+  at?: string;
   createdAt: string;
   createdBy: string;
 };
@@ -82,6 +83,12 @@ export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
       : mode === "MEETING"
         ? "Коротко: итоги встречи?"
         : "Написать комментарий...";
+
+  const formatTimelineDate = (item: TimelineItem): string => {
+    const raw = item.occurredAt ?? item.at ?? item.createdAt;
+    const date = raw ? new Date(raw) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "—";
+  };
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm max-lg:h-auto lg:h-full">
@@ -180,7 +187,7 @@ export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
                     <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
                   <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt).toLocaleString()}
+                    {formatTimelineDate(it)}
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>
