@@ -14,6 +14,10 @@ import { apiHttp } from "../../lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
+import { ContactCardHeader } from "./card/ContactCardHeader";
+import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
+import { ContactKpiStrip } from "./card/ContactKpiStrip";
+import { useContactCardSummary } from "./card/useContactCardSummary";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
   autocompleteAddress,
@@ -674,6 +678,7 @@ export function ContactModal({
   userRole: userRoleProp,
 }: Props) {
   const isCreate = contactId === "new";
+  const isCardV2Enabled = process.env.NEXT_PUBLIC_CONTACT_CARD_V2 !== "0";
   const effectiveRole = userRoleProp ?? null;
 
   const [contact, setContact] = useState<Contact | null>(null);
@@ -721,7 +726,7 @@ export function ContactModal({
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [orderId, setOrderId] = useState<string | null>(null);
-  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [creatingOrder, setCreatingOrder] = useState(false);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
 
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
@@ -742,8 +747,16 @@ export function ContactModal({
     );
   }, [resetPasswordResult, resetPasswordPublicStoreBase]);
 
-  type LeftTabId = "main" | "orders" | "delivery-profiles" | "tasks" | "change-history";
-  const [leftTab, setLeftTab] = useState<LeftTabId>("main");
+  type LeftTabId =
+    | "overview"
+    | "timeline"
+    | "orders"
+    | "delivery-profiles"
+    | "tasks"
+    | "change-history";
+  const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
+
+  const cardSummary = useContactCardSummary(contactId, !isCreate && isCardV2Enabled);
 
   const cancelInlineEditRef = useRef<(() => void) | null>(null);
 
@@ -859,7 +872,7 @@ export function ContactModal({
     setErr(null);
     setContact(null);
     setOrderId(null);
-    setCreateOrderOpen(false);
+    setLeftTab("overview");
      setIsMapEnabled(false);
     if (isCreate) {
       setLoading(false);
@@ -930,8 +943,9 @@ export function ContactModal({
       if (payload.externalCode !== undefined) setExternalCode(payload.externalCode ?? "");
       if (payload.documentDisplayName !== undefined) setDocumentDisplayName(payload.documentDisplayName ?? "");
       onUpdate();
+      void cardSummary.refetch();
     },
-    [contactId, onUpdate],
+    [cardSummary, contactId, onUpdate],
   );
 
   useEffect(
@@ -1119,12 +1133,8 @@ export function ContactModal({
       setOrderId(null);
       return true;
     }
-    if (createOrderOpen) {
-      setCreateOrderOpen(false);
-      return true;
-    }
     return false;
-  }, [orderId, createOrderOpen]);
+  }, [orderId]);
 
   const saveCreate = async () => {
     setSaving(true);
@@ -1198,6 +1208,41 @@ export function ContactModal({
       alert(msg);
     }
   };
+
+  const openMainOrderModal = useCallback(async () => {
+    if (isCreate || creatingOrder) return;
+    setCreatingOrder(true);
+    setErr(null);
+    try {
+      const payload = {
+        clientId: contactId,
+        contactId,
+        companyId: contact?.companyId ?? null,
+      };
+      const res = await apiHttp.post<{ id: string; clientId?: string | null }>("/orders", payload);
+      const createdId = res.data?.id;
+      if (!createdId) throw new Error("Order id is missing in response");
+
+      // Safety: ensure client/contact linkage is persisted before opening the main Order modal.
+      if (res.data?.clientId !== contactId) {
+        await apiHttp.patch(`/orders/${createdId}`, {
+          clientId: contactId,
+          contactId,
+          ...(contact?.companyId ? { companyId: contact.companyId } : {}),
+        });
+      }
+
+      setOrderId(createdId);
+      setOrdersReloadKey((k) => k + 1);
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Failed to create order");
+      setErr(msg);
+    } finally {
+      setCreatingOrder(false);
+    }
+  }, [contact?.companyId, contactId, creatingOrder, isCreate]);
 
   const fullName = useMemo(() => {
     const a = (contact?.firstName ?? "").trim();
@@ -1903,7 +1948,9 @@ export function ContactModal({
 
   const tabsUnderHeader = (
     <div className="flex gap-1 py-2">
-      {(["main", "orders", "delivery-profiles", "tasks", "change-history"] as const).map((tab) => (
+      {(
+        ["overview", "timeline", "orders", "delivery-profiles", "tasks", "change-history"] as const
+      ).map((tab) => (
         <button
           key={tab}
           type="button"
@@ -1912,8 +1959,10 @@ export function ContactModal({
             leftTab === tab ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
-          {tab === "main"
-            ? "Main"
+          {tab === "overview"
+            ? "Overview"
+            : tab === "timeline"
+              ? "Timeline"
             : tab === "orders"
               ? "Orders"
               : tab === "delivery-profiles"
@@ -1928,7 +1977,7 @@ export function ContactModal({
 
   const leftContent = (
     <div className="min-h-0 overflow-auto">
-        {leftTab === "main" && (
+        {leftTab === "overview" && (
           isCreate ? (
             <div className="min-h-0 overflow-auto">
               <EntitySection
@@ -1938,10 +1987,47 @@ export function ContactModal({
               </EntitySection>
             </div>
           ) : (
-            <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-2">
-              <div className="min-h-0 overflow-auto border-zinc-200 lg:border-r lg:pr-4">
+            <div className="space-y-3">
+              {isCardV2Enabled ? (
+                cardSummary.loading ? (
+                  <ContactCardSkeleton />
+                ) : cardSummary.error ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Не удалось загрузить summary. Показан legacy режим карточки.
+                  </div>
+                ) : cardSummary.data ? (
+                  <>
+                    <ContactCardHeader
+                      summary={cardSummary.data}
+                      telegramConversationId={contact?.telegramConversationId ?? null}
+                      onCreateOrder={() => void openMainOrderModal()}
+                      onOpenTasks={() => setLeftTab("tasks")}
+                      onPlanVisit={() => void scheduleVisit()}
+                    />
+                    <ContactKpiStrip
+                      kpi={cardSummary.data.kpi}
+                      scopeNote={cardSummary.data.insights.scopeNote}
+                    />
+                    <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Next step
+                      </div>
+                      <div className="mt-1 text-zinc-800">
+                        {cardSummary.data.insights.nextStep
+                          ? `${cardSummary.data.insights.nextStep.title}${
+                              cardSummary.data.insights.nextStep.dueAt
+                                ? ` · ${new Date(cardSummary.data.insights.nextStep.dueAt).toLocaleDateString()}`
+                                : ""
+                            }`
+                          : "No planned follow-up"}
+                      </div>
+                    </div>
+                  </>
+                ) : null
+              ) : null}
+              <div className="min-h-0 overflow-auto">
                 <EntitySection
-                  title="About contact"
+                  title={isCardV2Enabled ? "Overview" : "About contact"}
                   rightAction={
                     contact?.companyId && onOpenCompany ? (
                       <button
@@ -1957,17 +2043,24 @@ export function ContactModal({
                   {aboutContactSection}
                 </EntitySection>
               </div>
-              <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4">
-                <EntitySection title="Activity">
-                  <ContactTimeline
-                    apiBaseUrl={apiBaseUrl}
-                    contactId={contactId}
-                    showActivityButtons
-                  />
-                </EntitySection>
-              </div>
             </div>
           )
+        )}
+
+        {leftTab === "timeline" && (
+          <>
+            {isCreate ? (
+              <p className="text-sm text-zinc-500">Save the contact first to see timeline.</p>
+            ) : (
+              <EntitySection title="Timeline">
+                <ContactTimeline
+                  apiBaseUrl={apiBaseUrl}
+                  contactId={contactId}
+                  showActivityButtons
+                />
+              </EntitySection>
+            )}
+          </>
         )}
 
         {leftTab === "orders" && (
@@ -2073,10 +2166,25 @@ export function ContactModal({
               <>
                 <button
                   type="button"
-                  onClick={() => setCreateOrderOpen(true)}
-                  className="btn-primary py-1.5"
+                  onClick={() => void openMainOrderModal()}
+                  disabled={creatingOrder}
+                  className="btn-primary py-1.5 disabled:opacity-50"
                 >
-                  + Order
+                  {creatingOrder ? "Creating…" : "+ Order"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeftTab("tasks")}
+                  className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  + Task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void scheduleVisit()}
+                  className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Plan visit
                 </button>
                 {(effectiveRole === "MANAGER" ||
                   effectiveRole === "ADMIN" ||
@@ -2170,30 +2278,10 @@ export function ContactModal({
           orderId={orderId}
           onClose={() => setOrderId(null)}
           onSaved={() => {
-            setOrderId(null);
             setOrdersReloadKey((k) => k + 1);
+            void cardSummary.refetch();
           }}
           onOpenOrder={(id) => setOrderId(id)}
-        />
-      ) : null}
-
-      {createOrderOpen ? (
-        <OrderModal
-          apiBaseUrl={apiBaseUrl}
-          orderId={null}
-          prefill={{
-            clientId: contactId,
-            companyId: contact?.companyId ?? null,
-          }}
-          onClose={() => setCreateOrderOpen(false)}
-          onSaved={() => {
-            setCreateOrderOpen(false);
-            setOrdersReloadKey((k) => k + 1);
-          }}
-          onOpenOrder={(id) => {
-            setCreateOrderOpen(false);
-            setOrderId(id);
-          }}
         />
       ) : null}
 

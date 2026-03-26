@@ -22,6 +22,7 @@ import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "./bitrix-np-mapper";
+import type { ContactCardSummaryResponse } from "./contact-card-summary.types";
 
 @Injectable()
 export class ContactsService {
@@ -71,6 +72,146 @@ export class ContactsService {
     if (actor.role === UserRole.MANAGER && contact.ownerId && contact.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access contacts assigned to you");
     }
+  }
+
+  async getCardSummary(id: string, actor?: AuthUser): Promise<ContactCardSummaryResponse> {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id },
+      include: {
+        company: { select: { id: true, name: true } },
+        owner: { select: { id: true, fullName: true } },
+        phones: { select: { phone: true } },
+      },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const visibleOrdersWhere: Prisma.OrderWhereInput = { clientId: id };
+    if (actor?.role === UserRole.MANAGER) {
+      visibleOrdersWhere.ownerId = actor.id;
+    }
+
+    const visibleTasksWhere: Prisma.TaskWhereInput = {
+      contactId: id,
+      status: { in: ["OPEN", "IN_PROGRESS"] },
+    };
+    if (actor?.role === UserRole.MANAGER) {
+      visibleTasksWhere.assigneeId = actor.id;
+    }
+
+    const now = new Date();
+    const [visibleOrders, totalCanonicalOrders, lastActivity, openTasksCount, overdueTasksCount, nextTask] =
+      await Promise.all([
+        this.prisma.order.findMany({
+          where: visibleOrdersWhere,
+          select: {
+            createdAt: true,
+            totalAmount: true,
+            returnAdjustmentAmount: true,
+            debtAmount: true,
+            financialStatus: true,
+          },
+        }),
+        this.prisma.order.count({ where: { clientId: id } }),
+        this.prisma.activity.findFirst({
+          where: { contactId: id },
+          orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+          select: { occurredAt: true, createdAt: true },
+        }),
+        this.prisma.task.count({ where: visibleTasksWhere }),
+        this.prisma.task.count({
+          where: {
+            ...visibleTasksWhere,
+            dueAt: { lt: now },
+          },
+        }),
+        this.prisma.task.findFirst({
+          where: visibleTasksWhere,
+          orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
+          select: { title: true, dueAt: true },
+        }),
+      ]);
+
+    let revenue = 0;
+    let debt = 0;
+    let overdue = 0;
+    let lastOrderAt: Date | null = null;
+    for (const order of visibleOrders) {
+      revenue += Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0));
+      debt += Math.max(0, Number(order.debtAmount ?? 0));
+      if (order.financialStatus === "OVERDUE" && Number(order.debtAmount ?? 0) > 0) {
+        overdue += Number(order.debtAmount ?? 0);
+      }
+      if (!lastOrderAt || order.createdAt > lastOrderAt) lastOrderAt = order.createdAt;
+    }
+
+    const lastActivityAt = lastActivity?.occurredAt ?? lastActivity?.createdAt ?? null;
+    const daysSinceActivity = lastActivityAt
+      ? Math.floor((now.getTime() - new Date(lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    const hasVisibleScopeGap =
+      actor?.role === UserRole.MANAGER && totalCanonicalOrders > visibleOrders.length;
+    const isUnassigned = !contact.ownerId;
+    const missingCompany = !contact.companyId;
+
+    const riskFlags: string[] = [];
+    if (overdue > 0) riskFlags.push("overdue");
+    if (debt > 0) riskFlags.push("debt");
+    if (overdueTasksCount > 0) riskFlags.push("overdue_tasks");
+    if (daysSinceActivity != null && daysSinceActivity >= 14) riskFlags.push("no_activity");
+
+    const badges: string[] = [];
+    if (isUnassigned) badges.push("unassigned");
+    if (missingCompany) badges.push("no_company");
+    if (overdue > 0) badges.push("overdue");
+    if (debt > 0) badges.push("debt");
+    if (overdueTasksCount > 0) badges.push("open_overdue_tasks");
+    if (daysSinceActivity != null && daysSinceActivity >= 14) badges.push("no_activity");
+
+    const phones = [contact.phone, ...contact.phones.map((p) => p.phone)]
+      .map((p) => p?.trim())
+      .filter((p): p is string => !!p);
+
+    return {
+      contact: {
+        id: contact.id,
+        fullName: [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim(),
+        company: contact.company ? { id: contact.company.id, name: contact.company.name } : null,
+        owner: contact.owner
+          ? { id: contact.owner.id, name: contact.owner.fullName || contact.owner.id }
+          : null,
+        status: contact.status ?? null,
+        clientType: contact.clientType ?? null,
+        city: contact.city ?? null,
+        region: contact.region ?? null,
+        email: contact.email ?? null,
+        phones,
+        isUnassigned,
+        badges,
+      },
+      kpi: {
+        ordersCount: visibleOrders.length,
+        revenue,
+        debt,
+        overdue,
+        lastOrderAt: lastOrderAt ? lastOrderAt.toISOString() : null,
+        lastActivityAt: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
+        openTasksCount,
+        overdueTasksCount,
+      },
+      insights: {
+        nextStep: nextTask
+          ? {
+              title: nextTask.title,
+              dueAt: nextTask.dueAt ? nextTask.dueAt.toISOString() : null,
+            }
+          : null,
+        riskFlags,
+        financeRestricted: hasVisibleScopeGap,
+        scopeNote: hasVisibleScopeGap ? "Показаны только доступные вам сделки" : null,
+      },
+    };
   }
 
   // ===== CREATE =====

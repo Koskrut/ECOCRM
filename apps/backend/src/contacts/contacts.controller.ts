@@ -186,6 +186,11 @@ export class ContactsController {
     return this.contactsService.getById(id, req.user);
   }
 
+  @Get(":id/card")
+  async getCard(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.getCardSummary(id, req.user);
+  }
+
   @Post(":id/reset-store-password")
   async resetStorePassword(
     @Param("id") id: string,
