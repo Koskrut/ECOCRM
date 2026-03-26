@@ -338,7 +338,8 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
               const filtered = items.filter((it) => {
                 const call = it.call;
                 if (filter === "all") return true;
-                if (filter === "calls") return it.type === "CALL";
+                if (filter === "calls")
+                  return it.type === "CALL" || it.type === "MANUAL_CALL";
                 if (filter === "missed") {
                   if (it.type !== "CALL" || !call?.status) return false;
                   const s = call.status.toUpperCase();
@@ -431,11 +432,18 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     />
                   );
                 }
-                const Icon = it.type === "COMMENT" ? MessageCircle : Calendar;
-                const iconColor = it.type === "COMMENT" ? "text-sky-600" : "text-violet-600";
+                const Icon =
+                  it.type === "MANUAL_CALL" ? Phone : it.type === "COMMENT" ? MessageCircle : Calendar;
+                const iconColor =
+                  it.type === "MANUAL_CALL"
+                    ? "text-amber-600"
+                    : it.type === "COMMENT"
+                      ? "text-sky-600"
+                      : "text-violet-600";
                 const isEditing = editingId === it.id;
                 const isConfirmDelete = confirmDeleteId === it.id;
-                const canPin = it.type === "COMMENT" || it.type === "MEETING";
+                const canPin =
+                  it.type === "COMMENT" || it.type === "MEETING" || it.type === "MANUAL_CALL";
                 const isPinned = !!it.pinnedAt;
 
                 if (isEditing) {

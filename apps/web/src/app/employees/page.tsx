@@ -37,6 +37,7 @@ export default function EmployeesPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [structureSaveStatus, setStructureSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [structureSaveError, setStructureSaveError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [editing, setEditing] = useState<Employee | null>(null);
 
@@ -114,6 +115,7 @@ export default function EmployeesPage() {
 
   const saveStructure = useCallback(async () => {
     setStructureSaveStatus("saving");
+    setStructureSaveError(null);
     try {
       await apiHttp.patch("/settings/org-chart", {
         assignments,
@@ -122,9 +124,17 @@ export default function EmployeesPage() {
       });
       setStructureSaveStatus("saved");
       setTimeout(() => setStructureSaveStatus("idle"), 2000);
-    } catch {
+    } catch (e) {
+      const message =
+        (e as { response?: { data?: { message?: string | string[]; error?: string } } })?.response?.data?.message ??
+        (e as { response?: { data?: { message?: string | string[]; error?: string } } })?.response?.data?.error ??
+        (e instanceof Error ? e.message : "unknown");
+      setStructureSaveError(Array.isArray(message) ? message.join(" | ") : String(message));
       setStructureSaveStatus("error");
-      setTimeout(() => setStructureSaveStatus("idle"), 3000);
+      setTimeout(() => {
+        setStructureSaveStatus("idle");
+        setStructureSaveError(null);
+      }, 3000);
     }
   }, [assignments, extraSlotIds, regionAssignments]);
 
@@ -187,7 +197,7 @@ export default function EmployeesPage() {
           )}
           {structureSaveStatus === "error" && (
             <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-              Не удалось сохранить структуру
+              {structureSaveError ?? "Не удалось сохранить структуру"}
             </div>
           )}
           <OrgChartFlow

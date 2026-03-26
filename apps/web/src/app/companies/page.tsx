@@ -406,6 +406,7 @@ function CompaniesPageContent() {
             params.set("companyId", id);
             router.replace(`${pathname}?${params.toString()}`, { scroll: false });
           }}
+          userRole={userRole}
         />
       )}
     </div>

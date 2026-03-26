@@ -33,12 +33,18 @@ export type LeadAnswer = { id: string; key: string; value: string; createdAt: st
 export type LeadEvent = { id: string; type: string; message: string; payload: unknown | null; createdAt: string };
 export type LeadIdentity = { id: string; type: string; value: string; isPrimary: boolean };
 
+/** First conversion order linked from CRM convert flow (Lead.convertedOrderId). */
+export type LeadConvertedOrderRef = { id: string; orderNumber: string };
+
 export type Lead = {
   id: string;
   companyId: string;
   ownerId: string | null;
   owner?: { id: string; fullName: string } | null;
   contactId: string | null;
+  /** Canonical link to first conversion order; null if no order was created via convert (or legacy). */
+  convertedOrderId?: string | null;
+  convertedOrder?: LeadConvertedOrderRef | null;
   status: LeadStatus;
   source: LeadSource;
   channel?: LeadChannel | null;

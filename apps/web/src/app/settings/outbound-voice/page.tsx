@@ -4,12 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 
+type OutboundVoiceRuntimeMode = "stub" | "generic_http" | "kyivstar_openai_gateway";
+
 type OutboundVoiceConfig = {
   isEnabled?: boolean;
   apiBaseUrl?: string;
   providerDisplayName?: string;
   createCallPath?: string;
   responseSessionIdKeys?: string[];
+  runtimeMode?: OutboundVoiceRuntimeMode;
+  gatewayCreateCallPath?: string;
+  publicWebhookBaseUrl?: string;
+  requestTimeoutMs?: number;
+  retryMax?: number;
   webhookSecretMasked?: string;
   apiTokenMasked?: string;
 };
@@ -50,6 +57,12 @@ export default function OutboundVoiceSettingsPage() {
   const [clearApiToken, setClearApiToken] = useState(false);
   const [clearWebhookSecret, setClearWebhookSecret] = useState(false);
 
+  const [runtimeMode, setRuntimeMode] = useState<"" | OutboundVoiceRuntimeMode>("");
+  const [gatewayCreateCallPath, setGatewayCreateCallPath] = useState("");
+  const [publicWebhookBaseUrl, setPublicWebhookBaseUrl] = useState("");
+  const [requestTimeoutMs, setRequestTimeoutMs] = useState<number>(30_000);
+  const [retryMax, setRetryMax] = useState<number>(0);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -61,6 +74,17 @@ export default function OutboundVoiceSettingsPage() {
       setApiBaseUrl(data.apiBaseUrl ?? "");
       setCreateCallPath(data.createCallPath ?? "");
       setResponseKeysText(keysToText(data.responseSessionIdKeys));
+      setRuntimeMode(
+        data.runtimeMode === "stub" ||
+          data.runtimeMode === "generic_http" ||
+          data.runtimeMode === "kyivstar_openai_gateway"
+          ? data.runtimeMode
+          : "",
+      );
+      setGatewayCreateCallPath(data.gatewayCreateCallPath ?? "");
+      setPublicWebhookBaseUrl(data.publicWebhookBaseUrl ?? "");
+      setRequestTimeoutMs(typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000);
+      setRetryMax(typeof data.retryMax === "number" ? data.retryMax : 0);
       setApiToken("");
       setWebhookSecret("");
       setClearApiToken(false);
@@ -88,6 +112,16 @@ export default function OutboundVoiceSettingsPage() {
         apiBaseUrl: apiBaseUrl.trim() || undefined,
         createCallPath: createCallPath.trim() || undefined,
         responseSessionIdKeys: keys.length > 0 ? keys : [],
+        runtimeMode:
+          runtimeMode === ""
+            ? null
+            : runtimeMode === "stub" || runtimeMode === "generic_http" || runtimeMode === "kyivstar_openai_gateway"
+              ? runtimeMode
+              : undefined,
+        gatewayCreateCallPath: gatewayCreateCallPath.trim() || undefined,
+        publicWebhookBaseUrl: publicWebhookBaseUrl.trim() || undefined,
+        requestTimeoutMs: Number.isFinite(requestTimeoutMs) ? requestTimeoutMs : 30_000,
+        retryMax: Number.isFinite(retryMax) ? retryMax : 0,
       };
       if (clearApiToken) body.apiToken = "";
       else if (apiToken.trim() !== "") body.apiToken = apiToken.trim();
@@ -101,6 +135,17 @@ export default function OutboundVoiceSettingsPage() {
       setApiBaseUrl(data.apiBaseUrl ?? "");
       setCreateCallPath(data.createCallPath ?? "");
       setResponseKeysText(keysToText(data.responseSessionIdKeys));
+      setRuntimeMode(
+        data.runtimeMode === "stub" ||
+          data.runtimeMode === "generic_http" ||
+          data.runtimeMode === "kyivstar_openai_gateway"
+          ? data.runtimeMode
+          : "",
+      );
+      setGatewayCreateCallPath(data.gatewayCreateCallPath ?? "");
+      setPublicWebhookBaseUrl(data.publicWebhookBaseUrl ?? "");
+      setRequestTimeoutMs(typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000);
+      setRetryMax(typeof data.retryMax === "number" ? data.retryMax : 0);
       setApiToken("");
       setWebhookSecret("");
       setClearApiToken(false);
@@ -208,6 +253,87 @@ export default function OutboundVoiceSettingsPage() {
                   placeholder="Например, Acme Voice"
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <label className="block text-sm font-medium text-zinc-900">Режим runtime</label>
+                <p className="mb-1 text-xs text-zinc-500">
+                  Пусто = прежняя логика: при наличии URL и токена — generic HTTP, иначе stub.{" "}
+                  <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code> — отдельный
+                  путь создания вызова для шлюза Kyivstar/OpenAI.
+                </p>
+                <select
+                  value={runtimeMode}
+                  onChange={(e) => setRuntimeMode(e.target.value as "" | OutboundVoiceRuntimeMode)}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="">(авто / legacy)</option>
+                  <option value="stub">stub</option>
+                  <option value="generic_http">generic_http</option>
+                  <option value="kyivstar_openai_gateway">kyivstar_openai_gateway</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-900">
+                  Путь для gateway (Kyivstar/OpenAI)
+                </label>
+                <p className="mb-1 text-xs text-zinc-500">
+                  Относительный путь от базового URL для режима{" "}
+                  <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code>. Пусто ={" "}
+                  <code className="rounded bg-zinc-100 px-1">/v1/outbound/calls</code>.
+                </p>
+                <input
+                  type="text"
+                  value={gatewayCreateCallPath}
+                  onChange={(e) => setGatewayCreateCallPath(e.target.value)}
+                  placeholder="/v1/outbound/calls"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-zinc-900">
+                  Публичный URL API CRM (callback)
+                </label>
+                <p className="mb-1 text-xs text-zinc-500">
+                  Без завершающего слэша. Уходит в теле create-call как{" "}
+                  <code className="rounded bg-zinc-100 px-1">callback.webhookUrl</code> для шлюза. Можно
+                  задать через <code className="rounded bg-zinc-100 px-1">OUTBOUND_VOICE_PUBLIC_BASE_URL</code>{" "}
+                  на сервере.
+                </p>
+                <input
+                  type="url"
+                  value={publicWebhookBaseUrl}
+                  onChange={(e) => setPublicWebhookBaseUrl(e.target.value)}
+                  placeholder="https://api.crm.example.com"
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-900">Таймаут HTTP (мс)</label>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={1000}
+                    value={requestTimeoutMs}
+                    onChange={(e) => setRequestTimeoutMs(parseInt(e.target.value, 10) || 30_000)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-900">Retry max</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={retryMax}
+                    onChange={(e) => setRetryMax(parseInt(e.target.value, 10) || 0)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
 
               <div className="border-t border-zinc-100 pt-4">

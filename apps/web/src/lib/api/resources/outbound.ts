@@ -7,6 +7,7 @@ export type OutboundAttemptStatus =
   | "DIALING"
   | "COMPLETED"
   | "FAILED"
+  | "NO_ANSWER"
   | "CANCELED";
 export type OutboundOutcomeBucket = "SUCCESS" | "NEUTRAL" | "FAILED" | "HANDOFF";
 
@@ -82,7 +83,22 @@ export type OutboundAttempt = {
   scenarioVersion: string;
   status: OutboundAttemptStatus;
   provider: string | null;
+  /** Runtime adapter id (e.g. HTTP_OUTBOUND_VOICE, KYIVSTAR_OPENAI_GATEWAY). */
+  runtimeProvider?: string | null;
   providerSessionId: string | null;
+  externalSessionId?: string | null;
+  providerCallId?: string | null;
+  openaiCallId?: string | null;
+  recordingExternalId?: string | null;
+  transcriptStatus?: string | null;
+  summaryStatus?: string | null;
+  classificationStatus?: string | null;
+  transferStatus?: string | null;
+  catalogSentAt?: string | null;
+  lastRuntimeEventAt?: string | null;
+  lastRuntimeEventType?: string | null;
+  failureCode?: string | null;
+  failureReason?: string | null;
   callId: string | null;
   scheduledAt: string | null;
   lastError: string | null;

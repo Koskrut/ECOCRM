@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
@@ -8,6 +9,7 @@ import { EntitySection } from "@/components/sections/EntitySection";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
+import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 
 type Props = {
@@ -70,6 +72,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   // Convert
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [queueingDialer, setQueueingDialer] = useState(false);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
 
   const [createContact, setCreateContact] = useState(false);
@@ -800,6 +803,28 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         )}
       </section>
 
+      {/* Conversion order (canonical traceability; not the same as WON alone) */}
+      {(lead.convertedOrderId || lead.convertedOrder) && (
+        <section className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-800">Замовлення конверсії</h3>
+          <p className="text-xs text-emerald-900/80">
+            Прив’язка з CRM-конверсії ліда (convertedOrderId). Окремо від статусу WON.
+          </p>
+          <Link
+            href={`/orders?orderId=${encodeURIComponent(lead.convertedOrder?.id ?? lead.convertedOrderId ?? "")}`}
+            className="inline-flex text-sm font-medium text-emerald-800 underline decoration-emerald-400 underline-offset-2 hover:text-emerald-950"
+          >
+            Відкрити замовлення {lead.convertedOrder?.orderNumber ? `№${lead.convertedOrder.orderNumber}` : ""}
+          </Link>
+        </section>
+      )}
+      {lead.status === "WON" && !lead.convertedOrderId && !lead.convertedOrder && (
+        <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+          Статус WON без прив’язаного замовлення: можливо лише контакт або лід до оновлення зв’язку. Окремого замовлення
+          конверсії в CRM не зафіксовано.
+        </p>
+      )}
+
       {/* Company & source */}
       <section className="space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Company & source</h3>
@@ -1449,6 +1474,33 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               Convert
             </button>
           )}
+          {lead &&
+            (effectiveRole === "MANAGER" ||
+              effectiveRole === "ADMIN" ||
+              effectiveRole === "LEAD") && (
+              <button
+                type="button"
+                disabled={queueingDialer}
+                onClick={async () => {
+                  if (!lead) return;
+                  setQueueingDialer(true);
+                  setErr(null);
+                  try {
+                    await manualCallingApi.enqueue({ leadId: lead.id });
+                  } catch (e) {
+                    const msg =
+                      (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                      (e instanceof Error ? e.message : "Не вдалося додати в чергу");
+                    setErr(msg);
+                  } finally {
+                    setQueueingDialer(false);
+                  }
+                }}
+                className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+              >
+                {queueingDialer ? "…" : "У чергу прозвону"}
+              </button>
+            )}
         </>
       }
       left={leftContent}

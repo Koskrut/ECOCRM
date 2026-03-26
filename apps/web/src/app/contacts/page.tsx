@@ -60,6 +60,7 @@ function ContactsPageContent() {
   const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [groupActionLoading, setGroupActionLoading] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [assignCompanyOpen, setAssignCompanyOpen] = useState(false);
   const groupActionsRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +101,13 @@ function ContactsPageContent() {
     router,
     searchParams,
   ]);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -578,6 +586,7 @@ function ContactsPageContent() {
           onClose={closeModal}
           onOpenCompany={openCompany}
           onUpdate={() => void reload({ keepPage: true })}
+          userRole={userRole}
         />
       )}
 

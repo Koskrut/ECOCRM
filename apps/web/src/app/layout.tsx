@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import { MetaPixel } from "@/components/MetaPixel";
 import { AppShell } from "./shell";
 import type { Viewport } from "next";
 
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className={`${plusJakarta.className} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}
         style={{ backgroundColor: bodyBg }}
       >
+        <MetaPixel />
         <AppShell>{children}</AppShell>
       </body>
     </html>

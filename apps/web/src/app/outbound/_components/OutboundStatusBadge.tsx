@@ -17,6 +17,10 @@ const STATUS_MAP: Record<
     className: "bg-emerald-50 text-emerald-700 border-emerald-200",
   },
   FAILED: { label: "Failed", className: "bg-red-50 text-red-700 border-red-200" },
+  NO_ANSWER: {
+    label: "No answer",
+    className: "bg-zinc-100 text-zinc-600 border-zinc-200",
+  },
   CANCELED: { label: "Canceled", className: "bg-zinc-100 text-zinc-500 border-zinc-200" },
 };
 

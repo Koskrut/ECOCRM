@@ -13,6 +13,7 @@ import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectory
 import { apiHttp } from "../../lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
+import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
   autocompleteAddress,
@@ -660,10 +661,20 @@ type Props = {
   onClose: () => void;
   onUpdate: () => void;
   onOpenCompany?: (id: string) => void;
+  /** Role from parent (/auth/me); used for manual calling queue button. */
+  userRole?: string | null;
 };
 
-export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenCompany }: Props) {
+export function ContactModal({
+  apiBaseUrl,
+  contactId,
+  onClose,
+  onUpdate,
+  onOpenCompany,
+  userRole: userRoleProp,
+}: Props) {
   const isCreate = contactId === "new";
+  const effectiveRole = userRoleProp ?? null;
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(!isCreate);
@@ -714,6 +725,7 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
 
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+  const [queueingDialer, setQueueingDialer] = useState(false);
   const [resetPasswordResult, setResetPasswordResult] = useState<{
     tempPassword: string;
     setPasswordToken: string;
@@ -2066,6 +2078,32 @@ export function ContactModal({ apiBaseUrl, contactId, onClose, onUpdate, onOpenC
                 >
                   + Order
                 </button>
+                {(effectiveRole === "MANAGER" ||
+                  effectiveRole === "ADMIN" ||
+                  effectiveRole === "LEAD") && (
+                  <button
+                    type="button"
+                    disabled={queueingDialer}
+                    onClick={async () => {
+                      setQueueingDialer(true);
+                      setErr(null);
+                      try {
+                        await manualCallingApi.enqueue({ contactId });
+                      } catch (e) {
+                        const msg =
+                          (e as { response?: { data?: { message?: string } } })?.response?.data
+                            ?.message ??
+                          (e instanceof Error ? e.message : "Не вдалося додати в чергу");
+                        setErr(msg);
+                      } finally {
+                        setQueueingDialer(false);
+                      }
+                    }}
+                    className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {queueingDialer ? "…" : "У чергу прозвону"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={async () => {

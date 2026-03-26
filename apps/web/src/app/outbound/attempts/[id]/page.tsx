@@ -495,6 +495,9 @@ export default function AttemptDetailPage() {
               </MetaRow>
               <MetaRow label="Target type">{attempt.targetType}</MetaRow>
               <MetaRow label="Phone">{attempt.phoneNormalized}</MetaRow>
+              <MetaRow label="Runtime provider">
+                {attempt.runtimeProvider ?? attempt.provider ?? "—"}
+              </MetaRow>
               <MetaRow label="Provider session">
                 {attempt.providerSessionId ? (
                   <code className="break-all rounded bg-zinc-100 px-1 py-0.5 text-xs">
@@ -504,6 +507,73 @@ export default function AttemptDetailPage() {
                   "—"
                 )}
               </MetaRow>
+              {attempt.externalSessionId && (
+                <MetaRow label="External session">
+                  <code className="break-all rounded bg-zinc-100 px-1 py-0.5 text-xs">
+                    {attempt.externalSessionId}
+                  </code>
+                </MetaRow>
+              )}
+              {(attempt.providerCallId || attempt.openaiCallId || attempt.recordingExternalId) && (
+                <MetaRow label="Provider / OpenAI / recording id">
+                  <span className="space-y-1 text-xs">
+                    {attempt.providerCallId && (
+                      <div>
+                        <span className="text-zinc-400">Provider call:</span>{" "}
+                        <code className="rounded bg-zinc-100 px-1">{attempt.providerCallId}</code>
+                      </div>
+                    )}
+                    {attempt.openaiCallId && (
+                      <div>
+                        <span className="text-zinc-400">OpenAI:</span>{" "}
+                        <code className="rounded bg-zinc-100 px-1">{attempt.openaiCallId}</code>
+                      </div>
+                    )}
+                    {attempt.recordingExternalId && (
+                      <div>
+                        <span className="text-zinc-400">Recording:</span>{" "}
+                        <code className="rounded bg-zinc-100 px-1">{attempt.recordingExternalId}</code>
+                      </div>
+                    )}
+                  </span>
+                </MetaRow>
+              )}
+              {(attempt.transcriptStatus ||
+                attempt.summaryStatus ||
+                attempt.classificationStatus ||
+                attempt.transferStatus) && (
+                <MetaRow label="Pipeline status">
+                  <span className="text-xs text-zinc-600">
+                    {[
+                      attempt.transcriptStatus && `transcript: ${attempt.transcriptStatus}`,
+                      attempt.summaryStatus && `summary: ${attempt.summaryStatus}`,
+                      attempt.classificationStatus && `classification: ${attempt.classificationStatus}`,
+                      attempt.transferStatus && `transfer: ${attempt.transferStatus}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                </span>
+                </MetaRow>
+              )}
+              {attempt.catalogSentAt && (
+                <MetaRow label="Catalog sent">{formatDate(attempt.catalogSentAt)}</MetaRow>
+              )}
+              {(attempt.lastRuntimeEventAt || attempt.lastRuntimeEventType) && (
+                <MetaRow label="Last runtime event">
+                  <span className="text-xs">
+                    {attempt.lastRuntimeEventType ?? "—"}{" "}
+                    {attempt.lastRuntimeEventAt ? `· ${formatDate(attempt.lastRuntimeEventAt)}` : ""}
+                  </span>
+                </MetaRow>
+              )}
+              {(attempt.failureCode || attempt.failureReason) && (
+                <MetaRow label="Failure">
+                  <span className="text-xs text-red-700">
+                    {attempt.failureCode ?? ""}
+                    {attempt.failureReason ? ` — ${attempt.failureReason}` : ""}
+                  </span>
+                </MetaRow>
+              )}
               <MetaRow label="Linked call">
                 {attempt.callId ? (
                   <span className="inline-flex items-center gap-1.5">

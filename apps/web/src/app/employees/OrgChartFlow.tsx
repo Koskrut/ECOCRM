@@ -16,6 +16,7 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import { useReactFlow } from "@xyflow/react";
+import dagre from "dagre";
 import "@xyflow/react/dist/style.css";
 import type { Employee } from "./EmployeeModal";
 import { OrgChartNode, type OrgNodeData } from "./OrgChartNode";
@@ -335,13 +336,51 @@ function buildEdges(extraSlotIds: string[]): Edge[] {
 }
 
 const defaultEdgeOptions = { type: "smoothstep" as const };
+const LAYOUT_NODE_WIDTH = 220;
+const LAYOUT_NODE_HEIGHT = 110;
+
+function applyAutoLayout(nodes: Node<OrgNodeData>[], edges: Edge[]): Node<OrgNodeData>[] {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: "TB",
+    ranksep: 90,
+    nodesep: 50,
+    marginx: 20,
+    marginy: 20,
+  });
+
+  for (const node of nodes) {
+    g.setNode(node.id, { width: LAYOUT_NODE_WIDTH, height: LAYOUT_NODE_HEIGHT });
+  }
+  for (const edge of edges) {
+    g.setEdge(edge.source, edge.target);
+  }
+
+  dagre.layout(g);
+
+  return nodes.map((node) => {
+    const positioned = g.node(node.id) as { x: number; y: number } | undefined;
+    if (!positioned) return node;
+    return {
+      ...node,
+      position: {
+        x: positioned.x - LAYOUT_NODE_WIDTH / 2,
+        y: positioned.y - LAYOUT_NODE_HEIGHT / 2,
+      },
+    };
+  });
+}
 
 /** Кнопка выравнивания — должна рендериться внутри ReactFlow (использует useReactFlow). */
-function FitViewButton() {
+function FitViewButton({ onAutoLayout }: { onAutoLayout: () => void }) {
   const { fitView } = useReactFlow();
   const handleClick = useCallback(() => {
-    fitView({ padding: 0.2, duration: 200 }).catch(() => {});
-  }, [fitView]);
+    onAutoLayout();
+    requestAnimationFrame(() => {
+      fitView({ padding: 0.2, duration: 200 }).catch(() => {});
+    });
+  }, [fitView, onAutoLayout]);
   return (
     <button
       type="button"
@@ -448,6 +487,9 @@ export function OrgChartFlow({
   );
 
   const isExtraSlot = selectedSlotId !== null && extraSlotIds.includes(selectedSlotId);
+  const handleAutoLayout = useCallback(() => {
+    setNodes((current) => applyAutoLayout(current, edges));
+  }, [edges, setNodes]);
 
   return (
     <div className="relative w-full">
@@ -482,7 +524,7 @@ export function OrgChartFlow({
             Клик по позиции — назначить сотрудника
           </span>
           <div className="flex flex-wrap items-center gap-2">
-            <FitViewButton />
+            <FitViewButton onAutoLayout={handleAutoLayout} />
             {onSaveStructure && (
               <button
                 type="button"
