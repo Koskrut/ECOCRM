@@ -1,0 +1,2 @@
+export const ANALYTICS_EXCLUDED_ORDER_STAGES = ["CANCELED", "REFUSED"] as const;
+
