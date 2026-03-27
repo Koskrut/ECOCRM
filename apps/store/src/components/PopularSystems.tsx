@@ -17,7 +17,7 @@ export function PopularSystems() {
           <Link
             key={sys.id}
             href={`/?category=${sys.id}`}
-            className="group flex aspect-square flex-col items-center justify-center rounded-2xl border border-[var(--border)] bg-white p-4 text-center shadow-sm hover:border-[var(--primary)] hover:shadow-md transition"
+            className="group flex aspect-[4/3] flex-col items-center justify-center rounded-2xl border border-[var(--border)] bg-white p-4 text-center shadow-sm hover:border-[var(--primary)] hover:shadow-md transition"
           >
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface)] text-[var(--primary)] transition-transform group-hover:scale-110">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

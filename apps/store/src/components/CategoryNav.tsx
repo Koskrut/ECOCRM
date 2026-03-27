@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { STORE_CATEGORIES } from "@/lib/categories";
 
-export function CategoryNav() {
+type CategoryNavProps = {
+  className?: string;
+  onNavigate?: () => void;
+};
+
+export function CategoryNav({ className, onNavigate }: CategoryNavProps) {
   return (
-    <nav className="rounded-xl border border-[var(--border)] bg-white p-4 shadow-sm">
+    <nav className={("rounded-xl border border-[var(--border)] bg-white p-4 shadow-sm " + (className ?? "")).trim()}>
       <h3 className="font-heading mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500">
         Категорії
       </h3>
@@ -12,6 +17,7 @@ export function CategoryNav() {
           <li key={cat.id}>
             <Link
               href={"/?category=" + encodeURIComponent(cat.id)}
+              onClick={onNavigate}
               className="flex min-h-[44px] items-center rounded-lg py-2 px-3 text-sm text-zinc-700 hover:bg-[var(--surface)] hover:text-[var(--primary)] transition"
             >
               {cat.name}

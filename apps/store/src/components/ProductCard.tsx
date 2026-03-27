@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
-import { ButtonLink } from "./Button";
+import { useState } from "react";
+import { addToCart } from "@/lib/api";
+import { getCartSessionId } from "@/lib/cart-session";
 
 export type ProductCardProduct = {
   id: string;
@@ -24,6 +28,27 @@ export function ProductCard({
   uahPerUsd: number;
 }) {
   const price = priceUah(product.basePrice, uahPerUsd);
+  const [qtyPickerOpen, setQtyPickerOpen] = useState(false);
+  const [qty, setQty] = useState(1);
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+
+  const decQty = () => setQty((v) => Math.max(1, v - 1));
+  const incQty = () => setQty((v) => Math.min(999, v + 1));
+
+  const handleAddToCart = async () => {
+    if (adding) return;
+    setAdding(true);
+    try {
+      const sessionId = getCartSessionId();
+      await addToCart(product.id, qty, sessionId);
+      setQtyPickerOpen(false);
+      setAdded(true);
+      setTimeout(() => setAdded(false), 1600);
+    } finally {
+      setAdding(false);
+    }
+  };
 
   return (
     <li className="group flex flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-sm transition hover:shadow-md">
@@ -63,13 +88,57 @@ export function ProductCard({
         </div>
       </Link>
       <div className="p-3 pt-0">
-        <ButtonLink
-          href={`/product/${product.id}`}
-          variant="primary"
-          className="w-full !min-h-0 !py-1.5 !px-3 text-xs font-medium"
-        >
-          В кошик
-        </ButtonLink>
+        {!qtyPickerOpen ? (
+          <button
+            type="button"
+            onClick={() => {
+              setAdded(false);
+              setQtyPickerOpen(true);
+            }}
+            className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[var(--primary-hover)]"
+          >
+            {added ? "Додано" : "В кошик"}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-white px-2 py-1">
+              <button
+                type="button"
+                onClick={decQty}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-700 transition hover:bg-[var(--surface)]"
+                aria-label="Зменшити кількість"
+              >
+                -
+              </button>
+              <span className="min-w-[2ch] text-center text-sm font-medium text-zinc-900">{qty}</span>
+              <button
+                type="button"
+                onClick={incQty}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-700 transition hover:bg-[var(--surface)]"
+                aria-label="Збільшити кількість"
+              >
+                +
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setQtyPickerOpen(false)}
+                className="inline-flex min-h-[32px] flex-1 items-center justify-center rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium text-zinc-700 transition hover:bg-[var(--surface)]"
+              >
+                Скасувати
+              </button>
+              <button
+                type="button"
+                disabled={adding}
+                onClick={handleAddToCart}
+                className="inline-flex min-h-[32px] flex-1 items-center justify-center rounded-lg bg-[var(--primary)] px-2 py-1 text-xs font-medium text-white transition hover:bg-[var(--primary-hover)] disabled:opacity-50"
+              >
+                {adding ? "Додаю..." : `Додати ${qty}`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </li>
   );

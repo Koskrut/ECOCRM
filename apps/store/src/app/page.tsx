@@ -32,6 +32,7 @@ function HomeContent() {
   const [uahPerUsd, setUahPerUsd] = useState(41);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [categoryDrawerOpen, setCategoryDrawerOpen] = useState(false);
 
   const [popularProducts, setPopularProducts] = useState<Product[]>([]);
   const [popularUah, setPopularUah] = useState(41);
@@ -56,6 +57,11 @@ function HomeContent() {
       })
       .finally(() => setLoading(false));
   }, [search, category, isCatalogMode]);
+
+  useEffect(() => {
+    // Close category drawer after filters/search change.
+    setCategoryDrawerOpen(false);
+  }, [search, category]);
 
   useEffect(() => {
     // Only load popular products if we are in landing mode
@@ -124,9 +130,36 @@ function HomeContent() {
         </>
       ) : (
         <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+          {categoryDrawerOpen && (
+            <div className="fixed inset-0 z-40 lg:hidden" aria-modal="true" role="dialog">
+              <button
+                type="button"
+                aria-label="Закрити категорії"
+                className="absolute inset-0 bg-black/40"
+                onClick={() => setCategoryDrawerOpen(false)}
+              />
+              <aside className="absolute inset-y-0 left-0 w-[85vw] max-w-xs overflow-y-auto bg-white p-4 shadow-xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="font-heading text-base font-semibold text-zinc-900">Системи</h3>
+                  <button
+                    type="button"
+                    aria-label="Закрити"
+                    onClick={() => setCategoryDrawerOpen(false)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-zinc-600 transition hover:bg-[var(--surface)]"
+                  >
+                    <span aria-hidden>✕</span>
+                  </button>
+                </div>
+                <CategoryNav className="border-none p-0 shadow-none" onNavigate={() => setCategoryDrawerOpen(false)} />
+              </aside>
+            </div>
+          )}
+
           <div className="flex flex-col gap-8 lg:flex-row">
-            <aside className="shrink-0 lg:w-56">
-              <CategoryNav />
+            <aside className="hidden shrink-0 lg:block lg:w-56">
+              <div className="lg:sticky lg:top-24">
+                <CategoryNav />
+              </div>
             </aside>
             <div className="min-w-0 flex-1">
               <div className="mb-6 flex items-center justify-between">
@@ -136,6 +169,27 @@ function HomeContent() {
                 <ButtonLink href="/" variant="secondary" className="text-sm">
                   На головну
                 </ButtonLink>
+              </div>
+
+              <div className="sticky top-[72px] z-10 mb-4 lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setCategoryDrawerOpen(true)}
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-[var(--surface)]"
+                >
+                  <svg
+                    className="h-4 w-4 text-zinc-500"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path d="M3 5H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M3 10H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                    <path d="M3 15H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                  </svg>
+                  Системи
+                </button>
               </div>
               
               <p className="mb-6 text-sm text-zinc-600">
