@@ -23,8 +23,8 @@ function LoginContent() {
       ? fromParam
       : "/orders";
 
-  const [email, setEmail] = useState("admin@ecocrm.local");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
