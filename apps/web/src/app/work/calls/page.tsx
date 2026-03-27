@@ -214,9 +214,14 @@ export default function CallWorkspacePage() {
             <kbd className="rounded bg-zinc-200 px-1">c</kbd> завершити
           </p>
         </div>
-        <Link href="/leads" className="text-sm font-medium text-blue-600 hover:underline">
-          До лідів
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/work/calls/history" className="text-sm font-medium text-blue-600 hover:underline">
+            Усі дзвінки
+          </Link>
+          <Link href="/leads" className="text-sm font-medium text-blue-600 hover:underline">
+            До лідів
+          </Link>
+        </div>
       </div>
 
       <div className="grid min-h-[560px] grid-cols-1 gap-3 lg:grid-cols-12">

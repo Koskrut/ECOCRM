@@ -18,6 +18,7 @@ import {
   BarChart3,
   History,
   PhoneCall,
+  Archive,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -39,6 +40,7 @@ const baseMenuItems: MenuItem[] = [
   { label: "Contacts", icon: Users, href: "/contacts" },
   { label: "Tasks", icon: ListTodo, href: "/tasks" },
   { label: "Прозвін", icon: PhoneCall, href: "/work/calls" },
+  { label: "Історія дзвінків", icon: Archive, href: "/work/calls/history" },
   { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
   { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
   { label: strings.nav.planning, icon: BarChart3, href: "/planning" },
@@ -182,7 +184,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                     ? pathname === "/visits"
                     : item.href === "/visits/history"
                       ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
-                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                      : item.href === "/work/calls"
+                        ? pathname === "/work/calls"
+                        : item.href === "/work/calls/history"
+                          ? pathname === "/work/calls/history" ||
+                            pathname.startsWith("/work/calls/history/")
+                          : pathname === item.href || pathname.startsWith(`${item.href}/`);
               const Icon = item.icon;
               return (
                 <Link
@@ -240,7 +247,11 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 ? pathname === "/visits"
                 : item.href === "/visits/history"
                   ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  : item.href === "/work/calls"
+                    ? pathname === "/work/calls"
+                    : item.href === "/work/calls/history"
+                      ? pathname === "/work/calls/history" || pathname.startsWith("/work/calls/history/")
+                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
             <Link

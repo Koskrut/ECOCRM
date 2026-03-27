@@ -263,14 +263,26 @@ export class RingostatIngestService {
     return this.extractNumber(raw, ["duration", "duration_sec", "billsec"]);
   }
 
+  /**
+   * Ringostat Webhooks 2.0 (Knowledge Base):
+   * - Incoming call event: `"type":"in"`
+   * - Outbound call event: `"type":"out"`
+   * @see https://help.ringostat.com/en/articles/6559993-webhooks-incoming-call-event
+   * @see https://help.ringostat.com/en/articles/6583751-webhooks-outbound-call-event
+   *
+   * Важливо: не використовувати `??` для ланцюжка direction/type — порожній рядок у `direction`
+   * блокував би читання `type` і вихідні дзвінки з `caller` потрапляли б в fallback як INBOUND.
+   */
   private resolveDirection(raw: RingostatRawPayload): NormalizedDirection {
-    const rawDir = String(
-      (getVal(raw, "direction") ??
-        getVal(raw, "call_direction") ??
-        getVal(raw, "call_type") ??
-        getVal(raw, "type") ??
-        getVal(raw, "ai_call_type") ??
-        "") as string,
+    const typeVal = String(getVal(raw, "type") ?? "").trim().toLowerCase();
+    if (typeVal === "in") return "INBOUND";
+    if (typeVal === "out") return "OUTBOUND";
+
+    const rawDir = this.ringostatFirstNonEmptyString(
+      getVal(raw, "direction"),
+      getVal(raw, "call_direction"),
+      getVal(raw, "call_type"),
+      getVal(raw, "ai_call_type"),
     ).toLowerCase();
 
     if (["in", "inbound", "incoming"].some((k) => rawDir.includes(k))) return "INBOUND";
@@ -280,6 +292,15 @@ export class RingostatIngestService {
     if (getVal(raw, "caller") ?? getVal(raw, "E164") ?? getVal(raw, "connected_with")) return "INBOUND";
 
     return "UNKNOWN";
+  }
+
+  private ringostatFirstNonEmptyString(...vals: unknown[]): string {
+    for (const v of vals) {
+      if (v == null) continue;
+      const s = String(v).trim();
+      if (s.length > 0) return s;
+    }
+    return "";
   }
 
   private resolveStatus(raw: RingostatRawPayload): string {

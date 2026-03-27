@@ -1,37 +1,24 @@
-import { Test } from "@nestjs/testing";
-import type { PrismaClient } from "@prisma/client";
-import { PrismaService } from "../../../src/prisma/prisma.service";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import type { PrismaService } from "../../prisma/prisma.service";
 import { RingostatIngestService } from "../ringostat-ingest.service";
 
 describe("RingostatIngestService", () => {
-  let service: RingostatIngestService;
-  let prisma: PrismaService & PrismaClient;
+  const prisma = {} as unknown as PrismaService;
+  const service = new RingostatIngestService(prisma);
 
-  beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      providers: [PrismaService, RingostatIngestService],
-    }).compile();
+  it("normalizes UA phone numbers to E.164-like format", () => {
+    const normalize = (s: string | undefined) =>
+      // @ts-expect-error private
+      service["normalizePhone"](s) as string | null;
 
-    service = moduleRef.get(RingostatIngestService);
-    prisma = moduleRef.get(PrismaService) as PrismaService & PrismaClient;
+    assert.equal(normalize("+380501234567"), "+380501234567");
+    assert.equal(normalize("050 123 45 67"), "+380501234567");
+    assert.equal(normalize("380501234567"), "+380501234567");
+    assert.equal(normalize("501234567"), "+380501234567");
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
-
-  it("normalizes UA phone numbers to E.164-like format", async () => {
-    // @ts-expect-error access private for test
-    const normalize = (s: string | undefined) => service["normalizePhone"](s);
-
-    expect(normalize("+380501234567")).toBe("+380501234567");
-    expect(normalize("050 123 45 67")).toBe("+380501234567");
-    expect(normalize("380501234567")).toBe("+380501234567");
-    expect(normalize("501234567")).toBe("+380501234567");
-  });
-
-  it("builds activity body with status, direction, duration and phone", async () => {
-    // @ts-expect-error access private for test
+  it("builds activity body with status, direction, duration and phone", () => {
     const build = (args: Parameters<typeof service["buildActivityBody"]>[0]) =>
       // @ts-expect-error private
       service["buildActivityBody"](args);
@@ -44,11 +31,22 @@ describe("RingostatIngestService", () => {
       hasRecording: true,
     });
 
-    expect(body).toContain("Статус: MISSED");
-    expect(body).toContain("Направление: входящий");
-    expect(body).toContain("Длительность: 42 сек.");
-    expect(body).toContain("Телефон: +380501234567");
-    expect(body).toContain("Запись: доступна");
+    assert.match(body, /Статус: MISSED/);
+    assert.match(body, /Направление: входящий/);
+    assert.match(body, /Длительность: 42 сек\./);
+    assert.match(body, /Телефон: \+380501234567/);
+    assert.match(body, /Запись: доступна/);
   });
-}
 
+  it("resolveDirection: Ringostat KB type in/out; empty direction must not hide type", () => {
+    const resolve = (raw: Record<string, unknown>) =>
+      // @ts-expect-error private
+      service["resolveDirection"](raw) as string;
+
+    // https://help.ringostat.com/en/articles/6583751-webhooks-outbound-call-event — "type":"out"
+    assert.equal(resolve({ type: "out", direction: "", caller: "x" }), "OUTBOUND");
+    // https://help.ringostat.com/en/articles/6559993-webhooks-incoming-call-event — "type":"in"
+    assert.equal(resolve({ type: "in", direction: "" }), "INBOUND");
+    assert.equal(resolve({ type: "OUT", callee: "380" }), "OUTBOUND");
+  });
+});

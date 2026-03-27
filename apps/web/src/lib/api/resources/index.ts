@@ -7,5 +7,6 @@ export * from "./products";
 export * from "./tasks";
 export * from "./visits";
 export * from "./warehouses";
+export * from "./calls";
 export * from "./bank";
 export * from "./planning";
