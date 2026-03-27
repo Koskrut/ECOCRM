@@ -119,7 +119,10 @@ export class ContactsService {
         }),
         this.prisma.order.count({ where: { clientId: id } }),
         this.prisma.activity.findFirst({
-          where: { contactId: id },
+          where: {
+            contactId: id,
+            type: { not: "COMMENT" },
+          },
           orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
           select: { occurredAt: true, createdAt: true },
         }),
@@ -264,6 +267,11 @@ export class ContactsService {
       where.ownerId = actor.id;
     }
 
+    const allScopedOrdersWhere: Prisma.OrderWhereInput = {
+      createdAt: { gte: from, lte: to },
+      ...(effectiveScope === "company" ? { companyId: contact.companyId } : { clientId: id }),
+    };
+
     const [visibleOrders, totalOrdersInScope] = await Promise.all([
       this.prisma.order.findMany({
         where,
@@ -285,9 +293,7 @@ export class ContactsService {
         orderBy: { createdAt: "asc" },
       }),
       this.prisma.order.count({
-        where: {
-          ...(effectiveScope === "company" ? { companyId: contact.companyId } : { clientId: id }),
-        },
+        where: allScopedOrdersWhere,
       }),
     ]);
 
@@ -431,10 +437,14 @@ export class ContactsService {
       ownerId?: string;
       hasPhone?: boolean;
       hasEmail?: boolean;
+      hasCallToday?: boolean;
+      hasMissedCall?: boolean;
       region?: string;
       city?: string;
       clientType?: string;
       status?: string;
+      sortBy?: string;
+      sortDir?: "asc" | "desc";
       q?: string;
     },
     actor?: AuthUser,
@@ -528,18 +538,29 @@ export class ContactsService {
       ...(andParts.length > 0 ? { AND: andParts } : {}),
     };
 
-    const [items, total] = await Promise.all([
-      this.prisma.contact.findMany({
-        where,
-        skip: offset,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-        include: { company: true, owner: true },
-      }),
-      this.prisma.contact.count({ where }),
-    ]);
+    const sortBy = params.sortBy ?? "createdAt";
+    const sortDir = params.sortDir ?? "desc";
+    const inMemoryMode =
+      sortBy === "hasCallToday" ||
+      sortBy === "hasMissedCall" ||
+      params.hasCallToday !== undefined ||
+      params.hasMissedCall !== undefined;
 
-    const contactIds = items.map((c) => c.id);
+    const dbOrderBy: Prisma.ContactOrderByWithRelationInput[] =
+      sortBy === "name"
+        ? [{ lastName: sortDir }, { firstName: sortDir }, { createdAt: "desc" }]
+        : sortBy === "updatedAt"
+          ? [{ updatedAt: sortDir }, { createdAt: "desc" }]
+          : [{ createdAt: sortDir }];
+
+    const contacts = await this.prisma.contact.findMany({
+      where,
+      ...(inMemoryMode ? {} : { skip: offset, take: limit }),
+      orderBy: dbOrderBy,
+      include: { company: true, owner: true },
+    });
+
+    const contactIds = contacts.map((c) => c.id);
     let hasCallTodayIds = new Set<string>();
     let hasMissedCallIds = new Set<string>();
 
@@ -547,31 +568,32 @@ export class ContactsService {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-      const callsToday = await this.prisma.call.groupBy({
-        by: ["contactId"],
-        where: {
-          contactId: { in: contactIds },
-          startedAt: {
-            gte: startOfToday,
-            lte: now,
+      const [callsToday, missedCalls] = await Promise.all([
+        this.prisma.call.groupBy({
+          by: ["contactId"],
+          where: {
+            contactId: { in: contactIds },
+            startedAt: {
+              gte: startOfToday,
+              lte: now,
+            },
           },
-        },
-        _count: { _all: true },
-      });
+          _count: { _all: true },
+        }),
+        this.prisma.call.groupBy({
+          by: ["contactId"],
+          where: {
+            contactId: { in: contactIds },
+            status: "MISSED",
+          },
+          _count: { _all: true },
+        }),
+      ]);
       hasCallTodayIds = new Set(callsToday.map((c) => c.contactId as string));
-
-      const missedCalls = await this.prisma.call.groupBy({
-        by: ["contactId"],
-        where: {
-          contactId: { in: contactIds },
-          status: "MISSED",
-        },
-        _count: { _all: true },
-      });
       hasMissedCallIds = new Set(missedCalls.map((c) => c.contactId as string));
     }
 
-    const mapped = items.map((c) => {
+    const mappedAll = contacts.map((c) => {
       const base = this.mapToEntity(c);
       return {
         ...base,
@@ -579,6 +601,34 @@ export class ContactsService {
         hasMissedCall: hasMissedCallIds.has(base.id),
       };
     });
+
+    const filteredByCalls = mappedAll.filter((c) => {
+      if (params.hasCallToday === true && !c.hasCallToday) return false;
+      if (params.hasCallToday === false && c.hasCallToday) return false;
+      if (params.hasMissedCall === true && !c.hasMissedCall) return false;
+      if (params.hasMissedCall === false && c.hasMissedCall) return false;
+      return true;
+    });
+
+    const sorted =
+      sortBy === "hasCallToday"
+        ? [...filteredByCalls].sort((a, b) => {
+            const aa = a.hasCallToday ? 1 : 0;
+            const bb = b.hasCallToday ? 1 : 0;
+            if (aa === bb) return b.createdAt.getTime() - a.createdAt.getTime();
+            return sortDir === "asc" ? aa - bb : bb - aa;
+          })
+        : sortBy === "hasMissedCall"
+          ? [...filteredByCalls].sort((a, b) => {
+              const aa = a.hasMissedCall ? 1 : 0;
+              const bb = b.hasMissedCall ? 1 : 0;
+              if (aa === bb) return b.createdAt.getTime() - a.createdAt.getTime();
+              return sortDir === "asc" ? aa - bb : bb - aa;
+            })
+          : filteredByCalls;
+
+    const total = inMemoryMode ? sorted.length : await this.prisma.contact.count({ where });
+    const mapped = inMemoryMode ? sorted.slice(offset, offset + limit) : sorted;
 
     return {
       items: mapped,

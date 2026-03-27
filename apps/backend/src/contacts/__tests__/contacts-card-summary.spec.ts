@@ -154,6 +154,9 @@ test("getCardSummary: uses canonical Order.clientId scope and visibility note", 
   const orderFindManyCall = (prisma.order.findMany as any).calls[0]?.[0];
   assert.equal(orderFindManyCall.where.clientId, "c1");
   assert.equal(orderFindManyCall.where.ownerId, "m1");
+  const activityFindFirstCall = (prisma.activity.findFirst as any).calls[0]?.[0];
+  assert.equal(activityFindFirstCall.where.contactId, "c1");
+  assert.equal(activityFindFirstCall.where.type.not, "COMMENT");
 });
 
 test("getCardSummary: ADMIN sees full scope without finance restriction", async () => {

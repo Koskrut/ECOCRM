@@ -19,6 +19,18 @@ function formatMoney(v: number): string {
   return `${Math.round(v).toLocaleString("uk-UA")} грн`;
 }
 
+function formatAxisLabel(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [, mm, dd] = value.split("-");
+    return `${dd}.${mm}`;
+  }
+  if (/^\d{4}-\d{2}$/.test(value)) {
+    const [yy, mm] = value.split("-");
+    return `${mm}.${yy.slice(2)}`;
+  }
+  return value;
+}
+
 export function ContactAnalyticsTab({
   analytics,
   loading,
@@ -113,7 +125,7 @@ export function ContactAnalyticsTab({
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={analytics.series.revenueByPeriod}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={20} tickFormatter={formatAxisLabel} />
                     <YAxis tick={{ fontSize: 10 }} />
                     <Tooltip formatter={(v: number) => formatMoney(v)} />
                     <Bar dataKey="revenue" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
@@ -130,7 +142,7 @@ export function ContactAnalyticsTab({
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={analytics.series.ordersByPeriod}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={20} tickFormatter={formatAxisLabel} />
                     <YAxis tick={{ fontSize: 10 }} />
                     <Tooltip />
                     <Bar dataKey="ordersCount" fill="#10b981" radius={[4, 4, 0, 0]} />

@@ -48,18 +48,18 @@ export function EntityModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-0 backdrop-blur-sm sm:px-4"
       role="presentation"
       onClick={() => canClose && onClose()}
     >
       <div
-        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:max-w-5xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal
       >
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between overflow-visible border-b border-zinc-200 px-5 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-2 overflow-visible border-b border-zinc-200 px-4 py-2.5 sm:items-center sm:px-5">
           <div className="min-w-0 pr-2">
             <div className="text-base font-semibold text-zinc-900">{title}</div>
             {subtitle != null ? (
@@ -86,7 +86,7 @@ export function EntityModalShell({
         {/* Body: on narrow viewports single scroll column (left then right). On xl: grid 7+5 cols, columns scroll independently. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-auto xl:grid xl:grid-cols-12 xl:gap-0 xl:overflow-visible">
           <div
-            className={`min-h-0 shrink-0 p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
+            className={`min-h-0 w-full shrink-0 p-3 sm:p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
           >
             {left}
           </div>

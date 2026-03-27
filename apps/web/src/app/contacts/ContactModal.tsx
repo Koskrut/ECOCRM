@@ -744,6 +744,8 @@ export function ContactModal({
   /** Resolved store origin for set-password link (settings or NEXT_PUBLIC_STORE_PUBLIC_URL). */
   const [resetPasswordPublicStoreBase, setResetPasswordPublicStoreBase] = useState<string | null>(null);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+  const [headerActionsOpen, setHeaderActionsOpen] = useState(false);
+  const headerActionsRef = useRef<HTMLDivElement | null>(null);
 
   const resetPasswordFullUrl = useMemo(() => {
     if (!resetPasswordResult || !resetPasswordPublicStoreBase) return null;
@@ -1155,6 +1157,17 @@ export function ContactModal({
     return false;
   }, [orderId]);
 
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!headerActionsRef.current) return;
+      const target = event.target as Node | null;
+      if (target && headerActionsRef.current.contains(target)) return;
+      setHeaderActionsOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
+
   const saveCreate = async () => {
     setSaving(true);
     setErr(null);
@@ -1262,6 +1275,52 @@ export function ContactModal({
       setCreatingOrder(false);
     }
   }, [contact?.companyId, contactId, creatingOrder, isCreate]);
+
+  const enqueueDialer = useCallback(async () => {
+    setQueueingDialer(true);
+    setErr(null);
+    try {
+      await manualCallingApi.enqueue({ contactId });
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не вдалося додати в чергу");
+      setErr(msg);
+    } finally {
+      setQueueingDialer(false);
+    }
+  }, [contactId]);
+
+  const resetStorePassword = useCallback(async () => {
+    setResetPasswordError(null);
+    setResetPasswordResult(null);
+    setResetPasswordPublicStoreBase(null);
+    setResetPasswordLoading(true);
+    try {
+      const res = await apiHttp.post<{
+        tempPassword: string;
+        setPasswordToken: string;
+      }>(`/contacts/${contactId}/reset-store-password`);
+      let storeBase = "";
+      try {
+        const cfg = await apiHttp.get<{ publicStoreUrl?: string }>("/settings/store");
+        const u = cfg.data?.publicStoreUrl;
+        if (typeof u === "string") storeBase = u.trim().replace(/\/+$/, "");
+      } catch {
+        /* ignore */
+      }
+      if (!storeBase && typeof process.env.NEXT_PUBLIC_STORE_PUBLIC_URL === "string") {
+        storeBase = process.env.NEXT_PUBLIC_STORE_PUBLIC_URL.replace(/\/+$/, "");
+      }
+      setResetPasswordPublicStoreBase(storeBase || null);
+      setResetPasswordResult(res.data);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : null;
+      setResetPasswordError(msg ?? "У контакта нет аккаунта в магазине или произошла ошибка.");
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  }, [contactId]);
 
   const fullName = useMemo(() => {
     const a = (contact?.firstName ?? "").trim();
@@ -1966,7 +2025,7 @@ export function ContactModal({
   ]);
 
   const tabsUnderHeader = (
-    <div className="flex gap-1 py-2">
+    <div className="flex gap-1 overflow-x-auto py-2 whitespace-nowrap">
       {(
         ["overview", "analytics", "timeline", "orders", "delivery-profiles", "tasks", "change-history"] as const
       ).map((tab) => (
@@ -1974,7 +2033,7 @@ export function ContactModal({
           key={tab}
           type="button"
           onClick={() => setLeftTab(tab)}
-          className={`rounded px-2 py-1.5 text-sm font-medium ${
+          className={`shrink-0 rounded px-2 py-1.5 text-sm font-medium ${
             leftTab === tab ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
@@ -2020,29 +2079,25 @@ export function ContactModal({
                   <>
                     <ContactCardHeader
                       summary={cardSummary.data}
-                      telegramConversationId={contact?.telegramConversationId ?? null}
-                      onCreateOrder={() => void openMainOrderModal()}
-                      onOpenTasks={() => setLeftTab("tasks")}
-                      onPlanVisit={() => void scheduleVisit()}
                     />
                     <ContactKpiStrip
                       kpi={cardSummary.data.kpi}
                       scopeNote={cardSummary.data.insights.scopeNote}
                     />
-                    <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        Next step
+                    {cardSummary.data.insights.nextStep ? (
+                      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          Next step
+                        </div>
+                        <div className="mt-1 text-zinc-800">
+                          {`${cardSummary.data.insights.nextStep.title}${
+                            cardSummary.data.insights.nextStep.dueAt
+                              ? ` · ${new Date(cardSummary.data.insights.nextStep.dueAt).toLocaleDateString()}`
+                              : ""
+                          }`}
+                        </div>
                       </div>
-                      <div className="mt-1 text-zinc-800">
-                        {cardSummary.data.insights.nextStep
-                          ? `${cardSummary.data.insights.nextStep.title}${
-                              cardSummary.data.insights.nextStep.dueAt
-                                ? ` · ${new Date(cardSummary.data.insights.nextStep.dueAt).toLocaleDateString()}`
-                                : ""
-                            }`
-                          : "No planned follow-up"}
-                      </div>
-                    </div>
+                    ) : null}
                   </>
                 ) : null
               ) : null}
@@ -2200,110 +2255,119 @@ export function ContactModal({
         />
       ) : null}
       <EntityModalShell
-        title={title}
-        subtitle={!isCreate && fullName ? fullName : undefined}
+        title={
+          <div className="flex items-center gap-2" ref={headerActionsRef}>
+            {!isCreate ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setHeaderActionsOpen((v) => !v)}
+                  className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Действия
+                </button>
+                {headerActionsOpen ? (
+                  <div className="absolute left-0 z-20 mt-1 min-w-56 rounded-md border border-zinc-200 bg-white p-1 shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHeaderActionsOpen(false);
+                        void openMainOrderModal();
+                      }}
+                      disabled={creatingOrder}
+                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {creatingOrder ? "Создаем заказ..." : "Создать заказ"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHeaderActionsOpen(false);
+                        setLeftTab("tasks");
+                      }}
+                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Создать задачу
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHeaderActionsOpen(false);
+                        void scheduleVisit();
+                      }}
+                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Запланировать визит
+                    </button>
+                    <a
+                      href={contact?.phone ? `tel:${contact.phone}` : undefined}
+                      className={`block rounded px-2 py-2 text-sm ${
+                        contact?.phone
+                          ? "text-zinc-700 hover:bg-zinc-50"
+                          : "pointer-events-none text-zinc-400"
+                      }`}
+                    >
+                      Позвонить
+                    </a>
+                    <a
+                      href={contact?.email ? `mailto:${contact.email}` : undefined}
+                      className={`block rounded px-2 py-2 text-sm ${
+                        contact?.email
+                          ? "text-zinc-700 hover:bg-zinc-50"
+                          : "pointer-events-none text-zinc-400"
+                      }`}
+                    >
+                      Email
+                    </a>
+                    <a
+                      href={
+                        contact?.telegramConversationId
+                          ? `/inbox/telegram?conversationId=${contact.telegramConversationId}`
+                          : undefined
+                      }
+                      className={`block rounded px-2 py-2 text-sm ${
+                        contact?.telegramConversationId
+                          ? "text-zinc-700 hover:bg-zinc-50"
+                          : "pointer-events-none text-zinc-400"
+                      }`}
+                    >
+                      Сообщение
+                    </a>
+                    {(effectiveRole === "MANAGER" ||
+                      effectiveRole === "ADMIN" ||
+                      effectiveRole === "LEAD") && (
+                      <button
+                        type="button"
+                        disabled={queueingDialer}
+                        onClick={() => {
+                          setHeaderActionsOpen(false);
+                          void enqueueDialer();
+                        }}
+                        className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        {queueingDialer ? "Добавляем в очередь..." : "В очередь прозвона"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={resetPasswordLoading}
+                      onClick={() => {
+                        setHeaderActionsOpen(false);
+                        void resetStorePassword();
+                      }}
+                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {resetPasswordLoading ? "Сбрасываем..." : "Сбросить пароль"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        }
+        subtitle={undefined}
         headerActions={
-          <>
-            {!isCreate && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => void openMainOrderModal()}
-                  disabled={creatingOrder}
-                  className="btn-primary py-1.5 disabled:opacity-50"
-                >
-                  {creatingOrder ? "Creating…" : "+ Order"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLeftTab("tasks")}
-                  className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  + Task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void scheduleVisit()}
-                  className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  Plan visit
-                </button>
-                {(effectiveRole === "MANAGER" ||
-                  effectiveRole === "ADMIN" ||
-                  effectiveRole === "LEAD") && (
-                  <button
-                    type="button"
-                    disabled={queueingDialer}
-                    onClick={async () => {
-                      setQueueingDialer(true);
-                      setErr(null);
-                      try {
-                        await manualCallingApi.enqueue({ contactId });
-                      } catch (e) {
-                        const msg =
-                          (e as { response?: { data?: { message?: string } } })?.response?.data
-                            ?.message ??
-                          (e instanceof Error ? e.message : "Не вдалося додати в чергу");
-                        setErr(msg);
-                      } finally {
-                        setQueueingDialer(false);
-                      }
-                    }}
-                    className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                  >
-                    {queueingDialer ? "…" : "У чергу прозвону"}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setResetPasswordError(null);
-                    setResetPasswordResult(null);
-                    setResetPasswordPublicStoreBase(null);
-                    setResetPasswordLoading(true);
-                    try {
-                      const res = await apiHttp.post<{
-                        tempPassword: string;
-                        setPasswordToken: string;
-                      }>(`/contacts/${contactId}/reset-store-password`);
-                      let storeBase = "";
-                      try {
-                        const cfg = await apiHttp.get<{ publicStoreUrl?: string }>("/settings/store");
-                        const u = cfg.data?.publicStoreUrl;
-                        if (typeof u === "string") storeBase = u.trim().replace(/\/+$/, "");
-                      } catch {
-                        /* ignore */
-                      }
-                      if (!storeBase && typeof process.env.NEXT_PUBLIC_STORE_PUBLIC_URL === "string") {
-                        storeBase = process.env.NEXT_PUBLIC_STORE_PUBLIC_URL.replace(/\/+$/, "");
-                      }
-                      setResetPasswordPublicStoreBase(storeBase || null);
-                      setResetPasswordResult(res.data);
-                    } catch (e: unknown) {
-                      const msg = e instanceof Error ? e.message : null;
-                      setResetPasswordError(
-                        msg ?? "У контакта нет аккаунта в магазине или произошла ошибка.",
-                      );
-                    } finally {
-                      setResetPasswordLoading(false);
-                    }
-                  }}
-                  disabled={resetPasswordLoading}
-                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  {resetPasswordLoading ? "…" : "Сбросить пароль"}
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => canClose && onClose()}
-              disabled={!canClose}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-            >
-              Close
-            </button>
-          </>
+          null
         }
         tabsUnderHeader={tabsUnderHeader}
         left={leftContent}
