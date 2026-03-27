@@ -893,29 +893,46 @@ export default function VisitsPage() {
                           v.outcome === "NOT_RELEVANT" ||
                           v.outcome === "NO_DECISION");
                       return (
-                        <li
-                          key={s.id}
-                          className={[
-                            "rounded px-2 py-0.5 text-[11px]",
-                            isCurrent
-                              ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
-                              : isUnsuccessfulOutcome
-                                ? "bg-red-100 text-red-800"
-                                : isDone
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : isInProgress
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-zinc-100 text-zinc-700",
-                          ].join(" ")}
-                        >
-                          {s.position}. {v.title || v.addressText || "Visit"}
-                          {isDone
-                            ? isUnsuccessfulOutcome
-                              ? " ✗"
-                              : " ✓"
-                            : isCurrent
-                              ? " (текущая)"
-                              : ""}
+                        <li key={s.id} className="list-none">
+                          <button
+                            type="button"
+                            disabled={isDone || routeSessionLoading}
+                            title={isDone ? undefined : "Сделать текущей встречей"}
+                            onClick={async () => {
+                              if (isDone || isCurrent) return;
+                              setRouteSessionLoading(true);
+                              try {
+                                const state = await routeSessionsApi.setCurrent(dateParam, v.id);
+                                setRouteSessionState(state);
+                              } catch (e) {
+                                alert(e instanceof Error ? e.message : "Не удалось выбрать визит");
+                              } finally {
+                                setRouteSessionLoading(false);
+                              }
+                            }}
+                            className={[
+                              "w-full rounded px-2 py-0.5 text-left text-[11px] disabled:cursor-not-allowed disabled:opacity-60",
+                              !isDone ? "hover:ring-1 hover:ring-zinc-300" : "",
+                              isCurrent
+                                ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
+                                : isUnsuccessfulOutcome
+                                  ? "bg-red-100 text-red-800"
+                                  : isDone
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : isInProgress
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-zinc-100 text-zinc-700",
+                            ].join(" ")}
+                          >
+                            {s.position}. {v.title || v.addressText || "Visit"}
+                            {isDone
+                              ? isUnsuccessfulOutcome
+                                ? " ✗"
+                                : " ✓"
+                              : isCurrent
+                                ? " (текущая)"
+                                : ""}
+                          </button>
                         </li>
                       );
                     })
@@ -936,29 +953,46 @@ export default function VisitsPage() {
                             v.outcome === "NOT_RELEVANT" ||
                             v.outcome === "NO_DECISION");
                         return (
-                          <li
-                            key={v.id}
-                            className={[
-                              "rounded px-2 py-0.5 text-[11px]",
-                              isCurrent
-                                ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
-                                : isUnsuccessfulOutcome
-                                  ? "bg-red-100 text-red-800"
-                                  : isDone
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : isInProgress
-                                      ? "bg-amber-100 text-amber-800"
-                                      : "bg-zinc-100 text-zinc-700",
-                            ].join(" ")}
-                          >
-                            {idx + 1}. {v.title || v.addressText || "Visit"}
-                            {isDone
-                              ? isUnsuccessfulOutcome
-                                ? " ✗"
-                                : " ✓"
-                              : isCurrent
-                                ? " (текущая)"
-                                : ""}
+                          <li key={v.id} className="list-none">
+                            <button
+                              type="button"
+                              disabled={isDone || routeSessionLoading}
+                              title={isDone ? undefined : "Сделать текущей встречей"}
+                              onClick={async () => {
+                                if (isDone || isCurrent) return;
+                                setRouteSessionLoading(true);
+                                try {
+                                  const state = await routeSessionsApi.setCurrent(dateParam, v.id);
+                                  setRouteSessionState(state);
+                                } catch (e) {
+                                  alert(e instanceof Error ? e.message : "Не удалось выбрать визит");
+                                } finally {
+                                  setRouteSessionLoading(false);
+                                }
+                              }}
+                              className={[
+                                "w-full rounded px-2 py-0.5 text-left text-[11px] disabled:cursor-not-allowed disabled:opacity-60",
+                                !isDone ? "hover:ring-1 hover:ring-zinc-300" : "",
+                                isCurrent
+                                  ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
+                                  : isUnsuccessfulOutcome
+                                    ? "bg-red-100 text-red-800"
+                                    : isDone
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : isInProgress
+                                        ? "bg-amber-100 text-amber-800"
+                                        : "bg-zinc-100 text-zinc-700",
+                              ].join(" ")}
+                            >
+                              {idx + 1}. {v.title || v.addressText || "Visit"}
+                              {isDone
+                                ? isUnsuccessfulOutcome
+                                  ? " ✗"
+                                  : " ✓"
+                                : isCurrent
+                                  ? " (текущая)"
+                                  : ""}
+                            </button>
                           </li>
                         );
                       })}

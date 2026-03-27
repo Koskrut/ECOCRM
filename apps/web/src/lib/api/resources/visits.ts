@@ -236,5 +236,14 @@ export const routeSessionsApi = {
     } as never);
     return res.data;
   },
+
+  setCurrent: async (date: string, visitId: string): Promise<RouteSessionState> => {
+    const res = await apiHttp.post<RouteSessionState>(
+      "/route-sessions/current",
+      { visitId },
+      { params: { date } } as never,
+    );
+    return res.data;
+  },
 };
 

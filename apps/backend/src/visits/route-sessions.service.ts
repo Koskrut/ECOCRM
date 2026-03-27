@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -41,7 +41,7 @@ export class RouteSessionsService {
     return { dayStart, dayEnd };
   }
 
-  /** First non-DONE visit: from RoutePlan by position, else by startsAt (>= now then min startsAt). */
+  /** First non-DONE visit: from RoutePlan by position, else earliest incomplete by startsAt (includes overdue). */
   private async resolveFirstVisitId(
     ownerId: string,
     date: Date,
@@ -65,7 +65,6 @@ export class RouteSessionsService {
       if (firstNotDone) return firstNotDone.visit.id;
       return null;
     }
-    const now = new Date();
     const visits = await this.prisma.visit.findMany({
       where: {
         ownerId,
@@ -75,9 +74,7 @@ export class RouteSessionsService {
       orderBy: { startsAt: "asc" },
       select: { id: true, startsAt: true },
     });
-    const futureOrNow = visits.filter((v) => v.startsAt && v.startsAt >= now);
-    const first = futureOrNow[0] ?? visits[0];
-    return first?.id ?? null;
+    return visits[0]?.id ?? null;
   }
 
   /** Next non-DONE visit after currentVisitId: from RoutePlan order, else by startsAt. */
@@ -116,13 +113,10 @@ export class RouteSessionsService {
       orderBy: { startsAt: "asc" },
       select: { id: true, startsAt: true },
     });
-    const now = new Date();
-    const futureOrNow = visits.filter((v) => v.startsAt && v.startsAt >= now);
-    const list = futureOrNow.length ? futureOrNow : visits;
-    if (!currentVisitId) return list[0]?.id ?? null;
-    const idx = list.findIndex((v) => v.id === currentVisitId);
-    if (idx === -1) return list[0]?.id ?? null;
-    return list[idx + 1]?.id ?? null;
+    if (!currentVisitId) return visits[0]?.id ?? null;
+    const idx = visits.findIndex((v) => v.id === currentVisitId);
+    if (idx === -1) return visits[0]?.id ?? null;
+    return visits[idx + 1]?.id ?? null;
   }
 
   private async toState(session: {
@@ -274,6 +268,68 @@ export class RouteSessionsService {
     const updated = await this.prisma.routeSession.update({
       where: { id: session.id },
       data: { currentVisitId: nextVisitId },
+    });
+    return this.toState(updated);
+  }
+
+  /**
+   * Set the active visit for the day (e.g. jump back to an overdue stop). Visit must be on this day
+   * and, when a route plan exists, must be one of its stops.
+   */
+  async setCurrentVisit(
+    dateStr: string,
+    visitId: string,
+    actor: AuthUser | undefined,
+  ): Promise<RouteSessionState> {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    if (!dateStr) {
+      throw new BadRequestException("date is required");
+    }
+    if (!visitId?.trim()) {
+      throw new BadRequestException("visitId is required");
+    }
+    const date = this.parseDate(dateStr);
+    const { dayStart, dayEnd } = this.getDayRange(date);
+    const session = await this.prisma.routeSession.findUnique({
+      where: { ownerId_date: { ownerId: actor.id, date } },
+    });
+    if (!session) {
+      throw new BadRequestException("No route session for this day");
+    }
+    if (!session.isActive) {
+      throw new BadRequestException("Start the route before selecting a visit");
+    }
+    const visit = await this.prisma.visit.findUnique({
+      where: { id: visitId },
+    });
+    if (!visit) {
+      throw new NotFoundException("Visit not found");
+    }
+    if (visit.ownerId !== actor.id) {
+      throw new BadRequestException("Visit not found");
+    }
+    if (visit.status === VisitStatus.DONE || visit.status === VisitStatus.CANCELED) {
+      throw new BadRequestException("Cannot select a completed or canceled visit");
+    }
+    const starts = visit.startsAt;
+    if (!starts || starts < dayStart || starts >= dayEnd) {
+      throw new BadRequestException("Visit is not on this day");
+    }
+    const plan = await this.prisma.routePlan.findUnique({
+      where: { ownerId_date: { ownerId: actor.id, date } },
+      include: { stops: { select: { visitId: true } } },
+    });
+    if (plan?.stops?.length) {
+      const onPlan = plan.stops.some((s) => s.visitId === visitId);
+      if (!onPlan) {
+        throw new BadRequestException("Visit is not on this day's route");
+      }
+    }
+    const updated = await this.prisma.routeSession.update({
+      where: { id: session.id },
+      data: { currentVisitId: visitId },
     });
     return this.toState(updated);
   }

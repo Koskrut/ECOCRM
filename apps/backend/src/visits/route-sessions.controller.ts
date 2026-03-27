@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { RouteSessionsService } from "./route-sessions.service";
@@ -39,5 +39,14 @@ export class RouteSessionsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.routeSessions.next(date, req.user);
+  }
+
+  @Post("current")
+  async setCurrent(
+    @Query("date") date: string,
+    @Body("visitId") visitId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.routeSessions.setCurrentVisit(date, visitId, req.user);
   }
 }
