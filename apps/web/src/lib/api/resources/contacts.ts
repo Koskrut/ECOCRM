@@ -21,6 +21,8 @@ export type Contact = {
   telegramConversationId?: string | null;
   hasCallToday?: boolean;
   hasMissedCall?: boolean;
+  hasDebt?: boolean;
+  debtAmount?: number;
   /** Статус клієнта (з Bitrix UF_CRM_1755068668186). */
   status?: string | null;
 };
@@ -40,10 +42,14 @@ export type ContactsListParams = {
   ownerId?: string;
   hasPhone?: "yes" | "no";
   hasEmail?: "yes" | "no";
+  hasCallToday?: "yes" | "no";
+  hasMissedCall?: "yes" | "no";
   region?: string;
   city?: string;
   clientType?: string;
   status?: string;
+  sortBy?: "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
+  sortDir?: "asc" | "desc";
 };
 
 export const contactsApi = {
@@ -56,10 +62,14 @@ export const contactsApi = {
     if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
     if (params?.hasPhone) searchParams.set("hasPhone", params.hasPhone);
     if (params?.hasEmail) searchParams.set("hasEmail", params.hasEmail);
+    if (params?.hasCallToday) searchParams.set("hasCallToday", params.hasCallToday);
+    if (params?.hasMissedCall) searchParams.set("hasMissedCall", params.hasMissedCall);
     if (params?.region?.trim()) searchParams.set("region", params.region.trim());
     if (params?.city?.trim()) searchParams.set("city", params.city.trim());
     if (params?.clientType?.trim()) searchParams.set("clientType", params.clientType.trim());
     if (params?.status?.trim()) searchParams.set("status", params.status.trim());
+    if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
+    if (params?.sortDir) searchParams.set("sortDir", params.sortDir);
     const qs = searchParams.toString();
     const res = await apiHttp.get<ContactsResponse>(`/contacts${qs ? `?${qs}` : ""}`);
     return res.data;

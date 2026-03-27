@@ -563,12 +563,13 @@ export class ContactsService {
     const contactIds = contacts.map((c) => c.id);
     let hasCallTodayIds = new Set<string>();
     let hasMissedCallIds = new Set<string>();
+    const debtByContact = new Map<string, number>();
 
     if (contactIds.length > 0) {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-      const [callsToday, missedCalls] = await Promise.all([
+      const [callsToday, missedCalls, debts] = await Promise.all([
         this.prisma.call.groupBy({
           by: ["contactId"],
           where: {
@@ -588,9 +589,22 @@ export class ContactsService {
           },
           _count: { _all: true },
         }),
+        this.prisma.order.groupBy({
+          by: ["clientId"],
+          where: {
+            clientId: { in: contactIds },
+          },
+          _sum: { debtAmount: true },
+        }),
       ]);
       hasCallTodayIds = new Set(callsToday.map((c) => c.contactId as string));
       hasMissedCallIds = new Set(missedCalls.map((c) => c.contactId as string));
+      for (const row of debts) {
+        const id = row.clientId ?? null;
+        if (!id) continue;
+        const debt = Number(row._sum.debtAmount ?? 0);
+        if (debt > 0) debtByContact.set(id, debt);
+      }
     }
 
     const mappedAll = contacts.map((c) => {
@@ -599,6 +613,8 @@ export class ContactsService {
         ...base,
         hasCallToday: hasCallTodayIds.has(base.id),
         hasMissedCall: hasMissedCallIds.has(base.id),
+        hasDebt: debtByContact.has(base.id),
+        debtAmount: debtByContact.get(base.id) ?? 0,
       };
     });
 
