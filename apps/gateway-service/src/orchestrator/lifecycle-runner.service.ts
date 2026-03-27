@@ -277,6 +277,24 @@ export class LifecycleRunnerService {
     const send = this.makeSender(() => s, fetchImpl);
     const telephony = this.providers.telephonyProvider();
     const ai = this.providers.aiProvider();
+    const artifacts: RealRuntimeArtifacts = {
+      transcriptDeltas: [],
+      transcriptFinal: null,
+      summary: null,
+      classification: null,
+      completionReason: null,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    };
+    let terminalSent = false;
+    let forcedTerminal: { status: "completed" | "failed"; reason: string } | null = null;
+    let mediaSessionId: string | null = null;
+    let mediaDisconnected = false;
+    let aiHandle: { openaiSessionId: string } | null = null;
+    let providerCallId: string | null = null;
+    let cleanupAiLifecycle: (() => void) | undefined;
+    let cleanupAiArtifacts: (() => void) | undefined;
+    let cleanupMediaLifecycle: (() => void) | undefined;
 
     this.registry.transition(s.externalSessionId, "starting", "orchestrator_start");
     s = this.registry.get(s.externalSessionId)!;
@@ -293,6 +311,7 @@ export class LifecycleRunnerService {
       e164Phone: s.phone,
       attemptId: s.attemptId,
     });
+    providerCallId = leg.providerCallId;
     this.registry.patch(s.externalSessionId, {
       correlationIds: { ...s.correlationIds, providerCallId: leg.providerCallId },
       providerSessionId: leg.providerSessionId ?? s.providerSessionId,
@@ -307,6 +326,12 @@ export class LifecycleRunnerService {
         providerCallId: event.providerCallId,
         state: event.state,
       });
+      if (event.state === "failed") {
+        forcedTerminal = { status: "failed", reason: event.reason ?? "telephony_failed" };
+      }
+      if (event.state === "completed") {
+        forcedTerminal = { status: "completed", reason: event.reason ?? "telephony_completed" };
+      }
     });
 
     try {
@@ -352,66 +377,186 @@ export class LifecycleRunnerService {
       });
     }
 
-    const aiHandle = await ai.createSession({
-      externalSessionId: s.externalSessionId,
-      attemptId: s.attemptId,
-    });
-    await ai.sendContext(aiHandle, s.context);
-    await ai.startConversation(aiHandle);
-    this.registry.patch(s.externalSessionId, {
-      correlationIds: { ...s.correlationIds, openaiCallId: aiHandle.openaiSessionId },
-      providerSessionId: s.providerSessionId ?? aiHandle.openaiSessionId,
-    });
-    this.registry.transition(s.externalSessionId, "ai_active", "ai_started");
-    s = this.registry.get(s.externalSessionId)!;
+    try {
+      await send({
+        eventType: "attempt.ai.connecting",
+        attemptId: s.attemptId,
+        providerSessionId: s.providerSessionId,
+        externalSessionId: s.externalSessionId,
+        payload: { phase: "ai_connecting" },
+      });
 
-    const media = await this.realMediaBridge.connect({
-      externalSessionId: s.externalSessionId,
-      providerCallId: leg.providerCallId,
-      aiSessionId: aiHandle.openaiSessionId,
-      telephony,
-      ai,
-    });
+      aiHandle = await ai.createSession({
+        externalSessionId: s.externalSessionId,
+        attemptId: s.attemptId,
+      });
+      await ai.sendContext(aiHandle, s.context);
+      this.registry.patch(s.externalSessionId, {
+        correlationIds: { ...s.correlationIds, openaiCallId: aiHandle.openaiSessionId },
+        providerSessionId: s.providerSessionId ?? aiHandle.openaiSessionId,
+      });
+      s = this.registry.get(s.externalSessionId)!;
 
-    // This is a controlled first real-call baseline: generate deterministic outcome while transport stabilizes.
-    const fx = getOutcomeFixtures("default");
-    await send({
-      eventType: "attempt.transcript.final",
-      attemptId: s.attemptId,
-      providerSessionId: s.providerSessionId,
-      externalSessionId: s.externalSessionId,
-      transcript: fx.transcript,
-      payload: { transcript: fx.transcript, source: "realtime_ws" },
-    });
-    await send({
-      eventType: "attempt.classification.ready",
-      attemptId: s.attemptId,
-      providerSessionId: s.providerSessionId,
-      externalSessionId: s.externalSessionId,
-      outcomeKey: "CONTACTED",
-      payload: { outcomeKey: "CONTACTED", fields: { intent: "reactivation" } },
-      fields: { intent: "reactivation" },
-    });
-    await send({
-      eventType: "attempt.summary.ready",
-      attemptId: s.attemptId,
-      providerSessionId: s.providerSessionId,
-      externalSessionId: s.externalSessionId,
-      summary: fx.summary,
-      payload: { summary: fx.summary },
-    });
-    await send({
-      eventType: "attempt.completed",
-      attemptId: s.attemptId,
-      providerSessionId: s.providerSessionId,
-      externalSessionId: s.externalSessionId,
-      payload: { done: true, providerMode: this.config.gatewayProviderMode },
-    });
+      const aiLifecycle = ai as unknown as {
+        onSessionLifecycle?: (
+          handle: { openaiSessionId: string },
+          listener: (event: { type: "connected" | "disconnected" | "error"; reason?: string }) => void,
+        ) => () => void;
+      };
+      if (aiLifecycle.onSessionLifecycle) {
+        cleanupAiLifecycle = aiLifecycle.onSessionLifecycle(aiHandle, (event) => {
+          if (event.type === "disconnected" && !mediaDisconnected) {
+            forcedTerminal = { status: "failed", reason: event.reason ?? "ai_disconnected" };
+          }
+          if (event.type === "error") {
+            forcedTerminal = { status: "failed", reason: event.reason ?? "ai_error" };
+          }
+        });
+      }
 
-    this.registry.transition(s.externalSessionId, "completed", "complete");
-    await ai.closeSession(aiHandle);
-    await telephony.hangupCall(leg.providerCallId);
-    await this.realMediaBridge.close(media.id);
+      const aiArtifacts = ai as unknown as {
+        onRuntimeArtifact?: (
+          handle: { openaiSessionId: string },
+          listener: (event: {
+            type: "transcript_delta" | "transcript_final" | "summary" | "classification";
+            delta?: string;
+            transcript?: string;
+            summary?: string;
+            outcomeKey?: string;
+            fields?: Record<string, unknown>;
+          }) => void,
+        ) => () => void;
+      };
+      if (aiArtifacts.onRuntimeArtifact) {
+        cleanupAiArtifacts = aiArtifacts.onRuntimeArtifact(aiHandle, (event) => {
+          if (terminalSent) return;
+          if (event.type === "transcript_delta" && event.delta) {
+            artifacts.transcriptDeltas.push(event.delta);
+            if (artifacts.transcriptDeltas.length > 200) artifacts.transcriptDeltas.shift();
+          }
+          if (event.type === "transcript_final" && event.transcript) {
+            artifacts.transcriptFinal = event.transcript.trim();
+          }
+          if (event.type === "summary" && event.summary) {
+            artifacts.summary = event.summary.trim();
+          }
+          if (event.type === "classification" && event.outcomeKey) {
+            artifacts.classification = {
+              outcomeKey: event.outcomeKey.trim(),
+              fields: event.fields ?? {},
+            };
+          }
+        });
+      }
+
+      await ai.startConversation(aiHandle);
+
+      const media = await this.realMediaBridge.connect({
+        externalSessionId: s.externalSessionId,
+        providerCallId: leg.providerCallId,
+        aiSessionId: aiHandle.openaiSessionId,
+        telephony,
+        ai,
+      });
+      mediaSessionId = media.id;
+      cleanupMediaLifecycle = this.realMediaBridge.onLifecycleEvent((event) => {
+        if (event.sessionId !== media.id) return;
+        if (event.type === "error") {
+          forcedTerminal = { status: "failed", reason: event.reason ?? "media_error" };
+        }
+        if (event.type === "disconnected" && event.reason === "reconnect_exhausted") {
+          forcedTerminal = { status: "failed", reason: "media_reconnect_exhausted" };
+        }
+        if (event.type === "disconnected") {
+          mediaDisconnected = true;
+        }
+      });
+
+      this.registry.transition(s.externalSessionId, "ai_active", "ai_started");
+      s = this.registry.get(s.externalSessionId)!;
+      await send({
+        eventType: "attempt.ai.connected",
+        attemptId: s.attemptId,
+        providerSessionId: s.providerSessionId,
+        externalSessionId: s.externalSessionId,
+        payload: { phase: "ai_connected" },
+      });
+
+      const runtimeStartedAt = Date.now();
+      while (Date.now() - runtimeStartedAt < this.config.callMaxDurationSec * 1000) {
+        if (forcedTerminal) {
+          await finalizeRealTerminal.call(
+            this,
+            forcedTerminal.status,
+            forcedTerminal.reason,
+            artifacts,
+            () => s,
+            send,
+            () => {
+              terminalSent = true;
+            },
+          );
+          break;
+        }
+        const status = await telephony.getCallStatus(leg.providerCallId);
+        if (status.status === "failed") {
+          await finalizeRealTerminal.call(
+            this,
+            "failed",
+            status.reason ?? "provider_failed",
+            artifacts,
+            () => s,
+            send,
+            () => {
+              terminalSent = true;
+            },
+          );
+          break;
+        }
+        if (status.status === "completed") {
+          await finalizeRealTerminal.call(
+            this,
+            "completed",
+            status.reason ?? "provider_completed",
+            artifacts,
+            () => s,
+            send,
+            () => {
+              terminalSent = true;
+            },
+          );
+          break;
+        }
+        await sleep(400);
+      }
+
+      if (!terminalSent) {
+        await finalizeRealTerminal.call(
+          this,
+          "failed",
+          "runtime_timeout",
+          artifacts,
+          () => s,
+          send,
+          () => {
+            terminalSent = true;
+          },
+        );
+      }
+    } finally {
+      cleanupMediaLifecycle?.();
+      cleanupAiLifecycle?.();
+      cleanupAiArtifacts?.();
+      if (aiHandle) {
+        await ai.closeSession(aiHandle).catch(() => undefined);
+      }
+      if (providerCallId) {
+        await telephony.hangupCall(providerCallId).catch(() => undefined);
+      }
+      if (mediaSessionId) {
+        await this.realMediaBridge.close(mediaSessionId).catch(() => undefined);
+      }
+    }
   }
 
   private makeSender(
@@ -453,6 +598,119 @@ export class LifecycleRunnerService {
     }
     return { ok: false, reason: "answer_timeout" };
   }
+}
+
+type RealRuntimeArtifacts = {
+  transcriptDeltas: string[];
+  transcriptFinal: string | null;
+  summary: string | null;
+  classification: { outcomeKey: string; fields: Record<string, unknown> } | null;
+  completionReason: string | null;
+  startedAt: string;
+  completedAt: string | null;
+};
+
+async function finalizeRealTerminal(
+  this: LifecycleRunnerService,
+  status: "completed" | "failed",
+  reason: string,
+  artifacts: RealRuntimeArtifacts,
+  sessionRef: () => SessionEntity,
+  send: (
+    partial: Omit<GatewayOutboundEvent, "deliveryId" | "occurredAt" | "correlationIds"> & {
+      deliveryId?: string;
+    },
+  ) => Promise<void>,
+  markSent: () => void,
+): Promise<void> {
+  const s = sessionRef();
+  if (s.lifecycleStatus === "completed" || s.lifecycleStatus === "failed") return;
+  markSent();
+  artifacts.completionReason = reason;
+  artifacts.completedAt = new Date().toISOString();
+  const transcript = (artifacts.transcriptFinal ?? artifacts.transcriptDeltas.join("")).trim();
+  if (transcript) {
+    await send({
+      eventType: "attempt.transcript.final",
+      attemptId: s.attemptId,
+      providerSessionId: s.providerSessionId,
+      externalSessionId: s.externalSessionId,
+      transcript,
+      payload: { transcript, source: "runtime" },
+    });
+  }
+  if (artifacts.classification?.outcomeKey) {
+    await send({
+      eventType: "attempt.classification.ready",
+      attemptId: s.attemptId,
+      providerSessionId: s.providerSessionId,
+      externalSessionId: s.externalSessionId,
+      outcomeKey: artifacts.classification.outcomeKey,
+      fields: artifacts.classification.fields,
+      payload: {
+        outcomeKey: artifacts.classification.outcomeKey,
+        fields: artifacts.classification.fields,
+        source: "runtime",
+      },
+    });
+  }
+  if (artifacts.summary) {
+    await send({
+      eventType: "attempt.summary.ready",
+      attemptId: s.attemptId,
+      providerSessionId: s.providerSessionId,
+      externalSessionId: s.externalSessionId,
+      summary: artifacts.summary,
+      payload: { summary: artifacts.summary, source: "runtime" },
+    });
+  }
+  const missingArtifacts = [
+    transcript ? null : "transcript",
+    artifacts.summary ? null : "summary",
+    artifacts.classification?.outcomeKey ? null : "classification",
+  ].filter((x): x is string => Boolean(x));
+
+  if (status === "completed") {
+    await send({
+      eventType: "attempt.completed",
+      attemptId: s.attemptId,
+      providerSessionId: s.providerSessionId,
+      externalSessionId: s.externalSessionId,
+      payload: {
+        done: true,
+        providerMode: this.config.gatewayProviderMode,
+        completionReason: reason,
+        artifacts: {
+          source: "runtime",
+          degraded: missingArtifacts.length > 0,
+          missing: missingArtifacts,
+          startedAt: artifacts.startedAt,
+          completedAt: artifacts.completedAt,
+        },
+      },
+    });
+    this.registry.transition(s.externalSessionId, "completed", "complete");
+    return;
+  }
+  await send({
+    eventType: "attempt.failed",
+    attemptId: s.attemptId,
+    providerSessionId: s.providerSessionId,
+    externalSessionId: s.externalSessionId,
+    payload: {
+      reason,
+      artifacts: {
+        source: "runtime",
+        degraded: missingArtifacts.length > 0,
+        missing: missingArtifacts,
+        startedAt: artifacts.startedAt,
+        completedAt: artifacts.completedAt,
+      },
+    },
+    failureCode: "REAL_RUNTIME_FAILED",
+    failureReason: reason,
+  });
+  this.registry.transition(s.externalSessionId, "failed", "fail");
 }
 
 function sleep(ms: number): Promise<void> {

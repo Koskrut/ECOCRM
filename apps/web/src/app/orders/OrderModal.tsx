@@ -1204,6 +1204,25 @@ export function OrderModal({
     })();
   }, [orderId, isCreate, order, paymentMethod, fopAccounts, forOrderDefaultBankId, patchOrder]);
 
+  /**
+   * When opening existing order from Contact card, enforce prefilled client linkage once
+   * if order was created without clientId due transient API/UI mismatch.
+   */
+  useEffect(() => {
+    if (!orderId || isCreate || !order) return;
+    const forcedClientId = prefill?.clientId ?? null;
+    if (!forcedClientId) return;
+    if (order.clientId) return;
+    void patchOrder(
+      {
+        clientId: forcedClientId,
+        contactId: forcedClientId,
+        ...(prefill?.companyId ? { companyId: prefill.companyId } : {}),
+      },
+      { silent: true },
+    );
+  }, [orderId, isCreate, order, patchOrder, prefill?.clientId, prefill?.companyId]);
+
   const createOrder = useCallback(async () => {
     if (!paymentType) {
       alert("Оберіть тип оплати");
