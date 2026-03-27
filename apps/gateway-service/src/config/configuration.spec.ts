@@ -18,6 +18,11 @@ describe("loadConfiguration real-mode fields", () => {
     process.env.RTP_PORT_START = "31000";
     process.env.RTP_PORT_END = "31999";
     process.env.OPENAI_REALTIME_WS_URL = "wss://example.openai.test/realtime";
+    process.env.KYIVSTAR_CONTROL_PLANE_MODE = "http";
+    process.env.KYIVSTAR_HTTP_TIMEOUT_MS = "12000";
+    process.env.CANARY_LIVE_CALLS_ENABLED = "true";
+    process.env.CANARY_ALLOWED_E164 = "+380501112233";
+    process.env.KYIVSTAR_HTTP_AUTH_STYLE = "bearer";
 
     const cfg = loadConfiguration();
     assert.strictEqual(cfg.gatewayProviderMode, "kyivstar_openai");
@@ -26,5 +31,10 @@ describe("loadConfiguration real-mode fields", () => {
     assert.strictEqual(cfg.rtpPortStart, 31000);
     assert.strictEqual(cfg.rtpPortEnd, 31999);
     assert.strictEqual(cfg.openaiRealtimeWsUrl, "wss://example.openai.test/realtime");
+    assert.strictEqual(cfg.kyivstarControlPlaneMode, "http");
+    assert.strictEqual(cfg.kyivstarHttpTimeoutMs, 12000);
+    assert.strictEqual(cfg.canaryLiveCallsEnabled, true);
+    assert.ok(cfg.canaryAllowedE164Normalized.includes("380501112233"));
+    assert.strictEqual(cfg.kyivstarHttpAuthStyle, "bearer");
   });
 });

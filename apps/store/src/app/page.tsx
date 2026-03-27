@@ -18,6 +18,8 @@ import { useStoreConfig } from "@/context/StoreConfigContext";
 import { PRODUCT_GROUPS } from "@/lib/categories";
 
 const SKELETON_COUNT = 9;
+const RECOMMENDED_COUNT = 6;
+const RECOMMENDED_FETCH_PAGE_SIZE = 48;
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -67,9 +69,10 @@ function HomeContent() {
     // Only load popular products if we are in landing mode
     if (isCatalogMode) return;
 
-    getProducts({ pageSize: 6 })
+    getProducts({ pageSize: RECOMMENDED_FETCH_PAGE_SIZE })
       .then((r) => {
-        setPopularProducts(r.items);
+        const withImage = r.items.filter((p) => p.primaryImageId);
+        setPopularProducts(withImage.slice(0, RECOMMENDED_COUNT));
         setPopularUah(r.uahPerUsd);
       })
       .catch(() => setPopularProducts([]));

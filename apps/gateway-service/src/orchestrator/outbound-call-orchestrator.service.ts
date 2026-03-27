@@ -23,6 +23,19 @@ export class OutboundCallOrchestratorService {
   enqueueFlow(session: SessionEntity, fetchImpl?: typeof fetch): void {
     setImmediate(() => {
       const runReal = this.shouldRunRealForSession(session);
+      if (runReal && this.config.canaryLiveCallsEnabled) {
+        const allow = this.canaryAllowsDestination(session);
+        if (!allow.ok) {
+          void this.lifecycle.runCanaryBlocked(session, fetchImpl, allow.reason).catch((e) => {
+            this.log.error("Canary blocked lifecycle failed", {
+              externalSessionId: session.externalSessionId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+            void this.registry.transition(session.externalSessionId, "failed", "fail");
+          });
+          return;
+        }
+      }
       const run = runReal
         ? this.lifecycle.runRealLifecycle(session, fetchImpl)
         : this.lifecycle.runMockLifecycle(session, fetchImpl);
@@ -43,6 +56,22 @@ export class OutboundCallOrchestratorService {
     if (this.config.realModePercent >= 100) return true;
     const hash = simpleHash(`${session.attemptId}:${session.externalSessionId}`) % 100;
     return hash < this.config.realModePercent;
+  }
+
+  /** When canary mode is on, destination must match whitelist (digits-only compare). */
+  private canaryAllowsDestination(session: SessionEntity): { ok: true } | { ok: false; reason: string } {
+    if (this.config.canaryAllowedE164Normalized.length === 0) {
+      return { ok: false, reason: "canary_whitelist_empty" };
+    }
+    const raw = session.phone || session.phoneNormalized || "";
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      return { ok: false, reason: "canary_phone_missing" };
+    }
+    if (this.config.canaryAllowedE164Normalized.includes(digits)) {
+      return { ok: true };
+    }
+    return { ok: false, reason: "canary_phone_not_whitelisted" };
   }
 }
 
