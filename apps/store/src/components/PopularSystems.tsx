@@ -6,7 +6,7 @@ export function PopularSystems() {
   const topSystems = PRODUCT_GROUPS.slice(1, 7);
 
   return (
-    <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+    <section id="catalog" className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
       <div className="flex items-center justify-between mb-8">
         <h2 className="font-heading text-2xl font-semibold text-zinc-900">
           Популярні системи імплантатів

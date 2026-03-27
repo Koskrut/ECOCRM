@@ -66,7 +66,7 @@ export function HeroSlider({
             title: "Каталог стоматологічних компонентів",
             subtitle: "Якість та надійність для професійної практики.",
             ctaText: "Перейти в каталог",
-            ctaHref: "#catalog",
+            ctaHref: "/?category=01",
             order: 0,
           } as HeroBanner,
         ];
