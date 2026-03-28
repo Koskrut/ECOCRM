@@ -2,6 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Product } from "@/lib/api";
+import {
+  formatSpecValue,
+  orderedSpecEntries,
+  PRODUCT_SPEC_LABELS_UK,
+} from "@/lib/product-spec-labels";
 import { getRequestSiteUrl } from "@/lib/site";
 import { getStoreProductCached } from "@/lib/store-server-api";
 import { ProductPageClient } from "./ProductPageClient";
@@ -113,6 +118,21 @@ export default async function ProductPage({ params }: PageProps) {
               {priceUah} грн
             </p>
             <p className="mt-1 sm:mt-2 text-sm text-zinc-500">Ціна за одиницю</p>
+            {product.characteristics && Object.keys(product.characteristics).length > 0 ? (
+              <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+                <h2 className="font-heading text-sm font-semibold text-zinc-800">Характеристики</h2>
+                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 text-sm">
+                  {orderedSpecEntries(product.characteristics).map(([code, val]) => (
+                    <div key={code} className="flex flex-col sm:flex-row sm:gap-2 border-b border-zinc-100 pb-2 last:border-0 last:pb-0">
+                      <dt className="text-zinc-500 shrink-0 sm:w-[40%]">
+                        {PRODUCT_SPEC_LABELS_UK[code] ?? code}
+                      </dt>
+                      <dd className="font-medium text-zinc-900">{formatSpecValue(val)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <ProductPageClient productId={id} />
               <Link

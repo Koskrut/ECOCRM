@@ -16,6 +16,8 @@ export type ProductCatalogItem = {
   showOnStore: boolean;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
+  /** Full workbook-style specs JSON (includes internal keys for CRM). */
+  characteristics?: Record<string, unknown> | null;
   stockByWarehouse?: StockByWarehouseItem[];
   /** Only present when search returns inactive matches; false = deactivated. */
   isActive?: boolean;
@@ -156,6 +158,29 @@ export const productsApi = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ isActive }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Update failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+  },
+
+  updateCharacteristics: async (
+    id: string,
+    characteristics: Record<string, unknown> | null,
+  ): Promise<void> => {
+    const r = await fetch(`/api/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ characteristics }),
       credentials: "include",
     });
     if (!r.ok) {

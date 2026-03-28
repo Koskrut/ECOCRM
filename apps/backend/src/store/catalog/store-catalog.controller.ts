@@ -2,6 +2,7 @@ import { Controller, Get, NotFoundException, Param, Query } from "@nestjs/common
 import { normalizePagination } from "../../common/pagination";
 import { ProductStore } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
+import { publicStoreCharacteristics } from "./store-product-characteristics";
 
 @Controller("store/products")
 export class StoreCatalogController {
@@ -27,6 +28,7 @@ export class StoreCatalogController {
         inStock: p.stock > 0,
         primaryImageUrl: p.primaryImageUrl ?? null,
         primaryImageId: p.primaryImageId ?? null,
+        characteristics: publicStoreCharacteristics(p.characteristics ?? null),
       },
     };
   }

@@ -14,6 +14,7 @@ export class UsersController {
   async create(@Body() body: Record<string, unknown>) {
     const user = await this.usersService.createUser({
       email: String(body.email ?? ""),
+      username: body.username != null ? String(body.username) : undefined,
       fullName: body.fullName != null ? String(body.fullName) : "",
       firstName: body.firstName != null ? String(body.firstName) : undefined,
       lastName: body.lastName != null ? String(body.lastName) : undefined,
@@ -40,6 +41,12 @@ export class UsersController {
     };
     const user = await this.usersService.updateUser(id, {
       email: body.email != null ? String(body.email) : undefined,
+      username:
+        body.username === undefined
+          ? undefined
+          : body.username === null || body.username === ""
+            ? null
+            : String(body.username),
       fullName: body.fullName != null ? String(body.fullName) : undefined,
       firstName: body.firstName != null ? String(body.firstName) : undefined,
       password: body.password != null ? String(body.password) : undefined,

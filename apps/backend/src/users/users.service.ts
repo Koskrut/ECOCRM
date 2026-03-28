@@ -2,6 +2,11 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import type { UserRole } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  allocateUniqueUsername,
+  normalizeUsername,
+  usernameBaseFromEmail,
+} from "../auth/username.util";
 
 @Injectable()
 export class UsersService {
@@ -13,6 +18,7 @@ export class UsersService {
 
   async createUser(payload: {
     email: string;
+    username?: string;
     password?: string;
     passwordHash?: string;
     fullName?: string;
@@ -28,9 +34,24 @@ export class UsersService {
     const passwordHashValue =
       payload.passwordHash ?? (payload.password ? `plain:${payload.password}` : "");
 
+    const emailNorm = payload.email.trim().toLowerCase();
+    const usernameTaken = async (candidate: string) =>
+      Boolean(await this.prisma.user.findUnique({ where: { username: candidate } }));
+
+    let username: string;
+    if (payload.username?.trim()) {
+      username = normalizeUsername(payload.username);
+      if (await usernameTaken(username)) {
+        throw new BadRequestException("username already taken");
+      }
+    } else {
+      username = await allocateUniqueUsername(usernameTaken, usernameBaseFromEmail(emailNorm));
+    }
+
     return this.prisma.user.create({
       data: {
-        email: payload.email,
+        email: emailNorm,
+        username,
         passwordHash: passwordHashValue,
         fullName: payload.fullName ?? "",
         role: (payload.role as UserRole) ?? undefined,
@@ -42,6 +63,7 @@ export class UsersService {
     id: string,
     payload: {
       email?: string;
+      username?: string | null;
       password?: string;
       fullName?: string;
       firstName?: string;
@@ -62,6 +84,19 @@ export class UsersService {
       email: payload.email ?? undefined,
       fullName: payload.fullName ?? undefined,
     };
+
+    if (payload.username !== undefined) {
+      if (payload.username === null || payload.username === "") {
+        data.username = null;
+      } else {
+        const u = normalizeUsername(payload.username);
+        const taken = await this.prisma.user.findFirst({
+          where: { username: u, id: { not: id } },
+        });
+        if (taken) throw new BadRequestException("username already taken");
+        data.username = u;
+      }
+    }
 
     if (payload.password !== undefined) {
       data.passwordHash = payload.password ? `plain:${payload.password}` : "";

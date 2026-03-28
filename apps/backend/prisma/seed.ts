@@ -37,10 +37,12 @@ async function main() {
     update: {
       fullName: "Admin",
       role: UserRole.ADMIN,
+      username: "admin",
       passwordHash: makePlainHash(adminPassword),
     },
     create: {
       email: adminEmail,
+      username: "admin",
       fullName: "Admin",
       role: UserRole.ADMIN,
       passwordHash: makePlainHash(adminPassword),
@@ -52,10 +54,12 @@ async function main() {
     update: {
       fullName: "Team Lead",
       role: UserRole.LEAD,
+      username: "lead",
       passwordHash: makePlainHash("lead12345"),
     },
     create: {
       email: "lead@ecocrm.local",
+      username: "lead",
       fullName: "Team Lead",
       role: UserRole.LEAD,
       passwordHash: makePlainHash("lead12345"),
@@ -67,10 +71,12 @@ async function main() {
     update: {
       fullName: "Sales Manager",
       role: UserRole.MANAGER,
+      username: "manager",
       passwordHash: makePlainHash("manager12345"),
     },
     create: {
       email: "manager@ecocrm.local",
+      username: "manager",
       fullName: "Sales Manager",
       role: UserRole.MANAGER,
       passwordHash: makePlainHash("manager12345"),
@@ -82,10 +88,12 @@ async function main() {
     update: {
       fullName: "Store (магазин)",
       role: UserRole.MANAGER,
+      username: "store",
       passwordHash: makePlainHash("store"),
     },
     create: {
       email: "store@ecocrm.local",
+      username: "store",
       fullName: "Store (магазин)",
       role: UserRole.MANAGER,
       passwordHash: makePlainHash("store"),

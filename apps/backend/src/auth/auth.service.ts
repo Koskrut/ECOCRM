@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
-  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { randomBytes } from "crypto";
@@ -16,6 +15,12 @@ import type { RegisterDto } from "./dto/register.dto";
 import { signJwt } from "./jwt";
 import { hashPassword, verifyPassword, needsRehash } from "./password";
 import { isTelegramAuthDateValid, verifyTelegramLoginHash } from "./telegram-widget";
+import {
+  allocateUniqueUsername,
+  getLoginIdentifier,
+  normalizeUsername,
+  usernameBaseFromEmail,
+} from "./username.util";
 
 export type AuthResponse = {
   token: string;
@@ -40,8 +45,9 @@ export class AuthService {
   ) {}
 
   public async register(dto: RegisterDto): Promise<AuthResponse> {
+    const emailNorm = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: emailNorm },
     });
 
     if (existing) {
@@ -51,9 +57,23 @@ export class AuthService {
     const usersCount = await this.prisma.user.count();
     const role = usersCount === 0 ? (dto.role ?? UserRole.ADMIN) : UserRole.MANAGER;
 
+    const usernameTaken = async (candidate: string) =>
+      Boolean(await this.prisma.user.findUnique({ where: { username: candidate } }));
+
+    let username: string;
+    if (dto.username?.trim()) {
+      username = normalizeUsername(dto.username);
+      if (await usernameTaken(username)) {
+        throw new ConflictException("Username already taken");
+      }
+    } else {
+      username = await allocateUniqueUsername(usernameTaken, usernameBaseFromEmail(emailNorm));
+    }
+
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email: emailNorm,
+        username,
         fullName: dto.fullName,
         passwordHash: hashPassword(dto.password),
         role,
@@ -64,12 +84,11 @@ export class AuthService {
   }
 
   public async login(dto: LoginDto): Promise<AuthResponse> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
+    const idRaw = getLoginIdentifier(dto);
+    const user = await this.findUserByLoginRaw(idRaw);
 
     if (!user || !verifyPassword(dto.password, user.passwordHash)) {
-      throw new UnauthorizedException("Invalid email or password");
+      throw new UnauthorizedException("Invalid login or password");
     }
 
     if (needsRehash(user.passwordHash)) {
@@ -89,20 +108,19 @@ export class AuthService {
     suggestConnectTelegram: boolean;
     message: string;
   }> {
-    const normalized = String(email ?? "").trim().toLowerCase();
-    if (!normalized) throw new BadRequestException("Email required");
+    const trimmed = String(email ?? "").trim();
+    if (!trimmed) throw new BadRequestException("Email or username required");
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: normalized },
-      select: { id: true, telegramChatId: true },
-    });
-    if (!user) {
+    const account = await this.findUserByLoginRaw(trimmed);
+    if (!account) {
       return {
         sentVia: null,
         suggestConnectTelegram: false,
         message: "Если аккаунт с таким email существует, код отправлен в Telegram.",
       };
     }
+
+    const normalized = account.email.toLowerCase();
 
     const code = randomBytes(3).readUIntBE(0, 3) % 1_000_000;
     const codeStr = code.toString().padStart(RESET_CODE_LENGTH, "0");
@@ -113,10 +131,10 @@ export class AuthService {
       data: { email: normalized, code: codeStr, expiresAt },
     });
 
-    if (user.telegramChatId) {
+    if (account.telegramChatId) {
       try {
         await this.telegram.sendMessageToChat(
-          user.telegramChatId,
+          account.telegramChatId,
           `Код для сброса пароля CRM: ${codeStr}\nДействует ${RESET_CODE_TTL_MINUTES} мин.`,
         );
         return {
@@ -147,10 +165,16 @@ export class AuthService {
     code: string,
     newPassword: string,
   ): Promise<AuthResponse> {
-    const normalized = String(email ?? "").trim().toLowerCase();
-    if (!normalized || !code?.trim() || !newPassword || newPassword.length < 6) {
-      throw new BadRequestException("Email, code and new password (min 6 chars) required");
+    const trimmed = String(email ?? "").trim();
+    if (!trimmed || !code?.trim() || !newPassword || newPassword.length < 6) {
+      throw new BadRequestException("Email or username, code and new password (min 6 chars) required");
     }
+
+    const account = await this.findUserByLoginRaw(trimmed);
+    if (!account) {
+      throw new UnauthorizedException("Неверный или устаревший код");
+    }
+    const normalized = account.email.toLowerCase();
 
     const row = await this.prisma.passwordResetCode.findFirst({
       where: { email: normalized, code: code.trim() },
@@ -162,16 +186,13 @@ export class AuthService {
       throw new UnauthorizedException("Код истёк. Запросите новый.");
     }
 
-    const user = await this.prisma.user.findUnique({ where: { email: normalized } });
-    if (!user) throw new NotFoundException("User not found");
-
     await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });
     await this.prisma.user.update({
-      where: { id: user.id },
+      where: { id: account.id },
       data: { passwordHash: hashPassword(newPassword) },
     });
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(account);
   }
 
   /** Login with Telegram Login Widget data. User must have telegramUserId linked. */
@@ -268,6 +289,16 @@ export class AuthService {
     await this.prisma.userTelegramLinkToken.deleteMany({ where: { userId: row.userId } });
 
     return { email: user.email };
+  }
+
+  /** Resolve CRM user by full email or by username (case-insensitive). */
+  private async findUserByLoginRaw(raw: string): Promise<User | null> {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("@")) {
+      return this.prisma.user.findUnique({ where: { email: trimmed.toLowerCase() } });
+    }
+    return this.prisma.user.findUnique({ where: { username: normalizeUsername(trimmed) } });
   }
 
   private buildAuthResponse(user: User): AuthResponse {

@@ -26,6 +26,8 @@ export type Product = {
   inStock: boolean;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
+  /** Public specs (internal workbook keys like fill_status are stripped by the API). */
+  characteristics?: Record<string, unknown> | null;
 };
 
 export type CartItem = {

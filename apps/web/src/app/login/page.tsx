@@ -116,10 +116,11 @@ function LoginContent() {
 
             {resetStep === "email" ? (
               <form onSubmit={onRequestReset} className="mt-4 space-y-3">
-                <label className="block text-sm font-medium text-zinc-700">Email</label>
+                <label className="block text-sm font-medium text-zinc-700">Email или логин</label>
                 <input
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  type="email"
+                  type="text"
+                  autoComplete="username"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   required
@@ -186,7 +187,7 @@ function LoginContent() {
         ) : (
           <>
             <h1 className="text-xl font-bold text-zinc-900">Вход</h1>
-            <p className="mt-1 text-sm text-zinc-500">Email и пароль</p>
+            <p className="mt-1 text-sm text-zinc-500">Email или логин и пароль</p>
 
             {error ? (
               <div className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-100">
@@ -195,12 +196,12 @@ function LoginContent() {
             ) : null}
 
             <form onSubmit={onSubmit} className="mt-4 space-y-3">
-              <label className="block text-sm font-medium text-zinc-700">Email</label>
+              <label className="block text-sm font-medium text-zinc-700">Email или логин</label>
               <input
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
+                autoComplete="username"
               />
               <label className="block text-sm font-medium text-zinc-700">Пароль</label>
               <input

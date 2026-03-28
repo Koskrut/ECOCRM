@@ -18,6 +18,7 @@ import type { Request } from "express";
 import { Public } from "../auth/public.decorator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
+import { Prisma } from "@prisma/client";
 import { getFileStream } from "./drive/google-drive.client";
 import { normalizePagination } from "../common/pagination";
 import { ProductStore } from "./product.store";
@@ -202,7 +203,14 @@ export class ProductsController {
   @Patch(":id")
   public async patch(
     @Param("id") id: string,
-    @Body() body: { stock?: number; showOnStore?: boolean; isActive?: boolean },
+    @Body()
+    body: {
+      stock?: number;
+      showOnStore?: boolean;
+      isActive?: boolean;
+      /** JSON object of attribute_code → value, or null to clear. */
+      characteristics?: unknown;
+    },
   ): Promise<{ ok: boolean }> {
     if (body.stock !== undefined) {
       const ok = await this.productStore.updateStockById(id, body.stock);
@@ -216,6 +224,22 @@ export class ProductsController {
       const ok = body.isActive
         ? await this.productStore.setActive(id)
         : await this.productStore.setInactive(id);
+      if (!ok) throw new BadRequestException("Product not found");
+    }
+    if (body.characteristics !== undefined) {
+      let payload: Prisma.InputJsonValue | null;
+      if (body.characteristics === null) {
+        payload = null;
+      } else if (
+        typeof body.characteristics === "object" &&
+        body.characteristics !== null &&
+        !Array.isArray(body.characteristics)
+      ) {
+        payload = body.characteristics as Prisma.InputJsonValue;
+      } else {
+        throw new BadRequestException("characteristics must be a JSON object or null");
+      }
+      const ok = await this.productStore.updateCharacteristics(id, payload);
       if (!ok) throw new BadRequestException("Product not found");
     }
     return { ok: true };

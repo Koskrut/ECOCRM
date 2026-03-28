@@ -9,7 +9,16 @@ export type StockByWarehouseItem = { warehouseId: string; warehouseName: string;
 
 type ProductListItem = Pick<
   Product,
-  "id" | "sku" | "name" | "unit" | "basePrice" | "stock" | "showOnStore" | "primaryImageUrl" | "primaryImageId"
+  | "id"
+  | "sku"
+  | "name"
+  | "unit"
+  | "basePrice"
+  | "stock"
+  | "showOnStore"
+  | "primaryImageUrl"
+  | "primaryImageId"
+  | "characteristics"
 >;
 
 export type ProductListItemWithStockByWarehouse = ProductListItem & {
@@ -37,6 +46,7 @@ type PrismaProduct = {
   stock: number;
   isActive: boolean;
   showOnStore: boolean;
+  characteristics: Prisma.JsonValue | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -59,6 +69,14 @@ export type CreateProductData = {
   showOnStore?: boolean;
 };
 
+function parseCharacteristicsJson(raw: Prisma.JsonValue | null): Record<string, unknown> | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  return null;
+}
+
 @Injectable()
 export class ProductStore {
   constructor(
@@ -79,6 +97,7 @@ export class ProductStore {
       stock: row.stock,
       isActive: row.isActive,
       showOnStore: row.showOnStore,
+      characteristics: parseCharacteristicsJson(row.characteristics),
       primaryImageUrl: primary?.url ?? null,
       primaryImageId: primary?.imageId ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -373,10 +392,25 @@ export class ProductStore {
           orderBy: { name: "asc" },
           skip: pagination.offset,
           take: pagination.limit,
-          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true, showOnStore: true },
+          select: {
+            id: true,
+            sku: true,
+            name: true,
+            unit: true,
+            basePrice: true,
+            stock: true,
+            showOnStore: true,
+            characteristics: true,
+          },
         }),
       ]);
-      const items = await this.enrichWithPrimaryImage(rows);
+      const enriched = await this.enrichWithPrimaryImage(rows);
+      const items = enriched.map((item) => ({
+        ...item,
+        characteristics: parseCharacteristicsJson(
+          (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+        ),
+      }));
       return { items, total };
     }
 
@@ -385,9 +419,18 @@ export class ProductStore {
       ? Prisma.sql`AND (sku LIKE ${groupId + ".%"} OR sku = ${groupId})`
       : Prisma.empty;
     const rows = await this.prisma.$queryRaw<
-      Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>
+      Array<{
+        id: string;
+        sku: string;
+        name: string;
+        unit: string;
+        basePrice: number;
+        stock: number;
+        showOnStore: boolean;
+        characteristics: Prisma.JsonValue | null;
+      }>
     >`
-      SELECT id, sku, name, unit, "basePrice", stock, "showOnStore"
+      SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", characteristics
       FROM "Product"
       WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
@@ -410,7 +453,13 @@ export class ProductStore {
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
         )
     `;
-    const items = await this.enrichWithPrimaryImage(rows);
+    const enriched = await this.enrichWithPrimaryImage(rows);
+    const items = enriched.map((item) => ({
+      ...item,
+      characteristics: parseCharacteristicsJson(
+        (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+      ),
+    }));
     return { items, total: Number(count) };
   }
 
@@ -438,12 +487,35 @@ export class ProductStore {
     return result.count > 0;
   }
 
+  public async updateCharacteristics(
+    id: string,
+    characteristics: Prisma.InputJsonValue | null,
+  ): Promise<boolean> {
+    const result = await this.prisma.product.updateMany({
+      where: { id },
+      data: {
+        characteristics: characteristics === null ? Prisma.JsonNull : characteristics,
+      },
+    });
+    return result.count > 0;
+  }
+
   public async listCatalog(
     search: string | undefined,
     pagination: Pagination,
   ): Promise<ProductListResultWithStockByWarehouse> {
     const hasSearch = search && search.trim().length > 0;
-    let rows: Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean }>;
+    let rows: Array<{
+      id: string;
+      sku: string;
+      name: string;
+      unit: string;
+      basePrice: number;
+      stock: number;
+      showOnStore: boolean;
+      characteristics?: Prisma.JsonValue | null;
+      isActive?: boolean;
+    }>;
     let total: number;
     if (!hasSearch) {
       const where: Prisma.ProductWhereInput = { isActive: true };
@@ -454,7 +526,16 @@ export class ProductStore {
           orderBy: { name: "asc" },
           skip: pagination.offset,
           take: pagination.limit,
-          select: { id: true, sku: true, name: true, unit: true, basePrice: true, stock: true, showOnStore: true },
+          select: {
+            id: true,
+            sku: true,
+            name: true,
+            unit: true,
+            basePrice: true,
+            stock: true,
+            showOnStore: true,
+            characteristics: true,
+          },
         }),
       ]);
       rows = rowsResult;
@@ -463,9 +544,19 @@ export class ProductStore {
       const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
       // Include inactive products in search so existing deactivated SKUs are visible and can be reactivated
       const rowsResult = await this.prisma.$queryRaw<
-        Array<{ id: string; sku: string; name: string; unit: string; basePrice: number; stock: number; showOnStore: boolean; isActive: boolean }>
+        Array<{
+          id: string;
+          sku: string;
+          name: string;
+          unit: string;
+          basePrice: number;
+          stock: number;
+          showOnStore: boolean;
+          isActive: boolean;
+          characteristics: Prisma.JsonValue | null;
+        }>
       >`
-        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", "isActive"
+        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", "isActive", characteristics
         FROM "Product"
         WHERE (
           sku ILIKE ${searchPattern}
@@ -492,6 +583,9 @@ export class ProductStore {
     const stockByWarehouseMap = await this.getStocksByWarehouseForProductIds(productIds);
     const items: ProductListItemWithStockByWarehouse[] = itemsWithImages.map((item) => ({
       ...item,
+      characteristics: parseCharacteristicsJson(
+        (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+      ),
       stockByWarehouse: stockByWarehouseMap.get(item.id) ?? [],
     }));
     return { items, total };
