@@ -1,5 +1,6 @@
 /**
  * Import product characteristics from workbook sheet `Товари_для_заповнення` into `Product.characteristics`.
+ * Includes `category_name` and `subcategory_name` from the sheet (same keys as column headers).
  *
  * Usage (from apps/backend, DATABASE_URL set):
  *   npx ts-node scripts/import-product-characteristics-xlsx.ts /path/to/cursor_characteristics_fill_pack.xlsx
@@ -14,8 +15,8 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL ?? "" }),
 });
 
-/** Columns that are not stored inside the JSON blob. */
-const BASE_COLS = new Set(["sku", "name", "price", "category_name", "subcategory_name"]);
+/** Columns kept only as product master data, not duplicated into characteristics JSON. */
+const BASE_COLS = new Set(["sku", "name", "price"]);
 
 function normalizeCell(v: unknown): unknown {
   if (v === null || v === undefined) return undefined;

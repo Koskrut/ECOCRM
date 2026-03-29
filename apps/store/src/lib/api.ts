@@ -48,10 +48,17 @@ export type Cart = {
   subtotal: number;
 };
 
-export async function getProducts(params?: { search?: string; category?: string; page?: number; pageSize?: number }) {
+export async function getProducts(params?: {
+  search?: string;
+  category?: string;
+  subcategory?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const q = new URLSearchParams();
   if (params?.search) q.set("search", params.search);
   if (params?.category) q.set("category", params.category);
+  if (params?.subcategory) q.set("subcategory", params.subcategory);
   if (params?.page) q.set("page", String(params.page));
   if (params?.pageSize) q.set("pageSize", String(params.pageSize));
   return api<{
@@ -61,6 +68,13 @@ export async function getProducts(params?: { search?: string; category?: string;
     page: number;
     pageSize: number;
   }>("/products" + (q.toString() ? "?" + q.toString() : ""));
+}
+
+/** Distinct `subcategory_name` values for products in a SKU group (e.g. category "01"). */
+export async function getSubcategoryFacets(category: string): Promise<string[]> {
+  const q = new URLSearchParams({ category });
+  const res = await api<{ items: string[] }>("/products/facets?" + q.toString());
+  return res.items ?? [];
 }
 
 export async function getProduct(id: string) {

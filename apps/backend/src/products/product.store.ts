@@ -371,20 +371,117 @@ export class ProductStore {
     return /^\d{1,2}$/.test(trimmed) ? trimmed : undefined;
   }
 
+  /** `characteristics.subcategory_name` value (e.g. Аналоги, Трансфери). */
+  private normalizeSubcategory(sub: string | undefined): string | undefined {
+    if (!sub || typeof sub !== "string") return undefined;
+    const t = sub.trim();
+    if (t.length === 0 || t.length > 240) return undefined;
+    return t;
+  }
+
+  /**
+   * Store-facing facet chips: distinct non-empty trimmed values from
+   * `subcategory_name`, `category_name`, and `platform` (workbook columns).
+   * Union avoids hiding `category_name` when `subcategory_name` is also set (e.g. Аналог + Гвинт).
+   */
+  private skuGroupSql(groupId: string): Prisma.Sql {
+    return Prisma.sql`AND (sku LIKE ${groupId + ".%"} OR sku = ${groupId})`;
+  }
+
+  /** Subcategory chip filter: row matches if any of the three JSON fields equals `subTrim` (trimmed). */
+  private subcategoryChipMatchSql(subTrim: string): Prisma.Sql {
+    return Prisma.sql`AND (
+      NULLIF(TRIM(characteristics->>'subcategory_name'), '') = ${subTrim}
+      OR NULLIF(TRIM(characteristics->>'category_name'), '') = ${subTrim}
+      OR NULLIF(TRIM(characteristics->>'platform'), '') = ${subTrim}
+    )`;
+  }
+
+  /**
+   * Distinct facet labels for active store products in a SKU group (e.g. "01").
+   */
+  public async listDistinctSubcategoriesForCategory(category: string): Promise<string[]> {
+    const groupId = this.normalizeCategory(category);
+    if (!groupId) return [];
+    const skuCond = this.skuGroupSql(groupId);
+    const rows = await this.prisma.$queryRaw<{ sub: string }[]>`
+      SELECT DISTINCT TRIM(v.col) AS sub
+      FROM "Product" p,
+      LATERAL (
+        VALUES
+          (NULLIF(TRIM(p.characteristics->>'subcategory_name'), '')),
+          (NULLIF(TRIM(p.characteristics->>'category_name'), '')),
+          (NULLIF(TRIM(p.characteristics->>'platform'), ''))
+      ) AS v(col)
+      WHERE p."isActive" = true
+        AND p."showOnStore" = true
+        ${skuCond}
+        AND p.characteristics IS NOT NULL
+        AND v.col IS NOT NULL
+        AND TRIM(v.col) <> ''
+      ORDER BY sub ASC
+    `;
+    return rows.map((r) => r.sub).filter(Boolean);
+  }
+
   public async listActive(
     search: string | undefined,
     category: string | undefined,
     pagination: Pagination,
+    subcategory?: string,
   ): Promise<ProductListResult> {
     const groupId = this.normalizeCategory(category);
+    const subTrim = this.normalizeSubcategory(subcategory);
     const hasSearch = search && search.trim().length > 0;
 
-    const baseWhere: Prisma.ProductWhereInput = { isActive: true, showOnStore: true };
-    if (groupId) {
-      baseWhere.sku = { startsWith: groupId + "." };
-    }
+    const subFacetMatchSql =
+      subTrim && groupId ? this.subcategoryChipMatchSql(subTrim) : Prisma.empty;
 
     if (!hasSearch) {
+      if (groupId && subTrim) {
+        const skuCond = this.skuGroupSql(groupId);
+        const rows = await this.prisma.$queryRaw<
+          Array<{
+            id: string;
+            sku: string;
+            name: string;
+            unit: string;
+            basePrice: number;
+            stock: number;
+            showOnStore: boolean;
+            characteristics: Prisma.JsonValue | null;
+          }>
+        >`
+          SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", characteristics
+          FROM "Product"
+          WHERE "isActive" = true AND "showOnStore" = true
+            ${skuCond}
+            ${subFacetMatchSql}
+          ORDER BY name
+          LIMIT ${pagination.limit} OFFSET ${pagination.offset}
+        `;
+        const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
+          SELECT COUNT(*)::int AS count
+          FROM "Product"
+          WHERE "isActive" = true AND "showOnStore" = true
+            ${skuCond}
+            ${subFacetMatchSql}
+        `;
+        const enriched = await this.enrichWithPrimaryImage(rows);
+        const items = enriched.map((item) => ({
+          ...item,
+          characteristics: parseCharacteristicsJson(
+            (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+          ),
+        }));
+        return { items, total: Number(count) };
+      }
+
+      const baseWhere: Prisma.ProductWhereInput = { isActive: true, showOnStore: true };
+      if (groupId) {
+        baseWhere.OR = [{ sku: { startsWith: groupId + "." } }, { sku: groupId }];
+      }
+
       const [total, rows] = await Promise.all([
         this.prisma.product.count({ where: baseWhere }),
         this.prisma.product.findMany({
@@ -415,9 +512,8 @@ export class ProductStore {
     }
 
     const { searchPattern, normalizedPattern } = this.buildSearchConditions(search!);
-    const skuPrefixCond = groupId
-      ? Prisma.sql`AND (sku LIKE ${groupId + ".%"} OR sku = ${groupId})`
-      : Prisma.empty;
+    const skuPrefixCond = groupId ? this.skuGroupSql(groupId) : Prisma.empty;
+    const subCond = subTrim && groupId ? subFacetMatchSql : Prisma.empty;
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -434,6 +530,7 @@ export class ProductStore {
       FROM "Product"
       WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
+        ${subCond}
         AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
@@ -447,6 +544,7 @@ export class ProductStore {
       FROM "Product"
       WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
+        ${subCond}
         AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}

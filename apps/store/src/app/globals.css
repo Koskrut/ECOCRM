@@ -93,3 +93,28 @@ body {
 .cabinet-order-sheet-panel {
   animation: cabinet-order-sheet-up 0.22s ease-out;
 }
+
+/* Horizontal catalog chips: subtle “there is more” cue (SubcategoryFilterStrip) */
+@keyframes subcat-strip-hint-nudge {
+  0%,
+  100% {
+    transform: translate3d(0, -50%, 0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate3d(-5px, -50%, 0);
+    opacity: 0.95;
+  }
+}
+
+.subcat-strip-hint-arrow {
+  animation: subcat-strip-hint-nudge 0.55s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subcat-strip-hint-arrow {
+    animation: none;
+    opacity: 0.65;
+    transform: translate3d(0, -50%, 0);
+  }
+}

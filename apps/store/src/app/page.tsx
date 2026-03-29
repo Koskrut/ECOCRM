@@ -8,6 +8,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductCardSkeleton } from "@/components/ProductCardSkeleton";
 import { ButtonLink } from "@/components/Button";
 import { CategoryNav } from "@/components/CategoryNav";
+import { SubcategoryFilterStrip } from "@/components/SubcategoryFilterStrip";
 import { TrustBlock } from "@/components/TrustBlock";
 import { HeroSlider } from "@/components/HeroSlider";
 import { PopularSystems } from "@/components/PopularSystems";
@@ -25,6 +26,7 @@ function HomeContent() {
   const searchParams = useSearchParams();
   const search = searchParams.get("search");
   const category = searchParams.get("category");
+  const subcategory = searchParams.get("subcategory");
   const { config, loading: configLoading } = useStoreConfig();
   const banners = config.banners ?? [];
 
@@ -47,7 +49,12 @@ function HomeContent() {
 
     setPage(1);
     setLoading(true);
-    getProducts({ search: search ?? undefined, category: category ?? undefined, page: 1 })
+    getProducts({
+      search: search ?? undefined,
+      category: category ?? undefined,
+      subcategory: subcategory ?? undefined,
+      page: 1,
+    })
       .then((r) => {
         setProducts(r.items);
         setTotal(r.total);
@@ -58,12 +65,12 @@ function HomeContent() {
         setTotal(0);
       })
       .finally(() => setLoading(false));
-  }, [search, category, isCatalogMode]);
+  }, [search, category, subcategory, isCatalogMode]);
 
   useEffect(() => {
     // Close category drawer after filters/search change.
     setCategoryDrawerOpen(false);
-  }, [search, category]);
+  }, [search, category, subcategory]);
 
   useEffect(() => {
     // Only load popular products if we are in landing mode
@@ -81,7 +88,12 @@ function HomeContent() {
   const loadMore = () => {
     const nextPage = page + 1;
     setLoadingMore(true);
-    getProducts({ search: search ?? undefined, category: category ?? undefined, page: nextPage })
+    getProducts({
+      search: search ?? undefined,
+      category: category ?? undefined,
+      subcategory: subcategory ?? undefined,
+      page: nextPage,
+    })
       .then((r) => {
         setProducts((prev) => [...prev, ...r.items]);
         setTotal(r.total);
@@ -174,11 +186,16 @@ function HomeContent() {
                 </ButtonLink>
               </div>
 
-              <div className="sticky top-[72px] z-10 mb-4 lg:hidden">
+              <SubcategoryFilterStrip className="mb-4 hidden lg:block" />
+
+              <div className="sticky top-[72px] z-10 mb-4 flex flex-nowrap items-center gap-2 bg-white/95 py-2 backdrop-blur-sm lg:hidden">
                 <button
                   type="button"
                   onClick={() => setCategoryDrawerOpen(true)}
-                  className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-[var(--surface)]"
+                  className={
+                    "inline-flex min-h-[44px] shrink-0 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium text-zinc-700 shadow-sm transition hover:bg-[var(--surface)] " +
+                    (category ? "" : "w-full")
+                  }
                 >
                   <svg
                     className="h-4 w-4 text-zinc-500"
@@ -191,14 +208,21 @@ function HomeContent() {
                     <path d="M3 10H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
                     <path d="M3 15H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
                   </svg>
-                  Системи
+                  Усі системи
                 </button>
+                <div className={category ? "min-w-0 flex-1" : "hidden"}>
+                  <SubcategoryFilterStrip inline className="min-w-0" />
+                </div>
               </div>
               
               <p className="mb-6 text-sm text-zinc-600">
                 {category
-                  ? `Категорія: ${PRODUCT_GROUPS.find((g) => g.id === category)?.name ?? category}`
-                  : `Результати пошуку: «${search}»`}
+                  ? `Категорія: ${PRODUCT_GROUPS.find((g) => g.id === category)?.name ?? category}${
+                      subcategory ? ` · ${subcategory}` : ""
+                    }`
+                  : search
+                    ? `Результати пошуку: «${search}»`
+                    : null}
               </p>
 
               {loading ? (

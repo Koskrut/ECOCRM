@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   productsApi,
   type ProductCatalogItem,
@@ -9,10 +9,70 @@ import {
   type ProductImagesSyncStatus,
   type StockUploadResult,
 } from "../../lib/api";
+import {
+  formatSpecValue,
+  orderedSpecEntries,
+  PRODUCT_SPEC_LABELS_UK,
+} from "../../lib/product-spec-labels";
 import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
 
 /** Порядок складов для колонок каталога. */
 const WAREHOUSE_ORDER = ["Днепр", "Одесса", "Львов"];
+
+const TABLE_COLSPAN = 7 + WAREHOUSE_ORDER.length;
+
+function CatalogExpandedCharacteristics({
+  product,
+}: {
+  product: ProductCatalogItem;
+}) {
+  const raw = product.characteristics;
+  const entries =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? orderedSpecEntries(raw as Record<string, unknown>).filter(
+          ([, v]) => v !== null && v !== undefined && v !== "",
+        )
+      : [];
+
+  return (
+    <tr className="border-t border-zinc-200 bg-zinc-50/95">
+      <td colSpan={TABLE_COLSPAN} className="p-0">
+        <div
+          className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none border-t border-zinc-200/80 px-4 py-3"
+          role="region"
+          aria-label={`Характеристики ${product.sku}`}
+        >
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Характеристики
+          </p>
+          {entries.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              Немає заповнених характеристик. Імпорт з Excel:{" "}
+              <code className="rounded bg-zinc-200/60 px-1 text-xs">
+                npm run import:characteristics
+              </code>{" "}
+              у каталозі backend.
+            </p>
+          ) : (
+            <dl className="grid grid-cols-1 gap-x-10 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+              {entries.map(([code, val]) => (
+                <div
+                  key={code}
+                  className="flex flex-col gap-0.5 border-b border-zinc-200/70 py-2 last:border-0 sm:flex-row sm:items-baseline sm:gap-3"
+                >
+                  <dt className="shrink-0 text-xs text-zinc-500 sm:w-[42%]">
+                    {PRODUCT_SPEC_LABELS_UK[code] ?? code}
+                  </dt>
+                  <dd className="text-sm font-medium text-zinc-900">{formatSpecValue(val)}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 function qtyAtWarehouse(
   p: ProductCatalogItem,
@@ -95,7 +155,8 @@ function ActivateProductButton({
   onActivated: () => void;
 }) {
   const [activating, setActivating] = useState(false);
-  const handleActivate = async () => {
+  const handleActivate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     setActivating(true);
     try {
       await productsApi.updateIsActive(productId, true);
@@ -759,6 +820,7 @@ function CatalogPageContent() {
     value: string;
   } | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [expandedSpecsProductId, setExpandedSpecsProductId] = useState<string | null>(null);
 
   const categoriesWithItems = useMemo(() => {
     const map = new Map<string, ProductCatalogItem[]>();
@@ -891,7 +953,7 @@ function CatalogPageContent() {
                 return (
                   <tbody key={category} className="border-t border-zinc-200">
                     <tr>
-                      <td colSpan={7 + WAREHOUSE_ORDER.length} className="p-0">
+                      <td colSpan={TABLE_COLSPAN} className="p-0">
                         <button
                           type="button"
                           onClick={() => toggleCategory(category)}
@@ -919,11 +981,15 @@ function CatalogPageContent() {
                     </tr>
                     {!isCollapsed &&
                       categoryItems.map((p) => (
+                        <Fragment key={p.id}>
                         <tr
-                          key={p.id}
-                          className={`border-t border-zinc-100 hover:bg-zinc-50 ${p.isActive === false ? "bg-zinc-100/60" : ""}`}
+                          className={`border-t border-zinc-100 hover:bg-zinc-50 ${p.isActive === false ? "bg-zinc-100/60" : ""} ${expandedSpecsProductId === p.id ? "bg-zinc-100/80" : ""} cursor-pointer`}
+                          onClick={() =>
+                            setExpandedSpecsProductId((id) => (id === p.id ? null : p.id))
+                          }
+                          title="Натисніть рядок, щоб показати характеристики"
                         >
-                          <td className="px-2 py-2">
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() =>
@@ -966,7 +1032,7 @@ function CatalogPageContent() {
                               {qtyAtWarehouse(p, wh)}
                             </td>
                           ))}
-                          <td className="px-2 py-3 text-center">
+                          <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                             <label className="inline-flex cursor-pointer items-center gap-1.5">
                               <input
                                 type="checkbox"
@@ -990,7 +1056,7 @@ function CatalogPageContent() {
                               <span className="sr-only">Отображать на сайте</span>
                             </label>
                           </td>
-                          <td className="px-2 py-3">
+                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                             <CatalogRowDeleteButton
                               productId={p.id}
                               productName={p.name}
@@ -998,6 +1064,10 @@ function CatalogPageContent() {
                             />
                           </td>
                         </tr>
+                        {expandedSpecsProductId === p.id ? (
+                          <CatalogExpandedCharacteristics product={p} />
+                        ) : null}
+                        </Fragment>
                       ))}
                   </tbody>
                 );

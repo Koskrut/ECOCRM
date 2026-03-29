@@ -1,4 +1,4 @@
-/** Ukrainian labels for workbook `attribute_code` keys (store-facing). */
+/** Ukrainian labels for workbook `attribute_code` keys (CRM catalog). */
 export const PRODUCT_SPEC_LABELS_UK: Record<string, string> = {
   category_name: "Категорія",
   subcategory_name: "Підкатегорія",
@@ -26,9 +26,11 @@ export const PRODUCT_SPEC_LABELS_UK: Record<string, string> = {
   position_shape: "Позиція / форма",
   length_variant: "Варіант довжини",
   profile_size: "Розмір / профіль",
+  source_fragment: "Фрагмент джерела",
+  fill_status: "Статус заповнення",
+  review_note: "Примітка для перевірки",
 };
 
-/** Preferred display order; unknown keys are appended alphabetically. */
 export const PRODUCT_SPEC_ORDER: string[] = [
   "category_name",
   "subcategory_name",
@@ -56,6 +58,9 @@ export const PRODUCT_SPEC_ORDER: string[] = [
   "position_shape",
   "length_variant",
   "profile_size",
+  "source_fragment",
+  "fill_status",
+  "review_note",
 ];
 
 export function orderedSpecEntries(spec: Record<string, unknown>): [string, unknown][] {

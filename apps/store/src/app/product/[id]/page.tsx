@@ -90,8 +90,8 @@ export default async function ProductPage({ params }: PageProps) {
         >
           ← Назад до каталогу
         </Link>
-        <div className="rounded-xl border border-[var(--border)] bg-white shadow-sm overflow-hidden md:flex">
-          <div className="flex aspect-square w-full items-center justify-center overflow-hidden bg-[var(--surface)] md:w-1/2">
+        <div className="rounded-xl border border-[var(--border)] bg-white shadow-sm overflow-hidden md:flex md:min-w-0">
+          <div className="flex aspect-square w-full min-w-0 items-center justify-center overflow-hidden bg-[var(--surface)] md:w-1/2">
             {product.primaryImageId ? (
               <img
                 src={`/api/products/images/${product.primaryImageId}/source`}
@@ -110,7 +110,7 @@ export default async function ProductPage({ params }: PageProps) {
               </span>
             )}
           </div>
-          <div className="p-4 sm:p-6 md:w-1/2 md:p-8 flex flex-col justify-center">
+          <div className="min-w-0 p-4 sm:p-6 md:w-1/2 md:p-8 flex flex-col justify-center">
             <h1 className="font-heading text-xl font-semibold text-zinc-900 sm:text-2xl">
               {product.name}
             </h1>
@@ -119,15 +119,20 @@ export default async function ProductPage({ params }: PageProps) {
             </p>
             <p className="mt-1 sm:mt-2 text-sm text-zinc-500">Ціна за одиницю</p>
             {product.characteristics && Object.keys(product.characteristics).length > 0 ? (
-              <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div className="mt-6 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
                 <h2 className="font-heading text-sm font-semibold text-zinc-800">Характеристики</h2>
-                <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 text-sm">
+                <dl className="mt-3 divide-y divide-zinc-200/90 text-sm">
                   {orderedSpecEntries(product.characteristics).map(([code, val]) => (
-                    <div key={code} className="flex flex-col sm:flex-row sm:gap-2 border-b border-zinc-100 pb-2 last:border-0 last:pb-0">
-                      <dt className="text-zinc-500 shrink-0 sm:w-[40%]">
+                    <div
+                      key={code}
+                      className="flex gap-3 py-2.5 first:pt-0 items-baseline"
+                    >
+                      <dt className="w-[42%] max-w-[13rem] shrink-0 text-left text-xs leading-snug text-zinc-500 sm:text-sm sm:max-w-[14rem]">
                         {PRODUCT_SPEC_LABELS_UK[code] ?? code}
                       </dt>
-                      <dd className="font-medium text-zinc-900">{formatSpecValue(val)}</dd>
+                      <dd className="min-w-0 flex-1 break-words text-sm font-medium leading-snug text-zinc-900">
+                        {formatSpecValue(val)}
+                      </dd>
                     </div>
                   ))}
                 </dl>
