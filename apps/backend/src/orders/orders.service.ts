@@ -958,7 +958,7 @@ export class OrdersService {
     if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
         if (sendOnReadyToShip) {
-          this.googleSheetSendOrder.sendOrderToSheet(id).catch((err) => {
+          this.googleSheetSendOrder.sendOrderToSheet(id, { exportDate: new Date() }).catch((err) => {
             if (err instanceof Error) this.logger.error(`Send to sheet failed: ${err.message}`);
           });
         }

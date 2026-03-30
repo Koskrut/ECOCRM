@@ -144,7 +144,7 @@ export class OrdersController {
   @Post(":id/send-to-sheet")
   async sendToSheet(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     await this.orders.getById(id, req.user);
-    await this.googleSheetSendOrder.sendOrderToSheet(id);
+    await this.googleSheetSendOrder.sendOrderToSheet(id, { exportDate: new Date() });
     return { ok: true };
   }
 

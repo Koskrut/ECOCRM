@@ -6,7 +6,7 @@ import { SettingsService } from "../../settings/settings.service";
 /**
  * Payload sent to Google Apps Script (POST JSON).
  * Script must write rows in this exact column order (one row per item):
- * 1. Дата
+ * 1. Дата (момент відправки в таблицю при READY_TO_SHIP або ручному send-to-sheet; інакше createdAt)
  * 2. ID сделки в 1С (dealId)
  * 3. ответственный (как Id контакта в 1С) (responsibleFullName)
  * 4. Код контрагента в 1С (counterpartyCode1C)
@@ -40,6 +40,11 @@ export type GoogleSheetOrderPayload = {
   status: string;
 };
 
+export type SendToSheetOptions = {
+  /** If set, column «Дата» uses this moment (e.g. transition to READY_TO_SHIP). Otherwise order.createdAt. */
+  exportDate?: Date;
+};
+
 const SEND_ORDER_INCLUDE = {
   company: true,
   client: true,
@@ -62,7 +67,10 @@ export class GoogleSheetSendOrderService {
   /**
    * Build payload for Apps Script webhook (no document numbers/dates).
    */
-  async buildPayload(orderId: string): Promise<GoogleSheetOrderPayload | null> {
+  async buildPayload(
+    orderId: string,
+    options?: SendToSheetOptions,
+  ): Promise<GoogleSheetOrderPayload | null> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: SEND_ORDER_INCLUDE,
@@ -95,8 +103,9 @@ export class GoogleSheetSendOrderService {
       };
     });
 
+    const dateSource = options?.exportDate ?? (order.createdAt as Date);
     return {
-      date: (order.createdAt as Date).toISOString(),
+      date: dateSource.toISOString(),
       dealId: order.id,
       orderNumber: order.orderNumber,
       responsibleFullName,
@@ -115,14 +124,14 @@ export class GoogleSheetSendOrderService {
   /**
    * Send order payload to Google Sheet webhook. No-op if URL not configured.
    */
-  async sendOrderToSheet(orderId: string): Promise<void> {
+  async sendOrderToSheet(orderId: string, options?: SendToSheetOptions): Promise<void> {
     const { webhookUrl, webhookSecretOut } = await this.settings.getGoogleSheetSecrets();
     if (!webhookUrl || !webhookUrl.trim()) {
       this.logger.debug("Google Sheet webhook URL not configured, skip send");
       return;
     }
 
-    const payload = await this.buildPayload(orderId);
+    const payload = await this.buildPayload(orderId, options);
     if (!payload) {
       this.logger.warn(`Order ${orderId} not found for send-to-sheet`);
       return;
