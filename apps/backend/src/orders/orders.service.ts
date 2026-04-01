@@ -289,6 +289,7 @@ export class OrdersService {
         const base = {
           id: o.id,
           orderNumber: o.orderNumber,
+          orderSource: o.orderSource,
           parentOrderId: o.parentOrderId ?? null,
           companyId: o.companyId,
           clientId: o.clientId,
@@ -1093,6 +1094,7 @@ export class OrdersService {
     return {
       id: o.id,
       orderNumber: o.orderNumber,
+      orderSource: o.orderSource ?? null,
       parentOrderId: o.parentOrderId ?? null,
       parent: parentOrder ? { id: parentOrder.id, orderNumber: parentOrder.orderNumber } : null,
       children: childOrders.map((c) => ({

@@ -84,6 +84,7 @@ type OrderItem = {
 type OrderDetails = {
   id: string;
   orderNumber: string;
+  orderSource?: "CRM" | "STORE" | null;
   parentOrderId?: string | null;
   parent?: { id: string; orderNumber: string } | null;
   children?: Array<{ id: string; orderNumber: string; orderStage?: string | null }>;
@@ -2288,6 +2289,17 @@ export function OrderModal({
                               : <span className="font-normal text-zinc-400">Нажмите, чтобы выбрать клиента...</span>}
                           </button>
                         )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="text-xs text-zinc-500">Источник заказа</div>
+                        <div className="mt-1 min-h-9 break-all leading-6 text-zinc-700">
+                          {order.orderSource === "STORE"
+                            ? "Сайт"
+                            : order.orderSource === "CRM"
+                              ? "CRM"
+                              : (order.orderSource ?? "—")}
+                        </div>
                       </div>
 
                       {shouldShowCompanyField ? (

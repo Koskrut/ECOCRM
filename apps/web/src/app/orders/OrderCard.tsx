@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, MailPlus } from "lucide-react";
+import { CheckCircle2, Globe, MailPlus } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
@@ -8,6 +8,7 @@ import { isTextSelected } from "@/lib/dom";
 export type OrderCardOrder = {
   id: string;
   orderNumber: string;
+  orderSource?: "CRM" | "STORE" | null;
   status: string;
   orderStage?: string | null;
   totalAmount: number;
@@ -67,6 +68,11 @@ export function OrderCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 font-medium text-zinc-900">
             <span>{order.orderNumber}</span>
+            {order.orderSource === "STORE" && (
+              <span title="Заказ с сайта" className="inline-flex text-violet-600">
+                <Globe className="h-4 w-4" />
+              </span>
+            )}
             {order.hasTtn && (
               <span title="ТТН создана" className="inline-flex text-blue-600">
                 <MailPlus className="h-4 w-4" />

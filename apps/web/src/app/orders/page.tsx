@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Filter, MailPlus, Search } from "lucide-react";
+import { CheckCircle2, Filter, Globe, MailPlus, Search } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -24,6 +24,7 @@ import {
 type OrderSummary = {
   id: string;
   orderNumber: string;
+  orderSource?: "CRM" | "STORE" | null;
   ownerId?: string | null;
   owner?: { id: string; fullName: string; email?: string | null } | null;
   companyId: string | null;
@@ -717,6 +718,11 @@ function OrdersPageContent() {
                         <td className="px-4 py-4">
                           <div className="flex items-center gap-2 font-medium text-zinc-900">
                             <span>{order.orderNumber}</span>
+                            {order.orderSource === "STORE" && (
+                              <span title="Заказ с сайта" className="inline-flex text-violet-600">
+                                <Globe className="h-4 w-4" />
+                              </span>
+                            )}
                             {order.hasTtn && (
                               <span title="ТТН создана" className="inline-flex text-blue-600">
                                 <MailPlus className="h-4 w-4" />
