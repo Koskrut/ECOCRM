@@ -87,6 +87,19 @@ export class NpTtnService {
       });
     }
 
+    const existingTtnForOrder = await this.prisma.orderTtn.findFirst({
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        OR: [{ orderId: order.id }, { shipment: { orderId: order.id } }],
+      },
+      select: { documentNumber: true },
+    });
+    if (existingTtnForOrder) {
+      throw new ConflictException(
+        `У замовленні вже є ТТН №${existingTtnForOrder.documentNumber}. Скасуйте її в НП або видаліть її з замовлення перед створенням нової.`,
+      );
+    }
+
     const resolved = await this.resolveRecipientData(contactId, dto);
 
     const resolvedData = resolved.data as Record<string, unknown>;
@@ -877,9 +890,7 @@ export class NpTtnService {
     const refs = ttns.map((t) => t.documentRef).filter((r): r is string => r != null && r.trim() !== "");
     if (refs.length > 0) {
       try {
-        await this.np.call("InternetDocument", "delete", {
-          DocumentRefs: refs.join(","),
-        });
+        await this.deleteNpInternetDocuments(refs);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         throw new BadRequestException(`NP delete TTN failed: ${msg}`);
@@ -947,9 +958,7 @@ export class NpTtnService {
     const refs = ttns.map((t) => t.documentRef).filter((r): r is string => r != null && r.trim() !== "");
     if (refs.length > 0) {
       try {
-        await this.np.call("InternetDocument", "delete", {
-          DocumentRefs: refs.join(","),
-        });
+        await this.deleteNpInternetDocuments(refs);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         throw new BadRequestException(`NP delete TTN failed: ${msg}`);
@@ -988,6 +997,16 @@ export class NpTtnService {
     return { ok: true, unlinkedOnly: true };
   }
 
+  /** Nova Poshta expects `DocumentRefs` as an array of refs (not a comma-separated string). */
+  private async deleteNpInternetDocuments(documentRefs: string[]) {
+    const unique = [...new Set(documentRefs.map((r) => r.trim()).filter((r) => r.length > 0))];
+    for (const ref of unique) {
+      await this.np.call("InternetDocument", "delete", {
+        DocumentRefs: [ref],
+      });
+    }
+  }
+
   async reuseExistingTtnForOrder(
     orderId: string,
     input?: { sourceShipmentId?: string | null; sourceDocumentNumber?: string | null },
@@ -1015,6 +1034,19 @@ export class NpTtnService {
       },
     });
     if (!source) throw new NotFoundException("Source TTN not found");
+
+    const existingOnOrder = await this.prisma.orderTtn.findFirst({
+      where: {
+        carrier: "NOVA_POSHTA" as Carrier,
+        OR: [{ orderId: order.id }, { shipment: { orderId: order.id } }],
+      },
+      select: { documentNumber: true },
+    });
+    if (existingOnOrder && existingOnOrder.documentNumber !== source.documentNumber) {
+      throw new ConflictException(
+        `У замовленні вже є ТТН №${existingOnOrder.documentNumber}. Для одного замовлення дозволена лише одна ТТН.`,
+      );
+    }
 
     const targetShipment = await this.ensureShipmentForOrder({
       order,

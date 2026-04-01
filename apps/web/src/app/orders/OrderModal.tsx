@@ -1430,7 +1430,15 @@ export function OrderModal({
     (r) => !((r.shipmentStatus ?? "") === "CANCELED" && !r.ttnNumber),
   );
   const canShowCreateTtnButton = useMemo(() => {
-    return !isCreate && !loading && !!order && order.deliveryMethod === "NOVA_POSHTA";
+    if (isCreate || loading || !order || order.deliveryMethod !== "NOVA_POSHTA") return false;
+    const npLocal = (order as { deliveryData?: { novaPoshta?: { ttn?: { number?: string } } } })
+      ?.deliveryData?.novaPoshta;
+    const numFromData = npLocal?.ttn?.number;
+    const hasTtn =
+      !!(numFromData && String(numFromData).trim()) ||
+      (order.ttns?.length ?? 0) > 0 ||
+      (order.shipments ?? []).some((s) => (s.ttns?.length ?? 0) > 0);
+    return !hasTtn;
   }, [isCreate, loading, order]);
 
   const ensureListsForCompanyClient = useCallback(
