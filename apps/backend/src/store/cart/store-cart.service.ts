@@ -17,12 +17,16 @@ export class StoreCartService {
     if (identity.customerId) {
       let cart = await this.prisma.cart.findFirst({
         where: { customerId: identity.customerId },
-        include: { items: { include: { product: true } } },
+        include: {
+          items: { include: { product: true }, orderBy: { createdAt: "asc" } },
+        },
       });
       if (!cart) {
         cart = await this.prisma.cart.create({
           data: { customerId: identity.customerId },
-          include: { items: { include: { product: true } } },
+          include: {
+            items: { include: { product: true }, orderBy: { createdAt: "asc" } },
+          },
         });
       }
       return cart;
@@ -30,12 +34,16 @@ export class StoreCartService {
     if (identity.sessionId) {
       let cart = await this.prisma.cart.findFirst({
         where: { sessionId: identity.sessionId },
-        include: { items: { include: { product: true } } },
+        include: {
+          items: { include: { product: true }, orderBy: { createdAt: "asc" } },
+        },
       });
       if (!cart) {
         cart = await this.prisma.cart.create({
           data: { sessionId: identity.sessionId },
-          include: { items: { include: { product: true } } },
+          include: {
+            items: { include: { product: true }, orderBy: { createdAt: "asc" } },
+          },
         });
       }
       return cart;
