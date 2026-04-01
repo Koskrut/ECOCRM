@@ -8,6 +8,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { ProductCardSkeleton } from "@/components/ProductCardSkeleton";
 import { ButtonLink } from "@/components/Button";
 import { CategoryNav } from "@/components/CategoryNav";
+import { CategoryQuickStrip } from "@/components/CategoryQuickStrip";
 import { SubcategoryFilterStrip } from "@/components/SubcategoryFilterStrip";
 import { TrustBlock } from "@/components/TrustBlock";
 import { HeroSlider } from "@/components/HeroSlider";
@@ -185,6 +186,8 @@ function HomeContent() {
                   На головну
                 </ButtonLink>
               </div>
+
+              <CategoryQuickStrip />
 
               <SubcategoryFilterStrip className="mb-4 hidden lg:block" />
 

@@ -4,12 +4,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
+import { StatusBadge } from "@/components/StatusBadge";
 
 type OrderListItem = {
   id: string;
   orderNumber: string;
-  status: string;
+  status?: string | null;
+  orderStage?: string | null;
   totalAmount: number;
+  paidAmount?: number | null;
+  debtAmount?: number | null;
+  paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID" | string | null;
+  isPaid?: boolean | null;
   currency?: string;
   exchangeRate?: number | null;
   createdAt: string;
@@ -25,6 +31,26 @@ function getErrMsg(e: unknown, fallback: string) {
     anyErr?.response?.data?.message ||
     anyErr?.response?.data?.error ||
     (e instanceof Error ? e.message : fallback)
+  );
+}
+
+function PaymentStatusBadge({
+  status,
+}: {
+  status?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID" | string | null;
+}) {
+  if (!status) return null;
+  const cfg: Record<string, { label: string; cls: string }> = {
+    UNPAID: { label: "Не оплачено", cls: "bg-zinc-100 text-zinc-700" },
+    PARTIALLY_PAID: { label: "Частично", cls: "bg-amber-100 text-amber-800" },
+    PAID: { label: "Оплачено", cls: "bg-emerald-100 text-emerald-800" },
+    OVERPAID: { label: "Переплата", cls: "bg-sky-100 text-sky-800" },
+  };
+  const c = cfg[String(status)] ?? { label: String(status), cls: "bg-zinc-100 text-zinc-700" };
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${c.cls}`}>
+      {c.label}
+    </span>
   );
 }
 
@@ -92,11 +118,18 @@ export function EntityOrdersList({
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-900">
-                  {o.orderNumber}
-                  <span className="ml-2 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-medium text-zinc-700">
-                    {o.status}
-                  </span>
+                <div className="text-sm font-semibold text-zinc-900">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 truncate">{o.orderNumber}</span>
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      <StatusBadge
+                        variant="order"
+                        status={o.status ?? "—"}
+                        orderStage={o.orderStage ?? null}
+                      />
+                      <PaymentStatusBadge status={o.paymentStatus} />
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
                   {new Date(o.createdAt).toLocaleString()}
