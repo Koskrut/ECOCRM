@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import type { LeadSource, Lead } from "@/lib/api";
 
 type CompanyOption = { id: string; name: string };
@@ -110,7 +111,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
       setErr("Select a company");
       return;
     }
-    if (!phone.trim() && !email.trim()) {
+    if (!phone.replace(/\D/g, "").length && !email.trim()) {
       setErr("Phone or email is required");
       return;
     }
@@ -121,7 +122,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         companyId,
         source,
         name: name.trim() || undefined,
-        phone: phone.trim() || undefined,
+        phone: (normalizePhone(phone) ?? phone.trim()) || undefined,
         email: email.trim() || undefined,
         companyName: companyName.trim() || undefined,
         message: message.trim() || undefined,
@@ -200,11 +201,14 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             <div>
               <label className="block text-xs font-medium text-zinc-600">Phone</label>
               <input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(formatPhoneInputMask(e.target.value))}
                 disabled={saving}
-                placeholder="+380…"
+                placeholder="+38 (0__) ___-__-__"
               />
             </div>
             <div>

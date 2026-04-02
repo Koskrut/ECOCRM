@@ -717,7 +717,16 @@ model Lead {
   phoneNormalized  String?
   email            String?
   companyName      String?
+  /// Область (довідник областей України).
+  region           String?
   city             String?
+  /// Ref населеного пункту Нової Пошти (довідник NP).
+  npCityRef        String?
+  /// Повна адреса (Google Places / вручну).
+  address          String?
+  lat              Float?
+  lng              Float?
+  googlePlaceId    String?
   message          String?
   comment          String?
   statusReason     String?

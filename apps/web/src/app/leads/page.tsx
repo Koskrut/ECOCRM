@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
 import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopover";
+import { LeadCard } from "./LeadCard";
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All statuses" },
@@ -168,11 +169,6 @@ function LeadsPageContent() {
 
   const filtersState: LeadsFiltersState = { status, source };
 
-  const goToPage = (next: number) => {
-    setPage(next);
-    void reload({ keepPage: true });
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -237,112 +233,168 @@ function LeadsPageContent() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
-            <tr>
-              <th className="px-4 py-3">Name / Phone</th>
-              <th className="px-4 py-3">City</th>
-              <th className="px-4 py-3">Source</th>
-              <th className="px-4 py-3">Score</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Owner</th>
-              <th className="px-4 py-3">Created</th>
-              <th className="px-4 py-3 text-right">Calls</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {loading ? (
+      <>
+        {/* Desktop + tablet: table */}
+        <div className="hidden sm:block overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
-                  Loading…
-                </td>
+                <th className="px-4 py-3">Ім&apos;я / телефон</th>
+                <th className="px-4 py-3">Місто</th>
+                <th className="px-4 py-3">Джерело</th>
+                <th className="px-4 py-3">Бал</th>
+                <th className="px-4 py-3">Статус</th>
+                <th className="px-4 py-3">Відповідальний</th>
+                <th className="px-4 py-3">Дата</th>
+                <th className="px-4 py-3 text-right">Дзвінки</th>
               </tr>
-            ) : items.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
-                  No leads
-                </td>
-              </tr>
-            ) : (
-              items.map((l) => (
-                <tr
-                  key={l.id}
-                  className="cursor-pointer transition-colors hover:bg-zinc-50"
-                  onClick={() => {
-                    if (isTextSelected()) return;
-                    openLead(l.id);
-                  }}
-                >
-                  <td className="px-4 py-4">
-                    <div className="font-medium text-zinc-900">
-                      {l.fullName || l.name || [l.lastName, l.firstName].filter(Boolean).join(" ") || l.companyName || "No name"}
-                    </div>
-                    <div className="text-xs text-zinc-500">
-                      {l.phone || l.email || "—"}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 text-zinc-600">{l.city ?? "—"}</td>
-                  <td className="px-4 py-4 text-zinc-700">
-                    {l.source}
-                    {l.channel ? ` / ${l.channel}` : ""}
-                  </td>
-                  <td className="px-4 py-4 text-zinc-600">
-                    {typeof l.score === "number" ? l.score : "—"}
-                  </td>
-                  <td className="px-4 py-4">
-                    <StatusBadge variant="lead" status={l.status} />
-                  </td>
-                  <td className="px-4 py-4 text-zinc-500">
-                    {l.owner?.fullName ?? "—"}
-                  </td>
-                  <td className="px-4 py-4 text-zinc-500">
-                    {new Date(l.createdAt).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-4 text-right">
-                    <div className="flex justify-end gap-1">
-                      {l.hasCallToday && (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 border border-emerald-200">
-                          Call today
-                        </span>
-                      )}
-                      {l.hasMissedCall && (
-                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 border border-red-200">
-                          Missed
-                        </span>
-                      )}
-                    </div>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                    Завантаження лідів...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : items.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                    Лідів не знайдено
+                  </td>
+                </tr>
+              ) : (
+                items.map((l) => (
+                  <tr
+                    key={l.id}
+                    className="cursor-pointer transition-colors hover:bg-zinc-50"
+                    onClick={() => {
+                      if (isTextSelected()) return;
+                      openLead(l.id);
+                    }}
+                  >
+                    <td className="px-4 py-4">
+                      <div className="font-medium text-zinc-900">
+                        {l.fullName || l.name || [l.lastName, l.firstName].filter(Boolean).join(" ") || l.companyName || "—"}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {l.phone || l.email || "—"}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-zinc-600">{l.city ?? "—"}</td>
+                    <td className="px-4 py-4 text-zinc-700">
+                      {l.source}
+                      {l.channel ? ` / ${l.channel}` : ""}
+                    </td>
+                    <td className="px-4 py-4 text-zinc-600">
+                      {typeof l.score === "number" ? l.score : "—"}
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge variant="lead" status={l.status} />
+                    </td>
+                    <td className="px-4 py-4 text-zinc-500">
+                      {l.owner?.fullName ?? "—"}
+                    </td>
+                    <td className="px-4 py-4 text-zinc-500">
+                      {new Date(l.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex justify-end gap-1">
+                        {l.hasCallToday && (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            Сьогодні
+                          </span>
+                        )}
+                        {l.hasMissedCall && (
+                          <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                            Пропущено
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
-          <span className="text-xs text-zinc-500">
-            Page {page} of {totalPages} • Total {total}
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={page <= 1 || loading}
-              onClick={() => goToPage(page - 1)}
-              className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={page >= totalPages || loading}
-              onClick={() => goToPage(page + 1)}
-              className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
-            >
-              Next
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
+            <span className="text-xs text-zinc-500">
+              Сторінка {page} з {totalPages} • Всього {total}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
+              >
+                Назад
+              </button>
+              <button
+                type="button"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
+              >
+                Вперёд
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+
+        {/* Mobile: card list */}
+        <div className="sm:hidden space-y-4">
+          {loading ? (
+            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
+              Завантаження лідів...
+            </div>
+          ) : items.length === 0 ? (
+            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
+              Лідів не знайдено
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                {items.map((l) => (
+                  <LeadCard key={l.id} lead={l} onOpen={openLead} />
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-transparent px-2 py-4">
+                <span className="text-xs text-zinc-500">
+                  Сторінка {page}/{totalPages}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={page <= 1 || loading}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    disabled={page >= totalPages || loading}
+                    onClick={() => setPage((p) => p + 1)}
+                    className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
+                  >
+                    Вперёд
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </>
+
+      <button
+        type="button"
+        onClick={() => setCreateOpen(true)}
+        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 sm:hidden"
+        aria-label="Новий лід"
+      >
+        <span className="text-2xl leading-none">+</span>
+      </button>
 
       {leadId && (
         <LeadModal

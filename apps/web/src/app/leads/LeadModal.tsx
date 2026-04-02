@@ -1,16 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
+import { LeadStepper, leadStatusToUiStage } from "./LeadStepper";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
+import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "@/lib/api/client";
-import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatPhoneDisplay, formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
+import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
+import {
+  autocompleteAddress,
+  geocodePlace,
+  mergeFormattedAddressWithUserDetail,
+  type PlaceSuggestion,
+} from "@/lib/googlePlacesNew";
 
 type Props = {
   apiBaseUrl: string;
@@ -60,6 +69,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** Bordered, white background — reads as a form field, not plain text */
+const LEAD_FIELD_CLASS =
+  "w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:opacity-60";
+
+const LEAD_SOURCE_OPTIONS: Option[] = [
+  { id: "META", label: "Meta Lead Ads" },
+  { id: "FACEBOOK", label: "Facebook" },
+  { id: "TELEGRAM", label: "Telegram" },
+  { id: "INSTAGRAM", label: "Instagram" },
+  { id: "WEBSITE", label: "Website" },
+  { id: "OTHER", label: "Other" },
+];
+
+type GoogleMapsPublicConfig = { mapsApiKey: string | null };
+
 export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: userRoleProp }: Props) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +110,19 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [editMessage, setEditMessage] = useState("");
   const [editSource, setEditSource] = useState<LeadSource>("OTHER");
   const [_editStatus, setEditStatus] = useState<LeadStatus>("NEW");
+
+  const [editRegion, setEditRegion] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [leadAddress, setLeadAddress] = useState("");
+  const [leadLat, setLeadLat] = useState<number | null>(null);
+  const [leadLng, setLeadLng] = useState<number | null>(null);
+  const [leadGooglePlaceId, setLeadGooglePlaceId] = useState<string | null>(null);
+  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
+  const [mapsConfigError, setMapsConfigError] = useState<string | null>(null);
+  const [showLeadAddressSuggestions, setShowLeadAddressSuggestions] = useState(false);
+  const [leadAddressSuggestions, setLeadAddressSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [isLeadAddressLookupLoading, setIsLeadAddressLookupLoading] = useState(false);
+  const leadAddressAbortRef = useRef<AbortController | null>(null);
 
   const [timeline, setTimeline] = useState<ActivityItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -129,6 +166,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
   const [userRole, setUserRole] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [leadHeaderMenuOpen, setLeadHeaderMenuOpen] = useState(false);
+  const leadHeaderMenuRef = useRef<HTMLDivElement>(null);
+
+  const [users, setUsers] = useState<Array<{ id: string; fullName: string; email: string }>>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   const canClose = !saving && !converting && !statusUpdating && !addingNote && !deleting;
 
@@ -139,6 +181,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     if (!lead) return "Lead";
     return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
+
+  const formatDt = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
 
   useEffect(() => {
     if (userRoleProp != null) return;
@@ -153,6 +203,43 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       });
   }, [userRoleProp]);
 
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await apiHttp.get<{ items: { id: string; fullName: string; email: string }[] }>("/users");
+      const loaded = Array.isArray(res.data?.items) ? res.data.items : [];
+      setUsers(loaded);
+    } catch {
+      setUsers([]);
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchUsers();
+  }, [fetchUsers]);
+
+  const loadMapsConfig = useCallback(async () => {
+    try {
+      const res = await apiHttp.get<GoogleMapsPublicConfig>("/settings/google-maps/public");
+      const key = res.data?.mapsApiKey ?? null;
+      setMapsApiKey(key);
+      if (!key) {
+        setMapsConfigError("Ключ Google Maps не налаштовано — адресу можна вводити вручну.");
+      } else {
+        setMapsConfigError(null);
+      }
+    } catch {
+      setMapsApiKey(null);
+      setMapsConfigError("Не вдалося завантажити налаштування карт.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMapsConfig();
+  }, [loadMapsConfig]);
+
   const loadLead = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -164,12 +251,18 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setEditFirstName(data.firstName ?? data.name ?? "");
       setEditLastName(data.lastName ?? "");
       setEditMiddleName(data.middleName ?? "");
-      setEditPhone(data.phone ?? "");
+      setEditPhone(data.phone ? formatPhoneDisplay(data.phone) : "");
       setEditEmail(data.email ?? "");
       setEditCompanyName(data.companyName ?? "");
       setEditMessage(data.message ?? "");
       setEditSource(data.source);
       setEditStatus(data.status);
+      setEditRegion(data.region ?? "");
+      setEditCity(data.city ?? "");
+      setLeadAddress(data.address ?? "");
+      setLeadLat(data.lat ?? null);
+      setLeadLng(data.lng ?? null);
+      setLeadGooglePlaceId(data.googlePlaceId ?? null);
 
       const items = data.items ?? [];
       setEditItems(
@@ -184,7 +277,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setNewContactFirstName(data.firstName ?? data.name ?? "");
       setNewContactLastName(data.lastName ?? "");
       setNewContactMiddleName(data.middleName ?? "");
-      setNewContactPhone(data.phone ?? "");
+      setNewContactPhone(data.phone ? formatPhoneDisplay(data.phone) : "");
       setNewContactEmail(data.email ?? "");
       setNewContactCompanyName(data.companyName ?? "");
     } catch (e) {
@@ -322,7 +415,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         firstName: editFirstName.trim() || null,
         lastName: editLastName.trim() || null,
         middleName: editMiddleName.trim() || null,
-        phone: editPhone.trim() || null,
+        phone:
+          normalizePhone(editPhone) ??
+          (editPhone.replace(/\D/g, "").length === 0 ? null : editPhone.trim() || null),
         email: editEmail.trim() || null,
         companyName: editCompanyName.trim() || null,
         message: editMessage.trim() || null,
@@ -362,6 +457,63 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     },
     [lead, loadLead, onUpdated]
   );
+
+  const pickLeadAddressSuggestion = useCallback(
+    async (s: PlaceSuggestion) => {
+      if (!mapsApiKey) return;
+      const userTyped = leadAddress.trim();
+      setShowLeadAddressSuggestions(false);
+      setLeadAddressSuggestions([]);
+      const geo = await geocodePlace(mapsApiKey, s.placeId);
+      if (!geo) return;
+      const merged = mergeFormattedAddressWithUserDetail(userTyped, geo.formattedAddress);
+      setLeadAddress(merged);
+      setLeadLat(geo.lat);
+      setLeadLng(geo.lng);
+      setLeadGooglePlaceId(geo.placeId);
+      await patchLead({
+        address: merged,
+        lat: geo.lat,
+        lng: geo.lng,
+        googlePlaceId: geo.placeId,
+      });
+    },
+    [mapsApiKey, leadAddress, patchLead],
+  );
+
+  useEffect(() => {
+    if (!showLeadAddressSuggestions || !mapsApiKey) {
+      setLeadAddressSuggestions([]);
+      return;
+    }
+    const query = leadAddress.trim();
+    if (query.length < 3) {
+      setLeadAddressSuggestions([]);
+      return;
+    }
+    setIsLeadAddressLookupLoading(true);
+    const controller = new AbortController();
+    leadAddressAbortRef.current = controller;
+    const timer = setTimeout(async () => {
+      try {
+        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6, regionCode: "UA" });
+        if (leadAddressAbortRef.current !== controller) return;
+        setLeadAddressSuggestions(suggestions);
+      } catch {
+        if (leadAddressAbortRef.current !== controller) return;
+        setLeadAddressSuggestions([]);
+      } finally {
+        if (leadAddressAbortRef.current === controller) {
+          setIsLeadAddressLookupLoading(false);
+        }
+      }
+    }, 150);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      leadAddressAbortRef.current = null;
+    };
+  }, [leadAddress, showLeadAddressSuggestions, mapsApiKey]);
 
   const updateStatus = async (next: LeadStatus, reason?: string) => {
     if (!lead) return;
@@ -415,7 +567,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           firstName: newContactFirstName.trim() || lead.name || "Lead",
           lastName: newContactLastName.trim() || "",
           middleName: newContactMiddleName.trim() || "",
-          phone: newContactPhone.trim() || lead.phone,
+          phone: normalizePhone(newContactPhone) ?? (newContactPhone.trim() || lead.phone),
           email: newContactEmail.trim() || lead.email,
           companyName: newContactCompanyName.trim() || lead.companyName,
         };
@@ -454,22 +606,26 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const canShowCompleteButton = isInProgress;
   const canConvert = lead?.status === "WON";
 
-  const statusLabel =
-    lead?.status === "NEW"
-      ? "New"
-      : lead?.status === "IN_PROGRESS"
-        ? "In progress"
-        : lead?.status === "WON"
-          ? "Won"
-          : lead?.status === "NOT_TARGET"
-            ? "Not target"
-            : lead?.status === "LOST"
-              ? "Lost"
-              : lead?.status === "SPAM"
-                ? "Spam"
-                : lead?.status ?? "";
+  useEffect(() => {
+    if (!leadHeaderMenuOpen) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = leadHeaderMenuRef.current;
+      const t = e.target;
+      if (el && t instanceof Node && !el.contains(t)) setLeadHeaderMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [leadHeaderMenuOpen]);
 
   const handleEscape = useCallback(() => {
+    if (leadHeaderMenuOpen) {
+      setLeadHeaderMenuOpen(false);
+      return true;
+    }
     if (showCompleteOutcomeDialog) {
       setShowCompleteOutcomeDialog(false);
       return true;
@@ -479,7 +635,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       return true;
     }
     return false;
-  }, [showCompleteOutcomeDialog, showConvertWizard]);
+  }, [leadHeaderMenuOpen, showCompleteOutcomeDialog, showConvertWizard]);
 
   const openCompleteOutcomeDialog = () => {
     setShowCompleteOutcomeDialog(true);
@@ -491,7 +647,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     setNewContactFirstName(lead?.firstName ?? lead?.name ?? "");
     setNewContactLastName(lead?.lastName ?? "");
     setNewContactMiddleName(lead?.middleName ?? "");
-    setNewContactPhone(lead?.phone ?? "");
+    setNewContactPhone(lead?.phone ? formatPhoneDisplay(lead.phone) : "");
     setNewContactEmail(lead?.email ?? "");
     setNewContactCompanyName(lead?.companyName ?? "");
     setDealTitle(title);
@@ -584,6 +740,18 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     const hasAny = Object.values(result).some(Boolean);
     return hasAny ? result : null;
   }, [lead?.sourceMeta]);
+
+  const responsibleOptions = useMemo<Option[]>(() => {
+    const base = users.map((u) => ({
+      id: u.id,
+      label: u.fullName?.trim() || u.email,
+    }));
+    const own = lead?.owner;
+    if (own?.id && !base.some((o) => o.id === own.id)) {
+      return [{ id: own.id, label: own.fullName }, ...base];
+    }
+    return base;
+  }, [users, lead?.owner]);
 
   const leftContent = loading ? (
     <div className="text-sm text-zinc-500">Loading…</div>
@@ -790,10 +958,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       <section className="space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Contact</h3>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">First Name</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-first-name">
+              First name
+            </label>
             <input
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              id="lead-first-name"
+              autoComplete="given-name"
+              className={LEAD_FIELD_CLASS}
               placeholder="Enter first name..."
               value={editFirstName}
               onChange={(e) => setEditFirstName(e.target.value)}
@@ -805,10 +977,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               disabled={saving}
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Last Name</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-last-name">
+              Last name
+            </label>
             <input
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              id="lead-last-name"
+              autoComplete="family-name"
+              className={LEAD_FIELD_CLASS}
               placeholder="Enter last name..."
               value={editLastName}
               onChange={(e) => setEditLastName(e.target.value)}
@@ -820,10 +996,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               disabled={saving}
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Middle Name</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-middle-name">
+              Middle name
+            </label>
             <input
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              id="lead-middle-name"
+              className={LEAD_FIELD_CLASS}
               placeholder="Enter middle name..."
               value={editMiddleName}
               onChange={(e) => setEditMiddleName(e.target.value)}
@@ -835,26 +1014,43 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               disabled={saving}
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Phone</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-phone">
+              Phone
+            </label>
             <input
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              placeholder="Enter phone..."
+              id="lead-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              className={LEAD_FIELD_CLASS}
+              placeholder="+38 (0__) ___-__-__"
               value={editPhone}
-              onChange={(e) => setEditPhone(e.target.value)}
+              onChange={(e) => setEditPhone(formatPhoneInputMask(e.target.value))}
               onBlur={() => {
-                if (editPhone !== (lead.phone ?? "")) {
-                  void patchLead({ phone: editPhone.trim() || null });
+                const prev = normalizePhone(lead.phone ?? "") ?? lead.phone ?? null;
+                const next = normalizePhone(editPhone);
+                const empty = editPhone.replace(/\D/g, "").length === 0;
+                if (empty) {
+                  if (prev) void patchLead({ phone: null });
+                  return;
+                }
+                if (next && next !== prev) {
+                  void patchLead({ phone: next });
                 }
               }}
               disabled={saving}
             />
           </div>
-          <div className="flex flex-col gap-1 sm:col-span-2">
-            <label className="text-xs font-medium text-zinc-500">Email</label>
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-email">
+              Email
+            </label>
             <input
+              id="lead-email"
               type="email"
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              autoComplete="email"
+              className={LEAD_FIELD_CLASS}
               placeholder="Enter email..."
               value={editEmail}
               onChange={(e) => setEditEmail(e.target.value)}
@@ -900,10 +1096,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       <section className="space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Company & source</h3>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Company</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-company">
+              Company
+            </label>
             <input
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              id="lead-company"
+              autoComplete="organization"
+              className={LEAD_FIELD_CLASS}
               placeholder="Enter company..."
               value={editCompanyName}
               onChange={(e) => setEditCompanyName(e.target.value)}
@@ -915,46 +1115,140 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               disabled={saving}
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Source</label>
-            <select
-              className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none cursor-pointer appearance-none"
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-zinc-700">Джерело</span>
+            <SearchableSelectLite
               value={editSource}
-              onChange={(e) => {
-                const val = e.target.value as LeadSource;
+              options={LEAD_SOURCE_OPTIONS}
+              placeholder="Оберіть джерело…"
+              disabled={saving}
+              onChange={async (id) => {
+                if (!id) return;
+                const val = id as LeadSource;
                 setEditSource(val);
                 if (val !== lead.source) {
-                  void patchLead({ source: val });
+                  await patchLead({ source: val });
                 }
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-700" htmlFor="lead-region">
+              Область
+            </label>
+            <select
+              id="lead-region"
+              className={`${LEAD_FIELD_CLASS} cursor-pointer`}
+              value={editRegion}
+              onChange={(e) => {
+                const v = e.target.value;
+                setEditRegion(v);
+                void patchLead({ region: v || null });
               }}
               disabled={saving}
             >
-              <option value="META">Meta Lead Ads</option>
-              <option value="FACEBOOK">Facebook</option>
-              <option value="TELEGRAM">Telegram</option>
-              <option value="INSTAGRAM">Instagram</option>
-              <option value="WEBSITE">Website</option>
-              <option value="OTHER">Other</option>
+              <option value="">— Оберіть область —</option>
+              {UKRAINE_REGIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
             </select>
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-zinc-500">Ответственный</label>
-            <div className="py-1 text-sm text-zinc-900">{lead.owner?.fullName ?? "—"}</div>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-zinc-700">Відповідальний</span>
+            <SearchableSelectLite
+              value={lead.ownerId ?? ""}
+              options={responsibleOptions}
+              placeholder="Оберіть відповідального…"
+              disabled={saving || loadingUsers}
+              isLoading={loadingUsers}
+              onChange={async (id) => {
+                const next = id || null;
+                if (next === (lead.ownerId ?? null)) return;
+                await patchLead({ ownerId: next });
+              }}
+            />
           </div>
-          {(lead.city != null && lead.city !== "") || lead.score != null ? (
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label htmlFor="lead-city" className="text-xs font-medium text-zinc-700">
+              Населений пункт
+            </label>
+            <input
+              id="lead-city"
+              type="text"
+              className={LEAD_FIELD_CLASS}
+              value={editCity}
+              onChange={(e) => setEditCity(e.target.value)}
+              onBlur={() => {
+                const t = editCity.trim();
+                if (t === (lead.city ?? "").trim()) return;
+                void patchLead({ city: t || null, npCityRef: null });
+              }}
+              placeholder="Назва міста / села…"
+              disabled={saving}
+              autoComplete="address-level2"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className="text-xs font-medium text-zinc-700">Адреса (Google Maps)</span>
+            {mapsConfigError ? <p className="text-xs text-amber-800">{mapsConfigError}</p> : null}
+            <div className="relative">
+              <input
+                className={LEAD_FIELD_CLASS}
+                value={leadAddress}
+                onChange={(e) => {
+                  setLeadAddress(e.target.value);
+                  setShowLeadAddressSuggestions(true);
+                }}
+                onFocus={() => setShowLeadAddressSuggestions(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setShowLeadAddressSuggestions(false), 200);
+                  const t = leadAddress.trim();
+                  if (t === (lead.address ?? "").trim()) return;
+                  void patchLead({ address: t || null });
+                }}
+                placeholder="Введіть адресу…"
+                disabled={saving}
+                autoComplete="street-address"
+              />
+              {isLeadAddressLookupLoading && mapsApiKey ? (
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-400">
+                  …
+                </span>
+              ) : null}
+              {showLeadAddressSuggestions && leadAddressSuggestions.length > 0 ? (
+                <ul
+                  className="absolute z-30 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg"
+                  role="listbox"
+                >
+                  {leadAddressSuggestions.map((s) => (
+                    <li key={s.placeId}>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => void pickLeadAddressSuggestion(s)}
+                      >
+                        {s.description}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            {leadLat != null && leadLng != null ? (
+              <p className="text-xs text-zinc-500">
+                Координати: {leadLat.toFixed(5)}, {leadLng.toFixed(5)}
+              </p>
+            ) : null}
+          </div>
+          {lead.score != null ? (
             <div className="flex flex-wrap gap-4 sm:col-span-2">
-              {lead.city != null && lead.city !== "" && (
-                <div className="flex items-baseline gap-2">
-                  <span className="text-xs text-zinc-500">City:</span>
-                  <span className="text-sm text-zinc-900">{lead.city}</span>
-                </div>
-              )}
-              {lead.score != null && (
-                <div className="flex items-baseline gap-2">
-                  <span className="text-xs text-zinc-500">Score:</span>
-                  <span className="text-sm font-medium text-zinc-900">{lead.score}</span>
-                </div>
-              )}
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs text-zinc-500">Score:</span>
+                <span className="text-sm font-medium text-zinc-900">{lead.score}</span>
+              </div>
             </div>
           ) : null}
         </div>
@@ -962,10 +1256,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       {/* Message */}
       <section className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Message</h3>
+        <h3 id="lead-message-heading" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          Message
+        </h3>
         <textarea
+          id="lead-message"
+          aria-labelledby="lead-message-heading"
           rows={3}
-          className="w-full resize-none rounded-md border border-transparent bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:border-zinc-300 hover:bg-white hover:px-2 focus:border-blue-500 focus:bg-white focus:px-2 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          className={`${LEAD_FIELD_CLASS} min-h-[4.5rem] resize-none`}
           placeholder="Message or comment from lead..."
           value={editMessage}
           onChange={(e) => {
@@ -1144,9 +1442,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                         Phone
                       </label>
                       <input
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
+                        placeholder="+38 (0__) ___-__-__"
                         value={newContactPhone}
-                        onChange={(e) => setNewContactPhone(e.target.value)}
+                        onChange={(e) => setNewContactPhone(formatPhoneInputMask(e.target.value))}
                       />
                     </div>
                     <div>
@@ -1232,11 +1534,23 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-zinc-600">
+                      <label className="block text-xs font-medium text-zinc-600" htmlFor="lead-owner-convert">
                         Responsible
                       </label>
-                      <div className="mt-1 w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-700">
-                        {lead?.owner?.fullName ?? "—"}
+                      <div className="mt-1" id="lead-owner-convert">
+                        <SearchableSelectLite
+                          value={lead?.ownerId ?? ""}
+                          options={responsibleOptions}
+                          placeholder="Оберіть відповідального…"
+                          disabled={converting || loadingUsers}
+                          isLoading={loadingUsers}
+                          onChange={async (id) => {
+                            if (!lead) return;
+                            const next = id || null;
+                            if (next === (lead.ownerId ?? null)) return;
+                            await patchLead({ ownerId: next });
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
@@ -1296,133 +1610,160 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     />
   ) : null;
 
-  const isProcessed = lead?.status === "WON" || lead?.status === "NOT_TARGET" || lead?.status === "LOST" || lead?.status === "SPAM";
-
-  const stagesBar = lead ? (
-    <div className="border-b border-zinc-200 py-3 px-4">
-      <div className="flex items-center gap-2 w-full max-w-xl">
-        {/* Step 1: New */}
-        <button
-          type="button"
-          disabled={statusUpdating}
-          onClick={() => {
-            if (lead.status !== "NEW") void updateStatus("NEW");
-          }}
-          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none disabled:cursor-default ${
-            lead.status === "NEW"
-              ? "bg-blue-100 text-blue-800"
-              : lead.status === "IN_PROGRESS" || isProcessed
-                ? "text-emerald-600 hover:bg-emerald-50/80"
-                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-          }`}
-        >
-          {(lead.status === "IN_PROGRESS" || isProcessed) && (
-            <svg className="h-3 w-3 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-          New
-        </button>
-
-        <div className="flex-1 h-px min-w-[12px] bg-zinc-200 relative overflow-hidden">
-          <div
-            className={`absolute top-0 left-0 h-full bg-emerald-300 transition-all duration-300 ${
-              lead.status === "IN_PROGRESS" || isProcessed ? "w-full" : "w-0"
-            }`}
-          />
-        </div>
-
-        {/* Step 2: In progress */}
-        <button
-          type="button"
-          disabled={statusUpdating}
-          onClick={() => {
-            if (lead.status !== "IN_PROGRESS") void updateStatus("IN_PROGRESS");
-          }}
-          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none disabled:cursor-default ${
-            lead.status === "IN_PROGRESS"
-              ? "bg-blue-100 text-blue-800"
-              : isProcessed
-                ? "text-emerald-600 hover:bg-emerald-50/80"
-                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-          }`}
-        >
-          {isProcessed && (
-            <svg className="h-3 w-3 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-          In progress
-        </button>
-
-        <div className="flex-1 h-px min-w-[12px] bg-zinc-200 relative overflow-hidden">
-          <div
-            className={`absolute top-0 left-0 h-full bg-emerald-300 transition-all duration-300 ${
-              isProcessed ? "w-full" : "w-0"
-            }`}
-          />
-        </div>
-
-        {/* Step 3: Processed */}
-        <button
-          type="button"
-          disabled={statusUpdating}
-          onClick={() => {
-            if (lead.status === "NEW" || lead.status === "IN_PROGRESS") openCompleteOutcomeDialog();
-          }}
-          className={`relative z-10 flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none ${
-            isProcessed
-              ? "bg-emerald-100 text-emerald-800"
-              : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-          }`}
-        >
-          {isProcessed && (
-            <svg className="h-3 w-3 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-          Processed
-        </button>
-      </div>
-    </div>
-  ) : null;
-
   const tabsUnderHeader =
     lead ? (
-      <div className="space-y-0">
-        {stagesBar}
-        <div className="flex gap-1 border-b border-zinc-200 pb-2 pt-2">
+      <div className="space-y-2">
+        <LeadStepper
+          stage={leadStatusToUiStage(lead.status)}
+          disabled={statusUpdating}
+          onStepClick={(key) => {
+            const terminal = ["WON", "NOT_TARGET", "LOST", "SPAM"].includes(lead.status);
+            if (terminal) return;
+            if (key === "NEW" && lead.status !== "NEW") void updateStatus("NEW");
+            else if (key === "IN_PROGRESS" && lead.status !== "IN_PROGRESS") void updateStatus("IN_PROGRESS");
+            else if (key === "PROCESSED" && (lead.status === "NEW" || lead.status === "IN_PROGRESS")) {
+              openCompleteOutcomeDialog();
+            }
+          }}
+        />
+        <div className="flex flex-wrap gap-1 border-b border-zinc-200 pb-2">
           <button
             type="button"
             onClick={() => setLeadTab("main")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Main
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("products")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Products
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("activity")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Activity
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("source")}
-            className={`rounded px-2 py-1 text-sm font-medium ${leadTab === "source" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "source" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Source
-            </button>
+          </button>
         </div>
       </div>
     ) : null;
+
+  const leadHeaderActions = (
+    <>
+      {lead ? (
+        <div ref={leadHeaderMenuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setLeadHeaderMenuOpen((o) => !o)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50"
+            aria-expanded={leadHeaderMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Меню: дії з лідом"
+            title="Дії з лідом"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          {leadHeaderMenuOpen ? (
+            <div
+              className="absolute right-0 top-full z-[100] mt-1 w-[min(100vw-2rem,20rem)] rounded-lg border border-zinc-200 bg-white shadow-lg"
+              role="menu"
+            >
+              <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-auto p-3">
+                {canConvert ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setLeadHeaderMenuOpen(false);
+                      openConvertWizard();
+                    }}
+                    className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Convert
+                  </button>
+                ) : null}
+                {effectiveRole === "MANAGER" ||
+                effectiveRole === "ADMIN" ||
+                effectiveRole === "LEAD" ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={queueingDialer}
+                    onClick={async () => {
+                      if (!lead) return;
+                      setLeadHeaderMenuOpen(false);
+                      setQueueingDialer(true);
+                      setErr(null);
+                      try {
+                        await manualCallingApi.enqueue({ leadId: lead.id });
+                      } catch (e) {
+                        const msg =
+                          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                          (e instanceof Error ? e.message : "Не вдалося додати в чергу");
+                        setErr(msg);
+                      } finally {
+                        setQueueingDialer(false);
+                      }
+                    }}
+                    className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-left text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {queueingDialer ? "…" : "У чергу прозвону"}
+                  </button>
+                ) : null}
+                {isAdmin ? (
+                  <div className="border-t border-zinc-100 pt-3">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={deleting}
+                      onClick={async () => {
+                        setLeadHeaderMenuOpen(false);
+                        if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
+                        setDeleting(true);
+                        setErr(null);
+                        try {
+                          await leadsApi.delete(lead.id);
+                          onUpdated();
+                          onClose();
+                        } catch (e) {
+                          const msg =
+                            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                            (e instanceof Error ? e.message : "Не удалось удалить лид");
+                          setErr(msg);
+                        } finally {
+                          setDeleting(false);
+                        }
+                      }}
+                      className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-2 text-left text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      {deleting ? "Удаление…" : "Удалить лид"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="border-t border-zinc-100 pt-3 text-xs text-zinc-500">
+                    Видалення доступне лише для ADMIN
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
 
   return (
     <>
@@ -1491,102 +1832,22 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       <EntityModalShell
         title={title}
-        subtitle={
-        lead ? (
-          <>
-            Stage: {statusLabel} • Source: {lead.source}
-          </>
-        ) : undefined
-      }
-      tabsUnderHeader={tabsUnderHeader}
-      headerActions={
-        <>
-          {lead && (
-            isAdmin ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
-                  setDeleting(true);
-                  setErr(null);
-                  try {
-                    await leadsApi.delete(lead.id);
-                    onUpdated();
-                    onClose();
-                  } catch (e) {
-                    const msg =
-                      (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                      (e instanceof Error ? e.message : "Не удалось удалить лид");
-                    setErr(msg);
-                  } finally {
-                    setDeleting(false);
-                  }
-                }}
-                disabled={deleting}
-                className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
-              >
-                {deleting ? "Удаление…" : "Удалить лид"}
-              </button>
-            ) : (
-              <span
-                className="rounded-md border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-500"
-                title={effectiveRole != null ? `Ваша роль: ${effectiveRole}. Удалять может только ADMIN.` : "Роль не загружена. Удалять может только ADMIN."}
-              >
-                Удалить лид (только ADMIN)
-              </span>
-            )
-          )}
-          {lead && canConvert && (
-            <button
-              type="button"
-              onClick={() => openConvertWizard()}
-              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
-            >
-              Convert
-            </button>
-          )}
-          {lead &&
-            (effectiveRole === "MANAGER" ||
-              effectiveRole === "ADMIN" ||
-              effectiveRole === "LEAD") && (
-              <button
-                type="button"
-                disabled={queueingDialer}
-                onClick={async () => {
-                  if (!lead) return;
-                  setQueueingDialer(true);
-                  setErr(null);
-                  try {
-                    await manualCallingApi.enqueue({ leadId: lead.id });
-                  } catch (e) {
-                    const msg =
-                      (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                      (e instanceof Error ? e.message : "Не вдалося додати в чергу");
-                    setErr(msg);
-                  } finally {
-                    setQueueingDialer(false);
-                  }
-                }}
-                className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-              >
-                {queueingDialer ? "…" : "У чергу прозвону"}
-              </button>
-            )}
-        </>
-      }
-      left={leftContent}
-      right={rightContent}
-      footer={
-        lead ? (
-          <div className="text-xs text-zinc-500">
-            ID: <span className="font-mono">{lead.id}</span>
-          </div>
-        ) : null
-      }
-      canClose={canClose}
-      onClose={onClose}
-      onEscape={handleEscape}
-    />
+        subtitle={lead ? formatDt(lead.createdAt) : undefined}
+        tabsUnderHeader={tabsUnderHeader}
+        headerActions={leadHeaderActions}
+        left={leftContent}
+        right={rightContent}
+        footer={
+          lead ? (
+            <div className="text-xs text-zinc-500">
+              ID: <span className="font-mono">{lead.id}</span>
+            </div>
+          ) : null
+        }
+        canClose={canClose}
+        onClose={onClose}
+        onEscape={handleEscape}
+      />
     </>
   );
 }

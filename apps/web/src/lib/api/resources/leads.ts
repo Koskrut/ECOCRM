@@ -56,7 +56,13 @@ export type Lead = {
   phone: string | null;
   email: string | null;
   companyName: string | null;
+  region?: string | null;
   city?: string | null;
+  npCityRef?: string | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  googlePlaceId?: string | null;
   message: string | null;
   comment?: string | null;
   statusReason: string | null;

@@ -276,7 +276,13 @@ export class LeadsService {
     }
     if ("email" in dto) data.email = dto.email ?? null;
     if ("companyName" in dto) data.companyName = dto.companyName ?? null;
+    if ("region" in dto) data.region = dto.region ?? null;
     if ("city" in dto) data.city = dto.city ?? null;
+    if ("npCityRef" in dto) data.npCityRef = dto.npCityRef ?? null;
+    if ("address" in dto) data.address = dto.address ?? null;
+    if ("lat" in dto) data.lat = dto.lat ?? null;
+    if ("lng" in dto) data.lng = dto.lng ?? null;
+    if ("googlePlaceId" in dto) data.googlePlaceId = dto.googlePlaceId ?? null;
     if ("message" in dto) data.message = dto.message ?? null;
     if ("comment" in dto) data.comment = dto.comment ?? null;
     if ("channel" in dto) data.channel = dto.channel ?? null;
@@ -661,7 +667,13 @@ export class LeadsService {
       phoneNormalized: lead.phoneNormalized ?? null,
       email: lead.email,
       companyName: lead.companyName,
+      region: lead.region ?? null,
       city: lead.city ?? null,
+      npCityRef: lead.npCityRef ?? null,
+      address: lead.address ?? null,
+      lat: lead.lat ?? null,
+      lng: lead.lng ?? null,
+      googlePlaceId: lead.googlePlaceId ?? null,
       message: lead.message,
       comment: lead.comment ?? null,
       statusReason: lead.statusReason ?? null,
