@@ -49,4 +49,42 @@ describe("RingostatIngestService", () => {
     assert.equal(resolve({ type: "in", direction: "" }), "INBOUND");
     assert.equal(resolve({ type: "OUT", callee: "380" }), "OUTBOUND");
   });
+
+  it("outbound webhook: type=out with caller+callee maps to OUTBOUND and uses callee as customer", () => {
+    const resolve = (raw: Record<string, unknown>) =>
+      // @ts-expect-error private
+      service["resolveDirection"](raw) as string;
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+        extension?: string;
+      };
+
+    const raw = {
+      type: "out",
+      caller: "+380441112233",
+      callee: "+380501234567",
+      direction: "",
+    };
+    assert.equal(resolve(raw), "OUTBOUND");
+    const phones = extract(raw, "OUTBOUND");
+    assert.equal(phones.customerPhoneRaw, "+380501234567");
+    assert.equal(phones.managerPhoneRaw, "+380441112233");
+  });
+
+  it("polling payload: direction=out without type must return OUTBOUND", () => {
+    const resolve = (raw: Record<string, unknown>) =>
+      // @ts-expect-error private
+      service["resolveDirection"](raw) as string;
+
+    const raw = {
+      calldate: "2026-04-02 12:00:00",
+      direction: "out",
+      caller: "101",
+      dst: "+380501234567",
+    };
+    assert.equal(resolve(raw), "OUTBOUND");
+  });
 });

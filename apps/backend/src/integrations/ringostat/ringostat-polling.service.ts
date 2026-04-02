@@ -79,7 +79,33 @@ export class RingostatPollingService {
       url.searchParams.set("to", fmt(to));
       url.searchParams.set(
         "fields",
-        "calldate,caller,dst,n_alias,disposition,billsec,recording,duration",
+        [
+          // Primary timing + participants
+          "calldate",
+          "caller",
+          "callee",
+          "src",
+          "dst",
+          "from",
+          "to",
+          // Direction hints (export fields can vary by Ringostat account/settings)
+          "type",
+          "direction",
+          "call_direction",
+          "call_type",
+          // Outbound-specific hints
+          "outbound_number",
+          // Identity / idempotency helpers
+          "uniqueid",
+          "call_id",
+          "id",
+          // Status & media
+          "n_alias",
+          "disposition",
+          "billsec",
+          "recording",
+          "duration",
+        ].join(","),
       );
       if (cfg.projectId && cfg.projectId.trim().length > 0) {
         url.searchParams.set("project_id", cfg.projectId.trim());

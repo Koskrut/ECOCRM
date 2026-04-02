@@ -288,8 +288,36 @@ export class RingostatIngestService {
     if (["in", "inbound", "incoming"].some((k) => rawDir.includes(k))) return "INBOUND";
     if (["out", "outbound", "outgoing"].some((k) => rawDir.includes(k))) return "OUTBOUND";
 
-    // Fallback for /calls/list payload where we only know the caller:
-    if (getVal(raw, "caller") ?? getVal(raw, "E164") ?? getVal(raw, "connected_with")) return "INBOUND";
+    // Polling /calls/list exports can omit explicit type/direction.
+    // Prefer outbound hints (so we don't mask outgoing as inbound).
+    const outboundNumber = String(getVal(raw, "outbound_number") ?? "").trim();
+    if (outboundNumber) return "OUTBOUND";
+
+    const callee = String(
+      (getVal(raw, "callee") ??
+        getVal(raw, "destination") ??
+        getVal(raw, "connected_to") ??
+        "") as string,
+    ).trim();
+    const caller = String((getVal(raw, "caller") ?? getVal(raw, "src") ?? getVal(raw, "from") ?? "") as string).trim();
+    const dst = String((getVal(raw, "dst") ?? getVal(raw, "to") ?? "") as string).trim();
+
+    const digitsLen = (v: string) => (v || "").replace(/\D/g, "").length;
+    const callerLen = digitsLen(caller);
+    const calleeLen = digitsLen(callee);
+    const dstLen = digitsLen(dst);
+    const extMax = 6; // short internal extension / line alias
+    const phoneMin = 9; // external phone is usually >=9 digits in exports
+
+    // If we can see both sides, infer by which looks like an external phone number.
+    if (callerLen > 0 && calleeLen > 0) {
+      if (callerLen <= extMax && calleeLen >= phoneMin) return "OUTBOUND";
+      if (callerLen >= phoneMin && calleeLen <= extMax) return "INBOUND";
+    }
+    if (callerLen > 0 && dstLen > 0) {
+      if (callerLen <= extMax && dstLen >= phoneMin) return "OUTBOUND";
+      if (callerLen >= phoneMin && dstLen <= extMax) return "INBOUND";
+    }
 
     return "UNKNOWN";
   }
@@ -383,8 +411,33 @@ export class RingostatIngestService {
     managerPhoneRaw?: string;
     extension?: string;
   } {
-    const src = String((getVal(raw, "src") ?? getVal(raw, "from") ?? getVal(raw, "caller") ?? getVal(raw, "E164") ?? getVal(raw, "connected_with") ?? getVal(raw, "userfield") ?? "") as string) || undefined;
-    const dst = String((getVal(raw, "dst") ?? getVal(raw, "to") ?? getVal(raw, "n_alias") ?? "") as string) || undefined;
+    const src =
+      String(
+        (getVal(raw, "src") ??
+          getVal(raw, "from") ??
+          getVal(raw, "caller") ??
+          getVal(raw, "outbound_number") ??
+          getVal(raw, "E164") ??
+          getVal(raw, "connected_with") ??
+          getVal(raw, "userfield") ??
+          "") as string,
+      ) || undefined;
+    const dst =
+      String(
+        (getVal(raw, "dst") ??
+          getVal(raw, "to") ??
+          getVal(raw, "callee") ??
+          getVal(raw, "n_alias") ??
+          "") as string,
+      ) || undefined;
+    const callee =
+      String(
+        (getVal(raw, "callee") ??
+          getVal(raw, "destination") ??
+          getVal(raw, "connected_to") ??
+          "") as string,
+      ) || undefined;
+    const outboundNumber = String((getVal(raw, "outbound_number") ?? "") as string) || undefined;
     const ext =
       (getVal(raw, "sip_extension") ??
         getVal(raw, "extension") ??
@@ -401,8 +454,8 @@ export class RingostatIngestService {
       customerPhoneRaw = src;
       managerPhoneRaw = dst;
     } else if (direction === "OUTBOUND") {
-      customerPhoneRaw = dst;
-      managerPhoneRaw = src;
+      customerPhoneRaw = callee || dst;
+      managerPhoneRaw = outboundNumber || src;
     } else {
       customerPhoneRaw = src || dst;
       managerPhoneRaw = dst || src;
