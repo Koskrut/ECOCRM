@@ -97,21 +97,42 @@ function ensureGaLoaded() {
 function ensureMetaLoaded() {
   const { metaPixelId } = getRuntimeIds();
   if (!metaPixelId || typeof window === "undefined" || window.__suprexMetaLoaded) return;
-  const w = window as Window & {
-    fbq?: (...args: unknown[]) => void;
-    _fbq?: (...args: unknown[]) => void;
-  };
-  if (!w.fbq) {
-    const fbqQueue: unknown[][] = [];
-    const fbqFn = (...args: unknown[]) => {
-      fbqQueue.push(args);
-    };
-    w.fbq = fbqFn;
-    w._fbq = fbqFn;
-    injectScript("https://connect.facebook.net/en_US/fbevents.js");
+  // Use the canonical Meta Pixel bootstrap (inline snippet). A custom fbq stub
+  // can cause fbevents.js to fail to initialize and never register pixels.
+  const scriptId = "suprex-meta-pixel";
+  if (document.getElementById(scriptId)) {
+    window.__suprexMetaLoaded = true;
+    return;
   }
-  w.fbq?.("init", metaPixelId);
-  w.fbq?.("track", "PageView");
+
+  // If something already created a broken fbq/_fbq stub, reset it so the
+  // canonical bootstrap can run.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+    delete (window as unknown as { fbq?: unknown }).fbq;
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+    delete (window as unknown as { _fbq?: unknown })._fbq;
+  } catch {
+    // ignore
+  }
+
+  const inline = `
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '${metaPixelId.replace(/'/g, "\\'")}');
+fbq('track', 'PageView');
+  `.trim();
+
+  const script = document.createElement("script");
+  script.id = scriptId;
+  script.text = inline;
+  document.head.appendChild(script);
   window.__suprexMetaLoaded = true;
 }
 
