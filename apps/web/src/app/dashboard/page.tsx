@@ -25,8 +25,28 @@ import {
   Percent,
   Wallet,
   ListTodo,
+  Phone,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
+
+type DailyTeamActivityRow = {
+  userId: string;
+  fullName: string;
+  callsInbound: number;
+  callsOutbound: number;
+  visits: number;
+  ordersCount: number;
+  ordersAmount: number;
+  paymentsUsd: number;
+};
+
+type DailyTeamActivityPayload = {
+  date: string;
+  rows: DailyTeamActivityRow[];
+};
 
 type DashboardStats = {
   kpi: {
@@ -114,6 +134,19 @@ function formatShortDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
 }
 
+function localDateYmd(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function shiftDateYmd(ymd: string, deltaDays: number): string {
+  const [y, mo, d] = ymd.split("-").map(Number);
+  const dt = new Date(y, mo - 1, d + deltaDays);
+  return localDateYmd(dt);
+}
+
 function formatTaskDue(dueAt: string | null | undefined): string {
   if (!dueAt) return "—";
   const d = new Date(dueAt);
@@ -132,6 +165,11 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+
+  const [activityDate, setActivityDate] = useState(() => localDateYmd());
+  const [activity, setActivity] = useState<DailyTeamActivityPayload | null>(null);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
@@ -182,6 +220,27 @@ export default function DashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true);
+    setActivityError(null);
+    try {
+      const res = await apiGet<DailyTeamActivityPayload>("/dashboard/daily-team-activity", {
+        date: activityDate,
+      });
+      setActivity(res);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setActivityError(msg);
+      setActivity(null);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [activityDate]);
+
+  useEffect(() => {
+    void loadActivity();
+  }, [loadActivity]);
 
   if (loading && !data) {
     return (
@@ -294,6 +353,95 @@ export default function DashboardPage() {
             {formatMoney(kpi.debtTotal)}
           </p>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
+            <CalendarDays className="h-4 w-4" />
+            Активність команди за день
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActivityDate((d) => shiftDateYmd(d, -1))}
+              className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
+              aria-label="Previous day"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <input
+              type="date"
+              value={activityDate}
+              onChange={(e) => setActivityDate(e.target.value)}
+              className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-800 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            />
+            <button
+              type="button"
+              onClick={() => setActivityDate((d) => shiftDateYmd(d, 1))}
+              className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
+              aria-label="Next day"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivityDate(localDateYmd())}
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+            >
+              Сьогодні
+            </button>
+          </div>
+        </div>
+        <p className="mb-3 text-xs text-zinc-500">
+          День за календарною датою (UTC). Дзвінки за менеджером у записі дзвінка; візити —{" "}
+          <span className="font-medium text-zinc-600">Visit</span>; замовлення та оплати USD — за власником
+          замовлення.
+        </p>
+        {activityLoading ? (
+          <p className="text-sm text-zinc-500">Завантаження…</p>
+        ) : activityError ? (
+          <p className="text-sm text-red-700">{activityError}</p>
+        ) : !activity?.rows?.length ? (
+          <p className="text-sm text-zinc-500">Немає рядків (немає доступних користувачів).</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  <th className="py-2 pr-3">Менеджер</th>
+                  <th className="py-2 pr-2">
+                    <span className="inline-flex items-center gap-1">
+                      <Phone className="h-3.5 w-3.5" /> Вхідні
+                    </span>
+                  </th>
+                  <th className="py-2 pr-2">
+                    <span className="inline-flex items-center gap-1">
+                      <Phone className="h-3.5 w-3.5" /> Вихідні
+                    </span>
+                  </th>
+                  <th className="py-2 pr-2">Візити</th>
+                  <th className="py-2 pr-2">Замовлення</th>
+                  <th className="py-2 pr-2">Сума замовлень</th>
+                  <th className="py-2">Оплати USD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activity.rows.map((row) => (
+                  <tr key={row.userId} className="border-b border-zinc-100 last:border-0">
+                    <td className="py-2 pr-3 font-medium text-zinc-900">{row.fullName}</td>
+                    <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.callsInbound}</td>
+                    <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.callsOutbound}</td>
+                    <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.visits}</td>
+                    <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.ordersCount}</td>
+                    <td className="py-2 pr-2 tabular-nums text-zinc-800">{formatMoney(row.ordersAmount)}</td>
+                    <td className="py-2 tabular-nums text-zinc-800">{formatMoney(row.paymentsUsd)} $</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
