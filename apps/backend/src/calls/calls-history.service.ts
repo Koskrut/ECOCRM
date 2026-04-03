@@ -18,6 +18,8 @@ export type CallsHistoryItem = {
   startedAt: string | null;
   endedAt: string | null;
   durationSec: number | null;
+  talkSec: number | null;
+  waitingSec: number | null;
   status: string | null;
   recordingUrl: string | null;
   recordingStatus: string | null;
@@ -298,6 +300,8 @@ export class CallsHistoryService {
       startedAt: null,
       endedAt: null,
       durationSec: null,
+      talkSec: null,
+      waitingSec: null,
       status: null,
       recordingUrl: null,
       recordingStatus: null,
@@ -358,6 +362,7 @@ export class CallsHistoryService {
       status: string;
       recordingUrl: string | null;
       recordingStatus: string | null;
+      meta: unknown;
       managerUserId: string | null;
       manualCallSessions: {
         outcome: ManualCallOutcome | null;
@@ -385,6 +390,9 @@ export class CallsHistoryService {
   ): CallsHistoryItem {
     const ms = c.manualCallSessions[0];
     const mgr = c.managerUserId ? managerById.get(c.managerUserId) ?? null : null;
+    const meta = (c.meta ?? null) as { talkSec?: unknown; waitingSec?: unknown } | null;
+    const talkSec = meta && typeof meta.talkSec === "number" ? meta.talkSec : null;
+    const waitingSec = meta && typeof meta.waitingSec === "number" ? meta.waitingSec : null;
     return {
       rowKind: "CALL",
       id: c.id,
@@ -394,6 +402,8 @@ export class CallsHistoryService {
       startedAt: c.startedAt.toISOString(),
       endedAt: c.endedAt?.toISOString() ?? null,
       durationSec: c.durationSec,
+      talkSec,
+      waitingSec,
       status: c.status,
       recordingUrl: c.recordingUrl,
       recordingStatus: c.recordingStatus,

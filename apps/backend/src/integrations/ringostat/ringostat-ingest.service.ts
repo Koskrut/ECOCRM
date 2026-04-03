@@ -93,6 +93,8 @@ export class RingostatIngestService {
       let status = this.resolveStatus(raw);
       // Ringostat: duration = время до сброса, billsec = фактическое время разговора. Если billsec=0 — никто не говорил, пропущенный.
       const billsec = this.extractNumber(raw, ["billsec"]);
+      const waitingSec = this.extractNumber(raw, ["waiting", "waiting_sec", "wait_sec", "wait_time"]);
+      const dialogSec = this.extractNumber(raw, ["dialog", "dialog_sec", "talk_sec"]);
       const hasNoTalkTime = billsec !== null ? billsec <= 0 : durationSec !== null && durationSec <= 0;
       if (hasNoTalkTime) {
         status = "MISSED";
@@ -105,12 +107,35 @@ export class RingostatIngestService {
       const customerPhoneNormalized = this.normalizePhone(customerPhoneRaw);
       const managerPhoneNormalized = this.normalizePhone(managerPhoneRaw);
 
+      // Ringostat often sends the same value in E164/dst/connected_with on INBOUND. Matching that
+      // to CRM then finds the manager's own Contact (same mobile) — wrong "client" in history.
+      const phoneForEntityMatch = this.entityMatchPhoneForInbound(
+        direction,
+        customerPhoneNormalized,
+        managerPhoneNormalized,
+      );
+
       const { contactId, leadId, companyId } =
-        await this.matchOrCreateEntities(customerPhoneNormalized, raw);
+        await this.matchOrCreateEntities(phoneForEntityMatch, raw);
 
       const managerUserId = await this.resolveManagerUserId(extension, managerPhoneNormalized);
 
       const provider = RINGOSTAT_PROVIDER;
+
+      const talkSec =
+        billsec !== null
+          ? billsec
+          : dialogSec !== null
+            ? dialogSec
+            : durationSec !== null
+              ? durationSec
+              : null;
+      const waitSec =
+        waitingSec !== null
+          ? waitingSec
+          : durationSec !== null && billsec !== null
+            ? Math.max(0, durationSec - billsec)
+            : null;
 
       const callData: Prisma.CallUncheckedCreateInput = {
         provider,
@@ -126,6 +151,7 @@ export class RingostatIngestService {
         status,
         recordingUrl: recording.url ?? null,
         recordingStatus: recording.status,
+        meta: { talkSec, waitingSec: waitSec } as Prisma.InputJsonValue,
         rawPayload: raw as Prisma.JsonObject,
         contactId: contactId ?? null,
         leadId: leadId ?? null,
@@ -496,6 +522,29 @@ export class RingostatIngestService {
       return `+380${digits}`;
     }
     return `+${digits}`;
+  }
+
+  /**
+   * If INBOUND webhook duplicates one number for both legs, do not link Contact/Lead by it
+   * (avoids showing a staff contact as the "client" in call history).
+   */
+  private entityMatchPhoneForInbound(
+    direction: NormalizedDirection,
+    customerNormalized: string | null,
+    managerNormalized: string | null,
+  ): string | null {
+    if (direction !== "INBOUND") return customerNormalized;
+    if (!customerNormalized || !managerNormalized) return customerNormalized;
+    const c = customerNormalized.replace(/\D/g, "");
+    const m = managerNormalized.replace(/\D/g, "");
+    if (!c || !m) return customerNormalized;
+    if (c === m) {
+      this.logger.debug(
+        "Ringostat INBOUND: customer and manager phone identical in payload, skip entity match",
+      );
+      return null;
+    }
+    return customerNormalized;
   }
 
   /** Return possible phoneNormalized values to try (e.g. 380931112233 and 0931112233). */
