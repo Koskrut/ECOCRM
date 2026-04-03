@@ -13,22 +13,21 @@ export type RingostatCallsListConfig = {
   projectId?: string;
 };
 
+/**
+ * Export column names for /calls/list `fields` (not query params).
+ * Do not use `from` / `to` here — Ringostat rejects them as invalid field names (they clash with date params).
+ */
 const CALLS_LIST_FIELDS = [
   "calldate",
   "caller",
   "callee",
   "src",
   "dst",
-  "from",
-  "to",
   "type",
   "direction",
-  "call_direction",
-  "call_type",
   "outbound_number",
   "uniqueid",
   "call_id",
-  "id",
   "n_alias",
   "disposition",
   "billsec",
