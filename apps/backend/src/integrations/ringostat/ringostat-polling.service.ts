@@ -11,7 +11,6 @@ type RingostatPollingConfig = {
   projectId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
-  callsListFields?: string;
 };
 
 @Injectable()
@@ -59,7 +58,6 @@ export class RingostatPollingService {
           apiBaseUrl: cfg.apiBaseUrl,
           pollingEndpoint: cfg.pollingEndpoint,
           projectId: cfg.projectId,
-          callsListFields: cfg.callsListFields,
         },
         from,
         to,

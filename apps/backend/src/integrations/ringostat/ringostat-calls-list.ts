@@ -11,31 +11,20 @@ export type RingostatCallsListConfig = {
   apiBaseUrl?: string;
   pollingEndpoint?: string;
   projectId?: string;
-  /** Override `fields` for /calls/list (comma-separated). Empty uses env or default below. */
-  callsListFields?: string;
 };
 
 /**
- * Default: KB-safe core + `src` (often the real CLI on /calls/list). For outbound pools add
- * `callee`, `outbound_number`, `E164` via settings if your Ringostat project accepts those names.
+ * Ringostat KB example fields only — strict API installs reject extra names (`src`, `type`, `uniqueid`, …).
+ * Contact matching relies on ingest heuristics for caller/dst when direction is unknown.
  */
-const DEFAULT_CALLS_LIST_FIELDS = [
+const CALLS_LIST_FIELDS = [
   "calldate",
   "caller",
   "dst",
-  "src",
   "disposition",
   "billsec",
   "recording",
 ].join(",");
-
-export function resolveCallsListFields(cfg: RingostatCallsListConfig): string {
-  const fromEnv = process.env.RINGOSTAT_CALLS_LIST_FIELDS?.trim();
-  if (fromEnv) return fromEnv;
-  const custom = cfg.callsListFields?.trim();
-  if (custom) return custom;
-  return DEFAULT_CALLS_LIST_FIELDS;
-}
 
 export function formatRingostatUtcParam(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}:${String(d.getUTCSeconds()).padStart(2, "0")}`;
@@ -69,7 +58,7 @@ export function buildRingostatCallsListUrl(
   url.searchParams.set("export_type", "json");
   url.searchParams.set("from", formatRingostatUtcParam(from));
   url.searchParams.set("to", formatRingostatUtcParam(to));
-  url.searchParams.set("fields", resolveCallsListFields(cfg));
+  url.searchParams.set("fields", CALLS_LIST_FIELDS);
   if (cfg.projectId && cfg.projectId.trim().length > 0) {
     url.searchParams.set("project_id", cfg.projectId.trim());
   }
