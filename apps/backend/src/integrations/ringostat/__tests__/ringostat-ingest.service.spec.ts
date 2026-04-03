@@ -87,4 +87,25 @@ describe("RingostatIngestService", () => {
     };
     assert.equal(resolve(raw), "OUTBOUND");
   });
+
+  it("inbound: E164 is customer even when outbound_number is present (pool line must not match contact)", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+      };
+
+    const raw = {
+      type: "in",
+      additional_call_data: {
+        outbound_number: "380441112233",
+        E164: "380931112233",
+        dst: "380441232323",
+      },
+    };
+    const phones = extract(raw, "INBOUND");
+    assert.equal(phones.customerPhoneRaw, "380931112233");
+    assert.equal(phones.managerPhoneRaw, "380441232323");
+  });
 });

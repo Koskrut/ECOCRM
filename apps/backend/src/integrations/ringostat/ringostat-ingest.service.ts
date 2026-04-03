@@ -411,6 +411,18 @@ export class RingostatIngestService {
     managerPhoneRaw?: string;
     extension?: string;
   } {
+    // INBOUND: never treat outbound_number / pool line as the client — Ringostat often sends it
+    // alongside E164/connected_with; picking it first wrongly matched contacts to the company number.
+    const inboundCustomerRaw =
+      this.ringostatFirstNonEmptyString(
+        getVal(raw, "src"),
+        getVal(raw, "from"),
+        getVal(raw, "caller"),
+        getVal(raw, "E164"),
+        getVal(raw, "connected_with"),
+        getVal(raw, "userfield"),
+      ).trim() || undefined;
+
     const src =
       String(
         (getVal(raw, "src") ??
@@ -451,8 +463,8 @@ export class RingostatIngestService {
     let managerPhoneRaw: string | undefined;
 
     if (direction === "INBOUND") {
-      customerPhoneRaw = src;
-      managerPhoneRaw = dst;
+      customerPhoneRaw = inboundCustomerRaw;
+      managerPhoneRaw = dst || outboundNumber || undefined;
     } else if (direction === "OUTBOUND") {
       customerPhoneRaw = callee || dst;
       managerPhoneRaw = outboundNumber || src;
