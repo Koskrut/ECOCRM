@@ -365,6 +365,10 @@ export function EmployeeModal({
                     </option>
                   ))}
               </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                Після збереження структури на вкладці «Структура» поле синхронізується з org-chart (m1-* →
+                lead1, m2-* → lead2).
+              </p>
             </>
           ) : null}
 

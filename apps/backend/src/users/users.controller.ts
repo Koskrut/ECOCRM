@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import type { Request } from "express";
+import type { AuthUser } from "../auth/auth.types";
 import { UsersService } from "./users.service";
 
 @Controller("users")
@@ -6,8 +8,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  async list() {
-    return { items: await this.usersService.listUsers() };
+  async list(@Req() req: Request & { user?: AuthUser }) {
+    return { items: await this.usersService.listUsers(req.user) };
   }
 
   @Post()

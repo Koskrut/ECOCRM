@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type { UserRole } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
+import { UserRole, type Prisma } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   allocateUniqueUsername,
@@ -12,8 +12,18 @@ import {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listUsers() {
-    return this.prisma.user.findMany({ orderBy: { createdAt: "desc" } });
+  async listUsers(actor?: AuthUser) {
+    const orderBy = { createdAt: "desc" as const };
+    if (!actor || actor.role === UserRole.ADMIN) {
+      return this.prisma.user.findMany({ orderBy });
+    }
+    if (actor.role === UserRole.LEAD) {
+      return this.prisma.user.findMany({
+        where: { OR: [{ id: actor.id }, { leadId: actor.id }] },
+        orderBy,
+      });
+    }
+    return this.prisma.user.findMany({ where: { id: actor.id }, orderBy });
   }
 
   async createUser(payload: {

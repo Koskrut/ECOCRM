@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import {
   ManualCallOutcome,
   ManualCallSessionStatus,
@@ -51,6 +51,21 @@ export class CallsHistoryService {
     const fromDate = dto.from?.trim() ? new Date(dto.from) : null;
     const toDate = dto.to?.trim() ? new Date(dto.to) : null;
 
+    let leadAllowedManagerIds: string[] | null = null;
+    if (actor.role === UserRole.LEAD) {
+      const team = await this.prisma.user.findMany({
+        where: { leadId: actor.id },
+        select: { id: true },
+      });
+      leadAllowedManagerIds = [actor.id, ...team.map((t) => t.id)];
+      if (dto.userId?.trim()) {
+        const pick = dto.userId.trim();
+        if (!leadAllowedManagerIds.includes(pick)) {
+          throw new ForbiddenException("Немає доступу до цього менеджера");
+        }
+      }
+    }
+
     const callConditions: Prisma.Sql[] = [];
     if (fromDate && !Number.isNaN(fromDate.getTime())) {
       callConditions.push(Prisma.sql`c."startedAt" >= ${fromDate}`);
@@ -65,6 +80,14 @@ export class CallsHistoryService {
         OR EXISTS (SELECT 1 FROM "Lead" l WHERE l."id" = c."leadId" AND l."ownerId" = ${actor.id})
         OR EXISTS (SELECT 1 FROM "Contact" ct WHERE ct."id" = c."contactId" AND ct."ownerId" = ${actor.id})
       )`);
+    } else if (leadAllowedManagerIds && leadAllowedManagerIds.length > 0) {
+      if (dto.userId?.trim()) {
+        const uid = dto.userId.trim();
+        callConditions.push(Prisma.sql`c."managerUserId" = ${uid}`);
+      } else {
+        const idParams = Prisma.join(leadAllowedManagerIds.map((id) => Prisma.sql`${id}`));
+        callConditions.push(Prisma.sql`c."managerUserId" IN (${idParams})`);
+      }
     } else if (dto.userId?.trim()) {
       const uid = dto.userId.trim();
       callConditions.push(Prisma.sql`c."managerUserId" = ${uid}`);
@@ -119,6 +142,14 @@ export class CallsHistoryService {
 
     if (actor.role === UserRole.MANAGER) {
       manualConditions.push(Prisma.sql`m."userId" = ${actor.id}`);
+    } else if (leadAllowedManagerIds && leadAllowedManagerIds.length > 0) {
+      if (dto.userId?.trim()) {
+        const uid = dto.userId.trim();
+        manualConditions.push(Prisma.sql`m."userId" = ${uid}`);
+      } else {
+        const idParams = Prisma.join(leadAllowedManagerIds.map((id) => Prisma.sql`${id}`));
+        manualConditions.push(Prisma.sql`m."userId" IN (${idParams})`);
+      }
     } else if (dto.userId?.trim()) {
       manualConditions.push(Prisma.sql`m."userId" = ${dto.userId.trim()}`);
     }

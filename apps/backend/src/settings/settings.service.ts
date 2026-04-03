@@ -1,8 +1,12 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { UKRAINE_REGIONS } from "../store/checkout/uk-regions";
-import { canonicalizeRegionName } from "./org-chart-region-resolver";
+import {
+  canonicalizeRegionName,
+  desiredLeadUserIdForOrgSlot,
+} from "./org-chart-region-resolver";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 
@@ -1109,11 +1113,80 @@ export class SettingsService {
       }
     }
 
-    await this.prisma.systemSetting.upsert({
-      where: { id: ORG_CHART_STRUCTURE_KEY },
-      create: { id: ORG_CHART_STRUCTURE_KEY, value: next as Prisma.InputJsonValue },
-      update: { value: next as Prisma.InputJsonValue },
+    const assignments = next.assignments ?? {};
+    const desiredLeadByUser = new Map<string, string | null>();
+    const slotByUser = new Map<string, string>();
+
+    for (const [slotId, rawUid] of Object.entries(assignments)) {
+      if (rawUid == null || rawUid === "") continue;
+      const uid = String(rawUid).trim();
+      if (!uid) continue;
+      if (slotByUser.has(uid)) {
+        throw new BadRequestException(
+          `Один співробітник не може бути в двох слотах структури (id: ${uid})`,
+        );
+      }
+      slotByUser.set(uid, slotId);
+      const desired = desiredLeadUserIdForOrgSlot(slotId, assignments);
+      desiredLeadByUser.set(uid, desired);
+    }
+
+    const leadIdsToValidate = new Set<string>();
+    for (const lid of desiredLeadByUser.values()) {
+      if (lid) leadIdsToValidate.add(lid);
+    }
+    if (leadIdsToValidate.size > 0) {
+      const leadUsers = await this.prisma.user.findMany({
+        where: { id: { in: [...leadIdsToValidate] } },
+        select: { id: true, role: true },
+      });
+      const byId = new Map(leadUsers.map((u) => [u.id, u]));
+      for (const lid of leadIdsToValidate) {
+        const u = byId.get(lid);
+        if (!u || (u.role !== UserRole.LEAD && u.role !== UserRole.ADMIN)) {
+          throw new BadRequestException(
+            `У слоті lead1/lead2 має бути користувач з роллю LEAD або ADMIN (id: ${lid})`,
+          );
+        }
+      }
+    }
+
+    const collectAssignmentUserIds = (rec: Record<string, string | null>) => {
+      const s = new Set<string>();
+      for (const v of Object.values(rec)) {
+        if (v == null || v === "") continue;
+        const t = String(v).trim();
+        if (t) s.add(t);
+      }
+      return s;
+    };
+    const prevIds = collectAssignmentUserIds(current.assignments ?? {});
+    const nextIds = collectAssignmentUserIds(assignments);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.systemSetting.upsert({
+        where: { id: ORG_CHART_STRUCTURE_KEY },
+        create: { id: ORG_CHART_STRUCTURE_KEY, value: next as Prisma.InputJsonValue },
+        update: { value: next as Prisma.InputJsonValue },
+      });
+
+      for (const uid of prevIds) {
+        if (!nextIds.has(uid)) {
+          await tx.user.updateMany({ where: { id: uid }, data: { leadId: null } });
+        }
+      }
+
+      for (const [uid, desiredLeadId] of desiredLeadByUser) {
+        if (uid === desiredLeadId) {
+          throw new BadRequestException("leadId не може збігатися з id користувача");
+        }
+        await tx.user.updateMany({
+          where: { id: uid },
+          data: { leadId: desiredLeadId },
+        });
+      }
     });
+
     return next;
   }
 }

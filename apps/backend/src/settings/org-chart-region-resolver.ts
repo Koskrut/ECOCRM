@@ -33,10 +33,30 @@ export function isKnownRegion(region: string): boolean {
   return CANONICAL_REGION_SET.has(region);
 }
 
-function resolveLeadSlotId(slotId: string): string | null {
+/** Слот руководителя ветки: lead1 / lead2 (для m1-* / m2-*). */
+export function resolveLeadSlotId(slotId: string): string | null {
   if (slotId === "lead1" || slotId.startsWith("m1-")) return "lead1";
   if (slotId === "lead2" || slotId.startsWith("m2-")) return "lead2";
   return null;
+}
+
+export function isOrgChartLeadSlot(slotId: string): boolean {
+  return slotId === "lead1" || slotId === "lead2";
+}
+
+/**
+ * Який User.id має бути в User.leadId для користувача в цьому слоті (згідно org-chart).
+ * Для lead1/lead2/admin-manager та невідомих слотів — null.
+ */
+export function desiredLeadUserIdForOrgSlot(
+  slotId: string,
+  assignments: Record<string, string | null | undefined>,
+): string | null {
+  if (isOrgChartLeadSlot(slotId)) return null;
+  const parentSlot = resolveLeadSlotId(slotId);
+  if (!parentSlot) return null;
+  const v = assignments[parentSlot];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 function slotPriority(slotId: string): number {
