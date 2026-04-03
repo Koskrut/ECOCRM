@@ -1,6 +1,9 @@
 /**
  * Shared Ringostat /calls/list URL building + fetch + response parsing
  * (used by cron polling and historical backfill).
+ *
+ * Auth: Ringostat docs use header `Auth-key` only. Do not pass `auth` in the query string —
+ * Kong/nginx may reject the request (400/HTML) when combined with the header.
  */
 
 export type RingostatCallsListConfig = {
@@ -62,7 +65,6 @@ export function buildRingostatCallsListUrl(
       ? new URL(`${base.pathname.replace(/\/$/, "")}/${pathSegment}`, base.origin)
       : new URL(endpoint, baseUrl);
 
-  url.searchParams.set("auth", cfg.apiToken);
   url.searchParams.set("export_type", "json");
   url.searchParams.set("from", formatRingostatUtcParam(from));
   url.searchParams.set("to", formatRingostatUtcParam(to));
@@ -100,11 +102,25 @@ export async function fetchRingostatCallsList(
     },
   });
 
+  const raw = await res.text();
+
   if (!res.ok) {
-    const text = await res.text();
-    return { ok: false, status: res.status, bodySnippet: text.slice(0, 500) };
+    return { ok: false, status: res.status, bodySnippet: raw.slice(0, 500) };
   }
 
-  const payload = (await res.json()) as unknown;
+  let payload: unknown;
+  if (raw.trim().length === 0) {
+    payload = [];
+  } else {
+    try {
+      payload = JSON.parse(raw) as unknown;
+    } catch {
+      return {
+        ok: false,
+        status: res.status,
+        bodySnippet: `Expected JSON, got: ${raw.slice(0, 300)}`,
+      };
+    }
+  }
   return { ok: true, events: parseRingostatCallsListPayload(payload) };
 }
