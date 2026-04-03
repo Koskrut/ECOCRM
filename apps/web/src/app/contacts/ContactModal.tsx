@@ -11,6 +11,7 @@ import { ContactTimeline } from "./ContactTimeline";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
 import { apiHttp } from "../../lib/api/client";
+import { contactsApi } from "@/lib/api/resources/contacts";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
@@ -2359,6 +2360,32 @@ export function ContactModal({
                     >
                       {resetPasswordLoading ? "Сбрасываем..." : "Сбросить пароль"}
                     </button>
+                    {effectiveRole === "ADMIN" ? (
+                      <>
+                        <div className="my-1 h-px bg-zinc-100" />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setHeaderActionsOpen(false);
+                            if (!contact) return;
+                            if (!confirm(`Удалить контакт "${fullName ?? contact.id}"?`)) return;
+                            try {
+                              await contactsApi.delete(contact.id);
+                              onUpdate();
+                              onClose();
+                            } catch (e) {
+                              const msg =
+                                (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                                (e instanceof Error ? e.message : "Не удалось удалить контакт");
+                              alert(msg);
+                            }
+                          }}
+                          className="block w-full rounded px-2 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                        >
+                          Удалить контакт
+                        </button>
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

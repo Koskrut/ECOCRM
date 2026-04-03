@@ -901,6 +901,25 @@ export class ContactsService {
     return this.mapToEntity(contact);
   }
 
+  // ===== DELETE =====
+  async delete(id: string, actor?: AuthUser) {
+    if (!actor) {
+      throw new ForbiddenException("Authentication required");
+    }
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only admin can delete contacts");
+    }
+
+    const existing = await this.prisma.contact.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new BadRequestException("contact not found");
+
+    await this.prisma.contact.delete({ where: { id } });
+    return { ok: true };
+  }
+
   // ==========================================================
   // NP SHIPPING PROFILES
   // ==========================================================

@@ -263,4 +263,10 @@ export class ContactsController {
       req.user,
     );
   }
+
+  // DELETE
+  @Delete(":id")
+  async delete(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.delete(id, req.user);
+  }
 }
