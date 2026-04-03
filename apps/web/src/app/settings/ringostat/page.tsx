@@ -435,7 +435,7 @@ export default function RingostatSettingsPage() {
                       callsListFields: e.target.value || undefined,
                     }))
                   }
-                  placeholder="Пусто — встроенный безопасный набор. При ошибке «incorrect field name» укажите список из ЛК Ringostat."
+                  placeholder="Пусто — набор по умолчанию (есть src). Если контакты не линкуются, добавьте из ЛК поля вроде callee, outbound_number, E164 (через запятую)."
                 />
                 <p className="text-xs text-zinc-500">
                   Переменная окружения <code className="rounded bg-zinc-100 px-0.5">RINGOSTAT_CALLS_LIST_FIELDS</code>{" "}

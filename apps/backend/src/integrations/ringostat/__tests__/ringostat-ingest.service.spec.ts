@@ -74,6 +74,24 @@ describe("RingostatIngestService", () => {
     assert.equal(phones.managerPhoneRaw, "+380441112233");
   });
 
+  it("UNKNOWN /calls/list: short caller + long mobile dst maps client to dst", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+      };
+
+    const raw = {
+      calldate: "2026-04-02 12:00:00",
+      caller: "101",
+      dst: "+380501234567",
+    };
+    const phones = extract(raw, "UNKNOWN");
+    assert.equal(phones.customerPhoneRaw, "+380501234567");
+    assert.equal(phones.managerPhoneRaw, "101");
+  });
+
   it("polling payload: direction=out without type must return OUTBOUND", () => {
     const resolve = (raw: Record<string, unknown>) =>
       // @ts-expect-error private
@@ -100,7 +118,7 @@ describe("RingostatIngestService", () => {
     assert.equal(fn("INBOUND", "+380675515499", "+380675515499"), null);
     assert.equal(fn("INBOUND", "+380675515499", "+380501234567"), "+380675515499");
     assert.equal(fn("OUTBOUND", "+380675515499", "+380675515499"), "+380675515499");
-    assert.equal(fn("UNKNOWN", "+380675515499", "+380675515499"), "+380675515499");
+    assert.equal(fn("UNKNOWN", "+380675515499", "+380675515499"), null);
   });
 
   it("inbound: E164 is customer even when outbound_number is present (pool line must not match contact)", () => {

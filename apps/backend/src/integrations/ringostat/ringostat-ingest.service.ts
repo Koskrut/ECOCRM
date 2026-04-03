@@ -502,8 +502,47 @@ export class RingostatIngestService {
       customerPhoneRaw = callee || dst;
       managerPhoneRaw = outboundNumber || src;
     } else {
-      customerPhoneRaw = src || dst;
-      managerPhoneRaw = dst || src;
+      // UNKNOWN: /calls/list often omits type/direction — infer client vs internal line by digit length.
+      const inboundChain = this.ringostatFirstNonEmptyString(
+        getVal(raw, "src"),
+        getVal(raw, "from"),
+        getVal(raw, "caller"),
+        getVal(raw, "E164"),
+        getVal(raw, "connected_with"),
+        getVal(raw, "userfield"),
+      ).trim();
+      const dstChain = this.ringostatFirstNonEmptyString(
+        getVal(raw, "dst"),
+        getVal(raw, "to"),
+        getVal(raw, "callee"),
+        callee ?? "",
+      ).trim();
+
+      const digitsLen = (v: string) => v.replace(/\D/g, "").length;
+      const extMax = 6;
+      const phoneMin = 9;
+      const iLen = digitsLen(inboundChain);
+      const dLen = digitsLen(dstChain);
+
+      if (inboundChain && dstChain) {
+        if (iLen >= phoneMin && dLen <= extMax) {
+          customerPhoneRaw = inboundChain;
+          managerPhoneRaw = dstChain;
+        } else if (dLen >= phoneMin && iLen <= extMax) {
+          customerPhoneRaw = dstChain;
+          managerPhoneRaw = inboundChain;
+        } else {
+          customerPhoneRaw = inboundChain || undefined;
+          managerPhoneRaw =
+            dstChain !== inboundChain ? dstChain : outboundNumber ? String(outboundNumber).trim() : undefined;
+        }
+      } else {
+        customerPhoneRaw = inboundChain || dstChain || undefined;
+        managerPhoneRaw =
+          (dstChain && dstChain !== inboundChain ? dstChain : undefined) ||
+          (inboundChain && inboundChain !== dstChain ? inboundChain : undefined) ||
+          (outboundNumber ? String(outboundNumber).trim() : undefined);
+      }
     }
 
     return {
@@ -532,7 +571,7 @@ export class RingostatIngestService {
   }
 
   /**
-   * If INBOUND webhook duplicates one number for both legs, do not link Contact/Lead by it
+   * If INBOUND (or UNKNOWN list export) duplicates one number for both legs, do not link Contact/Lead by it
    * (avoids showing a staff contact as the "client" in call history).
    */
   private entityMatchPhoneForInbound(
@@ -540,7 +579,7 @@ export class RingostatIngestService {
     customerNormalized: string | null,
     managerNormalized: string | null,
   ): string | null {
-    if (direction !== "INBOUND") return customerNormalized;
+    if (direction !== "INBOUND" && direction !== "UNKNOWN") return customerNormalized;
     if (!customerNormalized || !managerNormalized) return customerNormalized;
     const c = customerNormalized.replace(/\D/g, "");
     const m = managerNormalized.replace(/\D/g, "");

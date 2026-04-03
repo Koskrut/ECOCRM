@@ -16,14 +16,14 @@ export type RingostatCallsListConfig = {
 };
 
 /**
- * Default export columns aligned with Ringostat KB (calldate, caller, dst, disposition, billsec, recording).
- * Omits names that often trigger "incorrect field name" (`uniqueid`, `src`, `callee`, `type`, …). Add
- * `uniqueid` (or others) via settings `callsListFields` or env `RINGOSTAT_CALLS_LIST_FIELDS` when your project supports them.
+ * Default: KB-safe core + `src` (often the real CLI on /calls/list). For outbound pools add
+ * `callee`, `outbound_number`, `E164` via settings if your Ringostat project accepts those names.
  */
 const DEFAULT_CALLS_LIST_FIELDS = [
   "calldate",
   "caller",
   "dst",
+  "src",
   "disposition",
   "billsec",
   "recording",
