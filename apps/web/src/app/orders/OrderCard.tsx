@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Globe, MailPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Globe, MailPlus } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
@@ -20,6 +20,8 @@ export type OrderCardOrder = {
   paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
   isPaid?: boolean;
   hasTtn?: boolean;
+  /** Same TTN number is linked to more than one order */
+  ttnSharedAcrossOrders?: boolean;
   debtAmount?: number;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
@@ -62,6 +64,14 @@ export function OrderCard({
             {order.hasTtn && (
               <span title="ТТН создана" className="inline-flex text-blue-600">
                 <MailPlus className="h-4 w-4" />
+              </span>
+            )}
+            {order.ttnSharedAcrossOrders && (
+              <span
+                title="Номер ТТН также привязан к другому заказу"
+                className="inline-flex text-amber-600"
+              >
+                <AlertTriangle className="h-4 w-4" />
               </span>
             )}
             {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (

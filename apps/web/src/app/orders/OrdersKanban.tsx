@@ -4,6 +4,7 @@ import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
 
 function formatRelativeTime(createdAt: string): string {
@@ -47,6 +48,8 @@ type BoardOrder = {
   debtAmount?: number;
   updatedAt?: string;
   createdAt?: string;
+  /** Same TTN number linked to another order */
+  ttnSharedAcrossOrders?: boolean;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
 };
@@ -382,7 +385,17 @@ export function OrdersKanban({
                         ].join(" ")}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-medium text-zinc-900">{o.orderNumber}</span>
+                          <span className="flex min-w-0 items-center gap-1 font-medium text-zinc-900">
+                            <span className="truncate">{o.orderNumber}</span>
+                            {o.ttnSharedAcrossOrders ? (
+                              <span
+                                title="Номер ТТН также привязан к другому заказу"
+                                className="inline-flex shrink-0 text-amber-600"
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                              </span>
+                            ) : null}
+                          </span>
                           {o.paymentType && (
                             <span
                               className={[

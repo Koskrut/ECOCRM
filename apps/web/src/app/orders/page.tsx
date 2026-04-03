@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, Filter, Globe, MailPlus, Search } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Filter, Globe, MailPlus, Search } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -37,6 +37,7 @@ type OrderSummary = {
   paymentStatus?: "UNPAID" | "PARTIALLY_PAID" | "PAID" | "OVERPAID";
   isPaid?: boolean;
   hasTtn?: boolean;
+  ttnSharedAcrossOrders?: boolean;
   currency: string;
   exchangeRate?: number | null;
   paymentType?: "PREPAYMENT" | "DEFERRED" | null;
@@ -726,6 +727,14 @@ function OrdersPageContent() {
                             {order.hasTtn && (
                               <span title="ТТН создана" className="inline-flex text-blue-600">
                                 <MailPlus className="h-4 w-4" />
+                              </span>
+                            )}
+                            {order.ttnSharedAcrossOrders && (
+                              <span
+                                title="Номер ТТН также привязан к другому заказу"
+                                className="inline-flex text-amber-600"
+                              >
+                                <AlertTriangle className="h-4 w-4" />
                               </span>
                             )}
                             {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (

@@ -88,6 +88,81 @@ export class OrdersService {
     }
   }
 
+  private effectiveOrderIdForTtn(row: {
+    orderId: string | null;
+    shipment: { orderId: string } | null;
+  }): string | null {
+    return row.orderId ?? row.shipment?.orderId ?? null;
+  }
+
+  /**
+   * For the given order IDs, marks each order true if any of its TTNs uses a document number
+   * that is also linked to a different order (directly or via shipment).
+   */
+  private async computeTtnSharedAcrossOrdersFlags(orderIds: string[]): Promise<Map<string, boolean>> {
+    const out = new Map<string, boolean>();
+    for (const id of orderIds) out.set(id, false);
+    if (orderIds.length === 0) return out;
+
+    const pageTtns = await this.prisma.orderTtn.findMany({
+      where: {
+        OR: [{ orderId: { in: orderIds } }, { shipment: { orderId: { in: orderIds } } }],
+      },
+      select: {
+        documentNumber: true,
+        orderId: true,
+        shipment: { select: { orderId: true } },
+      },
+    });
+
+    const rawDocNumbers = Array.from(
+      new Set(
+        pageTtns
+          .map((t) => t.documentNumber)
+          .filter((d) => d != null && String(d).trim().length > 0) as string[],
+      ),
+    );
+
+    if (rawDocNumbers.length === 0) return out;
+
+    const allRows = await this.prisma.orderTtn.findMany({
+      where: { documentNumber: { in: rawDocNumbers } },
+      select: {
+        documentNumber: true,
+        orderId: true,
+        shipment: { select: { orderId: true } },
+      },
+    });
+
+    const orderIdsByNorm = new Map<string, Set<string>>();
+    for (const t of allRows) {
+      const oid = this.effectiveOrderIdForTtn(t);
+      if (!oid) continue;
+      const norm = String(t.documentNumber ?? "").trim();
+      if (!norm) continue;
+      let set = orderIdsByNorm.get(norm);
+      if (!set) {
+        set = new Set();
+        orderIdsByNorm.set(norm, set);
+      }
+      set.add(oid);
+    }
+
+    const sharedNorms = new Set<string>();
+    for (const [norm, ids] of orderIdsByNorm) {
+      if (ids.size > 1) sharedNorms.add(norm);
+    }
+
+    for (const t of pageTtns) {
+      const oid = this.effectiveOrderIdForTtn(t);
+      if (!oid) continue;
+      const norm = String(t.documentNumber ?? "").trim();
+      if (sharedNorms.has(norm)) out.set(oid, true);
+    }
+
+    return out;
+  }
+
   private calc(subtotal: number, discount: number, paid: number) {
     const s = this.num(subtotal, 0);
     const d = Math.max(0, this.num(discount, 0));
@@ -281,6 +356,9 @@ export class OrdersService {
         : [];
     const ownerById = new Map(owners.map((o) => [o.id, o]));
 
+    const pageOrderIds = items.map((o) => o.id);
+    const ttnSharedFlags = await this.computeTtnSharedAcrossOrdersFlags(pageOrderIds);
+
     return {
       items: items.map((o) => {
         const paidAmount = o.paidAmount ?? 0;
@@ -318,6 +396,7 @@ export class OrdersService {
           paymentMethod: o.paymentMethod ?? null,
           documentsRequested: o.documentsRequested ?? null,
           hasTtn: (o._count?.ttns ?? 0) > 0,
+          ttnSharedAcrossOrders: ttnSharedFlags.get(o.id) === true,
           createdAt: o.createdAt,
           itemsCount: o.items.length,
         };
@@ -349,7 +428,11 @@ export class OrdersService {
     });
     if (!o) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(o, actor);
-    return this.mapToEntity(o);
+    const ttnSharedFlags = await this.computeTtnSharedAcrossOrdersFlags([id]);
+    return {
+      ...this.mapToEntity(o),
+      ttnSharedAcrossOrders: ttnSharedFlags.get(id) === true,
+    };
   }
 
   async create(dto: CreateOrderDto, actor?: AuthUser) {

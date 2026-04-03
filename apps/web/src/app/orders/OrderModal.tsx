@@ -129,6 +129,8 @@ type OrderDetails = {
   exchangeRate?: number | null;
   /** TTN records (from Bitrix import or NP creation); status from cron sync or NP API */
   ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
+  /** Same document number is linked to more than one order (from API). */
+  ttnSharedAcrossOrders?: boolean;
   shipments?: Array<{
     id: string;
     status?: string | null;
@@ -1703,7 +1705,16 @@ export function OrderModal({
   return (
     <>
       <EntityModalShell
-        title={headerTitle}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span>{headerTitle}</span>
+            {!isCreate && order?.ttnSharedAcrossOrders ? (
+              <span title="Номер ТТН также привязан к другому заказу">
+                <Badge className="border-amber-200 bg-amber-50 text-amber-800">ТТН в нескольких заказах</Badge>
+              </span>
+            ) : null}
+          </span>
+        }
         subtitle={!isCreate && order ? formatDt(order.createdAt) : undefined}
         headerActions={orderHeaderActions}
         tabsUnderHeader={tabsUnderHeader}
