@@ -57,6 +57,35 @@ function formatSeconds(sec: number | null): string | null {
   return `${m} хв ${String(s).padStart(2, "0")} с`;
 }
 
+function Badge({
+  children,
+  tone = "neutral",
+  title,
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "good" | "warn" | "bad" | "info";
+  title?: string;
+}) {
+  const cls =
+    tone === "good"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "warn"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : tone === "bad"
+          ? "border-red-200 bg-red-50 text-red-700"
+          : tone === "info"
+            ? "border-sky-200 bg-sky-50 text-sky-700"
+            : "border-zinc-200 bg-zinc-100 text-zinc-700";
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
+    >
+      {children}
+    </span>
+  );
+}
+
 function rowTime(row: CallsHistoryItem): string | null {
   if (row.rowKind === "MANUAL_ORPHAN") {
     return row.manualCompletedAt ?? row.sortAt;
@@ -350,25 +379,56 @@ export default function CallsHistoryPage() {
                   const isOutbound = (row.direction ?? "").toUpperCase() === "OUTBOUND";
                   const a = isOutbound ? row.toDisplay : row.fromDisplay;
                   const b = isOutbound ? row.fromDisplay : row.toDisplay;
+                  const recStatus = (row.recordingStatus ?? "").toUpperCase();
+                  const recTone =
+                    recStatus === "READY"
+                      ? "good"
+                      : recStatus === "PENDING"
+                        ? "warn"
+                        : recStatus === "FAILED"
+                          ? "bad"
+                          : "neutral";
                   return (
                     <tr key={`${row.rowKind}-${row.id}`} className="border-b border-zinc-100 last:border-0">
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
                         {t ? format(new Date(t), "dd.MM.yyyy HH:mm") : "—"}
                       </td>
-                      <td className="px-3 py-2 text-zinc-800">{sourceLabel(row)}</td>
+                      <td className="px-3 py-2 text-zinc-800">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{sourceLabel(row)}</span>
+                          {row.direction ? (
+                            <Badge tone={row.direction === "OUTBOUND" ? "info" : "good"}>
+                              {row.direction === "OUTBOUND" ? "OUT" : row.direction === "INBOUND" ? "IN" : row.direction}
+                            </Badge>
+                          ) : null}
+                          {row.provider ? <Badge>{row.provider}</Badge> : null}
+                          {recStatus ? (
+                            <Badge tone={recTone} title="Статус запису">
+                              REC {recStatus}
+                            </Badge>
+                          ) : (
+                            <Badge tone="neutral" title="Статус запису">REC —</Badge>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-zinc-700">
                         {row.direction ? DIR_UA[row.direction] ?? row.direction : "—"}
                       </td>
                       {showManagerCol ? (
                         <td className="px-3 py-2 text-zinc-700">{displayManager?.fullName ?? "—"}</td>
                       ) : null}
-                      <td className="max-w-[200px] px-3 py-2">
-                        <div className="font-medium text-zinc-900">{row.target?.displayName ?? "—"}</div>
-                        <div className="text-xs text-zinc-500">
+                      <td className="max-w-[240px] px-3 py-2">
+                        <div className="font-medium text-zinc-900 truncate" title={row.target?.displayName ?? ""}>
+                          {row.target?.displayName ?? "—"}
+                        </div>
+                        <div
+                          className="text-xs text-zinc-500 font-mono truncate"
+                          title={row.target?.phone ?? row.toDisplay ?? row.fromDisplay ?? ""}
+                        >
                           {row.target?.phone ?? row.toDisplay ?? row.fromDisplay ?? "—"}
                         </div>
                         {a && b && a !== b ? (
-                          <div className="mt-0.5 text-[11px] text-zinc-400 font-mono">
+                          <div className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate" title={`${a} → ${b}`}>
                             {a} <span className="mx-1">→</span> {b}
                           </div>
                         ) : null}
