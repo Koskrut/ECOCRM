@@ -16,6 +16,9 @@ type ActivityItem = {
     direction?: string;
     status?: string;
     durationSec?: number | null;
+    talkSec?: number | null;
+    waitingSec?: number | null;
+    meta?: { talkSec?: number | null; waitingSec?: number | null } | null;
     recordingStatus?: string | null;
     recordingUrl?: string | null;
     startedAt?: string;
@@ -41,6 +44,8 @@ type TimelineItem = {
     direction?: string;
     status?: string;
     durationSec?: number;
+    talkSec?: number;
+    waitingSec?: number;
     recordingStatus?: string;
     recordingUrl?: string;
     startedAt?: string;
@@ -79,6 +84,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const occurredAt = a.occurredAt ?? a.createdAt ?? new Date().toISOString();
     const createdAt = a.createdAt ?? occurredAt;
     const rawCall = (a as ActivityItem).call;
+    const meta = rawCall && typeof rawCall === "object" ? (rawCall as ActivityItem["call"])?.meta ?? null : null;
+    const talkFromMeta = meta && typeof meta.talkSec === "number" ? meta.talkSec : undefined;
+    const waitFromMeta = meta && typeof meta.waitingSec === "number" ? meta.waitingSec : undefined;
     const call =
       rawCall && typeof rawCall === "object"
         ? {
@@ -86,6 +94,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
             status: rawCall.status ?? undefined,
             durationSec:
               typeof rawCall.durationSec === "number" ? rawCall.durationSec : undefined,
+            talkSec:
+              typeof rawCall.talkSec === "number"
+                ? rawCall.talkSec
+                : talkFromMeta,
+            waitingSec:
+              typeof rawCall.waitingSec === "number"
+                ? rawCall.waitingSec
+                : waitFromMeta,
             recordingStatus: rawCall.recordingStatus ?? undefined,
             recordingUrl: rawCall.recordingUrl ?? undefined,
             startedAt: rawCall.startedAt ?? occurredAt,

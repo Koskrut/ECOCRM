@@ -20,6 +20,8 @@ export type CallsHistoryItem = {
   startedAt: string | null;
   endedAt: string | null;
   durationSec: number | null;
+  talkSec: number | null;
+  waitingSec: number | null;
   status: string | null;
   recordingUrl: string | null;
   recordingStatus: string | null;

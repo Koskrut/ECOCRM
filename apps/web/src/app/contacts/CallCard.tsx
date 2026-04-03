@@ -6,6 +6,8 @@ type CallMeta = {
   direction?: string;
   status?: string;
   durationSec?: number;
+  talkSec?: number;
+  waitingSec?: number;
   recordingStatus?: string;
   recordingUrl?: string;
   from?: string;
@@ -92,12 +94,18 @@ export function CallCard({
   const dir = directionLabel(call.direction);
   const st = statusLabel(call.status);
   const durationText = formatDuration(call.durationSec);
+  const talkText = formatDuration(call.talkSec);
+  const waitText = formatDuration(call.waitingSec);
   const occurredAt = new Date(item.occurredAt).toLocaleString();
   const canPlay =
     !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
 
-  const fromLabel = (call.from ?? "").trim();
-  const toLabel = (call.to ?? "").trim();
+  const rawFrom = (call.from ?? "").trim();
+  const rawTo = (call.to ?? "").trim();
+  const isOutbound = (call.direction ?? "").toUpperCase() === "OUTBOUND";
+  // DB stores from=customer and to=manager/line for consistent matching; UI should show real flow.
+  const fromLabel = (isOutbound ? rawTo : rawFrom).trim();
+  const toLabel = (isOutbound ? rawFrom : rawTo).trim();
   const showSingleNumber =
     fromLabel && (!toLabel || fromLabel === toLabel);
 
@@ -163,6 +171,16 @@ export function CallCard({
             {durationText && (
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
                 {durationText}
+              </span>
+            )}
+            {talkText && (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
+                разговор {talkText}
+              </span>
+            )}
+            {waitText && (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
+                ожидание {waitText}
               </span>
             )}
             {hasRecording && (

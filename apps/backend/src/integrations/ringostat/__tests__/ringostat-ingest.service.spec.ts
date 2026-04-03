@@ -88,6 +88,21 @@ describe("RingostatIngestService", () => {
     assert.equal(resolve(raw), "OUTBOUND");
   });
 
+  it("entityMatchPhoneForInbound: same client and manager digits skips contact match phone", () => {
+    const fn = (
+      direction: "INBOUND" | "OUTBOUND" | "UNKNOWN",
+      c: string | null,
+      m: string | null,
+    ) =>
+      // @ts-expect-error private
+      service["entityMatchPhoneForInbound"](direction, c, m) as string | null;
+
+    assert.equal(fn("INBOUND", "+380675515499", "+380675515499"), null);
+    assert.equal(fn("INBOUND", "+380675515499", "+380501234567"), "+380675515499");
+    assert.equal(fn("OUTBOUND", "+380675515499", "+380675515499"), "+380675515499");
+    assert.equal(fn("UNKNOWN", "+380675515499", "+380675515499"), "+380675515499");
+  });
+
   it("inbound: E164 is customer even when outbound_number is present (pool line must not match contact)", () => {
     const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
       // @ts-expect-error private
