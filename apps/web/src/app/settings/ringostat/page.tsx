@@ -3,6 +3,18 @@
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 
+function initialBackfillDates(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const d = now.getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const to = `${y}-${pad(m + 1)}-${pad(d)}`;
+  const first = new Date(Date.UTC(y, m, 1));
+  const from = `${first.getUTCFullYear()}-${pad(first.getUTCMonth() + 1)}-${pad(first.getUTCDate())}`;
+  return { from, to };
+}
+
 type RingostatConfig = {
   isEnabled?: boolean;
   useWebhook?: boolean;
@@ -29,6 +41,10 @@ export default function RingostatSettingsPage() {
   const [apiTokenValue, setApiTokenValue] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [backfillFrom, setBackfillFrom] = useState(initialBackfillDates().from);
+  const [backfillTo, setBackfillTo] = useState(initialBackfillDates().to);
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -126,6 +142,36 @@ export default function RingostatSettingsPage() {
     setExtensions((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const runBackfill = async () => {
+    setBackfillBusy(true);
+    setBackfillMsg(null);
+    setError(null);
+    try {
+      const fromIso = `${backfillFrom}T00:00:00.000Z`;
+      const toIso = `${backfillTo}T23:59:59.999Z`;
+      const r = await apiHttp.post<{
+        chunks: number;
+        totalEvents: number;
+        from: string;
+        to: string;
+      }>("/settings/ringostat/backfill", { from: fromIso, to: toIso }, { timeout: 600_000 });
+      const data = r.data;
+      setBackfillMsg(
+        `Готово: запросов к API ${data.chunks}, записей в ответах ${data.totalEvents}. Повторный импорт безопасен (звонки с тем же id обновляются).`,
+      );
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+      const text = Array.isArray(msg) ? msg.join(", ") : msg;
+      setError(
+        text ??
+          (e instanceof Error ? e.message : "Не удалось выполнить импорт"),
+      );
+    } finally {
+      setBackfillBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -151,6 +197,11 @@ export default function RingostatSettingsPage() {
             {success && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
                 {success}
+              </div>
+            )}
+            {backfillMsg && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">
+                {backfillMsg}
               </div>
             )}
 
@@ -364,6 +415,44 @@ export default function RingostatSettingsPage() {
                     }
                     placeholder="/calls"
                   />
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-4">
+                <h2 className="text-sm font-semibold text-zinc-900">Импорт истории звонков (API)</h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Подтягивает звонки из Ringostat <code className="rounded bg-zinc-100 px-0.5">/calls/list</code> за
+                  выбранные календарные дни (UTC). Запросы идут чанками по 2 суток с перекрытием 15 минут, чтобы не
+                  терять записи на границах. Нужен сохранённый API token (и те же project ID / endpoint, что для
+                  polling).
+                </p>
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-zinc-700">С даты (UTC)</label>
+                    <input
+                      type="date"
+                      className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                      value={backfillFrom}
+                      onChange={(e) => setBackfillFrom(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-xs font-medium text-zinc-700">По дату (UTC)</label>
+                    <input
+                      type="date"
+                      className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                      value={backfillTo}
+                      onChange={(e) => setBackfillTo(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={backfillBusy}
+                    onClick={() => void runBackfill()}
+                    className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {backfillBusy ? "Импорт…" : "Запустить импорт"}
+                  </button>
                 </div>
               </div>
             </div>
