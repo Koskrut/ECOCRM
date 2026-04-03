@@ -81,12 +81,20 @@ export class CallsHistoryService {
         OR EXISTS (SELECT 1 FROM "Contact" ct WHERE ct."id" = c."contactId" AND ct."ownerId" = ${actor.id})
       )`);
     } else if (leadAllowedManagerIds && leadAllowedManagerIds.length > 0) {
+      const idParams = Prisma.join(leadAllowedManagerIds.map((id) => Prisma.sql`${id}`));
       if (dto.userId?.trim()) {
         const uid = dto.userId.trim();
-        callConditions.push(Prisma.sql`c."managerUserId" = ${uid}`);
+        callConditions.push(Prisma.sql`(
+          c."managerUserId" = ${uid}
+          OR EXISTS (SELECT 1 FROM "Lead" l WHERE l."id" = c."leadId" AND l."ownerId" = ${uid})
+          OR EXISTS (SELECT 1 FROM "Contact" ct WHERE ct."id" = c."contactId" AND ct."ownerId" = ${uid})
+        )`);
       } else {
-        const idParams = Prisma.join(leadAllowedManagerIds.map((id) => Prisma.sql`${id}`));
-        callConditions.push(Prisma.sql`c."managerUserId" IN (${idParams})`);
+        callConditions.push(Prisma.sql`(
+          c."managerUserId" IN (${idParams})
+          OR EXISTS (SELECT 1 FROM "Lead" l WHERE l."id" = c."leadId" AND l."ownerId" IN (${idParams}))
+          OR EXISTS (SELECT 1 FROM "Contact" ct WHERE ct."id" = c."contactId" AND ct."ownerId" IN (${idParams}))
+        )`);
       }
     } else if (dto.userId?.trim()) {
       const uid = dto.userId.trim();
