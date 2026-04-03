@@ -373,8 +373,11 @@ export default function RingostatSettingsPage() {
                 Маппинг внутренних линий → пользователи CRM
               </h2>
               <p className="text-xs text-zinc-500">
-                Используется для определения ответственного менеджера по данным Ringostat
-                (extension / user / line).
+                Ответственный менеджер определяется только по этой таблице (ключ — значение
+                добавочного из Ringostat, например <code className="rounded bg-zinc-100 px-0.5">extension_number</code>
+                из вебхука). Если добавочного нет в таблице, в настройках интеграции можно задать{" "}
+                <code className="rounded bg-zinc-100 px-0.5">defaultManagerId</code> (fallback на одного
+                пользователя).
               </p>
 
               <div className="overflow-hidden rounded-md border border-zinc-200">

@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
+import { RingostatBackfillService } from "../integrations/ringostat/ringostat-backfill.service";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
@@ -11,11 +12,15 @@ import type {
   TelegramConfig,
 } from "./settings.service";
 import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings.service";
+import { RingostatBackfillDto } from "./dto/ringostat-backfill.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
 export class SettingsController {
-  constructor(private readonly settings: SettingsService) {}
+  constructor(
+    private readonly settings: SettingsService,
+    private readonly ringostatBackfill: RingostatBackfillService,
+  ) {}
 
   @Get("exchange-rates")
   @Roles(UserRole.ADMIN)
@@ -98,6 +103,13 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setRingostatConfig(@Body() body: Partial<RingostatConfig>) {
     return this.settings.setRingostatConfig(body);
+  }
+
+  /** Historical import from Ringostat /calls/list (chunked, overlapping windows; upsert by external id). */
+  @Post("ringostat/backfill")
+  @Roles(UserRole.ADMIN)
+  runRingostatBackfill(@Body() body: RingostatBackfillDto) {
+    return this.ringostatBackfill.backfill(body.from, body.to);
   }
 
   @Get("outbound-voice")

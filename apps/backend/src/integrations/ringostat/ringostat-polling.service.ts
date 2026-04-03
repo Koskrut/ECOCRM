@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
 import { PrismaService } from "../../prisma/prisma.service";
+import { fetchRingostatCallsList } from "./ringostat-calls-list";
 import { RINGOSTAT_PROVIDER, RingostatIngestService } from "./ringostat-ingest.service";
 
 type RingostatPollingConfig = {
@@ -51,88 +52,25 @@ export class RingostatPollingService {
       const from = new Date(lastPollAt.getTime() - lookbackMinutes * 60_000);
       const to = now;
 
-      const baseUrl =
-        (cfg.apiBaseUrl && cfg.apiBaseUrl.trim().length > 0
-          ? cfg.apiBaseUrl
-          : process.env.RINGOSTAT_API_URL) ?? "https://api.ringostat.net";
-      const endpoint =
-        (cfg.pollingEndpoint && cfg.pollingEndpoint.trim().length > 0
-          ? cfg.pollingEndpoint
-          : "/calls/list") ?? "/calls/list";
-
-      const base = new URL(baseUrl);
-      const isCallsList =
-        endpoint === "/calls/list" || endpoint === "calls/list" || endpoint.endsWith("calls/list");
-      const useLegacyBase = isCallsList;
-      const pathSegment = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
-      const url =
-        useLegacyBase
-          ? new URL(`/${pathSegment}`, base.origin)
-          : base.pathname !== "/" && base.pathname !== ""
-            ? new URL(`${base.pathname.replace(/\/$/, "")}/${pathSegment}`, base.origin)
-            : new URL(endpoint, baseUrl);
-      url.searchParams.set("auth", apiToken);
-      url.searchParams.set("export_type", "json");
-      const fmt = (d: Date) =>
-        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}:${String(d.getUTCSeconds()).padStart(2, "0")}`;
-      url.searchParams.set("from", fmt(from));
-      url.searchParams.set("to", fmt(to));
-      url.searchParams.set(
-        "fields",
-        [
-          // Primary timing + participants
-          "calldate",
-          "caller",
-          "callee",
-          "src",
-          "dst",
-          "from",
-          "to",
-          // Direction hints (export fields can vary by Ringostat account/settings)
-          "type",
-          "direction",
-          "call_direction",
-          "call_type",
-          // Outbound-specific hints
-          "outbound_number",
-          // Identity / idempotency helpers
-          "uniqueid",
-          "call_id",
-          "id",
-          // Status & media
-          "n_alias",
-          "disposition",
-          "billsec",
-          "recording",
-          "duration",
-        ].join(","),
-      );
-      if (cfg.projectId && cfg.projectId.trim().length > 0) {
-        url.searchParams.set("project_id", cfg.projectId.trim());
-      }
-
-      const res = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Auth-key": apiToken,
+      const listResult = await fetchRingostatCallsList(
+        {
+          apiToken,
+          apiBaseUrl: cfg.apiBaseUrl,
+          pollingEndpoint: cfg.pollingEndpoint,
+          projectId: cfg.projectId,
         },
-      });
+        from,
+        to,
+      );
 
-      if (!res.ok) {
-        const text = await res.text();
+      if (!listResult.ok) {
         this.logger.error(
-          `Ringostat polling HTTP ${res.status}: ${text.slice(0, 500)}`,
+          `Ringostat polling HTTP ${listResult.status}: ${listResult.bodySnippet}`,
         );
         return;
       }
 
-      const payload = (await res.json()) as unknown;
-      const events =
-        (Array.isArray(payload) && payload) ||
-        (Array.isArray((payload as { results?: unknown[] }).results)
-          ? (payload as { results: unknown[] }).results
-          : []);
+      const events = listResult.events;
 
       if (events.length > 0) {
         await this.ingest.ingestFromApi(events);

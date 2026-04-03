@@ -123,4 +123,65 @@ describe("RingostatIngestService", () => {
     assert.equal(phones.customerPhoneRaw, "380931112233");
     assert.equal(phones.managerPhoneRaw, "380441232323");
   });
+
+  it("inbound: when dst digits equal client, dst is not used as manager phone (use outbound_number)", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+      };
+
+    const raw = {
+      type: "in",
+      additional_call_data: {
+        E164: "380931112233",
+        dst: "380931112233",
+        outbound_number: "380441112233",
+      },
+    };
+    const phones = extract(raw, "INBOUND");
+    assert.equal(phones.customerPhoneRaw, "380931112233");
+    assert.equal(phones.managerPhoneRaw, "380441112233");
+  });
+
+  it("inbound: when dst equals client and outbound empty, manager phone is undefined", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+        extension?: string;
+      };
+
+    const raw = {
+      type: "in",
+      additional_call_data: {
+        E164: "380675785818",
+        dst: "380675785818",
+        connected_with: "380675785818",
+      },
+    };
+    const phones = extract(raw, "INBOUND");
+    assert.equal(phones.customerPhoneRaw, "380675785818");
+    assert.equal(phones.managerPhoneRaw, undefined);
+  });
+
+  it("inbound: extension_number from additional_call_data is exposed as extension", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as { extension?: string };
+
+    const raw = {
+      type: "in",
+      additional_call_data: {
+        E164: "380931112233",
+        dst: "380441232323",
+        extension_number: "101",
+        employee_email: "email@example.com",
+      },
+    };
+    const phones = extract(raw, "INBOUND");
+    assert.equal(phones.extension, "101");
+  });
 });

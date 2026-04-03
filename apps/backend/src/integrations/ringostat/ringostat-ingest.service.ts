@@ -118,7 +118,7 @@ export class RingostatIngestService {
       const { contactId, leadId, companyId } =
         await this.matchOrCreateEntities(phoneForEntityMatch, raw);
 
-      const managerUserId = await this.resolveManagerUserId(extension, managerPhoneNormalized);
+      const managerUserId = await this.resolveManagerUserId(extension);
 
       const provider = RINGOSTAT_PROVIDER;
 
@@ -490,7 +490,14 @@ export class RingostatIngestService {
 
     if (direction === "INBOUND") {
       customerPhoneRaw = inboundCustomerRaw;
-      managerPhoneRaw = dst || outboundNumber || undefined;
+      const custNorm = this.normalizePhone(customerPhoneRaw);
+      let mgrDst = dst || undefined;
+      const dstNorm = mgrDst ? this.normalizePhone(mgrDst) : null;
+      if (mgrDst && custNorm && dstNorm && dstNorm === custNorm) {
+        // Ringostat sometimes repeats the client number in dst; do not treat it as the manager leg.
+        mgrDst = undefined;
+      }
+      managerPhoneRaw = mgrDst || outboundNumber || undefined;
     } else if (direction === "OUTBOUND") {
       customerPhoneRaw = callee || dst;
       managerPhoneRaw = outboundNumber || src;
@@ -663,10 +670,8 @@ export class RingostatIngestService {
     };
   }
 
-  private async resolveManagerUserId(
-    extension: string | undefined,
-    managerPhoneNormalized: string | null,
-  ): Promise<string | null> {
+  /** Manager = mapping from Ringostat extension (settings) or defaultManagerId fallback only. */
+  private async resolveManagerUserId(extension: string | undefined): Promise<string | null> {
     const setting = await this.prisma.integrationSetting.findFirst({
       where: { provider: RINGOSTAT_PROVIDER },
       select: { config: true },
@@ -680,14 +685,6 @@ export class RingostatIngestService {
 
     if (extension && config?.extensionsToUserId?.[extension]) {
       return config.extensionsToUserId[extension];
-    }
-
-    if (managerPhoneNormalized) {
-      const user = await this.prisma.user.findFirst({
-        where: { email: { contains: managerPhoneNormalized, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (user) return user.id;
     }
 
     return config?.defaultManagerId ?? null;
