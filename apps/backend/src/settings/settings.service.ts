@@ -4,8 +4,10 @@ import { UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { UKRAINE_REGIONS } from "../store/checkout/uk-regions";
 import {
+  allocateManagerSlotForLeadRoot,
   canonicalizeRegionName,
   desiredLeadUserIdForOrgSlot,
+  leadRootSlotForLeadUser,
 } from "./org-chart-region-resolver";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
@@ -1102,7 +1104,110 @@ export class SettingsService {
       extraSlots: Array.isArray(body.extraSlots) ? body.extraSlots : current.extraSlots,
       regions: body.regions ?? current.regions,
     };
+    return this.persistOrgChartWithLeadSync(current, next);
+  }
 
+  /**
+   * Оновлює org-chart, коли в профілі змінили керівника (PATCH user.leadId).
+   * Переносить користувача в перший вільний m1-* / m2-* під відповідний lead1/lead2.
+   */
+  async syncOrgChartForUserLeadChange(userId: string, leadId: string | null): Promise<void> {
+    const current = await this.getOrgChartStructure();
+    const assignments: Record<string, string | null> = { ...current.assignments };
+    let extraSlots = [...current.extraSlots];
+
+    for (const key of Object.keys(assignments)) {
+      const v = assignments[key];
+      if (v != null && String(v).trim() === userId) {
+        assignments[key] = null;
+      }
+    }
+
+    if (leadId != null && leadId.trim() !== "") {
+      const root = leadRootSlotForLeadUser(assignments, leadId);
+      if (!root) {
+        throw new BadRequestException(
+          "Керівник має бути призначений у слотах lead1 або lead2 на оргструктурі. Спочатку відкрийте «Структура» або збережіть її з цим керівником у lead1/lead2.",
+        );
+      }
+      const { slotId, extraSlots: nextExtra } = allocateManagerSlotForLeadRoot(root, extraSlots, assignments);
+      extraSlots = nextExtra;
+      assignments[slotId] = userId;
+    }
+
+    const next = {
+      assignments,
+      extraSlots,
+      regions: current.regions,
+    };
+    await this.persistOrgChartWithLeadSync(current, next);
+  }
+
+  /** Прибрати користувача з усіх слотів (перед видаленням акаунта). */
+  async syncOrgChartRemoveUserFromAllSlots(userId: string): Promise<void> {
+    const current = await this.getOrgChartStructure();
+    const assignments: Record<string, string | null> = { ...current.assignments };
+    let changed = false;
+    for (const key of Object.keys(assignments)) {
+      const v = assignments[key];
+      if (v != null && String(v).trim() === userId) {
+        assignments[key] = null;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const next = {
+      assignments,
+      extraSlots: current.extraSlots,
+      regions: current.regions,
+    };
+    await this.persistOrgChartWithLeadSync(current, next);
+  }
+
+  /** Якщо роль більше не LEAD/ADMIN — прибрати зі слотів lead1/lead2 у структурі. */
+  async syncOrgChartClearLeadSlotIfDemoted(userId: string, newRole: UserRole): Promise<void> {
+    if (newRole === UserRole.LEAD || newRole === UserRole.ADMIN) return;
+    const current = await this.getOrgChartStructure();
+    const assignments: Record<string, string | null> = { ...current.assignments };
+    let changed = false;
+    for (const slot of ["lead1", "lead2"] as const) {
+      const v = assignments[slot];
+      if (v != null && String(v).trim() === userId) {
+        assignments[slot] = null;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const next = {
+      assignments,
+      extraSlots: current.extraSlots,
+      regions: current.regions,
+    };
+    await this.persistOrgChartWithLeadSync(current, next);
+  }
+
+  private collectAssignmentUserIds(rec: Record<string, string | null>) {
+    const s = new Set<string>();
+    for (const v of Object.values(rec)) {
+      if (v == null || v === "") continue;
+      const t = String(v).trim();
+      if (t) s.add(t);
+    }
+    return s;
+  }
+
+  private async persistOrgChartWithLeadSync(
+    current: {
+      assignments: Record<string, string | null>;
+      extraSlots: string[];
+      regions: Record<string, string[]>;
+    },
+    next: {
+      assignments: Record<string, string | null>;
+      extraSlots: string[];
+      regions: Record<string, string[]>;
+    },
+  ): Promise<{ assignments: Record<string, string | null>; extraSlots: string[]; regions: Record<string, string[]> }> {
     const known = new Set(UKRAINE_REGIONS);
     for (const [slotId, regionList] of Object.entries(next.regions ?? {})) {
       for (const raw of regionList ?? []) {
@@ -1151,17 +1256,8 @@ export class SettingsService {
       }
     }
 
-    const collectAssignmentUserIds = (rec: Record<string, string | null>) => {
-      const s = new Set<string>();
-      for (const v of Object.values(rec)) {
-        if (v == null || v === "") continue;
-        const t = String(v).trim();
-        if (t) s.add(t);
-      }
-      return s;
-    };
-    const prevIds = collectAssignmentUserIds(current.assignments ?? {});
-    const nextIds = collectAssignmentUserIds(assignments);
+    const prevIds = this.collectAssignmentUserIds(current.assignments ?? {});
+    const nextIds = this.collectAssignmentUserIds(assignments);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.systemSetting.upsert({

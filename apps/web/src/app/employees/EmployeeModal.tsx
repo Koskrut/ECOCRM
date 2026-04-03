@@ -366,8 +366,8 @@ export function EmployeeModal({
                   ))}
               </select>
               <p className="mt-1 text-xs text-zinc-500">
-                Після збереження структури на вкладці «Структура» поле синхронізується з org-chart (m1-* →
-                lead1, m2-* → lead2).
+                Зміна тут оновлює org-chart (слот m1-* / m2-* під lead1/lead2). Збереження структури на
+                вкладці «Структура» також перезаписує це поле.
               </p>
             </>
           ) : null}

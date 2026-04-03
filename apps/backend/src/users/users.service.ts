@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { UserRole, type Prisma } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import {
   allocateUniqueUsername,
   normalizeUsername,
@@ -10,7 +11,10 @@ import {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
   async listUsers(actor?: AuthUser) {
     const orderBy = { createdAt: "desc" as const };
@@ -134,15 +138,19 @@ export class UsersService {
         if (lead.role !== "LEAD" && lead.role !== "ADMIN") {
           throw new BadRequestException("leadId must reference a LEAD or ADMIN user");
         }
-        data.lead = { connect: { id: payload.leadId } };
-      } else {
-        data.lead = { disconnect: true };
       }
+      await this.settings.syncOrgChartForUserLeadChange(id, payload.leadId);
     }
 
+    const dataPruned = Object.fromEntries(
+      Object.entries(data).filter(([, v]) => v !== undefined),
+    ) as Prisma.UserUpdateInput;
+    if (Object.keys(dataPruned).length === 0) {
+      return this.prisma.user.findUniqueOrThrow({ where: { id } });
+    }
     return this.prisma.user.update({
       where: { id },
-      data,
+      data: dataPruned,
     });
   }
 
@@ -150,14 +158,18 @@ export class UsersService {
     if (!id) throw new BadRequestException("id is required");
     if (!role) throw new BadRequestException("role is required");
 
-    return this.prisma.user.update({
+    const r = role as UserRole;
+    const user = await this.prisma.user.update({
       where: { id },
-      data: { role: role as UserRole },
+      data: { role: r },
     });
+    await this.settings.syncOrgChartClearLeadSlotIfDemoted(id, r);
+    return user;
   }
 
   async deleteUser(id: string) {
     if (!id) throw new BadRequestException("id is required");
+    await this.settings.syncOrgChartRemoveUserFromAllSlots(id);
     return this.prisma.user.delete({ where: { id } });
   }
 }
