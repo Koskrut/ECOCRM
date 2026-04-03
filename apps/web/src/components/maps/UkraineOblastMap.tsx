@@ -8,6 +8,7 @@ import { Maximize2 } from "lucide-react";
 import { formatMoneyUsd } from "@/app/analytics/analytics-ui";
 import { apiHttp } from "@/lib/api/client";
 import { MapRegionDrilldownModal } from "./MapRegionDrilldownModal";
+import { formatDate } from "@/lib/crmDatetime";
 import {
   ANALYTICS_REGION_BY_ISO,
   OBLAST_LABEL_UK,
@@ -426,11 +427,9 @@ export function UkraineOblastMap() {
           </div>
           <div className="text-xs text-zinc-500">
             Вікно:{" "}
-            {data.period?.from
-              ? new Date(data.period.from).toLocaleDateString("uk-UA")
-              : "—"}{" "}
+            {data.period?.from ? formatDate(data.period.from) : "—"}{" "}
             —{" "}
-            {data.period?.to ? new Date(data.period.to).toLocaleDateString("uk-UA") : "—"}
+            {data.period?.to ? formatDate(data.period.to) : "—"}
           </div>
         </div>
       )}

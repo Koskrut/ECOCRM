@@ -5,6 +5,7 @@ import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type OrderListItem = {
   id: string;
@@ -132,7 +133,7 @@ export function EntityOrdersList({
                   </div>
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  {new Date(o.createdAt).toLocaleString()}
+                  {formatDateTime(o.createdAt)}
                 </div>
               </div>
 

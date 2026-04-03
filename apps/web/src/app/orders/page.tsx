@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Filter, Globe, MailPlus, Search } from "lu
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { formatDate } from "@/lib/crmDatetime";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { FinancialKanban } from "./FinancialKanban";
@@ -751,7 +752,7 @@ function OrdersPageContent() {
                           {order.owner?.fullName || "—"}
                         </td>
                         <td className="px-4 py-4 text-zinc-500">
-                          {new Date(order.createdAt).toLocaleDateString()}
+                          {formatDate(order.createdAt)}
                         </td>
                         <td className="px-4 py-4 hidden md:table-cell">
                           {order.paymentType ? (

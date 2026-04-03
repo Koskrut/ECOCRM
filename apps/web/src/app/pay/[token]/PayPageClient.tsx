@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { PublicPayPayload } from "./public-pay.types";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 const STATUS_UA: Record<string, string> = {
   PENDING: "Очікує оплату",
@@ -95,7 +96,7 @@ export function PayPageClient({
                 <div className="pay-public-field-label">Призначення платежу</div>
                 <div className="pay-public-field-val pay-public-purpose">{data.purpose}</div>
               </div>
-              <div className="pay-public-muted-xs">Дійсно до: {new Date(data.expiresAt).toLocaleString("uk-UA")}</div>
+              <div className="pay-public-muted-xs">Дійсно до: {formatDateTime(data.expiresAt)}</div>
             </div>
 
             {data.effectiveStatus === "PENDING" ? (

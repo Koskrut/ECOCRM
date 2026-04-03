@@ -10,6 +10,7 @@ import {
   type OutboundScenario,
   type CreateCampaignBody,
 } from "@/lib/api/resources/outbound";
+import { formatDate } from "@/lib/crmDatetime";
 
 const TARGET_LABELS: Record<OutboundTargetType, string> = {
   LEAD: "Leads",
@@ -46,14 +47,6 @@ function CampaignStatusBar({ stats }: { stats: Record<string, number> }) {
       ))}
     </span>
   );
-}
-
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function CreateCampaignModal({

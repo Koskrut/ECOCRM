@@ -5,17 +5,12 @@ import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
+import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
 
 export type DashboardPeriod = "week" | "month";
 
 function getDateRange(period: DashboardPeriod): { from: Date; to: Date } {
-  const to = new Date();
-  to.setHours(23, 59, 59, 999);
-  const from = new Date(to);
-  const days = period === "week" ? 6 : 29;
-  from.setDate(from.getDate() - days);
-  from.setHours(0, 0, 0, 0);
-  return { from, to };
+  return kyivStatsRange(period === "week" ? 6 : 29);
 }
 
 function buildOrderWhere(actor: AuthUser | undefined, from: Date, to: Date): Prisma.OrderWhereInput {
@@ -40,16 +35,15 @@ function buildLeadWhere(actor: AuthUser | undefined, from: Date, to: Date): Pris
 
 const DATE_YMD = /^\d{4}-\d{2}-\d{2}$/;
 
-function utcDayBounds(dateYmd: string): { from: Date; to: Date } {
+function calendarDayBoundsKyiv(dateYmd: string): { from: Date; to: Date } {
   if (!DATE_YMD.test(dateYmd)) {
     throw new BadRequestException("Invalid date; use YYYY-MM-DD");
   }
-  const from = new Date(`${dateYmd}T00:00:00.000Z`);
-  const to = new Date(`${dateYmd}T23:59:59.999Z`);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+  try {
+    return kyivDayBounds(dateYmd);
+  } catch {
     throw new BadRequestException("Invalid date");
   }
-  return { from, to };
 }
 
 function paymentAmountUsd(
@@ -83,7 +77,7 @@ export type DailyTeamActivityRow = {
 };
 
 export type DailyTeamActivityPayload = {
-  /** Same YYYY-MM-DD as requested (UTC calendar day). */
+  /** Same YYYY-MM-DD as requested (Kyiv calendar day). */
   date: string;
   rows: DailyTeamActivityRow[];
 };
@@ -185,7 +179,7 @@ export class DashboardService {
     });
     const byDay = new Map<string, { totalAmount: number; count: number }>();
     for (const o of orders) {
-      const date = o.createdAt.toISOString().slice(0, 10);
+      const date = instantToKyivYmd(o.createdAt);
       const cur = byDay.get(date) ?? { totalAmount: 0, count: 0 };
       const total = Number(o.totalAmount ?? 0);
       const adj = Number(o.returnAdjustmentAmount ?? 0);
@@ -224,8 +218,8 @@ export class DashboardService {
     if (trimmed && !DATE_YMD.test(trimmed)) {
       throw new BadRequestException("Invalid date; use YYYY-MM-DD");
     }
-    const dateYmd = trimmed && DATE_YMD.test(trimmed) ? trimmed : new Date().toISOString().slice(0, 10);
-    const { from, to } = utcDayBounds(dateYmd);
+    const dateYmd = trimmed && DATE_YMD.test(trimmed) ? trimmed : todayYmdKyiv();
+    const { from, to } = calendarDayBoundsKyiv(dateYmd);
 
     const visibleIds = await this.resolveVisibleUserIds(actor);
     if (visibleIds.length === 0) {

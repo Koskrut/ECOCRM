@@ -7,6 +7,7 @@ import { tasksApi, type Task, type TaskStatus, type TaskSortField } from "@/lib/
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatDateTime, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
 
 const TASK_STATUS_OPTIONS: { value: TaskStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -31,38 +32,18 @@ const SORT_OPTIONS: { sortBy: TaskSortField; sortDir: "asc" | "desc"; label: str
 ];
 
 function formatDueAt(dueAt: string | null | undefined): string {
-  if (!dueAt) return "—";
-  return new Date(dueAt).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(dueAt);
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatTaskDateCell(dateStr: string | null | undefined): string {
+  return formatDateTime(dateStr);
 }
 
 function getPeriodBounds(period: "" | "week" | "overdue"): { dueFrom?: string; dueTo?: string; status?: TaskStatus[] } {
   const now = new Date();
   if (period === "week") {
-    const day = now.getDay();
-    const start = new Date(now);
-    start.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    end.setHours(23, 59, 59, 999);
-    return { dueFrom: start.toISOString(), dueTo: end.toISOString() };
+    const { from, to } = kyivWeekIsoBoundsUtcIsoStrings();
+    return { dueFrom: from, dueTo: to };
   }
   if (period === "overdue") {
     return { dueTo: now.toISOString(), status: ["OPEN", "IN_PROGRESS"] };
@@ -515,7 +496,7 @@ export default function TasksPage() {
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <TaskLinkedTo task={task} />
                     </td>
-                    <td className="px-4 py-3 text-zinc-500 text-xs">{formatDate(task.createdAt)}</td>
+                    <td className="px-4 py-3 text-zinc-500 text-xs">{formatTaskDateCell(task.createdAt)}</td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
                         <div className="flex gap-1">
@@ -633,10 +614,10 @@ export default function TasksPage() {
                 <div className="border-b border-zinc-100 p-4">
                   <p className="text-xs font-medium text-zinc-500">Dates</p>
                   <ul className="mt-1 space-y-0.5 text-sm text-zinc-700">
-                    <li>Created: {formatDate(selectedTask.createdAt)}</li>
-                    <li>Updated: {formatDate(selectedTask.updatedAt)}</li>
+                    <li>Created: {formatTaskDateCell(selectedTask.createdAt)}</li>
+                    <li>Updated: {formatTaskDateCell(selectedTask.updatedAt)}</li>
                     {selectedTask.completedAt && (
-                      <li>Completed: {formatDate(selectedTask.completedAt)}</li>
+                      <li>Completed: {formatTaskDateCell(selectedTask.completedAt)}</li>
                     )}
                   </ul>
                 </div>

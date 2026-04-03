@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
+import { formatDate } from "@/lib/crmDatetime";
 
 /** Phase 5: Returns kanban — columns by ReturnStatus, drag-and-drop to change status (validated on backend). */
 
@@ -73,12 +74,6 @@ const STATUS_LABELS: Record<ReturnStatus, string> = {
   REFUND_OR_ADJUSTMENT: "Повернення коштів",
   CLOSED: "Закрито",
 };
-
-function formatDate(v: string | null | undefined): string {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("uk-UA");
-}
 
 function isKnownStatus(s: string): s is ReturnStatus {
   return COLUMN_ORDER.includes(s as ReturnStatus);

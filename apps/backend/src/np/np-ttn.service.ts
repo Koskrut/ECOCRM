@@ -17,6 +17,7 @@ import {
   orderStageToLegacyStatus,
 } from "../orders/order-status-sync.mapper";
 import { PrismaService } from "../prisma/prisma.service";
+import { kyivWallToUtc } from "../crm-timezone";
 
 type SenderCache = {
   senderCityRef: string;
@@ -1496,7 +1497,7 @@ export class NpTtnService {
   }
 
   private tryParseNpDateTime(v: unknown): Date | null {
-    // NP часто возвращает "12-02-2026 09:00:00"
+    // NP часто возвращает "12-02-2026 09:00:00" (локальний час UA)
     const s = String(v ?? "").trim();
     if (!s) return null;
 
@@ -1510,7 +1511,7 @@ export class NpTtnService {
     const mi = Number(m[5]);
     const ss = Number(m[6] ?? "0");
 
-    const dt = new Date(yyyy, mm - 1, dd, hh, mi, ss);
+    const dt = kyivWallToUtc(yyyy, mm, dd, hh, mi, ss);
     return Number.isFinite(dt.getTime()) ? dt : null;
   }
 }

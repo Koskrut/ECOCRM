@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Phone, Trash2 } from "lucide-react";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type CallMeta = {
   direction?: string;
@@ -100,7 +101,7 @@ export function CallCard({
   const durationText = formatDuration(call.durationSec);
   const talkText = formatDuration(call.talkSec);
   const waitText = formatDuration(call.waitingSec);
-  const occurredAt = new Date(item.occurredAt).toLocaleString();
+  const occurredAt = formatDateTime(item.occurredAt);
   const canPlay =
     !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
 

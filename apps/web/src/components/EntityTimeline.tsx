@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 export type TimelineItem = {
   id: string;
@@ -64,7 +65,7 @@ export function EntityTimeline({ entity, id }: Props) {
       {items.map((it) => (
         <div key={it.id} className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-zinc-500">{new Date(it.createdAt).toLocaleString()}</div>
+            <div className="text-xs text-zinc-500">{formatDateTime(it.createdAt)}</div>
             <div className="text-xs text-zinc-500">
               {it.createdBy?.fullName || it.createdBy?.email || "System"}
             </div>

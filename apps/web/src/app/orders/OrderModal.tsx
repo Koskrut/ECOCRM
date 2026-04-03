@@ -6,6 +6,7 @@ import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
@@ -1401,7 +1402,7 @@ export function OrderModal({
 
   const formatDt = (iso: string) => {
     try {
-      return new Date(iso).toLocaleString();
+      return formatDateTime(iso);
     } catch {
       return iso;
     }
@@ -1562,7 +1563,7 @@ export function OrderModal({
                     <ul className="space-y-1 text-sm text-zinc-700">
                       {orderReturns.map((ret) => (
                         <li key={ret.id}>
-                          Повернення від {new Date(ret.requestedAt).toLocaleDateString("uk-UA")} — {ret.status}
+                          Повернення від {formatDate(ret.requestedAt)} — {ret.status}
                         </li>
                       ))}
                     </ul>
@@ -2531,8 +2532,8 @@ export function OrderModal({
                               className="mt-1 min-h-9 rounded-md px-2 py-1.5 text-left text-zinc-900 hover:bg-zinc-50"
                             >
                               {order.paymentDueDate
-                                ? new Date(order.paymentDueDate).toLocaleDateString("uk-UA")
-                                : new Date(deferredDueDateFrom(order.createdAt)).toLocaleDateString("uk-UA")}
+                                ? formatDate(order.paymentDueDate)
+                                : formatDate(deferredDueDateFrom(order.createdAt))}
                             </button>
                           )}
                         </div>

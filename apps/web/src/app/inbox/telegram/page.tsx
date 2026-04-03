@@ -11,21 +11,20 @@ import {
 } from "@/lib/api";
 import { isTextSelected } from "@/lib/dom";
 import { Link2, MessageCircle, Send, Sparkles, User, UserPlus } from "lucide-react";
+import { DateTime } from "luxon";
+import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
 
 const PAGE_SIZE = 50;
 const LIST_PAGE_SIZE = 30;
 
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay =
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear();
-  if (sameDay) {
-    return d.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
+  const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
+  if (!d.isValid) return iso;
+  const now = DateTime.now().setZone(CRM_TIME_ZONE);
+  if (d.toISODate() === now.toISODate()) {
+    return d.setLocale(CRM_LOCALE).toLocaleString(DateTime.TIME_SIMPLE);
   }
-  return d.toLocaleDateString("uk-UA", {
+  return d.setLocale(CRM_LOCALE).toLocaleString({
     day: "numeric",
     month: "short",
     hour: "2-digit",

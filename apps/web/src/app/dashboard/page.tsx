@@ -31,6 +31,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
+import { DateTime } from "luxon";
+import {
+  CRM_LOCALE,
+  CRM_TIME_ZONE,
+  shiftYmdInKyiv,
+  todayYmdInKyiv,
+} from "@/lib/crmDatetime";
 
 type DailyTeamActivityRow = {
   userId: string;
@@ -130,32 +137,22 @@ function formatMoney(value: number): string {
 }
 
 function formatShortDate(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
-}
-
-function localDateYmd(d = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function shiftDateYmd(ymd: string, deltaDays: number): string {
-  const [y, mo, d] = ymd.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d + deltaDays);
-  return localDateYmd(dt);
+  const dt = DateTime.fromISO(dateStr, { zone: CRM_TIME_ZONE }).setLocale(CRM_LOCALE);
+  if (!dt.isValid) return dateStr;
+  return dt.toLocaleString({ month: "short", day: "numeric" });
 }
 
 function formatTaskDue(dueAt: string | null | undefined): string {
   if (!dueAt) return "—";
-  const d = new Date(dueAt);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const taskDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  if (taskDate.getTime() === today.getTime()) return "Today";
-  if (taskDate.getTime() === today.getTime() + 86400000) return "Tomorrow";
-  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const d = DateTime.fromISO(dueAt, { setZone: true }).setZone(CRM_TIME_ZONE);
+  if (!d.isValid) return "—";
+  const now = DateTime.now().setZone(CRM_TIME_ZONE);
+  const dDay = d.toISODate();
+  const today = now.toISODate();
+  const tomorrow = now.plus({ days: 1 }).toISODate();
+  if (dDay === today) return "Today";
+  if (dDay === tomorrow) return "Tomorrow";
+  return d.setLocale(CRM_LOCALE).toLocaleString({ day: "numeric", month: "short" });
 }
 
 export default function DashboardPage() {
@@ -166,7 +163,7 @@ export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
 
-  const [activityDate, setActivityDate] = useState(() => localDateYmd());
+  const [activityDate, setActivityDate] = useState(() => todayYmdInKyiv());
   const [activity, setActivity] = useState<DailyTeamActivityPayload | null>(null);
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState<string | null>(null);
@@ -364,7 +361,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setActivityDate((d) => shiftDateYmd(d, -1))}
+              onClick={() => setActivityDate((d) => shiftYmdInKyiv(d, -1))}
               className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
               aria-label="Previous day"
             >
@@ -378,7 +375,7 @@ export default function DashboardPage() {
             />
             <button
               type="button"
-              onClick={() => setActivityDate((d) => shiftDateYmd(d, 1))}
+              onClick={() => setActivityDate((d) => shiftYmdInKyiv(d, 1))}
               className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
               aria-label="Next day"
             >
@@ -386,7 +383,7 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
-              onClick={() => setActivityDate(localDateYmd())}
+              onClick={() => setActivityDate(todayYmdInKyiv())}
               className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
             >
               Сьогодні
@@ -394,7 +391,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <p className="mb-3 text-xs text-zinc-500">
-          День за календарною датою (UTC). Дзвінки за менеджером у записі дзвінка; візити —{" "}
+          День за календарною датою (Київ). Дзвінки за менеджером у записі дзвінка; візити —{" "}
           <span className="font-medium text-zinc-600">Visit</span>; замовлення та оплати USD — за власником
           замовлення.
         </p>

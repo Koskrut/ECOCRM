@@ -1,3 +1,5 @@
+import { formatDate } from "./crmDatetime";
+
 /** Relative time in Ukrainian (matches order/lead cards). */
 export function formatRelativeTime(createdAt: string): string {
   const date = new Date(createdAt);
@@ -11,5 +13,5 @@ export function formatRelativeTime(createdAt: string): string {
   if (diffMins < 60) return `${diffMins} хв тому`;
   if (diffHours < 24) return `${diffHours} год тому`;
   if (diffDays < 7) return `${diffDays} дн тому`;
-  return date.toLocaleDateString("uk-UA", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(createdAt);
 }

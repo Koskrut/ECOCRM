@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { format } from "date-fns";
+import { DateTime } from "luxon";
 import {
   visitsApi,
   type Visit,
@@ -14,6 +14,12 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import { Save } from "lucide-react";
+import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
+
+function formatHmKyiv(iso: string): string {
+  const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
+  return d.isValid ? d.toFormat("HH:mm") : "";
+}
 
 type GoogleMapsPublicConfig = {
   mapsApiKey: string | null;
@@ -87,13 +93,16 @@ function computeVisitLayout(visits: VisitInterval[]): Map<string, VisitLayout> {
 
 function getSlotsForDate(date: Date): TimelineSlot[] {
   const slots: TimelineSlot[] = [];
-  // Selected day in local TZ so grid and labels match user's 9–22
-  const y = date.getUTCFullYear();
-  const mo = date.getUTCMonth();
-  const d = date.getUTCDate();
+  const base = DateTime.fromJSDate(date).setZone(CRM_TIME_ZONE);
+  const y = base.year;
+  const mo = base.month;
+  const d = base.day;
   for (let hour = DAY_START_HOUR; hour < DAY_END_HOUR; hour++) {
     for (let m = 0; m < 60; m += SLOT_MINUTES) {
-      const start = new Date(y, mo, d, hour, m, 0, 0);
+      const start = DateTime.fromObject(
+        { year: y, month: mo, day: d, hour, minute: m, second: 0 },
+        { zone: CRM_TIME_ZONE },
+      ).toJSDate();
       const end = new Date(start.getTime() + SLOT_MINUTES * 60 * 1000);
       slots.push({
         start,
@@ -134,8 +143,8 @@ function findNearestAvailableSlot(
   const dayEnd = slots[slots.length - 1]?.end;
   if (!dayStart || !dayEnd) return null;
 
-  const selectedStr = format(selectedDate, "yyyy-MM-dd");
-  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const selectedStr = jsDateToYmdKyiv(selectedDate);
+  const todayStr = todayYmdInKyiv();
   const isSelectedToday = selectedStr === todayStr;
 
   const intervals = scheduledOnDay
@@ -228,10 +237,9 @@ function VisitsMapContent({
 }
 
 export default function VisitsPage() {
-  const [date, setDate] = useState<Date>(() => {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  });
+  const [date, setDate] = useState<Date>(() =>
+    DateTime.now().setZone(CRM_TIME_ZONE).startOf("day").toJSDate(),
+  );
   const [backlog, setBacklog] = useState<Visit[]>([]);
   const [dayVisits, setDayVisits] = useState<Visit[]>([]);
   const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
@@ -280,7 +288,7 @@ export default function VisitsPage() {
   const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
 
-  const dateParam = useMemo(() => format(date, "yyyy-MM-dd"), [date]);
+  const dateParam = useMemo(() => jsDateToYmdKyiv(date), [date]);
   const slots = useMemo(() => getSlotsForDate(date), [date]);
 
   const scheduledVisits = dayVisits;
@@ -569,15 +577,18 @@ export default function VisitsPage() {
   );
 
   const handlePrevDay = () => {
-    setDate((prev) => new Date(prev.getTime() - 24 * 60 * 60 * 1000));
+    setDate((prev) =>
+      DateTime.fromJSDate(prev).setZone(CRM_TIME_ZONE).minus({ days: 1 }).startOf("day").toJSDate(),
+    );
   };
   const handleNextDay = () => {
-    setDate((prev) => new Date(prev.getTime() + 24 * 60 * 60 * 1000));
+    setDate((prev) =>
+      DateTime.fromJSDate(prev).setZone(CRM_TIME_ZONE).plus({ days: 1 }).startOf("day").toJSDate(),
+    );
   };
 
   const handleToday = () => {
-    const now = new Date();
-    setDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())));
+    setDate(DateTime.now().setZone(CRM_TIME_ZONE).startOf("day").toJSDate());
   };
 
   const handleMoveToBacklog = async (visit: Visit) => {
@@ -723,7 +734,7 @@ export default function VisitsPage() {
                 →
               </button>
               <div className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm tabular-nums text-zinc-700">
-                {format(date, "yyyy-MM-dd")}
+                {dateParam}
               </div>
             </div>
             {!routeSessionState?.session?.isActive ? (
@@ -776,14 +787,8 @@ export default function VisitsPage() {
                   </div>
                   {routeSessionState.currentVisit.startsAt && routeSessionState.currentVisit.endsAt && (
                     <div className="mt-0.5 text-zinc-500">
-                      {new Date(routeSessionState.currentVisit.startsAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      –{new Date(routeSessionState.currentVisit.endsAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatHmKyiv(routeSessionState.currentVisit.startsAt)}–
+                      {formatHmKyiv(routeSessionState.currentVisit.endsAt)}
                     </div>
                   )}
                 </div>
@@ -1449,17 +1454,7 @@ export default function VisitsPage() {
                               </div>
                               <span className="shrink-0 text-[10px] text-zinc-500">
                                 {v.startsAt && v.endsAt
-                                  ? `${new Date(
-                                      v.startsAt,
-                                    ).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}–${new Date(
-                                      v.endsAt,
-                                    ).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}`
+                                  ? `${formatHmKyiv(v.startsAt)}–${formatHmKyiv(v.endsAt)}`
                                   : ""}
                               </span>
                             </div>

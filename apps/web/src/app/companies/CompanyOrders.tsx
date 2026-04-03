@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type OrderItem = {
   id: string;
@@ -118,7 +119,7 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
                 {formatOrderAmount(o.totalAmount, o.currency, o.exchangeRate)}
               </td>
               <td className="px-4 py-3 text-sm text-zinc-600">
-                {new Date(o.createdAt).toLocaleString()}
+                {formatDateTime(o.createdAt)}
               </td>
             </tr>
           ))}

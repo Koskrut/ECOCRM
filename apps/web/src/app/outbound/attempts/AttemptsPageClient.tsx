@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/resources/outbound";
 import { OutboundStatusBadge } from "../_components/OutboundStatusBadge";
 import { OutcomeBadge } from "../_components/OutcomeBadge";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 const PAGE_SIZE = 30;
 const REFRESH_INTERVAL_MS = 30_000;
@@ -27,12 +28,7 @@ const ALL_STATUSES: OutboundAttemptStatus[] = [
 ];
 
 function formatDate(d: string) {
-  return new Date(d).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(d);
 }
 
 function CallLinkBadge({ callId }: { callId: string | null }) {

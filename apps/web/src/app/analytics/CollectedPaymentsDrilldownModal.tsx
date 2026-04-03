@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatMoneyUsd } from "./analytics-ui";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type PaymentRow = {
   id: string;
@@ -28,12 +29,7 @@ function pickErrorMessage(error: unknown, fallback: string): string {
 }
 
 function formatPaidAt(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "short" });
-  } catch {
-    return iso;
-  }
+  return formatDateTime(iso, "—");
 }
 
 export function CollectedPaymentsDrilldownModal({

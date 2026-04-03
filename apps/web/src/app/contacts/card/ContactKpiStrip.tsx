@@ -2,11 +2,6 @@
 
 import type { ContactCardSummary } from "./useContactCardSummary";
 
-function fmtDate(value: string | null): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString();
-}
-
 function fmtMoney(value: number): string {
   return new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(value);
 }

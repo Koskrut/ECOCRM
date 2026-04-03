@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { tasksApi, type Task, type TaskStatus } from "@/lib/api/resources/tasks";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type Props = {
   contactId?: string | null;
@@ -20,15 +21,7 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 };
 
 function formatDueAt(dueAt: string | null | undefined): string {
-  if (!dueAt) return "—";
-  const d = new Date(dueAt);
-  return d.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: d.getHours() || d.getMinutes() ? "2-digit" : undefined,
-    minute: d.getHours() || d.getMinutes() ? "2-digit" : undefined,
-  });
+  return formatDateTime(dueAt);
 }
 
 export function EntityTasksList({

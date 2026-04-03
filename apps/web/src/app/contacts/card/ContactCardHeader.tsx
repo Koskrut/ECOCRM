@@ -1,6 +1,7 @@
 "use client";
 
 import type { ContactCardSummary } from "./useContactCardSummary";
+import { formatDate } from "@/lib/crmDatetime";
 
 type Props = {
   summary: ContactCardSummary;
@@ -28,12 +29,8 @@ export function ContactCardHeader({
   summary,
 }: Props) {
   const c = summary.contact;
-  const lastActivity = summary.kpi.lastActivityAt
-    ? new Date(summary.kpi.lastActivityAt).toLocaleDateString()
-    : "—";
-  const lastOrder = summary.kpi.lastOrderAt
-    ? new Date(summary.kpi.lastOrderAt).toLocaleDateString()
-    : "—";
+  const lastActivity = summary.kpi.lastActivityAt ? formatDate(summary.kpi.lastActivityAt) : "—";
+  const lastOrder = summary.kpi.lastOrderAt ? formatDate(summary.kpi.lastOrderAt) : "—";
 
   return (
     <div className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4">

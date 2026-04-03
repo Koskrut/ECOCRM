@@ -1,16 +1,7 @@
-import { appendFileSync } from "node:fs";
+import { DateTime } from "luxon";
 import type { RawBankTransaction } from "./providers/types";
 import type { TransactionDirection } from "@prisma/client";
-
-const DEBUG_LOG_PATH = "/Users/konstantin/CRM/.cursor/debug-f04031.log";
-function debugLog(msg: string, data: Record<string, unknown> = {}) {
-  try {
-    appendFileSync(
-      DEBUG_LOG_PATH,
-      JSON.stringify({ timestamp: Date.now(), location: "privat24.client", message: msg, data }) + "\n",
-    );
-  } catch (_) {}
-}
+import { CRM_TIME_ZONE } from "../crm-timezone";
 
 export type Privat24Credentials = {
   clientId?: string;
@@ -45,12 +36,9 @@ const TIMEOUT_MS = 30_000;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Format date as DD-MM-YYYY for API query params (startDate, endDate). */
+/** Format date as DD-MM-YYYY for API query params (startDate, endDate), Kyiv calendar. */
 function formatDateDDMMYYYY(d: Date): string {
-  const day = String(d.getDate()).padStart(2, "0");
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
+  return DateTime.fromJSDate(d).setZone(CRM_TIME_ZONE).toFormat("dd-MM-yyyy");
 }
 
 function parseAmount(value: unknown): number {
@@ -63,17 +51,31 @@ function parseDate(value: unknown): Date {
   if (value instanceof Date) return value;
   if (typeof value === "string") {
     const s = value.trim();
-    // DD.MM.YYYY HH:mm:ss or DD.MM.YYYY or YYYY-MM-DD
+    // DD.MM.YYYY HH:mm:ss or DD.MM.YYYY — bank wall time in Ukraine
     const dotMatch = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
     if (dotMatch) {
       const [, d, m, y, h, min, sec] = dotMatch;
-      const iso = `${y}-${m}-${d}T${h ?? "00"}:${min ?? "00"}:${sec ?? "00"}.000Z`;
-      const date = new Date(iso);
-      if (!Number.isNaN(date.getTime())) return date;
+      const dt = DateTime.fromObject(
+        {
+          year: Number(y),
+          month: Number(m),
+          day: Number(d),
+          hour: Number(h ?? 0),
+          minute: Number(min ?? 0),
+          second: Number(sec ?? 0),
+        },
+        { zone: CRM_TIME_ZONE },
+      );
+      if (dt.isValid) return dt.toJSDate();
+    }
+    // Plain YYYY-MM-DD → start of Kyiv day
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s) && !s.includes("T")) {
+      const start = DateTime.fromISO(s, { zone: CRM_TIME_ZONE }).startOf("day");
+      if (start.isValid && start.toISODate() === s) return start.toJSDate();
     }
     const iso = s.includes("T") ? s : s.includes(".") ? s.replace(/(\d{2})\.(\d{2})\.(\d{4})/, "$3-$2-$1") : `${s}T00:00:00.000Z`;
-    const d = new Date(iso);
-    if (!Number.isNaN(d.getTime())) return d;
+    const parsed = new Date(iso);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
   }
   return new Date();
 }
@@ -182,12 +184,6 @@ export class Privat24Client {
       let withId = !!providedId;
       let { params, headers } = buildRequest(withId);
       const firstUrl = `${this.baseUrl}/api/statements/transactions?${params.toString()}`;
-      debugLog("getStatement first request", {
-        withIdParam: withId,
-        queryHasId: firstUrl.includes("id=") || firstUrl.includes("ID="),
-        headerHasId: "id" in headers || "ID" in headers,
-        providedIdLooksLikeUuid,
-      });
       let res = await fetch(firstUrl, {
         method: "GET",
         headers,
@@ -219,14 +215,6 @@ export class Privat24Client {
         throw new Error("Приват24 працює в режимі групи ПП. Вкажіть ID для цього ФОП у налаштуваннях рахунку.");
       }
 
-      debugLog("getStatement response", {
-        status: res.status,
-        ok: res.ok,
-        withId,
-        providedIdLooksLikeUuid,
-        bodyPreview: text.slice(0, 300),
-      });
-
       if (!res.ok) {
         throw new Error(`Privat24 API HTTP ${res.status}. ${text.slice(0, 500)}`);
       }
@@ -248,12 +236,6 @@ export class Privat24Client {
           return mapStatementItem(row);
         })
         .filter((t): t is RawBankTransaction => t !== null);
-
-      debugLog("getStatement parsed", {
-        listLength: list.length,
-        transactionsCount: transactions.length,
-        nextCursor: nextCursor ?? null,
-      });
 
       return { transactions, nextCursor };
     } finally {

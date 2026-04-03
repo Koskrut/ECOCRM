@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatMoneyUsd } from "@/app/analytics/analytics-ui";
+import { formatDate } from "@/lib/crmDatetime";
 
 type OrderRow = {
   id: string;
@@ -118,7 +119,7 @@ export function MapRegionDrilldownModal({
                     <tr key={row.id} className="border-b border-zinc-100">
                       <td className="py-2 pr-2 font-mono text-xs">{row.orderNumber}</td>
                       <td className="py-2 pr-2 text-zinc-600">
-                        {new Date(row.createdAt).toLocaleDateString("uk-UA")}
+                        {formatDate(row.createdAt)}
                       </td>
                       <td className="py-2 pr-2">{row.managerName ?? "—"}</td>
                       <td className="py-2 pr-2">{row.clientName ?? "—"}</td>

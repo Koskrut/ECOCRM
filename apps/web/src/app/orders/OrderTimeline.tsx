@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type TimelineItem = {
   id: string;
@@ -86,8 +87,7 @@ export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
 
   const formatTimelineDate = (item: TimelineItem): string => {
     const raw = item.occurredAt ?? item.at ?? item.createdAt;
-    const date = raw ? new Date(raw) : null;
-    return date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "—";
+    return raw ? formatDateTime(raw) : "—";
   };
 
   return (

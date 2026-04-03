@@ -14,6 +14,7 @@ import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
+import { formatDateTime } from "@/lib/crmDatetime";
 import {
   autocompleteAddress,
   geocodePlace,
@@ -182,13 +183,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Lead";
   }, [lead]);
 
-  const formatDt = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return iso;
-    }
-  };
+  const formatDt = (iso: string) => formatDateTime(iso);
 
   useEffect(() => {
     if (userRoleProp != null) return;
@@ -769,7 +764,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div><span className="text-zinc-500">Ad set:</span> {lead.attribution.adsetName} ({lead.attribution.adsetId})</div>
               <div><span className="text-zinc-500">Ad:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
               <div><span className="text-zinc-500">Form:</span> {lead.attribution.formId}</div>
-              <div><span className="text-zinc-500">Created (Meta):</span> {new Date(lead.attribution.createdTime).toLocaleString()}</div>
+              <div><span className="text-zinc-500">Created (Meta):</span> {formatDateTime(lead.attribution.createdTime)}</div>
             </div>
           </div>
         </EntitySection>
@@ -781,7 +776,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div><span className="text-zinc-500">Intake/source:</span> {publicSourceMeta.intake ?? "—"}</div>
               <div><span className="text-zinc-500">Form type:</span> {publicSourceMeta.formType ?? "—"}</div>
               <div><span className="text-zinc-500">Role segment:</span> {publicSourceMeta.roleSegment ?? "—"}</div>
-              <div><span className="text-zinc-500">Captured at:</span> {publicSourceMeta.capturedAt ? new Date(publicSourceMeta.capturedAt).toLocaleString() : "—"}</div>
+              <div><span className="text-zinc-500">Captured at:</span> {publicSourceMeta.capturedAt ? formatDateTime(publicSourceMeta.capturedAt) : "—"}</div>
               <div><span className="text-zinc-500">utm_source:</span> {publicSourceMeta.utmSource ?? "—"}</div>
               <div><span className="text-zinc-500">utm_medium:</span> {publicSourceMeta.utmMedium ?? "—"}</div>
               <div><span className="text-zinc-500">utm_campaign:</span> {publicSourceMeta.utmCampaign ?? "—"}</div>
@@ -818,7 +813,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div key={e.id} className="rounded-md border border-zinc-200 p-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-medium text-zinc-900">{e.type}</span>
-                  <span className="text-xs text-zinc-500">{new Date(e.createdAt).toLocaleString()}</span>
+                  <span className="text-xs text-zinc-500">{formatDateTime(e.createdAt)}</span>
                 </div>
                 <div className="mt-1 text-zinc-700">{e.message}</div>
               </div>
@@ -1282,8 +1277,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       <div className="border-t border-zinc-100 pt-4">
         <span className="text-xs text-zinc-400">
-          Created: {new Date(lead.createdAt).toLocaleString()}
-          {lead.lastActivityAt && ` · Activity: ${new Date(lead.lastActivityAt).toLocaleString()}`}
+          Created: {formatDateTime(lead.createdAt)}
+          {lead.lastActivityAt && ` · Activity: ${formatDateTime(lead.lastActivityAt)}`}
         </span>
       </div>
 

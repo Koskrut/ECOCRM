@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "../../../lib/api/client";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 /** Same order as Employees modal: USER, LEAD, MANAGER, ADMIN */
 const ROLE_OPTIONS = ["USER", "LEAD", "MANAGER", "ADMIN"] as const;
@@ -131,7 +132,7 @@ export default function AccessSettingsPage() {
                       </select>
                     </td>
                     <td className="px-6 py-4 text-zinc-600">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
+                      {u.createdAt ? formatDateTime(u.createdAt) : "—"}
                     </td>
                   </tr>
                 ))

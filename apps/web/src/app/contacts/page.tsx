@@ -15,6 +15,7 @@ import {
   type ContactsFiltersState,
   type OwnerOption,
 } from "./ContactsFiltersPopover";
+import { formatDate } from "@/lib/crmDatetime";
 
 const PAGE_SIZE = 20;
 type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
@@ -752,7 +753,7 @@ function ContactsPageContent() {
                     )}
                   </td>
                   <td className="hidden px-4 py-4 text-zinc-600 lg:table-cell">
-                    {new Date(c.updatedAt).toLocaleDateString()}
+                    {formatDate(c.updatedAt)}
                   </td>
                   <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">

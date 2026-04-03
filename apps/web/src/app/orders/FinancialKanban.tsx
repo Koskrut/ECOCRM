@@ -5,6 +5,7 @@ import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { StatusBadge } from "../../components/StatusBadge";
+import { formatDate } from "@/lib/crmDatetime";
 
 /** Phase 4: Financial view — columns by financialStatus, no drag-and-drop. */
 
@@ -73,12 +74,6 @@ const FINANCIAL_LABELS: Record<FinancialStatus, string> = {
   PAID: "Оплачено",
   CLOSED: "Закрито",
 };
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("uk-UA");
-}
 
 function resolveFinancialStatus(o: FinancialOrder): FinancialStatus {
   const s = o.financialStatus ?? "";

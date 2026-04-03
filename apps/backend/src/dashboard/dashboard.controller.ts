@@ -23,7 +23,7 @@ export class DashboardController {
 
   /**
    * GET /dashboard/daily-team-activity?date=YYYY-MM-DD
-   * Calendar day in UTC. Per-user: calls, visits, orders, payments (USD by order owner).
+   * Calendar day in Europe/Kyiv. Per-user: calls, visits, orders, payments (USD by order owner).
    */
   @Get("daily-team-activity")
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)

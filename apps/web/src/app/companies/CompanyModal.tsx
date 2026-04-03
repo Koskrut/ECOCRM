@@ -7,6 +7,7 @@ import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "../../lib/api/client";
 import { companiesApi, type CompanyChangeHistoryItem } from "@/lib/api/resources/companies";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { CompanyTimeline } from "./CompanyTimeline";
@@ -954,7 +955,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           <div className="flex items-center gap-3">
             <span className="text-zinc-900">
               {company!.lastVisitAt
-                ? new Date(company!.lastVisitAt).toLocaleString()
+                ? formatDateTime(company!.lastVisitAt)
                 : <span className="font-normal text-zinc-400">Нет визитов</span>}
             </span>
             <button
@@ -1001,9 +1002,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           )}
         </div>
         <div className="pt-2 text-xs text-zinc-500">
-          Created: {new Date(company!.createdAt).toLocaleString()}
+          Created: {formatDateTime(company!.createdAt)}
           <br />
-          Updated: {new Date(company!.updatedAt).toLocaleString()}
+          Updated: {formatDateTime(company!.updatedAt)}
         </div>
       </div>
     );
@@ -1248,7 +1249,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                       <div className="flex items-center justify-between gap-2 text-zinc-500">
                         <span className="font-medium capitalize">{entry.action.toLowerCase()}</span>
                         <span className="text-xs">
-                          {new Date(entry.createdAt).toLocaleString()}
+                          {formatDateTime(entry.createdAt)}
                           {entry.changedBy ? ` · User ${entry.changedBy}` : ""}
                         </span>
                       </div>

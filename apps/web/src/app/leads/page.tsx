@@ -17,6 +17,7 @@ import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
 import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopover";
 import { LeadCard } from "./LeadCard";
+import { formatDate } from "@/lib/crmDatetime";
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All statuses" },
@@ -295,7 +296,7 @@ function LeadsPageContent() {
                       {l.owner?.fullName ?? "—"}
                     </td>
                     <td className="px-4 py-4 text-zinc-500">
-                      {new Date(l.createdAt).toLocaleDateString()}
+                      {formatDate(l.createdAt)}
                     </td>
                     <td className="px-4 py-4 text-right">
                       <div className="flex justify-end gap-1">

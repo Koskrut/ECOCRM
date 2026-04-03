@@ -1,8 +1,8 @@
 "use client";
 
-import { format, isToday, isYesterday } from "date-fns";
-import { uk } from "date-fns/locale";
+import { DateTime } from "luxon";
 import { Calendar, MessageCircle, Pencil, Phone, Pin, PinOff, Trash2 } from "lucide-react";
+import { CRM_LOCALE, CRM_TIME_ZONE, formatDateTime, jsDateToYmdKyiv } from "@/lib/crmDatetime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import type { CallTimelineItem } from "./CallCard";
@@ -56,10 +56,13 @@ function meetingTitleWithoutOutcome(title: string): string {
   return title.replace(/\s*\([^)]+\)\s*$/, "").trim() || "Встреча";
 }
 
-function dateGroupLabel(date: Date): string {
-  if (isToday(date)) return "Сьогодні";
-  if (isYesterday(date)) return "Вчора";
-  return format(date, "d MMMM", { locale: uk });
+function dateGroupLabelFromYmd(ymd: string): string {
+  const dt = DateTime.fromISO(ymd, { zone: CRM_TIME_ZONE });
+  if (!dt.isValid) return ymd;
+  const now = DateTime.now().setZone(CRM_TIME_ZONE);
+  if (dt.toISODate() === now.toISODate()) return "Сьогодні";
+  if (dt.toISODate() === now.minus({ days: 1 }).toISODate()) return "Вчора";
+  return dt.setLocale(CRM_LOCALE).toFormat("d MMMM");
 }
 
 export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact", showActivityButtons = true }: Props) {
@@ -356,13 +359,11 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
               const rest = filtered.filter((it) => !it.pinnedAt);
               const byDateKey = new Map<string, typeof rest>();
               for (const it of rest) {
-                const key = new Date(it.occurredAt).toDateString();
+                const key = jsDateToYmdKyiv(new Date(it.occurredAt));
                 if (!byDateKey.has(key)) byDateKey.set(key, []);
                 byDateKey.get(key)!.push(it);
               }
-              const sortedDateKeys = Array.from(byDateKey.keys()).sort(
-                (a, b) => new Date(b).getTime() - new Date(a).getTime(),
-              );
+              const sortedDateKeys = Array.from(byDateKey.keys()).sort((a, b) => b.localeCompare(a));
               const renderItem = (it: TimelineItem) => {
                 const isExpanded = expandedId === it.id;
                 const hasBody = it.body.trim().length > 0;
@@ -614,7 +615,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                       )}
                       {!isConfirmDelete && (
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                          <span>{new Date(it.occurredAt).toLocaleString()}</span>
+                          <span>{formatDateTime(it.occurredAt)}</span>
                           <span>·</span>
                           <span>by {it.createdByName ?? it.createdBy}</span>
                         </div>
@@ -640,7 +641,7 @@ export function ContactTimeline({ apiBaseUrl, contactId, entityType = "contact",
                     </section>
                   )}
                   {sortedDateKeys.map((dateKey) => {
-                    const label = dateGroupLabel(new Date(dateKey));
+                    const label = dateGroupLabelFromYmd(dateKey);
                     return (
                       <section key={dateKey} className="space-y-3">
                         <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">

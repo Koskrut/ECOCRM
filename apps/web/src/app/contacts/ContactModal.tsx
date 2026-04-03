@@ -13,6 +13,7 @@ import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectory
 import { apiHttp } from "../../lib/api/client";
 import { contactsApi } from "@/lib/api/resources/contacts";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactCardHeader } from "./card/ContactCardHeader";
@@ -1655,7 +1656,7 @@ export function ContactModal({
           <div className="flex items-center gap-3">
             <span className="text-sm text-zinc-900">
               {contact.lastVisitAt
-                ? new Date(contact.lastVisitAt).toLocaleString()
+                ? formatDateTime(contact.lastVisitAt)
                 : <span className="font-normal text-zinc-400">Нет визитов</span>}
             </span>
             <button
@@ -1971,9 +1972,9 @@ export function ContactModal({
           </div>
         </div>
         <div className="pt-2 text-xs text-zinc-500">
-          Created: {new Date(contact.createdAt).toLocaleString()}
+          Created: {formatDateTime(contact.createdAt)}
           <br />
-          Updated: {new Date(contact.updatedAt).toLocaleString()}
+          Updated: {formatDateTime(contact.updatedAt)}
         </div>
       </div>
     );
@@ -2093,7 +2094,7 @@ export function ContactModal({
                         <div className="mt-1 text-zinc-800">
                           {`${cardSummary.data.insights.nextStep.title}${
                             cardSummary.data.insights.nextStep.dueAt
-                              ? ` · ${new Date(cardSummary.data.insights.nextStep.dueAt).toLocaleDateString()}`
+                              ? ` · ${formatDate(cardSummary.data.insights.nextStep.dueAt)}`
                               : ""
                           }`}
                         </div>

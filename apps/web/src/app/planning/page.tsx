@@ -14,6 +14,7 @@ import {
   type ProductionBatch,
 } from "@/lib/api/resources/planning";
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type PlanningTab = "dashboard" | "inventory" | "snapshots" | "bom" | "batches" | "queues" | "settings";
 
@@ -454,9 +455,7 @@ export default function PlanningPage() {
                 <StatCard
                   title={t.labels.latestPosted}
                   value={
-                    latestSnapshot?.postedAt
-                      ? new Date(latestSnapshot.postedAt).toLocaleString("uk-UA")
-                      : t.states.none
+                    latestSnapshot?.postedAt ? formatDateTime(latestSnapshot.postedAt) : t.states.none
                   }
                 />
                 <StatCard title={t.labels.qcQueue} value={String(qcQueue.length)} />
@@ -606,8 +605,8 @@ export default function PlanningPage() {
                   rows={snapshots.map((snapshot) => [
                     snapshot.status,
                     snapshot.source,
-                    formatDate(snapshot.importedAt),
-                    snapshot.postedAt ? formatDate(snapshot.postedAt) : t.states.none,
+                    formatDateTime(snapshot.importedAt),
+                    snapshot.postedAt ? formatDateTime(snapshot.postedAt) : t.states.none,
                     String(snapshot._count?.lines ?? snapshot.lines?.length ?? 0),
                     snapshot.status === "STAGED" ? (
                       <button
@@ -712,7 +711,7 @@ export default function PlanningPage() {
                     <p>
                       {t.labels.revision}: <span className="font-medium">{bom.revision}</span>
                     </p>
-                    <p>{t.labels.createdAt}: {formatDate(bom.effectiveFrom)}</p>
+                    <p>{t.labels.createdAt}: {formatDateTime(bom.effectiveFrom)}</p>
                   </div>
                 )}
                 {!bom && selectedKitId && (
@@ -866,7 +865,7 @@ export default function PlanningPage() {
                     String(batch.qtyGood),
                     String(batch.qtyScrap),
                     stageLabel(batch.currentStage?.code),
-                    batch.dueAt ? formatDate(batch.dueAt) : t.states.none,
+                    batch.dueAt ? formatDateTime(batch.dueAt) : t.states.none,
                   ])}
                   noDataLabel={t.states.noBatches}
                 />
@@ -1030,10 +1029,6 @@ export default function PlanningPage() {
       )}
     </div>
   );
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleString("uk-UA");
 }
 
 function Panel({

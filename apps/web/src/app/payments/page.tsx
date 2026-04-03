@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { strings as t } from "@/locales";
+import { formatDate } from "@/lib/crmDatetime";
 
 type BankAccount = { id: string; name: string; currency: string };
 
@@ -1008,7 +1009,7 @@ function PaymentsContent() {
                 {cashPayments.map((p) => (
                   <tr key={p.id} className="border-t border-zinc-100 hover:bg-zinc-50">
                     <td className="px-4 py-3 text-zinc-600">
-                      {new Date(p.paidAt).toLocaleDateString()}
+                      {formatDate(p.paidAt)}
                     </td>
                     <td className="px-4 py-3">
                       {p.orderNumber ? (
@@ -1081,7 +1082,7 @@ function PaymentsContent() {
                       className="border-t border-zinc-100 hover:bg-zinc-50"
                     >
                       <td className="px-4 py-3 text-zinc-600">
-                        {p.paidAt ? new Date(p.paidAt).toLocaleDateString() : t.payments.dash}
+                        {p.paidAt ? formatDate(p.paidAt) : t.payments.dash}
                       </td>
                       <td className="px-4 py-3">
                         {p.sameTransactionOrderNumbers?.length ? (
@@ -1174,7 +1175,7 @@ function PaymentsContent() {
                           className="border-t border-zinc-100 hover:bg-zinc-50"
                         >
                           <td className="px-4 py-3 text-zinc-600">
-                            {new Date(tx.bookedAt).toLocaleDateString()}
+                            {formatDate(tx.bookedAt)}
                           </td>
                           <td className="px-4 py-3">
                             {tx.bankAccount?.name ?? tx.bankAccountId}
@@ -1255,7 +1256,7 @@ function PaymentsContent() {
                 {filteredUnmatched.map((tx) => (
                   <tr key={tx.id} className="border-t border-zinc-100 hover:bg-zinc-50">
                     <td className="px-4 py-3 text-zinc-600">
-                      {new Date(tx.bookedAt).toLocaleDateString()}
+                      {formatDate(tx.bookedAt)}
                     </td>
                     <td className="px-4 py-3">{tx.bankAccount?.name ?? tx.bankAccountId}</td>
                     <td className="px-4 py-3 text-right font-medium">

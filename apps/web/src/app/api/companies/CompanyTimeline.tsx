@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type ActivityItem = {
   id: string;
@@ -182,7 +183,7 @@ export function CompanyTimeline({ apiBaseUrl, companyId }: Props) {
                     <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{it.body}</div>
                   </div>
                   <div className="whitespace-nowrap text-xs text-zinc-500">
-                    {new Date(it.occurredAt || "").toLocaleString()}
+                    {it.occurredAt ? formatDateTime(it.occurredAt) : "—"}
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">by {it.createdBy}</div>

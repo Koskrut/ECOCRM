@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React, { useCallback, useEffect, useState } from "react";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { formatDate } from "@/lib/crmDatetime";
 
 function isReceiverCodeHintError(msg: string): boolean {
   const m = msg.toLowerCase();
@@ -287,7 +288,7 @@ export function OrderPaymentBlock({
                   .map((p) => (
                     <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
                       <span className="text-zinc-600">
-                        {new Date(p.paidAt).toLocaleDateString()}
+                        {formatDate(p.paidAt)}
                         {p.note ? ` · ${p.note}` : ""}
                       </span>
                       <span className="font-medium text-zinc-900">
@@ -309,7 +310,7 @@ export function OrderPaymentBlock({
                   .map((p) => (
                     <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
                       <span className="text-zinc-600">
-                        {new Date(p.paidAt).toLocaleDateString()}
+                        {formatDate(p.paidAt)}
                         {p.bankTransaction?.counterpartyName
                           ? ` · ${p.bankTransaction.counterpartyName}`
                           : ""}

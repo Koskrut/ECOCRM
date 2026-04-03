@@ -14,16 +14,10 @@ import {
 } from "@/lib/api/resources/outbound";
 import { OutboundStatusBadge } from "../../_components/OutboundStatusBadge";
 import { OutcomeBadge } from "../../_components/OutcomeBadge";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 function formatDate(d: string | null | undefined) {
-  if (!d) return "—";
-  return new Date(d).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(d);
 }
 
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {

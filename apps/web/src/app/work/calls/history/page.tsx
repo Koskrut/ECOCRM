@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { format } from "date-fns";
 import { apiHttp } from "@/lib/api/client";
+import { formatDateTimeNumeric, todayYmdInKyiv, ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
 import { callsApi, type CallsHistoryItem } from "@/lib/api/resources/calls";
 import type { ManualCallOutcome } from "@/lib/api/resources/manual-calling";
 
@@ -106,10 +106,8 @@ export default function CallsHistoryPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [userId, setUserId] = useState("");
   const [outcome, setOutcome] = useState<"" | ManualCallOutcome>("");
-  const [from, setFrom] = useState(() =>
-    format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
-  );
-  const [to, setTo] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [from, setFrom] = useState(() => ymdDaysAgoInKyiv(30));
+  const [to, setTo] = useState(() => todayYmdInKyiv());
   const [recording, setRecording] = useState<"any" | "yes" | "no">("any");
   const [direction, setDirection] = useState<"" | "INBOUND" | "OUTBOUND" | "UNKNOWN">("");
   const [manualOnly, setManualOnly] = useState(false);
@@ -391,7 +389,7 @@ export default function CallsHistoryPage() {
                   return (
                     <tr key={`${row.rowKind}-${row.id}`} className="border-b border-zinc-100 last:border-0">
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
-                        {t ? format(new Date(t), "dd.MM.yyyy HH:mm") : "—"}
+                        {t ? formatDateTimeNumeric(t) : "—"}
                       </td>
                       <td className="px-3 py-2 text-zinc-800">
                         <div className="flex flex-wrap items-center gap-1.5">

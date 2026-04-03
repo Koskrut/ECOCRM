@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/crmDatetime";
 
 type Activity = {
   id: string;
@@ -14,11 +15,10 @@ type Activity = {
 
 type ActivitiesResponse = { items?: Activity[] } | Activity[];
 
-function formatDate(iso?: string) {
+function formatActivityAt(iso?: string) {
   if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
+  const s = formatDateTime(iso);
+  return s === "—" ? iso : s;
 }
 
 function getErrMsg(e: unknown, fallback: string) {
@@ -141,7 +141,7 @@ export function ActivityTimeline({
                     <div className="text-xs text-zinc-500">
                       {a.type ?? "ACTIVITY"} {a.authorName ? `· ${a.authorName}` : ""}
                     </div>
-                    <div className="text-xs text-zinc-500">{formatDate(a.createdAt)}</div>
+                    <div className="text-xs text-zinc-500">{formatActivityAt(a.createdAt)}</div>
                   </div>
                   <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-900">
                     {a.message ?? a.text ?? "(empty)"}
