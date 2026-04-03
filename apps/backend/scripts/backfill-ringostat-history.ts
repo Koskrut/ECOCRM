@@ -18,6 +18,7 @@ import {
   RINGOSTAT_PROVIDER,
   RingostatIngestService,
 } from "../src/integrations/ringostat/ringostat-ingest.service";
+import type { PrismaService } from "../src/prisma/prisma.service";
 
 type RingostatStoredConfig = {
   projectId?: string;
@@ -58,9 +59,11 @@ async function main() {
   }
 
   const pool = new Pool({ connectionString });
-  const adapter = new PrismaPg(pool);
+  // @prisma/adapter-pg may bundle its own @types/pg; root `pg` Pool is fine at runtime (see PrismaService).
+  const adapter = new PrismaPg(pool as any);
   const prisma = new PrismaClient({ adapter });
-  const ingest = new RingostatIngestService(prisma);
+  // RingostatIngestService is typed for Nest DI (PrismaService); script uses a plain PrismaClient + adapter.
+  const ingest = new RingostatIngestService(prisma as unknown as PrismaService);
 
   try {
     const setting = await prisma.integrationSetting.findFirst({
