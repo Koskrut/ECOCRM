@@ -36,6 +36,27 @@ type UserRow = { id: string; fullName: string; email: string; role: string };
 
 const PAGE_SIZE = 25;
 
+function statusLabel(status: string | null, direction: string | null): string {
+  const s = (status ?? "").toUpperCase();
+  const d = (direction ?? "").toUpperCase();
+  if (!s) return "—";
+  if (s.includes("MISSED") || s === "NOANSWER" || s.includes("NO_ANSWER")) {
+    return d === "OUTBOUND" ? "Не дозвонився" : "Пропущений";
+  }
+  if (s.includes("ANSWER") || s === "ANSWERED" || s === "PROPER") return "Відповіли";
+  if (s === "BUSY") return "Зайнято";
+  if (s === "FAILED") return "Помилка";
+  return s;
+}
+
+function formatSeconds(sec: number | null): string | null {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return null;
+  if (sec < 60) return `${sec} с`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m} хв ${String(s).padStart(2, "0")} с`;
+}
+
 function rowTime(row: CallsHistoryItem): string | null {
   if (row.rowKind === "MANUAL_ORPHAN") {
     return row.manualCompletedAt ?? row.sortAt;
@@ -326,6 +347,9 @@ export default function CallsHistoryPage() {
                   const t = rowTime(row);
                   const displayManager =
                     row.rowKind === "CALL" ? row.manager : row.manualUser ?? row.manager;
+                  const isOutbound = (row.direction ?? "").toUpperCase() === "OUTBOUND";
+                  const a = isOutbound ? row.toDisplay : row.fromDisplay;
+                  const b = isOutbound ? row.fromDisplay : row.toDisplay;
                   return (
                     <tr key={`${row.rowKind}-${row.id}`} className="border-b border-zinc-100 last:border-0">
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
@@ -343,6 +367,11 @@ export default function CallsHistoryPage() {
                         <div className="text-xs text-zinc-500">
                           {row.target?.phone ?? row.toDisplay ?? row.fromDisplay ?? "—"}
                         </div>
+                        {a && b && a !== b ? (
+                          <div className="mt-0.5 text-[11px] text-zinc-400 font-mono">
+                            {a} <span className="mx-1">→</span> {b}
+                          </div>
+                        ) : null}
                         {row.target?.kind === "LEAD" ? (
                           <Link
                             href={`/leads?leadId=${row.target.id}`}
@@ -359,34 +388,34 @@ export default function CallsHistoryPage() {
                           </Link>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2 text-zinc-700">
-                        {row.status
-                          ? (row.direction === "OUTBOUND" &&
-                            (row.status.toUpperCase().includes("MISSED") ||
-                              row.status.toUpperCase() === "NOANSWER" ||
-                              row.status.toUpperCase().includes("NO_ANSWER"))
-                              ? "NO_ANSWER"
-                              : row.status)
-                          : "—"}
-                      </td>
+                      <td className="px-3 py-2 text-zinc-700">{statusLabel(row.status, row.direction)}</td>
                       <td className="px-3 py-2 text-zinc-800">
                         {row.manualOutcome
                           ? OUTCOME_LABEL[row.manualOutcome] ?? row.manualOutcome
                           : "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
-                        {row.talkSec != null ? (
-                          <div className="leading-tight">
-                            <div>{`${row.talkSec} с`}</div>
-                            {row.waitingSec != null ? (
-                              <div className="text-[11px] text-zinc-400">{`ожидание ${row.waitingSec} с`}</div>
-                            ) : null}
-                          </div>
-                        ) : row.durationSec != null ? (
-                          `${row.durationSec} с`
-                        ) : (
-                          "—"
-                        )}
+                        {(() => {
+                          const talk = row.talkSec ?? null;
+                          const wait = row.waitingSec ?? null;
+                          const total = row.durationSec ?? null;
+                          const talkText = formatSeconds(talk);
+                          const waitText = formatSeconds(wait);
+                          const totalText = formatSeconds(total);
+                          if (!talkText && !totalText) return "—";
+                          return (
+                            <div className="leading-tight">
+                              <div>{talkText ?? totalText}</div>
+                              {(waitText || totalText) && (talkText || waitText) ? (
+                                <div className="text-[11px] text-zinc-400">
+                                  {waitText ? `очікування ${waitText}` : null}
+                                  {waitText && totalText ? " · " : null}
+                                  {totalText ? `всього ${totalText}` : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="max-w-[280px] px-3 py-2">
                         {row.recordingUrl ? (
