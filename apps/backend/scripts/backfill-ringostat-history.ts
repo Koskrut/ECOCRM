@@ -5,10 +5,12 @@
  * Usage (from apps/backend):
  *   npx ts-node scripts/backfill-ringostat-history.ts 2026-03-01 2026-03-31
  *
- * Requires DATABASE_URL and Ringostat API token (IntegrationSetting or RINGOSTAT_API_TOKEN).
+ * DATABASE_URL: export in shell, or apps/backend/.env, apps/.env, or monorepo root .env
+ * (e.g. /opt/crm/.env). Ringostat token: IntegrationSetting or RINGOSTAT_API_TOKEN.
  */
 
-import "dotenv/config";
+import path from "node:path";
+import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
@@ -19,6 +21,21 @@ import {
   RingostatIngestService,
 } from "../src/integrations/ringostat/ringostat-ingest.service";
 import type { PrismaService } from "../src/prisma/prisma.service";
+
+function loadEnvFiles(): void {
+  if (process.env.DATABASE_URL?.trim()) return;
+  const candidates = [
+    path.join(__dirname, "..", ".env"),
+    path.join(__dirname, "..", "..", ".env"),
+    path.join(__dirname, "..", "..", "..", ".env"),
+  ];
+  for (const p of candidates) {
+    dotenv.config({ path: p });
+    if (process.env.DATABASE_URL?.trim()) return;
+  }
+}
+
+loadEnvFiles();
 
 type RingostatStoredConfig = {
   projectId?: string;
@@ -49,7 +66,10 @@ async function main() {
 
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(
+      "DATABASE_URL is not set. Export it, or add it to apps/backend/.env or the repo root .env " +
+        "(e.g. /opt/crm/.env), then run again from apps/backend.",
+    );
   }
 
   const { start: from } = utcDayBounds(fromArg);
