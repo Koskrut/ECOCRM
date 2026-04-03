@@ -4,11 +4,30 @@
  *
  * Usage (from apps/backend):
  *   npx ts-node scripts/inspect-ringostat-inbound-payload.ts
+ *
+ * DATABASE_URL: already exported in the shell, or in apps/backend/.env, or repo root .env
+ * (e.g. /opt/crm/.env). In Docker: `docker compose exec backend env DATABASE_URL=...` or
+ * run inside the container where env is injected.
  */
 
 /* eslint-disable @typescript-eslint/no-var-requires */
 
-require("dotenv").config();
+const path = require("path");
+const dotenv = require("dotenv");
+
+function loadEnvFiles(): void {
+  if (process.env.DATABASE_URL?.trim()) return;
+  const candidates = [
+    path.join(__dirname, "..", ".env"),
+    path.join(__dirname, "..", "..", ".env"),
+  ];
+  for (const p of candidates) {
+    dotenv.config({ path: p });
+    if (process.env.DATABASE_URL?.trim()) return;
+  }
+}
+
+loadEnvFiles();
 const { PrismaClient } = require("@prisma/client");
 const { PrismaPg } = require("@prisma/adapter-pg");
 const { Pool } = require("pg");
@@ -24,9 +43,14 @@ function getVal(raw: Record<string, unknown>, key: string): unknown {
 }
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(
+      "DATABASE_URL is not set. Options:\n" +
+        "  export DATABASE_URL='postgresql://...'\n" +
+        "  or create apps/backend/.env or <repo>/.env with DATABASE_URL=...\n" +
+        "  or run this script inside your backend Docker container (where DB env is set).",
+    );
   }
 
   const pool = new Pool({ connectionString });
