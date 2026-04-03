@@ -3,15 +3,19 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
+  HttpCode,
   Param,
   Patch,
   Post,
   Query,
   Req,
+  Res,
 } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
 import { LeadsService } from "./leads.service";
 import { CreateLeadDto } from "./dto/create-lead.dto";
@@ -26,9 +30,36 @@ import { AddNoteDto } from "./dto/add-note.dto";
 export class LeadsController {
   constructor(private readonly leads: LeadsService) {}
 
+  /** Meta Lead Ads webhook: GET verification (hub.* query params). */
+  @Public()
+  @Get("meta/ingest")
+  async metaWebhookVerify(
+    @Query("hub.mode") hubMode: string | undefined,
+    @Query("hub.verify_token") hubVerifyToken: string | undefined,
+    @Query("hub.challenge") hubChallenge: string | undefined,
+    @Res({ passthrough: false }) res: Response,
+  ) {
+    const challenge = await this.leads.metaWebhookVerifySubscribe(
+      hubMode,
+      hubVerifyToken,
+      hubChallenge,
+    );
+    res.status(200).type("text/plain").send(challenge);
+  }
+
+  /** Meta Lead Ads webhook: POST notifications (signed with META_APP_SECRET when set). */
+  @Public()
   @Post("meta/ingest")
-  metaIngest(@Body() body: MetaIngestDto, @Req() req: Request & { user?: AuthUser }) {
-    return this.leads.metaIngest(body as unknown as Record<string, unknown>, req.user);
+  @HttpCode(200)
+  metaIngest(
+    @Body() body: MetaIngestDto,
+    @Headers("x-hub-signature-256") signature256: string | undefined,
+    @Req() req: Request & { user?: AuthUser; rawBody?: Buffer },
+  ) {
+    return this.leads.metaIngest(body as unknown as Record<string, unknown>, {
+      rawBody: req.rawBody,
+      signatureHeader: signature256,
+    });
   }
 
   @Post()

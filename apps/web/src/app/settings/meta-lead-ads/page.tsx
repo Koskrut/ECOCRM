@@ -87,7 +87,10 @@ export default function MetaLeadAdsSettingsPage() {
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Facebook / Meta Lead Ads</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Configure connection for receiving leads from Meta (Facebook/Instagram) Lead Ads, and optional Meta Pixel for analytics on this CRM. Set the same Webhook Verify Token in your Meta App. Page Access Token is used to fetch lead details from Graph API if needed.
+            Configure connection for receiving leads from Meta (Facebook/Instagram) Lead Ads, and optional Meta Pixel for analytics on this CRM. In Meta App → Webhooks, set callback URL to{" "}
+            <code className="rounded bg-zinc-100 px-1">https://&lt;your-api-host&gt;/leads/meta/ingest</code>{" "}
+            (GET for verification, POST for events). Use the same Webhook Verify Token here. Page Access Token loads lead field data from Graph API when the webhook payload has no fields. Set{" "}
+            <code className="rounded bg-zinc-100 px-1">META_APP_SECRET</code> on the API server to verify webhook signatures.
           </p>
         </div>
 

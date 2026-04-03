@@ -3,7 +3,9 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import type { LeadChannel, LeadSource, LeadStatus, Prisma } from "@prisma/client";
 import {
@@ -26,12 +28,49 @@ import { ContactsService } from "../contacts/contacts.service";
 import { CompaniesService } from "../companies/companies.service";
 import { OrdersService } from "../orders/orders.service";
 import type { CreateOrderDto } from "../orders/dto/create-order.dto";
+import { SettingsService } from "../settings/settings.service";
+import {
+  fetchMetaLeadFromGraph,
+  parseMetaCreatedTime,
+  verifyMetaSignatureSha256,
+} from "./leads-meta-webhook.utils";
 import { normalizePhone, scoreLeadFromAnswers } from "./leads-meta.utils";
+
+export type MetaIngestWebhookResult =
+  | { ok: true; leadId: string; deduped: boolean }
+  | { ok: true; leads: Array<{ leadId: string; deduped: boolean }> };
+
+type ParsedMetaLead = {
+  metaLeadId: string;
+  formId: string;
+  pageId?: string;
+  igAccountId?: string;
+  campaignId: string;
+  campaignName: string;
+  adsetId: string;
+  adsetName: string;
+  adId: string;
+  adName: string;
+  createdTime: Date;
+  raw?: unknown;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  city?: string;
+  comment?: string;
+  channel?: LeadChannel;
+  answers: Array<{ key: string; value: string }>;
+};
 
 @Injectable()
 export class LeadsService {
+  private readonly logger = new Logger(LeadsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
     private readonly contactsService: ContactsService,
     private readonly companiesService: CompaniesService,
     private readonly ordersService: OrdersService,
@@ -731,21 +770,207 @@ export class LeadsService {
 
   // ===== META INGEST =====
 
+  async metaWebhookVerifySubscribe(
+    mode: string | undefined,
+    token: string | undefined,
+    challenge: string | undefined,
+  ): Promise<string> {
+    if (mode !== "subscribe" || challenge == null || challenge === "") {
+      throw new BadRequestException("Invalid Meta webhook verification request");
+    }
+    const secrets = await this.settings.getMetaLeadAdsSecrets();
+    const expected =
+      secrets.webhookVerifyToken ||
+      process.env.META_WEBHOOK_VERIFY_TOKEN?.trim() ||
+      "";
+    if (!expected || token !== expected) {
+      throw new ForbiddenException("Invalid webhook verify token");
+    }
+    return challenge;
+  }
+
+  private assertMetaWebhookSignature(opts: {
+    rawBody: Buffer | undefined;
+    signatureHeader: string | undefined;
+  }): void {
+    const secret = process.env.META_APP_SECRET?.trim();
+    if (!secret) {
+      if (process.env.NODE_ENV === "production") {
+        this.logger.warn(
+          "META_APP_SECRET is not set: Meta Lead Ads webhook signatures are not verified",
+        );
+      }
+      return;
+    }
+    if (!opts.rawBody?.length) {
+      throw new BadRequestException("Missing raw body for Meta webhook signature verification");
+    }
+    if (!verifyMetaSignatureSha256(opts.rawBody, opts.signatureHeader, secret)) {
+      throw new UnauthorizedException("Invalid Meta webhook signature");
+    }
+  }
+
   async metaIngest(
     body: Record<string, unknown>,
-    _actor?: AuthUser,
-  ): Promise<{ ok: true; leadId: string; deduped: boolean }> {
-    const parsed = this.parseMetaPayload(body);
-    if (!parsed) throw new BadRequestException("Invalid Meta lead payload: no entry or value");
+    webhookOpts?: { rawBody?: Buffer; signatureHeader?: string },
+  ): Promise<MetaIngestWebhookResult> {
+    if (webhookOpts) {
+      this.assertMetaWebhookSignature({
+        rawBody: webhookOpts.rawBody,
+        signatureHeader: webhookOpts.signatureHeader,
+      });
+    }
+
+    const secrets = await this.settings.getMetaLeadAdsSecrets();
+    const values = this.extractMetaLeadgenValues(body);
+    if (values.length === 0) {
+      throw new BadRequestException("Invalid Meta lead payload: no leadgen entries");
+    }
+
+    const graphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v21.0";
+    const parsedList: ParsedMetaLead[] = [];
+    for (const value of values) {
+      const enriched = await this.enrichMetaLeadValueFromGraph(
+        value,
+        secrets.pageAccessToken,
+        graphVersion,
+      );
+      const parsed = this.parseMetaValue(enriched, body);
+      if (parsed) parsedList.push(parsed);
+    }
+    if (parsedList.length === 0) {
+      throw new BadRequestException("Invalid Meta lead payload: could not parse leadgen values");
+    }
 
     const companyId =
-      (process.env.META_LEAD_COMPANY_ID as string) ||
+      secrets.companyId ||
+      (process.env.META_LEAD_COMPANY_ID as string)?.trim() ||
       (await this.prisma.company.findFirst({ select: { id: true } }))?.id;
-    if (!companyId)
+    if (!companyId) {
       throw new BadRequestException(
-        "No company for Meta leads: set META_LEAD_COMPANY_ID or create a company",
+        "No company for Meta leads: set company in Settings → Meta, META_LEAD_COMPANY_ID, or create a company",
       );
+    }
 
+    const results: Array<{ leadId: string; deduped: boolean }> = [];
+    for (const parsed of parsedList) {
+      results.push(await this.persistMetaLeadFromParsed(companyId, parsed));
+    }
+
+    if (results.length === 1) {
+      return { ok: true, leadId: results[0].leadId, deduped: results[0].deduped };
+    }
+    return { ok: true, leads: results };
+  }
+
+  private extractMetaLeadgenValues(body: Record<string, unknown>): Record<string, unknown>[] {
+    const entries = Array.isArray(body.entry) ? body.entry : [];
+    const out: Record<string, unknown>[] = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const changes = Array.isArray((entry as { changes?: unknown }).changes)
+        ? (entry as { changes: unknown[] }).changes
+        : [];
+      for (const ch of changes) {
+        if (!ch || typeof ch !== "object") continue;
+        const field = (ch as { field?: string }).field;
+        if (field != null && field !== "leadgen") continue;
+        const value = (ch as { value?: unknown }).value;
+        if (value && typeof value === "object") {
+          out.push(value as Record<string, unknown>);
+        }
+      }
+    }
+    return out;
+  }
+
+  private async enrichMetaLeadValueFromGraph(
+    value: Record<string, unknown>,
+    pageAccessToken: string | undefined,
+    graphVersion: string,
+  ): Promise<Record<string, unknown>> {
+    const fd = value.field_data;
+    const hasFields = Array.isArray(fd) && fd.length > 0;
+    if (hasFields || !pageAccessToken?.trim()) return value;
+    const id = String(value.leadgen_id ?? value.lead_id ?? "").trim();
+    if (!id) return value;
+    const graph = await fetchMetaLeadFromGraph(id, pageAccessToken.trim(), graphVersion);
+    if (!graph) {
+      this.logger.warn(`Meta Graph API: could not fetch lead fields for ${id}`);
+      return value;
+    }
+    const next: Record<string, unknown> = { ...value };
+    if (graph.field_data?.length) next.field_data = graph.field_data as unknown[];
+    if (graph.form_id && (next.form_id == null || String(next.form_id) === "")) {
+      next.form_id = graph.form_id;
+    }
+    if (graph.created_time != null && next.created_time == null) {
+      next.created_time = graph.created_time;
+    }
+    return next;
+  }
+
+  private parseMetaValue(value: Record<string, unknown>, rawBody: unknown): ParsedMetaLead | null {
+    const metaLeadId = String(value.leadgen_id ?? value.lead_id ?? "").trim();
+    if (!metaLeadId) return null;
+    const formIdRaw = String(value.form_id ?? "").trim();
+    const formId = formIdRaw || "unknown";
+
+    const adId = String(value.ad_id ?? "");
+    const adsetId = String(value.adset_id ?? value.adgroup_id ?? "");
+    const campaignId = String(value.campaign_id ?? "");
+    const createdTime = parseMetaCreatedTime(value.created_time);
+
+    const fieldData = Array.isArray(value.field_data) ? value.field_data : [];
+    const fieldMap = new Map<string, string>();
+    for (const f of fieldData) {
+      if (f && typeof f === "object" && "name" in f && "values" in f) {
+        const name = String((f as { name: unknown }).name);
+        const vals = (f as { values: unknown }).values;
+        const val = Array.isArray(vals) ? vals[0] : vals;
+        if (val != null) fieldMap.set(name, String(val));
+      }
+    }
+
+    const first_name = fieldMap.get("first_name");
+    const last_name = fieldMap.get("last_name");
+    const full_name = fieldMap.get("full_name");
+    const phone = fieldMap.get("phone_number") ?? fieldMap.get("phone");
+    const email = fieldMap.get("email");
+    const city = fieldMap.get("city");
+    const comment = fieldMap.get("comment") ?? fieldMap.get("message");
+
+    const answers = Array.from(fieldMap.entries()).map(([key, v]) => ({ key, value: v }));
+
+    return {
+      metaLeadId,
+      formId,
+      pageId: value.page_id != null ? String(value.page_id) : undefined,
+      igAccountId: value.ig_account_id != null ? String(value.ig_account_id) : undefined,
+      campaignId: campaignId || "unknown",
+      campaignName: String(value.campaign_name ?? value.campaign_id ?? ""),
+      adsetId: adsetId || "unknown",
+      adsetName: String(value.adset_name ?? value.adgroup_id ?? ""),
+      adId: adId || "unknown",
+      adName: String(value.ad_name ?? value.ad_id ?? ""),
+      createdTime,
+      raw: rawBody,
+      firstName: first_name ?? undefined,
+      lastName: last_name ?? undefined,
+      fullName: full_name ?? undefined,
+      phone: phone ?? undefined,
+      email: email ?? undefined,
+      city: city ?? undefined,
+      comment: comment ?? undefined,
+      channel: "FB_LEAD_ADS",
+      answers,
+    };
+  }
+
+  private async persistMetaLeadFromParsed(
+    companyId: string,
+    parsed: ParsedMetaLead,
+  ): Promise<{ leadId: string; deduped: boolean }> {
     const phoneNorm = normalizePhone(parsed.phone);
     const existingByPhone =
       phoneNorm &&
@@ -762,7 +987,7 @@ export class LeadsService {
           payload: { metaLeadId: parsed.metaLeadId } as Prisma.InputJsonValue,
         },
       });
-      return { ok: true, leadId: existingByPhone.leadId, deduped: true };
+      return { leadId: existingByPhone.leadId, deduped: true };
     }
 
     const emailNorm = parsed.email?.trim() || null;
@@ -780,7 +1005,7 @@ export class LeadsService {
             payload: { metaLeadId: parsed.metaLeadId } as Prisma.InputJsonValue,
           },
         });
-        return { ok: true, leadId: existingByEmail.leadId, deduped: true };
+        return { leadId: existingByEmail.leadId, deduped: true };
       }
     }
 
@@ -797,7 +1022,7 @@ export class LeadsService {
           payload: { metaLeadId: parsed.metaLeadId } as Prisma.InputJsonValue,
         },
       });
-      return { ok: true, leadId: existingByMetaId.leadId, deduped: true };
+      return { leadId: existingByMetaId.leadId, deduped: true };
     }
 
     const fullName =
@@ -894,93 +1119,6 @@ export class LeadsService {
       },
     });
 
-    return { ok: true, leadId: lead.id, deduped: false };
-  }
-
-  private parseMetaPayload(body: Record<string, unknown>): {
-    metaLeadId: string;
-    formId: string;
-    pageId?: string;
-    igAccountId?: string;
-    campaignId: string;
-    campaignName: string;
-    adsetId: string;
-    adsetName: string;
-    adId: string;
-    adName: string;
-    createdTime: Date;
-    raw?: unknown;
-    firstName?: string;
-    lastName?: string;
-    fullName?: string;
-    phone?: string;
-    email?: string;
-    city?: string;
-    comment?: string;
-    channel?: LeadChannel;
-    answers: Array<{ key: string; value: string }>;
-  } | null {
-    const entry = Array.isArray(body.entry) ? body.entry[0] : null;
-    const changes =
-      entry && typeof entry === "object" && Array.isArray((entry as any).changes)
-        ? (entry as any).changes[0]
-        : null;
-    const value = changes && typeof changes === "object" ? (changes as any).value : null;
-    if (!value || typeof value !== "object") return null;
-
-    const v = value as Record<string, unknown>;
-    const metaLeadId = String(v.leadgen_id ?? v.lead_id ?? "");
-    const formId = String(v.form_id ?? "");
-    const adId = String(v.ad_id ?? "");
-    const adsetId = String(v.adset_id ?? v.adgroup_id ?? "");
-    const campaignId = String(v.campaign_id ?? "");
-    if (!metaLeadId || !formId) return null;
-
-    const createdTime =
-      v.created_time != null ? new Date(Number(v.created_time) * 1000) : new Date();
-    const fieldData = Array.isArray(v.field_data) ? v.field_data : [];
-    const fieldMap = new Map<string, string>();
-    for (const f of fieldData) {
-      if (f && typeof f === "object" && "name" in f && "values" in f) {
-        const name = String((f as any).name);
-        const vals = (f as any).values;
-        const val = Array.isArray(vals) ? vals[0] : vals;
-        if (val != null) fieldMap.set(name, String(val));
-      }
-    }
-
-    const first_name = fieldMap.get("first_name");
-    const last_name = fieldMap.get("last_name");
-    const full_name = fieldMap.get("full_name");
-    const phone = fieldMap.get("phone_number") ?? fieldMap.get("phone");
-    const email = fieldMap.get("email");
-    const city = fieldMap.get("city");
-    const comment = fieldMap.get("comment") ?? fieldMap.get("message");
-
-    const answers = Array.from(fieldMap.entries()).map(([key, value]) => ({ key, value }));
-
-    return {
-      metaLeadId,
-      formId,
-      pageId: v.page_id != null ? String(v.page_id) : undefined,
-      igAccountId: v.ig_account_id != null ? String(v.ig_account_id) : undefined,
-      campaignId: campaignId || "unknown",
-      campaignName: String(v.campaign_name ?? v.campaign_id ?? ""),
-      adsetId: adsetId || "unknown",
-      adsetName: String(v.adset_name ?? v.adgroup_id ?? ""),
-      adId: adId || "unknown",
-      adName: String(v.ad_name ?? v.ad_id ?? ""),
-      createdTime,
-      raw: body,
-      firstName: first_name ?? undefined,
-      lastName: last_name ?? undefined,
-      fullName: full_name ?? undefined,
-      phone: phone ?? undefined,
-      email: email ?? undefined,
-      city: city ?? undefined,
-      comment: comment ?? undefined,
-      channel: "FB_LEAD_ADS",
-      answers,
-    };
+    return { leadId: lead.id, deduped: false };
   }
 }

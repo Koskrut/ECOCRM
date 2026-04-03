@@ -235,8 +235,6 @@ export type RingostatConfig = {
   defaultManagerId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
-  /** Comma-separated /calls/list `fields` override (Ringostat export). Empty = server default. */
-  callsListFields?: string;
   /** Public URL of backend for webhook (e.g. ngrok). Shown in UI. */
   publicBaseUrl?: string;
 };
@@ -317,6 +315,35 @@ export class SettingsService {
       pageAccessTokenMasked: maskToken(pageAccessToken),
       companyId: companyId || undefined,
       fbPixelId: fbPixelId || undefined,
+    };
+  }
+
+  /**
+   * Full secrets for Meta Lead Ads webhook (server-side only; never expose via API).
+   */
+  async getMetaLeadAdsSecrets(): Promise<{
+    webhookVerifyToken?: string;
+    pageAccessToken?: string;
+    companyId?: string;
+  }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: META_LEAD_ADS_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return {};
+    }
+    const v = row.value as Record<string, unknown>;
+    return {
+      webhookVerifyToken:
+        typeof v.webhookVerifyToken === "string" && v.webhookVerifyToken.trim()
+          ? v.webhookVerifyToken.trim()
+          : undefined,
+      pageAccessToken:
+        typeof v.pageAccessToken === "string" && v.pageAccessToken.trim()
+          ? v.pageAccessToken.trim()
+          : undefined,
+      companyId:
+        typeof v.companyId === "string" && v.companyId.trim() ? v.companyId.trim() : undefined,
     };
   }
 
@@ -685,7 +712,6 @@ export class SettingsService {
       projectId: cfg.projectId,
       apiBaseUrl: cfg.apiBaseUrl,
       pollingEndpoint: cfg.pollingEndpoint,
-      callsListFields: cfg.callsListFields,
       publicBaseUrl: cfg.publicBaseUrl,
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),
@@ -729,10 +755,6 @@ export class SettingsService {
         typeof body.pollingEndpoint === "string"
           ? body.pollingEndpoint
           : currentConfig.pollingEndpoint ?? undefined,
-      callsListFields:
-        typeof body.callsListFields === "string"
-          ? body.callsListFields.trim() || undefined
-          : currentConfig.callsListFields ?? undefined,
       publicBaseUrl:
         typeof body.publicBaseUrl === "string"
           ? body.publicBaseUrl.trim() || undefined
@@ -782,7 +804,6 @@ export class SettingsService {
       projectId: nextConfig.projectId,
       apiBaseUrl: nextConfig.apiBaseUrl,
       pollingEndpoint: nextConfig.pollingEndpoint,
-      callsListFields: nextConfig.callsListFields,
       publicBaseUrl: nextConfig.publicBaseUrl,
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),

@@ -7,7 +7,10 @@ import type { PrismaService } from "../../prisma/prisma.service";
 import type { ContactsService } from "../../contacts/contacts.service";
 import type { CompaniesService } from "../../companies/companies.service";
 import type { OrdersService } from "../../orders/orders.service";
+import type { SettingsService } from "../../settings/settings.service";
 import type { AuthUser } from "../../auth/auth.types";
+
+const noopSettings = {} as unknown as SettingsService;
 
 const actor: AuthUser = {
   id: "user-1",
@@ -68,7 +71,7 @@ describe("LeadsService.convert — lead → order traceability", () => {
       addItem: async () => ({}),
     } as unknown as OrdersService;
 
-    const svc = new LeadsService(prisma, contactsService, companiesService, ordersService);
+    const svc = new LeadsService(prisma, noopSettings, contactsService, companiesService, ordersService);
 
     await svc.convert("lead-1", { contactMode: "create", contact: { phone: "+380501112233" }, createDeal: true }, actor);
 
@@ -94,6 +97,7 @@ describe("LeadsService.convert — lead → order traceability", () => {
 
     const svc = new LeadsService(
       prisma,
+      noopSettings,
       {} as ContactsService,
       {} as CompaniesService,
       { create: async () => assert.fail("should not create order"), addItem: async () => ({}) } as unknown as OrdersService,
