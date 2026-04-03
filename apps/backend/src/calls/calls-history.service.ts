@@ -451,6 +451,8 @@ export class CallsHistoryService {
       startedAt: null,
       endedAt: null,
       durationSec: null,
+      talkSec: null,
+      waitingSec: null,
       status: "MANUAL_CALL",
       recordingUrl: null,
       recordingStatus: null,
