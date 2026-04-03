@@ -359,7 +359,16 @@ export default function CallsHistoryPage() {
                           </Link>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2 text-zinc-700">{row.status ?? "—"}</td>
+                      <td className="px-3 py-2 text-zinc-700">
+                        {row.status
+                          ? (row.direction === "OUTBOUND" &&
+                            (row.status.toUpperCase().includes("MISSED") ||
+                              row.status.toUpperCase() === "NOANSWER" ||
+                              row.status.toUpperCase().includes("NO_ANSWER"))
+                              ? "NO_ANSWER"
+                              : row.status)
+                          : "—"}
+                      </td>
                       <td className="px-3 py-2 text-zinc-800">
                         {row.manualOutcome
                           ? OUTCOME_LABEL[row.manualOutcome] ?? row.manualOutcome

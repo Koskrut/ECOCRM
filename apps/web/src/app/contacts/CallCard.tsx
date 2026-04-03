@@ -59,11 +59,15 @@ function directionLabel(direction?: string): { label: string; variant: "in" | "o
   return { label: "Звонок", variant: "unknown" };
 }
 
-function statusLabel(status?: string): { label: string; variant: "ok" | "missed" | "other" } {
+function statusLabel(
+  status: string | undefined,
+  direction: string | undefined,
+): { label: string; variant: "ok" | "missed" | "other" } {
   const s = (status ?? "").toUpperCase();
+  const d = (direction ?? "").toUpperCase();
   if (!s) return { label: "Неизвестно", variant: "other" };
   if (s.includes("MISSED") || s === "NOANSWER" || s.includes("NO_ANSWER"))
-    return { label: "Пропущен", variant: "missed" };
+    return { label: d === "OUTBOUND" ? "Не дозвонился" : "Пропущен", variant: "missed" };
   if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Отвечен", variant: "ok" };
   if (s === "BUSY") return { label: "Занято", variant: "other" };
   if (s === "FAILED") return { label: "Ошибка", variant: "other" };
@@ -92,7 +96,7 @@ export function CallCard({
 }: Props) {
   const call = item.call ?? {};
   const dir = directionLabel(call.direction);
-  const st = statusLabel(call.status);
+  const st = statusLabel(call.status, call.direction);
   const durationText = formatDuration(call.durationSec);
   const talkText = formatDuration(call.talkSec);
   const waitText = formatDuration(call.waitingSec);
