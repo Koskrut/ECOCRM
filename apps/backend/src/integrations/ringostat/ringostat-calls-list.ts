@@ -11,29 +11,31 @@ export type RingostatCallsListConfig = {
   apiBaseUrl?: string;
   pollingEndpoint?: string;
   projectId?: string;
+  /** Override `fields` for /calls/list (comma-separated). Empty uses env or default below. */
+  callsListFields?: string;
 };
 
 /**
- * Export column names for /calls/list `fields` (not query params).
- * Do not use `from` / `to` here — Ringostat rejects them as invalid field names (they clash with date params).
+ * Default export columns aligned with Ringostat KB (calldate, caller, dst, disposition, billsec, recording).
+ * Omits names that often trigger "incorrect field name" (`uniqueid`, `src`, `callee`, `type`, …). Add
+ * `uniqueid` (or others) via settings `callsListFields` or env `RINGOSTAT_CALLS_LIST_FIELDS` when your project supports them.
  */
-const CALLS_LIST_FIELDS = [
+const DEFAULT_CALLS_LIST_FIELDS = [
   "calldate",
   "caller",
-  "callee",
-  "src",
   "dst",
-  "type",
-  "direction",
-  "outbound_number",
-  "uniqueid",
-  "call_id",
-  "n_alias",
   "disposition",
   "billsec",
   "recording",
-  "duration",
 ].join(",");
+
+export function resolveCallsListFields(cfg: RingostatCallsListConfig): string {
+  const fromEnv = process.env.RINGOSTAT_CALLS_LIST_FIELDS?.trim();
+  if (fromEnv) return fromEnv;
+  const custom = cfg.callsListFields?.trim();
+  if (custom) return custom;
+  return DEFAULT_CALLS_LIST_FIELDS;
+}
 
 export function formatRingostatUtcParam(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}:${String(d.getUTCSeconds()).padStart(2, "0")}`;
@@ -67,7 +69,7 @@ export function buildRingostatCallsListUrl(
   url.searchParams.set("export_type", "json");
   url.searchParams.set("from", formatRingostatUtcParam(from));
   url.searchParams.set("to", formatRingostatUtcParam(to));
-  url.searchParams.set("fields", CALLS_LIST_FIELDS);
+  url.searchParams.set("fields", resolveCallsListFields(cfg));
   if (cfg.projectId && cfg.projectId.trim().length > 0) {
     url.searchParams.set("project_id", cfg.projectId.trim());
   }

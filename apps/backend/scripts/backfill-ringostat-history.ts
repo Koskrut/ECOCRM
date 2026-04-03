@@ -69,6 +69,7 @@ type RingostatStoredConfig = {
   projectId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
+  callsListFields?: string;
 };
 
 function utcDayBounds(ymd: string): { start: Date; end: Date } {
@@ -128,6 +129,7 @@ async function main() {
       apiBaseUrl: cfg?.apiBaseUrl,
       pollingEndpoint: cfg?.pollingEndpoint,
       projectId: cfg?.projectId,
+      callsListFields: cfg?.callsListFields,
     };
 
     console.log(`Backfill ${from.toISOString()} .. ${to.toISOString()} (UTC)`);

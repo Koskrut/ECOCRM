@@ -25,6 +25,8 @@ type RingostatConfig = {
   defaultManagerId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
+  /** Comma-separated /calls/list fields; empty = server default */
+  callsListFields?: string;
   publicBaseUrl?: string;
   webhookSecretMasked?: string;
   apiTokenMasked?: string;
@@ -100,6 +102,7 @@ export default function RingostatSettingsPage() {
         projectId: config.projectId ?? undefined,
         apiBaseUrl: config.apiBaseUrl ?? undefined,
         pollingEndpoint: config.pollingEndpoint ?? undefined,
+        callsListFields: config.callsListFields?.trim() || undefined,
         extensionsToUserId,
         defaultManagerId: config.defaultManagerId ?? undefined,
       };
@@ -413,9 +416,31 @@ export default function RingostatSettingsPage() {
                         pollingEndpoint: e.target.value || undefined,
                       }))
                     }
-                    placeholder="/calls"
+                    placeholder="/calls/list"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-zinc-700">
+                  Поля экспорта /calls/list (через запятую, опционально)
+                </label>
+                <textarea
+                  rows={2}
+                  className="w-full rounded-md border border-zinc-300 px-2 py-1.5 font-mono text-xs"
+                  value={config?.callsListFields ?? ""}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...(prev ?? {}),
+                      callsListFields: e.target.value || undefined,
+                    }))
+                  }
+                  placeholder="Пусто — встроенный безопасный набор. При ошибке «incorrect field name» укажите список из ЛК Ringostat."
+                />
+                <p className="text-xs text-zinc-500">
+                  Переменная окружения <code className="rounded bg-zinc-100 px-0.5">RINGOSTAT_CALLS_LIST_FIELDS</code>{" "}
+                  на сервере перекрывает это поле.
+                </p>
               </div>
 
               <div className="border-t border-zinc-100 pt-4">

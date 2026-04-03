@@ -8,6 +8,7 @@ type RingostatStoredConfig = {
   projectId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
+  callsListFields?: string;
 };
 
 @Injectable()
@@ -51,6 +52,7 @@ export class RingostatBackfillService {
       apiBaseUrl: cfg?.apiBaseUrl,
       pollingEndpoint: cfg?.pollingEndpoint,
       projectId: cfg?.projectId,
+      callsListFields: cfg?.callsListFields,
     };
 
     this.logger.log(
