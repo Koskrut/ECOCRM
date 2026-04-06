@@ -232,6 +232,11 @@ export type RingostatConfig = {
   usePolling?: boolean;
   pollingLookbackMinutes?: number;
   extensionsToUserId?: Record<string, string>;
+  /**
+   * Fallback mapping when Ringostat doesn't provide extension_number (common in /calls/list exports).
+   * Keys can be in any phone format; matching is done by digits (we strip non-digits).
+   */
+  phonesToUserId?: Record<string, string>;
   defaultManagerId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
@@ -708,6 +713,7 @@ export class SettingsService {
       usePolling: cfg.usePolling ?? false,
       pollingLookbackMinutes: cfg.pollingLookbackMinutes ?? 10,
       extensionsToUserId: cfg.extensionsToUserId ?? {},
+      phonesToUserId: cfg.phonesToUserId ?? {},
       defaultManagerId: cfg.defaultManagerId,
       projectId: cfg.projectId,
       apiBaseUrl: cfg.apiBaseUrl,
@@ -739,6 +745,10 @@ export class SettingsService {
         typeof body.extensionsToUserId === "object" && body.extensionsToUserId
           ? body.extensionsToUserId
           : currentConfig.extensionsToUserId ?? {},
+      phonesToUserId:
+        typeof body.phonesToUserId === "object" && body.phonesToUserId
+          ? body.phonesToUserId
+          : currentConfig.phonesToUserId ?? {},
       defaultManagerId:
         body.defaultManagerId !== undefined
           ? body.defaultManagerId || undefined
@@ -800,6 +810,7 @@ export class SettingsService {
       usePolling: nextConfig.usePolling,
       pollingLookbackMinutes: nextConfig.pollingLookbackMinutes,
       extensionsToUserId: nextConfig.extensionsToUserId,
+      phonesToUserId: nextConfig.phonesToUserId,
       defaultManagerId: nextConfig.defaultManagerId,
       projectId: nextConfig.projectId,
       apiBaseUrl: nextConfig.apiBaseUrl,

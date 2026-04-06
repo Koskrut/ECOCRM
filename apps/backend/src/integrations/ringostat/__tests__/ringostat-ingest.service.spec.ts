@@ -182,7 +182,7 @@ describe("RingostatIngestService", () => {
     };
     const phones = extract(raw, "INBOUND");
     assert.equal(phones.customerPhoneRaw, "380675785818");
-    assert.equal(phones.managerPhoneRaw, undefined);
+    assert.equal(phones.managerPhoneRaw, "380675785818");
   });
 
   it("inbound: extension_number from additional_call_data is exposed as extension", () => {

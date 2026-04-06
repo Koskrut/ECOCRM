@@ -118,7 +118,7 @@ export class RingostatIngestService {
       const { contactId, leadId, companyId } =
         await this.matchOrCreateEntities(phoneForEntityMatch, raw);
 
-      const managerUserId = await this.resolveManagerUserId(extension);
+      const managerUserId = await this.resolveManagerUserId(extension, managerPhoneNormalized);
 
       const provider = RINGOSTAT_PROVIDER;
 
@@ -492,12 +492,19 @@ export class RingostatIngestService {
       customerPhoneRaw = inboundCustomerRaw;
       const custNorm = this.normalizePhone(customerPhoneRaw);
       let mgrDst = dst || undefined;
+      let mgrDstWasSameAsCustomer = false;
       const dstNorm = mgrDst ? this.normalizePhone(mgrDst) : null;
       if (mgrDst && custNorm && dstNorm && dstNorm === custNorm) {
         // Ringostat sometimes repeats the client number in dst; do not treat it as the manager leg.
         mgrDst = undefined;
+        mgrDstWasSameAsCustomer = true;
       }
       managerPhoneRaw = mgrDst || outboundNumber || undefined;
+      if (!managerPhoneRaw && mgrDstWasSameAsCustomer && customerPhoneRaw) {
+        // When both legs collapse to the same number and Ringostat doesn't provide outbound_number,
+        // treat manager leg as identical so entity matching can be safely skipped for inbound.
+        managerPhoneRaw = customerPhoneRaw;
+      }
     } else if (direction === "OUTBOUND") {
       customerPhoneRaw = callee || dst;
       managerPhoneRaw = outboundNumber || src;
@@ -710,7 +717,10 @@ export class RingostatIngestService {
   }
 
   /** Manager = mapping from Ringostat extension (settings) or defaultManagerId fallback only. */
-  private async resolveManagerUserId(extension: string | undefined): Promise<string | null> {
+  private async resolveManagerUserId(
+    extension: string | undefined,
+    managerPhoneNormalized: string | null,
+  ): Promise<string | null> {
     const setting = await this.prisma.integrationSetting.findFirst({
       where: { provider: RINGOSTAT_PROVIDER },
       select: { config: true },
@@ -718,12 +728,23 @@ export class RingostatIngestService {
     const config = (setting?.config ?? null) as
       | {
           extensionsToUserId?: Record<string, string>;
+          phonesToUserId?: Record<string, string>;
           defaultManagerId?: string;
         }
       | null;
 
     if (extension && config?.extensionsToUserId?.[extension]) {
       return config.extensionsToUserId[extension];
+    }
+
+    if (managerPhoneNormalized && config?.phonesToUserId) {
+      const digits = managerPhoneNormalized.replace(/\D/g, "");
+      for (const [k, v] of Object.entries(config.phonesToUserId)) {
+        const kd = String(k).replace(/\D/g, "");
+        if (kd && kd === digits && typeof v === "string" && v.trim()) {
+          return v.trim();
+        }
+      }
     }
 
     return config?.defaultManagerId ?? null;

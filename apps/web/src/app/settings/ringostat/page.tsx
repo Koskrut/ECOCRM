@@ -22,6 +22,7 @@ type RingostatConfig = {
   pollingLookbackMinutes?: number;
   projectId?: string;
   extensionsToUserId?: Record<string, string>;
+  phonesToUserId?: Record<string, string>;
   defaultManagerId?: string;
   apiBaseUrl?: string;
   pollingEndpoint?: string;
@@ -38,6 +39,7 @@ export default function RingostatSettingsPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [extensions, setExtensions] = useState<Array<{ extension: string; userId: string }>>([]);
+  const [phones, setPhones] = useState<Array<{ phone: string; userId: string }>>([]);
   const [apiTokenValue, setApiTokenValue] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
@@ -59,6 +61,8 @@ export default function RingostatSettingsPage() {
         setPublicBaseUrl(data.publicBaseUrl ?? "");
         const ext = data.extensionsToUserId ?? {};
         setExtensions(Object.entries(ext).map(([extension, userId]) => ({ extension, userId })));
+        const p = data.phonesToUserId ?? {};
+        setPhones(Object.entries(p).map(([phone, userId]) => ({ phone, userId })));
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -92,6 +96,14 @@ export default function RingostatSettingsPage() {
         extensionsToUserId[ext] = userId;
       }
 
+      const phonesToUserId: Record<string, string> = {};
+      for (const row of phones) {
+        const phone = row.phone.trim();
+        const userId = row.userId.trim();
+        if (!phone || !userId) continue;
+        phonesToUserId[phone] = userId;
+      }
+
       const payload: Record<string, unknown> = {
         isEnabled: config.isEnabled ?? false,
         useWebhook: config.useWebhook ?? true,
@@ -101,6 +113,7 @@ export default function RingostatSettingsPage() {
         apiBaseUrl: config.apiBaseUrl ?? undefined,
         pollingEndpoint: config.pollingEndpoint ?? undefined,
         extensionsToUserId,
+        phonesToUserId,
         defaultManagerId: config.defaultManagerId ?? undefined,
       };
       if (apiTokenValue.trim() !== "") payload.apiToken = apiTokenValue.trim();
@@ -117,6 +130,8 @@ export default function RingostatSettingsPage() {
       setPublicBaseUrl(res.data.publicBaseUrl ?? publicBaseUrl);
       const ext = res.data.extensionsToUserId ?? {};
       setExtensions(Object.entries(ext).map(([extension, userId]) => ({ extension, userId })));
+      const p = res.data.phonesToUserId ?? {};
+      setPhones(Object.entries(p).map(([phone, userId]) => ({ phone, userId })));
       setSuccess("Настройки Ringostat сохранены");
     } catch (e) {
       const msg =
@@ -140,6 +155,18 @@ export default function RingostatSettingsPage() {
 
   const removeExtensionRow = (index: number) => {
     setExtensions((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updatePhone = (index: number, field: "phone" | "userId", value: string) => {
+    setPhones((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const addPhoneRow = () => {
+    setPhones((prev) => [...prev, { phone: "", userId: "" }]);
+  };
+
+  const removePhoneRow = (index: number) => {
+    setPhones((prev) => prev.filter((_, i) => i !== index));
   };
 
   const runBackfill = async () => {
@@ -532,6 +559,75 @@ export default function RingostatSettingsPage() {
                 className="rounded-md border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
               >
                 + Добавить extension
+              </button>
+            </div>
+
+            <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-zinc-900">
+                Маппинг рабочего телефона → пользователи CRM (fallback)
+              </h2>
+              <p className="text-xs text-zinc-500">
+                Ringostat иногда не присылает <code className="rounded bg-zinc-100 px-0.5">extension_number</code>.
+                Тогда менеджер определяется по номеру линии/телефона из <code className="rounded bg-zinc-100 px-0.5">toNormalized</code>.
+                Формат номера любой — сравнение идёт по цифрам.
+              </p>
+
+              <div className="overflow-hidden rounded-md border border-zinc-200">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-xs font-medium uppercase text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2">Телефон</th>
+                      <th className="px-3 py-2">User ID</th>
+                      <th className="w-12 px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {phones.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
+                          Пока нет ни одной записи. Добавьте соответствие телефон → userId.
+                        </td>
+                      </tr>
+                    ) : (
+                      phones.map((row, idx) => (
+                        <tr key={`${row.phone}-${idx}`}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm"
+                              value={row.phone}
+                              onChange={(e) => updatePhone(idx, "phone", e.target.value)}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              className="w-full rounded-md border border-zinc-300 px-2 py-1 text-sm"
+                              value={row.userId}
+                              onChange={(e) => updatePhone(idx, "userId", e.target.value)}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removePhoneRow(idx)}
+                              className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-50"
+                            >
+                              Удалить
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                onClick={addPhoneRow}
+                className="rounded-md border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
+              >
+                + Добавить телефон
               </button>
             </div>
 
