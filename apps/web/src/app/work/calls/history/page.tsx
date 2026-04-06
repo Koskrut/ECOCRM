@@ -381,7 +381,7 @@ export default function CallsHistoryPage() {
                     row.rowKind === "CALL" ? row.toDisplay : (displayManager ? row.toDisplay : null);
                   const fallbackContactPhone = isOutbound
                     ? row.fromDisplay ?? row.toDisplay
-                    : row.toDisplay ?? row.fromDisplay;
+                    : row.fromDisplay ?? null;
                   const noClientPhone =
                     row.rowKind === "CALL" &&
                     !row.target &&
