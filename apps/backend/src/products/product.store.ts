@@ -689,13 +689,12 @@ export class ProductStore {
     return { items, total };
   }
 
-  /** All active products with id, sku, skuNormalized for sync matching. */
+  /** All products (включая неактивные): фото в Drive должны цепляться к SKU независимо от витрины. */
   public async listAllForImageSync(): Promise<
     Array<{ id: string; sku: string; skuNormalized: string }>
   > {
     const { normalizeArticle } = await import("./article-normalizer");
     const rows = await this.prisma.product.findMany({
-      where: { isActive: true },
       select: { id: true, sku: true },
     });
     return rows.map((r) => ({

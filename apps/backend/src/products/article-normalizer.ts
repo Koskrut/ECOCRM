@@ -72,6 +72,27 @@ export function matchArticle(
 export type ProductCandidate = { id: string; sku: string; skuNormalized: string };
 
 /**
+ * Варианты числового префикса `NN.NNN…` для матча с каталогом (`00.107` ↔ `0.107`).
+ * Не трогает PM.* и буквенно-дефисные артикулы.
+ */
+export function articleMatchAliases(article: string): string[] {
+  const out = new Set<string>();
+  out.add(article);
+  const dot = article.indexOf(".");
+  if (dot <= 0) return [...out];
+  const head = article.slice(0, dot);
+  const tail = article.slice(dot);
+  if (!/^\d+$/.test(head)) return [...out];
+  let h = head;
+  while (h.length > 1 && h.startsWith("0")) {
+    h = h.slice(1);
+    out.add(h + tail);
+  }
+  if (h.length === 1) out.add("0" + h + tail);
+  return [...out];
+}
+
+/**
  * Find best matching product for a file article (normalized).
  * Priority: exact > prefix > contains. Among same kind, prefer longer match.
  */
@@ -79,6 +100,7 @@ export function findBestProductMatch(
   fileArticleNormalized: string,
   products: ProductCandidate[],
 ): { productId: string; sku: string; kind: MatchKind } | null {
+  const aliases = articleMatchAliases(fileArticleNormalized);
   let best: { productId: string; sku: string; kind: MatchKind } | null = null;
   let bestKindOrder = 0; // exact=3, prefix=2, contains=1
   let bestCommonLen = 0;
@@ -99,30 +121,32 @@ export function findBestProductMatch(
   };
 
   for (const p of products) {
-    const kind = matchArticle(p.skuNormalized, fileArticleNormalized);
-    if (!kind) continue;
-    const kindOrder = kind === "exact" ? 3 : kind === "prefix" ? 2 : 1;
-    const commonLen =
-      kind === "exact"
-        ? fileArticleNormalized.length
-        : kind === "prefix"
-          ? commonPrefixLen(p.skuNormalized, fileArticleNormalized)
-          : commonContainedLen(p.skuNormalized, fileArticleNormalized);
-    const lenDelta = Math.abs(p.skuNormalized.length - fileArticleNormalized.length);
-    if (
-      kindOrder > bestKindOrder ||
-      (kindOrder === bestKindOrder &&
-        (commonLen > bestCommonLen ||
-          (commonLen === bestCommonLen && lenDelta < bestLenDelta) ||
-          (commonLen === bestCommonLen &&
-            lenDelta === bestLenDelta &&
-            p.skuNormalized < bestSkuNorm)))
-    ) {
-      bestKindOrder = kindOrder;
-      bestCommonLen = commonLen;
-      bestLenDelta = lenDelta;
-      bestSkuNorm = p.skuNormalized;
-      best = { productId: p.id, sku: p.sku, kind };
+    for (const alias of aliases) {
+      const kind = matchArticle(p.skuNormalized, alias);
+      if (!kind) continue;
+      const kindOrder = kind === "exact" ? 3 : kind === "prefix" ? 2 : 1;
+      const commonLen =
+        kind === "exact"
+          ? alias.length
+          : kind === "prefix"
+            ? commonPrefixLen(p.skuNormalized, alias)
+            : commonContainedLen(p.skuNormalized, alias);
+      const lenDelta = Math.abs(p.skuNormalized.length - alias.length);
+      if (
+        kindOrder > bestKindOrder ||
+        (kindOrder === bestKindOrder &&
+          (commonLen > bestCommonLen ||
+            (commonLen === bestCommonLen && lenDelta < bestLenDelta) ||
+            (commonLen === bestCommonLen &&
+              lenDelta === bestLenDelta &&
+              p.skuNormalized < bestSkuNorm)))
+      ) {
+        bestKindOrder = kindOrder;
+        bestCommonLen = commonLen;
+        bestLenDelta = lenDelta;
+        bestSkuNorm = p.skuNormalized;
+        best = { productId: p.id, sku: p.sku, kind };
+      }
     }
   }
   return best;

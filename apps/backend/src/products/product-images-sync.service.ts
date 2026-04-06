@@ -35,7 +35,7 @@ export type ProductImagesSyncResult = {
   productsMatched: number;
   /** Имя файла без распознанного артикула (или не картинка после фильтра — не используется здесь). */
   filesUnmatchedNoArticle: number;
-  /** Артикул из имени есть, но нет активного товара с подходящим SKU. */
+  /** Артикул из имени есть, но в БД нет товара с подходящим SKU. */
   filesUnmatchedNoProduct: number;
   /** Сумма двух предыдущих (удобно для старых интеграций). */
   filesUnmatched: number;
