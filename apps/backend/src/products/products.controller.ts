@@ -185,6 +185,16 @@ export class ProductsController {
     }
   }
 
+  @Post("images/:imageId/primary")
+  public async setPrimaryImage(
+    @Param("imageId") imageId: string,
+  ): Promise<{ ok: boolean }> {
+    const img = await this.productImageStore.findById(imageId);
+    if (!img) throw new BadRequestException("Image not found");
+    await this.productImageStore.setPrimary(imageId);
+    return { ok: true };
+  }
+
   @Get(":id/images")
   public async listProductImages(@Param("id") id: string) {
     const product = await this.productStore.findById(id);

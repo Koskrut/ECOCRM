@@ -397,6 +397,7 @@ function ProductImagesModal({
 }) {
   const [images, setImages] = useState<ProductImageItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [settingPrimaryId, setSettingPrimaryId] = useState<string | null>(null);
   useEffect(() => {
     if (!open || !productId) return;
     setLoading(true);
@@ -439,10 +440,32 @@ function ProductImagesModal({
                     alt={img.fileName}
                     className="aspect-square rounded-lg border border-zinc-200 object-contain bg-zinc-50"
                   />
-                  <p className="truncate text-xs text-zinc-500" title={img.fileName}>
-                    {img.fileName}
-                    {img.isPrimary && " (главное)"}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-xs text-zinc-500" title={img.fileName}>
+                      {img.fileName}
+                      {img.isPrimary && " (главное)"}
+                    </p>
+                    {!img.isPrimary && (
+                      <button
+                        type="button"
+                        disabled={settingPrimaryId === img.id}
+                        onClick={async () => {
+                          setSettingPrimaryId(img.id);
+                          try {
+                            await productsApi.setPrimaryProductImage(img.id);
+                            const r = await productsApi.listProductImages(productId);
+                            setImages(r.items);
+                          } finally {
+                            setSettingPrimaryId(null);
+                          }
+                        }}
+                        className="shrink-0 rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        title="Сделать главным"
+                      >
+                        {settingPrimaryId === img.id ? "…" : "Главное"}
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

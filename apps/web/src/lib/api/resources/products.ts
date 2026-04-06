@@ -259,6 +259,11 @@ export const productsApi = {
     return res.data;
   },
 
+  setPrimaryProductImage: async (imageId: string): Promise<void> => {
+    const res = await apiHttp.post<{ ok: boolean }>(`/products/images/${imageId}/primary`, {});
+    if (!res.data?.ok) throw new Error("Failed to set primary image");
+  },
+
   syncProductImagesStart: async (
     folderId?: string,
   ): Promise<{ jobId: string; status: string }> => {
