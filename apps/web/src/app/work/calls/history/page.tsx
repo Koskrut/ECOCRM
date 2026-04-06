@@ -382,6 +382,7 @@ export default function CallsHistoryPage() {
                   const noClientPhone =
                     row.rowKind === "CALL" &&
                     !row.target &&
+                    (row.direction ?? "").toUpperCase() !== "OUTBOUND" &&
                     !!row.fromDisplay &&
                     !!row.toDisplay &&
                     row.fromDisplay.replace(/\D/g, "") === row.toDisplay.replace(/\D/g, "");
