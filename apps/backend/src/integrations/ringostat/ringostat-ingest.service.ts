@@ -471,7 +471,11 @@ export class RingostatIngestService {
       getVal(raw, "recording_wav") ??
       null;
 
-    const url = urlCandidate ? String(urlCandidate).trim() : undefined;
+    let url = urlCandidate ? String(urlCandidate).trim() : undefined;
+    // CRM runs on https; http recording URLs are blocked by browsers as mixed content.
+    if (url && url.startsWith("http://")) {
+      url = "https://" + url.slice("http://".length);
+    }
     if (url && url.length > 0) {
       return { url, status: "READY" };
     }
