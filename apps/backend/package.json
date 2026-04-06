@@ -18,7 +18,8 @@
     "np:fill-refs": "ts-node scripts/fill-np-refs-in-profiles.ts",
     "import:characteristics": "ts-node scripts/import-product-characteristics-xlsx.ts",
     "import:characteristic": "ts-node scripts/import-product-characteristics-xlsx.ts",
-    "ringostat:backfill": "ts-node scripts/backfill-ringostat-history.ts"
+    "ringostat:backfill": "ts-node scripts/backfill-ringostat-history.ts",
+    "drive:list": "ts-node scripts/list-google-drive-files.ts"
   },
   "keywords": [],
   "author": "",
