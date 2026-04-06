@@ -206,12 +206,11 @@ export function findBestProductMatch(
 
 type MatchResult = { productId: string; sku: string; kind: MatchKind };
 
-function compareMatchResults(a: MatchResult, b: MatchResult, candLenA: number, candLenB: number): number {
+function compareMatchResults(a: MatchResult, b: MatchResult): number {
   const order = (k: MatchKind) => (k === "exact" ? 3 : k === "prefix" ? 2 : 1);
   const oa = order(a.kind);
   const ob = order(b.kind);
   if (oa !== ob) return oa - ob;
-  if (candLenA !== candLenB) return candLenA - candLenB;
   if (a.sku !== b.sku) return a.sku < b.sku ? -1 : 1;
   return 0;
 }
@@ -233,18 +232,26 @@ export function resolveProductMatchForImageFile(
     seen.add(t);
     candidates.push(t);
   };
-  push(stem);
+  // Priority: extracted article tokens first. The full stem is used only as a fallback
+  // (and we only accept EXACT on stem) to avoid cross-matching on descriptive suffixes.
   for (const c of extractArticleCandidatesFromFileName(fileName)) push(c);
+  // Dotless numeric fallback (e.g. IMG_10011_some.png -> 10011).
+  // This does NOT affect extraction stats; it's only for match resilience.
+  const rawBase = fileName.replace(/\.[^.]+$/, "");
+  const digitGroups = rawBase.match(/\d{4,}/g) ?? [];
+  for (const g of digitGroups) push(g);
+  if (stem) push(stem);
 
   let best: MatchResult | null = null;
-  let bestCandLen = 0;
   for (const cand of candidates) {
     const m = findBestProductMatch(cand, products);
     if (!m) continue;
-    if (!best || compareMatchResults(m, best, cand.length, bestCandLen) > 0) {
+    // If candidate is full stem, allow only exact match.
+    if (cand === stem && m.kind !== "exact") continue;
+    if (!best || compareMatchResults(m, best) > 0) {
       best = m;
-      bestCandLen = cand.length;
     }
+    if (best.kind === "exact") return best;
   }
   return best;
 }
