@@ -19,7 +19,8 @@ export function normalizeArticle(value: string): string {
  * Паттерн артикула: ХХ.ХХХ + опционально буквы или -число.
  * Примеры: 01.021, 01.06312A, 03.041M, 03.060-1745, 04.049NH.
  */
-const ARTICLE_PATTERN = /(\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)/i;
+const ARTICLE_PATTERN =
+  /((?:\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)|(?:PM\.\d+(?:\.\d+)*(?:[A-Za-z]+|-\d+)*))/i;
 
 /** Normalize odd Unicode punctuation / invisible chars before regex (Drive / macOS names). */
 function sanitizeFileNameForArticle(fileName: string): string {
@@ -74,19 +75,47 @@ export function findBestProductMatch(
 ): { productId: string; sku: string; kind: MatchKind } | null {
   let best: { productId: string; sku: string; kind: MatchKind } | null = null;
   let bestKindOrder = 0; // exact=3, prefix=2, contains=1
-  let bestLen = 0;
+  let bestCommonLen = 0;
+  let bestLenDelta = Number.POSITIVE_INFINITY;
+  let bestSkuNorm = "";
+
+  const commonPrefixLen = (a: string, b: string) => {
+    const n = Math.min(a.length, b.length);
+    let i = 0;
+    for (; i < n; i++) if (a[i] !== b[i]) break;
+    return i;
+  };
+
+  const commonContainedLen = (a: string, b: string) => {
+    if (a.includes(b)) return b.length;
+    if (b.includes(a)) return a.length;
+    return 0;
+  };
 
   for (const p of products) {
     const kind = matchArticle(p.skuNormalized, fileArticleNormalized);
     if (!kind) continue;
     const kindOrder = kind === "exact" ? 3 : kind === "prefix" ? 2 : 1;
-    const matchLen = Math.min(p.skuNormalized.length, fileArticleNormalized.length);
+    const commonLen =
+      kind === "exact"
+        ? fileArticleNormalized.length
+        : kind === "prefix"
+          ? commonPrefixLen(p.skuNormalized, fileArticleNormalized)
+          : commonContainedLen(p.skuNormalized, fileArticleNormalized);
+    const lenDelta = Math.abs(p.skuNormalized.length - fileArticleNormalized.length);
     if (
       kindOrder > bestKindOrder ||
-      (kindOrder === bestKindOrder && matchLen > bestLen)
+      (kindOrder === bestKindOrder &&
+        (commonLen > bestCommonLen ||
+          (commonLen === bestCommonLen && lenDelta < bestLenDelta) ||
+          (commonLen === bestCommonLen &&
+            lenDelta === bestLenDelta &&
+            p.skuNormalized < bestSkuNorm)))
     ) {
       bestKindOrder = kindOrder;
-      bestLen = matchLen;
+      bestCommonLen = commonLen;
+      bestLenDelta = lenDelta;
+      bestSkuNorm = p.skuNormalized;
       best = { productId: p.id, sku: p.sku, kind };
     }
   }
