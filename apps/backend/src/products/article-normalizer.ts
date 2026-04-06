@@ -110,6 +110,14 @@ export function matchArticle(
     return "prefix";
   if (productSkuNormalized.includes(fileArticleNormalized) || fileArticleNormalized.includes(productSkuNormalized))
     return "contains";
+  // Compact numeric form (helps when filename/SKU uses 10011 vs 10.011).
+  const a = productSkuNormalized.replace(/\./g, "");
+  const b = fileArticleNormalized.replace(/\./g, "");
+  if (a && b) {
+    if (a === b) return "exact";
+    if (a.startsWith(b) || b.startsWith(a)) return "prefix";
+    if (a.includes(b) || b.includes(a)) return "contains";
+  }
   return null;
 }
 

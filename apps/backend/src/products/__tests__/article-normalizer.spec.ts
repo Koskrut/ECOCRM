@@ -24,6 +24,14 @@ describe("article-normalizer / extract by mask in filename", () => {
     assert.strictEqual(extractArticleFromFileName("10.090 OS-SF-TB-M2.0.png"), "10.090");
   });
 
+  it("matches dotless numeric variants (10011 vs 10.011)", () => {
+    const products = [
+      { id: "p", sku: "10.011", skuNormalized: normalizeArticle("10.011") },
+    ];
+    const m = resolveProductMatchForImageFile("IMG_10011_some.png", products);
+    assert.strictEqual(m?.productId, "p");
+  });
+
   it("PM.* mask", () => {
     assert.strictEqual(extractArticleFromFileName("photo_PM.12.3_suffix.png"), "PM.12.3");
   });
