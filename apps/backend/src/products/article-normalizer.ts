@@ -7,20 +7,26 @@
 
 export function normalizeArticle(value: string): string {
   if (!value || typeof value !== "string") return "";
-  return value
+  let s = value
     .toUpperCase()
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[-_]+/g, ".")
     .replace(/\s+/g, ".");
+  /** Trailing punctuation from exports (e.g. U+201A „) must not break Drive ↔ DB match. */
+  s = s.replace(/[^A-Z0-9.]+$/g, "").replace(/\.+$/g, "").replace(/^\.+/g, "");
+  return s;
 }
 
 /**
- * Паттерн артикула: ХХ.ХХХ + опционально буквы или -число.
- * Примеры: 01.021, 01.06312A, 03.041M, 03.060-1745, 04.049NH.
+ * Паттерн артикула:
+ * - ХХ.ХХХ + опционально буквы или -число (в т.ч. 10.020-1, 08.070-4545-1)
+ * - PM.… (префиксные артикулы)
+ * - Буква + сегменты через дефис (S-WF-AS-SA-MU). Идёт после цифровых вариантов,
+ *   чтобы "00.107 WF-OS-MU.png" по-прежнему давал 00.107.
  */
 const ARTICLE_PATTERN =
-  /((?:\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)|(?:PM\.\d+(?:\.\d+)*(?:[A-Za-z]+|-\d+)*))/i;
+  /((?:\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)|(?:PM\.\d+(?:\.\d+)*(?:[A-Za-z]+|-\d+)*)|(?:[A-Za-z](?:-[A-Za-z0-9]+)+))/i;
 
 /** Normalize odd Unicode punctuation / invisible chars before regex (Drive / macOS names). */
 function sanitizeFileNameForArticle(fileName: string): string {
@@ -33,7 +39,7 @@ function sanitizeFileNameForArticle(fileName: string): string {
 
 /**
  * Извлекает артикул из имени файла (формат ХХ.ХХХ, возможно с суффиксом A/L/M/NH или -1745).
- * Примеры: "01.021 ST-TOT-MU.png" → "01.021", "01.06312A_st-rc-asra.png" → "01.06312A".
+ * Примеры: "01.021 ST-TOT-MU.png" → "01.021", "S-WF-AS-SA-MU.png" → "S.WF.AS.SA.MU".
  */
 export function extractArticleFromFileName(fileName: string): string {
   if (!fileName || typeof fileName !== "string") return "";
