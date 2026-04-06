@@ -175,7 +175,13 @@ export const uk = {
     subtitle:
       "Список платежів і неприв’язаних банківських операцій. Перемикач ФОП — вибір банківського рахунку. ФОПи налаштовуються в Налаштування → ФОП.",
     addPayment: "+ Додати платіж",
+    /** Прив’язані платежі (вже рознесені по замовленнях). */
+    allocatedTab: "Рознесені",
+    /** Банківські операції, які потрібно рознести по замовленнях. */
+    toAllocateTab: "Потрібно рознести",
+    /** Legacy label (kept for backward compatibility). */
     all: "Усі",
+    /** Legacy label (kept for backward compatibility). */
     unmatchedTab: "Без прив’язки",
     bankAccountLabel: "Банківський рахунок (ФОП)",
     allAccountsOption: "Усі",

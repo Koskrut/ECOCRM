@@ -174,7 +174,13 @@ export const en = {
     subtitle:
       "Payment list and unmatched bank operations. FOP switch selects the bank account. Configure FOPs in Settings → FOP.",
     addPayment: "+ Add payment",
+    /** Linked bank payments (already allocated to orders). */
+    allocatedTab: "Allocated",
+    /** Bank transactions that still need allocation to orders. */
+    toAllocateTab: "Needs allocation",
+    /** Legacy label (kept for backward compatibility). */
     all: "All",
+    /** Legacy label (kept for backward compatibility). */
     unmatchedTab: "Unmatched",
     bankAccountLabel: "Bank account (FOP)",
     allAccountsOption: "All",

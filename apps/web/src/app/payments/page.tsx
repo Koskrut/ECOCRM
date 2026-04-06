@@ -119,7 +119,7 @@ function PaymentsContent() {
   const bankAccountId = searchParams.get("bankAccountId") ?? "";
   const [mode, setMode] = useState<"cash" | "fop">("fop");
   const [view, setView] = useState<"payments" | "unmatched">(
-    viewParam === "unmatched" ? "unmatched" : "payments",
+    viewParam === "payments" ? "payments" : "unmatched",
   );
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
@@ -946,7 +946,7 @@ function PaymentsContent() {
                         : "text-zinc-600 hover:bg-zinc-100"
                     }`}
                   >
-                    {t.payments.all}
+                    {t.payments.allocatedTab}
                   </button>
                   <button
                     type="button"
@@ -957,7 +957,7 @@ function PaymentsContent() {
                         : "text-zinc-600 hover:bg-zinc-100"
                     }`}
                   >
-                    {t.payments.unmatchedTab}
+                    {t.payments.toAllocateTab}
                   </button>
                 </div>
                 <label className="flex items-center gap-2 text-sm text-zinc-600">
