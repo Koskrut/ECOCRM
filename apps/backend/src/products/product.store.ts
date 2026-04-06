@@ -69,6 +69,14 @@ export type CreateProductData = {
   showOnStore?: boolean;
 };
 
+export type UpdateProductData = {
+  sku?: string;
+  name?: string;
+  unit?: string;
+  basePrice?: number;
+  stock?: number;
+};
+
 function parseCharacteristicsJson(raw: Prisma.JsonValue | null): Record<string, unknown> | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === "object" && !Array.isArray(raw)) {
@@ -187,6 +195,46 @@ export class ProductStore {
       data: { stock: Math.max(0, Math.floor(stock)) },
     });
     return result.count > 0;
+  }
+
+  public async updateBasics(id: string, data: UpdateProductData): Promise<boolean> {
+    const update: Prisma.ProductUpdateInput = {};
+    if (data.sku !== undefined) {
+      const skuTrim = data.sku.trim();
+      if (!skuTrim) throw new BadRequestException("Артикул обязателен");
+      update.sku = skuTrim;
+    }
+    if (data.name !== undefined) {
+      const nameTrim = data.name.trim();
+      if (!nameTrim) throw new BadRequestException("Наименование обязательно");
+      update.name = nameTrim;
+    }
+    if (data.unit !== undefined) {
+      const unitTrim = data.unit.trim();
+      if (!unitTrim) throw new BadRequestException("Ед. измерения обязательна");
+      update.unit = unitTrim;
+    }
+    if (data.basePrice !== undefined) {
+      const n = Number(data.basePrice);
+      if (Number.isNaN(n)) throw new BadRequestException("Цена должна быть числом");
+      update.basePrice = Math.max(0, n);
+    }
+    if (data.stock !== undefined) {
+      update.stock = Math.max(0, Math.floor(Number(data.stock)));
+    }
+    if (Object.keys(update).length === 0) return true;
+    try {
+      const result = await this.prisma.product.updateMany({
+        where: { id },
+        data: update,
+      });
+      return result.count > 0;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        throw new ConflictException("Товар с таким артикулом уже существует");
+      }
+      throw err;
+    }
   }
 
   /** Returns map productId -> stockByWarehouse[]. */

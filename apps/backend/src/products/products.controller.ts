@@ -205,6 +205,10 @@ export class ProductsController {
     @Param("id") id: string,
     @Body()
     body: {
+      sku?: string;
+      name?: string;
+      unit?: string;
+      basePrice?: number;
       stock?: number;
       showOnStore?: boolean;
       isActive?: boolean;
@@ -212,8 +216,20 @@ export class ProductsController {
       characteristics?: unknown;
     },
   ): Promise<{ ok: boolean }> {
-    if (body.stock !== undefined) {
-      const ok = await this.productStore.updateStockById(id, body.stock);
+    if (
+      body.sku !== undefined ||
+      body.name !== undefined ||
+      body.unit !== undefined ||
+      body.basePrice !== undefined ||
+      body.stock !== undefined
+    ) {
+      const ok = await this.productStore.updateBasics(id, {
+        sku: body.sku !== undefined ? String(body.sku) : undefined,
+        name: body.name !== undefined ? String(body.name) : undefined,
+        unit: body.unit !== undefined ? String(body.unit) : undefined,
+        basePrice: body.basePrice !== undefined ? Number(body.basePrice) : undefined,
+        stock: body.stock !== undefined ? Number(body.stock) : undefined,
+      });
       if (!ok) throw new BadRequestException("Product not found");
     }
     if (body.showOnStore !== undefined) {

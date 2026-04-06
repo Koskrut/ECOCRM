@@ -82,6 +82,17 @@ export type CreateProductPayload = {
   showOnStore?: boolean;
 };
 
+export type UpdateProductPayload = {
+  sku?: string;
+  name?: string;
+  unit?: string;
+  basePrice?: number;
+  stock?: number;
+  showOnStore?: boolean;
+  isActive?: boolean;
+  characteristics?: Record<string, unknown> | null;
+};
+
 export const productsApi = {
   createProduct: async (payload: CreateProductPayload): Promise<ProductCatalogItem> => {
     const r = await fetch("/api/products", {
@@ -125,6 +136,26 @@ export const productsApi = {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ stock }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Update failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+  },
+
+  updateProduct: async (id: string, payload: UpdateProductPayload): Promise<void> => {
+    const r = await fetch(`/api/products/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
       credentials: "include",
     });
     if (!r.ok) {

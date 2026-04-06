@@ -19,7 +19,7 @@ import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
 /** Порядок складов для колонок каталога. */
 const WAREHOUSE_ORDER = ["Днепр", "Одесса", "Львов"];
 
-const TABLE_COLSPAN = 7 + WAREHOUSE_ORDER.length;
+const TABLE_COLSPAN = 8 + WAREHOUSE_ORDER.length;
 
 function CatalogExpandedCharacteristics({
   product,
@@ -142,6 +142,210 @@ function CatalogRowDeleteButton({
         <line x1="14" y1="11" x2="14" y2="17" />
       </svg>
     </button>
+  );
+}
+
+function CatalogRowEditButton({
+  productName,
+  onEdit,
+}: {
+  productName: string;
+  onEdit: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onEdit();
+      }}
+      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+      title="Редактировать"
+      aria-label={`Редактировать ${productName}`}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+      </svg>
+    </button>
+  );
+}
+
+function EditProductModal({
+  open,
+  product,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  product: ProductCatalogItem | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sku, setSku] = useState("");
+  const [name, setName] = useState("");
+  const [unit, setUnit] = useState("");
+  const [basePrice, setBasePrice] = useState<string>("");
+  const [stock, setStock] = useState<string>("");
+  const [showOnStore, setShowOnStore] = useState(true);
+  const [isActive, setIsActive] = useState(true);
+
+  useEffect(() => {
+    if (!open || !product) return;
+    setError(null);
+    setSku(product.sku ?? "");
+    setName(product.name ?? "");
+    setUnit(product.unit ?? "");
+    setBasePrice(String(product.basePrice ?? 0));
+    setStock(String(product.stock ?? 0));
+    setShowOnStore(Boolean(product.showOnStore ?? true));
+    setIsActive(product.isActive === false ? false : true);
+  }, [open, product]);
+
+  const handleSave = async () => {
+    if (!product) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await productsApi.updateProduct(product.id, {
+        sku,
+        name,
+        unit,
+        basePrice: Number(basePrice),
+        stock: Number(stock),
+        showOnStore,
+        isActive,
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Редактирование товара</h2>
+            <p className="mt-1 text-sm text-zinc-600">{product?.sku}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+            aria-label="Закрыть"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Артикул</span>
+            <input
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Ед.</span>
+            <input
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="text-xs font-medium text-zinc-600">Название</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Цена</span>
+            <input
+              value={basePrice}
+              onChange={(e) => setBasePrice(e.target.value)}
+              inputMode="decimal"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Количество (общий остаток)</span>
+            <input
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              inputMode="numeric"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-4">
+          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={showOnStore}
+              onChange={(e) => setShowOnStore(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+            />
+            Показывать на сайте
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+            />
+            Активен
+          </label>
+        </div>
+
+        <div className="mt-6 flex gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !product}
+            className="btn-primary"
+          >
+            {saving ? "Сохранение…" : "Сохранить"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -839,6 +1043,7 @@ function CatalogPageContent() {
     id: string;
     name: string;
   } | null>(null);
+  const [editModalProduct, setEditModalProduct] = useState<ProductCatalogItem | null>(null);
   const [editingStock, setEditingStock] = useState<{
     productId: string;
     value: string;
@@ -969,6 +1174,7 @@ function CatalogPageContent() {
                   <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
                     На сайте
                   </th>
+                  <th className="w-10 px-2 py-3" aria-label="Редактировать" />
                   <th className="w-10 px-2 py-3" aria-label="Удалить" />
                 </tr>
               </thead>
@@ -1081,6 +1287,12 @@ function CatalogPageContent() {
                             </label>
                           </td>
                           <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                            <CatalogRowEditButton
+                              productName={p.name}
+                              onEdit={() => setEditModalProduct(p)}
+                            />
+                          </td>
+                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                             <CatalogRowDeleteButton
                               productId={p.id}
                               productName={p.name}
@@ -1127,6 +1339,12 @@ function CatalogPageContent() {
         productName={imagesModalProduct?.name ?? ""}
         open={Boolean(imagesModalProduct)}
         onClose={() => setImagesModalProduct(null)}
+      />
+      <EditProductModal
+        open={Boolean(editModalProduct)}
+        product={editModalProduct}
+        onClose={() => setEditModalProduct(null)}
+        onSaved={loadCatalog}
       />
     </div>
   );
