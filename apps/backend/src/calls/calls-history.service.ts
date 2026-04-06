@@ -348,6 +348,7 @@ export class CallsHistoryService {
       fromDisplay: null,
       toDisplay: null,
       manager: null,
+      isInternalCall: false,
       target: null,
       manualOutcome: null,
       manualNote: null,
@@ -433,7 +434,7 @@ export class CallsHistoryService {
     const meta = (c.meta ?? null) as { talkSec?: unknown; waitingSec?: unknown; isInternalCall?: unknown } | null;
     const talkSec = meta && typeof meta.talkSec === "number" ? meta.talkSec : null;
     const waitingSec = meta && typeof meta.waitingSec === "number" ? meta.waitingSec : null;
-    const isInternalCall = meta && meta.isInternalCall === true;
+    const isInternalCall = meta?.isInternalCall === true;
     return {
       rowKind: "CALL",
       id: c.id,
