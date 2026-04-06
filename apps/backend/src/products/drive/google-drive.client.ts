@@ -63,7 +63,7 @@ export async function getFileStream(fileId: string): Promise<DriveFileStream> {
   const auth = getAuth();
   const drive = google.drive({ version: "v3", auth });
   const res = await drive.files.get(
-    { fileId, alt: "media" },
+    { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "stream" },
   );
   const stream = res.data as NodeJS.ReadableStream;
