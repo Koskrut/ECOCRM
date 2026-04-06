@@ -1,14 +1,48 @@
 import { Injectable } from "@nestjs/common";
-import { listFilesInFolder, getDriveFileViewUrl } from "./drive/google-drive.client";
+import { listFilesInFolder, getDriveFileViewUrl, type DriveFile } from "./drive/google-drive.client";
 import { extractArticleFromFileName, findBestProductMatch } from "./article-normalizer";
 import { ProductStore } from "./product.store";
 import { ProductImageStore } from "./product-image.store";
 
+const UNMATCHED_EXAMPLES_CAP = 25;
+
+function isLikelyImageByName(name: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(name.trim());
+}
+
+/** Folders and Google Docs/Sheets are skipped; images by mime or by file extension fallback. */
+function shouldProcessFileForImages(file: DriveFile): "process" | "folder" | "nonImage" {
+  const mt = file.mimeType ?? "";
+  if (mt === "application/vnd.google-apps.folder") return "folder";
+  if (mt.startsWith("image/")) return "process";
+  if (
+    isLikelyImageByName(file.name) &&
+    (mt === "" || mt === "application/octet-stream")
+  ) {
+    return "process";
+  }
+  if (mt.startsWith("application/vnd.google.")) return "nonImage";
+  if (mt && !mt.startsWith("image/")) return "nonImage";
+  return isLikelyImageByName(file.name) ? "process" : "nonImage";
+}
+
 export type ProductImagesSyncResult = {
+  /** All items returned by Drive for the folder (before filters). */
+  driveItemsTotal: number;
+  skippedFolders: number;
+  skippedNonImage: number;
   filesProcessed: number;
   productsMatched: number;
+  /** Имя файла без распознанного артикула (или не картинка после фильтра — не используется здесь). */
+  filesUnmatchedNoArticle: number;
+  /** Артикул из имени есть, но нет активного товара с подходящим SKU. */
+  filesUnmatchedNoProduct: number;
+  /** Сумма двух предыдущих (удобно для старых интеграций). */
   filesUnmatched: number;
   productsWithMultipleImages: number;
+  unmatchedNoArticleExamples: string[];
+  unmatchedNoProductExamples: string[];
+  /** Первые примеры любого типа несовпадения (обратная совместимость). */
   unmatchedFileNames: string[];
   errors: string[];
 };
@@ -25,10 +59,17 @@ export class ProductImagesSyncService {
     onProgress?: (p: { filesProcessed: number; totalFiles: number | null }) => void,
   ): Promise<ProductImagesSyncResult> {
     const result: ProductImagesSyncResult = {
+      driveItemsTotal: 0,
+      skippedFolders: 0,
+      skippedNonImage: 0,
       filesProcessed: 0,
       productsMatched: 0,
+      filesUnmatchedNoArticle: 0,
+      filesUnmatchedNoProduct: 0,
       filesUnmatched: 0,
       productsWithMultipleImages: 0,
+      unmatchedNoArticleExamples: [],
+      unmatchedNoProductExamples: [],
       unmatchedFileNames: [],
       errors: [],
     };
@@ -40,7 +81,7 @@ export class ProductImagesSyncService {
       return result;
     }
 
-    let driveFiles: Array<{ id: string; name: string }>;
+    let driveFiles: DriveFile[];
     try {
       driveFiles = await listFilesInFolder(effectiveFolderId);
     } catch (err) {
@@ -50,26 +91,47 @@ export class ProductImagesSyncService {
       return result;
     }
 
-    const totalFiles = driveFiles.length;
+    result.driveItemsTotal = driveFiles.length;
+
+    const imageFiles: DriveFile[] = [];
+    for (const file of driveFiles) {
+      const kind = shouldProcessFileForImages(file);
+      if (kind === "folder") {
+        result.skippedFolders++;
+        continue;
+      }
+      if (kind === "nonImage") {
+        result.skippedNonImage++;
+        continue;
+      }
+      imageFiles.push(file);
+    }
+    const totalFiles = imageFiles.length;
     onProgress?.({ filesProcessed: 0, totalFiles });
 
     const products = await this.productStore.listAllForImageSync();
     const matchedProductIds = new Set<string>();
 
-    for (const file of driveFiles) {
+    const pushExample = (arr: string[], name: string) => {
+      if (arr.length < UNMATCHED_EXAMPLES_CAP) arr.push(name);
+    };
+
+    for (const file of imageFiles) {
       result.filesProcessed++;
       onProgress?.({ filesProcessed: result.filesProcessed, totalFiles });
       const fileArticle = extractArticleFromFileName(file.name);
       if (!fileArticle) {
-        result.filesUnmatched++;
-        result.unmatchedFileNames.push(file.name);
+        result.filesUnmatchedNoArticle++;
+        pushExample(result.unmatchedNoArticleExamples, file.name);
+        pushExample(result.unmatchedFileNames, file.name);
         continue;
       }
 
       const match = findBestProductMatch(fileArticle, products);
       if (!match) {
-        result.filesUnmatched++;
-        result.unmatchedFileNames.push(file.name);
+        result.filesUnmatchedNoProduct++;
+        pushExample(result.unmatchedNoProductExamples, file.name);
+        pushExample(result.unmatchedFileNames, file.name);
         continue;
       }
 
@@ -96,6 +158,7 @@ export class ProductImagesSyncService {
       matchedProductIds.add(match.productId);
     }
 
+    result.filesUnmatched = result.filesUnmatchedNoArticle + result.filesUnmatchedNoProduct;
     result.productsMatched = matchedProductIds.size;
 
     for (const productId of matchedProductIds) {

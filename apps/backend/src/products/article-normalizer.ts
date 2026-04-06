@@ -21,13 +21,23 @@ export function normalizeArticle(value: string): string {
  */
 const ARTICLE_PATTERN = /(\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)/i;
 
+/** Normalize odd Unicode punctuation / invisible chars before regex (Drive / macOS names). */
+function sanitizeFileNameForArticle(fileName: string): string {
+  return fileName
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\uFF0E/g, ".")
+    .replace(/[\u00B7\u2219\u22C5\u2027\u30FB]/g, ".");
+}
+
 /**
  * Извлекает артикул из имени файла (формат ХХ.ХХХ, возможно с суффиксом A/L/M/NH или -1745).
  * Примеры: "01.021 ST-TOT-MU.png" → "01.021", "01.06312A_st-rc-asra.png" → "01.06312A".
  */
 export function extractArticleFromFileName(fileName: string): string {
   if (!fileName || typeof fileName !== "string") return "";
-  const base = fileName.replace(/\.[^.]+$/, "").trim();
+  const safe = sanitizeFileNameForArticle(fileName);
+  const base = safe.replace(/\.[^.]+$/, "").trim();
   const match = base.match(ARTICLE_PATTERN);
   const raw = match ? match[1] : "";
   return normalizeArticle(raw);

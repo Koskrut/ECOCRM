@@ -37,10 +37,17 @@ export type ProductImageItem = {
 };
 
 export type ProductImagesSyncResult = {
+  driveItemsTotal: number;
+  skippedFolders: number;
+  skippedNonImage: number;
   filesProcessed: number;
   productsMatched: number;
+  filesUnmatchedNoArticle: number;
+  filesUnmatchedNoProduct: number;
   filesUnmatched: number;
   productsWithMultipleImages: number;
+  unmatchedNoArticleExamples: string[];
+  unmatchedNoProductExamples: string[];
   unmatchedFileNames: string[];
   errors: string[];
 };

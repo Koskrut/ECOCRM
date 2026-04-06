@@ -3,6 +3,8 @@ import { google } from "googleapis";
 export type DriveFile = {
   id: string;
   name: string;
+  /** Present when requested from the API; used to skip folders and non-images. */
+  mimeType?: string;
 };
 
 /**
@@ -21,13 +23,19 @@ export async function listFilesInFolder(folderId: string): Promise<DriveFile[]> 
       q: `'${folderId}' in parents and trashed = false`,
       pageSize: 100,
       pageToken,
-      fields: "nextPageToken, files(id, name)",
+      fields: "nextPageToken, files(id, name, mimeType)",
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
     });
     const list = res.data.files ?? [];
     for (const f of list) {
-      if (f.id && f.name) files.push({ id: f.id, name: f.name });
+      if (f.id && f.name) {
+        files.push({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType ?? undefined,
+        });
+      }
     }
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);

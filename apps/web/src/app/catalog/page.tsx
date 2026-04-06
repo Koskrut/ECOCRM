@@ -365,13 +365,29 @@ function SyncImagesModal({
         {result && !running && (
           <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
             <p className="font-medium text-zinc-900">
-              Обработано файлов: {result.filesProcessed}
+              В папке Drive объектов: {result.driveItemsTotal}
+            </p>
+            {(result.skippedFolders > 0 || result.skippedNonImage > 0) && (
+              <p className="mt-1 text-zinc-600">
+                Пропущено (папки / не изображения): {result.skippedFolders} /{" "}
+                {result.skippedNonImage}
+              </p>
+            )}
+            <p className="mt-1 text-zinc-700">
+              Обработано изображений: {result.filesProcessed}
             </p>
             <p className="mt-1 text-zinc-700">
               Сопоставлено с товарами: {result.productsMatched}
             </p>
             <p className="mt-1 text-zinc-700">
-              Не сопоставлено файлов: {result.filesUnmatched}
+              Не сопоставлено изображений: {result.filesUnmatched}
+              {result.filesUnmatched > 0 && (
+                <>
+                  {" "}
+                  (без артикула в имени: {result.filesUnmatchedNoArticle}, товар не
+                  найден: {result.filesUnmatchedNoProduct})
+                </>
+              )}
             </p>
             <p className="mt-1 text-zinc-700">
               Товаров с несколькими фото: {result.productsWithMultipleImages}
@@ -381,12 +397,20 @@ function SyncImagesModal({
                 Ошибки: {result.errors.join("; ")}
               </p>
             )}
-            {result.unmatchedFileNames.length > 0 && (
+            {result.unmatchedNoArticleExamples.length > 0 && (
               <p className="mt-2 text-zinc-600">
-                Примеры без совпадения:{" "}
-                {result.unmatchedFileNames.slice(0, 5).join(", ")}
-                {result.unmatchedFileNames.length > 5 &&
-                  ` и ещё ${result.unmatchedFileNames.length - 5}`}
+                Нет артикула в имени (примеры):{" "}
+                {result.unmatchedNoArticleExamples.slice(0, 5).join(", ")}
+                {result.unmatchedNoArticleExamples.length > 5 &&
+                  ` и ещё ${result.unmatchedNoArticleExamples.length - 5}`}
+              </p>
+            )}
+            {result.unmatchedNoProductExamples.length > 0 && (
+              <p className="mt-2 text-zinc-600">
+                Артикул распознан, товара в каталоге нет (примеры):{" "}
+                {result.unmatchedNoProductExamples.slice(0, 5).join(", ")}
+                {result.unmatchedNoProductExamples.length > 5 &&
+                  ` и ещё ${result.unmatchedNoProductExamples.length - 5}`}
               </p>
             )}
           </div>
