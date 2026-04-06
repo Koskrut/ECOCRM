@@ -413,7 +413,21 @@ export default function CallsHistoryPage() {
                         {row.direction ? DIR_UA[row.direction] ?? row.direction : "—"}
                       </td>
                       {showManagerCol ? (
-                        <td className="px-3 py-2 text-zinc-700">{displayManager?.fullName ?? "—"}</td>
+                        <td className="px-3 py-2 text-zinc-700">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate">{displayManager?.fullName ?? "—"}</span>
+                            {row.rowKind === "CALL" && row.isInternalCall ? (
+                              <Badge tone="info" title="Внутренний звонок (менеджер ↔ менеджер)">
+                                INTERNAL
+                              </Badge>
+                            ) : null}
+                          </div>
+                          {row.rowKind === "CALL" ? (
+                            <div className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate" title={b ?? ""}>
+                              {b ?? "—"}
+                            </div>
+                          ) : null}
+                        </td>
                       ) : null}
                       <td className="max-w-[240px] px-3 py-2">
                         <div className="font-medium text-zinc-900 truncate" title={row.target?.displayName ?? ""}>

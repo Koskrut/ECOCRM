@@ -31,6 +31,49 @@ export class RingostatIngestService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private digitsOnly(v: string): string {
+    return (v || "").replace(/\D/g, "");
+  }
+
+  private async getRingostatUserMappingConfig(): Promise<{
+    extensionsToUserId: Record<string, string>;
+    phonesToUserId: Record<string, string>;
+    defaultManagerId: string | null;
+  }> {
+    const setting = await this.prisma.integrationSetting.findFirst({
+      where: { provider: RINGOSTAT_PROVIDER },
+      select: { config: true },
+    });
+    const cfg = (setting?.config ?? null) as
+      | {
+          extensionsToUserId?: Record<string, string>;
+          phonesToUserId?: Record<string, string>;
+          defaultManagerId?: string;
+        }
+      | null;
+    return {
+      extensionsToUserId: cfg?.extensionsToUserId ?? {},
+      phonesToUserId: cfg?.phonesToUserId ?? {},
+      defaultManagerId: cfg?.defaultManagerId ?? null,
+    };
+  }
+
+  private resolveUserIdByPhoneNormalized(
+    phonesToUserId: Record<string, string>,
+    phoneNormalized: string | null,
+  ): string | null {
+    if (!phoneNormalized) return null;
+    const digits = this.digitsOnly(phoneNormalized);
+    if (!digits) return null;
+    for (const [k, v] of Object.entries(phonesToUserId)) {
+      const kd = this.digitsOnly(String(k));
+      if (kd && kd === digits && typeof v === "string" && v.trim()) {
+        return v.trim();
+      }
+    }
+    return null;
+  }
+
   async handleWebhook(body: unknown, providedSecret: string | undefined): Promise<void> {
     await this.assertWebhookSecret(providedSecret);
 
@@ -107,18 +150,43 @@ export class RingostatIngestService {
       const customerPhoneNormalized = this.normalizePhone(customerPhoneRaw);
       const managerPhoneNormalized = this.normalizePhone(managerPhoneRaw);
 
+      const mapCfg = await this.getRingostatUserMappingConfig();
+
       // Ringostat often sends the same value in E164/dst/connected_with on INBOUND. Matching that
       // to CRM then finds the manager's own Contact (same mobile) — wrong "client" in history.
-      const phoneForEntityMatch = this.entityMatchPhoneForInbound(
+      let phoneForEntityMatch = this.entityMatchPhoneForInbound(
         direction,
         customerPhoneNormalized,
         managerPhoneNormalized,
       );
 
+      // Never create/link lead/contact by internal (manager) phone numbers.
+      // If "customer" leg matches a known manager phone, treat it as non-client.
+      const customerAsManagerUserId = this.resolveUserIdByPhoneNormalized(
+        mapCfg.phonesToUserId,
+        customerPhoneNormalized,
+      );
+      if (customerAsManagerUserId) {
+        phoneForEntityMatch = null;
+      }
+
       const { contactId, leadId, companyId } =
         await this.matchOrCreateEntities(phoneForEntityMatch, raw);
 
-      const managerUserId = await this.resolveManagerUserId(extension, managerPhoneNormalized);
+      const managerUserId = this.resolveManagerUserIdFromConfig(
+        mapCfg,
+        extension,
+        managerPhoneNormalized,
+      );
+
+      const otherLegUserId = this.resolveUserIdByPhoneNormalized(
+        mapCfg.phonesToUserId,
+        customerPhoneNormalized,
+      );
+      const isInternalCall =
+        !!managerUserId &&
+        !!otherLegUserId &&
+        managerUserId !== otherLegUserId;
 
       const provider = RINGOSTAT_PROVIDER;
 
@@ -151,7 +219,7 @@ export class RingostatIngestService {
         status,
         recordingUrl: recording.url ?? null,
         recordingStatus: recording.status,
-        meta: { talkSec, waitingSec: waitSec } as Prisma.InputJsonValue,
+        meta: { talkSec, waitingSec: waitSec, isInternalCall } as Prisma.InputJsonValue,
         rawPayload: raw as Prisma.JsonObject,
         contactId: contactId ?? null,
         leadId: leadId ?? null,
@@ -717,37 +785,21 @@ export class RingostatIngestService {
   }
 
   /** Manager = mapping from Ringostat extension (settings) or defaultManagerId fallback only. */
-  private async resolveManagerUserId(
+  private resolveManagerUserIdFromConfig(
+    config: {
+      extensionsToUserId: Record<string, string>;
+      phonesToUserId: Record<string, string>;
+      defaultManagerId: string | null;
+    },
     extension: string | undefined,
     managerPhoneNormalized: string | null,
-  ): Promise<string | null> {
-    const setting = await this.prisma.integrationSetting.findFirst({
-      where: { provider: RINGOSTAT_PROVIDER },
-      select: { config: true },
-    });
-    const config = (setting?.config ?? null) as
-      | {
-          extensionsToUserId?: Record<string, string>;
-          phonesToUserId?: Record<string, string>;
-          defaultManagerId?: string;
-        }
-      | null;
-
-    if (extension && config?.extensionsToUserId?.[extension]) {
+  ): string | null {
+    if (extension && config.extensionsToUserId?.[extension]) {
       return config.extensionsToUserId[extension];
     }
-
-    if (managerPhoneNormalized && config?.phonesToUserId) {
-      const digits = managerPhoneNormalized.replace(/\D/g, "");
-      for (const [k, v] of Object.entries(config.phonesToUserId)) {
-        const kd = String(k).replace(/\D/g, "");
-        if (kd && kd === digits && typeof v === "string" && v.trim()) {
-          return v.trim();
-        }
-      }
-    }
-
-    return config?.defaultManagerId ?? null;
+    const byPhone = this.resolveUserIdByPhoneNormalized(config.phonesToUserId, managerPhoneNormalized);
+    if (byPhone) return byPhone;
+    return config.defaultManagerId ?? null;
   }
 
   private buildActivityBody(params: {

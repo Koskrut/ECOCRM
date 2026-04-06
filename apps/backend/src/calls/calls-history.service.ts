@@ -26,6 +26,7 @@ export type CallsHistoryItem = {
   fromDisplay: string | null;
   toDisplay: string | null;
   manager: { id: string; fullName: string | null } | null;
+  isInternalCall: boolean;
   target: {
     kind: "LEAD" | "CONTACT";
     id: string;
@@ -429,9 +430,10 @@ export class CallsHistoryService {
   ): CallsHistoryItem {
     const ms = c.manualCallSessions[0];
     const mgr = c.managerUserId ? managerById.get(c.managerUserId) ?? null : null;
-    const meta = (c.meta ?? null) as { talkSec?: unknown; waitingSec?: unknown } | null;
+    const meta = (c.meta ?? null) as { talkSec?: unknown; waitingSec?: unknown; isInternalCall?: unknown } | null;
     const talkSec = meta && typeof meta.talkSec === "number" ? meta.talkSec : null;
     const waitingSec = meta && typeof meta.waitingSec === "number" ? meta.waitingSec : null;
+    const isInternalCall = meta && meta.isInternalCall === true;
     return {
       rowKind: "CALL",
       id: c.id,
@@ -449,6 +451,7 @@ export class CallsHistoryService {
       fromDisplay: c.from,
       toDisplay: c.to,
       manager: mgr ? { id: mgr.id, fullName: mgr.fullName } : null,
+      isInternalCall,
       target: this.mapTarget(lead, contact),
       manualOutcome: ms?.outcome ?? null,
       manualNote: ms?.note ?? null,
@@ -498,6 +501,7 @@ export class CallsHistoryService {
       fromDisplay: null,
       toDisplay: m.targetPhoneNormalized,
       manager: { id: m.user.id, fullName: m.user.fullName },
+      isInternalCall: false,
       target: this.mapTarget(m.lead, m.contact),
       manualOutcome: m.outcome,
       manualNote: m.note,

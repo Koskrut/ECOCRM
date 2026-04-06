@@ -28,6 +28,7 @@ export type CallsHistoryItem = {
   fromDisplay: string | null;
   toDisplay: string | null;
   manager: { id: string; fullName: string | null } | null;
+  isInternalCall: boolean;
   target: CallsHistoryTarget | null;
   manualOutcome: ManualCallOutcome | null;
   manualNote: string | null;
