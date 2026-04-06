@@ -10,6 +10,9 @@ export function normalizeArticle(value: string): string {
   let s = value
     .toUpperCase()
     .trim()
+    .replace(/\u00A0/g, " ")
+    /** Bitrix / Excel: «10.051 | name» */
+    .replace(/\|/g, " ")
     .replace(/\s+/g, " ")
     .replace(/[-_]+/g, ".")
     .replace(/\s+/g, ".");
@@ -41,13 +44,44 @@ function sanitizeFileNameForArticle(fileName: string): string {
  * Извлекает артикул из имени файла (формат ХХ.ХХХ, возможно с суффиксом A/L/M/NH или -1745).
  * Примеры: "01.021 ST-TOT-MU.png" → "01.021", "S-WF-AS-SA-MU.png" → "S.WF.AS.SA.MU".
  */
-export function extractArticleFromFileName(fileName: string): string {
-  if (!fileName || typeof fileName !== "string") return "";
+function basenameWithoutExtension(fileName: string): string {
   const safe = sanitizeFileNameForArticle(fileName);
-  const base = safe.replace(/\.[^.]+$/, "").trim();
+  return safe.replace(/\.[^.]+$/, "").trim();
+}
+
+/**
+ * Все распознанные в строке артикулы (длинные первыми), чтобы не застрять на одном regex-матче.
+ */
+export function extractArticleCandidatesFromFileName(fileName: string): string[] {
+  const base = basenameWithoutExtension(fileName);
+  if (!base) return [];
+  const re = new RegExp(ARTICLE_PATTERN.source, "gi");
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(base)) !== null) {
+    const n = normalizeArticle(m[1]);
+    if (n) found.add(n);
+  }
+  const list = [...found].sort((a, b) => b.length - a.length);
+  const primaryMatch = base.match(ARTICLE_PATTERN);
+  const primary = primaryMatch ? normalizeArticle(primaryMatch[1]) : "";
+  if (primary) {
+    const without = list.filter((x) => x !== primary);
+    return [primary, ...without.sort((a, b) => b.length - a.length)];
+  }
+  return list;
+}
+
+export function extractArticleFromFileName(fileName: string): string {
+  const base = basenameWithoutExtension(fileName);
   const match = base.match(ARTICLE_PATTERN);
   const raw = match ? match[1] : "";
   return normalizeArticle(raw);
+}
+
+/** Нормализованное имя файла без расширения (для полного совпадения с SKU). */
+export function normalizeImageBasename(fileName: string): string {
+  return normalizeArticle(basenameWithoutExtension(fileName));
 }
 
 export type MatchKind = "exact" | "prefix" | "contains";
@@ -147,6 +181,51 @@ export function findBestProductMatch(
         bestSkuNorm = p.skuNormalized;
         best = { productId: p.id, sku: p.sku, kind };
       }
+    }
+  }
+  return best;
+}
+
+type MatchResult = { productId: string; sku: string; kind: MatchKind };
+
+function compareMatchResults(a: MatchResult, b: MatchResult, candLenA: number, candLenB: number): number {
+  const order = (k: MatchKind) => (k === "exact" ? 3 : k === "prefix" ? 2 : 1);
+  const oa = order(a.kind);
+  const ob = order(b.kind);
+  if (oa !== ob) return oa - ob;
+  if (candLenA !== candLenB) return candLenA - candLenB;
+  if (a.sku !== b.sku) return a.sku < b.sku ? -1 : 1;
+  return 0;
+}
+
+/**
+ * Сопоставление файла с товаром: полный stem (как нормализованный SKU), затем лучший матч по всем кандидатам-артикулам из имени.
+ * Покрывает SKU вида «10.051 | OS-TB» в БД и позиции без числового префикса, если они совпадают с суффиксом имени файла.
+ */
+export function resolveProductMatchForImageFile(
+  fileName: string,
+  products: ProductCandidate[],
+): MatchResult | null {
+  const stem = normalizeImageBasename(fileName);
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const push = (s: string) => {
+    const t = s.trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    candidates.push(t);
+  };
+  push(stem);
+  for (const c of extractArticleCandidatesFromFileName(fileName)) push(c);
+
+  let best: MatchResult | null = null;
+  let bestCandLen = 0;
+  for (const cand of candidates) {
+    const m = findBestProductMatch(cand, products);
+    if (!m) continue;
+    if (!best || compareMatchResults(m, best, cand.length, bestCandLen) > 0) {
+      best = m;
+      bestCandLen = cand.length;
     }
   }
   return best;

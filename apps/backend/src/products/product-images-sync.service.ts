@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { listFilesInFolder, getDriveFileViewUrl, type DriveFile } from "./drive/google-drive.client";
-import { extractArticleFromFileName, findBestProductMatch } from "./article-normalizer";
+import { extractArticleFromFileName, resolveProductMatchForImageFile } from "./article-normalizer";
 import { ProductStore } from "./product.store";
 import { ProductImageStore } from "./product-image.store";
 
@@ -127,7 +127,7 @@ export class ProductImagesSyncService {
         continue;
       }
 
-      const match = findBestProductMatch(fileArticle, products);
+      const match = resolveProductMatchForImageFile(file.name, products);
       if (!match) {
         result.filesUnmatchedNoProduct++;
         pushExample(result.unmatchedNoProductExamples, file.name);
