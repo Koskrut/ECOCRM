@@ -31,6 +31,23 @@ export function normalizeArticle(value: string): string {
 const ARTICLE_PATTERN =
   /((?:\d{1,2}\.\d{2,}(?:[A-Za-z]+|-\d+)*)|(?:PM\.\d+(?:\.\d+)*(?:[A-Za-z]+|-\d+)*)|(?:[A-Za-z](?:-[A-Za-z0-9]+)+))/i;
 
+/** Приоритет типа маски: числовой артикул важнее PM и буквенно-дефисного (чтобы в «S-WF_03.041» брался 03.041). */
+function articleCandidateRank(normalized: string): [number, number] {
+  let type = 0;
+  if (/^\d{1,2}\.\d/.test(normalized)) type = 3;
+  else if (/^PM\./i.test(normalized)) type = 2;
+  else type = 1;
+  return [type, normalized.length];
+}
+
+function compareArticleCandidatesDesc(a: string, b: string): number {
+  const [ta, la] = articleCandidateRank(a);
+  const [tb, lb] = articleCandidateRank(b);
+  if (tb !== ta) return tb - ta;
+  if (lb !== la) return lb - la;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Normalize odd Unicode punctuation / invisible chars before regex (Drive / macOS names). */
 function sanitizeFileNameForArticle(fileName: string): string {
   return fileName
@@ -50,7 +67,8 @@ function basenameWithoutExtension(fileName: string): string {
 }
 
 /**
- * Все распознанные в строке артикулы (длинные первыми), чтобы не застрять на одном regex-матче.
+ * Все вхождения артикула по маске в basename (g+exec по всей строке).
+ * Сортировка: числовой NN.NNN… → PM… → буквенно-дефисный; внутри типа — длиннее первым.
  */
 export function extractArticleCandidatesFromFileName(fileName: string): string[] {
   const base = basenameWithoutExtension(fileName);
@@ -62,21 +80,13 @@ export function extractArticleCandidatesFromFileName(fileName: string): string[]
     const n = normalizeArticle(m[1]);
     if (n) found.add(n);
   }
-  const list = [...found].sort((a, b) => b.length - a.length);
-  const primaryMatch = base.match(ARTICLE_PATTERN);
-  const primary = primaryMatch ? normalizeArticle(primaryMatch[1]) : "";
-  if (primary) {
-    const without = list.filter((x) => x !== primary);
-    return [primary, ...without.sort((a, b) => b.length - a.length)];
-  }
-  return list;
+  return [...found].sort(compareArticleCandidatesDesc);
 }
 
+/** Первый (главный) артикул по той же маске и приоритетам, что и {@link extractArticleCandidatesFromFileName}. */
 export function extractArticleFromFileName(fileName: string): string {
-  const base = basenameWithoutExtension(fileName);
-  const match = base.match(ARTICLE_PATTERN);
-  const raw = match ? match[1] : "";
-  return normalizeArticle(raw);
+  const list = extractArticleCandidatesFromFileName(fileName);
+  return list[0] ?? "";
 }
 
 /** Нормализованное имя файла без расширения (для полного совпадения с SKU). */
