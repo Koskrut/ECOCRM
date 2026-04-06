@@ -144,13 +144,31 @@ export class RingostatIngestService {
       }
       const recording = this.extractRecording(raw);
 
-      const { customerPhoneRaw, managerPhoneRaw, extension } =
+      let { customerPhoneRaw, managerPhoneRaw, extension } =
         this.extractPhonesAndExtension(raw, direction);
 
-      const customerPhoneNormalized = this.normalizePhone(customerPhoneRaw);
-      const managerPhoneNormalized = this.normalizePhone(managerPhoneRaw);
+      let customerPhoneNormalized = this.normalizePhone(customerPhoneRaw);
+      let managerPhoneNormalized = this.normalizePhone(managerPhoneRaw);
 
       const mapCfg = await this.getRingostatUserMappingConfig();
+
+      // For UNKNOWN (most commonly /calls/list exports), both legs may look like mobile numbers.
+      // Use phone->user mapping to infer which leg is the manager line and which is the client.
+      if (direction === "UNKNOWN") {
+        const customerLegUserId = this.resolveUserIdByPhoneNormalized(
+          mapCfg.phonesToUserId,
+          customerPhoneNormalized,
+        );
+        const managerLegUserId = this.resolveUserIdByPhoneNormalized(
+          mapCfg.phonesToUserId,
+          managerPhoneNormalized,
+        );
+        if (customerLegUserId && !managerLegUserId) {
+          // Swap: we mistakenly treated manager leg as "customer" — fix before entity match + persistence.
+          [customerPhoneRaw, managerPhoneRaw] = [managerPhoneRaw, customerPhoneRaw];
+          [customerPhoneNormalized, managerPhoneNormalized] = [managerPhoneNormalized, customerPhoneNormalized];
+        }
+      }
 
       // Ringostat often sends the same value in E164/dst/connected_with on INBOUND. Matching that
       // to CRM then finds the manager's own Contact (same mobile) — wrong "client" in history.
