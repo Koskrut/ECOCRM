@@ -377,6 +377,8 @@ export default function CallsHistoryPage() {
                   const isOutbound = (row.direction ?? "").toUpperCase() === "OUTBOUND";
                   const a = isOutbound ? row.toDisplay : row.fromDisplay;
                   const b = isOutbound ? row.fromDisplay : row.toDisplay;
+                  const managerLinePhone =
+                    row.rowKind === "CALL" ? row.toDisplay : (displayManager ? row.toDisplay : null);
                   const recStatus = (row.recordingStatus ?? "").toUpperCase();
                   const recTone =
                     recStatus === "READY"
@@ -423,8 +425,11 @@ export default function CallsHistoryPage() {
                             ) : null}
                           </div>
                           {row.rowKind === "CALL" ? (
-                            <div className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate" title={b ?? ""}>
-                              {b ?? "—"}
+                            <div
+                              className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate"
+                              title={managerLinePhone ?? ""}
+                            >
+                              {managerLinePhone ?? "—"}
                             </div>
                           ) : null}
                         </td>
