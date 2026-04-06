@@ -379,6 +379,12 @@ export default function CallsHistoryPage() {
                   const b = isOutbound ? row.fromDisplay : row.toDisplay;
                   const managerLinePhone =
                     row.rowKind === "CALL" ? row.toDisplay : (displayManager ? row.toDisplay : null);
+                  const noClientPhone =
+                    row.rowKind === "CALL" &&
+                    !row.target &&
+                    !!row.fromDisplay &&
+                    !!row.toDisplay &&
+                    row.fromDisplay.replace(/\D/g, "") === row.toDisplay.replace(/\D/g, "");
                   const recStatus = (row.recordingStatus ?? "").toUpperCase();
                   const recTone =
                     recStatus === "READY"
@@ -423,6 +429,11 @@ export default function CallsHistoryPage() {
                                 INTERNAL
                               </Badge>
                             ) : null}
+                            {noClientPhone ? (
+                              <Badge tone="warn" title="Ringostat не передал номер клиента (обе ноги совпадают)">
+                                NO_CLI
+                              </Badge>
+                            ) : null}
                           </div>
                           {row.rowKind === "CALL" ? (
                             <div
@@ -440,9 +451,9 @@ export default function CallsHistoryPage() {
                         </div>
                         <div
                           className="text-xs text-zinc-500 font-mono truncate"
-                          title={row.target?.phone ?? row.toDisplay ?? row.fromDisplay ?? ""}
+                          title={row.target?.phone ?? (noClientPhone ? "" : row.toDisplay ?? row.fromDisplay ?? "")}
                         >
-                          {row.target?.phone ?? row.toDisplay ?? row.fromDisplay ?? "—"}
+                          {row.target?.phone ?? (noClientPhone ? "—" : row.toDisplay ?? row.fromDisplay ?? "—")}
                         </div>
                         {a && b && a !== b ? (
                           <div className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate" title={`${a} → ${b}`}>
