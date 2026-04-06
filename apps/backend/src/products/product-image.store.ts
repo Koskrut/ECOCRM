@@ -67,6 +67,53 @@ export class ProductImageStore {
     return row ? toEntity(row as Row) : null;
   }
 
+  /** Удалить все фото из Google Drive у товара (перед заменой на одно актуальное). */
+  async deleteAllGoogleDriveForProduct(productId: string): Promise<void> {
+    await this.prisma.productImage.deleteMany({
+      where: { productId, source: "google_drive" as PrismaSource },
+    });
+  }
+
+  /**
+   * Оставить у товара максимум одно google_drive-фото и выставить primary.
+   * Нужен для старых данных и после смены логики синка.
+   */
+  async reconcileGoogleDriveImagesForProduct(productId: string): Promise<void> {
+    const rows = await this.prisma.productImage.findMany({
+      where: { productId, source: "google_drive" as PrismaSource },
+      orderBy: [{ updatedAt: "desc" }, { fileName: "asc" }],
+    });
+    if (rows.length === 0) return;
+    if (rows.length > 1) {
+      const [keep, ...rest] = rows;
+      await this.prisma.productImage.deleteMany({
+        where: { id: { in: rest.map((r) => r.id) } },
+      });
+      await this.setPrimary(keep.id);
+      return;
+    }
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { primaryImageId: true },
+    });
+    const only = rows[0]!;
+    if (!only.isPrimary || product?.primaryImageId !== only.id) {
+      await this.setPrimary(only.id);
+    }
+  }
+
+  /** Пройти все товары с google_drive-фото и схлопнуть дубликаты / починить primary. */
+  async repairAllGoogleDrivePrimaries(): Promise<void> {
+    const withDrive = await this.prisma.productImage.findMany({
+      where: { source: "google_drive" as PrismaSource },
+      select: { productId: true },
+      distinct: ["productId"],
+    });
+    for (const { productId } of withDrive) {
+      await this.reconcileGoogleDriveImagesForProduct(productId);
+    }
+  }
+
   async upsert(input: UpsertProductImageInput): Promise<ProductImage> {
     const existing = await this.prisma.productImage.findUnique({
       where: {

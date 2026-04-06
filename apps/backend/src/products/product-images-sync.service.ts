@@ -106,7 +106,11 @@ export class ProductImagesSyncService {
       }
       imageFiles.push(file);
     }
-    const totalFiles = imageFiles.length;
+    /** Стабильный порядок: при нескольких файлах на один SKU побеждает последний по имени. */
+    const sortedImageFiles = [...imageFiles].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+    const totalFiles = sortedImageFiles.length;
     onProgress?.({ filesProcessed: 0, totalFiles });
 
     const products = await this.productStore.listAllForImageSync();
@@ -116,7 +120,7 @@ export class ProductImagesSyncService {
       if (arr.length < UNMATCHED_EXAMPLES_CAP) arr.push(name);
     };
 
-    for (const file of imageFiles) {
+    for (const file of sortedImageFiles) {
       result.filesProcessed++;
       onProgress?.({ filesProcessed: result.filesProcessed, totalFiles });
       const fileArticle = extractArticleFromFileName(file.name);
@@ -135,10 +139,8 @@ export class ProductImagesSyncService {
         continue;
       }
 
-      const hadPrimary = await this.productImageStore.productHasPrimary(
-        match.productId,
-      );
-      const isFirstForProduct = !hadPrimary;
+      /** Одно фото на товар из Drive: сносим старые и ставим текущий файл как единственный primary. */
+      await this.productImageStore.deleteAllGoogleDriveForProduct(match.productId);
 
       const url = getDriveFileViewUrl(file.id);
       const upserted = await this.productImageStore.upsert({
@@ -148,18 +150,18 @@ export class ProductImagesSyncService {
         fileName: file.name,
         url,
         sortOrder: result.filesProcessed,
-        isPrimary: isFirstForProduct,
+        isPrimary: true,
       });
 
-      if (isFirstForProduct) {
-        await this.productImageStore.setPrimary(upserted.id);
-      }
+      await this.productImageStore.setPrimary(upserted.id);
 
       matchedProductIds.add(match.productId);
     }
 
     result.filesUnmatched = result.filesUnmatchedNoArticle + result.filesUnmatchedNoProduct;
     result.productsMatched = matchedProductIds.size;
+
+    await this.productImageStore.repairAllGoogleDrivePrimaries();
 
     for (const productId of matchedProductIds) {
       const images = await this.productImageStore.findByProductId(productId);
