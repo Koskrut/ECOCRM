@@ -379,6 +379,9 @@ export default function CallsHistoryPage() {
                   const b = isOutbound ? row.fromDisplay : row.toDisplay;
                   const managerLinePhone =
                     row.rowKind === "CALL" ? row.toDisplay : (displayManager ? row.toDisplay : null);
+                  const fallbackContactPhone = isOutbound
+                    ? row.fromDisplay ?? row.toDisplay
+                    : row.toDisplay ?? row.fromDisplay;
                   const noClientPhone =
                     row.rowKind === "CALL" &&
                     !row.target &&
@@ -452,9 +455,9 @@ export default function CallsHistoryPage() {
                         </div>
                         <div
                           className="text-xs text-zinc-500 font-mono truncate"
-                          title={row.target?.phone ?? (noClientPhone ? "" : row.toDisplay ?? row.fromDisplay ?? "")}
+                          title={row.target?.phone ?? (noClientPhone ? "" : fallbackContactPhone ?? "")}
                         >
-                          {row.target?.phone ?? (noClientPhone ? "—" : row.toDisplay ?? row.fromDisplay ?? "—")}
+                          {row.target?.phone ?? (noClientPhone ? "—" : fallbackContactPhone ?? "—")}
                         </div>
                         {a && b && a !== b ? (
                           <div className="mt-0.5 text-[11px] text-zinc-400 font-mono truncate" title={`${a} → ${b}`}>
