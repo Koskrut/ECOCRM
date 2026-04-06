@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
+import { UserMenu } from "@/components/UserMenu";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -14,16 +15,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // ширина сайдбара: 240 (w-60) или 64 (w-16)
   const [sidebarPx, setSidebarPx] = useState<number>(240);
-
-  // мобильный вид: сайдбар оверлей, контент без левого отступа
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
 
   // при открытии страницы — читаем localStorage
   useEffect(() => {
@@ -51,18 +42,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      {/* mobile topbar */}
-      <div className="md:hidden sticky top-0 z-20 h-14 bg-white border-b flex items-center px-3">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          className="rounded-md px-3 py-2 text-sm border bg-white"
-        >
-          ☰
-        </button>
-        <div className="ml-3 font-semibold">CRM</div>
-      </div>
-
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
       {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
@@ -70,6 +49,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         style={{ ["--sidebar-px" as string]: `${sidebarPx}px` }}
         className="min-h-screen md:ml-[var(--sidebar-px)]"
       >
+        <header className="sticky top-0 z-20 h-14 bg-white border-b flex items-center gap-3 px-3 md:px-4">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="md:hidden rounded-md px-3 py-2 text-sm border bg-white"
+            aria-label="Відкрити меню"
+          >
+            ☰
+          </button>
+          <div className="font-semibold text-zinc-900">CRM</div>
+          <div className="ml-auto">
+            <UserMenu />
+          </div>
+        </header>
         <main className="min-h-screen bg-zinc-50">
           <div className="p-4">{children}</div>
         </main>

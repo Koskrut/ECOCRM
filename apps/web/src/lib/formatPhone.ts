@@ -32,7 +32,7 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
 
 /** Max 12 digits: `380` + 9 national digits (UA mobile). */
 function uaMobileDigits12(digits: string): string {
-  let d = digits.replace(/\D/g, "");
+  const d = digits.replace(/\D/g, "");
   if (!d) return "";
   if (d.startsWith("380")) return d.slice(0, 12);
   if (d.startsWith("0")) return ("380" + d.slice(1, 10)).slice(0, 12);

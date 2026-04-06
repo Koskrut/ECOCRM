@@ -221,7 +221,12 @@ export function ReturnsKanban({
                       onClick={() => {
                         if (isTextSelected()) return;
                         const oid = r.orderId ?? r.order?.id;
-                        if (oid) onOpenReturn?.(r.id) ?? onOpenOrder(oid);
+                        if (!oid) return;
+                        if (onOpenReturn) {
+                          onOpenReturn(r.id);
+                        } else {
+                          onOpenOrder(oid);
+                        }
                       }}
                       draggable
                       onDragStart={(e) => {
