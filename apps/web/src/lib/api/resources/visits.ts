@@ -84,6 +84,17 @@ export type NavigationUrlResponse = {
   url: string;
 };
 
+export type RouteMetricsResponse = {
+  distanceKm: number | null;
+  durationMin: number | null;
+  source: "google" | "fallback" | "none";
+};
+
+export type RouteOptimizeResponse = {
+  visitIds: string[];
+  source: "google" | "fallback";
+};
+
 export type VisitHistoryItem = Visit & {
   owner?: { id: string; fullName: string; email: string };
   contact?: {
@@ -177,6 +188,46 @@ export const visitsApi = {
 export const routePlansApi = {
   getForDay: async (date: string): Promise<RoutePlanResponse> => {
     const res = await apiHttp.get<RoutePlanResponse>("/route-plans", { params: { date } } as never);
+    return res.data;
+  },
+
+  metrics: async (date: string, opts?: { traffic?: boolean }): Promise<RouteMetricsResponse> => {
+    const res = await apiHttp.get<RouteMetricsResponse>("/route-plans/metrics", {
+      params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) },
+    } as never);
+    return res.data;
+  },
+
+  metricsPreview: async (
+    date: string,
+    visitIds: string[],
+    opts?: { traffic?: boolean },
+  ): Promise<RouteMetricsResponse> => {
+    const res = await apiHttp.post<RouteMetricsResponse>(
+      "/route-plans/metrics/preview",
+      { visitIds },
+      { params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) } } as never,
+    );
+    return res.data;
+  },
+
+  optimize: async (
+    date: string,
+    visitIds: string[],
+    opts?: { traffic?: boolean },
+  ): Promise<RouteOptimizeResponse> => {
+    const res = await apiHttp.post<RouteOptimizeResponse>(
+      "/route-plans/optimize",
+      { visitIds },
+      { params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) } } as never,
+    );
+    return res.data;
+  },
+
+  factMetrics: async (date: string, opts?: { traffic?: boolean }): Promise<RouteMetricsResponse> => {
+    const res = await apiHttp.get<RouteMetricsResponse>("/route-plans/metrics/fact", {
+      params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) },
+    } as never);
     return res.data;
   },
 

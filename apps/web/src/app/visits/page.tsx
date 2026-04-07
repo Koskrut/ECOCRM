@@ -248,6 +248,28 @@ export default function VisitsPage() {
   const [loading, setLoading] = useState(false);
   const [savingRoute, setSavingRoute] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [routeMetrics, setRouteMetrics] = useState<{
+    distanceKm: number | null;
+    durationMin: number | null;
+    source: "google" | "fallback" | "none";
+  } | null>(null);
+  const [routeMetricsLoading, setRouteMetricsLoading] = useState(false);
+  const [routeMetricsPreview, setRouteMetricsPreview] = useState<{
+    distanceKm: number | null;
+    durationMin: number | null;
+    source: "google" | "fallback" | "none";
+  } | null>(null);
+  const [routeMetricsPreviewLoading, setRouteMetricsPreviewLoading] = useState(false);
+  const [routeFactMetrics, setRouteFactMetrics] = useState<{
+    distanceKm: number | null;
+    durationMin: number | null;
+    source: "google" | "fallback" | "none";
+  } | null>(null);
+  const [routeFactMetricsLoading, setRouteFactMetricsLoading] = useState(false);
+
+  const [useTrafficAware, setUseTrafficAware] = useState(false);
+  const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [resultModalVisit, setResultModalVisit] = useState<Visit | null>(null);
@@ -272,6 +294,7 @@ export default function VisitsPage() {
     start?: { lat: number; lng: number };
     end?: { lat: number; lng: number };
   }>({});
+  const [routeAnchorsPromptOpen, setRouteAnchorsPromptOpen] = useState(false);
 
   const [pendingSchedule, setPendingSchedule] = useState<{
     visit: Visit;
@@ -292,6 +315,32 @@ export default function VisitsPage() {
   const slots = useMemo(() => getSlotsForDate(date), [date]);
 
   const scheduledVisits = dayVisits;
+
+  const currentOrderVisitIds = useMemo(() => {
+    const sorted = [...dayVisits]
+      .filter((v) => v.status !== "CANCELED" && v.status !== "PLANNED_UNASSIGNED")
+      .sort((a, b) => {
+        const aTime = a.startsAt ? new Date(a.startsAt).getTime() : 0;
+        const bTime = b.startsAt ? new Date(b.startsAt).getTime() : 0;
+        if (aTime !== bTime) return aTime - bTime;
+        return String(a.id).localeCompare(String(b.id));
+      });
+    return sorted.map((v) => v.id);
+  }, [dayVisits]);
+
+  const savedPlanVisitIds = useMemo(() => {
+    if (!routePlan?.stops?.length) return [];
+    return routePlan.stops.map((s) => s.visitId);
+  }, [routePlan?.id, routePlan?.stops]);
+
+  const hasUnsavedPlanOrder = useMemo(() => {
+    if (!routePlan?.stops?.length) return false;
+    if (savedPlanVisitIds.length !== currentOrderVisitIds.length) return true;
+    for (let i = 0; i < savedPlanVisitIds.length; i++) {
+      if (savedPlanVisitIds[i] !== currentOrderVisitIds[i]) return true;
+    }
+    return false;
+  }, [currentOrderVisitIds, routePlan?.stops?.length, savedPlanVisitIds]);
 
   const isDraggingFromBacklog = useMemo(
     () => dragVisitId != null && backlog.some((v) => v.id === dragVisitId),
@@ -318,6 +367,48 @@ export default function VisitsPage() {
   }, [isDraggingFromBacklog, cancelBacklogDrag]);
 
   const hasScheduledWithoutCoords = scheduledVisits.some((v) => v.lat == null || v.lng == null);
+
+  const coordQuality = useMemo(() => {
+    const scheduled = dayVisits.filter(
+      (v) => v.status !== "CANCELED" && v.status !== "PLANNED_UNASSIGNED",
+    );
+    const zero = scheduled.filter((v) => v.lat === 0 && v.lng === 0);
+    const key = (v: Visit) => (v.lat != null && v.lng != null ? `${v.lat},${v.lng}` : "");
+    const counts = new Map<string, number>();
+    for (const v of scheduled) {
+      const k = key(v);
+      if (!k) continue;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    const dupKeys = new Set(Array.from(counts.entries()).filter(([, c]) => c >= 2).map(([k]) => k));
+    const duplicates = scheduled.filter((v) => dupKeys.has(key(v)));
+    return { zeroCount: zero.length, duplicateCount: duplicates.length };
+  }, [dayVisits]);
+
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    if (!autoSaveRoutePlan) return;
+    if (!routePlan?.stops?.length) return;
+    if (!hasUnsavedPlanOrder) return;
+    if (savingRoute || loading) return;
+    if (hasScheduledWithoutCoords) return;
+    if (currentOrderVisitIds.length === 0) return;
+    autoSaveTimerRef.current = setTimeout(() => {
+      void handleSaveRoute();
+    }, 1200);
+  }, [
+    autoSaveRoutePlan,
+    currentOrderVisitIds,
+    hasScheduledWithoutCoords,
+    hasUnsavedPlanOrder,
+    loading,
+    routePlan?.id,
+    routePlan?.stops?.length,
+    savingRoute,
+  ]);
 
   const loadMapsConfig = useCallback(async () => {
     try {
@@ -369,6 +460,44 @@ export default function VisitsPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    setRouteMetrics(null);
+    if (!routePlan?.stops?.length) return;
+    setRouteMetricsLoading(true);
+    void routePlansApi
+      .metrics(dateParam, { traffic: useTrafficAware })
+      .then((m) => setRouteMetrics(m))
+      .catch(() => setRouteMetrics(null))
+      .finally(() => setRouteMetricsLoading(false));
+  }, [dateParam, routePlan?.id, routePlan?.stops?.length, useTrafficAware]);
+
+  useEffect(() => {
+    // Preview metrics for current (unsaved) order to show instant km effect.
+    setRouteMetricsPreview(null);
+    if (currentOrderVisitIds.length === 0) return;
+    if (hasScheduledWithoutCoords) return;
+    setRouteMetricsPreviewLoading(true);
+    const t = window.setTimeout(() => {
+      void routePlansApi
+        .metricsPreview(dateParam, currentOrderVisitIds, { traffic: useTrafficAware })
+        .then((m) => setRouteMetricsPreview(m))
+        .catch(() => setRouteMetricsPreview(null))
+        .finally(() => setRouteMetricsPreviewLoading(false));
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [currentOrderVisitIds, dateParam, hasScheduledWithoutCoords, useTrafficAware]);
+
+  useEffect(() => {
+    // Fact metrics: order of completed visits for the day.
+    setRouteFactMetrics(null);
+    setRouteFactMetricsLoading(true);
+    void routePlansApi
+      .factMetrics(dateParam, { traffic: useTrafficAware })
+      .then((m) => setRouteFactMetrics(m))
+      .catch(() => setRouteFactMetrics(null))
+      .finally(() => setRouteFactMetricsLoading(false));
+  }, [dateParam, useTrafficAware]);
 
   useEffect(() => {
     apiHttp
@@ -505,6 +634,20 @@ export default function VisitsPage() {
       const ids = sorted.map((v) => v.id);
       const res = await routePlansApi.saveForDay(dateParam, ids);
       setRoutePlan(res.plan ?? null);
+      // Refresh km immediately after saving a new plan order.
+      if (res.plan?.stops?.length) {
+        setRouteMetricsLoading(true);
+        try {
+          const m = await routePlansApi.metrics(dateParam, { traffic: useTrafficAware });
+          setRouteMetrics(m);
+        } catch {
+          setRouteMetrics(null);
+        } finally {
+          setRouteMetricsLoading(false);
+        }
+      } else {
+        setRouteMetrics(null);
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save route");
     } finally {
@@ -821,6 +964,10 @@ export default function VisitsPage() {
                 type="button"
                 onClick={async () => {
                   try {
+                    if (!routeAnchors.start) {
+                      setRouteAnchorsPromptOpen(true);
+                      return;
+                    }
                     const { url } = await routePlansApi.navigation(dateParam, "multi");
                     window.open(url, "_blank");
                   } catch (e) {
@@ -1230,6 +1377,81 @@ export default function VisitsPage() {
                     Some visits overlap in time — please review.
                   </div>
                 )}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
+                  <label className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={useTrafficAware}
+                      onChange={(e) => setUseTrafficAware(e.target.checked)}
+                    />
+                    Учитывать пробки
+                  </label>
+                  {routePlan?.stops?.length ? (
+                    <label className="inline-flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={autoSaveRoutePlan}
+                        onChange={(e) => setAutoSaveRoutePlan(e.target.checked)}
+                      />
+                      Автосохранение
+                    </label>
+                  ) : null}
+                  {routePlan?.stops?.length && hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
+                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
+                      Есть несохранённые изменения
+                    </span>
+                  ) : null}
+                  {coordQuality.zeroCount > 0 || coordQuality.duplicateCount > 0 ? (
+                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
+                      Координаты:{" "}
+                      {coordQuality.zeroCount > 0 ? `0,0 = ${coordQuality.zeroCount}` : ""}
+                      {coordQuality.zeroCount > 0 && coordQuality.duplicateCount > 0 ? ", " : ""}
+                      {coordQuality.duplicateCount > 0 ? `дубликаты = ${coordQuality.duplicateCount}` : ""}
+                    </span>
+                  ) : null}
+                </div>
+
+                {routePlan?.stops?.length ? (
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    {routeMetricsLoading ? (
+                      "План: считаем…"
+                    ) : routeMetrics?.distanceKm != null ? (
+                      <>
+                        План: {routeMetrics.distanceKm} км
+                        {routeMetrics.durationMin != null ? ` · ~${routeMetrics.durationMin} мин` : ""}
+                        {routeMetrics.source === "fallback" ? " (примерно)" : ""}
+                      </>
+                    ) : (
+                      "План: —"
+                    )}
+                    {" · "}
+                    {routeMetricsPreviewLoading ? (
+                      "Текущий: считаем…"
+                    ) : routeMetricsPreview?.distanceKm != null ? (
+                      <>
+                        Текущий: {routeMetricsPreview.distanceKm} км
+                        {routeMetricsPreview.durationMin != null
+                          ? ` · ~${routeMetricsPreview.durationMin} мин`
+                          : ""}
+                        {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
+                      </>
+                    ) : (
+                      "Текущий: —"
+                    )}
+                    {" · "}
+                    {routeFactMetricsLoading ? (
+                      "Факт: …"
+                    ) : routeFactMetrics?.distanceKm != null ? (
+                      <>
+                        Факт: {routeFactMetrics.distanceKm} км
+                        {routeFactMetrics.durationMin != null ? ` · ~${routeFactMetrics.durationMin} мин` : ""}
+                        {routeFactMetrics.source === "fallback" ? " (примерно)" : ""}
+                      </>
+                    ) : (
+                      "Факт: —"
+                    )}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1253,6 +1475,34 @@ export default function VisitsPage() {
                       : "Сохранить маршрут"}
                 </span>
               </button>
+              {routePlan?.stops?.length ? (
+                <button
+                  type="button"
+                  disabled={savingRoute || hasScheduledWithoutCoords || currentOrderVisitIds.length < 3}
+                  onClick={async () => {
+                    try {
+                      const optimized = await routePlansApi.optimize(dateParam, currentOrderVisitIds, {
+                        traffic: useTrafficAware,
+                      });
+                      const res = await routePlansApi.saveForDay(dateParam, optimized.visitIds);
+                      setRoutePlan(res.plan ?? null);
+                      setRouteMetricsLoading(true);
+                      try {
+                        const m = await routePlansApi.metrics(dateParam, { traffic: useTrafficAware });
+                        setRouteMetrics(m);
+                      } finally {
+                        setRouteMetricsLoading(false);
+                      }
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : "Failed to optimize route");
+                    }
+                  }}
+                  className="ml-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  title="Оптимизировать порядок остановок (сохранит маршрут)"
+                >
+                  Оптимизировать
+                </button>
+              ) : null}
             </div>
             <div className="flex flex-1 overflow-auto">
             {(() => {
@@ -1551,14 +1801,30 @@ export default function VisitsPage() {
           aria-label="Карта маршрута"
         >
           <div className="shrink-0 border-b border-zinc-200 px-3 py-2">
-            <div className="text-sm font-semibold text-zinc-900">Карта</div>
-            {routePlan && routePlan.stops?.length ? (
-              <div className="text-[11px] text-zinc-500">
-                Маршрут сохранён ({routePlan.stops.length} остановок)
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">Карта</div>
+                {routePlan && routePlan.stops?.length ? (
+                  <div className="text-[11px] text-zinc-500">
+                    Маршрут сохранён ({routePlan.stops.length} остановок)
+                    {" · "}
+                    {routeMetricsLoading ? (
+                      "считаем км…"
+                    ) : routeMetrics?.distanceKm != null ? (
+                      <>
+                        {routeMetrics.distanceKm} км
+                        {routeMetrics.durationMin != null ? ` · ~${routeMetrics.durationMin} мин` : ""}
+                        {routeMetrics.source === "fallback" ? " (примерно)" : ""}
+                      </>
+                    ) : (
+                      "км: —"
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
+                )}
               </div>
-            ) : (
-              <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
-            )}
+            </div>
           </div>
           <div className="relative min-h-[280px] flex-1 p-2">
             {mapsConfigError ? (
@@ -1700,6 +1966,45 @@ export default function VisitsPage() {
               >
                 В план
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {routeAnchorsPromptOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="px-5 py-4">
+              <div className="text-base font-semibold text-zinc-900">Маршрут визитов</div>
+              <p className="mt-1 text-sm text-zinc-600">
+                Для «Маршрут дня» нужна стартовая точка. Финиш по умолчанию будет таким же, как старт.
+              </p>
+              <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
+                Откройте сотрудника → «Маршрут визитов» и заполните «Старт — подпись» через автокомплит (координаты
+                подставятся автоматически).
+              </div>
+              <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteAnchorsPromptOpen(false);
+                  }}
+                  className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+                >
+                  Понятно
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteAnchorsPromptOpen(false);
+                    // Employees page contains per-user start/end route settings in EmployeeModal.
+                    window.location.href = "/employees";
+                  }}
+                  className="btn-primary"
+                >
+                  Открыть сотрудников
+                </button>
+              </div>
             </div>
           </div>
         </div>

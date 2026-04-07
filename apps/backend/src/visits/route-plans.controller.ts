@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Put, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Post, Put, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { RoutePlansService } from "./route-plans.service";
@@ -6,6 +6,46 @@ import { RoutePlansService } from "./route-plans.service";
 @Controller("route-plans")
 export class RoutePlansController {
   constructor(private readonly routePlans: RoutePlansService) {}
+
+  @Get("metrics")
+  async getMetrics(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.routePlans.getRouteMetrics(date, req.user, { traffic: traffic === "1" });
+  }
+
+  @Post("metrics/preview")
+  async previewMetrics(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Body() body: { visitIds?: string[] },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
+    return this.routePlans.previewRouteMetrics(date, visitIds, req.user, { traffic: traffic === "1" });
+  }
+
+  @Post("optimize")
+  async optimize(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Body() body: { visitIds?: string[] },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
+    return this.routePlans.optimizeRouteOrder(date, visitIds, req.user, { traffic: traffic === "1" });
+  }
+
+  @Get("metrics/fact")
+  async getFactMetrics(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.routePlans.getFactRouteMetrics(date, req.user, { traffic: traffic === "1" });
+  }
 
   @Get("navigation")
   async getNavigation(
