@@ -193,7 +193,14 @@ export class RingostatIngestService {
       let status = this.resolveStatus(raw);
       // Ringostat: duration = время до сброса, billsec = фактическое время разговора. Если billsec=0 — никто не говорил, пропущенный.
       const billsec = this.extractNumber(raw, ["billsec"]);
-      const waitingSec = this.extractNumber(raw, ["waiting", "waiting_sec", "wait_sec", "wait_time"]);
+      const waitingSec = this.extractNumber(raw, [
+        "waiting",
+        "waiting_sec",
+        "wait_sec",
+        "wait_time",
+        // /calls/list export
+        "waittime",
+      ]);
       const dialogSec = this.extractNumber(raw, ["dialog", "dialog_sec", "talk_sec"]);
       const hasNoTalkTime = billsec !== null ? billsec <= 0 : durationSec !== null && durationSec <= 0;
       if (hasNoTalkTime) {
@@ -531,6 +538,13 @@ export class RingostatIngestService {
     if (typeVal === "in") return "INBOUND";
     if (typeVal === "out") return "OUTBOUND";
 
+    // Ringostat /calls/list export uses call_type (in/out/transitin/transitout/callback...)
+    const callType = String(getVal(raw, "call_type") ?? "").trim().toLowerCase();
+    if (callType) {
+      if (callType.includes("out")) return "OUTBOUND";
+      if (callType.includes("in")) return "INBOUND";
+    }
+
     const rawDir = this.ringostatFirstNonEmptyString(
       getVal(raw, "direction"),
       getVal(raw, "call_direction"),
@@ -545,6 +559,9 @@ export class RingostatIngestService {
     // Prefer outbound hints (so we don't mask outgoing as inbound).
     const outboundNumber = String(getVal(raw, "outbound_number") ?? "").trim();
     if (outboundNumber) return "OUTBOUND";
+
+    const callerNumber = String(getVal(raw, "caller_number") ?? "").trim();
+    if (callerNumber) return "OUTBOUND";
 
     const callee = String(
       (getVal(raw, "callee") ??
@@ -668,6 +685,8 @@ export class RingostatIngestService {
     managerPhoneRaw?: string;
     extension?: string;
   } {
+    const callType = String(getVal(raw, "call_type") ?? "").trim().toLowerCase();
+
     // INBOUND: never treat outbound_number / pool line as the client — Ringostat often sends it
     // alongside E164/connected_with; picking it first wrongly matched contacts to the company number.
     const inboundCustomerRaw =
@@ -708,18 +727,37 @@ export class RingostatIngestService {
       ) || undefined;
     const outboundNumber = String((getVal(raw, "outbound_number") ?? "") as string) || undefined;
     const ext =
-      (getVal(raw, "sip_extension") ??
-        getVal(raw, "extension") ??
-        getVal(raw, "extension_number") ??
-        getVal(raw, "user") ??
-        getVal(raw, "line") ??
-        getVal(raw, "agent") ??
-        getVal(raw, "n_alias")) ?? undefined;
+      this.ringostatFirstNonEmptyString(
+        getVal(raw, "sip_extension"),
+        getVal(raw, "extension"),
+        getVal(raw, "extension_number"),
+        // /calls/list export fields
+        getVal(raw, "employee_number"),
+        getVal(raw, "additional_number"),
+        getVal(raw, "user"),
+        getVal(raw, "line"),
+        getVal(raw, "agent"),
+        getVal(raw, "n_alias"),
+      ) || undefined;
 
     let customerPhoneRaw: string | undefined;
     let managerPhoneRaw: string | undefined;
 
-    if (direction === "INBOUND") {
+    const looksLikeCallsList = callType.length > 0;
+
+    if (looksLikeCallsList && direction === "INBOUND") {
+      // /calls/list:
+      // - caller is client phone
+      // - connected_with is agent phone (often manager mobile)
+      // - caller_number is manager line shown to client (outgoing); for incoming it's often agent line too
+      const client = String((getVal(raw, "caller") ?? "") as string) || undefined;
+      const connectedWith = String((getVal(raw, "connected_with") ?? "") as string) || undefined;
+      const managerLine = String((getVal(raw, "caller_number") ?? "") as string) || undefined;
+
+      customerPhoneRaw = client || inboundCustomerRaw;
+      managerPhoneRaw =
+        this.ringostatFirstNonEmptyString(connectedWith, managerLine, dst).trim() || outboundNumber || undefined;
+    } else if (direction === "INBOUND") {
       customerPhoneRaw = inboundCustomerRaw;
       const custNorm = this.normalizePhone(customerPhoneRaw);
       let mgrDst = dst || undefined;
@@ -736,6 +774,18 @@ export class RingostatIngestService {
         // treat manager leg as identical so entity matching can be safely skipped for inbound.
         managerPhoneRaw = customerPhoneRaw;
       }
+    } else if (looksLikeCallsList && direction === "OUTBOUND") {
+      // /calls/list:
+      // - dst is client phone
+      // - caller_number is manager line shown to client
+      // - connected_with may be agent phone
+      const client = String((getVal(raw, "dst") ?? "") as string) || undefined;
+      const managerLine = String((getVal(raw, "caller_number") ?? "") as string) || undefined;
+      const connectedWith = String((getVal(raw, "connected_with") ?? "") as string) || undefined;
+
+      customerPhoneRaw = client || undefined;
+      managerPhoneRaw =
+        this.ringostatFirstNonEmptyString(managerLine, connectedWith, src).trim() || outboundNumber || undefined;
     } else if (direction === "OUTBOUND") {
       const digits = (v: string | undefined) => (v || "").replace(/\D/g, "");
       const outboundDigits = digits(outboundNumber);

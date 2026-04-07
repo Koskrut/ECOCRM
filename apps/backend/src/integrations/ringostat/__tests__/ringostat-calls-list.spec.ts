@@ -26,6 +26,7 @@ describe("ringostat-calls-list", () => {
       assert.equal(res.fieldsMode, "expanded");
       assert.match(requestedUrl, /fields=.*uniqueid/);
       assert.match(requestedUrl, /fields=.*recording_wav/);
+      assert.match(requestedUrl, /fields=.*call_type/);
     } finally {
       globalThis.fetch = originalFetch;
     }

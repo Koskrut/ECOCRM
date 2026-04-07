@@ -98,6 +98,55 @@ describe("RingostatIngestService", () => {
     assert.equal(phones.customerPhoneRaw, "380931112233");
   });
 
+  it("/calls/list outbound: uses dst as client and caller_number as manager line", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+        extension?: string;
+      };
+
+    const raw = {
+      uniqueid: "x",
+      call_type: "transitout",
+      caller: "380672492945",
+      dst: "380505165616",
+      caller_number: "380672492945",
+      connected_with: "",
+      employee_number: 107,
+      additional_number: "",
+    };
+    const phones = extract(raw, "OUTBOUND");
+    assert.equal(phones.customerPhoneRaw, "380505165616");
+    assert.equal(phones.managerPhoneRaw, "380672492945");
+    assert.equal(phones.extension, "107");
+  });
+
+  it("/calls/list inbound: uses caller as client and connected_with as manager phone", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+        extension?: string;
+      };
+
+    const raw = {
+      uniqueid: "x",
+      call_type: "transitin",
+      caller: "380505710671",
+      dst: "380505710671",
+      connected_with: "380675565613",
+      caller_number: "380675565613",
+      employee_number: 104,
+    };
+    const phones = extract(raw, "INBOUND");
+    assert.equal(phones.customerPhoneRaw, "380505710671");
+    assert.equal(phones.managerPhoneRaw, "380675565613");
+    assert.equal(phones.extension, "104");
+  });
+
   it("UNKNOWN /calls/list: short caller + long mobile dst maps client to dst", () => {
     const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
       // @ts-expect-error private

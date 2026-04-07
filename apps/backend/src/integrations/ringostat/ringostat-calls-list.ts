@@ -24,19 +24,22 @@ const CALLS_LIST_FIELDS_FALLBACK = [
 
 const CALLS_LIST_FIELDS_EXPANDED = [
   "uniqueid",
-  "type",
-  "src",
-  "full_num",
+  // Call log export API uses call_type/instead of webhook "type".
+  "call_type",
   "caller",
-  "callee",
   "dst",
-  "outbound_number",
-  "extension_number",
-  "E164",
   "connected_with",
-  "waiting",
+  // Number shown to a client during outgoing calls (manager line).
+  "caller_number",
+  // Employee identifier in call log (often internal extension-like number).
+  "employee_number",
+  // Additional number entered in IVR (often used as extension).
+  "additional_number",
+  "waittime",
+  "duration",
   "disposition",
   "billsec",
+  "has_recording",
   "recording",
   "recording_wav",
   "calldate",
