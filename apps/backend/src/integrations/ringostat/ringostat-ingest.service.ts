@@ -257,13 +257,16 @@ export class RingostatIngestService {
         phoneForEntityMatch = null;
       }
 
-      const { contactId, leadId, companyId } =
-        await this.matchOrCreateEntities(phoneForEntityMatch, raw);
-
       const managerUserId = this.resolveManagerUserIdFromConfig(
         mapCfg,
         extension,
         managerPhoneNormalized,
+      );
+
+      const { contactId, leadId, companyId } = await this.matchOrCreateEntities(
+        phoneForEntityMatch,
+        raw,
+        managerUserId,
       );
 
       const otherLegUserId = this.resolveUserIdByPhoneNormalized(
@@ -926,6 +929,7 @@ export class RingostatIngestService {
   private async matchOrCreateEntities(
     customerPhoneNormalized: string | null,
     raw: RingostatRawPayload,
+    ownerUserId: string | null,
   ): Promise<{ contactId: string | null; leadId: string | null; companyId: string | null }> {
     if (!customerPhoneNormalized) {
       return { contactId: null, leadId: null, companyId: null };
@@ -983,6 +987,13 @@ export class RingostatIngestService {
       orderBy: { createdAt: "desc" },
     });
     if (lead) {
+      // If this lead isn't linked to a contact yet and has no owner, assign from call manager (best effort).
+      if (ownerUserId && !lead.contactId) {
+        await this.prisma.lead.updateMany({
+          where: { id: lead.id, ownerId: null },
+          data: { ownerId: ownerUserId },
+        });
+      }
       return {
         contactId: lead.contactId ?? null,
         leadId: lead.id,
@@ -1008,6 +1019,7 @@ export class RingostatIngestService {
     const newLead = await this.prisma.lead.create({
       data: {
         companyId: company.id,
+        ownerId: ownerUserId,
         status: LeadStatus.NEW,
         source: LeadSource.OTHER,
         fullName: name,
