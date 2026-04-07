@@ -22,7 +22,13 @@ const CALLS_LIST_FIELDS_FALLBACK = [
   "recording",
 ].join(",");
 
-const CALLS_LIST_FIELDS_EXPANDED = [
+/**
+ * "Best effort" expanded field set. Some Ringostat instances reject unknown fields
+ * (sometimes via 400, sometimes via 200 + non-JSON error body).
+ *
+ * We keep a smaller "basic" set as a second attempt before falling back to minimal.
+ */
+const CALLS_LIST_FIELDS_EXPANDED_BASIC = [
   "uniqueid",
   // Call log export API uses call_type/instead of webhook "type".
   "call_type",
@@ -37,9 +43,17 @@ const CALLS_LIST_FIELDS_EXPANDED = [
   "additional_number",
   "waittime",
   "duration",
-  "duration_ms",
   "disposition",
   "billsec",
+  "has_recording",
+  "recording",
+  "recording_wav",
+  "calldate",
+].join(",");
+
+const CALLS_LIST_FIELDS_EXPANDED = [
+  CALLS_LIST_FIELDS_EXPANDED_BASIC,
+  "duration_ms",
   "missing_reason",
   "proper_flag",
   "repeated_flag",
@@ -54,10 +68,6 @@ const CALLS_LIST_FIELDS_EXPANDED = [
   "utm_campaign",
   "utm_content",
   "utm_term",
-  "has_recording",
-  "recording",
-  "recording_wav",
-  "calldate",
 ].join(",");
 
 export function formatRingostatUtcParam(d: Date): string {
@@ -118,20 +128,23 @@ export async function fetchRingostatCallsList(
   from: Date,
   to: Date,
 ): Promise<RingostatCallsListFetchResult> {
-  const isNonJsonResponse = (bodySnippet: string): boolean => {
+  const isBadFieldsResponse = (bodySnippet: string): boolean => {
     const s = (bodySnippet || "").trim().toLowerCase();
     if (!s) return false;
     if (s.startsWith("expected json, got:")) return true;
     if (s.includes("<html") || s.includes("<!doctype html")) return true;
     if (s.includes("bad fields") || s.includes("unknown field")) return true;
+    if (s.includes("incorrect field name")) return true;
     return false;
   };
 
   const tryFetch = async (
     fieldsMode: "expanded" | "fallback",
+    fieldsOverride?: string,
   ): Promise<RingostatCallsListFetchResult> => {
     const fields =
-      fieldsMode === "expanded" ? CALLS_LIST_FIELDS_EXPANDED : CALLS_LIST_FIELDS_FALLBACK;
+      fieldsOverride ??
+      (fieldsMode === "expanded" ? CALLS_LIST_FIELDS_EXPANDED : CALLS_LIST_FIELDS_FALLBACK);
     const url = buildRingostatCallsListUrl(cfg, from, to, fields);
     const res = await fetch(url.toString(), {
       method: "GET",
@@ -168,7 +181,16 @@ export async function fetchRingostatCallsList(
   if (expanded.ok) return expanded;
   // Some Ringostat installs reject unknown fields in query (400),
   // and some return HTTP 200 with a non-JSON error/HTML body.
-  if (expanded.status === 400) return tryFetch("fallback");
-  if (expanded.status === 200 && isNonJsonResponse(expanded.bodySnippet)) return tryFetch("fallback");
-  return expanded;
+  const looksLikeBadFields =
+    expanded.status === 400 || (expanded.status === 200 && isBadFieldsResponse(expanded.bodySnippet));
+  if (!looksLikeBadFields) return expanded;
+
+  const expandedBasic = await tryFetch("expanded", CALLS_LIST_FIELDS_EXPANDED_BASIC);
+  if (expandedBasic.ok) return expandedBasic;
+  const looksLikeBadFieldsBasic =
+    expandedBasic.status === 400 ||
+    (expandedBasic.status === 200 && isBadFieldsResponse(expandedBasic.bodySnippet));
+  if (!looksLikeBadFieldsBasic) return expandedBasic;
+
+  return tryFetch("fallback");
 }
