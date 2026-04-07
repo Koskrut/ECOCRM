@@ -92,52 +92,72 @@ export class RingostatRekeyUniqueidService {
     };
 
     const digits = (v: string | null | undefined): string => String(v ?? "").replace(/\D/g, "");
-    const timeBucketMin = (d: Date): string => {
-      const t = Math.floor(d.getTime() / 60_000) * 60_000;
-      return new Date(t).toISOString();
-    };
-
-    // Build an index from "signature" -> call with uniqueid, using DB columns (stable across sources).
-    // We use a minute bucket to tolerate slight timestamp differences.
-    const signature = (r: CallRow): string => {
+    const bucket5m = (d: Date): number => Math.floor(d.getTime() / (5 * 60_000));
+    const companyLegDigits = (r: CallRow): string => {
       const a = digits(r.fromNormalized ?? r.from);
       const b = digits(r.toNormalized ?? r.to);
-      const lo = a < b ? a : b;
-      const hi = a < b ? b : a;
-      return [
-        timeBucketMin(r.startedAt),
-        r.direction,
-        r.status,
-        String(r.durationSec ?? ""),
-        lo,
-        hi,
-      ].join("|");
+      // Prefer a non-empty leg; for problematic webhook rows often both are same company line.
+      if (a && b) return a.length >= b.length ? a : b;
+      return a || b || "";
     };
 
-    const withId = rows.filter((r) => !!getUniqueid(r.rawPayload));
-    const bySig = new Map<string, CallRow>();
-    for (const r of withId) {
-      const sig = signature(r);
-      // Prefer a row that already has an activity (more "connected").
-      const existing = bySig.get(sig);
-      if (!existing || (!!r.activity && !existing.activity)) bySig.set(sig, r);
-    }
+    const withUniqueid = rows.filter((r) => !!getUniqueid(r.rawPayload));
+    const withoutUniqueid = rows.filter((r) => !getUniqueid(r.rawPayload));
 
-    const isSynthetic = (externalId: string): boolean => externalId.startsWith("syn|");
+    // Index "good" rows (with uniqueid) by (5m bucket, company-leg digits) -> candidates list.
+    const keyedIndex = new Map<string, CallRow[]>();
+    for (const r of withUniqueid) {
+      const comp = companyLegDigits(r);
+      if (!comp) continue;
+      const key = `${bucket5m(r.startedAt)}|${comp}`;
+      const arr = keyedIndex.get(key);
+      if (arr) arr.push(r);
+      else keyedIndex.set(key, [r]);
+    }
 
     let scanned = 0;
     let matched = 0;
     let merged = 0;
     let skipped = 0;
 
-    for (const row of rows) {
-      const uid = getUniqueid(row.rawPayload);
-      if (uid) continue; // already keyed
-      if (!isSynthetic(row.externalId)) continue; // not a synthetic legacy row
+    const pickBestPartner = (cands: CallRow[]): CallRow | null => {
+      if (cands.length === 0) return null;
+      if (cands.length === 1) return cands[0];
+      // Prefer a candidate that already has an activity (more connected).
+      const withActivity = cands.filter((c) => !!c.activity);
+      if (withActivity.length === 1) return withActivity[0];
+      return null; // ambiguous
+    };
+
+    const isMissedLike = (status: string): boolean => status.toUpperCase().includes("MISS");
+    const abs = (n: number) => (n < 0 ? -n : n);
+
+    for (const row of withoutUniqueid) {
+      // If the row already uses a stable Ringostat uniqueid as externalId, don't touch it.
+      if (row.externalId && row.externalId.startsWith("ks1_")) continue;
 
       scanned += 1;
-      const sig = signature(row);
-      const partner = bySig.get(sig);
+      const comp = companyLegDigits(row);
+      if (!comp) {
+        skipped += 1;
+        continue;
+      }
+      const b = bucket5m(row.startedAt);
+      const keys = [`${b}|${comp}`, `${b - 1}|${comp}`, `${b + 1}|${comp}`];
+      const candidates = keys.flatMap((k) => keyedIndex.get(k) ?? []);
+
+      // Tighten by time distance (<= 2 minutes) and (optionally) status.
+      const near = candidates.filter((c) => abs(c.startedAt.getTime() - row.startedAt.getTime()) <= 2 * 60_000);
+      const filtered =
+        row.status && row.status !== "UNKNOWN" ? near.filter((c) => c.status === row.status) : near;
+      const statusCompat =
+        filtered.length > 0
+          ? filtered
+          : isMissedLike(row.status)
+            ? near.filter((c) => isMissedLike(c.status))
+            : near;
+
+      const partner = pickBestPartner(statusCompat);
       if (!partner) {
         skipped += 1;
         continue;
