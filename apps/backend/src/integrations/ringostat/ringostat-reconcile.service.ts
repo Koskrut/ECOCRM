@@ -75,7 +75,7 @@ export class RingostatReconcileService {
     let skipped = 0;
 
     for (const row of rows) {
-      if (!this.isProblematic(row.fromNormalized, row.toNormalized)) {
+      if (!this.isProblematic(row.fromNormalized, row.toNormalized, row.managerUserId)) {
         skipped += 1;
         continue;
       }
@@ -142,9 +142,27 @@ export class RingostatReconcileService {
     return report;
   }
 
-  private isProblematic(fromNormalized: string | null, toNormalized: string | null): boolean {
+  /**
+   * Decide if a row is worth re-evaluating.
+   *
+   * We include:
+   * - missing client leg (fromNormalized null)
+   * - duplicated legs (from == to)
+   * - missing manager leg / mapping input (toNormalized null)
+   * - missing manager link (managerUserId null)
+   *
+   * This lets reconcile start "doing work" right after backfill enriches rawPayload
+   * with fields like employee_number/connected_with/caller_number, even if historical
+   * rows previously had no manager leg at all.
+   */
+  private isProblematic(
+    fromNormalized: string | null,
+    toNormalized: string | null,
+    managerUserId: string | null,
+  ): boolean {
     if (!fromNormalized) return true;
-    if (!toNormalized) return false;
+    if (!toNormalized) return true;
+    if (!managerUserId) return true;
     return fromNormalized.replace(/\D/g, "") === toNormalized.replace(/\D/g, "");
   }
 
