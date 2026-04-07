@@ -92,28 +92,34 @@ export class RingostatRekeyUniqueidService {
     };
 
     const digits = (v: string | null | undefined): string => String(v ?? "").replace(/\D/g, "");
-    const bucket5m = (d: Date): number => Math.floor(d.getTime() / (5 * 60_000));
-    const companyLegDigits = (r: CallRow): string => {
-      const a = digits(r.fromNormalized ?? r.from);
-      const b = digits(r.toNormalized ?? r.to);
-      // Prefer a non-empty leg; for problematic webhook rows often both are same company line.
-      if (a && b) return a.length >= b.length ? a : b;
-      return a || b || "";
+    const toStr = (raw: Prisma.JsonValue, key: string): string => {
+      if (!raw || typeof raw !== "object") return "";
+      const v = (raw as Record<string, unknown>)[key];
+      return v == null ? "" : String(v).trim();
+    };
+    const extractDigitsSet = (r: CallRow): Set<string> => {
+      const out = new Set<string>();
+      const push = (s: string) => {
+        const d = digits(s);
+        if (d.length >= 6) out.add(d);
+      };
+      push(r.fromNormalized ?? r.from);
+      push(r.toNormalized ?? r.to);
+      push(toStr(r.rawPayload, "caller"));
+      push(toStr(r.rawPayload, "dst"));
+      push(toStr(r.rawPayload, "callee"));
+      push(toStr(r.rawPayload, "src"));
+      push(toStr(r.rawPayload, "E164"));
+      push(toStr(r.rawPayload, "connected_with"));
+      push(toStr(r.rawPayload, "caller_number"));
+      push(toStr(r.rawPayload, "employee_number"));
+      push(toStr(r.rawPayload, "additional_number"));
+      push(toStr(r.rawPayload, "extension_number"));
+      return out;
     };
 
     const withUniqueid = rows.filter((r) => !!getUniqueid(r.rawPayload));
     const withoutUniqueid = rows.filter((r) => !getUniqueid(r.rawPayload));
-
-    // Index "good" rows (with uniqueid) by (5m bucket, company-leg digits) -> candidates list.
-    const keyedIndex = new Map<string, CallRow[]>();
-    for (const r of withUniqueid) {
-      const comp = companyLegDigits(r);
-      if (!comp) continue;
-      const key = `${bucket5m(r.startedAt)}|${comp}`;
-      const arr = keyedIndex.get(key);
-      if (arr) arr.push(r);
-      else keyedIndex.set(key, [r]);
-    }
 
     let scanned = 0;
     let matched = 0;
@@ -137,27 +143,55 @@ export class RingostatRekeyUniqueidService {
       if (row.externalId && row.externalId.startsWith("ks1_")) continue;
 
       scanned += 1;
-      const comp = companyLegDigits(row);
-      if (!comp) {
+      const rowNums = extractDigitsSet(row);
+      if (rowNums.size === 0) {
         skipped += 1;
         continue;
       }
-      const b = bucket5m(row.startedAt);
-      const keys = [`${b}|${comp}`, `${b - 1}|${comp}`, `${b + 1}|${comp}`];
-      const candidates = keys.flatMap((k) => keyedIndex.get(k) ?? []);
 
-      // Tighten by time distance (<= 2 minutes) and (optionally) status.
-      const near = candidates.filter((c) => abs(c.startedAt.getTime() - row.startedAt.getTime()) <= 2 * 60_000);
-      const filtered =
-        row.status && row.status !== "UNKNOWN" ? near.filter((c) => c.status === row.status) : near;
-      const statusCompat =
-        filtered.length > 0
-          ? filtered
-          : isMissedLike(row.status)
-            ? near.filter((c) => isMissedLike(c.status))
-            : near;
+      // Candidate pool: within ±10 minutes.
+      const candidates = withUniqueid.filter(
+        (c) => abs(c.startedAt.getTime() - row.startedAt.getTime()) <= 10 * 60_000,
+      );
+      if (candidates.length === 0) {
+        skipped += 1;
+        continue;
+      }
 
-      const partner = pickBestPartner(statusCompat);
+      const scored = candidates
+        .map((c) => {
+          const cNums = extractDigitsSet(c);
+          let overlap = 0;
+          for (const n of rowNums) if (cNums.has(n)) overlap += 1;
+          const dtMs = abs(c.startedAt.getTime() - row.startedAt.getTime());
+          const dtScore = dtMs <= 60_000 ? 3 : dtMs <= 2 * 60_000 ? 2 : dtMs <= 5 * 60_000 ? 1 : 0;
+          const statusBonus =
+            row.status && row.status !== "UNKNOWN"
+              ? c.status === row.status
+                ? 2
+                : isMissedLike(row.status) && isMissedLike(c.status)
+                  ? 1
+                  : 0
+              : 0;
+          const score = overlap * 10 + dtScore + statusBonus;
+          return { c, overlap, score };
+        })
+        .filter((x) => x.overlap > 0)
+        .sort((a, b) => b.score - a.score);
+
+      if (scored.length === 0) {
+        skipped += 1;
+        continue;
+      }
+
+      const best = scored[0];
+      const second = scored[1];
+      if (second && second.score === best.score) {
+        skipped += 1;
+        continue;
+      }
+
+      const partner = pickBestPartner([best.c]);
       if (!partner) {
         skipped += 1;
         continue;
