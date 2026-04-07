@@ -4,7 +4,11 @@ import type { PrismaService } from "../../prisma/prisma.service";
 import { RingostatIngestService } from "../ringostat-ingest.service";
 
 describe("RingostatIngestService", () => {
-  const prisma = {} as unknown as PrismaService;
+  const prisma = {
+    integrationSetting: {
+      findFirst: async () => null,
+    },
+  } as unknown as PrismaService;
   const service = new RingostatIngestService(prisma);
 
   it("normalizes UA phone numbers to E.164-like format", () => {
@@ -201,5 +205,65 @@ describe("RingostatIngestService", () => {
     };
     const phones = extract(raw, "INBOUND");
     assert.equal(phones.extension, "101");
+  });
+
+  it("extractExternalId builds richer synthetic id when unique id is missing", () => {
+    const extract = (raw: Record<string, unknown>) =>
+      // @ts-expect-error private
+      service["extractExternalId"](raw) as string | null;
+
+    const id = extract({
+      type: "out",
+      caller: "380441112233",
+      callee: "380931112233",
+      dst: "380931112233",
+      billsec: "20",
+      disposition: "ANSWERED",
+      calldate: "2026-04-06 10:16:46",
+    });
+    assert.equal(
+      id,
+      "syn|out|380441112233|380931112233|380931112233|20|ANSWERED|2026-04-0610:16:46",
+    );
+  });
+
+  it("recomputeLegsFromRaw handles real inbound sample", async () => {
+    const res = await service.recomputeLegsFromRaw({
+      type: "in",
+      uniqueid: "1111111111.11111111111111111",
+      calldate: "2022-01-01 10:16:46",
+      billsec: "10",
+      disposition: "ANSWERED",
+      recording_wav: "https://app.ringostat.com/recordings/1111111111.1111111.wav?token=",
+      has_recording: "1",
+      extension_number: "101",
+      E164: "380931112233",
+      dst: "380441232323",
+      connected_with: "380931112233",
+      waiting: "10",
+    });
+    assert.ok(res);
+    assert.equal(res?.direction, "INBOUND");
+    assert.equal(res?.fromNormalized, "+380931112233");
+    assert.equal(res?.toNormalized, "+380441232323");
+  });
+
+  it("recomputeLegsFromRaw handles real outbound sample", async () => {
+    const res = await service.recomputeLegsFromRaw({
+      uniqueid: "1111111111",
+      type: "out",
+      calldate: "2022-01-01 10:16:46",
+      billsec: "20",
+      disposition: "ANSWERED",
+      recording_wav: "https://app.ringostat.com/recordings/1111111111.1111111.wav?token=",
+      has_recording: "1",
+      outbound_number: "380441112233",
+      callee: "380931112233",
+      waiting: "10",
+    });
+    assert.ok(res);
+    assert.equal(res?.direction, "OUTBOUND");
+    assert.equal(res?.fromNormalized, "+380931112233");
+    assert.equal(res?.toNormalized, "+380441112233");
   });
 });

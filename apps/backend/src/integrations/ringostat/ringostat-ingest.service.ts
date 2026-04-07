@@ -9,6 +9,36 @@ type RingostatRawPayload = Record<string, unknown>;
 
 type NormalizedDirection = "INBOUND" | "OUTBOUND" | "UNKNOWN";
 
+export type RingostatIngestBatchMetrics = {
+  total: number;
+  processed: number;
+  missingUniqueId: number;
+  fromEqualsTo: number;
+  emptyFrom: number;
+  byType: {
+    inbound: number;
+    outbound: number;
+    unknown: number;
+  };
+};
+
+type RingostatIngestEventMetrics = {
+  processed: boolean;
+  missingUniqueId: boolean;
+  fromEqualsTo: boolean;
+  emptyFrom: boolean;
+  direction: NormalizedDirection;
+};
+
+export type RingostatRecomputedLegs = {
+  direction: NormalizedDirection;
+  from: string;
+  to: string;
+  fromNormalized: string | null;
+  toNormalized: string | null;
+  managerUserId: string | null;
+};
+
 /** Get value from root or from additional_call_data (Ringostat Webhooks 2.0). */
 function getVal(raw: RingostatRawPayload, key: string): unknown {
   const v = raw[key];
@@ -84,14 +114,33 @@ export class RingostatIngestService {
    * Public entry point for polling/cron: reuses the same ingestion pipeline as webhook,
    * но без проверки секрета.
    */
-  async ingestFromApi(body: unknown): Promise<void> {
-    if (Array.isArray(body)) {
-      for (const item of body) {
-        await this.ingestEvent(item as RingostatRawPayload);
-      }
-    } else {
-      await this.ingestEvent(body as RingostatRawPayload);
+  async ingestFromApi(body: unknown): Promise<RingostatIngestBatchMetrics> {
+    const events = (Array.isArray(body) ? body : [body]) as RingostatRawPayload[];
+    const summary: RingostatIngestBatchMetrics = {
+      total: events.length,
+      processed: 0,
+      missingUniqueId: 0,
+      fromEqualsTo: 0,
+      emptyFrom: 0,
+      byType: { inbound: 0, outbound: 0, unknown: 0 },
+    };
+
+    for (const item of events) {
+      const m = await this.ingestEvent(item as RingostatRawPayload);
+      if (m.processed) summary.processed += 1;
+      if (m.missingUniqueId) summary.missingUniqueId += 1;
+      if (m.fromEqualsTo) summary.fromEqualsTo += 1;
+      if (m.emptyFrom) summary.emptyFrom += 1;
+      if (m.direction === "INBOUND") summary.byType.inbound += 1;
+      else if (m.direction === "OUTBOUND") summary.byType.outbound += 1;
+      else summary.byType.unknown += 1;
     }
+
+    this.logger.log(
+      `Ringostat ingest batch: total=${summary.total}, processed=${summary.processed}, type[in=${summary.byType.inbound},out=${summary.byType.outbound},unk=${summary.byType.unknown}], missingUniqueId=${summary.missingUniqueId}, fromEqTo=${summary.fromEqualsTo}, emptyFrom=${summary.emptyFrom}`,
+    );
+
+    return summary;
   }
 
   private async assertWebhookSecret(provided: string | undefined): Promise<void> {
@@ -110,12 +159,21 @@ export class RingostatIngestService {
     }
   }
 
-  private async ingestEvent(raw: RingostatRawPayload): Promise<void> {
+  private async ingestEvent(raw: RingostatRawPayload): Promise<RingostatIngestEventMetrics> {
+    const direction = this.resolveDirection(raw);
+    const hasUniqueId = this.hasStableUniqueId(raw);
+    const metrics: RingostatIngestEventMetrics = {
+      processed: false,
+      missingUniqueId: !hasUniqueId,
+      fromEqualsTo: false,
+      emptyFrom: false,
+      direction,
+    };
     try {
       const externalId = this.extractExternalId(raw);
       if (!externalId) {
         this.logger.warn("Ringostat payload without externalId, skipping", { raw });
-        return;
+        return metrics;
       }
 
       const startedAt = this.extractDate(raw, [
@@ -127,12 +185,11 @@ export class RingostatIngestService {
       ]);
       if (!startedAt) {
         this.logger.warn("Ringostat payload without startedAt, skipping", { externalId });
-        return;
+        return metrics;
       }
       const endedAt = this.extractDate(raw, ["ended_at", "end_time", "call_end"]);
       const durationSec = this.extractDurationSec(raw);
 
-      const direction = this.resolveDirection(raw);
       let status = this.resolveStatus(raw);
       // Ringostat: duration = время до сброса, billsec = фактическое время разговора. Если billsec=0 — никто не говорил, пропущенный.
       const billsec = this.extractNumber(raw, ["billsec"]);
@@ -169,6 +226,11 @@ export class RingostatIngestService {
           [customerPhoneNormalized, managerPhoneNormalized] = [managerPhoneNormalized, customerPhoneNormalized];
         }
       }
+      metrics.fromEqualsTo =
+        !!customerPhoneNormalized &&
+        !!managerPhoneNormalized &&
+        customerPhoneNormalized.replace(/\D/g, "") === managerPhoneNormalized.replace(/\D/g, "");
+      metrics.emptyFrom = !customerPhoneNormalized;
 
       // Ringostat often sends the same value in E164/dst/connected_with on INBOUND. Matching that
       // to CRM then finds the manager's own Contact (same mobile) — wrong "client" in history.
@@ -329,9 +391,17 @@ export class RingostatIngestService {
       this.logger.log(
         `Ringostat call ingested: externalId=${externalId}, direction=${direction}, status=${status}`,
       );
+      metrics.processed = true;
+      return metrics;
     } catch (e) {
       this.logger.error("Failed to ingest Ringostat event", e instanceof Error ? e.stack : String(e));
+      return metrics;
     }
+  }
+
+  private hasStableUniqueId(raw: RingostatRawPayload): boolean {
+    const v = getVal(raw, "uniqueid");
+    return typeof v === "string" && v.trim().length > 0;
   }
 
   private extractExternalId(raw: RingostatRawPayload): string | null {
@@ -341,14 +411,85 @@ export class RingostatIngestService {
       if (typeof v === "string" && v.trim().length > 0) return v.trim();
     }
 
-    // Fallback for Ringostat /calls/list payload: use caller + calldate as a synthetic ID.
-    const caller = getVal(raw, "caller") ?? getVal(raw, "E164") ?? getVal(raw, "connected_with") ?? getVal(raw, "userfield");
+    // Fallback for Ringostat /calls/list payload when no uniqueid/id is present.
+    const caller =
+      getVal(raw, "caller") ??
+      getVal(raw, "src") ??
+      getVal(raw, "E164") ??
+      getVal(raw, "connected_with") ??
+      getVal(raw, "userfield");
+    const callee =
+      getVal(raw, "callee") ??
+      getVal(raw, "dst") ??
+      getVal(raw, "outbound_number") ??
+      getVal(raw, "connected_to");
     const calldate = getVal(raw, "calldate");
     if (typeof caller === "string" && caller.trim() && typeof calldate === "string" && calldate.trim()) {
-      return `${caller.trim()}_${calldate.trim()}`;
+      return this.buildSyntheticExternalId(raw, caller, callee, calldate);
     }
 
     return null;
+  }
+
+  private buildSyntheticExternalId(
+    raw: RingostatRawPayload,
+    caller: string,
+    callee: unknown,
+    calldate: string,
+  ): string {
+    const norm = (v: unknown): string => String(v ?? "").trim().replace(/\s+/g, "");
+    const parts = [
+      "syn",
+      norm(getVal(raw, "type") ?? getVal(raw, "direction") ?? "unknown"),
+      norm(caller),
+      norm(callee),
+      norm(getVal(raw, "dst")),
+      norm(getVal(raw, "billsec")),
+      norm(getVal(raw, "disposition")),
+      norm(calldate),
+    ];
+    return parts.join("|");
+  }
+
+  async recomputeLegsFromRaw(raw: unknown): Promise<RingostatRecomputedLegs | null> {
+    if (!raw || typeof raw !== "object") return null;
+    const payload = raw as RingostatRawPayload;
+    const direction = this.resolveDirection(payload);
+    let { customerPhoneRaw, managerPhoneRaw, extension } =
+      this.extractPhonesAndExtension(payload, direction);
+    let customerPhoneNormalized = this.normalizePhone(customerPhoneRaw);
+    let managerPhoneNormalized = this.normalizePhone(managerPhoneRaw);
+
+    const mapCfg = await this.getRingostatUserMappingConfig();
+    if (direction === "UNKNOWN") {
+      const customerLegUserId = this.resolveUserIdByPhoneNormalized(
+        mapCfg.phonesToUserId,
+        customerPhoneNormalized,
+      );
+      const managerLegUserId = this.resolveUserIdByPhoneNormalized(
+        mapCfg.phonesToUserId,
+        managerPhoneNormalized,
+      );
+      if (customerLegUserId && !managerLegUserId) {
+        [customerPhoneRaw, managerPhoneRaw] = [managerPhoneRaw, customerPhoneRaw];
+        [customerPhoneNormalized, managerPhoneNormalized] = [managerPhoneNormalized, customerPhoneNormalized];
+      }
+    }
+
+    const managerUserId = this.resolveManagerUserIdFromConfig(
+      mapCfg,
+      extension,
+      managerPhoneNormalized,
+    );
+
+    return {
+      direction,
+      from: customerPhoneRaw ?? "",
+      to: managerPhoneRaw ?? "",
+      fromNormalized: customerPhoneNormalized,
+      toNormalized: managerPhoneNormalized,
+      managerUserId: managerUserId ?? null,
+    };
   }
 
   private extractDate(raw: RingostatRawPayload, keys: string[]): Date | null {

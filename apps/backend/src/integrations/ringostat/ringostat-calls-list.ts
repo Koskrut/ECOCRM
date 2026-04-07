@@ -13,17 +13,31 @@ export type RingostatCallsListConfig = {
   projectId?: string;
 };
 
-/**
- * Ringostat KB example fields only — strict API installs reject extra names (`src`, `type`, `uniqueid`, …).
- * Contact matching relies on ingest heuristics for caller/dst when direction is unknown.
- */
-const CALLS_LIST_FIELDS = [
+const CALLS_LIST_FIELDS_FALLBACK = [
   "calldate",
   "caller",
   "dst",
   "disposition",
   "billsec",
   "recording",
+].join(",");
+
+const CALLS_LIST_FIELDS_EXPANDED = [
+  "uniqueid",
+  "type",
+  "caller",
+  "callee",
+  "dst",
+  "outbound_number",
+  "extension_number",
+  "E164",
+  "connected_with",
+  "waiting",
+  "disposition",
+  "billsec",
+  "recording",
+  "recording_wav",
+  "calldate",
 ].join(",");
 
 export function formatRingostatUtcParam(d: Date): string {
@@ -34,6 +48,7 @@ export function buildRingostatCallsListUrl(
   cfg: RingostatCallsListConfig,
   from: Date,
   to: Date,
+  fields: string = CALLS_LIST_FIELDS_FALLBACK,
 ): URL {
   const baseUrl =
     (cfg.apiBaseUrl && cfg.apiBaseUrl.trim().length > 0
@@ -58,7 +73,7 @@ export function buildRingostatCallsListUrl(
   url.searchParams.set("export_type", "json");
   url.searchParams.set("from", formatRingostatUtcParam(from));
   url.searchParams.set("to", formatRingostatUtcParam(to));
-  url.searchParams.set("fields", CALLS_LIST_FIELDS);
+  url.searchParams.set("fields", fields);
   if (cfg.projectId && cfg.projectId.trim().length > 0) {
     url.searchParams.set("project_id", cfg.projectId.trim());
   }
@@ -75,7 +90,7 @@ export function parseRingostatCallsListPayload(payload: unknown): unknown[] {
 }
 
 export type RingostatCallsListFetchResult =
-  | { ok: true; events: unknown[] }
+  | { ok: true; events: unknown[]; fieldsMode: "expanded" | "fallback" }
   | { ok: false; status: number; bodySnippet: string };
 
 export async function fetchRingostatCallsList(
@@ -83,34 +98,46 @@ export async function fetchRingostatCallsList(
   from: Date,
   to: Date,
 ): Promise<RingostatCallsListFetchResult> {
-  const url = buildRingostatCallsListUrl(cfg, from, to);
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "Auth-key": cfg.apiToken,
-    },
-  });
+  const tryFetch = async (
+    fieldsMode: "expanded" | "fallback",
+  ): Promise<RingostatCallsListFetchResult> => {
+    const fields =
+      fieldsMode === "expanded" ? CALLS_LIST_FIELDS_EXPANDED : CALLS_LIST_FIELDS_FALLBACK;
+    const url = buildRingostatCallsListUrl(cfg, from, to, fields);
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Auth-key": cfg.apiToken,
+      },
+    });
 
-  const raw = await res.text();
+    const raw = await res.text();
 
-  if (!res.ok) {
-    return { ok: false, status: res.status, bodySnippet: raw.slice(0, 500) };
-  }
-
-  let payload: unknown;
-  if (raw.trim().length === 0) {
-    payload = [];
-  } else {
-    try {
-      payload = JSON.parse(raw) as unknown;
-    } catch {
-      return {
-        ok: false,
-        status: res.status,
-        bodySnippet: `Expected JSON, got: ${raw.slice(0, 300)}`,
-      };
+    if (!res.ok) {
+      return { ok: false, status: res.status, bodySnippet: raw.slice(0, 500) };
     }
-  }
-  return { ok: true, events: parseRingostatCallsListPayload(payload) };
+
+    let payload: unknown;
+    if (raw.trim().length === 0) {
+      payload = [];
+    } else {
+      try {
+        payload = JSON.parse(raw) as unknown;
+      } catch {
+        return {
+          ok: false,
+          status: res.status,
+          bodySnippet: `Expected JSON, got: ${raw.slice(0, 300)}`,
+        };
+      }
+    }
+    return { ok: true, events: parseRingostatCallsListPayload(payload), fieldsMode };
+  };
+
+  const expanded = await tryFetch("expanded");
+  if (expanded.ok) return expanded;
+  // Some Ringostat installs reject unknown fields in query.
+  if (expanded.status !== 400) return expanded;
+  return tryFetch("fallback");
 }

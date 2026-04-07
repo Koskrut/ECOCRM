@@ -3,6 +3,7 @@ import { UserRole } from "@prisma/client";
 import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
 import { RingostatBackfillService } from "../integrations/ringostat/ringostat-backfill.service";
+import { RingostatReconcileService } from "../integrations/ringostat/ringostat-reconcile.service";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
@@ -13,6 +14,7 @@ import type {
 } from "./settings.service";
 import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings.service";
 import { RingostatBackfillDto } from "./dto/ringostat-backfill.dto";
+import { RingostatReconcileDto } from "./dto/ringostat-reconcile.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -20,6 +22,7 @@ export class SettingsController {
   constructor(
     private readonly settings: SettingsService,
     private readonly ringostatBackfill: RingostatBackfillService,
+    private readonly ringostatReconcile: RingostatReconcileService,
   ) {}
 
   @Get("exchange-rates")
@@ -110,6 +113,12 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   runRingostatBackfill(@Body() body: RingostatBackfillDto) {
     return this.ringostatBackfill.backfill(body.from, body.to);
+  }
+
+  @Post("ringostat/reconcile")
+  @Roles(UserRole.ADMIN)
+  runRingostatReconcile(@Body() body: RingostatReconcileDto) {
+    return this.ringostatReconcile.reconcile(body);
   }
 
   @Get("outbound-voice")

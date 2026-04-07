@@ -71,6 +71,7 @@ export class RingostatPollingService {
       }
 
       const events = listResult.events;
+      this.logger.log(`Ringostat polling fields mode: ${listResult.fieldsMode}`);
 
       if (events.length > 0) {
         await this.ingest.ingestFromApi(events);

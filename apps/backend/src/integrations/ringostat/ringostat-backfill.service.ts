@@ -25,6 +25,7 @@ export class RingostatBackfillService {
   async backfill(fromIso: string, toIso: string): Promise<{
     chunks: number;
     totalEvents: number;
+    processed: number;
     from: string;
     to: string;
   }> {
@@ -57,6 +58,7 @@ export class RingostatBackfillService {
       `Ringostat backfill start: ${from.toISOString()} .. ${to.toISOString()} (UTC window)`,
     );
 
+    let processed = 0;
     const { chunks, totalEvents } = await runRingostatBackfillChunks(from, to, {
       fetchChunk: async (chunkFrom, chunkTo) => {
         const res = await fetchRingostatCallsList(listCfg, chunkFrom, chunkTo);
@@ -68,18 +70,23 @@ export class RingostatBackfillService {
             `Ringostat API error ${res.status}: ${res.bodySnippet.slice(0, 200)}`,
           );
         }
+        this.logger.log(`Ringostat backfill fields mode: ${res.fieldsMode}`);
         return res.events;
       },
       ingestEvents: async (events) => {
-        await this.ingest.ingestFromApi(events);
+        const stats = await this.ingest.ingestFromApi(events);
+        processed += stats.processed;
       },
     });
 
-    this.logger.log(`Ringostat backfill done: chunks=${chunks}, events=${totalEvents}`);
+    this.logger.log(
+      `Ringostat backfill done: chunks=${chunks}, events=${totalEvents}, processed=${processed}`,
+    );
 
     return {
       chunks,
       totalEvents,
+      processed,
       from: from.toISOString(),
       to: to.toISOString(),
     };
