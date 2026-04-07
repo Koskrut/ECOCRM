@@ -58,6 +58,7 @@ export class RingostatReconcileService {
       },
       select: {
         id: true,
+        direction: true,
         from: true,
         to: true,
         fromNormalized: true,
@@ -95,9 +96,11 @@ export class RingostatReconcileService {
           recomputed.fromNormalized,
           recomputed.toNormalized,
         ) ||
-        this.isNewManagerLinked(row.managerUserId, recomputed.managerUserId);
+        this.isNewManagerLinked(row.managerUserId, recomputed.managerUserId) ||
+        this.isDirectionResolved(row.direction, recomputed.direction);
 
       const changed =
+        row.direction !== recomputed.direction ||
         row.from !== recomputed.from ||
         row.to !== recomputed.to ||
         row.fromNormalized !== recomputed.fromNormalized ||
@@ -114,6 +117,7 @@ export class RingostatReconcileService {
         await this.prisma.call.update({
           where: { id: row.id },
           data: {
+            direction: recomputed.direction,
             from: recomputed.from,
             to: recomputed.to,
             fromNormalized: recomputed.fromNormalized,
@@ -183,6 +187,10 @@ export class RingostatReconcileService {
 
   private isNewManagerLinked(currentManager: string | null, nextManager: string | null): boolean {
     return !currentManager && !!nextManager;
+  }
+
+  private isDirectionResolved(currentDirection: string, nextDirection: string): boolean {
+    return (currentDirection === "UNKNOWN" || !currentDirection) && nextDirection !== "UNKNOWN";
   }
 }
 
