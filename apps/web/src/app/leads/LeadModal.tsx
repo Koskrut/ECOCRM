@@ -80,6 +80,7 @@ const LEAD_SOURCE_OPTIONS: Option[] = [
   { id: "TELEGRAM", label: "Telegram" },
   { id: "INSTAGRAM", label: "Instagram" },
   { id: "WEBSITE", label: "Website" },
+  { id: "RINGOSTAT", label: "Ringostat" },
   { id: "OTHER", label: "Other" },
 ];
 

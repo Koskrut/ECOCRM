@@ -114,6 +114,7 @@ enum LeadSource {
   TELEGRAM
   INSTAGRAM
   WEBSITE
+  RINGOSTAT
   OTHER
   META
 }

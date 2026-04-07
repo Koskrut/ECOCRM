@@ -1021,7 +1021,7 @@ export class RingostatIngestService {
         companyId: company.id,
         ownerId: ownerUserId,
         status: LeadStatus.NEW,
-        source: LeadSource.OTHER,
+        source: LeadSource.RINGOSTAT,
         fullName: name,
         phone: customerPhoneNormalized,
         phoneNormalized: customerPhoneNormalized,

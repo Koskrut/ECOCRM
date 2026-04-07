@@ -36,6 +36,7 @@ const SOURCE_OPTIONS: { value: string; label: string }[] = [
   { value: "TELEGRAM", label: "Telegram" },
   { value: "INSTAGRAM", label: "Instagram" },
   { value: "WEBSITE", label: "Website" },
+  { value: "RINGOSTAT", label: "Ringostat" },
   { value: "OTHER", label: "Other" },
 ];
 

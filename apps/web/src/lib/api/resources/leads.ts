@@ -1,7 +1,14 @@
 import { apiHttp } from "../client";
 
 export type LeadStatus = "NEW" | "IN_PROGRESS" | "WON" | "NOT_TARGET" | "LOST" | "SPAM";
-export type LeadSource = "FACEBOOK" | "TELEGRAM" | "INSTAGRAM" | "WEBSITE" | "OTHER" | "META";
+export type LeadSource =
+  | "FACEBOOK"
+  | "TELEGRAM"
+  | "INSTAGRAM"
+  | "WEBSITE"
+  | "RINGOSTAT"
+  | "OTHER"
+  | "META";
 export type LeadChannel = "FB_LEAD_ADS" | "IG_LEAD_ADS" | "FB_DM" | "IG_DM";
 
 export type LeadItem = {
