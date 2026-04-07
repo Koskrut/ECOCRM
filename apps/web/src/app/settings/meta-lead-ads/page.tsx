@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { leadsApi } from "@/lib/api/resources/leads";
 
 type MetaLeadAdsConfig = {
   webhookVerifyToken?: string;
@@ -29,6 +30,15 @@ export default function MetaLeadAdsSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [syncFormId, setSyncFormId] = useState("");
+  const [syncSince, setSyncSince] = useState("");
+  const [syncUntil, setSyncUntil] = useState("");
+  const [syncPageSize, setSyncPageSize] = useState("100");
+  const [syncMaxPages, setSyncMaxPages] = useState("200");
+  const [syncDryRun, setSyncDryRun] = useState(true);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -50,6 +60,55 @@ export default function MetaLeadAdsSettingsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  async function runMetaFormSync() {
+    const formId = syncFormId.trim();
+    if (!formId) {
+      setError("Enter Lead form ID (formId) to sync");
+      return;
+    }
+    const pageSize = Number.parseInt(syncPageSize, 10);
+    const maxPages = Number.parseInt(syncMaxPages, 10);
+    if (!Number.isFinite(pageSize) || pageSize < 1 || pageSize > 200) {
+      setError("Page size must be between 1 and 200");
+      return;
+    }
+    if (!Number.isFinite(maxPages) || maxPages < 1 || maxPages > 5000) {
+      setError("Max pages must be between 1 and 5000");
+      return;
+    }
+
+    setSyncBusy(true);
+    setError(null);
+    setSyncMessage(null);
+    try {
+      const since =
+        syncSince.trim() === "" ? undefined : new Date(syncSince).toISOString();
+      const until =
+        syncUntil.trim() === "" ? undefined : new Date(syncUntil).toISOString();
+      const data = await leadsApi.metaSyncForm({
+        formId,
+        since,
+        until,
+        pageSize,
+        maxPages,
+        dryRun: syncDryRun,
+      });
+      const errPart =
+        data.errors.length > 0
+          ? ` Errors: ${data.errors.length} request(s) failed (see API logs for details).`
+          : "";
+      setSyncMessage(
+        syncDryRun
+          ? `Dry run: ${data.leadsFetched} lead(s) across ${data.pagesFetched} page(s).${errPart}`
+          : `Imported ${data.persistedCreated} new, merged/skipped ${data.persistedDeduped} (by phone/email/Meta ID). Fetched ${data.leadsFetched} lead(s), ${data.pagesFetched} page(s).${errPart}`,
+      );
+    } catch (e) {
+      setError(getApiErrorMessage(e, "Sync failed"));
+    } finally {
+      setSyncBusy(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -77,7 +136,7 @@ export default function MetaLeadAdsSettingsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-2xl">
         <div className="mb-6">
           <Link
             href="/settings"
@@ -89,7 +148,7 @@ export default function MetaLeadAdsSettingsPage() {
           <p className="mt-1 text-sm text-zinc-500">
             Configure connection for receiving leads from Meta (Facebook/Instagram) Lead Ads, and optional Meta Pixel for analytics on this CRM. In Meta App → Webhooks, set callback URL to{" "}
             <code className="rounded bg-zinc-100 px-1">https://&lt;your-api-host&gt;/leads/meta/ingest</code>{" "}
-            (GET for verification, POST for events). Use the same Webhook Verify Token here. Page Access Token loads lead field data from Graph API when the webhook payload has no fields. Set{" "}
+            (GET for verification, POST for events). Use the same Webhook Verify Token here.             Page Access Token loads lead field data from Graph API when the webhook payload has no fields, and is required for the bulk “sync form” tool below. Set{" "}
             <code className="rounded bg-zinc-100 px-1">META_APP_SECRET</code> on the API server to verify webhook signatures.
           </p>
         </div>
@@ -100,9 +159,16 @@ export default function MetaLeadAdsSettingsPage() {
           </p>
         )}
 
+        {syncMessage && (
+          <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+            {syncMessage}
+          </p>
+        )}
+
         {loading ? (
           <p className="text-sm text-zinc-500">Loading…</p>
         ) : (
+          <>
           <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="space-y-4">
               <div>
@@ -181,6 +247,92 @@ export default function MetaLeadAdsSettingsPage() {
               </button>
             </div>
           </div>
+
+          <div className="mt-6 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-zinc-900">Import leads from a form</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Fetches all leads for a Meta Lead Ads form via Graph API (<code className="rounded bg-zinc-100 px-1">GET /&#123;form_id&#125;/leads</code>).
+              Requires a saved <strong>Page Access Token</strong> with lead retrieval permissions.{" "}
+              <strong>Admin only.</strong> Run a dry run first, then uncheck to write into CRM. Safe to re-run (dedupe by Meta lead ID).
+            </p>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">Lead form ID</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={syncFormId}
+                  onChange={(e) => setSyncFormId(e.target.value.replace(/\D/g, ""))}
+                  placeholder="e.g. 123456789012345"
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700">Since (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={syncSince}
+                    onChange={(e) => setSyncSince(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700">Until (optional)</label>
+                  <input
+                    type="datetime-local"
+                    value={syncUntil}
+                    onChange={(e) => setSyncUntil(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700">Page size</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={syncPageSize}
+                    onChange={(e) => setSyncPageSize(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700">Max pages (safety cap)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5000}
+                    value={syncMaxPages}
+                    onChange={(e) => setSyncMaxPages(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                  />
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-700">
+                <input
+                  type="checkbox"
+                  checked={syncDryRun}
+                  onChange={(e) => setSyncDryRun(e.target.checked)}
+                  className="h-4 w-4 rounded border-zinc-300"
+                />
+                Dry run (count only, do not create leads)
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void runMetaFormSync()}
+                disabled={syncBusy}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {syncBusy ? "Running…" : syncDryRun ? "Run dry run" : "Import leads"}
+              </button>
+            </div>
+          </div>
+          </>
         )}
       </div>
     </div>

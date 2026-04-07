@@ -24,6 +24,7 @@ import type { UpdateLeadDto } from "./dto/update-lead.dto";
 import type { UpdateLeadStatusDto } from "./dto/update-lead-status.dto";
 import type { ConvertLeadDto, ConvertLeadDealDto } from "./dto/convert-lead.dto";
 import type { AddNoteDto } from "./dto/add-note.dto";
+import type { MetaSyncFormDto } from "./dto/meta-sync-form.dto";
 import { ContactsService } from "../contacts/contacts.service";
 import { CompaniesService } from "../companies/companies.service";
 import { OrdersService } from "../orders/orders.service";
@@ -861,6 +862,189 @@ export class LeadsService {
       return { ok: true, leadId: results[0].leadId, deduped: results[0].deduped };
     }
     return { ok: true, leads: results };
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  private async fetchJsonWithRetry(
+    url: string,
+    opts: { retries: number; retryBaseMs: number },
+  ): Promise<{ ok: boolean; status: number; json: unknown | null }> {
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, { method: "GET" });
+      const status = res.status;
+      if (res.ok) {
+        return { ok: true, status, json: (await res.json()) as unknown };
+      }
+
+      // Best-effort backoff for rate limits and transient errors.
+      const retryable = status === 429 || (status >= 500 && status <= 599);
+      if (!retryable || attempt >= opts.retries) {
+        let json: unknown | null = null;
+        try {
+          json = (await res.json()) as unknown;
+        } catch {
+          json = null;
+        }
+        return { ok: false, status, json };
+      }
+
+      const delay = Math.min(30_000, opts.retryBaseMs * Math.pow(2, attempt));
+      await this.sleep(delay);
+      attempt += 1;
+    }
+  }
+
+  /**
+   * Admin-only: bulk sync Meta Lead Ads leads for a specific form via Graph API.
+   * Safe to re-run: lead dedupe is based on META_LEAD_ID (and phone/email).
+   */
+  async metaSyncForm(dto: MetaSyncFormDto, actor?: AuthUser): Promise<{
+    ok: true;
+    formId: string;
+    pagesFetched: number;
+    leadsFetched: number;
+    persistedCreated: number;
+    persistedDeduped: number;
+    dryRun: boolean;
+    errors: Array<{ page: number; status: number; url: string }>;
+  }> {
+    if (!actor || actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can sync Meta leads");
+    }
+
+    const secrets = await this.settings.getMetaLeadAdsSecrets();
+    const pageAccessToken = secrets.pageAccessToken?.trim();
+    if (!pageAccessToken) {
+      throw new BadRequestException(
+        "Meta Page Access Token is not set (Settings → Facebook / Meta Lead Ads)",
+      );
+    }
+
+    const formId = String(dto.formId ?? "").trim();
+    if (!formId) throw new BadRequestException("formId is required");
+
+    const graphVersion = process.env.META_GRAPH_API_VERSION?.trim() || "v21.0";
+    const limit = dto.pageSize ?? 100;
+    const maxPages = dto.maxPages ?? 200;
+    const dryRun = dto.dryRun === true;
+
+    const companyId =
+      dryRun
+        ? null
+        : secrets.companyId ||
+          (process.env.META_LEAD_COMPANY_ID as string)?.trim() ||
+          (await this.prisma.company.findFirst({ select: { id: true } }))?.id ||
+          null;
+    if (!dryRun && !companyId) {
+      throw new BadRequestException(
+        "No company for Meta leads: set company in Settings → Meta, META_LEAD_COMPANY_ID, or create a company",
+      );
+    }
+
+    const baseUrl = new URL(
+      `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(formId)}/leads`,
+    );
+    // Minimal fields required for our parser; additional attribution fields are best-effort.
+    baseUrl.searchParams.set(
+      "fields",
+      [
+        "id",
+        "created_time",
+        "field_data",
+        "form_id",
+        "ad_id",
+        "ad_name",
+        "adset_id",
+        "adset_name",
+        "campaign_id",
+        "campaign_name",
+        "page_id",
+      ].join(","),
+    );
+    baseUrl.searchParams.set("limit", String(limit));
+    baseUrl.searchParams.set("access_token", pageAccessToken);
+    if (dto.since) baseUrl.searchParams.set("since", dto.since);
+    if (dto.until) baseUrl.searchParams.set("until", dto.until);
+
+    let nextUrl: string | null = baseUrl.toString();
+    let page = 0;
+    let pagesFetched = 0;
+    let leadsFetched = 0;
+    let persistedCreated = 0;
+    let persistedDeduped = 0;
+    const errors: Array<{ page: number; status: number; url: string }> = [];
+
+    while (nextUrl) {
+      page += 1;
+      if (page > maxPages) {
+        this.logger.warn(`Meta sync stopped: reached maxPages=${maxPages} for form ${formId}`);
+        break;
+      }
+
+      const r = await this.fetchJsonWithRetry(nextUrl, { retries: 5, retryBaseMs: 1000 });
+      if (!r.ok || !r.json || typeof r.json !== "object") {
+        errors.push({ page, status: r.status, url: nextUrl });
+        break;
+      }
+
+      const payload = r.json as {
+        data?: unknown;
+        paging?: { next?: unknown };
+      };
+
+      const data = Array.isArray(payload.data) ? payload.data : [];
+      pagesFetched += 1;
+
+      for (const item of data) {
+        if (!item || typeof item !== "object") continue;
+        const lead = item as Record<string, unknown>;
+        const leadId = String(lead.id ?? "").trim();
+        if (!leadId) continue;
+
+        leadsFetched += 1;
+        if (dryRun) continue;
+
+        // Adapt Graph lead object to the same shape as webhook change.value for reuse.
+        const asValue: Record<string, unknown> = {
+          leadgen_id: leadId,
+          form_id: String(lead.form_id ?? formId) || formId,
+          created_time: lead.created_time,
+          field_data: lead.field_data,
+          page_id: lead.page_id,
+          ad_id: lead.ad_id,
+          ad_name: lead.ad_name,
+          adset_id: lead.adset_id,
+          adset_name: lead.adset_name,
+          campaign_id: lead.campaign_id,
+          campaign_name: lead.campaign_name,
+        };
+
+        const parsed = this.parseMetaValue(asValue, { source: "meta-sync-form", formId });
+        if (!parsed) continue;
+
+        const res = await this.persistMetaLeadFromParsed(companyId as string, parsed);
+        if (res.deduped) persistedDeduped += 1;
+        else persistedCreated += 1;
+      }
+
+      const pagingNext = payload.paging?.next;
+      nextUrl = typeof pagingNext === "string" && pagingNext.trim() ? pagingNext.trim() : null;
+    }
+
+    return {
+      ok: true,
+      formId,
+      pagesFetched,
+      leadsFetched,
+      persistedCreated,
+      persistedDeduped,
+      dryRun,
+      errors,
+    };
   }
 
   private extractMetaLeadgenValues(body: Record<string, unknown>): Record<string, unknown>[] {

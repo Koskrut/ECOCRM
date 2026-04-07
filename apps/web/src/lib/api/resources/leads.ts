@@ -108,7 +108,35 @@ export type ListLeadsParams = {
   sortOrder?: "asc" | "desc";
 };
 
+export type MetaSyncFormResult = {
+  ok: true;
+  formId: string;
+  pagesFetched: number;
+  leadsFetched: number;
+  persistedCreated: number;
+  persistedDeduped: number;
+  dryRun: boolean;
+  errors: Array<{ page: number; status: number; url: string }>;
+};
+
 export const leadsApi = {
+  /**
+   * Admin only. Bulk-fetch leads for a Meta Lead Ads form via Graph API (long-running).
+   */
+  metaSyncForm: async (payload: {
+    formId: string;
+    since?: string;
+    until?: string;
+    pageSize?: number;
+    maxPages?: number;
+    dryRun?: boolean;
+  }): Promise<MetaSyncFormResult> => {
+    const res = await apiHttp.post<MetaSyncFormResult>("/leads/meta/sync-form", payload, {
+      timeout: 600_000,
+    });
+    return res.data;
+  },
+
   list: async (params?: ListLeadsParams): Promise<LeadsResponse> => {
     const res = await apiHttp.get<LeadsResponse>("/leads", { params });
     return res.data;

@@ -6,6 +6,7 @@
 
 - **GET** `/leads/meta/ingest` — верификация вебхука Meta (`hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`). Ответ — **plain text** `hub.challenge`. Токен должен совпадать с CRM → Settings → Facebook / Meta Lead Ads → Webhook Verify Token (или переменная `META_WEBHOOK_VERIFY_TOKEN`).
 - **POST** `/leads/meta/ingest` — приём payload от Meta (Lead Ads webhook). Публичный маршрут (без JWT). Тело запроса — JSON в формате Meta (см. пример в `docs/meta-lead-sample.json`). Если задан `META_APP_SECRET`, проверяется заголовок `X-Hub-Signature-256` по сырому телу запроса. Если в payload нет `field_data`, при наличии **Page Access Token** в настройках CRM данные лида подгружаются из Graph API.
+- **POST** `/leads/meta/sync-form` — **admin**-синхронизация всех лидов по конкретной форме (`formId`) через Graph API с пагинацией. Использует токен из CRM → Settings → Facebook / Meta Lead Ads → Page Access Token. Безопасно для повторного запуска (есть дедуп по `META_LEAD_ID`).
 - **GET** `/leads/:id` — лид с полями `attribution`, `answers`, `events`, `identities`.
 - **PATCH** `/leads/:id` — обновление лида (в т.ч. `firstName`, `lastName`, `city`, `comment`, `channel`, `ownerId`).
 - **POST** `/leads/:id/note` — добавление заметки к лиду. Тело: `{ "message": "текст заметки" }`.
@@ -23,6 +24,15 @@ curl -X POST "$API/leads/meta/ingest" \
 ```
 
 Ответ при одном лиде: `{ "ok": true, "leadId": "uuid", "deduped": false }`. При дедупе: `{ "ok": true, "leadId": "uuid", "deduped": true }`. Если в одном запросе несколько leadgen-событий: `{ "ok": true, "leads": [ { "leadId", "deduped" }, ... ] }`.
+
+## Пример: прогрузить все лиды по форме
+
+```bash
+curl -X POST "$API/leads/meta/sync-form" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $JWT" \
+  -d '{ "formId": "123456789012345", "pageSize": 100, "maxPages": 200, "dryRun": true }'
+```
 
 ## Настройка бэкенда
 

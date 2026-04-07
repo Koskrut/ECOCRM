@@ -24,6 +24,7 @@ import { UpdateLeadStatusDto } from "./dto/update-lead-status.dto";
 import { ConvertLeadDto } from "./dto/convert-lead.dto";
 import { ListLeadsQueryDto } from "./dto/list-leads-query.dto";
 import { MetaIngestDto } from "./dto/meta-ingest.dto";
+import { MetaSyncFormDto } from "./dto/meta-sync-form.dto";
 import { AddNoteDto } from "./dto/add-note.dto";
 
 @Controller("leads")
@@ -60,6 +61,14 @@ export class LeadsController {
       rawBody: req.rawBody,
       signatureHeader: signature256,
     });
+  }
+
+  /** Admin tool: sync all leads for a specific Meta Lead Ads form via Graph API. */
+  @Post("meta/sync-form")
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  metaSyncForm(@Body() dto: MetaSyncFormDto, @Req() req: Request & { user?: AuthUser }) {
+    return this.leads.metaSyncForm(dto, req.user);
   }
 
   @Post()
