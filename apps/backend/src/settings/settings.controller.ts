@@ -6,6 +6,7 @@ import { RingostatBackfillService } from "../integrations/ringostat/ringostat-ba
 import { RingostatReconcileService } from "../integrations/ringostat/ringostat-reconcile.service";
 import { RingostatRekeyUniqueidService } from "../integrations/ringostat/ringostat-rekey-uniqueid.service";
 import { RingostatRecordingsRefreshService } from "../integrations/ringostat/ringostat-recordings-refresh.service";
+import { RingostatLeadsRetrofitService } from "../integrations/ringostat/ringostat-leads-retrofit.service";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
@@ -20,6 +21,7 @@ import { RingostatReconcileDto } from "./dto/ringostat-reconcile.dto";
 import { RingostatRekeyUniqueidDto } from "./dto/ringostat-rekey-uniqueid.dto";
 import { RingostatRunAllDto } from "./dto/ringostat-run-all.dto";
 import { RingostatWeeklyRunDto } from "./dto/ringostat-weekly-run.dto";
+import { RingostatLeadsRetrofitDto } from "./dto/ringostat-leads-retrofit.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -30,6 +32,7 @@ export class SettingsController {
     private readonly ringostatReconcile: RingostatReconcileService,
     private readonly ringostatRekeyUniqueid: RingostatRekeyUniqueidService,
     private readonly ringostatRecordingsRefresh: RingostatRecordingsRefreshService,
+    private readonly ringostatLeadsRetrofit: RingostatLeadsRetrofitService,
   ) {}
 
   @Get("exchange-rates")
@@ -260,6 +263,13 @@ export class SettingsController {
       // Return last 20 chunk reports only (response size bound).
       lastChunks: chunks.slice(-20),
     };
+  }
+
+  /** Backfill Lead.source/ownerId for leads linked from Ringostat calls. */
+  @Post("ringostat/leads/retrofit")
+  @Roles(UserRole.ADMIN)
+  runRingostatLeadsRetrofit(@Body() body: RingostatLeadsRetrofitDto) {
+    return this.ringostatLeadsRetrofit.retrofit(body);
   }
 
   @Get("outbound-voice")

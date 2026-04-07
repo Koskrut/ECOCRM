@@ -7,6 +7,7 @@ import { RingostatPollingService } from "./ringostat-polling.service";
 import { RingostatReconcileService } from "./ringostat-reconcile.service";
 import { RingostatRekeyUniqueidService } from "./ringostat-rekey-uniqueid.service";
 import { RingostatRecordingsRefreshService } from "./ringostat-recordings-refresh.service";
+import { RingostatLeadsRetrofitService } from "./ringostat-leads-retrofit.service";
 
 @Module({
   imports: [PrismaModule],
@@ -18,12 +19,14 @@ import { RingostatRecordingsRefreshService } from "./ringostat-recordings-refres
     RingostatReconcileService,
     RingostatRekeyUniqueidService,
     RingostatRecordingsRefreshService,
+    RingostatLeadsRetrofitService,
   ],
   exports: [
     RingostatBackfillService,
     RingostatReconcileService,
     RingostatRekeyUniqueidService,
     RingostatRecordingsRefreshService,
+    RingostatLeadsRetrofitService,
   ],
 })
 export class RingostatModule {}
