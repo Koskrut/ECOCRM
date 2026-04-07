@@ -215,40 +215,62 @@ export class RingostatRekeyUniqueidService {
       }
 
       await this.prisma.$transaction(async (tx) => {
-        // Move relations to keeper (only if keeper doesn't already have them).
         if (keeper.id === other.id) return;
 
-        // Activity.callId is unique: only move if keeper has no activity.
-        if (!keeper.activity) {
-          await tx.activity.updateMany({
-            where: { callId: other.id },
-            data: { callId: keeper.id },
-          });
-        }
-
-        // OutboundCallAttempt.callId is unique: only move if keeper has none.
-        if (!keeper.outboundCallAttempt) {
-          await tx.outboundCallAttempt.updateMany({
-            where: { callId: other.id },
-            data: { callId: keeper.id },
-          });
-        }
-
-        // ManualCallSession.callId is not unique.
-        await tx.manualCallSession.updateMany({
-          where: { callId: other.id },
-          data: { callId: keeper.id },
+        // If a row with externalId=uniqueid already exists (outside this pair), we must merge into it
+        // instead of trying to update keeper.externalId (would violate @@unique(provider, externalId)).
+        const existingKeyed = await tx.call.findUnique({
+          where: { provider_externalId: { provider: RINGOSTAT_PROVIDER, externalId: uniqueid } },
+          select: { id: true },
         });
 
-        // Delete the other row if it still exists (idempotent; avoids P2025).
+        const targetId =
+          existingKeyed && existingKeyed.id !== keeper.id && existingKeyed.id !== other.id
+            ? existingKeyed.id
+            : keeper.id;
+
+        // Move unique relations first; Activity.callId and OutboundCallAttempt.callId are unique.
+        // Only move if the target doesn't already have one.
+        if (targetId !== keeper.id) {
+          // We're merging into an existing keyed row: move keeper's relations too.
+          await tx.activity.updateMany({
+            where: { callId: keeper.id },
+            data: { callId: targetId },
+          });
+          await tx.outboundCallAttempt.updateMany({
+            where: { callId: keeper.id },
+            data: { callId: targetId },
+          });
+          await tx.manualCallSession.updateMany({
+            where: { callId: keeper.id },
+            data: { callId: targetId },
+          });
+        }
+
+        await tx.activity.updateMany({
+          where: { callId: other.id },
+          data: { callId: targetId },
+        });
+        await tx.outboundCallAttempt.updateMany({
+          where: { callId: other.id },
+          data: { callId: targetId },
+        });
+        await tx.manualCallSession.updateMany({
+          where: { callId: other.id },
+          data: { callId: targetId },
+        });
+
+        // Remove merged rows (idempotent).
+        if (targetId !== keeper.id) {
+          await tx.call.deleteMany({ where: { id: keeper.id } });
+        }
         await tx.call.deleteMany({ where: { id: other.id } });
 
-        // Re-key keeper to stable uniqueid and copy enriched rawPayload (prefer partner's payload).
-        // Use updateMany to avoid P2025 if keeper disappeared due to a previous merge.
+        // Update payload on target. Re-key externalId only when target is the keeper itself.
         await tx.call.updateMany({
-          where: { id: keeper.id },
+          where: { id: targetId },
           data: {
-            externalId: uniqueid,
+            ...(targetId === keeper.id ? { externalId: uniqueid } : {}),
             rawPayload: (partner.rawPayload ?? keeper.rawPayload) as Prisma.InputJsonValue,
             recordingUrl: partner.recordingUrl ?? keeper.recordingUrl,
           } as Prisma.CallUpdateManyMutationInput,
