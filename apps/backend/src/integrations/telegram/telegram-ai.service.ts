@@ -39,16 +39,19 @@ export class TelegramAiService {
 
     const messages = await this.prisma.message.findMany({
       where: { conversationId },
-      orderBy: { sentAt: "asc" },
+      orderBy: { sentAt: "desc" },
       take: MAX_MESSAGES,
       select: { direction: true, text: true, sentAt: true },
     });
+    const chronologicalMessages = [...messages].reverse();
 
     const contactName = conv.contact
       ? [conv.contact.lastName, conv.contact.firstName].filter(Boolean).join(" ") || "Клієнт"
-      : conv.lead?.fullName || [conv.lead?.lastName, conv.lead?.firstName].filter(Boolean).join(" ") || "Клієнт";
+      : conv.lead?.fullName ||
+        [conv.lead?.lastName, conv.lead?.firstName].filter(Boolean).join(" ") ||
+        "Клієнт";
 
-    const historyLines = messages.map((m) => {
+    const historyLines = chronologicalMessages.map((m) => {
       const who = m.direction === MessageDirection.INBOUND ? contactName : "Менеджер";
       const text = (m.text || "").trim() || "(медіа)";
       return `${who}: ${text}`;

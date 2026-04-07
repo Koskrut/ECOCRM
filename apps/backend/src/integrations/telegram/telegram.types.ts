@@ -46,6 +46,7 @@ export type TelegramUpdate = {
 
 export type ParsedInbound = {
   chatId: string;
+  chatType: string | null;
   userId: string;
   username: string | null;
   firstName: string | null;

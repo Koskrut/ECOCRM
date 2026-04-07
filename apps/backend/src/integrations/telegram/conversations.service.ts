@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type { ConversationChannel, ConversationStatus } from "@prisma/client";
+import type { ConversationChannel, ConversationStatus, Prisma } from "@prisma/client";
 import { MessageDirection } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { normalizePagination } from "../../common/pagination";
 import { ContactsService } from "../../contacts/contacts.service";
@@ -24,20 +25,39 @@ export class ConversationsService {
     private readonly contactsService: ContactsService,
   ) {}
 
+  private requireActor(actor: AuthUser | undefined): AuthUser {
+    if (!actor) throw new ForbiddenException("Authentication required");
+    return actor;
+  }
+
+  private buildVisibilityWhere(actor: AuthUser): Prisma.ConversationWhereInput {
+    if (actor.role !== UserRole.MANAGER) return {};
+    return {
+      OR: [{ assignedToUserId: actor.id }, { assignedToUserId: null }],
+    };
+  }
+
+  private assertManagerCanAccessConversation(
+    actor: AuthUser,
+    conversation: { assignedToUserId: string | null },
+  ) {
+    if (actor.role !== UserRole.MANAGER) return;
+    if (conversation.assignedToUserId && conversation.assignedToUserId !== actor.id) {
+      throw new ForbiddenException("You cannot access a conversation assigned to another manager");
+    }
+  }
+
   async list(q: ListConversationsQueryDto, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
     const { page, pageSize, offset, limit } = normalizePagination(
       { page: q.page ?? 1, pageSize: q.pageSize ?? 20 },
       { page: 1, pageSize: 20 },
     );
 
-    const where: {
-      channel?: ConversationChannel;
-      status?: ConversationStatus;
-      assignedToUserId?: string | null;
-    } = {};
+    const where: Prisma.ConversationWhereInput = this.buildVisibilityWhere(safeActor);
     if (q.channel) where.channel = q.channel;
     if (q.status) where.status = q.status;
-    if (q.assignedTo === "me" && actor?.id) where.assignedToUserId = actor.id;
+    if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
     else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
 
     const [items, total] = await Promise.all([
@@ -126,11 +146,13 @@ export class ConversationsService {
   }
 
   async getMessages(conversationId: string, q: ListMessagesQueryDto, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true },
+      select: { id: true, assignedToUserId: true },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
 
     const { page, pageSize, offset, limit } = normalizePagination(
       { page: q.page ?? 1, pageSize: q.pageSize ?? 50 },
@@ -174,13 +196,15 @@ export class ConversationsService {
   async updateStatus(
     conversationId: string,
     status: ConversationStatus,
-    _actor: AuthUser | undefined,
+    actor: AuthUser | undefined,
   ) {
+    const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true },
+      select: { id: true, assignedToUserId: true },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
 
     return this.prisma.conversation.update({
       where: { id: conversationId },
@@ -194,13 +218,14 @@ export class ConversationsService {
   }
 
   async sendMessage(conversationId: string, text: string, actor: AuthUser | undefined) {
-    if (!actor) throw new ForbiddenException("Authentication required");
+    const safeActor = this.requireActor(actor);
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, telegramChatId: true },
+      select: { id: true, telegramChatId: true, assignedToUserId: true },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
 
     const sentAt = new Date();
     const { messageId } = await this.telegramService.sendMessageToChat(conv.telegramChatId, text);
@@ -211,7 +236,7 @@ export class ConversationsService {
         direction: MessageDirection.OUTBOUND,
         text,
         tgMessageId: String(messageId),
-        authorUserId: actor.id,
+        authorUserId: safeActor.id,
         sentAt,
       },
       include: {
@@ -228,13 +253,14 @@ export class ConversationsService {
   }
 
   async linkContact(conversationId: string, contactId: string, actor: AuthUser | undefined) {
-    if (!actor) throw new ForbiddenException("Authentication required");
+    const safeActor = this.requireActor(actor);
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, telegramChatId: true, leadId: true },
+      select: { id: true, telegramChatId: true, leadId: true, assignedToUserId: true },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
 
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
@@ -273,13 +299,14 @@ export class ConversationsService {
   }
 
   async createContactFromLead(conversationId: string, actor: AuthUser | undefined) {
-    if (!actor) throw new ForbiddenException("Authentication required");
+    const safeActor = this.requireActor(actor);
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
     if (!conv.leadId || !conv.lead) {
       throw new BadRequestException("Conversation has no lead to create contact from");
     }
@@ -304,7 +331,7 @@ export class ConversationsService {
         phone,
         email: lead.email ?? null,
       },
-      actor,
+      safeActor,
     );
 
     await this.prisma.$transaction([
@@ -334,7 +361,13 @@ export class ConversationsService {
   }
 
   async suggestReplies(conversationId: string, actor: AuthUser | undefined) {
-    if (!actor) throw new ForbiddenException("Authentication required");
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
     const suggestions = await this.telegramAiService.suggestReplies(conversationId);
     return { suggestions };
   }

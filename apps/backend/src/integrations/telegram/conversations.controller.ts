@@ -1,15 +1,8 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  Req,
-} from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
+import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
+import { Roles } from "../../auth/roles.decorator";
 import { ConversationsService } from "./conversations.service";
 import { LinkContactDto } from "./dto/link-contact.dto";
 import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
@@ -18,22 +11,17 @@ import { SendMessageDto } from "./dto/send-message.dto";
 import { UpdateConversationStatusDto } from "./dto/update-conversation-status.dto";
 
 @Controller("conversations")
+@Roles(UserRole.MANAGER, UserRole.LEAD, UserRole.ADMIN)
 export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get()
-  list(
-    @Query() q: ListConversationsQueryDto,
-    @Req() req: Request & { user?: AuthUser },
-  ) {
+  list(@Query() q: ListConversationsQueryDto, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.list(q, req.user);
   }
 
   @Get(":id/suggest-replies")
-  suggestReplies(
-    @Param("id") id: string,
-    @Req() req: Request & { user?: AuthUser },
-  ) {
+  suggestReplies(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.suggestReplies(id, req.user);
   }
 
@@ -74,10 +62,7 @@ export class ConversationsController {
   }
 
   @Post(":id/create-contact")
-  createContactFromLead(
-    @Param("id") id: string,
-    @Req() req: Request & { user?: AuthUser },
-  ) {
+  createContactFromLead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.createContactFromLead(id, req.user);
   }
 }
