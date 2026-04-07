@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Patch, Post } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
@@ -18,6 +18,7 @@ import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings
 import { RingostatBackfillDto } from "./dto/ringostat-backfill.dto";
 import { RingostatReconcileDto } from "./dto/ringostat-reconcile.dto";
 import { RingostatRekeyUniqueidDto } from "./dto/ringostat-rekey-uniqueid.dto";
+import { RingostatRunAllDto } from "./dto/ringostat-run-all.dto";
 import { RingostatWeeklyRunDto } from "./dto/ringostat-weekly-run.dto";
 import { SettingsService } from "./settings.service";
 
@@ -165,6 +166,100 @@ export class SettingsController {
       limit,
     });
     return { rekey, reconcile, recordings };
+  }
+
+  /**
+   * Run ringostat weekly-run over a whole period in chunks.
+   * This provides "one command" execution while keeping merges safe and debuggable.
+   */
+  @Post("ringostat/run-all")
+  @Roles(UserRole.ADMIN)
+  async runRingostatRunAll(@Body() body: RingostatRunAllDto) {
+    const dryRun = body.dryRun !== false;
+    const limit = body.limit;
+    const chunkDays = Math.max(1, Math.min(body.chunkDays ?? 7, 31));
+
+    const from = new Date(body.from);
+    const to = new Date(body.to);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      throw new BadRequestException("Invalid from/to date");
+    }
+    if (from.getTime() >= to.getTime()) {
+      throw new BadRequestException("from must be before to");
+    }
+
+    const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 24 * 60 * 60_000);
+    const addMinutes = (d: Date, minutes: number) => new Date(d.getTime() + minutes * 60_000);
+    const fmt = (d: Date) => d.toISOString();
+
+    // Small overlap to avoid boundary misses for ±10min match in rekey.
+    const overlapMinutes = 20;
+
+    const chunks: Array<{
+      from: string;
+      to: string;
+      rekey: Awaited<ReturnType<RingostatRekeyUniqueidService["rekey"]>>;
+      reconcile: Awaited<ReturnType<RingostatReconcileService["reconcile"]>>;
+      recordings: Awaited<ReturnType<RingostatRecordingsRefreshService["refresh"]>>;
+    }> = [];
+
+    let cur = from;
+    while (cur.getTime() < to.getTime()) {
+      const chunkTo = addDays(cur, chunkDays);
+      const rawTo = chunkTo.getTime() > to.getTime() ? to : chunkTo;
+      const windowFrom = cur;
+      const windowTo = rawTo;
+
+      const runFrom = fmt(windowFrom);
+      const runTo = fmt(windowTo);
+
+      // Run step by step so a failure pinpoints the chunk.
+      const rekey = await this.ringostatRekeyUniqueid.rekey({ from: runFrom, to: runTo, dryRun, limit });
+      const reconcile = await this.ringostatReconcile.reconcile({ from: runFrom, to: runTo, dryRun, limit });
+      const recordings = await this.ringostatRecordingsRefresh.refresh({ from: runFrom, to: runTo, dryRun, limit });
+
+      chunks.push({ from: runFrom, to: runTo, rekey, reconcile, recordings });
+
+      // advance with overlap
+      cur = addMinutes(windowTo, -overlapMinutes);
+      if (cur.getTime() <= windowFrom.getTime()) {
+        // safety
+        cur = windowTo;
+      }
+    }
+
+    const sum = <T extends keyof (typeof chunks)[number]>(k: T, field: string) =>
+      chunks.reduce((acc, c) => acc + Number((c[k] as any)[field] ?? 0), 0);
+
+    return {
+      dryRun,
+      chunkDays,
+      from: body.from,
+      to: body.to,
+      chunks: chunks.length,
+      totals: {
+        rekey: {
+          scanned: sum("rekey", "scanned"),
+          matched: sum("rekey", "matched"),
+          merged: sum("rekey", "merged"),
+          skipped: sum("rekey", "skipped"),
+        },
+        reconcile: {
+          scanned: sum("reconcile", "scanned"),
+          fixable: sum("reconcile", "fixable"),
+          updated: sum("reconcile", "updated"),
+          skipped: sum("reconcile", "skipped"),
+        },
+        recordings: {
+          fetched: sum("recordings", "fetched"),
+          candidates: sum("recordings", "candidates"),
+          updated: sum("recordings", "updated"),
+          skipped: sum("recordings", "skipped"),
+        },
+      },
+      // Return last 20 chunk reports only (response size bound).
+      lastChunks: chunks.slice(-20),
+    };
   }
 
   @Get("outbound-voice")
