@@ -115,18 +115,18 @@ export class RingostatRecordingsRefreshService {
 
       if (dryRun) continue;
 
-      const r = await this.prisma.call.updateMany({
-        where: {
-          provider: RINGOSTAT_PROVIDER,
-          externalId: uniqueid,
-          recordingUrl: null,
-        },
-        data: {
-          recordingUrl: url,
-          recordingStatus: "READY",
-        },
-      });
-      updated += r.count;
+      // Do NOT rely on Call.externalId == uniqueid: after rekey merges externalId can remain ks1_*
+      // while rawPayload.uniqueid is present. Update by rawPayload uniqueid instead.
+      const affected = await this.prisma.$executeRaw(
+        Prisma.sql`
+          UPDATE "Call"
+          SET "recordingUrl" = ${url}, "recordingStatus" = 'READY'
+          WHERE "provider" = ${RINGOSTAT_PROVIDER}
+            AND "recordingUrl" IS NULL
+            AND ("rawPayload"->>'uniqueid') = ${uniqueid}
+        `,
+      );
+      updated += Number(affected ?? 0);
     }
 
     const report: RingostatRecordingsRefreshReport = {
