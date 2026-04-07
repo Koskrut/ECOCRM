@@ -155,6 +155,9 @@ export class ProductsController {
         "No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (Днепр, Одесса, Львов).",
       );
     }
+    const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
+    const warehouseIds = Array.from(new Set(entries.map((e) => e.warehouseId).filter(Boolean)));
+    await this.productStore.resetWarehouseStocksExceptSkus(warehouseIds, skuSet);
     return this.productStore.bulkSetStocksByWarehouses(entries);
   }
 

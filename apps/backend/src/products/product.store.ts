@@ -299,6 +299,54 @@ export class ProductStore {
     });
   }
 
+  /**
+   * Variant A (stock-by-warehouses upload overwrite):
+   * For given warehouses, set qty=0 for all products whose SKU is NOT in the provided set.
+   * Also recalculates Product.stock for affected products.
+   */
+  public async resetWarehouseStocksExceptSkus(
+    warehouseIds: string[],
+    skus: Set<string>,
+  ): Promise<{ affectedProducts: number; affectedRows: number }> {
+    const whIds = Array.from(new Set(warehouseIds.map((s) => s.trim()).filter(Boolean)));
+    const skuList = Array.from(new Set(Array.from(skus).map((s) => s.trim()).filter(Boolean)));
+    if (whIds.length === 0) return { affectedProducts: 0, affectedRows: 0 };
+    if (skuList.length === 0) {
+      // If file has no SKUs (should be prevented earlier), treat as "reset all" for those warehouses.
+      const productIdsAll = await this.prisma.productWarehouseStock.findMany({
+        where: { warehouseId: { in: whIds } },
+        select: { productId: true },
+      });
+      const ids = Array.from(new Set(productIdsAll.map((r) => r.productId)));
+      const result = await this.prisma.productWarehouseStock.updateMany({
+        where: { warehouseId: { in: whIds } },
+        data: { qty: 0 },
+      });
+      for (const productId of ids) await this.recalcProductTotalStock(productId);
+      return { affectedProducts: ids.length, affectedRows: result.count };
+    }
+
+    const affected = await this.prisma.productWarehouseStock.findMany({
+      where: {
+        warehouseId: { in: whIds },
+        product: { sku: { notIn: skuList } },
+      },
+      select: { productId: true },
+    });
+    const affectedProductIds = Array.from(new Set(affected.map((r) => r.productId)));
+    const result = await this.prisma.productWarehouseStock.updateMany({
+      where: {
+        warehouseId: { in: whIds },
+        product: { sku: { notIn: skuList } },
+      },
+      data: { qty: 0 },
+    });
+    for (const productId of affectedProductIds) {
+      await this.recalcProductTotalStock(productId);
+    }
+    return { affectedProducts: affectedProductIds.length, affectedRows: result.count };
+  }
+
   /** Bulk set stocks by warehouse from upload; creates product if missing by sku (with 0 stock elsewhere). */
   public async bulkSetStocksByWarehouses(
     entries: StockByWarehouseEntry[],
