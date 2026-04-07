@@ -5,6 +5,7 @@ import { Roles } from "../auth/roles.decorator";
 import { RingostatBackfillService } from "../integrations/ringostat/ringostat-backfill.service";
 import { RingostatReconcileService } from "../integrations/ringostat/ringostat-reconcile.service";
 import { RingostatRekeyUniqueidService } from "../integrations/ringostat/ringostat-rekey-uniqueid.service";
+import { RingostatRecordingsRefreshService } from "../integrations/ringostat/ringostat-recordings-refresh.service";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
@@ -17,6 +18,7 @@ import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings
 import { RingostatBackfillDto } from "./dto/ringostat-backfill.dto";
 import { RingostatReconcileDto } from "./dto/ringostat-reconcile.dto";
 import { RingostatRekeyUniqueidDto } from "./dto/ringostat-rekey-uniqueid.dto";
+import { RingostatWeeklyRunDto } from "./dto/ringostat-weekly-run.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -26,6 +28,7 @@ export class SettingsController {
     private readonly ringostatBackfill: RingostatBackfillService,
     private readonly ringostatReconcile: RingostatReconcileService,
     private readonly ringostatRekeyUniqueid: RingostatRekeyUniqueidService,
+    private readonly ringostatRecordingsRefresh: RingostatRecordingsRefreshService,
   ) {}
 
   @Get("exchange-rates")
@@ -132,6 +135,36 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   runRingostatRekeyUniqueid(@Body() body: RingostatRekeyUniqueidDto) {
     return this.ringostatRekeyUniqueid.rekey(body);
+  }
+
+  /**
+   * Weekly maintenance run: merge legacy↔calls/list duplicates, reconcile legs+manager,
+   * then refresh recordingUrl for calls that have has_recording=1 in Ringostat.
+   */
+  @Post("ringostat/weekly-run")
+  @Roles(UserRole.ADMIN)
+  async runRingostatWeeklyRun(@Body() body: RingostatWeeklyRunDto) {
+    const dryRun = body.dryRun !== false;
+    const limit = body.limit;
+    const rekey = await this.ringostatRekeyUniqueid.rekey({
+      from: body.from,
+      to: body.to,
+      dryRun,
+      limit,
+    });
+    const reconcile = await this.ringostatReconcile.reconcile({
+      from: body.from,
+      to: body.to,
+      dryRun,
+      limit,
+    });
+    const recordings = await this.ringostatRecordingsRefresh.refresh({
+      from: body.from,
+      to: body.to,
+      dryRun,
+      limit,
+    });
+    return { rekey, reconcile, recordings };
   }
 
   @Get("outbound-voice")
