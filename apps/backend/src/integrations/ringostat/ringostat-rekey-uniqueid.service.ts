@@ -28,7 +28,12 @@ type CallRow = {
   direction: string;
   status: string;
   durationSec: number | null;
+  from: string;
+  to: string;
+  fromNormalized: string | null;
+  toNormalized: string | null;
   rawPayload: Prisma.JsonValue;
+  recordingUrl: string | null;
   activity: { id: string } | null;
   outboundCallAttempt: { id: string } | null;
   manualCallSessions: { id: string }[];
@@ -65,7 +70,12 @@ export class RingostatRekeyUniqueidService {
         direction: true,
         status: true,
         durationSec: true,
+        from: true,
+        to: true,
+        fromNormalized: true,
+        toNormalized: true,
         rawPayload: true,
+        recordingUrl: true,
         activity: { select: { id: true } },
         outboundCallAttempt: { select: { id: true } },
         manualCallSessions: { select: { id: true } },
@@ -77,40 +87,37 @@ export class RingostatRekeyUniqueidService {
     const getUniqueid = (raw: Prisma.JsonValue): string | null => {
       if (!raw || typeof raw !== "object") return null;
       const v = (raw as Record<string, unknown>).uniqueid;
-      if (typeof v !== "string") return null;
-      const s = v.trim();
+      const s = v == null ? "" : String(v).trim();
       return s.length > 0 ? s : null;
     };
 
-    const getStr = (raw: Prisma.JsonValue, key: string): string => {
-      if (!raw || typeof raw !== "object") return "";
-      const v = (raw as Record<string, unknown>)[key];
-      return typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+    const digits = (v: string | null | undefined): string => String(v ?? "").replace(/\D/g, "");
+    const timeBucketMin = (d: Date): string => {
+      const t = Math.floor(d.getTime() / 60_000) * 60_000;
+      return new Date(t).toISOString();
     };
 
-    // Build an index from "signature" -> call with uniqueid.
-    // We intentionally use stable primitives that exist both in old synthetic rows and in calls/list rows.
-    const signature = (raw: Prisma.JsonValue, startedAt: Date, direction: string, status: string, durationSec: number | null): string => {
-      const caller = getStr(raw, "caller") || getStr(raw, "src") || getStr(raw, "E164") || getStr(raw, "connected_with");
-      const dst = getStr(raw, "dst") || getStr(raw, "callee");
-      const billsec = getStr(raw, "billsec");
-      const disposition = getStr(raw, "disposition");
+    // Build an index from "signature" -> call with uniqueid, using DB columns (stable across sources).
+    // We use a minute bucket to tolerate slight timestamp differences.
+    const signature = (r: CallRow): string => {
+      const a = digits(r.fromNormalized ?? r.from);
+      const b = digits(r.toNormalized ?? r.to);
+      const lo = a < b ? a : b;
+      const hi = a < b ? b : a;
       return [
-        startedAt.toISOString(),
-        direction,
-        status,
-        String(durationSec ?? ""),
-        caller.replace(/\D/g, ""),
-        dst.replace(/\D/g, ""),
-        billsec.replace(/\D/g, ""),
-        disposition,
+        timeBucketMin(r.startedAt),
+        r.direction,
+        r.status,
+        String(r.durationSec ?? ""),
+        lo,
+        hi,
       ].join("|");
     };
 
     const withId = rows.filter((r) => !!getUniqueid(r.rawPayload));
     const bySig = new Map<string, CallRow>();
     for (const r of withId) {
-      const sig = signature(r.rawPayload, r.startedAt, r.direction, r.status, r.durationSec);
+      const sig = signature(r);
       // Prefer a row that already has an activity (more "connected").
       const existing = bySig.get(sig);
       if (!existing || (!!r.activity && !existing.activity)) bySig.set(sig, r);
@@ -129,7 +136,7 @@ export class RingostatRekeyUniqueidService {
       if (!isSynthetic(row.externalId)) continue; // not a synthetic legacy row
 
       scanned += 1;
-      const sig = signature(row.rawPayload, row.startedAt, row.direction, row.status, row.durationSec);
+      const sig = signature(row);
       const partner = bySig.get(sig);
       if (!partner) {
         skipped += 1;
@@ -180,8 +187,8 @@ export class RingostatRekeyUniqueidService {
           data: {
             externalId: uniqueid,
             rawPayload: (partner.rawPayload ?? keeper.rawPayload) as Prisma.InputJsonValue,
-            // Also copy key computed fields if partner has them (safe overwrite toward enrichment).
-            recordingUrl: (partner as any).recordingUrl ?? undefined,
+            // Also copy recordingUrl if present in enriched row.
+            recordingUrl: partner.recordingUrl ?? keeper.recordingUrl,
           } as Prisma.CallUpdateInput,
         });
       });
