@@ -98,6 +98,15 @@ export async function fetchRingostatCallsList(
   from: Date,
   to: Date,
 ): Promise<RingostatCallsListFetchResult> {
+  const isNonJsonResponse = (bodySnippet: string): boolean => {
+    const s = (bodySnippet || "").trim().toLowerCase();
+    if (!s) return false;
+    if (s.startsWith("expected json, got:")) return true;
+    if (s.includes("<html") || s.includes("<!doctype html")) return true;
+    if (s.includes("bad fields") || s.includes("unknown field")) return true;
+    return false;
+  };
+
   const tryFetch = async (
     fieldsMode: "expanded" | "fallback",
   ): Promise<RingostatCallsListFetchResult> => {
@@ -137,7 +146,9 @@ export async function fetchRingostatCallsList(
 
   const expanded = await tryFetch("expanded");
   if (expanded.ok) return expanded;
-  // Some Ringostat installs reject unknown fields in query.
-  if (expanded.status !== 400) return expanded;
-  return tryFetch("fallback");
+  // Some Ringostat installs reject unknown fields in query (400),
+  // and some return HTTP 200 with a non-JSON error/HTML body.
+  if (expanded.status === 400) return tryFetch("fallback");
+  if (expanded.status === 200 && isNonJsonResponse(expanded.bodySnippet)) return tryFetch("fallback");
+  return expanded;
 }
