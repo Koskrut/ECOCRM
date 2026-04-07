@@ -221,7 +221,7 @@ export class RingostatRekeyUniqueidService {
         // instead of trying to update keeper.externalId (would violate @@unique(provider, externalId)).
         const existingKeyed = await tx.call.findUnique({
           where: { provider_externalId: { provider: RINGOSTAT_PROVIDER, externalId: uniqueid } },
-          select: { id: true },
+          select: { id: true, activity: { select: { id: true } }, outboundCallAttempt: { select: { id: true } } },
         });
 
         const targetId =
@@ -229,36 +229,54 @@ export class RingostatRekeyUniqueidService {
             ? existingKeyed.id
             : keeper.id;
 
-        // Move unique relations first; Activity.callId and OutboundCallAttempt.callId are unique.
-        // Only move if the target doesn't already have one.
-        if (targetId !== keeper.id) {
-          // We're merging into an existing keyed row: move keeper's relations too.
-          await tx.activity.updateMany({
-            where: { callId: keeper.id },
-            data: { callId: targetId },
-          });
-          await tx.outboundCallAttempt.updateMany({
-            where: { callId: keeper.id },
-            data: { callId: targetId },
-          });
-          await tx.manualCallSession.updateMany({
-            where: { callId: keeper.id },
-            data: { callId: targetId },
-          });
-        }
+        // Activity.callId and OutboundCallAttempt.callId are UNIQUE.
+        // Safe strategy:
+        // - If target already has an activity/attempt, detach sources (set callId = NULL).
+        // - Otherwise move at most one (prefer keeper over other), detach the rest.
 
-        await tx.activity.updateMany({
-          where: { callId: other.id },
-          data: { callId: targetId },
-        });
-        await tx.outboundCallAttempt.updateMany({
-          where: { callId: other.id },
+        const targetHasActivity = !!existingKeyed?.activity?.id;
+        const targetHasAttempt = !!existingKeyed?.outboundCallAttempt?.id;
+
+        const keeperActivityId = keeper.activity?.id ?? null;
+        const otherActivityId = other.activity?.id ?? null;
+        const keeperAttemptId = keeper.outboundCallAttempt?.id ?? null;
+        const otherAttemptId = other.outboundCallAttempt?.id ?? null;
+
+        // ManualCallSession.callId is not unique: always move.
+        await tx.manualCallSession.updateMany({
+          where: { callId: keeper.id },
           data: { callId: targetId },
         });
         await tx.manualCallSession.updateMany({
           where: { callId: other.id },
           data: { callId: targetId },
         });
+
+        // Activity
+        if (targetHasActivity) {
+          if (keeperActivityId) await tx.activity.update({ where: { id: keeperActivityId }, data: { callId: null } });
+          if (otherActivityId) await tx.activity.update({ where: { id: otherActivityId }, data: { callId: null } });
+        } else {
+          const moveId = keeperActivityId ?? otherActivityId;
+          if (moveId) await tx.activity.update({ where: { id: moveId }, data: { callId: targetId } });
+          const detachId = moveId === keeperActivityId ? otherActivityId : keeperActivityId;
+          if (detachId) await tx.activity.update({ where: { id: detachId }, data: { callId: null } });
+        }
+
+        // OutboundCallAttempt
+        if (targetHasAttempt) {
+          if (keeperAttemptId) {
+            await tx.outboundCallAttempt.update({ where: { id: keeperAttemptId }, data: { callId: null } });
+          }
+          if (otherAttemptId) {
+            await tx.outboundCallAttempt.update({ where: { id: otherAttemptId }, data: { callId: null } });
+          }
+        } else {
+          const moveId = keeperAttemptId ?? otherAttemptId;
+          if (moveId) await tx.outboundCallAttempt.update({ where: { id: moveId }, data: { callId: targetId } });
+          const detachId = moveId === keeperAttemptId ? otherAttemptId : keeperAttemptId;
+          if (detachId) await tx.outboundCallAttempt.update({ where: { id: detachId }, data: { callId: null } });
+        }
 
         // Remove merged rows (idempotent).
         if (targetId !== keeper.id) {
