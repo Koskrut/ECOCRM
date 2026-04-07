@@ -78,6 +78,26 @@ describe("RingostatIngestService", () => {
     assert.equal(phones.managerPhoneRaw, "+380441112233");
   });
 
+  it("outbound: when callee equals outbound_number, uses full_num/dst as customer when present", () => {
+    const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
+      // @ts-expect-error private
+      service["extractPhonesAndExtension"](raw, dir) as {
+        customerPhoneRaw?: string;
+        managerPhoneRaw?: string;
+      };
+
+    const raw = {
+      type: "out",
+      outbound_number: "380441112233",
+      caller: "380441112233",
+      callee: "380441112233",
+      full_num: "380931112233",
+    };
+    const phones = extract(raw, "OUTBOUND");
+    assert.equal(phones.managerPhoneRaw, "380441112233");
+    assert.equal(phones.customerPhoneRaw, "380931112233");
+  });
+
   it("UNKNOWN /calls/list: short caller + long mobile dst maps client to dst", () => {
     const extract = (raw: Record<string, unknown>, dir: "INBOUND" | "OUTBOUND" | "UNKNOWN") =>
       // @ts-expect-error private

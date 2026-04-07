@@ -737,8 +737,29 @@ export class RingostatIngestService {
         managerPhoneRaw = customerPhoneRaw;
       }
     } else if (direction === "OUTBOUND") {
-      customerPhoneRaw = callee || dst;
+      const digits = (v: string | undefined) => (v || "").replace(/\D/g, "");
+      const outboundDigits = digits(outboundNumber);
+      const calleeDigits = digits(callee);
+      const dstDigits = digits(dst);
+
+      // Some Ringostat setups may populate callee with outbound_number; try additional fields first.
+      const fullNum = String((getVal(raw, "full_num") ?? "") as string) || undefined;
+      const connectedWith = String((getVal(raw, "connected_with") ?? "") as string) || undefined;
+      const e164 = String((getVal(raw, "E164") ?? "") as string) || undefined;
+
+      const candidateCustomer =
+        calleeDigits && outboundDigits && calleeDigits === outboundDigits
+          ? this.ringostatFirstNonEmptyString(fullNum, dst, connectedWith, e164).trim() || undefined
+          : callee || dst || this.ringostatFirstNonEmptyString(fullNum, connectedWith, e164).trim() || undefined;
+
+      customerPhoneRaw = candidateCustomer;
       managerPhoneRaw = outboundNumber || src;
+
+      // If we ended up with the same number on both legs, do not treat it as a client number.
+      const customerDigits = digits(customerPhoneRaw);
+      if (customerDigits && outboundDigits && customerDigits === outboundDigits && !dstDigits) {
+        customerPhoneRaw = undefined;
+      }
     } else {
       // UNKNOWN: /calls/list often omits type/direction — infer client vs internal line by digit length.
       const inboundChain = this.ringostatFirstNonEmptyString(

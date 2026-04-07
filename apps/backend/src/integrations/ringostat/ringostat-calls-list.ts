@@ -25,6 +25,8 @@ const CALLS_LIST_FIELDS_FALLBACK = [
 const CALLS_LIST_FIELDS_EXPANDED = [
   "uniqueid",
   "type",
+  "src",
+  "full_num",
   "caller",
   "callee",
   "dst",
