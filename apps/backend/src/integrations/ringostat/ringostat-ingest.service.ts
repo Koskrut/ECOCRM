@@ -863,7 +863,7 @@ export class RingostatIngestService {
     return {
       customerPhoneRaw,
       managerPhoneRaw,
-      extension: ext ? String(ext) : undefined,
+      extension: ext ? String(ext).replace(/\D/g, "").trim() || undefined : undefined,
     };
   }
 
