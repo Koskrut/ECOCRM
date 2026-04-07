@@ -13,6 +13,20 @@ export type RingostatCallsListConfig = {
   projectId?: string;
 };
 
+// Fallback should still try to preserve stable call identity if possible.
+// If we backfill without uniqueid, we generate synthetic externalIds which then
+// prevent later enriched backfills from updating the same rows (duplication risk).
+const CALLS_LIST_FIELDS_FALLBACK_WITH_ID = [
+  "uniqueid",
+  "calldate",
+  "caller",
+  "dst",
+  "disposition",
+  "billsec",
+  "recording",
+].join(",");
+
+// Minimal "last resort" field set for installs that reject even uniqueid.
 const CALLS_LIST_FIELDS_FALLBACK = [
   "calldate",
   "caller",
@@ -192,5 +206,14 @@ export async function fetchRingostatCallsList(
     (expandedBasic.status === 200 && isBadFieldsResponse(expandedBasic.bodySnippet));
   if (!looksLikeBadFieldsBasic) return expandedBasic;
 
-  return tryFetch("fallback");
+  // Third attempt: keep uniqueid even in fallback if the install allows it.
+  const fallbackWithId = await tryFetch("fallback", CALLS_LIST_FIELDS_FALLBACK_WITH_ID);
+  if (fallbackWithId.ok) return fallbackWithId;
+  const looksLikeBadFieldsFallbackWithId =
+    fallbackWithId.status === 400 ||
+    (fallbackWithId.status === 200 && isBadFieldsResponse(fallbackWithId.bodySnippet));
+  if (!looksLikeBadFieldsFallbackWithId) return fallbackWithId;
+
+  // Last resort.
+  return tryFetch("fallback", CALLS_LIST_FIELDS_FALLBACK);
 }
