@@ -71,7 +71,15 @@ export class RingostatPollingService {
       }
 
       const events = listResult.events;
-      this.logger.log(`Ringostat polling fields mode: ${listResult.fieldsMode}`);
+      // Keep polling logs lightweight, but include a quick hint if events are missing stable ids.
+      const sample = events.slice(0, 50) as Array<Record<string, unknown>>;
+      const uniqueidCount = sample.reduce(
+        (acc, e) => (e && e.uniqueid != null && String(e.uniqueid).trim() !== "" ? acc + 1 : acc),
+        0,
+      );
+      this.logger.log(
+        `Ringostat polling fields mode: ${listResult.fieldsMode} (sample=${sample.length}, uniqueid=${uniqueidCount})`,
+      );
 
       if (events.length > 0) {
         await this.ingest.ingestFromApi(events);

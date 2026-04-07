@@ -19,6 +19,26 @@ export class RingostatBackfillService {
     private readonly ingest: RingostatIngestService,
   ) {}
 
+  private summarizeEnrichment(events: unknown[]): string {
+    const take = events.slice(0, 200) as Array<Record<string, unknown>>;
+    const count = (k: string) =>
+      take.reduce((acc, e) => (e && e[k] != null && String(e[k]).trim() !== "" ? acc + 1 : acc), 0);
+    const total = take.length;
+    if (total === 0) return "sample=0";
+    return [
+      `sample=${total}`,
+      `uniqueid=${count("uniqueid")}`,
+      `connected_with=${count("connected_with")}`,
+      `caller_number=${count("caller_number")}`,
+      `employee_number=${count("employee_number")}`,
+      `additional_number=${count("additional_number")}`,
+      `recording_wav=${count("recording_wav")}`,
+      `recording=${count("recording")}`,
+      `has_recording=${count("has_recording")}`,
+      `call_card=${count("call_card")}`,
+    ].join(", ");
+  }
+
   /**
    * Pull historical calls from Ringostat /calls/list in overlapping chunks and ingest (upsert).
    */
@@ -70,7 +90,9 @@ export class RingostatBackfillService {
             `Ringostat API error ${res.status}: ${res.bodySnippet.slice(0, 200)}`,
           );
         }
-        this.logger.log(`Ringostat backfill fields mode: ${res.fieldsMode}`);
+        this.logger.log(
+          `Ringostat backfill fields mode: ${res.fieldsMode} (${this.summarizeEnrichment(res.events)})`,
+        );
         return res.events;
       },
       ingestEvents: async (events) => {
