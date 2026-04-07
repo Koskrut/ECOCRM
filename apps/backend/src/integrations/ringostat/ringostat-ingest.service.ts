@@ -520,7 +520,13 @@ export class RingostatIngestService {
   }
 
   private extractDurationSec(raw: RingostatRawPayload): number | null {
-    return this.extractNumber(raw, ["duration", "duration_sec", "billsec"]);
+    return this.extractNumber(raw, [
+      "duration",
+      "duration_sec",
+      // /calls/list export can provide duration_ms
+      "duration_ms",
+      "billsec",
+    ]);
   }
 
   /**
