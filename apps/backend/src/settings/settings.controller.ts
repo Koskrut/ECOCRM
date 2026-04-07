@@ -4,6 +4,7 @@ import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
 import { RingostatBackfillService } from "../integrations/ringostat/ringostat-backfill.service";
 import { RingostatReconcileService } from "../integrations/ringostat/ringostat-reconcile.service";
+import { RingostatRekeyUniqueidService } from "../integrations/ringostat/ringostat-rekey-uniqueid.service";
 import type {
   ExchangeRates,
   GoogleMapsConfig,
@@ -15,6 +16,7 @@ import type {
 import type { OutboundVoiceIntegrationConfig, RingostatConfig } from "./settings.service";
 import { RingostatBackfillDto } from "./dto/ringostat-backfill.dto";
 import { RingostatReconcileDto } from "./dto/ringostat-reconcile.dto";
+import { RingostatRekeyUniqueidDto } from "./dto/ringostat-rekey-uniqueid.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -23,6 +25,7 @@ export class SettingsController {
     private readonly settings: SettingsService,
     private readonly ringostatBackfill: RingostatBackfillService,
     private readonly ringostatReconcile: RingostatReconcileService,
+    private readonly ringostatRekeyUniqueid: RingostatRekeyUniqueidService,
   ) {}
 
   @Get("exchange-rates")
@@ -119,6 +122,16 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   runRingostatReconcile(@Body() body: RingostatReconcileDto) {
     return this.ringostatReconcile.reconcile(body);
+  }
+
+  /**
+   * Repairs historical rows created with synthetic externalId (when /calls/list didn't return uniqueid),
+   * by merging duplicates and re-keying to stable uniqueid.
+   */
+  @Post("ringostat/rekey-uniqueid")
+  @Roles(UserRole.ADMIN)
+  runRingostatRekeyUniqueid(@Body() body: RingostatRekeyUniqueidDto) {
+    return this.ringostatRekeyUniqueid.rekey(body);
   }
 
   @Get("outbound-voice")
