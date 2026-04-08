@@ -10,6 +10,65 @@ export const en = {
     payments: "Payments",
     planning: "Planning",
   },
+  np: {
+    shippingProfileForm: {
+      titleNewAddress: "New delivery address",
+      saveToContact: "Save to contact",
+
+      label: "Label",
+      labelOptionalHint: "(optional)",
+      labelPlaceholderRequired: "e.g. Home, Office",
+      labelPlaceholderOptional: 'Наприклад, "Дім", "Офіс"',
+
+      recipientType: "Recipient type",
+      recipientPerson: "Person",
+      recipientCompany: "Company",
+
+      deliveryType: "Delivery type",
+      deliveryWarehouse: "Warehouse",
+      deliveryPostomat: "Postomat",
+      deliveryAddress: "Address",
+
+      personLastName: "Last name",
+      personFirstName: "First name",
+      personMiddleName: "Middle name",
+      personPhone: "Phone",
+
+      companyName: "Company name",
+      companyEdrpou: "EDRPOU",
+      contactPersonLastName: "Contact person last name",
+      contactPersonFirstName: "Contact person first name",
+      contactPersonMiddleName: "Contact person middle name",
+      contactPersonPhone: "Contact person phone",
+
+      city: "City (from directory)",
+      cityPlaceholder: "Type at least 2 characters…",
+
+      warehouse: "Warehouse (from directory)",
+      postomat: "Postomat (from directory)",
+      warehousePlaceholder: "Type to search…",
+
+      street: "Street (from directory)",
+      streetPlaceholder: "Type to search…",
+      building: "Building",
+      flat: "Flat",
+
+      errors: {
+        labelRequired: "Label is required.",
+        personNameRequired: "Enter recipient first and last name.",
+        personPhoneRequired: "Enter recipient phone.",
+        companyNameRequired: "Enter company name.",
+        companyEdrpouRequired: "Enter EDRPOU.",
+        contactPersonFirstNameRequired: "Enter contact person first name.",
+        contactPersonLastNameRequired: "Enter contact person last name.",
+        contactPersonPhoneRequired: "Enter contact person phone.",
+        cityRequired: "Select a city from the directory.",
+        streetRequired: "Select a street from the directory.",
+        buildingRequired: "Enter building number.",
+        warehouseRequired: "Select a warehouse from the directory.",
+      },
+    },
+  },
   planning: {
     pageTitle: "Production Planning",
     pageSubtitle:

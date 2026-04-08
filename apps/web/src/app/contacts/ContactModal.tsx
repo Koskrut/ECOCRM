@@ -9,7 +9,12 @@ import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
 import { ContactTimeline } from "./ContactTimeline";
 import { EntityTasksList } from "@/components/EntityTasksList";
-import { NpCitySelect, NpWarehouseSelect } from "@/components/inputs/NpDirectorySelects";
+import {
+  buildContactShippingProfilePayload,
+  NpShippingProfileFormFields,
+  validateNpShippingProfileForm,
+  type NpShippingProfileFormValues,
+} from "@/components/np/NpShippingProfileFormFields";
 import { apiHttp } from "../../lib/api/client";
 import { contactsApi } from "@/lib/api/resources/contacts";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
@@ -75,11 +80,25 @@ type ShippingProfile = {
   recipientType?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  middleName?: string | null;
   phone?: string | null;
+  // COMPANY fields
+  companyName?: string | null;
+  edrpou?: string | null;
+  contactPersonFirstName?: string | null;
+  contactPersonLastName?: string | null;
+  contactPersonMiddleName?: string | null;
+  contactPersonPhone?: string | null;
   cityRef?: string | null;
   cityName?: string | null;
   warehouseRef?: string | null;
   warehouseNumber?: string | null;
+  warehouseType?: string | null;
+  // ADDRESS fields
+  streetRef?: string | null;
+  streetName?: string | null;
+  building?: string | null;
+  flat?: string | null;
 };
 
 function AddShippingProfileModal({
@@ -115,7 +134,23 @@ function AddShippingProfileModal({
     initialData?.firstName ?? defaultPerson?.firstName ?? "",
   );
   const [lastName, setLastName] = useState(initialData?.lastName ?? defaultPerson?.lastName ?? "");
+  const [middleName, setMiddleName] = useState(initialData?.middleName ?? "");
   const [phone, setPhone] = useState(initialData?.phone ?? defaultPerson?.phone ?? "");
+
+  // COMPANY fields
+  const [companyName, setCompanyName] = useState(initialData?.companyName ?? "");
+  const [edrpou, setEdrpou] = useState(initialData?.edrpou ?? "");
+  const [contactPersonFirstName, setContactPersonFirstName] = useState(
+    initialData?.contactPersonFirstName ?? "",
+  );
+  const [contactPersonLastName, setContactPersonLastName] = useState(
+    initialData?.contactPersonLastName ?? "",
+  );
+  const [contactPersonMiddleName, setContactPersonMiddleName] = useState(
+    initialData?.contactPersonMiddleName ?? "",
+  );
+  const [contactPersonPhone, setContactPersonPhone] = useState(initialData?.contactPersonPhone ?? "");
+
   const [cityRef, setCityRef] = useState(initialData?.cityRef ?? "");
   const [cityName, setCityName] = useState(initialData?.cityName ?? "");
   const [warehouseRef, setWarehouseRef] = useState(initialData?.warehouseRef ?? "");
@@ -123,39 +158,88 @@ function AddShippingProfileModal({
     initialData?.warehouseNumber ? `${initialData.warehouseNumber} — ${initialData.cityName ?? ""}` : "",
   );
   const [warehouseNumber, setWarehouseNumber] = useState(initialData?.warehouseNumber ?? "");
+
+  // ADDRESS fields
+  const [streetRef, setStreetRef] = useState(initialData?.streetRef ?? "");
+  const [streetName, setStreetName] = useState(initialData?.streetName ?? "");
+  const [building, setBuilding] = useState(initialData?.building ?? "");
+  const [flat, setFlat] = useState(initialData?.flat ?? "");
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const formValues: NpShippingProfileFormValues = {
+    label,
+    recipientType,
+    deliveryType,
+
+    lastName,
+    firstName,
+    middleName,
+    phone,
+
+    companyName,
+    edrpou,
+    contactPersonLastName,
+    contactPersonFirstName,
+    contactPersonMiddleName,
+    contactPersonPhone,
+
+    cityRef,
+    cityName,
+
+    warehouseRef,
+    warehouseLabel,
+    warehouseNumber,
+
+    streetRef,
+    streetName,
+    building,
+    flat,
+  };
+
+  const setFormPatch = (patch: Partial<NpShippingProfileFormValues>) => {
+    if (patch.label !== undefined) setLabel(patch.label);
+    if (patch.recipientType !== undefined) setRecipientType(patch.recipientType);
+    if (patch.deliveryType !== undefined) setDeliveryType(patch.deliveryType);
+
+    if (patch.firstName !== undefined) setFirstName(patch.firstName);
+    if (patch.lastName !== undefined) setLastName(patch.lastName);
+    if (patch.middleName !== undefined) setMiddleName(patch.middleName);
+    if (patch.phone !== undefined) setPhone(patch.phone);
+
+    if (patch.companyName !== undefined) setCompanyName(patch.companyName);
+    if (patch.edrpou !== undefined) setEdrpou(patch.edrpou);
+    if (patch.contactPersonFirstName !== undefined) setContactPersonFirstName(patch.contactPersonFirstName);
+    if (patch.contactPersonLastName !== undefined) setContactPersonLastName(patch.contactPersonLastName);
+    if (patch.contactPersonMiddleName !== undefined) setContactPersonMiddleName(patch.contactPersonMiddleName);
+    if (patch.contactPersonPhone !== undefined) setContactPersonPhone(patch.contactPersonPhone);
+
+    if (patch.cityRef !== undefined) setCityRef(patch.cityRef);
+    if (patch.cityName !== undefined) setCityName(patch.cityName);
+
+    if (patch.warehouseRef !== undefined) setWarehouseRef(patch.warehouseRef);
+    if (patch.warehouseLabel !== undefined) setWarehouseLabel(patch.warehouseLabel);
+    if (patch.warehouseNumber !== undefined) setWarehouseNumber(patch.warehouseNumber);
+
+    if (patch.streetRef !== undefined) setStreetRef(patch.streetRef);
+    if (patch.streetName !== undefined) setStreetName(patch.streetName);
+    if (patch.building !== undefined) setBuilding(patch.building);
+    if (patch.flat !== undefined) setFlat(patch.flat);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const err = validateNpShippingProfileForm(formValues, { requireLabel: true });
+    if (err) return setError(err);
     const trimmedLabel = label.trim();
-    if (!trimmedLabel) {
-      setError("Label is required.");
-      return;
-    }
-    if ((deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && !cityRef) {
-      setError("Select a city from the directory.");
-      return;
-    }
-    if ((deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && !warehouseRef) {
-      setError("Select a warehouse from the directory.");
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
-      const payload = {
-        label: trimmedLabel,
-        recipientType,
-        deliveryType,
-        firstName: firstName.trim() || null,
-        lastName: lastName.trim() || null,
-        phone: phone.trim() || null,
-        cityRef: cityRef.trim() || null,
-        cityName: cityName.trim() || null,
-        warehouseRef: warehouseRef.trim() || null,
-        warehouseNumber: warehouseNumber.trim() || null,
-      };
+      const payload = buildContactShippingProfilePayload(
+        { ...formValues, label: trimmedLabel },
+        { requireLabel: true },
+      );
       if (isEdit && profileId) {
         await apiHttp.patch(`/contacts/${contactId}/shipping-profiles/${profileId}`, payload);
       } else {
@@ -207,121 +291,12 @@ function AddShippingProfileModal({
               {error}
             </div>
           )}
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Label *</label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-              placeholder="e.g. Home, Office"
-              disabled={saving}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Recipient type</label>
-            <select
-              value={recipientType}
-              onChange={(e) => setRecipientType(e.target.value as "PERSON" | "COMPANY")}
-              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-              disabled={saving}
-            >
-              <option value="PERSON">Person</option>
-              <option value="COMPANY">Company</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Delivery type</label>
-            <select
-              value={deliveryType}
-              onChange={(e) =>
-                setDeliveryType(e.target.value as "WAREHOUSE" | "POSTOMAT" | "ADDRESS")
-              }
-              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-              disabled={saving}
-            >
-              <option value="WAREHOUSE">Warehouse</option>
-              <option value="POSTOMAT">Postomat</option>
-              <option value="ADDRESS">Address</option>
-            </select>
-          </div>
-          {recipientType === "PERSON" && (
-            <>
-              <div>
-                <label className="block text-xs font-medium text-zinc-600">First name</label>
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-600">Last name</label>
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                  disabled={saving}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-600">Phone</label>
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
-                  disabled={saving}
-                />
-              </div>
-            </>
-          )}
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">
-              City (from directory)
-            </label>
-            <NpCitySelect
-              valueRef={cityRef}
-              valueLabel={cityName}
-              onChange={(ref, name) => {
-                setCityRef(ref);
-                setCityName(name);
-                if (deliveryType !== "ADDRESS") {
-                  setWarehouseRef("");
-                  setWarehouseLabel("");
-                  setWarehouseNumber("");
-                }
-              }}
-              disabled={saving}
-              placeholder="Type at least 2 characters…"
-            />
-          </div>
-          {(deliveryType === "WAREHOUSE" || deliveryType === "POSTOMAT") && (
-            <div>
-              <label className="block text-xs font-medium text-zinc-600">
-                {deliveryType === "POSTOMAT"
-                  ? "Postomat (from directory)"
-                  : "Warehouse (from directory)"}
-              </label>
-              <NpWarehouseSelect
-                key={deliveryType}
-                cityRef={cityRef}
-                type={deliveryType}
-                valueRef={warehouseRef}
-                valueLabel={warehouseLabel}
-                onChange={(ref, lbl, num) => {
-                  setWarehouseRef(ref);
-                  setWarehouseLabel(lbl);
-                  setWarehouseNumber(num ?? "");
-                }}
-                disabled={saving}
-                placeholder="Type to search…"
-              />
-            </div>
-          )}
+          <NpShippingProfileFormFields
+            disabled={saving}
+            requireLabel
+            values={formValues}
+            onChange={setFormPatch}
+          />
             </div>
           </div>
           <div className="shrink-0 flex justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-5 py-3">
@@ -337,7 +312,7 @@ function AddShippingProfileModal({
               disabled={saving}
               className="btn-primary"
             >
-              {saving ? "Saving…" : "Add profile"}
+              {saving ? "Saving…" : isEdit ? "Save" : "Add profile"}
             </button>
           </div>
         </form>

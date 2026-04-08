@@ -11,6 +11,65 @@ export const uk = {
     payments: "Оплати",
     planning: "Планування",
   },
+  np: {
+    shippingProfileForm: {
+      titleNewAddress: "Нова адреса доставки",
+      saveToContact: "Зберегти в контакт",
+
+      label: "Назва профілю",
+      labelOptionalHint: "(необов'язково)",
+      labelPlaceholderRequired: 'Наприклад, "Дім", "Офіс"',
+      labelPlaceholderOptional: 'Наприклад, "Дім", "Офіс"',
+
+      recipientType: "Тип отримувача",
+      recipientPerson: "Фізична особа",
+      recipientCompany: "Організація",
+
+      deliveryType: "Тип доставки",
+      deliveryWarehouse: "Відділення",
+      deliveryPostomat: "Поштомат",
+      deliveryAddress: "Адреса",
+
+      personLastName: "Прізвище",
+      personFirstName: "Ім'я",
+      personMiddleName: "По батькові",
+      personPhone: "Телефон",
+
+      companyName: "Назва компанії",
+      companyEdrpou: "ЄДРПОУ",
+      contactPersonLastName: "Прізвище контактної особи",
+      contactPersonFirstName: "Ім'я контактної особи",
+      contactPersonMiddleName: "По батькові контактної особи",
+      contactPersonPhone: "Телефон контактної особи",
+
+      city: "Місто *",
+      cityPlaceholder: "Почніть вводити назву",
+
+      warehouse: "Відділення *",
+      postomat: "Поштомат *",
+      warehousePlaceholder: "Почніть вводити",
+
+      street: "Вулиця *",
+      streetPlaceholder: "Мін. 3 символи",
+      building: "Номер будинку",
+      flat: "Квартира",
+
+      errors: {
+        labelRequired: "Вкажіть назву профілю",
+        personNameRequired: "Вкажіть прізвище та ім'я отримувача",
+        personPhoneRequired: "Вкажіть телефон отримувача",
+        companyNameRequired: "Вкажіть назву компанії",
+        companyEdrpouRequired: "Вкажіть ЄДРПОУ",
+        contactPersonFirstNameRequired: "Вкажіть ім'я контактної особи",
+        contactPersonLastNameRequired: "Вкажіть прізвище контактної особи",
+        contactPersonPhoneRequired: "Вкажіть телефон контактної особи",
+        cityRequired: "Оберіть місто",
+        streetRequired: "Оберіть вулицю",
+        buildingRequired: "Вкажіть номер будинку",
+        warehouseRequired: "Оберіть відділення або поштомат",
+      },
+    },
+  },
   planning: {
     pageTitle: "Планування виробництва",
     pageSubtitle:

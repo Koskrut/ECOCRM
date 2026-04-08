@@ -1098,7 +1098,31 @@ export class ContactsService {
         }),
         ...(body.firstName !== undefined && { firstName: body.firstName != null ? String(body.firstName) : null }),
         ...(body.lastName !== undefined && { lastName: body.lastName != null ? String(body.lastName) : null }),
+        ...(body.middleName !== undefined && {
+          middleName: body.middleName != null ? String(body.middleName) : null,
+        }),
         ...(body.phone !== undefined && { phone: body.phone != null ? String(body.phone) : null }),
+
+        ...(body.companyName !== undefined && {
+          companyName: body.companyName != null ? String(body.companyName) : null,
+        }),
+        ...(body.edrpou !== undefined && { edrpou: body.edrpou != null ? String(body.edrpou) : null }),
+        ...(body.contactPersonFirstName !== undefined && {
+          contactPersonFirstName:
+            body.contactPersonFirstName != null ? String(body.contactPersonFirstName) : null,
+        }),
+        ...(body.contactPersonLastName !== undefined && {
+          contactPersonLastName:
+            body.contactPersonLastName != null ? String(body.contactPersonLastName) : null,
+        }),
+        ...(body.contactPersonMiddleName !== undefined && {
+          contactPersonMiddleName:
+            body.contactPersonMiddleName != null ? String(body.contactPersonMiddleName) : null,
+        }),
+        ...(body.contactPersonPhone !== undefined && {
+          contactPersonPhone: body.contactPersonPhone != null ? String(body.contactPersonPhone) : null,
+        }),
+
         ...(body.cityRef !== undefined && { cityRef: body.cityRef != null ? String(body.cityRef) : null }),
         ...(body.cityName !== undefined && { cityName: body.cityName != null ? String(body.cityName) : null }),
         ...(body.warehouseRef !== undefined && {
@@ -1106,6 +1130,24 @@ export class ContactsService {
         }),
         ...(body.warehouseNumber !== undefined && {
           warehouseNumber: body.warehouseNumber != null ? String(body.warehouseNumber) : null,
+        }),
+        ...(body.warehouseType !== undefined && {
+          warehouseType: body.warehouseType != null ? String(body.warehouseType) : null,
+        }),
+
+        ...(body.streetRef !== undefined && { streetRef: body.streetRef != null ? String(body.streetRef) : null }),
+        ...(body.streetName !== undefined && { streetName: body.streetName != null ? String(body.streetName) : null }),
+        ...(body.building !== undefined && { building: body.building != null ? String(body.building) : null }),
+        ...(body.flat !== undefined && { flat: body.flat != null ? String(body.flat) : null }),
+
+        ...(body.npCounterpartyRef !== undefined && {
+          npCounterpartyRef: body.npCounterpartyRef != null ? String(body.npCounterpartyRef) : null,
+        }),
+        ...(body.npContactPersonRef !== undefined && {
+          npContactPersonRef: body.npContactPersonRef != null ? String(body.npContactPersonRef) : null,
+        }),
+        ...(body.npAddressRef !== undefined && {
+          npAddressRef: body.npAddressRef != null ? String(body.npAddressRef) : null,
         }),
       },
     });
