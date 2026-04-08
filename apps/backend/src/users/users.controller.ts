@@ -51,7 +51,12 @@ export class UsersController {
             : String(body.username),
       fullName: body.fullName != null ? String(body.fullName) : undefined,
       firstName: body.firstName != null ? String(body.firstName) : undefined,
-      password: body.password != null ? String(body.password) : undefined,
+      password:
+        body.password === undefined || body.password === null
+          ? undefined
+          : String(body.password).trim() === ""
+            ? undefined
+            : String(body.password),
       isActive: body.isActive != null ? Boolean(body.isActive) : undefined,
       routeStartLat: numOrNull(body.routeStartLat),
       routeStartLng: numOrNull(body.routeStartLng),

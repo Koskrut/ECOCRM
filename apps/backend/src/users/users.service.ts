@@ -113,7 +113,11 @@ export class UsersService {
     }
 
     if (payload.password !== undefined) {
-      data.passwordHash = payload.password ? `plain:${payload.password}` : "";
+      const p = payload.password.trim();
+      if (p.length > 0) {
+        data.passwordHash = `plain:${p}`;
+      }
+      // If password is an empty string, treat it as "not provided" to avoid wiping passwordHash.
     }
 
     const setCoord = (v: number | null | undefined) =>

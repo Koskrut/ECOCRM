@@ -407,10 +407,14 @@ export function EmployeeModal({
         if (!initial?.id) throw new Error("Missing user id");
 
         // 1) fullName/password (password only if provided)
-        const payload = {
+        const payload: {
+          email: string;
+          fullName: string | null;
+          password?: string;
+          role: Employee["role"];
+        } = {
           email: email.trim(),
           fullName: fullName.trim() || null,
-          password: password.trim(),
           role,
         };
 
