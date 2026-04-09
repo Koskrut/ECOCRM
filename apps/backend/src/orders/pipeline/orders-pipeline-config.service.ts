@@ -1,15 +1,16 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type { OrderKanbanGroup, OrderStage } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import type { PutOrderPipelineDto, PutOrderPipelineStageDto } from "../dto/put-order-pipeline.dto";
 import {
+  ALL_ORDER_STAGES,
   buildDefaultPipelineRows,
   DEFAULT_ALLOWED_TRANSITIONS,
-  DEFAULT_FINAL_STAGE_ORDER,
-  DEFAULT_MAIN_STAGE_ORDER,
 } from "./order-pipeline.defaults";
 import type { OrderPipelineResponseDto, OrderPipelineStageResponseDto } from "../dto/order-pipeline.dto";
 
-const ALL_STAGES: OrderStage[] = [...DEFAULT_MAIN_STAGE_ORDER, ...DEFAULT_FINAL_STAGE_ORDER];
+const ALL_STAGES: OrderStage[] = ALL_ORDER_STAGES;
 
 const VALID_STAGE_SET = new Set<string>(ALL_STAGES);
 
@@ -111,5 +112,90 @@ export class OrdersPipelineConfigService {
     if (rows.length !== ALL_STAGES.length) return false;
     const seen = new Set(rows.map((r) => r.stage));
     return ALL_STAGES.every((s) => seen.has(s));
+  }
+
+  /**
+   * Full snapshot replace (ADMIN only — enforced on controller). Validates strictly; all-or-nothing transaction.
+   */
+  async putPipelineSnapshot(dto: PutOrderPipelineDto): Promise<OrderPipelineResponseDto> {
+    this.assertPutPayloadValid(dto.stages);
+    await this.prisma.$transaction(
+      dto.stages.map((row) =>
+        this.prisma.orderPipelineStage.update({
+          where: { stage: row.stage },
+          data: {
+            sortOrder: row.sortOrder,
+            label: row.label.trim(),
+            color:
+              row.color != null && String(row.color).trim() !== "" ? String(row.color).trim().slice(0, 500) : null,
+            kanbanGroup: row.kanbanGroup,
+            allowedNext: row.allowedNext as unknown as Prisma.InputJsonValue,
+          },
+        }),
+      ),
+    );
+    return this.getPipelineForApi();
+  }
+
+  private assertPutPayloadValid(rows: PutOrderPipelineStageDto[]): void {
+    const n = ALL_STAGES.length;
+    if (rows.length !== n) {
+      throw new BadRequestException(`Expected exactly ${n} stages`);
+    }
+    const stageKeys = new Set<OrderStage>();
+    const expected = new Set<OrderStage>(ALL_STAGES);
+    const sortOrders: number[] = [];
+    let mainCount = 0;
+    let finalCount = 0;
+
+    for (const r of rows) {
+      if (stageKeys.has(r.stage)) {
+        throw new BadRequestException(`Duplicate stage: ${r.stage}`);
+      }
+      stageKeys.add(r.stage);
+      if (!expected.has(r.stage)) {
+        throw new BadRequestException(`Unknown stage: ${r.stage}`);
+      }
+      sortOrders.push(r.sortOrder);
+      if (r.kanbanGroup === "MAIN") mainCount += 1;
+      else finalCount += 1;
+
+      const label = r.label?.trim() ?? "";
+      if (!label) {
+        throw new BadRequestException(`Empty label for stage ${r.stage}`);
+      }
+
+      const seenNext = new Set<OrderStage>();
+      for (const t of r.allowedNext) {
+        if (!expected.has(t)) {
+          throw new BadRequestException(`Invalid allowedNext target ${t} from ${r.stage}`);
+        }
+        if (seenNext.has(t)) {
+          throw new BadRequestException(`Duplicate allowedNext ${t} from ${r.stage}`);
+        }
+        seenNext.add(t);
+      }
+    }
+
+    for (const s of ALL_STAGES) {
+      if (!stageKeys.has(s)) {
+        throw new BadRequestException(`Missing stage: ${s}`);
+      }
+    }
+
+    const uniqueOrd = new Set(sortOrders);
+    if (uniqueOrd.size !== n) {
+      throw new BadRequestException("sortOrder values must be unique");
+    }
+    const sortedOrd = [...sortOrders].sort((a, b) => a - b);
+    for (let i = 0; i < n; i++) {
+      if (sortedOrd[i] !== i) {
+        throw new BadRequestException(`sortOrder must be dense integers 0..${n - 1}`);
+      }
+    }
+
+    if (mainCount < 1 || finalCount < 1) {
+      throw new BadRequestException("At least one MAIN and one FINAL stage required");
+    }
   }
 }

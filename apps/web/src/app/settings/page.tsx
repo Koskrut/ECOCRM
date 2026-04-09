@@ -43,6 +43,18 @@ export default function SettingsHomePage() {
             </Link>
           ) : null}
 
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/orders-pipeline"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-sm font-semibold text-zinc-900">Orders pipeline</div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Колонки канбану, підписи та дозволені переходи стадій (лише читання для інших ролей у UI замовлень).
+              </div>
+            </Link>
+          ) : null}
+
           <Link
             href="/settings/exchange-rates"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"

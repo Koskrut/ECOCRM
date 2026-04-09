@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   StreamableFile,
@@ -23,6 +24,7 @@ import { UserRole } from "@prisma/client";
 import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
+import { PutOrderPipelineDto } from "./dto/put-order-pipeline.dto";
 import { OrdersService } from "./orders.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderReturnDto } from "../order-returns/dto/create-order-return.dto";
@@ -53,6 +55,12 @@ export class OrdersController {
   @Get("pipeline")
   getPipeline(@Req() _req: Request & { user?: AuthUser }) {
     return this.ordersPipelineConfig.getPipelineForApi();
+  }
+
+  @Put("pipeline")
+  @Roles(UserRole.ADMIN)
+  putPipeline(@Body() dto: PutOrderPipelineDto) {
+    return this.ordersPipelineConfig.putPipelineSnapshot(dto);
   }
 
   @Get(":id/payments")
