@@ -19,15 +19,15 @@ function Badge({ children, className }: { children: React.ReactNode; className?:
   );
 }
 
-type StepDef = { key: string; label: string; color: "sky" | "amber" | "emerald" };
+export type LeadStepperStepDef = { key: string; label: string; color: "sky" | "amber" | "emerald" };
 
-const LEAD_STEPS: StepDef[] = [
+const FALLBACK_LEAD_STEPS: LeadStepperStepDef[] = [
   { key: "NEW", label: "Новий", color: "sky" },
   { key: "IN_PROGRESS", label: "В роботі", color: "amber" },
   { key: "PROCESSED", label: "Оброблено", color: "emerald" },
 ];
 
-function stepIndex(stage: string, steps: StepDef[]) {
+function stepIndex(stage: string, steps: LeadStepperStepDef[]) {
   const idx = steps.findIndex((s) => s.key === stage);
   return idx >= 0 ? idx : 0;
 }
@@ -37,15 +37,18 @@ function stepIndex(stage: string, steps: StepDef[]) {
  */
 export function LeadStepper({
   stage,
+  steps: stepsProp,
   onStepClick,
   disabled,
 }: {
   /** "NEW" | "IN_PROGRESS" | "PROCESSED" (map CRM statuses to PROCESSED). */
   stage: string;
+  /** From GET /leads/pipeline; fallback matches legacy hardcoded stepper. */
+  steps?: LeadStepperStepDef[];
   onStepClick?: (stepKey: string) => void;
   disabled?: boolean;
 }) {
-  const steps = LEAD_STEPS;
+  const steps = stepsProp?.length ? stepsProp : FALLBACK_LEAD_STEPS;
   const activeIdx = stepIndex(stage, steps);
   const wheelRef = useRef<HTMLDivElement>(null);
   const wheelItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -122,7 +125,7 @@ export function LeadStepper({
     };
   }, [stage, disabled, onStepClick, getNearestStepFromScroll, steps]);
 
-  const colorClasses = (c: StepDef["color"]) => {
+  const colorClasses = (c: LeadStepperStepDef["color"]) => {
     switch (c) {
       case "sky":
         return {
@@ -214,7 +217,12 @@ export function LeadStepper({
   );
 }
 
-export function leadStatusToUiStage(status: string): "NEW" | "IN_PROGRESS" | "PROCESSED" {
+export function leadStatusToUiStage(
+  status: string,
+  uiStepByStatus?: Partial<Record<string, "NEW" | "IN_PROGRESS" | "PROCESSED">> | null,
+): "NEW" | "IN_PROGRESS" | "PROCESSED" {
+  const mapped = uiStepByStatus?.[status];
+  if (mapped) return mapped;
   if (status === "NEW") return "NEW";
   if (status === "IN_PROGRESS") return "IN_PROGRESS";
   return "PROCESSED";
