@@ -31,10 +31,13 @@ import { CallsModule } from "./calls/calls.module";
 import { ManualCallingModule } from "./manual-calling/manual-calling.module";
 import { OutboundModule } from "./outbound/outbound.module";
 import { ProductionPlanningModule } from "./production-planning/production-planning.module";
+import { SystemModule } from "./system/system.module";
+import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 
 @Module({
   imports: [
     PrismaModule,
+    SystemModule,
     SettingsModule,
     BankModule,
     NpModule,
@@ -72,6 +75,10 @@ import { ProductionPlanningModule } from "./production-planning/production-plann
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ModuleAccessGuard,
     },
   ],
 })

@@ -1,6 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
+import { ModuleStateService } from "../modules/module-state.service";
+import { ModuleIds } from "../modules/module-ids";
 import { OutboundQueueService } from "./outbound-queue.service";
 import { OutboundCallLinkReconcileService } from "./outbound-call-link-reconcile.service";
 
@@ -9,7 +11,9 @@ export class OutboundOrchestratorCron {
   private readonly logger = new Logger(OutboundOrchestratorCron.name);
 
   constructor(
-    private readonly queue: OutboundQueueService,
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
+    @Inject(OutboundQueueService) private readonly queue: OutboundQueueService,
+    @Inject(OutboundCallLinkReconcileService)
     private readonly callLinkReconcile: OutboundCallLinkReconcileService,
   ) {}
 
@@ -17,6 +21,10 @@ export class OutboundOrchestratorCron {
   @Cron("*/2 * * * *")
   async run(): Promise<void> {
     if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
+      if (!ok) return;
+    }
     try {
       await withRetryOnConnectionClosed(async () => {
         const promoted = await this.queue.promotePendingToQueued(80);
@@ -34,6 +42,10 @@ export class OutboundOrchestratorCron {
   @Cron("*/5 * * * *")
   async reconcileOutboundCallLinks(): Promise<void> {
     if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
+      if (!ok) return;
+    }
     try {
       await withRetryOnConnectionClosed(async () => {
         const linked = await this.callLinkReconcile.reconcileUnlinkedAttempts();

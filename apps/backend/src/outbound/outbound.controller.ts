@@ -1,4 +1,14 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
 import { CreateOutboundCampaignDto } from "./dto/create-outbound-campaign.dto";
@@ -8,13 +18,22 @@ import { PatchCampaignActiveDto } from "./dto/patch-campaign-active.dto";
 import { ReviewAttemptDto } from "./dto/review-attempt.dto";
 import { OutboundCampaignService } from "./outbound-campaign.service";
 import { ScenarioRegistryService } from "./scenarios/scenario-registry.service";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
+
+void CreateOutboundCampaignDto;
+void EnqueueDormantDto;
+void EnqueueLeadsDto;
+void PatchCampaignActiveDto;
+void ReviewAttemptDto;
 
 @Controller("outbound")
 @Roles(UserRole.ADMIN)
+@RequireModule(ModuleIds.VoiceOutbound)
 export class OutboundController {
   constructor(
-    private readonly campaigns: OutboundCampaignService,
-    private readonly scenarios: ScenarioRegistryService,
+    @Inject(OutboundCampaignService) private readonly campaigns: OutboundCampaignService,
+    @Inject(ScenarioRegistryService) private readonly scenarios: ScenarioRegistryService,
   ) {}
 
   @Get("scenarios")

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
@@ -9,11 +9,20 @@ import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
 import { SendMessageDto } from "./dto/send-message.dto";
 import { UpdateConversationStatusDto } from "./dto/update-conversation-status.dto";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
+
+void LinkContactDto;
+void ListConversationsQueryDto;
+void ListMessagesQueryDto;
+void SendMessageDto;
+void UpdateConversationStatusDto;
 
 @Controller("conversations")
 @Roles(UserRole.MANAGER, UserRole.LEAD, UserRole.ADMIN)
+@RequireModule(ModuleIds.IntegrationsTelegram)
 export class ConversationsController {
-  constructor(private readonly conversations: ConversationsService) {}
+  constructor(@Inject(ConversationsService) private readonly conversations: ConversationsService) {}
 
   @Get()
   list(@Query() q: ListConversationsQueryDto, @Req() req: Request & { user?: AuthUser }) {
