@@ -1,8 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 
 export default function SettingsHomePage() {
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((r) => setRole(r.data?.user?.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-6xl">
@@ -19,6 +30,18 @@ export default function SettingsHomePage() {
               Manage employee roles (USER / LEAD / MANAGER / ADMIN)
             </div>
           </Link>
+
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/pilot-modules"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-sm font-semibold text-zinc-900">Pilot modules</div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Увімкнення / вимкнення pilot-розширень (AI Calls, оплати, Telegram Inbox).
+              </div>
+            </Link>
+          ) : null}
 
           <Link
             href="/settings/exchange-rates"

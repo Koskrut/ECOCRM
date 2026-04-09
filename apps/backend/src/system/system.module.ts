@@ -5,11 +5,13 @@ import { LicenseStateProvider } from "../modules/license/license-state.provider"
 import { StubLicenseStateProvider } from "../modules/license/stub-license-state.provider";
 import { ModuleStateService } from "../modules/module-state.service";
 import { SystemController } from "./system.controller";
+import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 
 @Module({
   controllers: [SystemController],
   providers: [
     ModuleStateService,
+    SystemModulesEnabledWriteService,
     {
       provide: EnabledModulesProvider,
       useClass: SystemSettingEnabledModulesProvider,
