@@ -18,6 +18,7 @@ import { MODULE_REGISTRY } from "../module-registry";
 import { ModuleStateService } from "../module-state.service";
 
 import { SystemController } from "../../system/system.controller";
+import { SystemModulesEnabledWriteService } from "../../system/system-modules-enabled-write.service";
 import { PaymentsController } from "../../payments/payments.controller";
 import { OutboundVoiceWebhookController } from "../../outbound/outbound-voice-webhook.controller";
 
@@ -53,6 +54,10 @@ class TestLicenseStateProvider extends LicenseStateProvider {
     { provide: LicenseStateProvider, useClass: TestLicenseStateProvider },
     { provide: PaymentsService, useValue: { list: async () => ({ items: [], total: 0 }) } },
     { provide: OutboundVoiceWebhookService, useValue: { handleWebhook: async () => ({ ok: true }) } },
+    {
+      provide: SystemModulesEnabledWriteService,
+      useValue: { setPilotExtensionsEnabled: async () => {} },
+    },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ModuleAccessGuard },
@@ -88,7 +93,7 @@ async function createApp(params: { gatingEnabled: boolean; enabledModules: Modul
     else process.env.JWT_SECRET = prevJwtSecret;
   }
 
-  return { app, baseUrl, token, close };
+  return { app, baseUrl, token, close, jwtSecret: process.env.JWT_SECRET! };
 }
 
 async function jsonFetch(url: string, init?: RequestInit) {
@@ -173,6 +178,34 @@ describe("pilot module gating (HTTP smoke)", () => {
     assert(voice, "voice outbound module should be present");
     assert.equal(voice.enabled, false);
     assert.equal(voice.effective, false);
+  });
+
+  it("PUT /system/modules/enabled: non-admin => 403", async () => {
+    current = await createApp({
+      gatingEnabled: false,
+      enabledModules: [
+        ModuleIds.VoiceOutbound,
+        ModuleIds.Finance,
+        ModuleIds.IntegrationsTelegram,
+        ModuleIds.CoreCrm,
+      ],
+    });
+
+    const userToken = signJwt(
+      { sub: "u1", email: "u@example.com", role: "USER", fullName: "User" },
+      current.jwtSecret,
+      { expiresInSeconds: 60 },
+    );
+
+    const res = await jsonFetch(`${current.baseUrl}/system/modules/enabled`, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${userToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ enabled: [] }),
+    });
+    assert.equal(res.res.status, 403);
   });
 });
 

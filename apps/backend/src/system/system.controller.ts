@@ -1,13 +1,31 @@
-import { Controller, Get, Inject } from "@nestjs/common";
-import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
+import { Body, Controller, Get, Inject, Put } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
+import { Roles } from "../auth/roles.decorator";
 import { ModuleStateService } from "../modules/module-state.service";
+import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
+import { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
+import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 
 @Controller("system")
 export class SystemController {
-  constructor(@Inject(ModuleStateService) private readonly modules: ModuleStateService) {}
+  constructor(
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
+    @Inject(SystemModulesEnabledWriteService) private readonly enabledWrite: SystemModulesEnabledWriteService,
+  ) {}
 
   @Get("modules")
   async listModules(): Promise<SystemModulesResponseDto> {
+    return this.buildModulesResponse();
+  }
+
+  @Put("modules/enabled")
+  @Roles(UserRole.ADMIN)
+  async updateModulesEnabled(@Body() body: UpdateSystemModulesEnabledDto): Promise<SystemModulesResponseDto> {
+    await this.enabledWrite.setPilotExtensionsEnabled(body.enabled);
+    return this.buildModulesResponse();
+  }
+
+  private async buildModulesResponse(): Promise<SystemModulesResponseDto> {
     const modules = await this.modules.listStates();
     return {
       modules: modules.map((m) => ({

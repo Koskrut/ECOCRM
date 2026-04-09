@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { UserMenu } from "@/components/UserMenu";
+import { ModulesProvider } from "@/lib/modules/useModules";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -41,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (noShell) return <>{children}</>;
 
   return (
-    <>
+    <ModulesProvider>
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
       {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
@@ -67,6 +68,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="p-4">{children}</div>
         </main>
       </div>
-    </>
+    </ModulesProvider>
   );
 }

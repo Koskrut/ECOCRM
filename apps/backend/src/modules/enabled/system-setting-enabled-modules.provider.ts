@@ -4,31 +4,14 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { MODULE_REGISTRY } from "../module-registry";
 import type { ModuleId } from "../module-ids";
 import { EnabledModulesProvider, type EnabledModulesState } from "./enabled-modules.provider";
-
-const KEY = "modules_enabled_v1";
-
-type StoredShape = {
-  enabled?: unknown;
-};
+import { MODULES_ENABLED_V1_KEY } from "./modules-enabled.constants";
+import { moduleIdSetFromPilotStorage, parseStoredPilotExtensionIds } from "./pilot-extension-enabled.util";
 
 function allEnabled(): EnabledModulesState {
   return {
     enabledModules: new Set(Object.keys(MODULE_REGISTRY) as ModuleId[]),
     source: "default_all_enabled",
   };
-}
-
-function parseEnabled(v: unknown): Set<ModuleId> | null {
-  if (!v || typeof v !== "object") return null;
-  const enabled = (v as StoredShape).enabled;
-  if (!Array.isArray(enabled)) return null;
-  const known = new Set(Object.keys(MODULE_REGISTRY) as ModuleId[]);
-  const out = new Set<ModuleId>();
-  for (const it of enabled) {
-    if (typeof it !== "string") continue;
-    if (known.has(it as ModuleId)) out.add(it as ModuleId);
-  }
-  return out;
 }
 
 @Injectable()
@@ -42,20 +25,25 @@ export class SystemSettingEnabledModulesProvider extends EnabledModulesProvider 
   async getEnabledModules(): Promise<EnabledModulesState> {
     try {
       const row = await this.prisma.systemSetting.findUnique({
-        where: { id: KEY },
+        where: { id: MODULES_ENABLED_V1_KEY },
         select: { value: true },
       });
       if (!row) return allEnabled();
 
-      const parsed = parseEnabled(row.value as Prisma.JsonValue);
-      if (!parsed) {
-        this.logger.warn(`Invalid SystemSetting '${KEY}' shape; falling back to all enabled`);
+      const pilotIds = parseStoredPilotExtensionIds(row.value as Prisma.JsonValue);
+      if (pilotIds === null) {
+        this.logger.warn(
+          `Invalid SystemSetting '${MODULES_ENABLED_V1_KEY}' shape; falling back to all enabled`,
+        );
         return { ...allEnabled(), source: "error_fallback" };
       }
-      return { enabledModules: parsed, source: "system_setting" };
+      return {
+        enabledModules: moduleIdSetFromPilotStorage(pilotIds),
+        source: "system_setting",
+      };
     } catch (e) {
       this.logger.warn(
-        `Failed to load SystemSetting '${KEY}'; falling back to all enabled: ${
+        `Failed to load SystemSetting '${MODULES_ENABLED_V1_KEY}'; falling back to all enabled: ${
           e instanceof Error ? e.message : String(e)
         }`,
       );
