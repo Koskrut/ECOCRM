@@ -11,8 +11,35 @@ const JUNK_QUERY_PARAMS = [
   "loop",
 ] as const;
 
+function isGonePath(pathname: string) {
+  return (
+    pathname === "/portfolio" ||
+    pathname.startsWith("/portfolio/") ||
+    pathname === "/project-cat" ||
+    pathname.startsWith("/project-cat/") ||
+    pathname === "/tag" ||
+    pathname.startsWith("/tag/") ||
+    pathname === "/blog" ||
+    pathname.startsWith("/blog/")
+  );
+}
+
 export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
+
+  // Post–WordPress legacy URLs: keep search traffic from hitting 404.
+  if (url.pathname === "/about-us-3" || url.pathname === "/about-us-3/") {
+    url.pathname = "/about";
+    url.search = "";
+    return NextResponse.redirect(url, 301);
+  }
+  if (isGonePath(url.pathname)) {
+    return new NextResponse("Gone", {
+      status: 410,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
   let changed = false;
   for (const key of JUNK_QUERY_PARAMS) {
     if (url.searchParams.has(key)) {
