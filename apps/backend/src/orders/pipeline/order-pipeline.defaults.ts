@@ -81,6 +81,9 @@ const ALL_STAGES = [
   ...DEFAULT_FINAL_STAGE_ORDER,
 ] as const;
 
+/** All OrderStage values in canonical order (main row then final zones). */
+export const ALL_ORDER_STAGES: OrderStage[] = [...ALL_STAGES];
+
 export function assertDefaultPipelineCoversAllStages(): void {
   const set = new Set<OrderStage>(ALL_STAGES);
   const fromKeys = new Set<OrderStage>(Object.keys(DEFAULT_ALLOWED_TRANSITIONS) as OrderStage[]);
