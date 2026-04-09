@@ -36,6 +36,7 @@ import {
   verifyMetaSignatureSha256,
 } from "./leads-meta-webhook.utils";
 import { normalizePhone, scoreLeadFromAnswers } from "./leads-meta.utils";
+import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
 
 export type MetaIngestWebhookResult =
   | { ok: true; leadId: string; deduped: boolean }
@@ -75,6 +76,7 @@ export class LeadsService {
     private readonly contactsService: ContactsService,
     private readonly companiesService: CompaniesService,
     private readonly ordersService: OrdersService,
+    private readonly leadsPipelineConfig: LeadsPipelineConfigService,
   ) {}
 
   // ===== ACCESS HELPERS =====
@@ -409,6 +411,16 @@ export class LeadsService {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException("Lead not found");
     if (actor) this.assertLeadAccess(lead, actor);
+
+    if (lead.status !== dto.status) {
+      const graph = await this.leadsPipelineConfig.getEffectiveTransitionGraph();
+      const allowed = graph[lead.status] ?? [];
+      if (!allowed.includes(dto.status)) {
+        throw new BadRequestException(
+          `Transition from status ${lead.status} to ${dto.status} is not allowed. Allowed from ${lead.status}: ${allowed.join(", ") || "none"}.`,
+        );
+      }
+    }
 
     this.ensureStatusTransition(lead.status, dto.status, lead);
 

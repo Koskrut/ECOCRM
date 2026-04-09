@@ -18,6 +18,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { Public } from "../auth/public.decorator";
 import { Roles } from "../auth/roles.decorator";
 import { LeadsService } from "./leads.service";
+import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
 import { CreateLeadDto } from "./dto/create-lead.dto";
 import { UpdateLeadDto } from "./dto/update-lead.dto";
 import { UpdateLeadStatusDto } from "./dto/update-lead-status.dto";
@@ -29,7 +30,10 @@ import { AddNoteDto } from "./dto/add-note.dto";
 
 @Controller("leads")
 export class LeadsController {
-  constructor(private readonly leads: LeadsService) {}
+  constructor(
+    private readonly leads: LeadsService,
+    private readonly leadsPipelineConfig: LeadsPipelineConfigService,
+  ) {}
 
   /** Meta Lead Ads webhook: GET verification (hub.* query params). */
   @Public()
@@ -79,6 +83,11 @@ export class LeadsController {
   @Get()
   list(@Query() q: ListLeadsQueryDto, @Req() req: Request & { user?: AuthUser }) {
     return this.leads.list(q, req.user);
+  }
+
+  @Get("pipeline")
+  getPipeline() {
+    return this.leadsPipelineConfig.getPipelineForApi();
   }
 
   @Get(":id")

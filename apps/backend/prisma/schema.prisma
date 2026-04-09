@@ -109,6 +109,13 @@ enum LeadStatus {
   SPAM
 }
 
+/// Aggregated stepper lane keys (not lead business codes). Maps multiple LeadStatus rows to one UI chip.
+enum LeadUiStepKey {
+  NEW
+  IN_PROGRESS
+  PROCESSED
+}
+
 enum LeadSource {
   FACEBOOK
   TELEGRAM
@@ -776,6 +783,19 @@ model Lead {
   @@index([phoneNormalized])
   @@index([email])
   @@index([contactId])
+}
+
+/// Configurable lead pipeline: labels, visibility, UI grouping, allowed transitions. Codes are LeadStatus only.
+model LeadPipelineStage {
+  status      LeadStatus    @id
+  sortOrder   Int
+  label       String
+  color       String?
+  visible     Boolean       @default(true)
+  allowedNext Json
+  uiStepKey   LeadUiStepKey
+
+  @@map("LeadPipelineStage")
 }
 
 model LeadMetaAttribution {
