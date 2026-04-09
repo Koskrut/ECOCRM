@@ -1,6 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentsModule } from "../payments/payments.module";
+import { SystemModule } from "../system/system.module";
 import { BankAccountsController } from "./bank-accounts.controller";
 import { BankAccountsService } from "./bank-accounts.service";
 import { BankSyncController } from "./bank-sync.controller";
@@ -11,7 +12,7 @@ import { BankTransactionsService } from "./bank-transactions.service";
 import { MatchEngineService } from "./match-engine.service";
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => PaymentsModule)],
+  imports: [PrismaModule, SystemModule, forwardRef(() => PaymentsModule)],
   controllers: [
     BankAccountsController,
     BankSyncController,

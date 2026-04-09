@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { TelegramModule } from "../integrations/telegram/telegram.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsModule } from "../settings/settings.module";
+import { SystemModule } from "../system/system.module";
 import { OutboundController } from "./outbound.controller";
 import { OutboundCampaignService } from "./outbound-campaign.service";
 import { OutboundComplianceService } from "./outbound-compliance.service";
@@ -22,7 +23,7 @@ import { OutboundCallLinkReconcileService } from "./outbound-call-link-reconcile
 import { OutboundPostCallAnalysisService } from "./outbound-post-call-analysis.service";
 
 @Module({
-  imports: [PrismaModule, SettingsModule, TelegramModule],
+  imports: [PrismaModule, SettingsModule, TelegramModule, SystemModule],
   controllers: [OutboundController, OutboundVoiceWebhookController],
   providers: [
     ScenarioRegistryService,
