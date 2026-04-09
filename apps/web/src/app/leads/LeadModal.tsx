@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
-import { LeadStepper, leadStatusToUiStage } from "./LeadStepper";
+import { LeadStepper, leadStatusToUiStage, type LeadStepperStepDef } from "./LeadStepper";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
@@ -46,6 +46,26 @@ type ContactSuggestion = {
   lastName: string;
   phone: string;
   email?: string | null;
+};
+
+type LeadPipelineUiStepKey = "NEW" | "IN_PROGRESS" | "PROCESSED";
+
+type LeadPipelineApiResponse = {
+  stages: Array<{
+    status: LeadStatus;
+    sortOrder: number;
+    label: string;
+    color: string | null;
+    visible: boolean;
+    uiStepKey: LeadPipelineUiStepKey;
+    allowedNext: LeadStatus[];
+  }>;
+  uiSteps: Array<{
+    key: LeadPipelineUiStepKey;
+    label: string;
+    color: "sky" | "amber" | "emerald";
+    memberStatuses: LeadStatus[];
+  }>;
 };
 
 type PublicLeadSourceMetaView = {
@@ -102,6 +122,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
   const [saving, setSaving] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [leadPipelineConfig, setLeadPipelineConfig] = useState<LeadPipelineApiResponse | null>(null);
 
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
@@ -287,6 +308,39 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setLoading(false);
     }
   }, [leadId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await apiHttp.get<LeadPipelineApiResponse>("/leads/pipeline");
+        if (!cancelled) setLeadPipelineConfig(data);
+      } catch {
+        if (!cancelled) setLeadPipelineConfig(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [leadId]);
+
+  const leadStepperSteps = useMemo((): LeadStepperStepDef[] | undefined => {
+    if (!leadPipelineConfig?.uiSteps?.length) return undefined;
+    return leadPipelineConfig.uiSteps.map((u) => ({
+      key: u.key,
+      label: u.label,
+      color: u.color,
+    }));
+  }, [leadPipelineConfig]);
+
+  const leadStatusToUiStepMap = useMemo((): Partial<Record<LeadStatus, LeadPipelineUiStepKey>> | null => {
+    if (!leadPipelineConfig?.stages?.length) return null;
+    const m: Partial<Record<LeadStatus, LeadPipelineUiStepKey>> = {};
+    for (const s of leadPipelineConfig.stages) {
+      m[s.status] = s.uiStepKey;
+    }
+    return m;
+  }, [leadPipelineConfig]);
 
   // Product search for adding items
   useEffect(() => {
@@ -1610,7 +1664,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     lead ? (
       <div className="space-y-2">
         <LeadStepper
-          stage={leadStatusToUiStage(lead.status)}
+          stage={leadStatusToUiStage(lead.status, leadStatusToUiStepMap)}
+          steps={leadStepperSteps}
           disabled={statusUpdating}
           onStepClick={(key) => {
             const terminal = ["WON", "NOT_TARGET", "LOST", "SPAM"].includes(lead.status);

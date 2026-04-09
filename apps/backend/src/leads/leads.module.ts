@@ -6,11 +6,12 @@ import { CompaniesModule } from "../companies/companies.module";
 import { SettingsModule } from "../settings/settings.module";
 import { LeadsController } from "./leads.controller";
 import { LeadsService } from "./leads.service";
+import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
 
 @Module({
   imports: [PrismaModule, SettingsModule, ContactsModule, OrdersModule, CompaniesModule],
   controllers: [LeadsController],
-  providers: [LeadsService],
+  providers: [LeadsService, LeadsPipelineConfigService],
 })
 export class LeadsModule {}
 
