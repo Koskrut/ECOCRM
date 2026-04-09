@@ -70,8 +70,8 @@ type BoardFilters = {
   sortDir?: "asc" | "desc";
 };
 
-/** Main row: active stages (board API excludes COMPLETED, CANCELED, REFUSED, RETURN_IN_PROGRESS). */
-const MAIN_STAGE_ORDER: OrderStage[] = [
+/** Fallback when GET /orders/pipeline fails — mirrors backend order-pipeline.defaults.ts. */
+const FALLBACK_MAIN_STAGE_ORDER: OrderStage[] = [
   "NEW",
   "AWAITING_PAYMENT",
   "AWAITING_STOCK",
@@ -80,6 +80,13 @@ const MAIN_STAGE_ORDER: OrderStage[] = [
   "SHIPPED",
   "AWAITING_RECEIPT",
   "RECEIVED",
+];
+
+const FALLBACK_FINAL_DROP_ZONES: { id: OrderStage; label: string; className: string }[] = [
+  { id: "COMPLETED", label: "Завершено", className: "border-emerald-300 bg-emerald-50/80" },
+  { id: "CANCELED", label: "Скасовано", className: "border-red-300 bg-red-50/80" },
+  { id: "REFUSED", label: "Відмова", className: "border-orange-300 bg-orange-50/80" },
+  { id: "RETURN_IN_PROGRESS", label: "Повернення", className: "border-amber-300 bg-amber-50/80" },
 ];
 
 const STAGE_LABELS: Record<OrderStage, string> = {
@@ -108,6 +115,15 @@ function resolveStage(o: BoardOrder): OrderStage {
   return "NEW";
 }
 
+type PipelineStageRow = {
+  stage: OrderStage;
+  sortOrder: number;
+  label: string;
+  color: string | null;
+  kanbanGroup: "MAIN" | "FINAL";
+  allowedNext: OrderStage[];
+};
+
 export function OrdersKanban({
   onOpenOrder,
   filters,
@@ -118,6 +134,7 @@ export function OrdersKanban({
   refreshKey?: number;
 }) {
   const [list, setList] = useState<OrdersListResponse | null>(null);
+  const [pipeline, setPipeline] = useState<PipelineStageRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -125,6 +142,54 @@ export function OrdersKanban({
   const [dragOver, setDragOver] = useState<OrderStage | null>(null);
   /** На мобильных: индекс выбранной колонки (одна колонка на экран). */
   const [selectedStageIndex, setSelectedStageIndex] = useState(0);
+
+  const loadPipeline = useCallback(async () => {
+    try {
+      const res = await apiHttp.get<{ stages: PipelineStageRow[] }>("/orders/pipeline");
+      const stages = res.data?.stages;
+      if (Array.isArray(stages) && stages.length >= 12) setPipeline(stages);
+      else setPipeline(null);
+    } catch {
+      setPipeline(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPipeline();
+  }, [loadPipeline, refreshKey]);
+
+  const mainBoardStages = useMemo((): PipelineStageRow[] => {
+    if (pipeline?.length) {
+      const mains = pipeline
+        .filter((s) => s.kanbanGroup === "MAIN")
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      if (mains.length > 0) return mains;
+    }
+    return FALLBACK_MAIN_STAGE_ORDER.map((stage, idx) => ({
+      stage,
+      sortOrder: idx,
+      label: STAGE_LABELS[stage],
+      color: null,
+      kanbanGroup: "MAIN" as const,
+      allowedNext: [],
+    }));
+  }, [pipeline]);
+
+  const finalDropZones = useMemo(() => {
+    if (pipeline?.length) {
+      const finals = pipeline
+        .filter((s) => s.kanbanGroup === "FINAL")
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      if (finals.length > 0) {
+        return finals.map((s) => ({
+          id: s.stage,
+          label: s.label,
+          className: s.color ?? "border-zinc-200 bg-zinc-50/80",
+        }));
+      }
+    }
+    return FALLBACK_FINAL_DROP_ZONES;
+  }, [pipeline]);
 
   const columns: BoardColumn[] = useMemo(() => {
     const items = list?.items ?? [];
@@ -146,12 +211,12 @@ export function OrdersKanban({
       const st = resolveStage(o);
       map[st].push(o);
     }
-    return MAIN_STAGE_ORDER.map((st) => ({
-      id: st,
-      title: STAGE_LABELS[st],
-      items: map[st],
+    return mainBoardStages.map((cfg) => ({
+      id: cfg.stage,
+      title: cfg.label,
+      items: map[cfg.stage],
     }));
-  }, [list]);
+  }, [list, mainBoardStages]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -253,13 +318,6 @@ export function OrdersKanban({
   if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
   if (err) return <div className="text-sm text-red-600">{err}</div>;
   if (!list) return null;
-
-  const finalDropZones: { id: OrderStage; label: string; className: string }[] = [
-    { id: "COMPLETED", label: "Завершено", className: "border-emerald-300 bg-emerald-50/80" },
-    { id: "CANCELED", label: "Скасовано", className: "border-red-300 bg-red-50/80" },
-    { id: "REFUSED", label: "Відмова", className: "border-orange-300 bg-orange-50/80" },
-    { id: "RETURN_IN_PROGRESS", label: "Повернення", className: "border-amber-300 bg-amber-50/80" },
-  ];
 
   return (
     <div className="space-y-4">

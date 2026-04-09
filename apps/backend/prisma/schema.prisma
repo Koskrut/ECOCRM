@@ -269,6 +269,12 @@ enum OrderStage {
   RETURN_IN_PROGRESS
 }
 
+/// Kanban grouping: main swimlane columns vs bottom final drop zones.
+enum OrderKanbanGroup {
+  MAIN
+  FINAL
+}
+
 enum DeliveryStatus {
   NOT_SHIPPED
   SHIPPED
@@ -1065,6 +1071,18 @@ model StoreTelegramLinkToken {
 model OrderNumberSeq {
   id        String @id @default(cuid())
   nextValue Int
+}
+
+/// Configurable order stage pipeline (labels, order, transitions). Enum `OrderStage` remains system codes.
+model OrderPipelineStage {
+  stage        OrderStage       @id
+  sortOrder    Int
+  label        String
+  color        String?
+  kanbanGroup  OrderKanbanGroup
+  allowedNext  Json
+
+  @@map("OrderPipelineStage")
 }
 
 model Order {

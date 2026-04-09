@@ -22,6 +22,7 @@ import { Roles } from "../auth/roles.decorator";
 import { UserRole } from "@prisma/client";
 import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { OrdersDocumentsService } from "./orders-documents.service";
+import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { OrdersService } from "./orders.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderReturnDto } from "../order-returns/dto/create-order-return.dto";
@@ -41,11 +42,17 @@ export class OrdersController {
     private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
     private readonly ordersDocuments: OrdersDocumentsService,
     private readonly orderReturns: OrderReturnsService,
+    private readonly ordersPipelineConfig: OrdersPipelineConfigService,
   ) {}
 
   @Get()
   list(@Query() q: ListOrdersQueryDto, @Req() req: Request & { user?: AuthUser }) {
     return this.orders.list(q, req.user);
+  }
+
+  @Get("pipeline")
+  getPipeline(@Req() _req: Request & { user?: AuthUser }) {
+    return this.ordersPipelineConfig.getPipelineForApi();
   }
 
   @Get(":id/payments")

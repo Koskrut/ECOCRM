@@ -1,43 +1,14 @@
 /**
  * Phase 2: Allowed orderStage transitions and business validations.
- * Single source of truth for "can we go from A to B?" and prepayment/deferred rules.
- *
- * Linear flow: NEW → (PREPAYMENT only: AWAITING_PAYMENT) → AWAITING_STOCK → CONFIRMED → READY_TO_SHIP → …
+ * Transition graph edges are supplied by caller (from DB pipeline config with fallback to defaults).
+ * This module adds payment-type rules, cancel/refuse/return constraints, and prepayment payment gates.
  */
 
 import type { OrderStage, PaymentType } from "@prisma/client";
 import { BadRequestException } from "@nestjs/common";
+import { DEFAULT_FINAL_STAGE_ORDER, DEFAULT_MAIN_STAGE_ORDER } from "./pipeline/order-pipeline.defaults";
 
-const STAGES: OrderStage[] = [
-  "NEW",
-  "AWAITING_PAYMENT",
-  "AWAITING_STOCK",
-  "CONFIRMED",
-  "READY_TO_SHIP",
-  "SHIPPED",
-  "AWAITING_RECEIPT",
-  "RECEIVED",
-  "COMPLETED",
-  "CANCELED",
-  "REFUSED",
-  "RETURN_IN_PROGRESS",
-];
-
-/** Graph edges; validateOrderStageTransition adds payment-type rules for NEW and AWAITING_PAYMENT. */
-const ALLOWED_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
-  NEW: ["AWAITING_PAYMENT", "AWAITING_STOCK", "CANCELED"],
-  AWAITING_PAYMENT: ["AWAITING_STOCK", "NEW", "CANCELED"],
-  AWAITING_STOCK: ["CONFIRMED", "NEW", "CANCELED"],
-  CONFIRMED: ["READY_TO_SHIP", "AWAITING_STOCK", "CANCELED", "NEW"],
-  READY_TO_SHIP: ["SHIPPED", "CONFIRMED", "CANCELED"],
-  SHIPPED: ["AWAITING_RECEIPT", "REFUSED"],
-  AWAITING_RECEIPT: ["RECEIVED", "REFUSED"],
-  RECEIVED: ["COMPLETED", "RETURN_IN_PROGRESS"],
-  COMPLETED: ["RETURN_IN_PROGRESS"],
-  CANCELED: ["NEW"],
-  REFUSED: [],
-  RETURN_IN_PROGRESS: [],
-};
+const STAGES: OrderStage[] = [...DEFAULT_MAIN_STAGE_ORDER, ...DEFAULT_FINAL_STAGE_ORDER];
 
 /** Stages that are "before shipment" for cancel rule. */
 const BEFORE_SHIPPED: Set<OrderStage> = new Set([
@@ -81,35 +52,33 @@ function isPrepayment(ctx: OrderContext): boolean {
 }
 
 /**
- * Validates transition from current stage to toStage and business rules.
- * Throws BadRequestException with a message if not allowed.
+ * Validates transition from current stage to toStage using the supplied graph, then business rules.
  */
 export function validateOrderStageTransition(
   currentStage: OrderStage | null | undefined,
   toStage: OrderStage,
   ctx: OrderContext,
+  allowedTransitions: Record<OrderStage, OrderStage[]>,
 ): void {
   const from = resolveCurrentStage(currentStage, "NEW");
 
   if (from === toStage) {
-    return; // no-op allowed
+    return;
   }
 
-  const allowed = ALLOWED_TRANSITIONS[from];
+  const allowed = allowedTransitions[from];
   if (!allowed?.includes(toStage)) {
     throw new BadRequestException(
       `Transition from stage ${from} to ${toStage} is not allowed. Allowed from ${from}: ${allowed?.join(", ") ?? "none"}.`,
     );
   }
 
-  // AWAITING_PAYMENT exists only for prepayment orders
   if (toStage === "AWAITING_PAYMENT" && !isPrepayment(ctx)) {
     throw new BadRequestException(
       "Awaiting payment stage is only for prepayment orders. Change payment type to prepayment or use another stage.",
     );
   }
 
-  // NEW: prepayment → only AWAITING_PAYMENT (+ CANCELED already ok); deferred/null → only AWAITING_STOCK
   if (from === "NEW") {
     if (isPrepayment(ctx) && toStage === "AWAITING_STOCK") {
       throw new BadRequestException(
@@ -123,7 +92,6 @@ export function validateOrderStageTransition(
     }
   }
 
-  // CANCELED: only before SHIPPED
   if (toStage === "CANCELED") {
     if (!BEFORE_SHIPPED.has(from)) {
       throw new BadRequestException(
@@ -133,7 +101,6 @@ export function validateOrderStageTransition(
     return;
   }
 
-  // REFUSED: only from SHIPPED or AWAITING_RECEIPT
   if (toStage === "REFUSED") {
     if (!CAN_REFUSE.has(from)) {
       throw new BadRequestException(
@@ -143,7 +110,6 @@ export function validateOrderStageTransition(
     return;
   }
 
-  // RETURN_IN_PROGRESS: only after RECEIVED or from COMPLETED
   if (toStage === "RETURN_IN_PROGRESS") {
     if (!CAN_RETURN.has(from)) {
       throw new BadRequestException(
@@ -153,7 +119,6 @@ export function validateOrderStageTransition(
     return;
   }
 
-  // PREPAYMENT: cannot enter shipping/received/completed without full payment
   if (ctx.paymentType === "PREPAYMENT" && REQUIRES_PAYMENT_FOR_PREPAYMENT.has(toStage)) {
     const total = Number(ctx.totalAmount ?? 0);
     const paid = Number(ctx.paidAmount ?? 0);
@@ -165,7 +130,10 @@ export function validateOrderStageTransition(
   }
 }
 
-export function getAllowedTransitions(fromStage: OrderStage | null | undefined): OrderStage[] {
+export function getAllowedTransitions(
+  fromStage: OrderStage | null | undefined,
+  allowedTransitions: Record<OrderStage, OrderStage[]>,
+): OrderStage[] {
   const from = resolveCurrentStage(fromStage, "NEW");
-  return ALLOWED_TRANSITIONS[from] ?? [];
+  return allowedTransitions[from] ?? [];
 }

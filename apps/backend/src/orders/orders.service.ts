@@ -31,6 +31,7 @@ import {
   orderStageToLegacyStatus,
 } from "./order-status-sync.mapper";
 import { validateOrderStageTransition } from "./order-stage-transitions";
+import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -74,6 +75,7 @@ export class OrdersService {
     private readonly warehousesService: WarehousesService,
     private readonly settings: SettingsService,
     private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
+    private readonly ordersPipelineConfig: OrdersPipelineConfigService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
@@ -996,13 +998,14 @@ export class OrdersService {
     if (!current) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(current, actor);
 
+    const transitionGraph = await this.ordersPipelineConfig.getEffectiveTransitionGraph();
     validateOrderStageTransition(current.orderStage, toStage, {
       orderStage: current.orderStage,
       paymentType: current.paymentType,
       paidAmount: current.paidAmount,
       totalAmount: current.totalAmount,
       debtAmount: current.debtAmount,
-    });
+    }, transitionGraph);
 
     const deliveryStatus = orderStageToDeliveryStatus(toStage);
     const financialStatus = computeFinancialStatusFromOrder({
