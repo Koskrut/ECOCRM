@@ -1,6 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
+import { ModuleStateService } from "../modules/module-state.service";
+import { ModuleIds } from "../modules/module-ids";
 import { PrismaService } from "../prisma/prisma.service";
 import { BankSyncService } from "./bank-sync.service";
 
@@ -9,8 +11,9 @@ export class BankSyncCron {
   private readonly logger = new Logger(BankSyncCron.name);
 
   constructor(
-    private readonly sync: BankSyncService,
-    private readonly prisma: PrismaService,
+    @Inject(BankSyncService) private readonly sync: BankSyncService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
   /** Working hours 08:00–20:00: every 2 minutes */
@@ -27,6 +30,10 @@ export class BankSyncCron {
 
   private async run() {
     if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Finance);
+      if (!ok) return;
+    }
     try {
       const r = await withRetryOnConnectionClosed(() => this.sync.syncAll(), {
         onBeforeRetry: async () => {
@@ -34,7 +41,9 @@ export class BankSyncCron {
           await this.prisma.$connect();
         },
       });
-      this.logger.log(`Bank sync done: accounts=${r.accounts}, imported=${r.transactionsImported}, matched=${r.matched}`);
+      this.logger.log(
+        `Bank sync done: accounts=${r.accounts}, imported=${r.transactionsImported}, matched=${r.matched}`,
+      );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Bank sync failed: ${msg}`);

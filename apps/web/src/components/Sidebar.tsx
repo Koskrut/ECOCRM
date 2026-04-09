@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
 import { strings } from "@/locales";
+import { ModuleIds } from "@/lib/modules/module-ids";
+import { useModules } from "@/lib/modules/useModules";
 
 type MenuItem = {
   label: string;
@@ -64,6 +66,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+  const { status: modulesStatus, effective: moduleEffective } = useModules();
 
   useEffect(() => {
     const checkMobile = () => {
@@ -83,6 +86,19 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       : role === "MANAGER" || role === "LEAD"
         ? managerMenuItems
         : baseMenuItems;
+
+  // Phase 1: module visibility gating (fail-open on loading/error).
+  const gatedMenuItems =
+    modulesStatus === "ready"
+      ? menuItems.filter((it) => {
+          if (it.href.startsWith("/outbound")) return moduleEffective(ModuleIds.VoiceOutbound);
+          if (it.href.startsWith("/payments")) return moduleEffective(ModuleIds.Finance);
+          if (it.href.startsWith("/inbox/telegram")) {
+            return moduleEffective(ModuleIds.IntegrationsTelegram);
+          }
+          return true;
+        })
+      : menuItems;
 
   // Detect mobile on mount
   useEffect(() => {
@@ -176,7 +192,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             </button>
           </div>
           <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-            {menuItems.map((item) => {
+            {gatedMenuItems.map((item) => {
               const isActive =
                 item.href === "/"
                   ? pathname === "/"
@@ -239,7 +255,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         </button>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-        {menuItems.map((item) => {
+        {gatedMenuItems.map((item) => {
           const isActive =
             item.href === "/"
               ? pathname === "/"
@@ -250,7 +266,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                   : item.href === "/work/calls"
                     ? pathname === "/work/calls"
                     : item.href === "/work/calls/history"
-                      ? pathname === "/work/calls/history" || pathname.startsWith("/work/calls/history/")
+                      ? pathname === "/work/calls/history" ||
+                        pathname.startsWith("/work/calls/history/")
                       : pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (

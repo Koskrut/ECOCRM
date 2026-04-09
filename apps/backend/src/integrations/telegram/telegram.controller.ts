@@ -4,6 +4,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Inject,
   Post,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -11,14 +12,17 @@ import { Public } from "../../auth/public.decorator";
 import { SettingsService } from "../../settings/settings.service";
 import { TelegramService } from "./telegram.service";
 import type { TelegramUpdate } from "./telegram.types";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
 
 const WEBHOOK_SECRET_HEADER = "x-telegram-bot-api-secret-token";
 
 @Controller("integrations/telegram")
+@RequireModule(ModuleIds.IntegrationsTelegram)
 export class TelegramController {
   constructor(
-    private readonly telegramService: TelegramService,
-    private readonly settings: SettingsService,
+    @Inject(TelegramService) private readonly telegramService: TelegramService,
+    @Inject(SettingsService) private readonly settings: SettingsService,
   ) {}
 
   @Public()

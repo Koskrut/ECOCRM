@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -11,10 +22,13 @@ import type { CreateCashPaymentDto } from "./dto/create-cash-payment.dto";
 import type { ListPaymentsQueryDto } from "./dto/list-payments-query.dto";
 import type { UpdatePaymentDto } from "./dto/update-payment.dto";
 import type { SplitPaymentDto } from "./dto/split-payment.dto";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 
 @Controller("payments")
+@RequireModule(ModuleIds.Finance)
 export class PaymentsController {
-  constructor(private readonly service: PaymentsService) {}
+  constructor(@Inject(PaymentsService) private readonly service: PaymentsService) {}
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)

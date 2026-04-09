@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Sidebar } from "../components/Sidebar";
+import { ModulesProvider } from "@/lib/modules/useModules";
 
 type LayoutClientProps = {
   children: React.ReactNode;
@@ -96,30 +97,32 @@ export function LayoutClient({ children }: LayoutClientProps) {
 
   return (
     <>
-      <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+      <ModulesProvider>
+        <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
-      <div
-        className="min-h-screen transition-all duration-300"
-        style={{ paddingLeft: `${sidebarWidthPx}px` }}
-      >
-        {/* Top bar for mobile */}
-        {isMobile && (
-          <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-zinc-200 bg-white px-4">
-            <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              className="rounded-md p-2 text-zinc-600 hover:bg-zinc-100"
-              aria-label="Open menu"
-            >
-              ☰
-            </button>
-            <h1 className="text-lg font-semibold text-zinc-900">{getPageTitle(pathname)}</h1>
-          </header>
-        )}
+        <div
+          className="min-h-screen transition-all duration-300"
+          style={{ paddingLeft: `${sidebarWidthPx}px` }}
+        >
+          {/* Top bar for mobile */}
+          {isMobile && (
+            <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-zinc-200 bg-white px-4">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="rounded-md p-2 text-zinc-600 hover:bg-zinc-100"
+                aria-label="Open menu"
+              >
+                ☰
+              </button>
+              <h1 className="text-lg font-semibold text-zinc-900">{getPageTitle(pathname)}</h1>
+            </header>
+          )}
 
-        {/* Main content */}
-        <main className={isMobile ? "" : ""}>{children}</main>
-      </div>
+          {/* Main content */}
+          <main className={isMobile ? "" : ""}>{children}</main>
+        </div>
+      </ModulesProvider>
     </>
   );
 }
