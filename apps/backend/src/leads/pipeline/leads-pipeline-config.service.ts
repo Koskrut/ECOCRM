@@ -1,7 +1,9 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type { LeadPipelineStage, LeadStatus, LeadUiStepKey } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { LeadPipelineConfigResponseDto, LeadPipelineStageDto } from "../dto/lead-pipeline.dto";
+import type { PutLeadPipelineDto, PutLeadPipelineStageDto } from "../dto/put-lead-pipeline.dto";
 import {
   ALL_LEAD_STATUSES,
   STEPPER_COLOR_BY_UI_STEP_KEY,
@@ -9,6 +11,7 @@ import {
   STEPPER_UI_KEY_ORDER,
   buildDefaultPipelineRows,
   buildFullAllowedTransitions,
+  deriveUiStepKey,
 } from "./lead-pipeline.defaults";
 
 @Injectable()
@@ -32,6 +35,33 @@ export class LeadsPipelineConfigService {
       graph[s.status] = s.allowedNext;
     }
     return graph;
+  }
+
+  /**
+   * Full snapshot replace (ADMIN only — enforced on controller). Validates strictly; all-or-nothing transaction.
+   * Persists uiStepKey = deriveUiStepKey(status) so DB always matches canonical mapping.
+   */
+  async putPipelineSnapshot(dto: PutLeadPipelineDto): Promise<LeadPipelineConfigResponseDto> {
+    this.assertPutPayloadValid(dto.stages);
+    await this.prisma.$transaction(
+      dto.stages.map((row) =>
+        this.prisma.leadPipelineStage.update({
+          where: { status: row.status },
+          data: {
+            sortOrder: row.sortOrder,
+            label: row.label.trim(),
+            color:
+              row.color != null && String(row.color).trim() !== ""
+                ? String(row.color).trim().slice(0, 500)
+                : null,
+            visible: row.visible,
+            allowedNext: row.allowedNext as unknown as Prisma.InputJsonValue,
+            uiStepKey: deriveUiStepKey(row.status),
+          },
+        }),
+      ),
+    );
+    return this.getPipelineForApi();
   }
 
   async getPipelineForApi(): Promise<LeadPipelineConfigResponseDto> {
@@ -90,7 +120,7 @@ export class LeadsPipelineConfigService {
         label: row.label,
         color: row.color,
         visible: row.visible,
-        uiStepKey: row.uiStepKey,
+        uiStepKey: deriveUiStepKey(row.status),
         allowedNext: allowed,
       });
     }
@@ -105,10 +135,68 @@ export class LeadsPipelineConfigService {
   private parseAllowedNext(raw: unknown, allSet: Set<LeadStatus>): LeadStatus[] | null {
     if (!Array.isArray(raw)) return null;
     const out: LeadStatus[] = [];
+    const seen = new Set<LeadStatus>();
     for (const x of raw) {
       if (typeof x !== "string" || !allSet.has(x as LeadStatus)) return null;
-      out.push(x as LeadStatus);
+      const s = x as LeadStatus;
+      if (seen.has(s)) return null;
+      seen.add(s);
+      out.push(s);
     }
     return out;
+  }
+
+  private assertPutPayloadValid(rows: PutLeadPipelineStageDto[]): void {
+    const n = ALL_LEAD_STATUSES.length;
+    if (rows.length !== n) {
+      throw new BadRequestException(`Expected exactly ${n} stages`);
+    }
+    const statusKeys = new Set<LeadStatus>();
+    const expected = new Set<LeadStatus>(ALL_LEAD_STATUSES);
+    const sortOrders: number[] = [];
+
+    for (const r of rows) {
+      if (statusKeys.has(r.status)) {
+        throw new BadRequestException(`Duplicate status: ${r.status}`);
+      }
+      statusKeys.add(r.status);
+      if (!expected.has(r.status)) {
+        throw new BadRequestException(`Unknown status: ${r.status}`);
+      }
+      sortOrders.push(r.sortOrder);
+
+      const label = r.label?.trim() ?? "";
+      if (!label) {
+        throw new BadRequestException(`Empty label for status ${r.status}`);
+      }
+
+      const seenNext = new Set<LeadStatus>();
+      for (const t of r.allowedNext) {
+        if (!expected.has(t)) {
+          throw new BadRequestException(`Invalid allowedNext target ${t} from ${r.status}`);
+        }
+        if (seenNext.has(t)) {
+          throw new BadRequestException(`Duplicate allowedNext ${t} from ${r.status}`);
+        }
+        seenNext.add(t);
+      }
+    }
+
+    for (const s of ALL_LEAD_STATUSES) {
+      if (!statusKeys.has(s)) {
+        throw new BadRequestException(`Missing status: ${s}`);
+      }
+    }
+
+    const uniqueOrd = new Set(sortOrders);
+    if (uniqueOrd.size !== n) {
+      throw new BadRequestException("sortOrder values must be unique");
+    }
+    const sortedOrd = [...sortOrders].sort((a, b) => a - b);
+    for (let i = 0; i < n; i++) {
+      if (sortedOrd[i] !== i) {
+        throw new BadRequestException(`sortOrder must be dense integers 0..${n - 1}`);
+      }
+    }
   }
 }

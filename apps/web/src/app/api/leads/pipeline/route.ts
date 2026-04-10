@@ -4,3 +4,7 @@ import { proxyToBackend } from "@/lib/api/proxy";
 export async function GET(req: NextRequest) {
   return proxyToBackend(req, "/leads/pipeline");
 }
+
+export async function PUT(req: NextRequest) {
+  return proxyToBackend(req, "/leads/pipeline");
+}

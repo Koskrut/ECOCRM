@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -27,6 +28,7 @@ import { ListLeadsQueryDto } from "./dto/list-leads-query.dto";
 import { MetaIngestDto } from "./dto/meta-ingest.dto";
 import { MetaSyncFormDto } from "./dto/meta-sync-form.dto";
 import { AddNoteDto } from "./dto/add-note.dto";
+import { PutLeadPipelineDto } from "./dto/put-lead-pipeline.dto";
 
 @Controller("leads")
 export class LeadsController {
@@ -88,6 +90,12 @@ export class LeadsController {
   @Get("pipeline")
   getPipeline() {
     return this.leadsPipelineConfig.getPipelineForApi();
+  }
+
+  @Put("pipeline")
+  @Roles(UserRole.ADMIN)
+  putPipeline(@Body() dto: PutLeadPipelineDto) {
+    return this.leadsPipelineConfig.putPipelineSnapshot(dto);
   }
 
   @Get(":id")
