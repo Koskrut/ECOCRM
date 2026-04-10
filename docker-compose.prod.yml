@@ -39,6 +39,11 @@ services:
       BITRIX_MYSQL_USER: ${BITRIX_MYSQL_USER}
       BITRIX_MYSQL_PASSWORD: ${BITRIX_MYSQL_PASSWORD}
       BITRIX_MYSQL_DATABASE: ${BITRIX_MYSQL_DATABASE}
+      # Optional release metadata for GET /system/release (set in .env or CI build)
+      CRM_RELEASE_VERSION: ${CRM_RELEASE_VERSION:-}
+      GIT_SHA: ${GIT_SHA:-}
+      BUILD_TIME: ${BUILD_TIME:-}
+      IMAGE_TAG: ${IMAGE_TAG:-}
     depends_on:
       postgres:
         condition: service_healthy

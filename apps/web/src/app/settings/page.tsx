@@ -4,8 +4,22 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 
+type SystemReleaseResponse = {
+  version: string | null;
+  gitSha: string | null;
+  builtAt: string | null;
+  imageTag: string | null;
+  update: { mode: string; state: string; message: string };
+};
+
+function dash(v: string | null | undefined): string {
+  return v != null && v !== "" ? v : "—";
+}
+
 export default function SettingsHomePage() {
   const [role, setRole] = useState<string | null>(null);
+  const [release, setRelease] = useState<SystemReleaseResponse | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
 
   useEffect(() => {
     apiHttp
@@ -14,11 +28,70 @@ export default function SettingsHomePage() {
       .catch(() => setRole(null));
   }, []);
 
+  useEffect(() => {
+    if (role !== "ADMIN") return;
+    let cancelled = false;
+    setReleaseError(null);
+    apiHttp
+      .get<SystemReleaseResponse>("/system/release")
+      .then((r) => {
+        if (!cancelled) setRelease(r.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRelease(null);
+          setReleaseError("Could not load release info.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
+
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-6xl">
         <h1 className="mb-2 text-2xl font-bold text-zinc-900">Settings</h1>
         <p className="mb-6 text-sm text-zinc-500">Manage system configuration</p>
+
+        {role === "ADMIN" ? (
+          <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
+            <div className="font-semibold text-zinc-900">Release</div>
+            <p className="mt-1 text-zinc-500">
+              Read-only deployment metadata from the API. Updates are done on the server by the
+              operator, not from this UI.
+            </p>
+            {releaseError ? (
+              <p className="mt-2 text-red-600">{releaseError}</p>
+            ) : release ? (
+              <dl className="mt-3 grid gap-1 sm:grid-cols-2">
+                <div>
+                  <dt className="text-zinc-500">Version</dt>
+                  <dd className="font-mono text-zinc-900">{dash(release.version)}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Git SHA</dt>
+                  <dd className="font-mono text-zinc-900">{dash(release.gitSha)}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Built at</dt>
+                  <dd className="font-mono text-zinc-900">{dash(release.builtAt)}</dd>
+                </div>
+                <div>
+                  <dt className="text-zinc-500">Image tag</dt>
+                  <dd className="font-mono text-zinc-900">{dash(release.imageTag)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="mt-2 text-zinc-400">Loading…</p>
+            )}
+            {release ? (
+              <p className="mt-3 border-t border-zinc-100 pt-3 text-zinc-600">
+                {release.update.message}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
@@ -50,7 +123,8 @@ export default function SettingsHomePage() {
             >
               <div className="text-sm font-semibold text-zinc-900">Orders pipeline</div>
               <div className="mt-1 text-sm text-zinc-500">
-                Колонки канбану, підписи та дозволені переходи стадій (лише читання для інших ролей у UI замовлень).
+                Колонки канбану, підписи та дозволені переходи стадій (лише читання для інших ролей
+                у UI замовлень).
               </div>
             </Link>
           ) : null}
@@ -162,9 +236,7 @@ export default function SettingsHomePage() {
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
             <div className="text-sm font-semibold text-zinc-900">Employees</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Manage employees and their roles
-            </div>
+            <div className="mt-1 text-sm text-zinc-500">Manage employees and their roles</div>
           </Link>
 
           <div className="rounded-lg border border-zinc-200 bg-white p-5 text-sm text-zinc-400">

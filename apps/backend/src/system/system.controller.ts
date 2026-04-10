@@ -3,14 +3,18 @@ import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
 import { ModuleStateService } from "../modules/module-state.service";
 import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
-import { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
+import type { SystemReleaseDto } from "./dto/system-release.dto";
+import type { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
 import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
+import { SystemReleaseService } from "./system-release.service";
 
 @Controller("system")
 export class SystemController {
   constructor(
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
-    @Inject(SystemModulesEnabledWriteService) private readonly enabledWrite: SystemModulesEnabledWriteService,
+    @Inject(SystemModulesEnabledWriteService)
+    private readonly enabledWrite: SystemModulesEnabledWriteService,
+    @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
   ) {}
 
   @Get("modules")
@@ -18,9 +22,17 @@ export class SystemController {
     return this.buildModulesResponse();
   }
 
+  @Get("release")
+  @Roles(UserRole.ADMIN)
+  release(): SystemReleaseDto {
+    return this.releaseService.getRelease();
+  }
+
   @Put("modules/enabled")
   @Roles(UserRole.ADMIN)
-  async updateModulesEnabled(@Body() body: UpdateSystemModulesEnabledDto): Promise<SystemModulesResponseDto> {
+  async updateModulesEnabled(
+    @Body() body: UpdateSystemModulesEnabledDto,
+  ): Promise<SystemModulesResponseDto> {
     await this.enabledWrite.setPilotExtensionsEnabled(body.enabled);
     return this.buildModulesResponse();
   }

@@ -19,6 +19,7 @@ import { ModuleStateService } from "../module-state.service";
 
 import { SystemController } from "../../system/system.controller";
 import { SystemModulesEnabledWriteService } from "../../system/system-modules-enabled-write.service";
+import { SystemReleaseService } from "../../system/system-release.service";
 import { PaymentsController } from "../../payments/payments.controller";
 import { OutboundVoiceWebhookController } from "../../outbound/outbound-voice-webhook.controller";
 
@@ -58,6 +59,7 @@ class TestLicenseStateProvider extends LicenseStateProvider {
       provide: SystemModulesEnabledWriteService,
       useValue: { setPilotExtensionsEnabled: async () => {} },
     },
+    SystemReleaseService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ModuleAccessGuard },
@@ -204,6 +206,66 @@ describe("pilot module gating (HTTP smoke)", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({ enabled: [] }),
+    });
+    assert.equal(res.res.status, 403);
+  });
+
+  it("GET /system/release: admin returns env-backed fields", async () => {
+    const prev = {
+      CRM_RELEASE_VERSION: process.env.CRM_RELEASE_VERSION,
+      GIT_SHA: process.env.GIT_SHA,
+      BUILD_TIME: process.env.BUILD_TIME,
+      IMAGE_TAG: process.env.IMAGE_TAG,
+    };
+    process.env.CRM_RELEASE_VERSION = "9.9.9";
+    process.env.GIT_SHA = "deadbeef";
+    process.env.BUILD_TIME = "2026-01-01T00:00:00Z";
+    process.env.IMAGE_TAG = "test:9";
+
+    try {
+      current = await createApp({
+        gatingEnabled: false,
+        enabledModules: [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound],
+      });
+      const res = await jsonFetch(`${current.baseUrl}/system/release`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${current.token}` },
+      });
+      assert.equal(res.res.status, 200);
+      const body = res.body as {
+        version: string | null;
+        gitSha: string | null;
+        builtAt: string | null;
+        imageTag: string | null;
+        update: { mode: string; state: string };
+      };
+      assert.equal(body.version, "9.9.9");
+      assert.equal(body.gitSha, "deadbeef");
+      assert.equal(body.builtAt, "2026-01-01T00:00:00Z");
+      assert.equal(body.imageTag, "test:9");
+      assert.equal(body.update.mode, "operator_only");
+      assert.equal(body.update.state, "idle");
+    } finally {
+      for (const [k, v] of Object.entries(prev) as [keyof typeof prev, string | undefined][]) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  it("GET /system/release: non-admin => 403", async () => {
+    current = await createApp({
+      gatingEnabled: false,
+      enabledModules: [ModuleIds.CoreCrm],
+    });
+    const userToken = signJwt(
+      { sub: "u-rel", email: "u-rel@example.com", role: "USER", fullName: "User Rel" },
+      current.jwtSecret,
+      { expiresInSeconds: 60 },
+    );
+    const res = await jsonFetch(`${current.baseUrl}/system/release`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${userToken}` },
     });
     assert.equal(res.res.status, 403);
   });
