@@ -55,6 +55,18 @@ export default function SettingsHomePage() {
             </Link>
           ) : null}
 
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/leads-pipeline"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-sm font-semibold text-zinc-900">Leads pipeline</div>
+              <div className="mt-1 text-sm text-zinc-500">
+                Підписи, порядок, видимість і дозволені переходи між статусами лідів (ADMIN).
+              </div>
+            </Link>
+          ) : null}
+
           <Link
             href="/settings/exchange-rates"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"

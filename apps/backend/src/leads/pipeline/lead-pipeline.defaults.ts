@@ -14,6 +14,23 @@ export const ALL_LEAD_STATUSES: LeadStatus[] = [
   "SPAM",
 ];
 
+/**
+ * Canonical mapping: stepper grouping is fixed by LeadStatus (not user-editable; not client-provided on write).
+ */
+export function deriveUiStepKey(status: LeadStatus): LeadUiStepKey {
+  switch (status) {
+    case "NEW":
+      return "NEW";
+    case "IN_PROGRESS":
+      return "IN_PROGRESS";
+    case "WON":
+    case "NOT_TARGET":
+    case "LOST":
+    case "SPAM":
+      return "PROCESSED";
+  }
+}
+
 /** Matches StatusBadge LEAD_STATUS_MAP labels (list/cards). */
 export const DEFAULT_STAGE_LABELS: Record<LeadStatus, string> = {
   NEW: "Не обработан",
@@ -25,14 +42,9 @@ export const DEFAULT_STAGE_LABELS: Record<LeadStatus, string> = {
 };
 
 /** Maps each LeadStatus to aggregated stepper lane (legacy LeadStepper semantics). */
-export const DEFAULT_UI_STEP_KEY: Record<LeadStatus, LeadUiStepKey> = {
-  NEW: "NEW",
-  IN_PROGRESS: "IN_PROGRESS",
-  WON: "PROCESSED",
-  NOT_TARGET: "PROCESSED",
-  LOST: "PROCESSED",
-  SPAM: "PROCESSED",
-};
+export const DEFAULT_UI_STEP_KEY: Record<LeadStatus, LeadUiStepKey> = Object.fromEntries(
+  ALL_LEAD_STATUSES.map((s) => [s, deriveUiStepKey(s)]),
+) as Record<LeadStatus, LeadUiStepKey>;
 
 /** Fixed stepper chip labels by ui step (API/web; not in DB). */
 export const STEPPER_LABEL_BY_UI_STEP_KEY: Record<LeadUiStepKey, string> = {
@@ -78,7 +90,7 @@ export function buildDefaultPipelineRows(): DefaultLeadPipelineRow[] {
     label: DEFAULT_STAGE_LABELS[status],
     color: null,
     visible: true,
-    uiStepKey: DEFAULT_UI_STEP_KEY[status],
+    uiStepKey: deriveUiStepKey(status),
     allowedNext: allowedNext[status],
   }));
 }
