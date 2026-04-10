@@ -798,6 +798,22 @@ model LeadPipelineStage {
   @@map("LeadPipelineStage")
 }
 
+/// Append-only audit history for pipeline config snapshots (orders + leads only).
+model PipelineConfigHistory {
+  id             String   @id @default(cuid())
+  entityType     String
+  actorUserId    String?
+  actorEmail     String?
+  actorRole      String?
+  summary        String?
+  beforeSnapshot Json
+  afterSnapshot  Json
+  createdAt      DateTime @default(now())
+
+  @@index([entityType, createdAt])
+  @@index([createdAt])
+}
+
 model LeadMetaAttribution {
   id           String   @id @default(cuid())
   leadId       String   @unique

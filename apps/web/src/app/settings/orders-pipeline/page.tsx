@@ -29,6 +29,17 @@ type PipelineStage = {
   allowedNext: OrderStage[];
 };
 
+type PipelineHistoryItem = {
+  id: string;
+  createdAt: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  summary: string | null;
+  beforeSnapshot: unknown;
+  afterSnapshot: unknown;
+};
+
 const ALL_TARGETS: OrderStage[] = [
   "NEW",
   "AWAITING_PAYMENT",
@@ -58,6 +69,8 @@ export default function OrdersPipelineSettingsPage() {
   const [rows, setRows] = useState<PipelineStage[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [history, setHistory] = useState<PipelineHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const sortedRows = useMemo(() => {
     if (!rows) return [];
@@ -66,9 +79,14 @@ export default function OrdersPipelineSettingsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setHistoryLoading(true);
     setError(null);
     try {
-      const res = await apiHttp.get<{ stages: PipelineStage[] }>("/orders/pipeline");
+      const [pipelineRes, historyRes] = await Promise.all([
+        apiHttp.get<{ stages: PipelineStage[] }>("/orders/pipeline"),
+        apiHttp.get<{ items: PipelineHistoryItem[] }>("/orders/pipeline/history"),
+      ]);
+      const res = pipelineRes;
       const stages = res.data?.stages;
       if (!Array.isArray(stages) || stages.length < 12) {
         setError("Не вдалося завантажити повний pipeline (очікується 12 стадій).");
@@ -76,12 +94,15 @@ export default function OrdersPipelineSettingsPage() {
         return;
       }
       setRows(cloneStages(stages));
+      setHistory(Array.isArray(historyRes.data?.items) ? historyRes.data.items : []);
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(typeof msg === "string" ? msg : "Не вдалося завантажити pipeline");
       setRows(null);
+      setHistory([]);
     } finally {
       setLoading(false);
+      setHistoryLoading(false);
     }
   }, []);
 
@@ -248,6 +269,41 @@ export default function OrdersPipelineSettingsPage() {
               >
                 Скинути з сервера
               </button>
+            </div>
+
+            <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-zinc-900">History (read-only)</h2>
+              <p className="mt-1 text-xs text-zinc-500">Останні зміни pipeline config (ADMIN).</p>
+              {historyLoading ? <div className="mt-3 text-sm text-zinc-500">Завантаження історії…</div> : null}
+              {!historyLoading && history.length === 0 ? (
+                <div className="mt-3 text-sm text-zinc-500">Історія порожня.</div>
+              ) : null}
+              {!historyLoading && history.length > 0 ? (
+                <div className="mt-3 space-y-3">
+                  {history.map((h) => (
+                    <details key={h.id} className="rounded border border-zinc-200 p-3">
+                      <summary className="cursor-pointer text-sm text-zinc-800">
+                        {new Date(h.createdAt).toLocaleString()} • {h.actorEmail ?? h.actorUserId ?? "unknown"} •{" "}
+                        {h.summary ?? "Updated pipeline"}
+                      </summary>
+                      <div className="mt-2 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">beforeSnapshot</div>
+                          <pre className="max-h-64 overflow-auto rounded bg-zinc-50 p-2 text-[11px] text-zinc-700">
+                            {JSON.stringify(h.beforeSnapshot, null, 2)}
+                          </pre>
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">afterSnapshot</div>
+                          <pre className="max-h-64 overflow-auto rounded bg-zinc-50 p-2 text-[11px] text-zinc-700">
+                            {JSON.stringify(h.afterSnapshot, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}

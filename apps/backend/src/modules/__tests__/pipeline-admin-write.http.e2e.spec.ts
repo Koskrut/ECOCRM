@@ -68,6 +68,7 @@ class InMemoryPipelinePrisma {
     uiStepKey: r.uiStepKey,
     allowedNext: [...r.allowedNext],
   }));
+  public history: Array<Record<string, unknown>> = [];
 
   orderPipelineStage = {
     findMany: async ({ orderBy }: { orderBy?: { sortOrder: "asc" | "desc" } } = {}) => {
@@ -114,6 +115,16 @@ class InMemoryPipelinePrisma {
       this.leads[idx] = { ...this.leads[idx]!, ...args.data };
       return this.leads[idx];
     },
+  };
+
+  pipelineConfigHistory = {
+    create: async (args: { data: Record<string, unknown> }) => {
+      const row = { id: `h_${this.history.length + 1}`, createdAt: new Date(), ...args.data };
+      this.history.push(row);
+      return row;
+    },
+    findMany: async () => [...this.history],
+    count: async () => this.history.length,
   };
 
   async $transaction<T>(ops: Array<Promise<T>>): Promise<T[]> {
