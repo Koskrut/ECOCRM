@@ -40,7 +40,14 @@ class TestEnabledModulesProvider extends EnabledModulesProvider {
 class TestLicenseStateProvider extends LicenseStateProvider {
   async getLicenseState() {
     const all = new Set(Object.keys(MODULE_REGISTRY) as ModuleId[]);
-    return { isValid: true, licensedModules: all };
+    return {
+      isValid: true,
+      licensedModules: all,
+      status: "valid" as const,
+      expiresAt: null,
+      customer: "test",
+      shortLicenseId: "test",
+    };
   }
 }
 
@@ -206,6 +213,44 @@ describe("pilot module gating (HTTP smoke)", () => {
         "content-type": "application/json",
       },
       body: JSON.stringify({ enabled: [] }),
+    });
+    assert.equal(res.res.status, 403);
+  });
+
+  it("GET /system/license-status: admin can read minimal status", async () => {
+    current = await createApp({
+      gatingEnabled: true,
+      enabledModules: [ModuleIds.CoreCrm, ModuleIds.Finance, ModuleIds.IntegrationsTelegram],
+    });
+    const res = await jsonFetch(`${current.baseUrl}/system/license-status`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${current.token}` },
+    });
+    assert.equal(res.res.status, 200);
+    assert(res.body && typeof res.body === "object");
+    const body = res.body as {
+      status: string;
+      expiresAt: string | null;
+      customer: string | null;
+      licenseId: string | null;
+    };
+    assert.equal(body.status, "valid");
+    assert.equal(body.customer, "test");
+  });
+
+  it("GET /system/license-status: non-admin => 403", async () => {
+    current = await createApp({
+      gatingEnabled: false,
+      enabledModules: [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound],
+    });
+    const userToken = signJwt(
+      { sub: "u2", email: "u2@example.com", role: "USER", fullName: "User 2" },
+      current.jwtSecret,
+      { expiresInSeconds: 60 },
+    );
+    const res = await jsonFetch(`${current.baseUrl}/system/license-status`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${userToken}` },
     });
     assert.equal(res.res.status, 403);
   });

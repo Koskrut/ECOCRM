@@ -26,6 +26,10 @@ export class StubLicenseStateProvider extends LicenseStateProvider {
     return {
       isValid: true,
       licensedModules: override ?? all,
+      status: "valid",
+      expiresAt: null,
+      customer: "stub",
+      shortLicenseId: "stub",
     };
   }
 }
