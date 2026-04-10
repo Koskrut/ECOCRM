@@ -94,8 +94,20 @@ export class LeadsController {
 
   @Put("pipeline")
   @Roles(UserRole.ADMIN)
-  putPipeline(@Body() dto: PutLeadPipelineDto) {
-    return this.leadsPipelineConfig.putPipelineSnapshot(dto);
+  putPipeline(@Body() dto: PutLeadPipelineDto, @Req() req: Request & { user?: AuthUser }) {
+    return this.leadsPipelineConfig.putPipelineSnapshot(dto, req.user);
+  }
+
+  @Get("pipeline/history")
+  @Roles(UserRole.ADMIN)
+  getPipelineHistory(
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+  ) {
+    return this.leadsPipelineConfig.getHistory({
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get(":id")

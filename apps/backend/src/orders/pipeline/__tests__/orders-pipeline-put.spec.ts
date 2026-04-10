@@ -75,6 +75,7 @@ describe("OrdersPipelineConfigService.putPipelineSnapshot", () => {
 
   it("valid snapshot runs 12 updates and GET shape reflects label change", async () => {
     let txLen = 0;
+    let historyCreates = 0;
     const base = buildDefaultPipelineRows();
     let mem = base.map((r) => ({
       stage: r.stage,
@@ -117,6 +118,12 @@ describe("OrdersPipelineConfigService.putPipelineSnapshot", () => {
         },
         findMany: async () => [...mem],
       },
+      pipelineConfigHistory: {
+        create: async () => {
+          historyCreates += 1;
+          return {};
+        },
+      },
     } as unknown as PrismaSvc;
 
     const svc = new OrdersPipelineConfigService(prisma);
@@ -125,7 +132,39 @@ describe("OrdersPipelineConfigService.putPipelineSnapshot", () => {
     newRow.label = "Перейменовано";
 
     const out = await svc.putPipelineSnapshot(dto);
-    assert.equal(txLen, 12);
+    assert.equal(txLen, 13);
+    assert.equal(historyCreates, 1);
     assert.equal(out.stages.find((s) => s.stage === "NEW")?.label, "Перейменовано");
+  });
+
+  it("no-op snapshot does not create history row", async () => {
+    let historyCreates = 0;
+    const base = buildDefaultPipelineRows();
+    const mem = base.map((r) => ({
+      stage: r.stage,
+      sortOrder: r.sortOrder,
+      label: r.label,
+      color: r.color,
+      kanbanGroup: r.kanbanGroup as OrderKanbanGroup,
+      allowedNext: r.allowedNext as unknown as object,
+    }));
+    const prisma = {
+      $transaction: async (ops: Array<Promise<unknown>>) => {
+        await Promise.all(ops);
+      },
+      orderPipelineStage: {
+        update: async () => ({}),
+        findMany: async () => [...mem],
+      },
+      pipelineConfigHistory: {
+        create: async () => {
+          historyCreates += 1;
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+    const svc = new OrdersPipelineConfigService(prisma);
+    await svc.putPipelineSnapshot(toPutDto(base));
+    assert.equal(historyCreates, 0);
   });
 });

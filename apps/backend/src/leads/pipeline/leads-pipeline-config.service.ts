@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type { LeadPipelineStage, LeadStatus, LeadUiStepKey } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import type { AuthUser } from "../../auth/auth.types";
 import type { LeadPipelineConfigResponseDto, LeadPipelineStageDto } from "../dto/lead-pipeline.dto";
 import type { PutLeadPipelineDto, PutLeadPipelineStageDto } from "../dto/put-lead-pipeline.dto";
 import {
@@ -13,6 +14,8 @@ import {
   buildFullAllowedTransitions,
   deriveUiStepKey,
 } from "./lead-pipeline.defaults";
+
+const PIPELINE_HISTORY_ENTITY_TYPE = "LEAD_PIPELINE";
 
 @Injectable()
 export class LeadsPipelineConfigService {
@@ -41,27 +44,74 @@ export class LeadsPipelineConfigService {
    * Full snapshot replace (ADMIN only — enforced on controller). Validates strictly; all-or-nothing transaction.
    * Persists uiStepKey = deriveUiStepKey(status) so DB always matches canonical mapping.
    */
-  async putPipelineSnapshot(dto: PutLeadPipelineDto): Promise<LeadPipelineConfigResponseDto> {
+  async putPipelineSnapshot(dto: PutLeadPipelineDto, actor?: AuthUser): Promise<LeadPipelineConfigResponseDto> {
     this.assertPutPayloadValid(dto.stages);
+    const before = normalizeLeadSnapshot(await this.getPipelineForApi());
+    const after = normalizeLeadSnapshot({ stages: dto.stages });
+    const changed = !snapshotsEqual(before, after);
+
     await this.prisma.$transaction(
-      dto.stages.map((row) =>
-        this.prisma.leadPipelineStage.update({
-          where: { status: row.status },
-          data: {
-            sortOrder: row.sortOrder,
-            label: row.label.trim(),
-            color:
-              row.color != null && String(row.color).trim() !== ""
-                ? String(row.color).trim().slice(0, 500)
-                : null,
-            visible: row.visible,
-            allowedNext: row.allowedNext as unknown as Prisma.InputJsonValue,
-            uiStepKey: deriveUiStepKey(row.status),
-          },
-        }),
-      ),
+      [
+        ...dto.stages.map((row) =>
+          this.prisma.leadPipelineStage.update({
+            where: { status: row.status },
+            data: {
+              sortOrder: row.sortOrder,
+              label: row.label.trim(),
+              color:
+                row.color != null && String(row.color).trim() !== ""
+                  ? String(row.color).trim().slice(0, 500)
+                  : null,
+              visible: row.visible,
+              allowedNext: row.allowedNext as unknown as Prisma.InputJsonValue,
+              uiStepKey: deriveUiStepKey(row.status),
+            },
+          }),
+        ),
+        ...(changed
+          ? [
+              this.prisma.pipelineConfigHistory.create({
+                data: {
+                  entityType: PIPELINE_HISTORY_ENTITY_TYPE,
+                  actorUserId: actor?.id ?? null,
+                  actorEmail: actor?.email ?? null,
+                  actorRole: actor?.role ?? null,
+                  summary: buildLeadSummary(before, after),
+                  beforeSnapshot: before as unknown as Prisma.InputJsonValue,
+                  afterSnapshot: after as unknown as Prisma.InputJsonValue,
+                },
+              }),
+            ]
+          : []),
+      ],
     );
     return this.getPipelineForApi();
+  }
+
+  async getHistory(params?: { page?: number; pageSize?: number }) {
+    const page = Math.max(1, Math.trunc(Number(params?.page ?? 1) || 1));
+    const pageSizeRaw = Math.trunc(Number(params?.pageSize ?? 20) || 20);
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+    const skip = (page - 1) * pageSize;
+
+    const [items, total] = await Promise.all([
+      this.prisma.pipelineConfigHistory.findMany({
+        where: { entityType: PIPELINE_HISTORY_ENTITY_TYPE },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: pageSize,
+      }),
+      this.prisma.pipelineConfigHistory.count({
+        where: { entityType: PIPELINE_HISTORY_ENTITY_TYPE },
+      }),
+    ]);
+
+    return {
+      items,
+      page,
+      pageSize,
+      total,
+    };
   }
 
   async getPipelineForApi(): Promise<LeadPipelineConfigResponseDto> {
@@ -199,4 +249,69 @@ export class LeadsPipelineConfigService {
       }
     }
   }
+}
+
+type NormalizedLeadStage = {
+  status: LeadStatus;
+  sortOrder: number;
+  label: string;
+  color: string | null;
+  visible: boolean;
+  uiStepKey: LeadUiStepKey;
+  allowedNext: LeadStatus[];
+};
+
+type NormalizedLeadSnapshot = { stages: NormalizedLeadStage[] };
+
+function normalizeLeadSnapshot(input: {
+  stages: Array<{
+    status: LeadStatus;
+    sortOrder: number;
+    label: string;
+    color?: string | null;
+    visible: boolean;
+    uiStepKey?: LeadUiStepKey;
+    allowedNext: LeadStatus[];
+  }>;
+}): NormalizedLeadSnapshot {
+  return {
+    stages: [...input.stages]
+      .map((s) => ({
+        status: s.status,
+        sortOrder: s.sortOrder,
+        label: (s.label ?? "").trim(),
+        color: s.color != null && String(s.color).trim() !== "" ? String(s.color).trim().slice(0, 500) : null,
+        visible: Boolean(s.visible),
+        // Always canonical; client-provided uiStepKey is ignored for normalization and comparison.
+        uiStepKey: deriveUiStepKey(s.status),
+        allowedNext: [...s.allowedNext].sort(),
+      }))
+      .sort((a, b) => a.status.localeCompare(b.status)),
+  };
+}
+
+function snapshotsEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function buildLeadSummary(before: NormalizedLeadSnapshot, after: NormalizedLeadSnapshot): string {
+  const beforeMap = new Map(before.stages.map((s) => [s.status, s]));
+  const changed: Array<{ status: LeadStatus; fields: string[] }> = [];
+  for (const row of after.stages) {
+    const prev = beforeMap.get(row.status);
+    if (!prev) continue;
+    const fields: string[] = [];
+    if (prev.label !== row.label) fields.push("label");
+    if (prev.sortOrder !== row.sortOrder) fields.push("sortOrder");
+    if ((prev.color ?? null) !== (row.color ?? null)) fields.push("color");
+    if (prev.visible !== row.visible) fields.push("visible");
+    if (JSON.stringify(prev.allowedNext) !== JSON.stringify(row.allowedNext)) fields.push("allowedNext");
+    if (fields.length) changed.push({ status: row.status, fields });
+  }
+  if (changed.length === 0) return "No changes";
+  const preview = changed
+    .slice(0, 3)
+    .map((c) => `${c.status}(${c.fields.join(",")})`)
+    .join("; ");
+  return changed.length > 3 ? `Updated ${changed.length} statuses: ${preview}; ...` : `Updated ${changed.length} statuses: ${preview}`;
 }

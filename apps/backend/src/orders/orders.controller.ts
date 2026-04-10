@@ -59,8 +59,20 @@ export class OrdersController {
 
   @Put("pipeline")
   @Roles(UserRole.ADMIN)
-  putPipeline(@Body() dto: PutOrderPipelineDto) {
-    return this.ordersPipelineConfig.putPipelineSnapshot(dto);
+  putPipeline(@Body() dto: PutOrderPipelineDto, @Req() req: Request & { user?: AuthUser }) {
+    return this.ordersPipelineConfig.putPipelineSnapshot(dto, req.user);
+  }
+
+  @Get("pipeline/history")
+  @Roles(UserRole.ADMIN)
+  getPipelineHistory(
+    @Query("page") page: string | undefined,
+    @Query("pageSize") pageSize: string | undefined,
+  ) {
+    return this.ordersPipelineConfig.getHistory({
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get(":id/payments")

@@ -81,6 +81,7 @@ describe("LeadsPipelineConfigService.putPipelineSnapshot", () => {
 
   it("valid snapshot runs 6 updates; GET reflects label; uiStepKey written from deriveUiStepKey, not client", async () => {
     let txLen = 0;
+    let historyCreates = 0;
     const base = buildDefaultPipelineRows();
     let lastWonUiStep: string | null = null;
     const mem = base.map((r) => ({
@@ -129,6 +130,12 @@ describe("LeadsPipelineConfigService.putPipelineSnapshot", () => {
         },
         findMany: async () => [...mem],
       },
+      pipelineConfigHistory: {
+        create: async () => {
+          historyCreates += 1;
+          return {};
+        },
+      },
     } as unknown as PrismaSvc;
 
     const svc = new LeadsPipelineConfigService(prisma);
@@ -137,9 +144,42 @@ describe("LeadsPipelineConfigService.putPipelineSnapshot", () => {
     newRow.label = "Renamed NEW";
 
     const out = await svc.putPipelineSnapshot(dto);
-    assert.equal(txLen, 6);
+    assert.equal(txLen, 7);
+    assert.equal(historyCreates, 1);
     assert.equal(out.stages.find((s) => s.status === "NEW")?.label, "Renamed NEW");
     assert.equal(lastWonUiStep, deriveUiStepKey("WON"));
     assert.equal(out.stages.find((s) => s.status === "WON")?.uiStepKey, "PROCESSED");
+  });
+
+  it("no-op snapshot does not create history row", async () => {
+    let historyCreates = 0;
+    const base = buildDefaultPipelineRows();
+    const mem = base.map((r) => ({
+      status: r.status,
+      sortOrder: r.sortOrder,
+      label: r.label,
+      color: r.color,
+      visible: r.visible,
+      uiStepKey: r.uiStepKey,
+      allowedNext: r.allowedNext as unknown as object,
+    }));
+    const prisma = {
+      $transaction: async (ops: Array<Promise<unknown>>) => {
+        await Promise.all(ops);
+      },
+      leadPipelineStage: {
+        update: async () => ({}),
+        findMany: async () => [...mem],
+      },
+      pipelineConfigHistory: {
+        create: async () => {
+          historyCreates += 1;
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+    const svc = new LeadsPipelineConfigService(prisma);
+    await svc.putPipelineSnapshot(toPutDto(base));
+    assert.equal(historyCreates, 0);
   });
 });
