@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Inject, Put } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
+import { LicenseStateProvider } from "../modules/license/license-state.provider";
 import { ModuleStateService } from "../modules/module-state.service";
+import type { SystemLicenseStatusDto } from "./dto/system-license-status.dto";
 import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
 import type { SystemReleaseDto } from "./dto/system-release.dto";
 import type { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
@@ -12,6 +14,7 @@ import { SystemReleaseService } from "./system-release.service";
 export class SystemController {
   constructor(
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
+    @Inject(LicenseStateProvider) private readonly licenseProvider: LicenseStateProvider,
     @Inject(SystemModulesEnabledWriteService)
     private readonly enabledWrite: SystemModulesEnabledWriteService,
     @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
@@ -26,6 +29,18 @@ export class SystemController {
   @Roles(UserRole.ADMIN)
   release(): SystemReleaseDto {
     return this.releaseService.getRelease();
+  }
+
+  @Get("license-status")
+  @Roles(UserRole.ADMIN)
+  async licenseStatus(): Promise<SystemLicenseStatusDto> {
+    const state = await this.licenseProvider.getLicenseState();
+    return {
+      status: state.status,
+      expiresAt: state.expiresAt,
+      customer: state.customer,
+      licenseId: state.shortLicenseId,
+    };
   }
 
   @Put("modules/enabled")

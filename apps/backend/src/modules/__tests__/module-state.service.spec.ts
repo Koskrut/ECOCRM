@@ -19,7 +19,14 @@ class LicenseStub extends LicenseStateProvider {
     super();
   }
   async getLicenseState() {
-    return { isValid: true, licensedModules: new Set(this.licensed) };
+    return {
+      isValid: true,
+      licensedModules: new Set(this.licensed),
+      status: "valid" as const,
+      expiresAt: null,
+      customer: "test",
+      shortLicenseId: "test",
+    };
   }
 }
 
