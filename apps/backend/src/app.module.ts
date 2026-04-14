@@ -33,10 +33,12 @@ import { OutboundModule } from "./outbound/outbound.module";
 import { ProductionPlanningModule } from "./production-planning/production-planning.module";
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
+import { AuditModule } from "./audit/audit.module";
 
 @Module({
   imports: [
     PrismaModule,
+    AuditModule,
     SystemModule,
     SettingsModule,
     BankModule,

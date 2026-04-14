@@ -76,6 +76,14 @@ enum ActivityType {
   MANUAL_CALL
 }
 
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+  RELATION_CHANGE
+}
+
 enum VisitStatus {
   PLANNED_UNASSIGNED
   SCHEDULED
@@ -1451,6 +1459,25 @@ model Activity {
   @@index([leadId])
   @@index([createdAt])
   @@index([callId])
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  entityType    String
+  entityId      String
+  action        AuditAction
+  changedBy     String
+  changedByRole String?
+  before        Json?
+  after         Json?
+  diff          Json?
+  context       Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([changedBy, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
 }
 
 model Task {
