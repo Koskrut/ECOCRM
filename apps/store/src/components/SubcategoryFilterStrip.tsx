@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEventHandler, type WheelEventHandler } from "react";
 import { getSubcategoryFacets } from "@/lib/api";
 
 function easeOutCubic(t: number): number {
@@ -99,7 +99,11 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
   const [facets, setFacets] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dragStartXRef = useRef(0);
+  const dragStartLeftRef = useRef(0);
+  const dragMovedRef = useRef(false);
 
   const show = Boolean(category && !search);
 
@@ -174,6 +178,19 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
     };
   }, [category, facets, loading]);
 
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeSub) return;
+    const activeItem = el.querySelector<HTMLElement>('[data-active="true"]');
+    if (!activeItem) return;
+
+    activeItem.scrollIntoView({
+      inline: "nearest",
+      block: "nearest",
+      behavior: "auto",
+    });
+  }, [activeSub, facets]);
+
   if (!show) return null;
 
   const rootClass = [className, inline ? "w-full min-w-0" : ""].filter(Boolean).join(" ");
@@ -195,6 +212,44 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
 
   if (facets.length === 0) return null;
 
+  const handleWheel: WheelEventHandler<HTMLDivElement> = (event) => {
+    const el = scrollRef.current;
+    if (!el || !hasOverflow) return;
+    if (event.ctrlKey) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+
+    event.preventDefault();
+    el.scrollBy({ left: event.deltaY, behavior: "auto" });
+  };
+
+  const stopDragging = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseDown: MouseEventHandler<HTMLDivElement> = (event) => {
+    const el = scrollRef.current;
+    if (!el || !hasOverflow || event.button !== 0) return;
+    dragStartXRef.current = event.clientX;
+    dragStartLeftRef.current = el.scrollLeft;
+    dragMovedRef.current = false;
+    setIsDragging(true);
+  };
+
+  const handleMouseMove: MouseEventHandler<HTMLDivElement> = (event) => {
+    const el = scrollRef.current;
+    if (!el || !isDragging) return;
+    const dx = event.clientX - dragStartXRef.current;
+    if (Math.abs(dx) > 3) dragMovedRef.current = true;
+    el.scrollLeft = dragStartLeftRef.current - dx;
+  };
+
+  const handleClickCapture: MouseEventHandler<HTMLDivElement> = (event) => {
+    if (!dragMovedRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragMovedRef.current = false;
+  };
+
   return (
     <div className={rootClass}>
       {!inline ? (
@@ -203,9 +258,15 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
       <div className="relative min-w-0">
         <div
           ref={scrollRef}
-          className={drumRow}
+          className={`${drumRow} ${hasOverflow ? (isDragging ? "cursor-grabbing select-none" : "cursor-grab") : ""}`}
           role="tablist"
           aria-label="Підкатегорії каталогу"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={stopDragging}
+          onMouseLeave={stopDragging}
+          onClickCapture={handleClickCapture}
         >
           {activeSub ? (
             <Link
@@ -224,6 +285,7 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
                 key={label}
                 href={href}
                 scroll={false}
+                data-active={isActive ? "true" : undefined}
                 className={`${pillBase} ${isActive ? pillActive : pillIdle}`}
               >
                 {label}
