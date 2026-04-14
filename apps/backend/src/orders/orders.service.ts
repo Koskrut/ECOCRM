@@ -1007,6 +1007,17 @@ export class OrdersService {
       debtAmount: current.debtAmount,
     }, transitionGraph);
 
+    if (toStage === "RETURN_IN_PROGRESS") {
+      const openReturnsCount = await this.prisma.orderReturn.count({
+        where: { orderId: id, status: { not: "CLOSED" } },
+      });
+      if (openReturnsCount === 0) {
+        throw new BadRequestException(
+          "Cannot set stage RETURN_IN_PROGRESS: order has no active returns",
+        );
+      }
+    }
+
     const deliveryStatus = orderStageToDeliveryStatus(toStage);
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: current.paymentType,

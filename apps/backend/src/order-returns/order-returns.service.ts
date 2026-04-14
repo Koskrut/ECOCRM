@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import type { OrderStage, Prisma } from "@prisma/client";
 import type { ReturnStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -22,12 +22,79 @@ const ALLOWED_TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
   CLOSED: [],
 };
 
+const CLOSED_RETURN_STATUS: ReturnStatus = "CLOSED";
+
 @Injectable()
 export class OrderReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
   ) {}
+
+  private async syncOrderStateFromReturns(orderId: string) {
+    const [openCount, allClosedReturns] = await Promise.all([
+      this.prisma.orderReturn.count({
+        where: { orderId, status: { not: CLOSED_RETURN_STATUS } },
+      }),
+      this.prisma.orderReturn.findMany({
+        where: { orderId, status: CLOSED_RETURN_STATUS },
+        include: { items: { include: { orderItem: true } } },
+      }),
+    ]);
+
+    const totalAdjustment = allClosedReturns.reduce((sum, ret) => {
+      return sum + ret.items.reduce((s, ri) => s + Number(ri.orderItem.price) * ri.qtyReturned, 0);
+    }, 0);
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { returnAdjustmentAmount: totalAdjustment },
+    });
+    await this.payments.recalcOrder(orderId);
+
+    const orderAfter = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        debtAmount: true,
+        paymentType: true,
+        totalAmount: true,
+        paidAmount: true,
+        returnAdjustmentAmount: true,
+        paymentDueDate: true,
+      },
+    });
+    if (!orderAfter) throw new NotFoundException("Order not found");
+
+    const nextStage: OrderStage =
+      openCount > 0
+        ? "RETURN_IN_PROGRESS"
+        : Number(orderAfter.debtAmount ?? 0) <= 0
+          ? "COMPLETED"
+          : "RECEIVED";
+
+    const effectiveTotal = Math.max(
+      0,
+      Number(orderAfter.totalAmount ?? 0) - Number(orderAfter.returnAdjustmentAmount ?? 0),
+    );
+    const deliveryStatus = orderStageToDeliveryStatus(nextStage);
+    const financialStatus = computeFinancialStatusFromOrder({
+      paymentType: orderAfter.paymentType,
+      totalAmount: effectiveTotal,
+      paidAmount: Number(orderAfter.paidAmount),
+      debtAmount: Number(orderAfter.debtAmount),
+      paymentDueDate: orderAfter.paymentDueDate ?? undefined,
+      orderStage: nextStage,
+    });
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        orderStage: nextStage,
+        deliveryStatus,
+        financialStatus,
+      },
+    });
+  }
 
   private assertAccess(order: { ownerId: string | null }, actor?: AuthUser) {
     if (!actor) return;
@@ -78,19 +145,29 @@ export class OrderReturnsService {
       qtyReturned,
     }));
 
-    const newStage = "RETURN_IN_PROGRESS";
-    const deliveryStatus = orderStageToDeliveryStatus(newStage);
-    const financialStatus = computeFinancialStatusFromOrder({
-      paymentType: order.paymentType,
-      totalAmount: Number(order.totalAmount),
-      paidAmount: Number(order.paidAmount),
-      debtAmount: Number(order.debtAmount),
-      paymentDueDate: order.paymentDueDate ?? undefined,
-      orderStage: newStage,
+    const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
+      by: ["orderItemId"],
+      where: {
+        orderItemId: { in: returnItems.map((it) => it.orderItemId) },
+        orderReturn: { orderId },
+      },
+      _sum: { qtyReturned: true },
     });
+    const returnedByItem = new Map<string, number>(
+      alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
+    );
+    for (const item of returnItems) {
+      const orderItem = orderItemIds.get(item.orderItemId)!;
+      const totalReturned = (returnedByItem.get(item.orderItemId) ?? 0) + item.qtyReturned;
+      if (totalReturned > orderItem.qty) {
+        throw new BadRequestException(
+          `Return quantity exceeds purchased quantity for item ${item.orderItemId}: ${totalReturned} > ${orderItem.qty}`,
+        );
+      }
+    }
 
-    const [created] = await this.prisma.$transaction([
-      this.prisma.orderReturn.create({
+    const created = await this.prisma.$transaction(async (tx) => {
+      const createdReturn = await tx.orderReturn.create({
         data: {
           orderId,
           status: "REQUESTED",
@@ -105,16 +182,11 @@ export class OrderReturnsService {
           items: { include: { orderItem: true } },
           order: { select: { id: true, orderNumber: true } },
         },
-      }),
-      this.prisma.order.update({
-        where: { id: orderId },
-        data: {
-          orderStage: newStage,
-          deliveryStatus,
-          financialStatus,
-        },
-      }),
-    ]);
+      });
+      return createdReturn;
+    });
+
+    await this.syncOrderStateFromReturns(orderId);
 
     return created;
   }
@@ -213,7 +285,7 @@ export class OrderReturnsService {
     }
 
     const updates: { status: ReturnStatus; closedAt?: Date } = { status };
-    if (status === "CLOSED") updates.closedAt = new Date();
+    if (status === CLOSED_RETURN_STATUS) updates.closedAt = new Date();
 
     const updated = await this.prisma.orderReturn.update({
       where: { id },
@@ -224,66 +296,7 @@ export class OrderReturnsService {
       },
     });
 
-    if (status === "CLOSED") {
-      const orderId = r.orderId;
-
-      const allClosed = await this.prisma.orderReturn.findMany({
-        where: { orderId, status: "CLOSED" },
-        include: { items: { include: { orderItem: true } } },
-      });
-      const totalAdjustment = allClosed.reduce((sum, ret) => {
-        return sum + ret.items.reduce((s, ri) => s + Number(ri.orderItem.price) * ri.qtyReturned, 0);
-      }, 0);
-
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { returnAdjustmentAmount: totalAdjustment },
-      });
-      await this.payments.recalcOrder(orderId);
-
-      const openCount = await this.prisma.orderReturn.count({
-        where: { orderId, status: { not: "CLOSED" } },
-      });
-      if (openCount === 0) {
-        const orderAfter = await this.prisma.order.findUnique({
-          where: { id: orderId },
-          select: {
-            debtAmount: true,
-            paymentType: true,
-            totalAmount: true,
-            paidAmount: true,
-            returnAdjustmentAmount: true,
-            paymentDueDate: true,
-          },
-        });
-        const nextStage =
-          orderAfter && Number(orderAfter.debtAmount ?? 0) <= 0 ? "COMPLETED" : "RECEIVED";
-        const effectiveTotal = Math.max(
-          0,
-          Number(orderAfter?.totalAmount ?? 0) - Number(orderAfter?.returnAdjustmentAmount ?? 0),
-        );
-        const deliveryStatus = orderStageToDeliveryStatus(nextStage);
-        const financialStatus = orderAfter
-          ? computeFinancialStatusFromOrder({
-              paymentType: orderAfter.paymentType,
-              totalAmount: effectiveTotal,
-              paidAmount: Number(orderAfter.paidAmount),
-              debtAmount: Number(orderAfter.debtAmount),
-              paymentDueDate: orderAfter.paymentDueDate ?? undefined,
-              orderStage: nextStage,
-            })
-          : undefined;
-
-        await this.prisma.order.update({
-          where: { id: orderId },
-          data: {
-            orderStage: nextStage,
-            deliveryStatus,
-            ...(financialStatus != null && { financialStatus }),
-          },
-        });
-      }
-    }
+    await this.syncOrderStateFromReturns(r.orderId);
 
     return updated;
   }

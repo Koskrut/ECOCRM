@@ -82,6 +82,34 @@ type OrderItem = {
   lineTotal: number;
 };
 
+type ReturnStatus =
+  | "REQUESTED"
+  | "APPROVED"
+  | "IN_TRANSIT_BACK"
+  | "RECEIVED_BY_WAREHOUSE"
+  | "INSPECTION"
+  | "REFUND_OR_ADJUSTMENT"
+  | "CLOSED";
+
+const RETURN_STATUS_LABELS: Record<ReturnStatus, string> = {
+  REQUESTED: "Заявлено",
+  APPROVED: "Погоджено",
+  IN_TRANSIT_BACK: "В дорозі назад",
+  RECEIVED_BY_WAREHOUSE: "Прийнято на склад",
+  INSPECTION: "Перевірка",
+  REFUND_OR_ADJUSTMENT: "Повернення коштів",
+  CLOSED: "Закрито",
+};
+
+const NEXT_RETURN_STATUS: Partial<Record<ReturnStatus, ReturnStatus>> = {
+  REQUESTED: "APPROVED",
+  APPROVED: "IN_TRANSIT_BACK",
+  IN_TRANSIT_BACK: "RECEIVED_BY_WAREHOUSE",
+  RECEIVED_BY_WAREHOUSE: "INSPECTION",
+  INSPECTION: "REFUND_OR_ADJUSTMENT",
+  REFUND_OR_ADJUSTMENT: "CLOSED",
+};
+
 type OrderDetails = {
   id: string;
   orderNumber: string;
@@ -630,13 +658,14 @@ export function OrderModal({
   const [showTtnModal, setShowTtnModal] = useState(false);
 
   // Phase 5: returns
-  const [orderReturns, setOrderReturns] = useState<Array<{ id: string; status: string; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }>>([]);
+  const [orderReturns, setOrderReturns] = useState<Array<{ id: string; status: ReturnStatus; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }>>([]);
   const [returnsLoading, setReturnsLoading] = useState(false);
   const [showCreateReturnForm, setShowCreateReturnForm] = useState(false);
   const [createReturnSubmitting, setCreateReturnSubmitting] = useState(false);
   const [returnItemQtys, setReturnItemQtys] = useState<Record<string, number>>({});
   const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
+  const [returnStatusUpdatingId, setReturnStatusUpdatingId] = useState<string | null>(null);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [splittingByStock, setSplittingByStock] = useState(false);
@@ -812,7 +841,7 @@ export function OrderModal({
     try {
       const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, { cache: "no-store", credentials: "include" });
       if (!r.ok) return setOrderReturns([]);
-      const data = (await r.json()) as { items?: Array<{ id: string; status: string; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }> };
+      const data = (await r.json()) as { items?: Array<{ id: string; status: ReturnStatus; requestedAt: string; items?: { qtyReturned: number; orderItemId: string }[] }> };
       setOrderReturns(data.items ?? []);
     } catch {
       setOrderReturns([]);
@@ -820,6 +849,29 @@ export function OrderModal({
       setReturnsLoading(false);
     }
   }, [apiBaseUrl, orderId]);
+
+  const updateReturnStatus = useCallback(
+    async (returnId: string, status: ReturnStatus) => {
+      setReturnStatusUpdatingId(returnId);
+      try {
+        const r = await fetch(`/api/order-returns/${returnId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+          credentials: "include",
+        });
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error((errData?.message as string) || `Failed to update return status (${r.status})`);
+        }
+        await Promise.all([refreshReturns(), refreshOrder()]);
+        onSaved?.();
+      } finally {
+        setReturnStatusUpdatingId(null);
+      }
+    },
+    [refreshReturns, refreshOrder, onSaved],
+  );
 
   const splitOrderByStock = useCallback(async () => {
     if (!orderId || !order) return;
@@ -1560,10 +1612,26 @@ export function OrderModal({
                   {returnsLoading ? (
                     <div className="text-xs text-zinc-500">Завантаження…</div>
                   ) : orderReturns.length > 0 ? (
-                    <ul className="space-y-1 text-sm text-zinc-700">
+                    <ul className="space-y-2 text-sm text-zinc-700">
                       {orderReturns.map((ret) => (
-                        <li key={ret.id}>
-                          Повернення від {formatDate(ret.requestedAt)} — {ret.status}
+                        <li key={ret.id} className="rounded border border-zinc-200 px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>
+                              Повернення від {formatDate(ret.requestedAt)} — {RETURN_STATUS_LABELS[ret.status] ?? ret.status}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={!NEXT_RETURN_STATUS[ret.status] || returnStatusUpdatingId === ret.id}
+                              onClick={() => {
+                                const nextStatus = NEXT_RETURN_STATUS[ret.status];
+                                if (!nextStatus) return;
+                                void updateReturnStatus(ret.id, nextStatus);
+                              }}
+                              className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                            >
+                              {returnStatusUpdatingId === ret.id ? "Оновлення…" : "Наступний статус"}
+                            </button>
+                          </div>
                         </li>
                       ))}
                     </ul>
