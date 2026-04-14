@@ -13,6 +13,23 @@ import { StoreCartService } from "../cart/store-cart.service";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
 
+/** Mirrors store auth lookup so checkout does not create duplicate contacts. */
+function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
+  const candidates = new Set<string>();
+  candidates.add(phoneNorm);
+  if (phoneNorm.length === 10 && phoneNorm.startsWith("0")) {
+    candidates.add("38" + phoneNorm);
+  }
+  if (phoneNorm.length === 9 && phoneNorm.startsWith("9")) {
+    candidates.add("0" + phoneNorm);
+    candidates.add("380" + phoneNorm);
+  }
+  if (phoneNorm.length === 12 && phoneNorm.startsWith("380")) {
+    candidates.add("0" + phoneNorm.slice(3));
+  }
+  return Array.from(candidates);
+}
+
 @Injectable()
 export class StoreCheckoutService {
   constructor(
@@ -46,7 +63,12 @@ export class StoreCheckoutService {
     const region = (dto.region ?? "").trim();
     if (!region) throw new BadRequestException("Оберіть область");
 
-    let contact = await this.contactsService.findContactByPhone(phoneNorm);
+    const phoneCandidates = getPhoneCandidatesForLookup(phoneNorm);
+    let contact: { id: string } | null = null;
+    for (const candidate of phoneCandidates) {
+      contact = await this.contactsService.findContactByPhone(candidate);
+      if (contact) break;
+    }
     const lastName = (dto.lastName ?? "").trim() || "—";
     const email = (dto.email ?? "").trim() || null;
     if (!contact) {
@@ -67,6 +89,10 @@ export class StoreCheckoutService {
         undefined,
       );
     }
+    const existingCustomerBeforeCheckout = await this.prisma.customer.findUnique({
+      where: { contactId: contact.id },
+      select: { id: true },
+    });
 
     let orderDeliveryData: Record<string, unknown> | undefined;
     if (deliveryMethod === "NOVA_POSHTA") {
@@ -113,6 +139,7 @@ export class StoreCheckoutService {
         }
         orderDeliveryData = {
           novaPoshta: {
+            profileId: profile.id,
             recipientType: profile.recipientType,
             deliveryType: profile.deliveryType,
             cityRef: profile.cityRef,
@@ -247,11 +274,16 @@ export class StoreCheckoutService {
           contactPersonMiddleName,
           contactPersonPhone,
         };
-        orderDeliveryData = { novaPoshta };
 
-        if (dd.saveAsProfile) {
+        let savedProfileId: string | null = null;
+        const shouldAutoCreateFirstProfileForRegistered =
+          !!existingCustomerBeforeCheckout &&
+          (await this.prisma.contactShippingProfile.count({
+            where: { contactId: contact.id },
+          })) === 0;
+        if (dd.saveAsProfile || shouldAutoCreateFirstProfileForRegistered) {
           const label = dd.profileLabel?.trim() || cityName || "Нова пошта";
-          await this.prisma.contactShippingProfile.create({
+          const createdProfile = await this.prisma.contactShippingProfile.create({
             data: {
               contactId: contact.id,
               label,
@@ -279,7 +311,14 @@ export class StoreCheckoutService {
               flat,
             },
           });
+          savedProfileId = createdProfile.id;
         }
+        orderDeliveryData = {
+          novaPoshta: {
+            ...novaPoshta,
+            ...(savedProfileId ? { profileId: savedProfileId } : {}),
+          },
+        };
       }
     }
 
