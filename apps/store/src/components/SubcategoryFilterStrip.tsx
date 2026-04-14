@@ -63,7 +63,7 @@ function runScrollPeekHint(el: HTMLElement): (() => void) | undefined {
 }
 
 const drumRow =
-  "flex touch-pan-x snap-x snap-mandatory gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+  "flex touch-pan-x snap-x snap-mandatory gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:flex-wrap lg:overflow-visible lg:touch-auto lg:snap-none";
 
 const pillBase =
   "inline-flex shrink-0 snap-start items-center rounded-full border px-3 py-1.5 text-sm font-medium transition whitespace-nowrap";
@@ -295,7 +295,7 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
         </div>
         {hasOverflow ? (
           <div
-            className="pointer-events-none absolute inset-y-0 right-0 flex w-11 items-center justify-end bg-gradient-to-l from-white/95 from-20% via-white/80 to-transparent pr-0.5"
+            className="pointer-events-none absolute inset-y-0 right-0 flex w-11 items-center justify-end bg-gradient-to-l from-white/95 from-20% via-white/80 to-transparent pr-0.5 lg:hidden"
             aria-hidden
           >
             <span className="subcat-strip-hint-arrow absolute right-0.5 top-1/2 text-lg font-light leading-none text-zinc-400 select-none">
