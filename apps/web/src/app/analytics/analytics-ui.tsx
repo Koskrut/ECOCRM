@@ -220,7 +220,9 @@ export function useAnalyticsFetch<T>(endpoint: string, querySuffix: string, refr
     setLoading(true);
     setError(null);
     apiHttp
-      .get<T>(`/analytics/${endpoint}${querySuffix}`)
+      .get<T>(`/analytics/${endpoint}${querySuffix}`, {
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+      })
       .then((res) => {
         if (!active) return;
         setData(res.data);

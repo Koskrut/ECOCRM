@@ -32,6 +32,7 @@ import { AnalyticsProductsService } from "./services/analytics-products.service"
 import { AnalyticsSalesService } from "./services/analytics-sales.service";
 import { AnalyticsVisitsService } from "./services/analytics-visits.service";
 import { resolveAnalyticsRange } from "./utils/analytics-date.util";
+import { mergeAnalyticsFilterFromRequest } from "./utils/analytics-request-query.util";
 
 /** JSON response shapes (incl. compare rules): see `./contracts/analytics-http.contracts.ts`. */
 @Controller("analytics")
@@ -94,9 +95,10 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
-    return this.overviewService.getOverview(period, scope, { compare: query.compare === "prev_period" });
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
+    return this.overviewService.getOverview(period, scope, { compare: q.compare === "prev_period" });
   }
 
   @Get("sales")
@@ -106,9 +108,10 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
-    return this.salesService.getSales(period, scope, { compare: query.compare === "prev_period" });
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
+    return this.salesService.getSales(period, scope, { compare: q.compare === "prev_period" });
   }
 
   @Get("leads")
@@ -118,9 +121,10 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
-    return this.leadsService.getLeads(period, scope, { compare: query.compare === "prev_period" });
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
+    return this.leadsService.getLeads(period, scope, { compare: q.compare === "prev_period" });
   }
 
   @Get("attention")
@@ -130,8 +134,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.attentionService.getAttention(period, scope);
   }
 
@@ -142,8 +147,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.managersService.getManagers(period, scope);
   }
 
@@ -154,9 +160,10 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
-    return this.financeService.getFinance(period, scope, { compare: query.compare === "prev_period" });
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
+    return this.financeService.getFinance(period, scope, { compare: q.compare === "prev_period" });
   }
 
   @Get("clients")
@@ -166,8 +173,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.clientsService.getClients(period, scope);
   }
 
@@ -178,8 +186,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.productsService.getProducts(period, scope);
   }
 
@@ -190,8 +199,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.visitsService.getVisits(period, scope);
   }
 
@@ -202,8 +212,9 @@ export class AnalyticsController {
     @Req() req?: Request & { user?: AuthUser },
   ) {
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
     return this.operationsService.getOperations(period, scope);
   }
 
@@ -213,11 +224,12 @@ export class AnalyticsController {
     @Query() query: AnalyticsFilterDto,
     @Req() req?: Request & { user?: AuthUser },
   ) {
-    if (!query.type) throw new BadRequestException("type is required");
     const actor = this.requireUser(req);
-    const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    const period = resolveAnalyticsRange(query);
-    return this.drilldownService.getDrilldown(query.type, period, scope, { region: query.region });
+    const q = mergeAnalyticsFilterFromRequest(req!, query);
+    if (!q.type) throw new BadRequestException("type is required");
+    const scope = await this.scopeService.resolveScope(actor, { managerId: q.managerId, allowLead: true });
+    const period = resolveAnalyticsRange(q);
+    return this.drilldownService.getDrilldown(q.type, period, scope, { region: q.region });
   }
 
   private requireUser(req?: Request & { user?: AuthUser }): AuthUser {
