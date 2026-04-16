@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { PaymentStatus, UserRole } from "@prisma/client";
+import { PaymentStatus, UserRole, VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { ExchangeRates } from "../settings/settings.service";
@@ -272,6 +272,8 @@ export class DashboardService {
         where: {
           ownerId: { in: visibleIds },
           startsAt: { gte: from, lte: to },
+          // Dashboard visits metric counts only completed visits.
+          status: VisitStatus.DONE,
         },
         _count: { id: true },
       }),
