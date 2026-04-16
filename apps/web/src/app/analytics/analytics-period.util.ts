@@ -14,8 +14,12 @@ function startOfDay(d: Date): Date {
 
 export type RangePreset = "custom" | "week" | "month" | "quarter";
 
+/** Local calendar YYYY-MM-DD for `<input type="date">`. `toISOString().slice(0, 10)` uses UTC and shifts the day in non-UTC zones, which makes the UI flicker when syncing with the URL. */
 export function toInputDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 /** Same rules as backend resolvePresetPeriod("week" | "month" | "quarter"). */

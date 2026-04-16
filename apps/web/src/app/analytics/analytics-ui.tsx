@@ -102,22 +102,31 @@ export function useAnalyticsFilters() {
     const preset =
       presetRaw === "week" || presetRaw === "month" || presetRaw === "quarter" ? presetRaw : null;
 
+    let nextRangePreset: RangePreset = preset ?? "custom";
+
     if (df && dt) {
       setDateFromState((prev) => (prev !== df ? df : prev));
       setDateToState((prev) => (prev !== dt ? dt : prev));
+      // `preset` in the URL can lag after the user edits dates; only keep the preset if it still matches.
+      if (preset) {
+        const canonical = getDatesForPreset(preset);
+        nextRangePreset = df === canonical.dateFrom && dt === canonical.dateTo ? preset : "custom";
+      } else {
+        nextRangePreset = "custom";
+      }
     } else if (preset) {
       const r = getDatesForPreset(preset);
       setDateFromState((prev) => (prev !== r.dateFrom ? r.dateFrom : prev));
       setDateToState((prev) => (prev !== r.dateTo ? r.dateTo : prev));
+      nextRangePreset = preset;
     }
 
     const mid = searchParams.get("managerId") ?? "";
     const cmp = searchParams.get("compare") === "prev_period";
-    const rp = preset ?? "custom";
 
     setManagerIdState((prev) => (prev !== mid ? mid : prev));
     setComparePrevState((prev) => (prev !== cmp ? cmp : prev));
-    setRangePresetState((prev) => (prev !== rp ? rp : prev));
+    setRangePresetState((prev) => (prev !== nextRangePreset ? nextRangePreset : prev));
   }, [searchKey]);
 
   useEffect(() => {
