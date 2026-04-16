@@ -215,6 +215,9 @@ export default function CallWorkspacePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <Link href="/work/calls/queue" className="text-sm font-medium text-blue-600 hover:underline">
+            Кому дзвонити сьогодні
+          </Link>
           <Link href="/work/calls/history" className="text-sm font-medium text-blue-600 hover:underline">
             Усі дзвінки
           </Link>
