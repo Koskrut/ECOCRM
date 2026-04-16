@@ -210,7 +210,7 @@ export class AnalyticsController {
   @Get("drilldown")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   async getDrilldown(
-    @Query() query: AnalyticsFilterDto & { type?: string },
+    @Query() query: AnalyticsFilterDto,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     if (!query.type) throw new BadRequestException("type is required");
