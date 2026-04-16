@@ -123,6 +123,13 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [orderId, setOrderId] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
+  const [planningVisit, setPlanningVisit] = useState(false);
+  const [visitPurpose, setVisitPurpose] = useState("");
+  const [visitStartsAt, setVisitStartsAt] = useState("");
+  const [visitDurationMin, setVisitDurationMin] = useState("60");
+  const [visitPlanError, setVisitPlanError] = useState<string | null>(null);
+  const [visitPlanSuccess, setVisitPlanSuccess] = useState<string | null>(null);
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
 
   // Contacts linked to this company
   const [companyContacts, setCompanyContacts] = useState<{ id: string; firstName: string; lastName: string; phone: string }[]>([]);
@@ -403,20 +410,50 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       }, 0);
       return;
     }
+    if (!visitPurpose.trim()) {
+      setVisitPlanError("Укажите цель встречи.");
+      setVisitPlanSuccess(null);
+      return;
+    }
+    const durationMin = Math.max(15, Number.parseInt(visitDurationMin, 10) || 60);
     try {
-      await visitsApi.create({
+      setPlanningVisit(true);
+      setVisitPlanError(null);
+      setVisitPlanSuccess(null);
+      const visit = await visitsApi.create({
         companyId: company.id,
         title: company.name || "Visit",
         addressText: company.address ?? undefined,
         lat: effectiveLat,
         lng: effectiveLng,
+        purpose: visitPurpose.trim(),
       });
-      alert("Visit added to planned backlog.");
+      if (visitStartsAt) {
+        const startsAt = new Date(visitStartsAt);
+        const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
+        await visitsApi.update(visit.id, {
+          status: "SCHEDULED",
+          startsAt: startsAt.toISOString(),
+          endsAt: endsAt.toISOString(),
+          durationMin,
+          purpose: visitPurpose.trim(),
+        });
+        setVisitPlanSuccess("Встреча запланирована и добавлена в активность компании.");
+      } else {
+        setVisitPlanSuccess("Встреча добавлена в backlog. Укажите время позже на странице визитов.");
+      }
+      setVisitPurpose("");
+      setVisitStartsAt("");
+      setVisitDurationMin("60");
+      setTimelineRefreshKey((prev) => prev + 1);
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Failed to schedule visit");
-      alert(msg);
+      setVisitPlanError(msg);
+      setVisitPlanSuccess(null);
+    } finally {
+      setPlanningVisit(false);
     }
   };
 
@@ -961,11 +998,91 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <button
               type="button"
               onClick={() => void scheduleVisit()}
-              disabled={saving}
+              disabled={saving || planningVisit}
               className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
             >
               Запланировать встречу
             </button>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Планирование встречи</div>
+              <p className="mt-1 text-xs text-zinc-500">
+                Планируйте встречу прямо по компании: цель обязательна, время можно задать сразу.
+              </p>
+            </div>
+            <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-600">
+              {editLat != null && editLng != null ? "Координаты готовы" : "Нужно заполнить адрес"}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>Цель встречи</span>
+              <textarea
+                value={visitPurpose}
+                onChange={(e) => setVisitPurpose(e.target.value)}
+                rows={3}
+                disabled={saving || planningVisit}
+                placeholder="Например: презентация, переговоры, согласование оплаты"
+                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </label>
+            <div className="space-y-3">
+              <label className="flex flex-col gap-1">
+                <span className={labelClass}>Дата и время</span>
+                <input
+                  type="datetime-local"
+                  value={visitStartsAt}
+                  onChange={(e) => setVisitStartsAt(e.target.value)}
+                  disabled={saving || planningVisit}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className={labelClass}>Длительность, мин</span>
+                <select
+                  value={visitDurationMin}
+                  onChange={(e) => setVisitDurationMin(e.target.value)}
+                  disabled={saving || planningVisit}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="30">30</option>
+                  <option value="45">45</option>
+                  <option value="60">60</option>
+                  <option value="90">90</option>
+                  <option value="120">120</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          {visitPlanError ? (
+            <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {visitPlanError}
+            </div>
+          ) : null}
+          {visitPlanSuccess ? (
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {visitPlanSuccess}
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void scheduleVisit()}
+              disabled={saving || planningVisit}
+              className="btn-primary"
+            >
+              {planningVisit
+                ? "Сохраняем…"
+                : visitStartsAt
+                  ? "Запланировать на дату"
+                  : "Добавить в backlog"}
+            </button>
+            <p className="text-xs text-zinc-500">
+              Если дату не указывать, встреча создастся без времени и появится в backlog визитов.
+            </p>
           </div>
         </div>
         <div className="border-t border-zinc-100 pt-3">
@@ -1092,7 +1209,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             </div>
             <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4">
               <EntitySection title="Activity">
-                <CompanyTimeline apiBaseUrl={apiBaseUrl} companyId={companyId} />
+                <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
               </EntitySection>
             </div>
           </div>

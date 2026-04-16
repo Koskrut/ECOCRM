@@ -64,6 +64,88 @@ export class VisitsService {
     }
   }
 
+  private async createVisitPlanActivity(
+    visit: { contactId?: string | null; companyId?: string | null },
+    startsAt: Date,
+    actor: AuthUser,
+  ) {
+    const planBody = `Запланирована на ${startsAt.toLocaleString("uk-UA")}`;
+    if (visit.contactId) {
+      return this.activitiesService.createForContact(
+        visit.contactId,
+        {
+          type: "MEETING",
+          title: "Встреча (план)",
+          body: planBody,
+          occurredAt: startsAt.toISOString(),
+        },
+        actor,
+      );
+    }
+    if (visit.companyId) {
+      return this.activitiesService.createForCompany(
+        visit.companyId,
+        {
+          type: "MEETING",
+          title: "Встреча (план)",
+          body: planBody,
+          occurredAt: startsAt.toISOString(),
+        },
+        actor,
+      );
+    }
+    return null;
+  }
+
+  private async syncVisitResultActivity(
+    visit: { activityId?: string | null; contactId?: string | null; companyId?: string | null },
+    body: CompleteVisitInput,
+    now: Date,
+    actor: AuthUser,
+    visitId: string,
+  ) {
+    const activityBody = body.resultNote.trim();
+    const activityTitle = `Встреча (${body.outcome})`;
+    if (visit.activityId) {
+      await this.prisma.activity.update({
+        where: { id: visit.activityId },
+        data: {
+          title: activityTitle,
+          body: activityBody,
+          occurredAt: now,
+        },
+      });
+      return;
+    }
+    if (visit.contactId) {
+      await this.activitiesService.createForContact(
+        visit.contactId,
+        {
+          type: "MEETING",
+          title: activityTitle,
+          body: activityBody,
+          occurredAt: now.toISOString(),
+        },
+        actor,
+      );
+      return;
+    }
+    if (visit.companyId) {
+      await this.activitiesService.createForCompany(
+        visit.companyId,
+        {
+          type: "MEETING",
+          title: activityTitle,
+          body: activityBody,
+          occurredAt: now.toISOString(),
+        },
+        actor,
+      );
+      return;
+    }
+    this.logger.warn(`Visit ${visitId} has no linked entity for timeline activity sync`);
+  }
+
   async create(body: CreateVisitInput, actor: AuthUser | undefined) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -322,26 +404,12 @@ export class VisitsService {
       if (!nextStartsAt || !nextEndsAt) {
         throw new BadRequestException("startsAt and endsAt are required for SCHEDULED visits");
       }
-      if (existing.contactId && !existing.activityId) {
+      if ((existing.contactId || existing.companyId) && !existing.activityId) {
         try {
-          const planOccurredAt = nextStartsAt ?? new Date();
-          const planBody =
-            planOccurredAt instanceof Date
-              ? `Запланирована на ${planOccurredAt.toLocaleString("uk-UA")}`
-              : "Запланирована";
-          const activity = await this.activitiesService.createForContact(
-            existing.contactId,
-            {
-              type: "MEETING",
-              title: "Встреча (план)",
-              body: planBody,
-              occurredAt: (nextStartsAt ?? planOccurredAt) instanceof Date
-                ? (nextStartsAt ?? planOccurredAt).toISOString()
-                : undefined,
-            },
-            actor,
-          );
-          data.activity = { connect: { id: activity.id } };
+          const activity = await this.createVisitPlanActivity(existing, nextStartsAt, actor);
+          if (activity?.id) {
+            data.activity = { connect: { id: activity.id } };
+          }
         } catch (err) {
           this.logger.warn(
             `Failed to create plan activity for visit ${id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -414,34 +482,12 @@ export class VisitsService {
       },
     });
 
-    if (existing.contactId) {
+    if (existing.contactId || existing.companyId) {
       try {
-        const activityBody = body.resultNote.trim();
-        const activityTitle = `Встреча (${body.outcome})`;
-        if (existing.activityId) {
-          await this.prisma.activity.update({
-            where: { id: existing.activityId },
-            data: {
-              title: activityTitle,
-              body: activityBody,
-              occurredAt: now,
-            },
-          });
-        } else {
-          await this.activitiesService.createForContact(
-            existing.contactId,
-            {
-              type: "MEETING",
-              title: activityTitle,
-              body: activityBody,
-              occurredAt: now.toISOString(),
-            },
-            actor,
-          );
-        }
+        await this.syncVisitResultActivity(existing, body, now, actor, id);
       } catch (err) {
         this.logger.warn(
-          `Failed to create/update contact timeline activity for visit ${id}, contact ${existing.contactId}: ${err instanceof Error ? err.message : String(err)}`,
+          `Failed to create/update timeline activity for visit ${id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
