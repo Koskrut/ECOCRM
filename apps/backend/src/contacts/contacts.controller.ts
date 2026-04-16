@@ -17,6 +17,11 @@ import type {
   ContactCardAnalyticsRange,
   ContactCardAnalyticsScope,
 } from "./contact-card-summary.types";
+import { ContactsWorkQueueService } from "./contacts-work-queue.service";
+import { GetWorkQueueDto } from "./dto/get-work-queue.dto";
+import { GetWorkQueueSummaryDto } from "./dto/get-work-queue-summary.dto";
+import { UpdateContactNextActionDto } from "./dto/update-contact-next-action.dto";
+import { UpdateContactStageDto } from "./dto/update-contact-stage.dto";
 
 function parseNullableNumber(value: unknown): number | null {
   if (value == null) return null;
@@ -26,7 +31,10 @@ function parseNullableNumber(value: unknown): number | null {
 
 @Controller("contacts")
 export class ContactsController {
-  constructor(private readonly contactsService: ContactsService) {}
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly contactsWorkQueue: ContactsWorkQueueService,
+  ) {}
 
   // CREATE
   @Post()
@@ -102,6 +110,22 @@ export class ContactsController {
       },
       req.user,
     );
+  }
+
+  @Get("work-queue")
+  async getWorkQueue(
+    @Query() query: GetWorkQueueDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsWorkQueue.getWorkQueue(query, req.user);
+  }
+
+  @Get("work-queue/summary")
+  async getWorkQueueSummary(
+    @Query() query: GetWorkQueueSummaryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsWorkQueue.getWorkQueueSummary(query, req.user);
   }
 
   @Get(":id/phones")
@@ -216,12 +240,65 @@ export class ContactsController {
     return this.contactsService.getCardAnalytics(id, { range, scope }, req.user);
   }
 
+  @Get(":id/insights")
+  async getInsights(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsWorkQueue.getInsights(id, req.user);
+  }
+
   @Post(":id/reset-store-password")
   async resetStorePassword(
     @Param("id") id: string,
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.contactsService.resetStorePassword(id, req.user);
+  }
+
+  @Patch(":id/next-action")
+  async updateNextAction(
+    @Param("id") id: string,
+    @Body() body: UpdateContactNextActionDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.updateNextAction(
+      id,
+      {
+        nextActionType:
+          body.nextActionType !== undefined
+            ? body.nextActionType ?? null
+            : undefined,
+        nextActionAt:
+          body.nextActionAt !== undefined
+            ? body.nextActionAt != null
+              ? String(body.nextActionAt)
+              : null
+            : undefined,
+        nextActionNote:
+          body.nextActionNote !== undefined
+            ? body.nextActionNote != null
+              ? String(body.nextActionNote)
+              : null
+            : undefined,
+      },
+      req.user,
+    );
+  }
+
+  @Patch(":id/stage")
+  async updateStage(
+    @Param("id") id: string,
+    @Body() body: UpdateContactStageDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.updateStage(
+      id,
+      {
+        clientStage:
+          body.clientStage !== undefined
+            ? body.clientStage ?? null
+            : undefined,
+      },
+      req.user,
+    );
   }
 
   @Patch(":id")

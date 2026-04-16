@@ -26,6 +26,7 @@ type Props = {
   value: ContactsFiltersState;
   companyOptions: { value: string; label: string }[];
   ownerOptions: OwnerOption[];
+  presetMode?: boolean;
   onClose: () => void;
   onApply: (next: ContactsFiltersState) => void;
   onReset: () => void;
@@ -62,6 +63,7 @@ export function ContactsFiltersPopover({
   value,
   companyOptions,
   ownerOptions,
+  presetMode = false,
   onClose,
   onApply,
   onReset,
@@ -137,6 +139,13 @@ export function ContactsFiltersPopover({
         </button>
       </div>
 
+      {presetMode ? (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          В рабочих списках доступны только поиск и фильтр по ответственному. Остальные фильтры и сортировка
+          работают только в режиме «Все контакты».
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-3">
         <div>
           <label className="mb-1 block text-xs font-medium text-zinc-500">Компания</label>
@@ -144,7 +153,8 @@ export function ContactsFiltersPopover({
             ref={firstFieldRef}
             value={draft.companyId}
             onChange={(e) => setDraft((p) => ({ ...p, companyId: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {companyOptions.map((opt) => (
               <option key={opt.value || "_all"} value={opt.value}>
@@ -175,7 +185,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.hasPhone}
             onChange={(e) => setDraft((p) => ({ ...p, hasPhone: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {HAS_PHONE_OPTIONS.map((opt) => (
               <option key={opt.value || "_any"} value={opt.value}>
@@ -190,7 +201,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.hasEmail}
             onChange={(e) => setDraft((p) => ({ ...p, hasEmail: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {HAS_EMAIL_OPTIONS.map((opt) => (
               <option key={opt.value || "_any"} value={opt.value}>
@@ -205,7 +217,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.hasCallToday}
             onChange={(e) => setDraft((p) => ({ ...p, hasCallToday: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {BOOL_OPTIONS.map((opt) => (
               <option key={`today-${opt.value || "_any"}`} value={opt.value}>
@@ -220,7 +233,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.hasMissedCall}
             onChange={(e) => setDraft((p) => ({ ...p, hasMissedCall: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {BOOL_OPTIONS.map((opt) => (
               <option key={`missed-${opt.value || "_any"}`} value={opt.value}>
@@ -237,7 +251,8 @@ export function ContactsFiltersPopover({
             value={draft.region}
             onChange={(e) => setDraft((p) => ({ ...p, region: e.target.value }))}
             placeholder="Часть названия региона"
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
           />
         </div>
 
@@ -248,7 +263,8 @@ export function ContactsFiltersPopover({
             value={draft.city}
             onChange={(e) => setDraft((p) => ({ ...p, city: e.target.value }))}
             placeholder="Часть названия города"
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
           />
         </div>
 
@@ -259,7 +275,8 @@ export function ContactsFiltersPopover({
             value={draft.clientType}
             onChange={(e) => setDraft((p) => ({ ...p, clientType: e.target.value }))}
             placeholder="Врач, техник и т.д."
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
           />
         </div>
 
@@ -268,7 +285,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.sortBy}
             onChange={(e) => setDraft((p) => ({ ...p, sortBy: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             {SORT_BY_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -283,7 +301,8 @@ export function ContactsFiltersPopover({
           <select
             value={draft.sortDir}
             onChange={(e) => setDraft((p) => ({ ...p, sortDir: e.target.value }))}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            disabled={presetMode}
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
             <option value="desc">По убыванию</option>
             <option value="asc">По возрастанию</option>

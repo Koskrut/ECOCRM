@@ -24,7 +24,10 @@ import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactCardHeader } from "./card/ContactCardHeader";
 import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
+import { formatContactClientStage } from "./contact-formatters";
 import { useContactCardSummary } from "./card/useContactCardSummary";
+import { useContactInsights } from "./card/useContactInsights";
+import { ContactCrmHint } from "./card/ContactCrmHint";
 import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
 import {
   useContactCardAnalytics,
@@ -70,6 +73,36 @@ function ContactGoogleScriptLoader({
   }, [isLoaded, loadError, onState]);
 
   return null;
+}
+
+const NEXT_ACTION_OPTIONS = [
+  { value: "", label: "Без дії" },
+  { value: "CALL", label: "Дзвінок" },
+  { value: "MESSAGE", label: "Повідомлення" },
+  { value: "SEND_OFFER", label: "Надіслати пропозицію" },
+  { value: "CONTROL_PAYMENT", label: "Контроль оплати" },
+  { value: "MEETING", label: "Зустріч" },
+  { value: "NO_ACTION", label: "Без дії" },
+] as const;
+
+const CLIENT_STAGE_OPTIONS = [
+  { value: "", label: "Без ручної стадії" },
+  { value: "NEW_LEAD", label: "Новий лід" },
+  { value: "IN_PROGRESS", label: "В роботі" },
+  { value: "WAITING_DECISION", label: "Очікує рішення" },
+  { value: "ACTIVE_CLIENT", label: "Активний клієнт" },
+  { value: "DORMANT_CLIENT", label: "Сплячий клієнт" },
+  { value: "AT_RISK", label: "У зоні ризику" },
+  { value: "PROBLEM_DEBT", label: "Проблемна заборгованість" },
+  { value: "LOST_CLIENT", label: "Втрачений клієнт" },
+] as const;
+
+function toDateTimeLocalValue(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 type ShippingProfile = {
@@ -631,6 +664,10 @@ type Contact = {
   city?: string | null;
   clientType?: string | null;
   status?: string | null;
+  nextActionType?: string | null;
+  nextActionAt?: string | null;
+  nextActionNote?: string | null;
+  clientStage?: string | null;
   isPrimary: boolean;
   createdAt: string;
   updatedAt: string;
@@ -702,6 +739,16 @@ export function ContactModal({
   const [city, setCity] = useState("");
   const [clientType, setClientType] = useState("");
   const [status, setStatus] = useState("");
+  const [nextActionType, setNextActionType] = useState("");
+  const [nextActionAt, setNextActionAt] = useState("");
+  const [nextActionNote, setNextActionNote] = useState("");
+  const [savingNextAction, setSavingNextAction] = useState(false);
+  const [nextActionError, setNextActionError] = useState<string | null>(null);
+  const [nextActionSuccess, setNextActionSuccess] = useState<string | null>(null);
+  const [clientStage, setClientStage] = useState("");
+  const [savingStage, setSavingStage] = useState(false);
+  const [stageError, setStageError] = useState<string | null>(null);
+  const [stageSuccess, setStageSuccess] = useState<string | null>(null);
 
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
@@ -743,6 +790,7 @@ export function ContactModal({
   const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
 
   const cardSummary = useContactCardSummary(contactId, !isCreate && isCardV2Enabled);
+  const contactInsights = useContactInsights(contactId, !isCreate && leftTab === "overview");
   const [analyticsRange, setAnalyticsRange] = useState<ContactCardAnalyticsRange>("30d");
   const [analyticsScope, setAnalyticsScope] = useState<ContactCardAnalyticsScope>("contact");
   const cardAnalytics = useContactCardAnalytics(contactId, {
@@ -843,6 +891,14 @@ export function ContactModal({
       setCity((data.city ?? "") as string);
       setClientType((data.clientType ?? "") as string);
       setStatus((data.status ?? "") as string);
+      setNextActionType((data.nextActionType ?? "") as string);
+      setNextActionAt(toDateTimeLocalValue(data.nextActionAt));
+      setNextActionNote((data.nextActionNote ?? "") as string);
+      setClientStage((data.clientStage ?? "") as string);
+      setNextActionError(null);
+      setNextActionSuccess(null);
+      setStageError(null);
+      setStageSuccess(null);
       await Promise.all([fetchCompanies(), fetchUsers()]);
     } catch (e) {
       const msg =
@@ -892,6 +948,14 @@ export function ContactModal({
       setCity("");
       setClientType("");
       setStatus("");
+      setNextActionType("");
+      setNextActionAt("");
+      setNextActionNote("");
+      setClientStage("");
+      setNextActionError(null);
+      setNextActionSuccess(null);
+      setStageError(null);
+      setStageSuccess(null);
       void Promise.all([fetchCompanies(), fetchUsers()]);
       return;
     }
@@ -1298,6 +1362,87 @@ export function ContactModal({
       setResetPasswordLoading(false);
     }
   }, [contactId]);
+
+  const saveNextAction = useCallback(async () => {
+    if (isCreate || !contact) return;
+    setSavingNextAction(true);
+    setNextActionError(null);
+    setNextActionSuccess(null);
+    try {
+      const normalizedType = nextActionType.trim() || null;
+      const payload = {
+        nextActionType: normalizedType as
+          | "CALL"
+          | "MESSAGE"
+          | "SEND_OFFER"
+          | "CONTROL_PAYMENT"
+          | "MEETING"
+          | "NO_ACTION"
+          | null,
+        nextActionAt:
+          normalizedType && normalizedType !== "NO_ACTION" && nextActionAt.trim()
+            ? new Date(nextActionAt).toISOString()
+            : null,
+        nextActionNote:
+          normalizedType && normalizedType !== "NO_ACTION" ? nextActionNote.trim() || null : null,
+      };
+      const updated = await contactsApi.updateNextAction(contact.id, payload);
+      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as Contact)));
+      setNextActionType((updated.nextActionType ?? "") as string);
+      setNextActionAt(toDateTimeLocalValue(updated.nextActionAt));
+      setNextActionNote((updated.nextActionNote ?? "") as string);
+      setNextActionSuccess("Наступну дію збережено.");
+      await contactInsights.refetch();
+      onUpdate();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не вдалося зберегти наступну дію");
+      setNextActionError(msg);
+    } finally {
+      setSavingNextAction(false);
+    }
+  }, [
+    contact,
+    contactInsights,
+    isCreate,
+    nextActionAt,
+    nextActionNote,
+    nextActionType,
+    onUpdate,
+  ]);
+
+  const saveClientStage = useCallback(async () => {
+    if (isCreate || !contact) return;
+    setSavingStage(true);
+    setStageError(null);
+    setStageSuccess(null);
+    try {
+      const updated = await contactsApi.updateStage(contact.id, {
+        clientStage: (clientStage.trim() || null) as
+          | "NEW_LEAD"
+          | "IN_PROGRESS"
+          | "WAITING_DECISION"
+          | "ACTIVE_CLIENT"
+          | "DORMANT_CLIENT"
+          | "AT_RISK"
+          | "PROBLEM_DEBT"
+          | "LOST_CLIENT"
+          | null,
+      });
+      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as Contact)));
+      setClientStage((updated.clientStage ?? "") as string);
+      setStageSuccess("Стадію клієнта збережено.");
+      onUpdate();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не вдалося зберегти стадію клієнта");
+      setStageError(msg);
+    } finally {
+      setSavingStage(false);
+    }
+  }, [clientStage, contact, isCreate, onUpdate]);
 
   const fullName = useMemo(() => {
     const a = (contact?.firstName ?? "").trim();
@@ -1999,6 +2144,21 @@ export function ContactModal({
     ownerId,
     userOptions,
     loadingUsers,
+    nextActionType,
+    nextActionAt,
+    nextActionNote,
+    nextActionError,
+    nextActionSuccess,
+    savingNextAction,
+    saveNextAction,
+    clientStage,
+    stageError,
+    stageSuccess,
+    savingStage,
+    saveClientStage,
+    contactInsights.loading,
+    contactInsights.error,
+    contactInsights.data,
   ]);
 
   const tabsUnderHeader = (
@@ -2078,6 +2238,132 @@ export function ContactModal({
                   </>
                 ) : null
               ) : null}
+              <ContactCrmHint
+                loading={contactInsights.loading}
+                error={contactInsights.error}
+                insights={contactInsights.data}
+              />
+              <div className="rounded-lg border border-zinc-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Стадія клієнта
+                  </div>
+                  {stageSuccess ? (
+                    <span className="text-xs text-emerald-700">{stageSuccess}</span>
+                  ) : null}
+                </div>
+                <div className="mt-2 text-sm text-zinc-800">
+                  Рекомендована стадія:{" "}
+                  <span className="font-medium">
+                    {formatContactClientStage(contactInsights.data?.suggestion.suggestedStage)}
+                  </span>
+                </div>
+                <label className="mt-3 block text-sm text-zinc-700">
+                  <span className="mb-1 block text-xs text-zinc-500">Стадія клієнта</span>
+                  <select
+                    value={clientStage}
+                    onChange={(e) => {
+                      setClientStage(e.target.value);
+                      setStageSuccess(null);
+                    }}
+                    disabled={savingStage}
+                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                  >
+                    {CLIENT_STAGE_OPTIONS.map((option) => (
+                      <option key={option.value || "empty"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {stageError ? (
+                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                    {stageError}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveClientStage()}
+                    disabled={savingStage}
+                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {savingStage ? "Збереження..." : "Зберегти стадію"}
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Наступна дія
+                  </div>
+                  {nextActionSuccess ? (
+                    <span className="text-xs text-emerald-700">{nextActionSuccess}</span>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-zinc-700">
+                    <span className="mb-1 block text-xs text-zinc-500">Дія</span>
+                    <select
+                      value={nextActionType}
+                      onChange={(e) => {
+                        setNextActionType(e.target.value);
+                        setNextActionSuccess(null);
+                      }}
+                      disabled={savingNextAction}
+                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    >
+                      {NEXT_ACTION_OPTIONS.map((option) => (
+                        <option key={option.value || "empty"} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm text-zinc-700">
+                    <span className="mb-1 block text-xs text-zinc-500">Коли</span>
+                    <input
+                      type="datetime-local"
+                      value={nextActionAt}
+                      onChange={(e) => {
+                        setNextActionAt(e.target.value);
+                        setNextActionSuccess(null);
+                      }}
+                      disabled={savingNextAction || !nextActionType || nextActionType === "NO_ACTION"}
+                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-50"
+                    />
+                  </label>
+                </div>
+                <label className="mt-3 block text-sm text-zinc-700">
+                  <span className="mb-1 block text-xs text-zinc-500">Нотатка</span>
+                  <textarea
+                    rows={2}
+                    value={nextActionNote}
+                    onChange={(e) => {
+                      setNextActionNote(e.target.value);
+                      setNextActionSuccess(null);
+                    }}
+                    disabled={savingNextAction || !nextActionType || nextActionType === "NO_ACTION"}
+                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-50"
+                    placeholder="Необов'язкова нотатка для фоллоуапу"
+                  />
+                </label>
+                {nextActionError ? (
+                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                    {nextActionError}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveNextAction()}
+                    disabled={savingNextAction}
+                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {savingNextAction ? "Збереження..." : "Зберегти дію"}
+                  </button>
+                </div>
+              </div>
               <div className="min-h-0 overflow-auto">
                 <EntitySection
                   title={isCardV2Enabled ? "Overview" : "About contact"}

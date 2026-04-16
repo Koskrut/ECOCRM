@@ -22,6 +22,14 @@ import {
   extractNpDataFromBitrixLegacyRaw,
   bitrixNpDataToProfilePayload,
 } from "./bitrix-np-mapper";
+import {
+  CONTACT_NEXT_ACTION_TYPES,
+  type ContactNextActionType,
+} from "./dto/update-contact-next-action.dto";
+import {
+  CONTACT_CLIENT_STAGES,
+  type ContactClientStage,
+} from "./dto/update-contact-stage.dto";
 import type {
   ContactCardAnalyticsRange,
   ContactCardAnalyticsResponse,
@@ -842,6 +850,92 @@ export class ContactsService {
     return { ok: true };
   }
 
+  async updateNextAction(
+    id: string,
+    data: Partial<{
+      nextActionType: ContactNextActionType | null;
+      nextActionAt: string | null;
+      nextActionNote: string | null;
+    }>,
+    actor?: AuthUser,
+  ) {
+    const existing = await this.prisma.contact.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true },
+    });
+    if (!existing) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(existing, actor);
+
+    const updateData: Prisma.ContactUpdateInput = {};
+
+    if (data.nextActionType !== undefined) {
+      if (data.nextActionType !== null && !CONTACT_NEXT_ACTION_TYPES.includes(data.nextActionType)) {
+        throw new BadRequestException("Invalid nextActionType");
+      }
+      updateData.nextActionType = data.nextActionType ?? null;
+      if (data.nextActionType === null || data.nextActionType === "NO_ACTION") {
+        updateData.nextActionAt = null;
+        updateData.nextActionNote = null;
+      }
+    }
+
+    if (data.nextActionAt !== undefined && updateData.nextActionAt === undefined) {
+      if (data.nextActionAt === null || data.nextActionAt === "") {
+        updateData.nextActionAt = null;
+      } else {
+        const parsed = new Date(data.nextActionAt);
+        if (Number.isNaN(parsed.getTime())) {
+          throw new BadRequestException("Invalid nextActionAt");
+        }
+        updateData.nextActionAt = parsed;
+      }
+    }
+
+    if (data.nextActionNote !== undefined && updateData.nextActionNote === undefined) {
+      updateData.nextActionNote = data.nextActionNote?.trim() ? data.nextActionNote.trim() : null;
+    }
+
+    const contact = await this.prisma.contact.update({
+      where: { id },
+      data: updateData,
+      include: { company: true, owner: true },
+    });
+
+    return this.mapToEntity(contact);
+  }
+
+  async updateStage(
+    id: string,
+    data: Partial<{
+      clientStage: ContactClientStage | null;
+    }>,
+    actor?: AuthUser,
+  ) {
+    const existing = await this.prisma.contact.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true },
+    });
+    if (!existing) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(existing, actor);
+
+    const updateData: Prisma.ContactUpdateInput = {};
+
+    if (data.clientStage !== undefined) {
+      if (data.clientStage !== null && !CONTACT_CLIENT_STAGES.includes(data.clientStage)) {
+        throw new BadRequestException("Invalid clientStage");
+      }
+      updateData.clientStage = data.clientStage ?? null;
+    }
+
+    const contact = await this.prisma.contact.update({
+      where: { id },
+      data: updateData,
+      include: { company: true, owner: true },
+    });
+
+    return this.mapToEntity(contact);
+  }
+
   // ===== UPDATE =====
   async update(
     id: string,
@@ -867,6 +961,10 @@ export class ContactsService {
       clientType: string | null;
       status: string | null;
       marketingCallOptOut: boolean;
+      nextActionType: string | null;
+      nextActionAt: Date | null;
+      nextActionNote: string | null;
+      clientStage: string | null;
     }>,
     actor?: AuthUser,
   ) {
@@ -1198,6 +1296,10 @@ export class ContactsService {
       clientType: contact.clientType ?? null,
       status: contact.status ?? null,
       marketingCallOptOut: contact.marketingCallOptOut,
+      nextActionType: contact.nextActionType ?? null,
+      nextActionAt: contact.nextActionAt ?? null,
+      nextActionNote: contact.nextActionNote ?? null,
+      clientStage: contact.clientStage ?? null,
       company: contact.company
         ? {
             id: contact.company.id,

@@ -3,9 +3,17 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Filter, Mail, Pencil, Phone, Search, X } from "lucide-react";
-import { contactsApi, type Contact, type ContactsResponse } from "@/lib/api";
 import { companiesApi, type Company } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
+import {
+  CONTACT_WORK_QUEUE_PRESETS,
+  contactsApi,
+  type Contact,
+  type ContactsResponse,
+  type ContactWorkQueueItem,
+  type ContactWorkQueuePreset,
+  type ContactWorkQueueSummaryResponse,
+} from "@/lib/api/resources/contacts";
 import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/formatPhone";
 import { ContactModal } from "./ContactModal";
@@ -16,10 +24,115 @@ import {
   type OwnerOption,
 } from "./ContactsFiltersPopover";
 import { formatDate } from "@/lib/crmDatetime";
+import {
+  formatContactClientStage,
+  formatContactNextActionType,
+  formatContactPriorityReason,
+  formatContactPriorityReasonCompact,
+} from "./contact-formatters";
 
 const PAGE_SIZE = 20;
 type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
 type ContactsSortDir = "asc" | "desc";
+type ContactsWorkPreset = "all" | ContactWorkQueuePreset;
+
+const WORK_PRESET_OPTIONS: Array<{ value: ContactsWorkPreset; label: string }> = [
+  { value: "all", label: "Все контакты" },
+  { value: "attention", label: "Требуют внимания" },
+  { value: "overdue", label: "Просроченные" },
+  { value: "new-no-first-contact", label: "Новые без первого контакта" },
+  { value: "debt-control", label: "Контроль оплаты / долг" },
+  { value: "return-to-work", label: "Вернуть в работу" },
+  { value: "risk-or-dormant", label: "Риск потери / спящие" },
+];
+
+function scoreTone(score: number) {
+  if (score >= 70) return "border-red-200 bg-red-50 text-red-700";
+  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+}
+
+function formatDaysSinceLastContact(value: number | null): string {
+  if (value == null) return "Без контакта";
+  return `${value} дн.`;
+}
+
+function WorkQueueMobileCard({
+  item,
+  openContact,
+}: {
+  item: ContactWorkQueueItem;
+  openContact: (id: string) => void;
+}) {
+  return (
+    <article
+      className="bg-white px-3 py-3 transition-all hover:bg-zinc-50/60"
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (isTextSelected()) return;
+        openContact(item.contact.id);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openContact(item.contact.id);
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-semibold text-zinc-900">
+              {item.contact.fullName || "Без имени"}
+            </div>
+            <span
+              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${scoreTone(item.priorityScore)}`}
+            >
+              Score {item.priorityScore}
+            </span>
+            {item.metrics.debtAmount > 0 ? (
+              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                Долг {item.metrics.debtAmount}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+            <span>Компания: {item.contact.companyName ?? "—"}</span>
+            <span>Owner: {item.contact.ownerName ?? "—"}</span>
+            <span>Стадия: {formatContactClientStage(item.contact.clientStage)}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs text-zinc-600">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-zinc-500">Next action</span>
+              <span className="truncate text-right font-medium text-zinc-800">
+                {formatContactNextActionType(item.contact.nextActionType)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-zinc-500">Дата</span>
+              <span className="text-right">{item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-zinc-500">Последний контакт</span>
+              <span className="text-right">{formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}</span>
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {item.priorityReasons.slice(0, 3).map((reason) => (
+              <span
+                key={reason}
+                className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-700"
+              >
+                {formatContactPriorityReasonCompact(reason)}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
 
 function ContactsPageContent() {
   const router = useRouter();
@@ -30,6 +143,7 @@ function ContactsPageContent() {
   const [companyId, setCompanyId] = useState<string | null>(null);
 
   const [items, setItems] = useState<Contact[]>([]);
+  const [workItems, setWorkItems] = useState<ContactWorkQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(() => {
@@ -73,10 +187,18 @@ function ContactsPageContent() {
   const [sortDir, setSortDir] = useState<ContactsSortDir>(() =>
     searchParams.get("sortDir") === "asc" ? "asc" : "desc",
   );
+  const [workPreset, setWorkPreset] = useState<ContactsWorkPreset>(() => {
+    const raw = searchParams.get("workPreset");
+    return raw === "all" || raw == null || !CONTACT_WORK_QUEUE_PRESETS.includes(raw as ContactWorkQueuePreset)
+      ? "all"
+      : (raw as ContactWorkQueuePreset);
+  });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<{ value: string; label: string }[]>([]);
   const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [workSummary, setWorkSummary] = useState<ContactWorkQueueSummaryResponse | null>(null);
+  const isPresetMode = workPreset !== "all";
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
 
@@ -85,17 +207,20 @@ function ContactsPageContent() {
     if (contactId) params.set("contactId", contactId);
     if (page > 1) params.set("page", String(page));
     if (q) params.set("q", q);
-    if (filterCompanyId) params.set("companyId", filterCompanyId);
+    if (workPreset !== "all") params.set("workPreset", workPreset);
+    if (filterCompanyId && !isPresetMode) params.set("companyId", filterCompanyId);
     if (filterOwnerId) params.set("ownerId", filterOwnerId);
-    if (filterHasPhone) params.set("hasPhone", filterHasPhone);
-    if (filterHasEmail) params.set("hasEmail", filterHasEmail);
-    if (filterHasCallToday) params.set("hasCallToday", filterHasCallToday);
-    if (filterHasMissedCall) params.set("hasMissedCall", filterHasMissedCall);
-    if (filterRegion) params.set("region", filterRegion);
-    if (filterCity) params.set("city", filterCity);
-    if (filterClientType) params.set("clientType", filterClientType);
-    if (sortBy !== "createdAt") params.set("sortBy", sortBy);
-    if (sortDir !== "desc") params.set("sortDir", sortDir);
+    if (!isPresetMode) {
+      if (filterHasPhone) params.set("hasPhone", filterHasPhone);
+      if (filterHasEmail) params.set("hasEmail", filterHasEmail);
+      if (filterHasCallToday) params.set("hasCallToday", filterHasCallToday);
+      if (filterHasMissedCall) params.set("hasMissedCall", filterHasMissedCall);
+      if (filterRegion) params.set("region", filterRegion);
+      if (filterCity) params.set("city", filterCity);
+      if (filterClientType) params.set("clientType", filterClientType);
+      if (sortBy !== "createdAt") params.set("sortBy", sortBy);
+      if (sortDir !== "desc") params.set("sortDir", sortDir);
+    }
 
     const next = params.toString();
     const current = searchParams.toString();
@@ -115,6 +240,8 @@ function ContactsPageContent() {
     filterClientType,
     sortBy,
     sortDir,
+    workPreset,
+    isPresetMode,
     page,
     pathname,
     q,
@@ -145,37 +272,60 @@ function ContactsPageContent() {
         setError(null);
         const effectivePage = opts?.keepPage ? page : 1;
         if (!opts?.keepPage) setPage(1);
-
-        const res: ContactsResponse = await contactsApi.list({
-          page: effectivePage,
-          pageSize: PAGE_SIZE,
-          q: q.trim() || undefined,
-          companyId: filterCompanyId || undefined,
-          ownerId: filterOwnerId || undefined,
-          hasPhone: (filterHasPhone === "yes" || filterHasPhone === "no") ? filterHasPhone : undefined,
-          hasEmail: (filterHasEmail === "yes" || filterHasEmail === "no") ? filterHasEmail : undefined,
-          hasCallToday:
-            filterHasCallToday === "yes" || filterHasCallToday === "no"
-              ? filterHasCallToday
-              : undefined,
-          hasMissedCall:
-            filterHasMissedCall === "yes" || filterHasMissedCall === "no"
-              ? filterHasMissedCall
-              : undefined,
-          region: filterRegion.trim() || undefined,
-          city: filterCity.trim() || undefined,
-          clientType: filterClientType.trim() || undefined,
-          sortBy,
-          sortDir,
-        });
-        setItems(res.items);
-        setTotal(res.total);
+        if (workPreset === "all") {
+          const res: ContactsResponse = await contactsApi.list({
+            page: effectivePage,
+            pageSize: PAGE_SIZE,
+            q: q.trim() || undefined,
+            companyId: filterCompanyId || undefined,
+            ownerId: filterOwnerId || undefined,
+            hasPhone: (filterHasPhone === "yes" || filterHasPhone === "no") ? filterHasPhone : undefined,
+            hasEmail: (filterHasEmail === "yes" || filterHasEmail === "no") ? filterHasEmail : undefined,
+            hasCallToday:
+              filterHasCallToday === "yes" || filterHasCallToday === "no"
+                ? filterHasCallToday
+                : undefined,
+            hasMissedCall:
+              filterHasMissedCall === "yes" || filterHasMissedCall === "no"
+                ? filterHasMissedCall
+                : undefined,
+            region: filterRegion.trim() || undefined,
+            city: filterCity.trim() || undefined,
+            clientType: filterClientType.trim() || undefined,
+            sortBy,
+            sortDir,
+          });
+          setItems(res.items);
+          setWorkItems([]);
+          setTotal(res.total);
+          setWorkSummary(null);
+        } else {
+          const [queue, summary] = await Promise.all([
+            contactsApi.getWorkQueue({
+              page: effectivePage,
+              pageSize: PAGE_SIZE,
+              q: q.trim() || undefined,
+              ownerId: filterOwnerId || undefined,
+              preset: workPreset,
+            }),
+            contactsApi.getWorkQueueSummary({
+              q: q.trim() || undefined,
+              ownerId: filterOwnerId || undefined,
+            }),
+          ]);
+          setItems([]);
+          setWorkItems(queue.items);
+          setTotal(queue.total);
+          setWorkSummary(summary);
+        }
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
           (e instanceof Error ? e.message : "Ошибка загрузки контактов");
         setError(msg);
         setItems([]);
+        setWorkItems([]);
+        setWorkSummary(null);
       } finally {
         setLoading(false);
       }
@@ -194,6 +344,7 @@ function ContactsPageContent() {
       filterClientType,
       sortBy,
       sortDir,
+      workPreset,
     ],
   );
 
@@ -249,24 +400,26 @@ function ContactsPageContent() {
   };
 
   const applyPopoverFilters = (next: ContactsFiltersState) => {
-    setFilterCompanyId(next.companyId || null);
     setFilterOwnerId(next.ownerId || null);
-    setFilterHasPhone(next.hasPhone || "");
-    setFilterHasEmail(next.hasEmail || "");
-    setFilterHasCallToday(next.hasCallToday || "");
-    setFilterHasMissedCall(next.hasMissedCall || "");
-    setFilterRegion(next.region || "");
-    setFilterCity(next.city || "");
-    setFilterClientType(next.clientType || "");
-    setSortBy(
-      next.sortBy === "updatedAt" ||
-        next.sortBy === "name" ||
-        next.sortBy === "hasCallToday" ||
-        next.sortBy === "hasMissedCall"
-        ? next.sortBy
-        : "createdAt",
-    );
-    setSortDir(next.sortDir === "asc" ? "asc" : "desc");
+    if (!isPresetMode) {
+      setFilterCompanyId(next.companyId || null);
+      setFilterHasPhone(next.hasPhone || "");
+      setFilterHasEmail(next.hasEmail || "");
+      setFilterHasCallToday(next.hasCallToday || "");
+      setFilterHasMissedCall(next.hasMissedCall || "");
+      setFilterRegion(next.region || "");
+      setFilterCity(next.city || "");
+      setFilterClientType(next.clientType || "");
+      setSortBy(
+        next.sortBy === "updatedAt" ||
+          next.sortBy === "name" ||
+          next.sortBy === "hasCallToday" ||
+          next.sortBy === "hasMissedCall"
+          ? next.sortBy
+          : "createdAt",
+      );
+      setSortDir(next.sortDir === "asc" ? "asc" : "desc");
+    }
     setPage(1);
   };
 
@@ -304,20 +457,23 @@ function ContactsPageContent() {
 
   const activeFiltersCount = useMemo(
     () =>
-      [
-        Boolean(filterCompanyId),
-        Boolean(filterOwnerId),
-        Boolean(filterHasPhone),
-        Boolean(filterHasEmail),
-        Boolean(filterHasCallToday),
-        Boolean(filterHasMissedCall),
-        Boolean(filterRegion.trim()),
-        Boolean(filterCity.trim()),
-        Boolean(filterClientType.trim()),
-        sortBy !== "createdAt",
-        sortDir !== "desc",
-      ].filter(Boolean).length,
+      isPresetMode
+        ? [Boolean(filterOwnerId)].filter(Boolean).length
+        : [
+            Boolean(filterCompanyId),
+            Boolean(filterOwnerId),
+            Boolean(filterHasPhone),
+            Boolean(filterHasEmail),
+            Boolean(filterHasCallToday),
+            Boolean(filterHasMissedCall),
+            Boolean(filterRegion.trim()),
+            Boolean(filterCity.trim()),
+            Boolean(filterClientType.trim()),
+            sortBy !== "createdAt",
+            sortDir !== "desc",
+          ].filter(Boolean).length,
     [
+      isPresetMode,
       filterCity,
       filterClientType,
       filterCompanyId,
@@ -350,6 +506,24 @@ function ContactsPageContent() {
     void reload({ keepPage: true });
   };
 
+  const presetCounts = workSummary?.presetCounts;
+  const switchPreset = (preset: ContactsWorkPreset) => {
+    setWorkPreset(preset);
+    setPage(1);
+    if (preset !== "all") {
+      setFilterCompanyId(null);
+      setFilterHasPhone("");
+      setFilterHasEmail("");
+      setFilterHasCallToday("");
+      setFilterHasMissedCall("");
+      setFilterRegion("");
+      setFilterCity("");
+      setFilterClientType("");
+      setSortBy("createdAt");
+      setSortDir("desc");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -360,6 +534,30 @@ function ContactsPageContent() {
       </div>
 
       <div className="mb-4">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {WORK_PRESET_OPTIONS.map((preset) => {
+            const isActive = workPreset === preset.value;
+            const count =
+              preset.value === "all"
+                ? null
+                : presetCounts?.[preset.value as ContactWorkQueuePreset];
+            return (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => switchPreset(preset.value)}
+                className={`rounded-full border px-3 py-1.5 text-sm transition ${
+                  isActive
+                    ? "border-zinc-900 bg-zinc-900 text-white"
+                    : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                {preset.label}
+                {typeof count === "number" ? ` (${count})` : ""}
+              </button>
+            );
+          })}
+        </div>
         <div className="relative">
           <form
             onSubmit={(e) => e.preventDefault()}
@@ -403,11 +601,17 @@ function ContactsPageContent() {
             value={filtersState}
             companyOptions={companyOptions}
             ownerOptions={ownerOptions}
+            presetMode={isPresetMode}
             onClose={() => setFiltersOpen(false)}
             onApply={applyPopoverFilters}
             onReset={resetAllFilters}
           />
         </div>
+        {isPresetMode ? (
+          <div className="mt-2 text-xs text-zinc-500">
+            В рабочем списке доступны только поиск, ответственный, preset и пагинация.
+          </div>
+        ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
           Всего: {total} | Страница {page} из {totalPages}
           {activeFiltersCount > 0 ? (
@@ -431,7 +635,7 @@ function ContactsPageContent() {
                 Поиск: {q} ✕
               </button>
             ) : null}
-            {filterCompanyId ? (
+            {!isPresetMode && filterCompanyId ? (
               <button
                 type="button"
                 onClick={() => {
@@ -455,7 +659,7 @@ function ContactsPageContent() {
                 Ответственный ✕
               </button>
             ) : null}
-            {filterHasPhone ? (
+            {!isPresetMode && filterHasPhone ? (
               <button
                 type="button"
                 onClick={() => {
@@ -467,7 +671,7 @@ function ContactsPageContent() {
                 Телефон: {filterHasPhone === "yes" ? "есть" : "нет"} ✕
               </button>
             ) : null}
-            {filterHasEmail ? (
+            {!isPresetMode && filterHasEmail ? (
               <button
                 type="button"
                 onClick={() => {
@@ -479,7 +683,7 @@ function ContactsPageContent() {
                 Email: {filterHasEmail === "yes" ? "есть" : "нет"} ✕
               </button>
             ) : null}
-            {filterHasCallToday ? (
+            {!isPresetMode && filterHasCallToday ? (
               <button
                 type="button"
                 onClick={() => {
@@ -491,7 +695,7 @@ function ContactsPageContent() {
                 Звонок сегодня: {filterHasCallToday === "yes" ? "да" : "нет"} ✕
               </button>
             ) : null}
-            {filterHasMissedCall ? (
+            {!isPresetMode && filterHasMissedCall ? (
               <button
                 type="button"
                 onClick={() => {
@@ -503,7 +707,7 @@ function ContactsPageContent() {
                 Пропущенные: {filterHasMissedCall === "yes" ? "да" : "нет"} ✕
               </button>
             ) : null}
-            {filterRegion.trim() ? (
+            {!isPresetMode && filterRegion.trim() ? (
               <button
                 type="button"
                 onClick={() => {
@@ -515,7 +719,7 @@ function ContactsPageContent() {
                 Регион: {filterRegion} ✕
               </button>
             ) : null}
-            {filterCity.trim() ? (
+            {!isPresetMode && filterCity.trim() ? (
               <button
                 type="button"
                 onClick={() => {
@@ -527,7 +731,7 @@ function ContactsPageContent() {
                 Город: {filterCity} ✕
               </button>
             ) : null}
-            {filterClientType.trim() ? (
+            {!isPresetMode && filterClientType.trim() ? (
               <button
                 type="button"
                 onClick={() => {
@@ -552,7 +756,12 @@ function ContactsPageContent() {
 
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
-          <span>{error}</span>
+          <div className="space-y-1">
+            <div className="font-medium">
+              {isPresetMode ? "Не удалось загрузить рабочий список" : "Не удалось загрузить контакты"}
+            </div>
+            <div>{error}</div>
+          </div>
           <button
             type="button"
             onClick={() => void reload({ keepPage: true })}
@@ -566,7 +775,22 @@ function ContactsPageContent() {
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
         <div className="divide-y divide-zinc-100 md:hidden">
           {loading ? (
-            <div className="px-4 py-8 text-center text-zinc-500">Загрузка…</div>
+            <div className="px-4 py-8 text-center text-zinc-500">
+              {isPresetMode ? "Формируем рабочий список…" : "Загрузка…"}
+            </div>
+          ) : isPresetMode ? (
+            workItems.length === 0 ? (
+              <div className="px-4 py-10 text-center">
+                <div className="text-sm font-medium text-zinc-700">В этом списке сейчас пусто</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Попробуйте другой preset или снимите поиск/фильтр по ответственному.
+                </div>
+              </div>
+            ) : (
+              workItems.map((item) => (
+                <WorkQueueMobileCard key={item.contact.id} item={item} openContact={openContact} />
+              ))
+            )
           ) : items.length === 0 ? (
             <div className="px-4 py-8 text-center text-zinc-500">Нет контактов</div>
           ) : (
@@ -650,6 +874,103 @@ function ContactsPageContent() {
         </div>
 
         <div className="hidden overflow-x-auto md:block">
+        {isPresetMode ? (
+        <table className="w-full min-w-[1120px] text-left text-sm">
+          <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
+            <tr>
+              <th className="w-[18%] px-3 py-3">Имя</th>
+              <th className="w-[14%] px-3 py-3">Компания</th>
+              <th className="w-[12%] px-3 py-3">Owner</th>
+              <th className="w-[8%] px-3 py-3 text-right">Score</th>
+              <th className="w-[18%] px-3 py-3">Причины</th>
+              <th className="w-[12%] px-3 py-3">Stage</th>
+              <th className="w-[10%] px-3 py-3">Action</th>
+              <th className="w-[10%] px-3 py-3">Дата</th>
+              <th className="w-[10%] px-3 py-3">Контакт</th>
+              <th className="w-[8%] px-3 py-3 text-right">Долг</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {loading ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
+                  Формируем рабочий список…
+                </td>
+              </tr>
+            ) : workItems.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-10 text-center">
+                  <div className="text-sm font-medium text-zinc-700">В этом списке сейчас пусто</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Попробуйте другой preset или снимите поиск/фильтр по ответственному.
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              workItems.map((item) => (
+                <tr
+                  key={item.contact.id}
+                  className="cursor-pointer align-top transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
+                  onClick={() => {
+                    if (isTextSelected()) return;
+                    openContact(item.contact.id);
+                  }}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openContact(item.contact.id);
+                    }
+                  }}
+                >
+                  <td className="px-3 py-3.5">
+                    <div className="font-medium text-zinc-900">{item.contact.fullName || "Без имени"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{item.contact.companyName ?? "Без компании"}</div>
+                  </td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-600">{item.contact.companyName ?? "—"}</td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-600">{item.contact.ownerName ?? "—"}</td>
+                  <td className="px-3 py-3.5 text-right">
+                    <span
+                      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(item.priorityScore)}`}
+                    >
+                      {item.priorityScore}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3.5">
+                    <div className="flex flex-wrap gap-1">
+                      {item.priorityReasons.slice(0, 3).map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium leading-none text-zinc-700"
+                        >
+                          {formatContactPriorityReasonCompact(reason)}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-600">{formatContactClientStage(item.contact.clientStage)}</td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-800">
+                    <span className="font-medium">{formatContactNextActionType(item.contact.nextActionType)}</span>
+                  </td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-600">
+                    {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
+                  </td>
+                  <td className="px-3 py-3.5 text-sm text-zinc-600">
+                    {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
+                  </td>
+                  <td className="px-3 py-3.5 text-right text-sm text-zinc-600">
+                    {item.metrics.debtAmount > 0 ? (
+                      <span className="font-medium text-amber-700">{item.metrics.debtAmount}</span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        ) : (
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
             <tr>
@@ -798,6 +1119,7 @@ function ContactsPageContent() {
             )}
           </tbody>
         </table>
+        )}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">

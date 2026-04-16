@@ -546,6 +546,10 @@ model Contact {
    * Відмова від маркетингових/AI дзвінків (outbound compliance).
    */
   marketingCallOptOut Boolean   @default(false)
+  nextActionType      String?
+  nextActionAt        DateTime?
+  nextActionNote      String?
+  clientStage         String?
   legacySource        String?
   legacyId            Int?
   legacyRaw           Json?
