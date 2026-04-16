@@ -2,20 +2,33 @@ import { Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
-import { buildDebtOrderWhere, buildOverdueTaskWhere } from "../utils/analytics-filter.builder";
+import {
+  buildOverdueTaskWhereForPeriod,
+  buildPeriodOrderWhere,
+} from "../utils/analytics-filter.builder";
+import type { ResolvedPeriod } from "../utils/analytics-date.util";
 
 @Injectable()
 export class AnalyticsAttentionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getAttention(scope: AnalyticsScope) {
+  async getAttention(period: ResolvedPeriod, scope: AnalyticsScope) {
     if (scope.emptyTeam) {
       return { crm: { overdueTasks: [], stuckOrders: [], leadsWithoutTouch: [] }, finance: { overdueOrders: [] } };
     }
 
+    const overdueOrderWhere: Prisma.OrderWhereInput = {
+      ...buildPeriodOrderWhere(period.from, period.to, scope.orderScope),
+      financialStatus: "OVERDUE",
+      debtAmount: { gt: 0 },
+    };
+
     const [overdueTasks, stuckOrders, leadsWithoutTouch, overdueOrders] = await Promise.all([
       this.prisma.task.findMany({
-        where: buildOverdueTaskWhere({ allowedAssigneeIds: scope.allowedAssigneeIds }),
+        where: buildOverdueTaskWhereForPeriod(period.from, period.to, {
+          managerId: scope.orderScope.managerId,
+          allowedAssigneeIds: scope.allowedAssigneeIds,
+        }),
         orderBy: { dueAt: "asc" },
         take: 50,
         select: {
@@ -29,10 +42,10 @@ export class AnalyticsAttentionService {
           companyId: true,
         },
       }),
-      this.fetchStuckOrders(scope),
-      this.fetchLeadsWithoutTouch(scope),
+      this.fetchStuckOrders(scope, period),
+      this.fetchLeadsWithoutTouch(scope, period),
       this.prisma.order.findMany({
-        where: { ...buildDebtOrderWhere(scope.orderScope), financialStatus: "OVERDUE", debtAmount: { gt: 0 } },
+        where: overdueOrderWhere,
         orderBy: { paymentDueDate: "asc" },
         take: 50,
         select: {
@@ -69,10 +82,13 @@ export class AnalyticsAttentionService {
     };
   }
 
-  private async fetchStuckOrders(scope: AnalyticsScope) {
-    const cutoff = new Date(Date.now() - 3 * 86400000);
+  private async fetchStuckOrders(scope: AnalyticsScope, period: ResolvedPeriod) {
+    const asOf = period.to;
+    const cutoff = new Date(asOf);
+    cutoff.setDate(cutoff.getDate() - 3);
     const where: Prisma.OrderWhereInput = {
       OR: [{ orderStage: null }, { orderStage: { notIn: ["CANCELED", "REFUSED", "COMPLETED"] } }],
+      createdAt: { gte: period.from, lte: period.to },
     };
     if (scope.orderScope.managerId) where.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds !== undefined) where.ownerId = { in: scope.orderScope.allowedOwnerIds };
@@ -104,23 +120,28 @@ export class AnalyticsAttentionService {
       }));
   }
 
-  private async fetchLeadsWithoutTouch(scope: AnalyticsScope) {
-    const now = new Date();
-    const cutoffNew = new Date(now);
+  private async fetchLeadsWithoutTouch(scope: AnalyticsScope, period: ResolvedPeriod) {
+    const asOf = period.to;
+    const cutoffNew = new Date(asOf);
     cutoffNew.setDate(cutoffNew.getDate() - 3);
-    const cutoffIp = new Date(now);
+    const cutoffIp = new Date(asOf);
     cutoffIp.setDate(cutoffIp.getDate() - 7);
+
     const ownerFilter: Prisma.LeadWhereInput = {};
     if (scope.orderScope.managerId) ownerFilter.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds && scope.orderScope.allowedOwnerIds.length > 0) {
       ownerFilter.OR = [{ ownerId: { in: scope.orderScope.allowedOwnerIds } }, { ownerId: null }];
     }
+
+    const newUpper = period.to < cutoffNew ? period.to : cutoffNew;
+    const ipUpper = period.to < cutoffIp ? period.to : cutoffIp;
+
     const [newRows, ipRows] = await Promise.all([
       this.prisma.lead.findMany({
         where: {
           ...ownerFilter,
           status: "NEW",
-          createdAt: { lte: cutoffNew },
+          createdAt: { gte: period.from, lte: newUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffNew } } } },
         },
         take: 25,
@@ -130,7 +151,7 @@ export class AnalyticsAttentionService {
         where: {
           ...ownerFilter,
           status: "IN_PROGRESS",
-          createdAt: { lte: cutoffIp },
+          createdAt: { gte: period.from, lte: ipUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffIp } } } },
         },
         take: 25,
@@ -146,4 +167,3 @@ export class AnalyticsAttentionService {
     }));
   }
 }
-

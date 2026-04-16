@@ -3,7 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
-import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
+import {
+  buildOverdueTaskWhereForPeriod,
+  buildPaymentPeriodWhere,
+  buildPeriodOrderWhere,
+} from "../utils/analytics-filter.builder";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
 import { safeNum, toUsd } from "../utils/analytics-currency.util";
 
@@ -90,13 +94,13 @@ export class AnalyticsManagersService {
     }
 
     const managerIds = [...byOwner.keys()];
+    const overdueTaskBase = buildOverdueTaskWhereForPeriod(period.from, period.to, {
+      managerId: scope.orderScope.managerId,
+      allowedAssigneeIds: scope.allowedAssigneeIds,
+    });
     const overdueGroup = await this.prisma.task.groupBy({
       by: ["assigneeId"],
-      where: {
-        dueAt: { not: null, lt: new Date() },
-        status: { in: ["OPEN", "IN_PROGRESS"] },
-        assigneeId: { in: managerIds },
-      },
+      where: { ...overdueTaskBase, assigneeId: { in: managerIds } },
       _count: { id: true },
     });
     const overdueMap = new Map(overdueGroup.map((g) => [g.assigneeId, g._count.id]));

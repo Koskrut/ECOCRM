@@ -131,7 +131,8 @@ export class AnalyticsController {
   ) {
     const actor = this.requireUser(req);
     const scope = await this.scopeService.resolveScope(actor, { managerId: query.managerId, allowLead: true });
-    return this.attentionService.getAttention(scope);
+    const period = resolveAnalyticsRange(query);
+    return this.attentionService.getAttention(period, scope);
   }
 
   @Get("managers")

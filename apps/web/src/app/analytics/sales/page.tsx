@@ -36,14 +36,14 @@ type SalesKpi = {
   overdueTasksCount: number;
 };
 
-type SalesCompareKpi = Pick<SalesKpi, "bookedRevenue" | "collectedPayments" | "ordersCount" | "avgCheck">;
+type SalesCompareKpi = SalesKpi;
 
 type SalesResponse = {
   data: {
     kpi: SalesKpi;
     byStage: { stage: string; count: number }[];
   };
-  /** Prior-period money/order KPIs only; no overdue snapshot (operational). */
+  /** Prior-period KPIs (incl. overdue tasks); no byStage. */
   compare?: { kpi: SalesCompareKpi };
 };
 
@@ -373,11 +373,13 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="risk"
-              title="Current overdue tasks"
-              subtitle="Operational snapshot (dueAt < now, OPEN/IN_PROGRESS)"
-              tooltip="Не входить у compare=prev_period у відповіді API — лише знімок «зараз»."
+              title="Overdue tasks (period)"
+              subtitle="OPEN/IN_PROGRESS, dueAt у вибраному діапазоні"
+              tooltip="Узгоджено з overview / managers / attention для того ж періоду."
               value={formatNumber(kpi?.overdueTasksCount)}
-              deltaLabel={null}
+              deltaLabel={
+                filters.comparePrev ? deltaCountLine(kpi?.overdueTasksCount ?? 0, compareKpi?.overdueTasksCount) : null
+              }
             />
           </div>
         </section>
@@ -422,7 +424,7 @@ export default function AnalyticsSalesPage() {
                     align="right"
                   />
                   <SortableTh
-                    label="Overdue tasks (snapshot)"
+                    label="Overdue tasks (period)"
                     active={sortKey === "overdueTasks"}
                     dir={sortDir}
                     onClick={() => toggleSort("overdueTasks")}

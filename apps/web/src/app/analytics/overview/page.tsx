@@ -157,16 +157,16 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="risk"
             title="Debt total"
-            subtitle="Поточний борг у scope (не когорта за періодом)"
-            tooltip="Операційний знімок: борг не фільтрується датами періоду. Порівняння з попереднім періодом тут не показуємо."
+            subtitle="Сума debtAmount у замовленнях за вибраний період"
+            tooltip="Розрахунок у межах обраного діапазону дат overview."
             value={formatMoneyUsd(kpi?.debtTotal)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
             title="Overdue debt"
-            subtitle="OVERDUE + debtAmount (snapshot)"
-            tooltip="Як і debt total — поточний стан у scope, не зріз за датами overview."
+            subtitle="OVERDUE + debtAmount за вибраний період"
+            tooltip="Розрахунок у межах обраного діапазону дат overview."
             value={formatMoneyUsd(kpi?.overdueDebt)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}
@@ -207,7 +207,11 @@ export default function AnalyticsOverviewPage() {
       <section className="min-w-0 rounded-xl border border-amber-200/60 bg-amber-50/20 p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Потребує уваги</h2>
         <p className="mt-1 text-sm text-amber-900/80">
-          Операційний знімок (поточний стан у CRM), не зріз за датами overview. Використовуйте для дій сьогодні.
+          Лічильники та посилання на Attention узгоджені з обраним діапазоном дат (ті самі правила фільтрації, що й на{" "}
+          <Link href={attentionHref} className="font-medium text-indigo-800 underline-offset-2 hover:underline">
+            /analytics/attention
+          </Link>
+          ).
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <AttentionTile

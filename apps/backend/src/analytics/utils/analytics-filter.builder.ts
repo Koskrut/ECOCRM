@@ -26,18 +26,6 @@ export function buildPeriodOrderWhere(
   return where;
 }
 
-export function buildDebtOrderWhere(scope: OrderScopeInput): Prisma.OrderWhereInput {
-  const where: Prisma.OrderWhereInput = {
-    OR: [
-      { orderStage: { notIn: [...ANALYTICS_EXCLUDED_ORDER_STAGES] } },
-      { orderStage: null },
-    ],
-  };
-  if (scope.managerId) where.ownerId = scope.managerId;
-  else if (scope.allowedOwnerIds !== undefined) where.ownerId = { in: scope.allowedOwnerIds };
-  return where;
-}
-
 export function buildLeadPeriodWhere(
   from: Date,
   to: Date,
@@ -70,14 +58,19 @@ export function buildPaymentPeriodWhere(
   };
 }
 
-export function buildOverdueTaskWhere(scope: {
-  allowedAssigneeIds?: string[];
-}): Prisma.TaskWhereInput {
+/** Tasks open/in-progress whose deadline falls in [from, to] (inclusive window, same as order period). */
+export function buildOverdueTaskWhereForPeriod(
+  from: Date,
+  to: Date,
+  scope: { managerId?: string; allowedAssigneeIds?: string[] },
+): Prisma.TaskWhereInput {
   const where: Prisma.TaskWhereInput = {
-    dueAt: { not: null, lt: new Date() },
+    dueAt: { not: null, gte: from, lte: to },
     status: { in: ["OPEN", "IN_PROGRESS"] },
   };
-  if (scope.allowedAssigneeIds !== undefined) {
+  if (scope.managerId) {
+    where.assigneeId = scope.managerId;
+  } else if (scope.allowedAssigneeIds !== undefined) {
     where.assigneeId = { in: scope.allowedAssigneeIds };
   }
   return where;

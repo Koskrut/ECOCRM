@@ -4,9 +4,8 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService, type ExchangeRates } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import {
-  buildDebtOrderWhere,
   buildLeadPeriodWhere,
-  buildOverdueTaskWhere,
+  buildOverdueTaskWhereForPeriod,
   buildPaymentPeriodWhere,
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
@@ -51,7 +50,7 @@ export class AnalyticsOverviewService {
 
   /**
    * `compare` returns **only** `kpi` for the previous window (`previousPeriodOfSameLength`), same scope.
-   * Charts and attention snapshots are omitted from `compare` (they are not prior-period analogues).
+   * Charts and the `attention` block are omitted from `compare` (UI does not show prior-period deltas there).
    */
   async getOverview(
     period: ResolvedPeriod,
@@ -106,8 +105,8 @@ export class AnalyticsOverviewService {
   private async computePayload(period: ResolvedPeriod, scope: AnalyticsScope): Promise<OverviewPayload> {
     const rates = await this.settings.getExchangeRates();
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
-    const debtWhere = buildDebtOrderWhere(scope.orderScope);
-    const overdueWhere: Prisma.OrderWhereInput = { ...debtWhere, financialStatus: "OVERDUE" };
+    const periodDebtWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
+    const overdueWhere: Prisma.OrderWhereInput = { ...periodDebtWhere, financialStatus: "OVERDUE" };
 
     const orderOwnerPrismaWhere: Prisma.OrderWhereInput = {};
     if (scope.orderScope.managerId) orderOwnerPrismaWhere.ownerId = scope.orderScope.managerId;
@@ -153,13 +152,18 @@ export class AnalyticsOverviewService {
         where: orderWhere,
         _count: { id: true },
       }),
-      this.prisma.order.findMany({ where: debtWhere, select: { debtAmount: true, currency: true } }),
+      this.prisma.order.findMany({ where: periodDebtWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.order.findMany({ where: overdueWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.lead.count({ where: leadWhere }),
       this.prisma.lead.count({ where: { ...leadWhere, status: "WON" } }),
-      this.prisma.task.count({ where: buildOverdueTaskWhere({ allowedAssigneeIds: scope.allowedAssigneeIds }) }),
-      this.countStuckOrders(scope),
-      this.countLeadsWithoutTouch(scope),
+      this.prisma.task.count({
+        where: buildOverdueTaskWhereForPeriod(period.from, period.to, {
+          managerId: scope.orderScope.managerId,
+          allowedAssigneeIds: scope.allowedAssigneeIds,
+        }),
+      }),
+      this.countStuckOrders(scope, period),
+      this.countLeadsWithoutTouch(scope, period),
       this.prisma.order.count({ where: { ...overdueWhere, debtAmount: { gt: 0 } } }),
       this.prisma.order.findMany({
         where: { ...overdueWhere, debtAmount: { gt: 0 } },
@@ -287,10 +291,13 @@ export class AnalyticsOverviewService {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  private async countStuckOrders(scope: AnalyticsScope): Promise<number> {
-    const cutoff = new Date(Date.now() - 3 * 86400000);
+  private async countStuckOrders(scope: AnalyticsScope, period: ResolvedPeriod): Promise<number> {
+    const asOf = period.to;
+    const cutoff = new Date(asOf);
+    cutoff.setDate(cutoff.getDate() - 3);
     const where: Prisma.OrderWhereInput = {
       OR: [{ orderStage: null }, { orderStage: { notIn: ["CANCELED", "REFUSED", "COMPLETED"] } }],
+      createdAt: { gte: period.from, lte: period.to },
     };
     if (scope.orderScope.managerId) where.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds !== undefined) {
@@ -317,12 +324,14 @@ export class AnalyticsOverviewService {
     }).length;
   }
 
-  private async countLeadsWithoutTouch(scope: AnalyticsScope): Promise<number> {
-    const now = new Date();
-    const cutoffNew = new Date(now);
+  private async countLeadsWithoutTouch(scope: AnalyticsScope, period: ResolvedPeriod): Promise<number> {
+    const asOf = period.to;
+    const cutoffNew = new Date(asOf);
     cutoffNew.setDate(cutoffNew.getDate() - 3);
-    const cutoffIp = new Date(now);
+    const cutoffIp = new Date(asOf);
     cutoffIp.setDate(cutoffIp.getDate() - 7);
+    const newUpper = period.to < cutoffNew ? period.to : cutoffNew;
+    const ipUpper = period.to < cutoffIp ? period.to : cutoffIp;
 
     const ownerFilter: Prisma.LeadWhereInput = {};
     if (scope.orderScope.managerId) ownerFilter.ownerId = scope.orderScope.managerId;
@@ -338,7 +347,7 @@ export class AnalyticsOverviewService {
         where: {
           ...ownerFilter,
           status: "NEW",
-          createdAt: { lte: cutoffNew },
+          createdAt: { gte: period.from, lte: newUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffNew } } } },
         },
       }),
@@ -346,7 +355,7 @@ export class AnalyticsOverviewService {
         where: {
           ...ownerFilter,
           status: "IN_PROGRESS",
-          createdAt: { lte: cutoffIp },
+          createdAt: { gte: period.from, lte: ipUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffIp } } } },
         },
       }),

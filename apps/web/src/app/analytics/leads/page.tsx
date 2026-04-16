@@ -56,8 +56,8 @@ type LeadsPayload = {
 
 type LeadsResponse = {
   data: LeadsPayload;
-  /** Prior-period KPIs/charts/tables; `attention` omitted (operational snapshot). */
-  compare?: Omit<LeadsPayload, "attention">;
+  /** Prior-period payload (same shape as `data`, including attention). */
+  compare?: LeadsPayload;
 };
 
 type SortKey = "key" | "count" | "share";

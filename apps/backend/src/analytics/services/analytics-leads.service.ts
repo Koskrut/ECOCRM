@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
-import { buildLeadPeriodWhere, buildOverdueTaskWhere } from "../utils/analytics-filter.builder";
+import { buildLeadPeriodWhere, buildOverdueTaskWhereForPeriod } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 
 export type LeadsCharts = {
@@ -15,17 +15,17 @@ export type LeadsCharts = {
 export type LeadsTableRow = { key: string; count: number; share: number };
 
 export type LeadsAttention = {
-  /** Same definition as overview CRM `leadsWithoutTouchCount` (snapshot, not period). */
+  /** NEW / IN_PROGRESS “no touch” rules vs period end; createdAt in selected period (see overview). */
   leadsWithoutTouchCount: number;
-  /** NEW leads with zero Activity rows ever (snapshot). */
+  /** NEW leads created in period with zero activities. */
   neverContactedNewLeadsCount: number;
-  /** IN_PROGRESS, created ≥7d ago, no Activity in last 7d — subset of “no recent touch” logic (snapshot). */
+  /** IN_PROGRESS in period, stale vs period end (7d activity window). */
   staleInProgressLeadsCount: number;
-  /** ownerId is null among scoped visible leads (snapshot). */
+  /** Leads created in period with ownerId null. */
   leadsWithoutOwnerCount: number;
-  /** `source === OTHER` — proxy for unknown / default enum (snapshot). */
+  /** Leads created in period with source OTHER. */
   leadsUnknownSourceProxyCount: number;
-  /** Open tasks linked to a lead, due in the past (snapshot; assignee scope matches overview tasks). */
+  /** Open lead tasks with dueAt in the selected period. */
   overdueLeadTasksCount: number;
 };
 
@@ -59,28 +59,23 @@ export class AnalyticsLeadsService {
     period: ResolvedPeriod,
     scope: AnalyticsScope,
     opts?: { compare?: boolean },
-  ): Promise<{ period: ResolvedPeriod; data: LeadsPayload; compare?: Omit<LeadsPayload, "attention"> }> {
+  ): Promise<{ period: ResolvedPeriod; data: LeadsPayload; compare?: LeadsPayload }> {
     if (scope.emptyTeam) {
       const empty = this.emptyPayload();
       const data = empty;
-      return { period, data, compare: opts?.compare ? this.stripAttention(empty) : undefined };
+      return { period, data, compare: opts?.compare ? empty : undefined };
     }
     const data = await this.compute(period, scope, { includeAttention: true });
-    const result: { period: ResolvedPeriod; data: LeadsPayload; compare?: Omit<LeadsPayload, "attention"> } = {
+    const result: { period: ResolvedPeriod; data: LeadsPayload; compare?: LeadsPayload } = {
       period,
       data,
     };
     if (opts?.compare) {
-      result.compare = this.stripAttention(
-        await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, { includeAttention: false }),
-      );
+      result.compare = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, {
+        includeAttention: true,
+      });
     }
     return result;
-  }
-
-  private stripAttention(p: LeadsPayload): Omit<LeadsPayload, "attention"> {
-    const { attention: _a, ...rest } = p;
-    return rest;
   }
 
   private emptyPayload(): LeadsPayload {
@@ -124,19 +119,21 @@ export class AnalyticsLeadsService {
     return {};
   }
 
-  private async countLeadsWithoutTouch(ownerFilter: LeadOwnerScope): Promise<number> {
-    const now = new Date();
-    const cutoffNew = new Date(now);
+  private async countLeadsWithoutTouch(ownerFilter: LeadOwnerScope, period: ResolvedPeriod): Promise<number> {
+    const asOf = period.to;
+    const cutoffNew = new Date(asOf);
     cutoffNew.setDate(cutoffNew.getDate() - 3);
-    const cutoffIp = new Date(now);
+    const cutoffIp = new Date(asOf);
     cutoffIp.setDate(cutoffIp.getDate() - 7);
+    const newUpper = period.to < cutoffNew ? period.to : cutoffNew;
+    const ipUpper = period.to < cutoffIp ? period.to : cutoffIp;
 
     const [newLeads, ipLeads] = await Promise.all([
       this.prisma.lead.count({
         where: {
           ...ownerFilter,
           status: "NEW",
-          createdAt: { lte: cutoffNew },
+          createdAt: { gte: period.from, lte: newUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffNew } } } },
         },
       }),
@@ -144,7 +141,7 @@ export class AnalyticsLeadsService {
         where: {
           ...ownerFilter,
           status: "IN_PROGRESS",
-          createdAt: { lte: cutoffIp },
+          createdAt: { gte: period.from, lte: ipUpper },
           NOT: { activities: { some: { createdAt: { gte: cutoffIp } } } },
         },
       }),
@@ -195,36 +192,47 @@ export class AnalyticsLeadsService {
       this.prisma.lead.findMany({ where: leadWhere, select: { createdAt: true } }),
       opts.includeAttention
         ? this.prisma.lead.count({
-            where: { ...ownerScope, status: "NEW", activities: { none: {} } },
+            where: { AND: [leadWhere, { status: "NEW", activities: { none: {} } }] },
           })
         : Promise.resolve(0),
       opts.includeAttention
-        ? this.prisma.lead.count({
-            where: {
-              ...ownerScope,
-              status: "IN_PROGRESS",
-              createdAt: { lte: new Date(Date.now() - 7 * 86400000) },
-              NOT: {
-                activities: { some: { createdAt: { gte: new Date(Date.now() - 7 * 86400000) } } },
+        ? (() => {
+            const cutoffIp = new Date(period.to);
+            cutoffIp.setDate(cutoffIp.getDate() - 7);
+            return this.prisma.lead.count({
+              where: {
+                AND: [
+                  leadWhere,
+                  {
+                    status: "IN_PROGRESS",
+                    createdAt: { lte: cutoffIp },
+                    NOT: {
+                      activities: { some: { createdAt: { gte: cutoffIp } } },
+                    },
+                  },
+                ],
               },
-            },
-          })
+            });
+          })()
         : Promise.resolve(0),
       opts.includeAttention
-        ? this.prisma.lead.count({ where: { ...ownerScope, ownerId: null } })
+        ? this.prisma.lead.count({ where: { AND: [leadWhere, { ownerId: null }] } })
         : Promise.resolve(0),
       opts.includeAttention
-        ? this.prisma.lead.count({ where: { ...ownerScope, source: "OTHER" } })
+        ? this.prisma.lead.count({ where: { AND: [leadWhere, { source: "OTHER" }] } })
         : Promise.resolve(0),
       opts.includeAttention
         ? this.prisma.task.count({
             where: {
-              ...buildOverdueTaskWhere({ allowedAssigneeIds: scope.allowedAssigneeIds }),
+              ...buildOverdueTaskWhereForPeriod(period.from, period.to, {
+                managerId: scope.orderScope.managerId,
+                allowedAssigneeIds: scope.allowedAssigneeIds,
+              }),
               leadId: { not: null },
             },
           })
         : Promise.resolve(0),
-      opts.includeAttention ? this.countLeadsWithoutTouch(ownerScope) : Promise.resolve(0),
+      opts.includeAttention ? this.countLeadsWithoutTouch(ownerScope, period) : Promise.resolve(0),
     ]);
 
     let converted: number | null = null;

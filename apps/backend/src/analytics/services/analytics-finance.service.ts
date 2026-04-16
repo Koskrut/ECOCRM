@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
-import { buildDebtOrderWhere, buildPaymentPeriodWhere } from "../utils/analytics-filter.builder";
+import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { safeNum, toUsd } from "../utils/analytics-currency.util";
 
@@ -14,21 +14,21 @@ export type FinanceKpi = {
   paymentsCount: number;
   /** collectedPayments / paymentsCount (USD). */
   avgPaymentUsd: number;
-  /** Current total debt in scope — operational snapshot, not period cohort. */
+  /** Sum of debtAmount for orders with createdAt in the selected period (scoped). */
   debtTotal: number;
-  /** Current overdue debt (OVERDUE financial status) — snapshot. */
+  /** OVERDUE financial status debt in the same order cohort. */
   overdueDebt: number;
-  /** Orders with OVERDUE + debt &gt; 0 — snapshot. */
+  /** Orders with OVERDUE + debt &gt; 0 in the period cohort. */
   overdueOrdersCount: number;
-  /** Distinct clients with at least one overdue order (debt &gt; 0) — snapshot. */
+  /** Distinct clients with at least one such overdue order in the period cohort. */
   customersWithOverdueCount: number;
-  /** Payments with status PENDING linked to scoped orders — snapshot. */
+  /** PENDING payments linked to orders created in the selected period. */
   pendingPaymentsCount: number;
 };
 
 export type FinanceCharts = {
   collectedPaymentsByDay: { date: string; usd: number; paymentCount: number }[];
-  /** Debt by days past paymentDueDate — snapshot. */
+  /** Debt aging vs paymentDueDate, days as of period end date. */
   debtAgingBuckets: { label: string; amount: number; ordersCount: number }[];
   /** COMPLETED payments in period by sourceType (BANK / CASH). */
   paymentsBySourceType: { sourceType: string; count: number; usd: number }[];
@@ -129,8 +129,8 @@ export class AnalyticsFinanceService {
 
   private async compute(period: ResolvedPeriod, scope: AnalyticsScope): Promise<FinancePayload> {
     const rates = await this.settings.getExchangeRates();
-    const debtWhere = buildDebtOrderWhere(scope.orderScope);
-    const overdueWhere: Prisma.OrderWhereInput = { ...debtWhere, financialStatus: "OVERDUE" };
+    const periodOrderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
+    const overdueWhere: Prisma.OrderWhereInput = { ...periodOrderWhere, financialStatus: "OVERDUE" };
     const orderOwnerFilter: Prisma.OrderWhereInput = {};
     if (scope.orderScope.managerId) orderOwnerFilter.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds !== undefined) {
@@ -153,10 +153,10 @@ export class AnalyticsFinanceService {
         where: paymentWhere,
         select: { paidAt: true, amount: true, currency: true, amountUsd: true, sourceType: true },
       }),
-      this.prisma.order.findMany({ where: debtWhere, select: { debtAmount: true, currency: true } }),
+      this.prisma.order.findMany({ where: periodOrderWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.order.findMany({ where: overdueWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.order.findMany({
-        where: { ...debtWhere, debtAmount: { gt: 0 }, paymentDueDate: { not: null } },
+        where: { ...periodOrderWhere, debtAmount: { gt: 0 }, paymentDueDate: { not: null } },
         select: {
           id: true,
           debtAmount: true,
@@ -187,7 +187,7 @@ export class AnalyticsFinanceService {
         select: { clientId: true },
       }),
       this.prisma.payment.count({
-        where: { status: "PENDING", order: orderOwnerFilter },
+        where: { status: "PENDING", order: periodOrderWhere },
       }),
     ]);
 
@@ -225,8 +225,8 @@ export class AnalyticsFinanceService {
     let overdueDebt = 0;
     for (const o of overdueOrdersAll) overdueDebt += toUsd(safeNum(o.debtAmount), o.currency, rates);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const refDay = new Date(period.to);
+    refDay.setHours(0, 0, 0, 0);
     const buckets = [
       { label: "0-7", amount: 0, ordersCount: 0 },
       { label: "8-14", amount: 0, ordersCount: 0 },
@@ -239,7 +239,7 @@ export class AnalyticsFinanceService {
     for (const o of debtOrdersWithDue) {
       const due = new Date(o.paymentDueDate!);
       due.setHours(0, 0, 0, 0);
-      const days = Math.floor((today.getTime() - due.getTime()) / 86400000);
+      const days = Math.floor((refDay.getTime() - due.getTime()) / 86400000);
       const debt = toUsd(safeNum(o.debtAmount), o.currency, rates);
       if (days >= 0) {
         let idx = 4;

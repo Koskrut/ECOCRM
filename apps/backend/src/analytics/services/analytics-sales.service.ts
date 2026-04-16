@@ -3,7 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
-import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
+import {
+  buildOverdueTaskWhereForPeriod,
+  buildPaymentPeriodWhere,
+  buildPeriodOrderWhere,
+} from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { safeNum, toUsd } from "../utils/analytics-currency.util";
 
@@ -13,15 +17,15 @@ export type SalesPayload = {
     collectedPayments: number;
     ordersCount: number;
     avgCheck: number;
-    /** Operational snapshot: overdue tasks for current assignee scope. */
+    /** Open tasks with dueAt in the selected period (assignee / manager scope). */
     overdueTasksCount: number;
   };
   byStage: { stage: string; count: number }[];
 };
 
-/** Prior-period KPIs only (no operational snapshot, no byStage). */
+/** Prior-period KPIs (money/orders + period overdue tasks); no byStage. */
 export type SalesComparePayload = {
-  kpi: Pick<SalesPayload["kpi"], "bookedRevenue" | "collectedPayments" | "ordersCount" | "avgCheck">;
+  kpi: SalesPayload["kpi"];
 };
 
 @Injectable()
@@ -46,17 +50,18 @@ export class AnalyticsSalesService {
         collectedPayments: 0,
         ordersCount: 0,
         avgCheck: 0,
+        overdueTasksCount: 0,
       };
       return { period, data: empty, compare: opts?.compare ? { kpi: compareKpi } : undefined };
     }
-    const data = await this.compute(period, scope, { includeOverdueSnapshot: true, includeByStage: true });
+    const data = await this.compute(period, scope, { includeOverdueForPeriod: true, includeByStage: true });
     const result: { period: ResolvedPeriod; data: SalesPayload; compare?: SalesComparePayload } = {
       period,
       data,
     };
     if (opts?.compare) {
       const prev = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, {
-        includeOverdueSnapshot: false,
+        includeOverdueForPeriod: true,
         includeByStage: false,
       });
       result.compare = { kpi: { ...prev.kpi } };
@@ -67,7 +72,7 @@ export class AnalyticsSalesService {
   private async compute(
     period: ResolvedPeriod,
     scope: AnalyticsScope,
-    flags: { includeOverdueSnapshot: boolean; includeByStage: boolean },
+    flags: { includeOverdueForPeriod: boolean; includeByStage: boolean },
   ): Promise<SalesPayload> {
     const rates = await this.settings.getExchangeRates();
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
@@ -77,18 +82,12 @@ export class AnalyticsSalesService {
       orderOwnerPrismaWhere.ownerId = { in: scope.orderScope.allowedOwnerIds };
     }
     const paymentWhere = buildPaymentPeriodWhere(period.from, period.to, orderOwnerPrismaWhere);
-    const now = new Date();
-    const overdueWhere: Prisma.TaskWhereInput = {
-      dueAt: { not: null, lt: now },
-      status: { in: ["OPEN", "IN_PROGRESS"] },
-    };
-    if (scope.orderScope.managerId) {
-      overdueWhere.assigneeId = scope.orderScope.managerId;
-    } else if (scope.allowedAssigneeIds !== undefined) {
-      overdueWhere.assigneeId = { in: scope.allowedAssigneeIds };
-    }
+    const overdueWhere = buildOverdueTaskWhereForPeriod(period.from, period.to, {
+      managerId: scope.orderScope.managerId,
+      allowedAssigneeIds: scope.allowedAssigneeIds,
+    });
 
-    // PERF: for compare-only path we skip byStage + overdue snapshot queries (not meaningful for prior window).
+    // PERF: for compare-only path we skip byStage + overdue task query when disabled.
     const [ordersForRevenue, ordersCount, paymentsRows, byStageRows, overdueTasksCount] = await Promise.all([
       this.prisma.order.findMany({
         where: orderWhere,
@@ -102,7 +101,7 @@ export class AnalyticsSalesService {
       flags.includeByStage
         ? this.prisma.order.groupBy({ by: ["orderStage"], where: orderWhere, _count: { id: true } })
         : Promise.resolve([]),
-      flags.includeOverdueSnapshot
+      flags.includeOverdueForPeriod
         ? this.prisma.task.count({ where: overdueWhere })
         : Promise.resolve(0),
     ]);
