@@ -403,7 +403,8 @@ export class ContactsService {
       throw new ConflictException("Контакт з таким номером телефону вже існує");
     }
 
-    const ownerId = data.ownerId !== undefined ? data.ownerId : (actor?.id ?? null);
+    const ownerId =
+      data.ownerId ?? (actor?.role === UserRole.MANAGER ? actor.id : (actor?.id ?? null));
 
     const phoneCanonical = normalizePhoneToE164(data.phone) ?? data.phone.trim();
     const contact = await this.prisma.contact.create({

@@ -38,6 +38,7 @@ export class CompaniesService {
       dto.phone != null
         ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null))
         : null;
+    const ownerId = dto.ownerId ?? (actor?.role === UserRole.MANAGER ? actor.id : null);
     try {
       const company = await this.prisma.company.create({
         data: {
@@ -49,7 +50,7 @@ export class CompaniesService {
           lat: dto.lat ?? null,
           lng: dto.lng ?? null,
           googlePlaceId: dto.googlePlaceId ?? null,
-          ownerId: dto.ownerId ?? null,
+          ownerId,
         },
       });
 
