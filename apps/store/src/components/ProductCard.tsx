@@ -82,7 +82,7 @@ export function ProductCard({
               {price} грн
             </span>
             <span className="text-xs text-zinc-500 shrink-0">
-              {product.inStock ? "В наявності" : "Під замовлення"}
+              {product.inStock ? "В наявності" : "Немає в наявності"}
             </span>
           </div>
         </div>
