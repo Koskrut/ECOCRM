@@ -39,6 +39,7 @@ type OrderSummary = {
   isPaid?: boolean;
   hasTtn?: boolean;
   ttnSharedAcrossOrders?: boolean;
+  ttnSharedWithOrders?: Array<{ id: string; orderNumber: string }>;
   currency: string;
   exchangeRate?: number | null;
   paymentType?: "PREPAYMENT" | "DEFERRED" | null;
@@ -180,6 +181,7 @@ function OrdersPageContent() {
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
+  const [ttnHintOrderId, setTtnHintOrderId] = useState<string | null>(null);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
   const canLoadMore = page < totalPages;
 
@@ -356,6 +358,15 @@ function OrdersPageContent() {
   useEffect(() => {
     if (view !== "financial" && view !== "returns") void fetchOrders();
   }, [fetchOrders, view]);
+
+  useEffect(() => {
+    if (!ttnHintOrderId) return;
+    const handleDocClick = () => setTtnHintOrderId(null);
+    document.addEventListener("click", handleDocClick);
+    return () => {
+      document.removeEventListener("click", handleDocClick);
+    };
+  }, [ttnHintOrderId]);
 
   const openExistingOrder = (id: string) => {
     setActiveOrderId(id);
@@ -731,11 +742,30 @@ function OrdersPageContent() {
                               </span>
                             )}
                             {order.ttnSharedAcrossOrders && (
-                              <span
-                                title="Номер ТТН также привязан к другому заказу"
-                                className="inline-flex text-amber-600"
-                              >
-                                <AlertTriangle className="h-4 w-4" />
+                              <span className="relative inline-flex">
+                                <button
+                                  type="button"
+                                  title="Номер ТТН также привязан к другому заказу"
+                                  className="inline-flex text-amber-600"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTtnHintOrderId((prev) => (prev === order.id ? null : order.id));
+                                  }}
+                                >
+                                  <AlertTriangle className="h-4 w-4" />
+                                </button>
+                                {ttnHintOrderId === order.id && (
+                                  <div
+                                    className="absolute left-0 top-6 z-20 min-w-[220px] rounded-md border border-zinc-200 bg-white p-2 text-xs font-normal text-zinc-700 shadow-lg"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {(order.ttnSharedWithOrders?.length ?? 0) > 0
+                                      ? `Также едет заказ: ${order.ttnSharedWithOrders
+                                          ?.map((linkedOrder) => `№${linkedOrder.orderNumber}`)
+                                          .join(", ")}`
+                                      : "Номер ТТН также привязан к другому заказу"}
+                                  </div>
+                                )}
                               </span>
                             )}
                             {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (

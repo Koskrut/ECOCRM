@@ -98,12 +98,14 @@ export class OrdersService {
   }
 
   /**
-   * For the given order IDs, marks each order true if any of its TTNs uses a document number
-   * that is also linked to a different order (directly or via shipment).
+   * For the given order IDs, returns for each order whether any TTN is shared and
+   * a list of other order IDs linked by the same TTN number.
    */
-  private async computeTtnSharedAcrossOrdersFlags(orderIds: string[]): Promise<Map<string, boolean>> {
-    const out = new Map<string, boolean>();
-    for (const id of orderIds) out.set(id, false);
+  private async computeTtnSharedAcrossOrdersMeta(
+    orderIds: string[],
+  ): Promise<Map<string, { shared: boolean; relatedOrderIds: string[] }>> {
+    const out = new Map<string, { shared: boolean; relatedOrderIds: string[] }>();
+    for (const id of orderIds) out.set(id, { shared: false, relatedOrderIds: [] });
     if (orderIds.length === 0) return out;
 
     const pageTtns = await this.prisma.orderTtn.findMany({
@@ -159,7 +161,17 @@ export class OrdersService {
       const oid = this.effectiveOrderIdForTtn(t);
       if (!oid) continue;
       const norm = String(t.documentNumber ?? "").trim();
-      if (sharedNorms.has(norm)) out.set(oid, true);
+      if (!sharedNorms.has(norm)) continue;
+      const relatedIds = orderIdsByNorm.get(norm);
+      if (!relatedIds) continue;
+      const current = out.get(oid) ?? { shared: false, relatedOrderIds: [] };
+      current.shared = true;
+      for (const relatedId of relatedIds) {
+        if (relatedId !== oid && !current.relatedOrderIds.includes(relatedId)) {
+          current.relatedOrderIds.push(relatedId);
+        }
+      }
+      out.set(oid, current);
     }
 
     return out;
@@ -359,7 +371,20 @@ export class OrdersService {
     const ownerById = new Map(owners.map((o) => [o.id, o]));
 
     const pageOrderIds = items.map((o) => o.id);
-    const ttnSharedFlags = await this.computeTtnSharedAcrossOrdersFlags(pageOrderIds);
+    const ttnSharedMeta = await this.computeTtnSharedAcrossOrdersMeta(pageOrderIds);
+    const relatedOrderIds = Array.from(
+      new Set(
+        pageOrderIds.flatMap((id) => ttnSharedMeta.get(id)?.relatedOrderIds ?? []),
+      ),
+    );
+    const relatedOrders =
+      relatedOrderIds.length > 0
+        ? await this.prisma.order.findMany({
+            where: { id: { in: relatedOrderIds } },
+            select: { id: true, orderNumber: true },
+          })
+        : [];
+    const relatedOrderById = new Map(relatedOrders.map((o) => [o.id, o.orderNumber]));
 
     return {
       items: items.map((o) => {
@@ -398,7 +423,14 @@ export class OrdersService {
           paymentMethod: o.paymentMethod ?? null,
           documentsRequested: o.documentsRequested ?? null,
           hasTtn: (o._count?.ttns ?? 0) > 0,
-          ttnSharedAcrossOrders: ttnSharedFlags.get(o.id) === true,
+          ttnSharedAcrossOrders: ttnSharedMeta.get(o.id)?.shared === true,
+          ttnSharedWithOrders:
+            ttnSharedMeta
+              .get(o.id)
+              ?.relatedOrderIds.map((relatedId) => ({
+                id: relatedId,
+                orderNumber: relatedOrderById.get(relatedId) ?? relatedId,
+              })) ?? [],
           createdAt: o.createdAt,
           itemsCount: o.items.length,
         };
@@ -430,10 +462,19 @@ export class OrdersService {
     });
     if (!o) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(o, actor);
-    const ttnSharedFlags = await this.computeTtnSharedAcrossOrdersFlags([id]);
+    const ttnSharedMeta = await this.computeTtnSharedAcrossOrdersMeta([id]);
+    const relatedOrderIds = ttnSharedMeta.get(id)?.relatedOrderIds ?? [];
+    const relatedOrders =
+      relatedOrderIds.length > 0
+        ? await this.prisma.order.findMany({
+            where: { id: { in: relatedOrderIds } },
+            select: { id: true, orderNumber: true },
+          })
+        : [];
     return {
       ...this.mapToEntity(o),
-      ttnSharedAcrossOrders: ttnSharedFlags.get(id) === true,
+      ttnSharedAcrossOrders: ttnSharedMeta.get(id)?.shared === true,
+      ttnSharedWithOrders: relatedOrders,
     };
   }
 
