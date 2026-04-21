@@ -2,6 +2,8 @@ import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { ConversationChannel, ConversationStatus, MessageDirection } from "@prisma/client";
 import { LeadSource } from "@prisma/client";
 import { LeadStatus } from "@prisma/client";
+import { OrderStage } from "@prisma/client";
+import { OrderStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { AuthService } from "../../auth/auth.service";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -18,6 +20,45 @@ const TELEGRAM_HELP =
   "Тут ви можете написати нам. Менеджер відповість у робочий час. Напишіть будь-яке повідомлення — ми його отримаємо.";
 const TELEGRAM_AUTO_REPLY =
   "Дякуємо за звернення. Ми отримали ваше повідомлення, менеджер відповість найближчим часом.";
+const TELEGRAM_REQUEST_PHONE =
+  "Щоб ідентифікувати вас у CRM, поділіться номером телефону кнопкою нижче.";
+const TELEGRAM_EXISTING_CLIENT =
+  "Ви вже є нашим клієнтом у базі. Оберіть дію в меню нижче або напишіть повідомлення менеджеру.";
+const TELEGRAM_NEW_CLIENT_PROFILE_REQUEST =
+  "Номер не знайдено в базі. Будь ласка, надішліть одним повідомленням: Область, Прізвище, Ім'я.\nПриклад: Київська область, Іваненко, Олена";
+const MENU_ORDER_STATUS = "📦 Статус замовлення";
+const MENU_MANAGER_CHAT = "💬 Написати менеджеру";
+const MENU_CONTACT_US = "📞 Зв'язатись з нами";
+const CLIENT_MENU_BUTTONS = [MENU_ORDER_STATUS, MENU_MANAGER_CHAT, MENU_CONTACT_US];
+const ORDER_STAGE_LABELS: Partial<Record<OrderStage, string>> = {
+  NEW: "🆕 Нове замовлення",
+  IN_WORK: "🟡 В обробці",
+  WAITING_PAYMENT: "💳 Очікує оплату",
+  READY_TO_SHIP: "📦 Готове до відправки",
+  SHIPPED: "🚚 Відправлено",
+  COMPLETED: "✅ Виконано",
+  CANCELED: "❌ Скасовано",
+};
+const ORDER_STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
+  NEW: "🆕 Нове замовлення",
+  IN_PROGRESS: "🟡 В обробці",
+  PAID: "💰 Оплачено",
+  SHIPPED: "🚚 Відправлено",
+  COMPLETED: "✅ Виконано",
+  CANCELLED: "❌ Скасовано",
+};
+
+function parseProfileInput(text: string): { region: string; lastName: string; firstName: string } | null {
+  const parts = text
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return null;
+  const [region, lastName, firstName] = parts;
+  if (!region || !lastName || !firstName) return null;
+  if (region.length < 2 || lastName.length < 2 || firstName.length < 2) return null;
+  return { region, lastName, firstName };
+}
 
 @Injectable()
 export class TelegramService {
@@ -116,6 +157,8 @@ export class TelegramService {
       }
 
       const now = new Date();
+      let shouldSendExistingClientMenu = false;
+      let shouldRequestProfileDetails = false;
 
       const account = await this.upsertTelegramAccount({
         telegramUserId: parsed.userId,
@@ -169,52 +212,111 @@ export class TelegramService {
               where: { id: account.id },
               data: { contactId },
             });
+            shouldSendExistingClientMenu = true;
+          } else {
+            const existingLead = await this.prisma.lead.findFirst({
+              where: { phoneNormalized: phoneNorm },
+              select: { id: true },
+            });
+            if (existingLead) {
+              leadId = existingLead.id;
+              await this.prisma.telegramAccount.update({
+                where: { id: account.id },
+                data: { leadId },
+              });
+              shouldSendExistingClientMenu = true;
+            }
           }
         }
 
         if (!contactId && !leadId) {
-          const secrets = await this.settings.getTelegramSecrets();
-          const companyId =
-            secrets.leadCompanyId ||
-            (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
-            (await this.prisma.company.findFirst({ select: { id: true } }))?.id;
+          if (parsed.phone) {
+            const secrets = await this.settings.getTelegramSecrets();
+            const companyId =
+              secrets.leadCompanyId ||
+              (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
+              (await this.prisma.company.findFirst({ select: { id: true } }))?.id;
 
-          if (companyId) {
-            const lead = await this.prisma.lead.create({
-              data: {
-                companyId,
-                status: LeadStatus.NEW,
-                source: LeadSource.TELEGRAM,
-                firstName: parsed.firstName,
-                lastName: parsed.lastName ?? "Telegram",
-                middleName: null,
-                fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                phone: parsed.phone,
-                phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
-              },
-            });
-            leadId = lead.id;
-            await this.prisma.telegramAccount.update({
-              where: { id: account.id },
-              data: { leadId },
-            });
+            if (companyId) {
+              const lead = await this.prisma.lead.create({
+                data: {
+                  companyId,
+                  status: LeadStatus.NEW,
+                  source: LeadSource.TELEGRAM,
+                  firstName: parsed.firstName ?? "Telegram",
+                  lastName: parsed.lastName ?? "User",
+                  middleName: null,
+                  fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                  name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                  phone: parsed.phone,
+                  phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
+                },
+              });
+              leadId = lead.id;
+              await this.prisma.telegramAccount.update({
+                where: { id: account.id },
+                data: { leadId },
+              });
+              shouldRequestProfileDetails = true;
+            } else {
+              const placeholderPhone =
+                "0" + parsed.userId.replace(/\D/g, "").slice(-10).padStart(10, "0");
+              const contact = await this.prisma.contact.create({
+                data: {
+                  firstName: parsed.firstName ?? "Telegram",
+                  lastName: parsed.lastName ?? "User",
+                  phone: placeholderPhone,
+                  phoneNormalized: placeholderPhone,
+                },
+              });
+              contactId = contact.id;
+              await this.prisma.telegramAccount.update({
+                where: { id: account.id },
+                data: { contactId },
+              });
+            }
           } else {
-            const placeholderPhone =
-              "0" + parsed.userId.replace(/\D/g, "").slice(-10).padStart(10, "0");
-            const contact = await this.prisma.contact.create({
+            await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
+              requestContactButton: true,
+            });
+          }
+        }
+      }
+
+      if (leadId && parsed.text && !parsed.phone) {
+        const existingLead = await this.prisma.lead.findUnique({
+          where: { id: leadId },
+          select: {
+            id: true,
+            source: true,
+            region: true,
+            firstName: true,
+            lastName: true,
+          },
+        });
+        const needsProfile =
+          existingLead?.source === LeadSource.TELEGRAM &&
+          !existingLead.region &&
+          (!existingLead.firstName ||
+            existingLead.firstName === "Telegram" ||
+            !existingLead.lastName ||
+            existingLead.lastName === "Telegram" ||
+            existingLead.lastName === "User");
+        if (needsProfile) {
+          const profile = parseProfileInput(parsed.text);
+          if (profile) {
+            await this.prisma.lead.update({
+              where: { id: leadId },
               data: {
-                firstName: parsed.firstName ?? "Telegram",
-                lastName: parsed.lastName ?? "User",
-                phone: placeholderPhone,
-                phoneNormalized: placeholderPhone,
+                region: profile.region,
+                firstName: profile.firstName,
+                lastName: profile.lastName,
+                fullName: [profile.lastName, profile.firstName].filter(Boolean).join(" ") || null,
+                name: [profile.lastName, profile.firstName].filter(Boolean).join(" ") || null,
               },
             });
-            contactId = contact.id;
-            await this.prisma.telegramAccount.update({
-              where: { id: account.id },
-              data: { contactId },
-            });
+          } else if (!parsed.text.startsWith("/")) {
+            shouldRequestProfileDetails = true;
           }
         }
       }
@@ -336,6 +438,12 @@ export class TelegramService {
       const inboundCount = await this.prisma.message.count({
         where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
       });
+      const handledByMenu = await this.handleClientMenuAction(
+        parsed.chatId,
+        trimmed,
+        contactId,
+        leadId,
+      );
 
       if (isHelp) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_HELP);
@@ -343,6 +451,14 @@ export class TelegramService {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
           requestContactButton: true,
         });
+      } else if (handledByMenu) {
+        // Menu button handled and response already sent.
+      } else if (shouldSendExistingClientMenu) {
+        await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
+          menuButtons: CLIENT_MENU_BUTTONS,
+        });
+      } else if (shouldRequestProfileDetails) {
+        await this.sendMessageToChat(parsed.chatId, TELEGRAM_NEW_CLIENT_PROFILE_REQUEST);
       } else if (inboundCount === 1) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_AUTO_REPLY);
       }
@@ -354,6 +470,97 @@ export class TelegramService {
 
   private isUniqueConstraintError(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+  }
+
+  private async handleClientMenuAction(
+    chatId: string,
+    text: string,
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<boolean> {
+    if (!text) return false;
+
+    if (text === MENU_MANAGER_CHAT) {
+      await this.sendMessageToChat(
+        chatId,
+        "Напишіть ваше запитання одним повідомленням у цьому чаті. Менеджер отримає його та відповість якнайшвидше.",
+        { menuButtons: CLIENT_MENU_BUTTONS },
+      );
+      return true;
+    }
+
+    if (text === MENU_CONTACT_US) {
+      await this.sendMessageToChat(
+        chatId,
+        "Наш менеджер на зв'язку у робочий час. Напишіть, будь ласка, ваш запит у чат — і ми зв'яжемось з вами.",
+        { menuButtons: CLIENT_MENU_BUTTONS },
+      );
+      return true;
+    }
+
+    if (text !== MENU_ORDER_STATUS) return false;
+
+    const resolvedContactId = await this.resolveContactIdForOrders(contactId, leadId);
+    if (!resolvedContactId) {
+      await this.sendMessageToChat(
+        chatId,
+        "Щоб показати статус замовлення, спочатку поділіться номером телефону або напишіть менеджеру.",
+        { menuButtons: CLIENT_MENU_BUTTONS },
+      );
+      return true;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        OR: [{ clientId: resolvedContactId }, { contactId: resolvedContactId }],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 3,
+      select: {
+        orderNumber: true,
+        orderStage: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    if (orders.length === 0) {
+      await this.sendMessageToChat(
+        chatId,
+        "У CRM поки не знайдено ваших замовлень. Напишіть менеджеру, і ми швидко перевіримо вручну.",
+        { menuButtons: CLIENT_MENU_BUTTONS },
+      );
+      return true;
+    }
+
+    const lines = orders.map((o) => {
+      const stage = this.humanOrderStatus(o.orderStage, o.status);
+      const created = o.createdAt.toLocaleDateString("uk-UA");
+      return `• №${o.orderNumber} — ${stage} (${created})`;
+    });
+    await this.sendMessageToChat(chatId, `Останні замовлення:\n${lines.join("\n")}`, {
+      menuButtons: CLIENT_MENU_BUTTONS,
+    });
+    return true;
+  }
+
+  private async resolveContactIdForOrders(
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<string | null> {
+    if (contactId) return contactId;
+    if (!leadId) return null;
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { contactId: true },
+    });
+    return lead?.contactId ?? null;
+  }
+
+  private humanOrderStatus(orderStage: OrderStage | null, status: OrderStatus | null): string {
+    if (orderStage) return ORDER_STAGE_LABELS[orderStage] ?? orderStage;
+    if (status) return ORDER_STATUS_LABELS[status] ?? status;
+    return "🆕 Нове замовлення";
   }
 
   private async upsertTelegramAccount(params: {
@@ -419,7 +626,7 @@ export class TelegramService {
   async sendMessageToChat(
     telegramChatId: string,
     text: string,
-    options?: { requestContactButton?: boolean },
+    options?: { requestContactButton?: boolean; menuButtons?: string[] },
   ): Promise<{ messageId: number }> {
     const secrets = await this.settings.getTelegramSecrets();
     const token = secrets.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
@@ -434,6 +641,11 @@ export class TelegramService {
       body.reply_markup = {
         keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]],
         one_time_keyboard: true,
+        resize_keyboard: true,
+      };
+    } else if (options?.menuButtons?.length) {
+      body.reply_markup = {
+        keyboard: options.menuButtons.map((button) => [{ text: button }]),
         resize_keyboard: true,
       };
     }
