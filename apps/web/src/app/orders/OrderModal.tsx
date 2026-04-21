@@ -160,6 +160,8 @@ type OrderDetails = {
   ttns?: Array<{ id: string; documentNumber: string; statusCode?: string | null; statusText?: string | null }>;
   /** Same document number is linked to more than one order (from API). */
   ttnSharedAcrossOrders?: boolean;
+  /** Other orders that share the same TTN number. */
+  ttnSharedWithOrders?: Array<{ id: string; orderNumber: string }>;
   shipments?: Array<{
     id: string;
     status?: string | null;
@@ -1778,8 +1780,18 @@ export function OrderModal({
           <span className="inline-flex flex-wrap items-center gap-2">
             <span>{headerTitle}</span>
             {!isCreate && order?.ttnSharedAcrossOrders ? (
-              <span title="Номер ТТН также привязан к другому заказу">
-                <Badge className="border-amber-200 bg-amber-50 text-amber-800">ТТН в нескольких заказах</Badge>
+              <span
+                title={
+                  (order.ttnSharedWithOrders?.length ?? 0) > 0
+                    ? `Также едет в заказах: ${order.ttnSharedWithOrders?.map((linkedOrder) => `№${linkedOrder.orderNumber}`).join(", ")}`
+                    : "Номер ТТН также привязан к другому заказу"
+                }
+              >
+                <Badge className="border-amber-200 bg-amber-50 text-amber-800">
+                  {(order.ttnSharedWithOrders?.length ?? 0) > 0
+                    ? `ТТН в заказах: ${order.ttnSharedWithOrders?.map((linkedOrder) => `№${linkedOrder.orderNumber}`).join(", ")}`
+                    : "ТТН в нескольких заказах"}
+                </Badge>
               </span>
             ) : null}
           </span>
