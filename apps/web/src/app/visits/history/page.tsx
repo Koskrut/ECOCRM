@@ -63,7 +63,7 @@ export default function VisitsHistoryPage() {
   }, [load]);
 
   const showOwnerFilter = role === "ADMIN" || role === "LEAD";
-  const colCount = showOwnerFilter ? 5 : 4;
+  const formatDateTime = (value?: string | null) => (value ? format(new Date(value), "yyyy-MM-dd HH:mm") : "—");
 
   return (
     <div className="min-h-screen bg-zinc-50 p-4">
@@ -140,47 +140,67 @@ export default function VisitsHistoryPage() {
         ) : null}
 
         <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase text-zinc-500">
-              <tr>
-                <th className="px-3 py-2">Дата</th>
-                {(role === "ADMIN" || role === "LEAD") && <th className="px-3 py-2">Менеджер</th>}
-                <th className="px-3 py-2">Визит</th>
-                <th className="px-3 py-2">Цель</th>
-                <th className="px-3 py-2">Результат</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={colCount} className="px-3 py-8 text-center text-zinc-500">
-                    {loading ? "Загрузка…" : "Нет записей"}
-                  </td>
-                </tr>
-              ) : (
-                items.map((v) => (
-                  <tr key={v.id} className="border-b border-zinc-100">
-                    <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
-                      {v.completedAt ? format(new Date(v.completedAt), "yyyy-MM-dd HH:mm") : "—"}
-                    </td>
-                    {(role === "ADMIN" || role === "LEAD") && (
-                      <td className="px-3 py-2 text-zinc-700">{v.owner?.fullName ?? v.owner?.email ?? "—"}</td>
-                    )}
-                    <td className="max-w-xs px-3 py-2">
+          {items.length === 0 ? (
+            <div className="px-3 py-8 text-center text-sm text-zinc-500">{loading ? "Загрузка…" : "Нет записей"}</div>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {items.map((v) => (
+                <div key={v.id} className="p-4">
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                    <div>
                       <div className="font-medium text-zinc-900">{v.title || v.addressText || "—"}</div>
                       {v.contact ? (
                         <div className="text-xs text-zinc-500">
                           {v.contact.firstName} {v.contact.lastName}
                         </div>
                       ) : null}
-                    </td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-zinc-600">{v.purpose || "—"}</td>
-                    <td className="px-3 py-2 text-zinc-700">{v.outcome ?? "—"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                    </div>
+                    {showOwnerFilter ? (
+                      <div className="text-right text-xs text-zinc-500">{v.owner?.fullName ?? v.owner?.email ?? "—"}</div>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <section className="rounded-md border border-emerald-100 bg-emerald-50/50 p-3">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">План</div>
+                      <dl className="space-y-1 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Дата</dt>
+                          <dd className="text-right text-zinc-800">{formatDateTime(v.startsAt)}</dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Цель</dt>
+                          <dd className="text-right text-zinc-800">{v.purpose || "—"}</dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Длительность</dt>
+                          <dd className="text-right text-zinc-800">{v.durationMin ? `${v.durationMin} мин` : "—"}</dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section className="rounded-md border border-blue-100 bg-blue-50/50 p-3">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">Факт</div>
+                      <dl className="space-y-1 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Дата</dt>
+                          <dd className="text-right text-zinc-800">{formatDateTime(v.completedAt)}</dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Результат</dt>
+                          <dd className="text-right text-zinc-800">{v.outcome ?? "—"}</dd>
+                        </div>
+                        <div className="flex items-start justify-between gap-2">
+                          <dt className="text-zinc-500">Комментарий</dt>
+                          <dd className="text-right text-zinc-800">{v.resultNote || "—"}</dd>
+                        </div>
+                      </dl>
+                    </section>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {total > 30 ? (
