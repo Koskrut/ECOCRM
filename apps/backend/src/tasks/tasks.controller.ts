@@ -105,6 +105,7 @@ export class TasksController {
         body: body.body !== undefined ? (body.body != null ? String(body.body) : null) : undefined,
         dueAt,
         status: body.status !== undefined ? (body.status as TaskStatus) : undefined,
+        assigneeId: body.assigneeId !== undefined ? (body.assigneeId != null ? String(body.assigneeId) : null) : undefined,
       },
       req.user,
     );

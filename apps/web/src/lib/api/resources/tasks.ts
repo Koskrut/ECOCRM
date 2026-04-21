@@ -6,10 +6,16 @@ export type Task = {
   id: string;
   assigneeId: string;
   assignee?: { id: string; fullName: string } | null;
+  createdById?: string | null;
+  createdBy?: { id: string; fullName: string } | null;
   contactId?: string | null;
+  contact?: { id: string; firstName: string; lastName: string; phone: string } | null;
   companyId?: string | null;
+  company?: { id: string; name: string } | null;
   leadId?: string | null;
+  lead?: { id: string; fullName: string | null; phone: string | null; companyName: string | null } | null;
   orderId?: string | null;
+  order?: { id: string; orderNumber: string } | null;
   title: string;
   body?: string | null;
   dueAt?: string | null;
@@ -60,6 +66,7 @@ export type UpdateTaskBody = Partial<{
   body: string | null;
   dueAt: string | null;
   status: TaskStatus;
+  assigneeId: string | null;
 }>;
 
 export const tasksApi = {

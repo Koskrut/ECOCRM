@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { tasksApi, type Task, type TaskStatus } from "@/lib/api/resources/tasks";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { apiHttp } from "@/lib/api/client";
+import { authApi } from "@/lib/api/resources/auth";
 
 type Props = {
   contactId?: string | null;
@@ -40,6 +42,25 @@ export function EntityTasksList({
   const [newDueAt, setNewDueAt] = useState("");
   const [newBody, setNewBody] = useState("");
   const [saving, setSaving] = useState(false);
+  const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [newAssigneeId, setNewAssigneeId] = useState<string>("");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [usersRes, meRes] = await Promise.all([
+          apiHttp.get<{ items: { id: string; fullName: string }[] }>("/users"),
+          authApi.me(),
+        ]);
+        setUsers(usersRes.data?.items ?? []);
+        setMyUserId(meRes.user?.id ?? null);
+        setNewAssigneeId(meRes.user?.id ?? "");
+      } catch {
+        setUsers([]);
+      }
+    })();
+  }, []);
 
   const query = useCallback(() => {
     const q: Parameters<typeof tasksApi.list>[0] = { pageSize: 50 };
@@ -90,6 +111,7 @@ export function EntityTasksList({
         title: newTitle.trim(),
         body: newBody.trim() || undefined,
         dueAt: newDueAt.trim() || undefined,
+        assigneeId: newAssigneeId || undefined,
         contactId: contactId ?? undefined,
         companyId: companyId ?? undefined,
         leadId: leadId ?? undefined,
@@ -98,6 +120,7 @@ export function EntityTasksList({
       setNewTitle("");
       setNewDueAt("");
       setNewBody("");
+      if (myUserId) setNewAssigneeId(myUserId);
       await load();
     } catch (e) {
       setErr(
@@ -107,7 +130,7 @@ export function EntityTasksList({
     } finally {
       setSaving(false);
     }
-  }, [newTitle, newBody, newDueAt, hasEntity, contactId, companyId, leadId, orderId, load]);
+  }, [newTitle, newBody, newDueAt, newAssigneeId, hasEntity, contactId, companyId, leadId, orderId, load, myUserId]);
 
   const complete = useCallback(
     async (id: string) => {
@@ -159,6 +182,18 @@ export function EntityTasksList({
             onChange={(e) => setNewDueAt(e.target.value)}
             className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
           />
+          <select
+            value={newAssigneeId}
+            onChange={(e) => setNewAssigneeId(e.target.value)}
+            className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
+          >
+            {users.length === 0 && <option value="">No users available</option>}
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.fullName}
+              </option>
+            ))}
+          </select>
           <textarea
             value={newBody}
             onChange={(e) => setNewBody(e.target.value)}
@@ -212,6 +247,7 @@ export function EntityTasksList({
                     {TASK_STATUS_LABELS[task.status]}
                   </span>
                   <span>Due: {formatDueAt(task.dueAt ?? null)}</span>
+                  <span>Assignee: {task.assignee?.fullName ?? "—"}</span>
                 </div>
               </div>
               {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (

@@ -16,10 +16,54 @@ import type { UpdateTaskDto } from "./dto/update-task.dto";
 export class TasksService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private assertTaskAccess(task: { assigneeId: string }, actor: AuthUser): void {
-    if (actor.role === UserRole.MANAGER && task.assigneeId !== actor.id) {
-      throw new ForbiddenException("You can only access your own tasks");
+  private assertTaskAccess(task: { assigneeId: string; createdById?: string | null }, actor: AuthUser): void {
+    if (actor.role === UserRole.MANAGER && task.assigneeId !== actor.id && task.createdById !== actor.id) {
+      throw new ForbiddenException("You can only access your own tasks or tasks you created");
     }
+  }
+
+  private async resolveAndValidateAssigneeId(actor: AuthUser, requestedAssigneeId?: string | null): Promise<string> {
+    if (!requestedAssigneeId || requestedAssigneeId === actor.id) {
+      return actor.id;
+    }
+    const assignee = await this.prisma.user.findUnique({
+      where: { id: requestedAssigneeId },
+      select: { id: true },
+    });
+    if (!assignee) {
+      throw new NotFoundException("Assignee not found");
+    }
+
+    if (actor.role === UserRole.ADMIN) {
+      return requestedAssigneeId;
+    }
+
+    if (actor.role === UserRole.LEAD) {
+      const teammate = await this.prisma.user.findFirst({
+        where: { id: requestedAssigneeId, OR: [{ id: actor.id }, { leadId: actor.id }] },
+        select: { id: true },
+      });
+      if (!teammate) {
+        throw new ForbiddenException("You can only assign tasks to your team");
+      }
+      return requestedAssigneeId;
+    }
+
+    const actorUser = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { leadId: true },
+    });
+    if (!actorUser?.leadId) {
+      throw new ForbiddenException("You can only assign tasks to yourself");
+    }
+    const sameTeam = await this.prisma.user.findFirst({
+      where: { id: requestedAssigneeId, leadId: actorUser.leadId },
+      select: { id: true },
+    });
+    if (!sameTeam) {
+      throw new ForbiddenException("You can only assign tasks within your team");
+    }
+    return requestedAssigneeId;
   }
 
   private async assertEntityAccess(
@@ -72,8 +116,7 @@ export class TasksService {
     }
     await this.assertEntityAccess(actor, { contactId, companyId, leadId, orderId });
 
-    const assigneeId =
-      body.assigneeId != null && actor.role === UserRole.ADMIN ? body.assigneeId : actor.id;
+    const assigneeId = await this.resolveAndValidateAssigneeId(actor, body.assigneeId);
     const dueAt =
       typeof body.dueAt === "string" && body.dueAt
         ? new Date(body.dueAt)
@@ -86,9 +129,18 @@ export class TasksService {
         companyId,
         leadId,
         orderId,
+        createdById: actor.id,
         title: body.title.trim(),
         body: body.body?.trim() ?? null,
         dueAt: dueAt ?? null,
+      },
+      include: {
+        assignee: { select: { id: true, fullName: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        company: { select: { id: true, name: true } },
+        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+        order: { select: { id: true, orderNumber: true } },
       },
     });
     return task;
@@ -100,7 +152,7 @@ export class TasksService {
     }
     const where: Prisma.TaskWhereInput = {};
     if (actor.role === UserRole.MANAGER) {
-      where.assigneeId = actor.id;
+      where.OR = [{ assigneeId: actor.id }, { createdById: actor.id }];
     } else if (query.assigneeId) {
       where.assigneeId = query.assigneeId;
     }
@@ -144,6 +196,11 @@ export class TasksService {
         take: pageSize,
         include: {
           assignee: { select: { id: true, fullName: true } },
+          createdBy: { select: { id: true, fullName: true } },
+          contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          company: { select: { id: true, name: true } },
+          lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+          order: { select: { id: true, orderNumber: true } },
         },
       }),
       this.prisma.task.count({ where }),
@@ -159,6 +216,11 @@ export class TasksService {
       where: { id },
       include: {
         assignee: { select: { id: true, fullName: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        company: { select: { id: true, name: true } },
+        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+        order: { select: { id: true, orderNumber: true } },
       },
     });
     if (!task) {
@@ -183,6 +245,11 @@ export class TasksService {
         ? (typeof body.dueAt === "string" && body.dueAt ? new Date(body.dueAt) : null)
         : undefined;
 
+    const assigneeId =
+      body.assigneeId !== undefined
+        ? await this.resolveAndValidateAssigneeId(actor, body.assigneeId)
+        : undefined;
+
     return this.prisma.task.update({
       where: { id },
       data: {
@@ -190,8 +257,17 @@ export class TasksService {
         ...(body.body !== undefined && { body: body.body?.trim() ?? null }),
         ...(dueAt !== undefined && { dueAt }),
         ...(body.status !== undefined && { status: body.status }),
+        ...(assigneeId !== undefined && { assigneeId }),
         ...(body.status === "DONE" && { completedAt: new Date() }),
         ...(body.status !== "DONE" && body.status !== undefined && { completedAt: null }),
+      },
+      include: {
+        assignee: { select: { id: true, fullName: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        company: { select: { id: true, name: true } },
+        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+        order: { select: { id: true, orderNumber: true } },
       },
     });
   }
@@ -208,6 +284,14 @@ export class TasksService {
     return this.prisma.task.update({
       where: { id },
       data: { status: "DONE", completedAt: new Date() },
+      include: {
+        assignee: { select: { id: true, fullName: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        company: { select: { id: true, name: true } },
+        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+        order: { select: { id: true, orderNumber: true } },
+      },
     });
   }
 
@@ -223,6 +307,14 @@ export class TasksService {
     return this.prisma.task.update({
       where: { id },
       data: { status: "CANCELED" },
+      include: {
+        assignee: { select: { id: true, fullName: true } },
+        createdBy: { select: { id: true, fullName: true } },
+        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        company: { select: { id: true, name: true } },
+        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+        order: { select: { id: true, orderNumber: true } },
+      },
     });
   }
 }

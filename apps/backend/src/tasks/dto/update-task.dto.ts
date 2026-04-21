@@ -5,4 +5,5 @@ export type UpdateTaskDto = {
   body?: string | null;
   dueAt?: string | null; // ISO date
   status?: TaskStatus;
+  assigneeId?: string | null;
 };

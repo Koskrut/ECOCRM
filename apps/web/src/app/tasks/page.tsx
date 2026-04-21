@@ -8,6 +8,7 @@ import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
+import { authApi } from "@/lib/api/resources/auth";
 
 const TASK_STATUS_OPTIONS: { value: TaskStatus | ""; label: string }[] = [
   { value: "", label: "All" },
@@ -53,10 +54,31 @@ function getPeriodBounds(period: "" | "week" | "overdue"): { dueFrom?: string; d
 
 function TaskLinkedTo({ task }: { task: Task }) {
   const links: { href: string; label: string }[] = [];
-  if (task.contactId) links.push({ href: `/contacts?contactId=${task.contactId}`, label: "Contact" });
-  if (task.companyId) links.push({ href: `/companies?companyId=${task.companyId}`, label: "Company" });
-  if (task.leadId) links.push({ href: `/leads?leadId=${task.leadId}`, label: "Lead" });
-  if (task.orderId) links.push({ href: `/orders?orderId=${task.orderId}`, label: "Order" });
+  if (task.contactId) {
+    const contactName = [task.contact?.lastName, task.contact?.firstName].filter(Boolean).join(" ").trim();
+    links.push({
+      href: `/contacts?contactId=${task.contactId}`,
+      label: contactName ? `Contact: ${contactName}` : "Contact",
+    });
+  }
+  if (task.companyId) {
+    links.push({
+      href: `/companies?companyId=${task.companyId}`,
+      label: task.company?.name ? `Company: ${task.company.name}` : "Company",
+    });
+  }
+  if (task.leadId) {
+    links.push({
+      href: `/leads?leadId=${task.leadId}`,
+      label: task.lead?.fullName ? `Lead: ${task.lead.fullName}` : "Lead",
+    });
+  }
+  if (task.orderId) {
+    links.push({
+      href: `/orders?orderId=${task.orderId}`,
+      label: task.order?.orderNumber ? `Order: ${task.order.orderNumber}` : "Order",
+    });
+  }
   if (links.length === 0) return <span className="text-zinc-500">—</span>;
   return (
     <span className="flex flex-wrap gap-1">
@@ -72,6 +94,7 @@ function TaskLinkedTo({ task }: { task: Task }) {
 type EntityType = "contact" | "company" | "lead" | "order";
 
 type SearchOption = { id: string; label: string };
+type UserOption = { id: string; fullName: string };
 
 export default function TasksPage() {
   const [items, setItems] = useState<Task[]>([]);
@@ -95,6 +118,9 @@ export default function TasksPage() {
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [newAssigneeId, setNewAssigneeId] = useState<string>("");
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const selectedTask = items.find((t) => t.id === selectedTaskId) ?? null;
@@ -105,6 +131,7 @@ export default function TasksPage() {
   const [editStatus, setEditStatus] = useState<TaskStatus>("OPEN");
   const [cardSaving, setCardSaving] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
+  const [editAssigneeId, setEditAssigneeId] = useState<string>("");
 
   useEffect(() => {
     if (selectedTask) {
@@ -112,10 +139,27 @@ export default function TasksPage() {
       setEditBody(selectedTask.body ?? "");
       setEditDueAt(selectedTask.dueAt ? new Date(selectedTask.dueAt).toISOString().slice(0, 16) : "");
       setEditStatus(selectedTask.status);
+      setEditAssigneeId(selectedTask.assigneeId);
       setCardEditing(false);
       setCardError(null);
     }
   }, [selectedTask?.id]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [usersRes, meRes] = await Promise.all([
+          apiHttp.get<{ items: UserOption[] }>("/users"),
+          authApi.me(),
+        ]);
+        setUsers(usersRes.data?.items ?? []);
+        setMyUserId(meRes.user?.id ?? null);
+        setNewAssigneeId(meRes.user?.id ?? "");
+      } catch {
+        setUsers([]);
+      }
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -200,6 +244,7 @@ export default function TasksPage() {
       title: newTitle.trim(),
       body: newBody.trim() || undefined,
       dueAt: newDueAt.trim() || undefined,
+      assigneeId: newAssigneeId || undefined,
     };
     if (selectedLinkId) {
       if (linkType === "contact") body.contactId = selectedLinkId;
@@ -222,13 +267,14 @@ export default function TasksPage() {
       setLinkSearch("");
       setLinkOptions([]);
       setShowAdd(false);
+      if (myUserId) setNewAssigneeId(myUserId);
       await load();
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to create task");
     } finally {
       setSaving(false);
     }
-  }, [newTitle, newBody, newDueAt, linkType, selectedLinkId, load]);
+  }, [newTitle, newBody, newDueAt, newAssigneeId, linkType, selectedLinkId, load, myUserId]);
 
   const complete = useCallback(
     async (id: string) => {
@@ -264,6 +310,7 @@ export default function TasksPage() {
           body: editBody.trim() || null,
           dueAt: editDueAt ? new Date(editDueAt).toISOString() : null,
           status: editStatus,
+          assigneeId: editAssigneeId || null,
         });
         await load();
         setCardEditing(false);
@@ -273,7 +320,7 @@ export default function TasksPage() {
         setCardSaving(false);
       }
     },
-    [editTitle, editBody, editDueAt, editStatus, load],
+    [editTitle, editBody, editDueAt, editStatus, editAssigneeId, load],
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -283,7 +330,7 @@ export default function TasksPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-zinc-900">
           <ListTodo className="h-7 w-7 text-zinc-600" />
-          My tasks
+          Tasks
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -364,6 +411,21 @@ export default function TasksPage() {
                 onChange={(e) => setNewDueAt(e.target.value)}
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-600">Assignee</label>
+              <select
+                value={newAssigneeId}
+                onChange={(e) => setNewAssigneeId(e.target.value)}
+                className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
+              >
+                {users.length === 0 && <option value="">No users available</option>}
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-zinc-600">Note</label>
@@ -561,6 +623,19 @@ export default function TasksPage() {
                           </option>
                         ))}
                       </select>
+                      <label className="block text-xs font-medium text-zinc-600">Assignee</label>
+                      <select
+                        value={editAssigneeId}
+                        onChange={(e) => setEditAssigneeId(e.target.value)}
+                        className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
+                      >
+                        {users.length === 0 && <option value="">No users available</option>}
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   ) : (
                     <>
@@ -602,6 +677,7 @@ export default function TasksPage() {
                 <div className="border-b border-zinc-100 p-4">
                   <p className="text-xs font-medium text-zinc-500">Assignee</p>
                   <p className="mt-0.5 text-sm text-zinc-700">{selectedTask.assignee?.fullName ?? "—"}</p>
+                  <p className="mt-1 text-xs text-zinc-500">Created by: {selectedTask.createdBy?.fullName ?? "—"}</p>
                 </div>
 
                 <div className="border-b border-zinc-100 p-4">
