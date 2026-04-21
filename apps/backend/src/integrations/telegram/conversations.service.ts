@@ -219,6 +219,10 @@ export class ConversationsService {
 
   async sendMessage(conversationId: string, text: string, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
+    const normalizedText = String(text ?? "").trim();
+    if (!normalizedText) {
+      throw new BadRequestException("Message text cannot be empty");
+    }
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -228,13 +232,16 @@ export class ConversationsService {
     this.assertManagerCanAccessConversation(safeActor, conv);
 
     const sentAt = new Date();
-    const { messageId } = await this.telegramService.sendMessageToChat(conv.telegramChatId, text);
+    const { messageId } = await this.telegramService.sendMessageToChat(
+      conv.telegramChatId,
+      normalizedText,
+    );
 
     const message = await this.prisma.message.create({
       data: {
         conversationId: conv.id,
         direction: MessageDirection.OUTBOUND,
-        text,
+        text: normalizedText,
         tgMessageId: String(messageId),
         authorUserId: safeActor.id,
         sentAt,

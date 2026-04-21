@@ -76,7 +76,7 @@ describe("TelegramService.parseInbound", () => {
     assert.strictEqual(service.parseInbound(update), null);
   });
 
-  it("uses edited_message when present", () => {
+  it("ignores edited_message updates", () => {
     const update = {
       update_id: 4,
       edited_message: {
@@ -87,10 +87,6 @@ describe("TelegramService.parseInbound", () => {
         text: "Edited text",
       },
     };
-    const parsed = service.parseInbound(update);
-    assert.ok(parsed);
-    assert.strictEqual(parsed!.chatId, "555");
-    assert.strictEqual(parsed!.userId, "222");
-    assert.strictEqual(parsed!.text, "Edited text");
+    assert.strictEqual(service.parseInbound(update), null);
   });
 });

@@ -31,7 +31,7 @@ export class TelegramService {
    * Extract message payload from Telegram Update. Returns null if no message to process.
    */
   parseInbound(update: TelegramUpdate): ParsedInbound | null {
-    const msg = update.message ?? update.edited_message;
+    const msg = update.message;
     if (!msg?.chat?.id || !msg.from?.id) return null;
 
     const from = msg.from;
@@ -366,37 +366,50 @@ export class TelegramService {
     phone: string | null;
     lastMessageAt: Date;
   }) {
-    const existing = await this.prisma.telegramAccount.findUnique({
-      where: { telegramUserId: params.telegramUserId },
-    });
-
-    if (existing) {
-      return this.prisma.telegramAccount.update({
-        where: { id: existing.id },
-        data: {
+    try {
+      return await this.prisma.telegramAccount.upsert({
+        where: { telegramUserId: params.telegramUserId },
+        update: {
           telegramChatId: params.telegramChatId,
-          username: params.username ?? existing.username,
-          firstName: params.firstName ?? existing.firstName,
-          lastName: params.lastName ?? existing.lastName,
-          middleName: params.middleName ?? existing.middleName,
-          phone: params.phone ?? existing.phone,
+          username: params.username ?? undefined,
+          firstName: params.firstName ?? undefined,
+          lastName: params.lastName ?? undefined,
+          middleName: params.middleName ?? undefined,
+          phone: params.phone ?? undefined,
+          lastMessageAt: params.lastMessageAt,
+        },
+        create: {
+          telegramUserId: params.telegramUserId,
+          telegramChatId: params.telegramChatId,
+          username: params.username,
+          firstName: params.firstName,
+          lastName: params.lastName,
+          middleName: params.middleName,
+          phone: params.phone,
+          lastMessageAt: params.lastMessageAt,
+        },
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+
+      const byChat = await this.prisma.telegramAccount.findUnique({
+        where: { telegramChatId: params.telegramChatId },
+      });
+      if (!byChat) throw error;
+
+      return this.prisma.telegramAccount.update({
+        where: { id: byChat.id },
+        data: {
+          telegramUserId: params.telegramUserId,
+          username: params.username ?? byChat.username,
+          firstName: params.firstName ?? byChat.firstName,
+          lastName: params.lastName ?? byChat.lastName,
+          middleName: params.middleName ?? byChat.middleName,
+          phone: params.phone ?? byChat.phone,
           lastMessageAt: params.lastMessageAt,
         },
       });
     }
-
-    return this.prisma.telegramAccount.create({
-      data: {
-        telegramUserId: params.telegramUserId,
-        telegramChatId: params.telegramChatId,
-        username: params.username,
-        firstName: params.firstName,
-        lastName: params.lastName,
-        middleName: params.middleName,
-        phone: params.phone,
-        lastMessageAt: params.lastMessageAt,
-      },
-    });
   }
 
   /**
@@ -426,11 +439,18 @@ export class TelegramService {
     }
 
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Telegram API request failed: ${msg}`);
+    }
 
     if (!res.ok) {
       const errText = await res.text();

@@ -6,6 +6,7 @@ import { SettingsService } from "../../settings/settings.service";
 
 const MAX_MESSAGES = 25;
 const MAX_SUGGESTIONS = 3;
+const OPENAI_TIMEOUT_MS = 20_000;
 
 @Injectable()
 export class TelegramAiService {
@@ -63,15 +64,20 @@ export class TelegramAiService {
     const userPrompt = `Чат:\n${history}\n\nЗапропонуй ${maxSuggestions} варіанти відповіді (кожен з нового рядка):`;
 
     const client = new OpenAI({ apiKey: config.openaiApiKey });
-    const completion = await client.chat.completions.create({
-      model: config.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 400,
-      temperature: 0.6,
-    });
+    const completion = await Promise.race([
+      client.chat.completions.create({
+        model: config.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 400,
+        temperature: 0.6,
+      }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("OpenAI request timeout")), OPENAI_TIMEOUT_MS);
+      }),
+    ]);
 
     const content = completion.choices[0]?.message?.content?.trim();
     if (!content) return [];

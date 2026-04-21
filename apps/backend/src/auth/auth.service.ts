@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { randomBytes } from "crypto";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { TelegramService } from "../integrations/telegram/telegram.service";
@@ -282,10 +283,20 @@ export class AuthService {
       throw new UnauthorizedException("Неверная или просроченная ссылка. Запросите новую в настройках CRM.");
     }
 
-    const user = await this.prisma.user.update({
-      where: { id: row.userId },
-      data: { telegramUserId, telegramChatId },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.update({
+        where: { id: row.userId },
+        data: { telegramUserId, telegramChatId },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException(
+          "Этот Telegram уже привязан к другому пользователю CRM. Отключите его в предыдущем аккаунте или обратитесь к администратору.",
+        );
+      }
+      throw error;
+    }
     await this.prisma.userTelegramLinkToken.deleteMany({ where: { userId: row.userId } });
 
     return { email: user.email };
