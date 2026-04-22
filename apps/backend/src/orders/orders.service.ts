@@ -1027,6 +1027,8 @@ export class OrdersService {
       select: {
         id: true,
         ownerId: true,
+        contactId: true,
+        contact: { select: { externalCode: true } },
         orderStage: true,
         status: true,
         paymentType: true,
@@ -1038,6 +1040,15 @@ export class OrdersService {
     });
     if (!current) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(current, actor);
+
+    if (current.orderStage === "NEW" && toStage !== "NEW") {
+      const contactCode = current.contact?.externalCode?.trim();
+      if (!contactCode) {
+        throw new BadRequestException(
+          "Cannot change stage from NEW: contact must have externalCode (Код1с)",
+        );
+      }
+    }
 
     const transitionGraph = await this.ordersPipelineConfig.getEffectiveTransitionGraph();
     validateOrderStageTransition(current.orderStage, toStage, {

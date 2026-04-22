@@ -11,12 +11,59 @@ type GoogleSheetSvc =
 type PipelineSvc = import("../pipeline/orders-pipeline-config.service").OrdersPipelineConfigService;
 
 describe("OrdersService.setOrderStage", () => {
+  it("rejects stage change from NEW when contact has no Код1с", async () => {
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: null },
+          orderStage: "NEW",
+          status: "NEW",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          debtAmount: 100,
+          paymentDueDate: null,
+        }),
+      },
+    } as unknown as PrismaSvc;
+    const warehouses = {} as WarehousesSvc;
+    const settings = {} as SettingsSvc;
+    const googleSheet = {} as GoogleSheetSvc;
+    const pipeline = {
+      getEffectiveTransitionGraph: async () => ({
+        NEW: ["CONFIRMED"],
+        CONFIRMED: [],
+        AWAITING_PAYMENT: [],
+        AWAITING_STOCK: [],
+        READY_TO_SHIP: [],
+        SHIPPED: [],
+        AWAITING_RECEIPT: [],
+        RECEIVED: [],
+        COMPLETED: [],
+        CANCELED: [],
+        REFUSED: [],
+        RETURN_IN_PROGRESS: [],
+      }),
+    } as unknown as PipelineSvc;
+    const svc = new OrdersService(prisma, warehouses, settings, googleSheet, pipeline);
+
+    await assert.rejects(
+      () => svc.setOrderStage("o1", "CONFIRMED", undefined),
+      BadRequestException,
+    );
+  });
+
   it("rejects RETURN_IN_PROGRESS when order has no active returns", async () => {
     const prisma = {
       order: {
         findUnique: async () => ({
           id: "o1",
           ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C" },
           orderStage: "RECEIVED",
           status: "RECEIVED",
           paymentType: "POSTPAYMENT",
