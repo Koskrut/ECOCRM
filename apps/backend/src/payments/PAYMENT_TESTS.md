@@ -3,7 +3,7 @@
 When a test runner (Jest/Vitest) and test DB are configured, add integration tests for:
 
 1. **Дедупликация транзакций**  
-   Import the same `(bankAccountId, externalId)` twice; expect a single `BankTransaction` row (upsert by unique).
+   Import the same bank operation twice with different `externalId` values (e.g. short numeric and long HS/JBKL), but same `REF+REFN`; expect a single `BankTransaction` row.
 
 2. **Автопривязка по номеру заказа**  
    Create `Order` with `orderNumber: "ORD-12345"`. Create `BankTransaction` with `direction: IN`, `description: "Оплата заказ 12345"`. Run `MatchEngineService.run()`. Expect one `Payment` with `orderId` and `bankTransactionId`, and `Order.paidAmount` updated.

@@ -31,6 +31,33 @@ function computeTxHash(tx: RawBankTransaction): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
+function toTrimmedString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+/**
+ * Privat24 can return the same operation with different external IDs.
+ * REF+REFN is stable enough for idempotent import across repeated sync windows.
+ */
+function extractPrivat24StableDedupKey(tx: RawBankTransaction): string | null {
+  const payload = tx.rawPayload;
+  if (!payload || typeof payload !== "object") return null;
+  const row = payload as Record<string, unknown>;
+
+  const ref = toTrimmedString(row.REF ?? row.ref);
+  const refn = toTrimmedString(row.REFN ?? row.refn);
+  if (ref && refn) return `p24-ref:${ref}+${refn}`;
+
+  const technicalId = toTrimmedString(
+    row.TECHNICAL_TRANSACTION_ID ?? row.technicalTransactionId ?? row.technical_transaction_id,
+  );
+  if (technicalId) return `p24-tech:${technicalId}`;
+
+  return null;
+}
+
 function fingerprint(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) return "";
   return createHash("sha256").update(value).digest("hex").slice(0, 10);
@@ -260,8 +287,9 @@ export class BankSyncService {
   }
 
   private async upsertTransaction(bankAccountId: string, tx: RawBankTransaction) {
-    const dedupKey = tx.externalId ?? tx.hash ?? computeTxHash(tx);
-    const hash = tx.hash ?? (tx.externalId ? null : computeTxHash(tx));
+    const stableProviderKey = extractPrivat24StableDedupKey(tx);
+    const dedupKey = stableProviderKey ?? tx.externalId ?? tx.hash ?? computeTxHash(tx);
+    const hash = tx.hash ?? computeTxHash(tx);
     await this.prisma.bankTransaction.upsert({
       where: {
         bankAccountId_dedupKey: { bankAccountId, dedupKey },
@@ -280,7 +308,11 @@ export class BankSyncService {
         counterpartyIban: tx.counterpartyIban ?? null,
         rawPayload: tx.rawPayload ? (tx.rawPayload as object) : undefined,
       },
-      update: {},
+      update: {
+        externalId: tx.externalId ?? undefined,
+        hash,
+        rawPayload: tx.rawPayload ? (tx.rawPayload as object) : undefined,
+      },
     });
   }
 }
