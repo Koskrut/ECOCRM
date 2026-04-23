@@ -10,6 +10,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../cart/store-cart.service";
+import { ProductStore } from "../../products/product.store";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
 
@@ -39,6 +40,7 @@ export class StoreCheckoutService {
     private readonly cartService: StoreCartService,
     private readonly settings: SettingsService,
     private readonly bankAccounts: BankAccountsService,
+    private readonly productStore: ProductStore,
   ) {}
 
   async checkout(dto: StoreCheckoutDto) {
@@ -46,6 +48,18 @@ export class StoreCheckoutService {
     if (!sessionId) throw new BadRequestException("sessionId required for cart");
     const cart = await this.cartService.getCart({ sessionId });
     if (!cart.items.length) throw new BadRequestException("Cart is empty");
+
+    for (const item of cart.items) {
+      const product = await this.productStore.findById(item.productId);
+      if (!product || !product.isActive || !product.showOnStore) {
+        throw new BadRequestException(`Товар недоступний для замовлення: ${item.name}`);
+      }
+      if (item.qty > product.stock) {
+        throw new BadRequestException(
+          `Недостатньо товару на складі для "${item.name}". Доступно: ${product.stock}, у кошику: ${item.qty}`,
+        );
+      }
+    }
 
     const rawPhone = (dto.phone ?? "").trim();
     const phoneNorm = getPhoneNormalizedDigits(rawPhone);

@@ -13,6 +13,19 @@ export class StoreCartService {
     private readonly settings: SettingsService,
   ) {}
 
+  private async assertStockAvailable(productId: string, requestedQty: number) {
+    const product = await this.productStore.findById(productId);
+    if (!product || !product.isActive || !product.showOnStore) {
+      throw new NotFoundException("Product not found or inactive");
+    }
+    if (requestedQty > product.stock) {
+      throw new BadRequestException(
+        `Недостатньо товару на складі. Доступно: ${product.stock}, запитано: ${requestedQty}`,
+      );
+    }
+    return product;
+  }
+
   private async getOrCreateCart(identity: CartIdentity) {
     if (identity.customerId) {
       let cart = await this.prisma.cart.findFirst({
@@ -76,16 +89,15 @@ export class StoreCartService {
   }
 
   async addItem(identity: CartIdentity, productId: string, qty: number) {
-    const product = await this.productStore.findById(productId);
-    if (!product || !product.isActive || !product.showOnStore)
-      throw new NotFoundException("Product not found or inactive");
     const addQty = Math.max(1, Math.floor(qty));
     const cart = await this.getOrCreateCart(identity);
     const existing = cart.items.find((i) => i.productId === productId);
+    const targetQty = (existing?.qty ?? 0) + addQty;
+    const product = await this.assertStockAvailable(productId, targetQty);
     if (existing) {
       await this.prisma.cartItem.update({
         where: { id: existing.id },
-        data: { qty: existing.qty + addQty },
+        data: { qty: targetQty },
       });
     } else {
       await this.prisma.cartItem.create({
@@ -108,6 +120,7 @@ export class StoreCartService {
     if (newQty === 0) {
       await this.prisma.cartItem.delete({ where: { id: itemId } });
     } else {
+      await this.assertStockAvailable(item.productId, newQty);
       await this.prisma.cartItem.update({
         where: { id: itemId },
         data: { qty: newQty },
