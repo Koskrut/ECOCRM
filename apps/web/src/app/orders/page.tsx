@@ -45,6 +45,12 @@ type OrderSummary = {
   paymentType?: "PREPAYMENT" | "DEFERRED" | null;
   createdAt: string;
   itemsCount: number;
+  items?: Array<{
+    id: string;
+    productId?: string | null;
+    productNameSnapshot?: string | null;
+    qty: number;
+  }>;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
 };
@@ -806,7 +812,19 @@ function OrdersPageContent() {
                             orderStage={order.orderStage}
                           />
                         </td>
-                        <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
+                        <td
+                          className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell"
+                          title={
+                            order.items && order.items.length > 0
+                              ? order.items
+                                  .map(
+                                    (item) =>
+                                      `${item.productNameSnapshot ?? item.productId ?? "Товар"} x${item.qty}`,
+                                  )
+                                  .join("\n")
+                              : "Нет позиций"
+                          }
+                        >
                           {order.itemsCount}
                         </td>
                         <td className="px-4 py-4 text-right font-medium text-zinc-900">
