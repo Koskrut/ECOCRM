@@ -411,7 +411,7 @@ export class OrdersService {
 
     const withRelations = q?.withCompanyClient === true;
     const include: Prisma.OrderInclude = {
-      items: { include: { product: { select: { sku: true } } } },
+      items: true,
       _count: { select: { ttns: true, shipments: true } },
     };
     if (withRelations) {
@@ -439,6 +439,22 @@ export class OrdersService {
           })
         : [];
     const ownerById = new Map(owners.map((o) => [o.id, o]));
+
+    const productIds = Array.from(
+      new Set(
+        items.flatMap((order) =>
+          order.items.map((item) => item.productId).filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    );
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, sku: true },
+          })
+        : [];
+    const productSkuById = new Map(products.map((product) => [product.id, product.sku]));
 
     const pageOrderIds = items.map((o) => o.id);
     const ttnSharedMeta = await this.computeTtnSharedAcrossOrdersMeta(pageOrderIds);
@@ -507,7 +523,10 @@ export class OrdersService {
             productId: item.productId ?? null,
             productNameSnapshot: item.productNameSnapshot ?? null,
             qty: item.qty,
-            product: item.product ? { sku: item.product.sku } : null,
+            product:
+              item.productId && productSkuById.get(item.productId)
+                ? { sku: productSkuById.get(item.productId)! }
+                : null,
           })),
           itemsCount: o.items.length,
         };
