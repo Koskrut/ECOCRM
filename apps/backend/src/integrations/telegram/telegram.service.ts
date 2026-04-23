@@ -32,8 +32,8 @@ const MENU_CONTACT_US = "📞 Зв'язатись з нами";
 const CLIENT_MENU_BUTTONS = [MENU_ORDER_STATUS, MENU_MANAGER_CHAT, MENU_CONTACT_US];
 const ORDER_STAGE_LABELS: Partial<Record<OrderStage, string>> = {
   NEW: "🆕 Нове замовлення",
-  IN_WORK: "🟡 В обробці",
-  WAITING_PAYMENT: "💳 Очікує оплату",
+  CONFIRMED: "🟡 В обробці",
+  AWAITING_PAYMENT: "💳 Очікує оплату",
   READY_TO_SHIP: "📦 Готове до відправки",
   SHIPPED: "🚚 Відправлено",
   COMPLETED: "✅ Виконано",
@@ -41,11 +41,11 @@ const ORDER_STAGE_LABELS: Partial<Record<OrderStage, string>> = {
 };
 const ORDER_STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
   NEW: "🆕 Нове замовлення",
-  IN_PROGRESS: "🟡 В обробці",
-  PAID: "💰 Оплачено",
+  IN_WORK: "🟡 В обробці",
+  SUCCESS: "💰 Оплачено",
   SHIPPED: "🚚 Відправлено",
-  COMPLETED: "✅ Виконано",
-  CANCELLED: "❌ Скасовано",
+  READY_TO_SHIP: "📦 Готове до відправки",
+  CANCELED: "❌ Скасовано",
 };
 
 function parseProfileInput(text: string): { region: string; lastName: string; firstName: string } | null {
