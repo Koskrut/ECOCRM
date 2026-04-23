@@ -502,6 +502,12 @@ export class OrdersService {
                 orderNumber: relatedOrderById.get(relatedId) ?? relatedId,
               })) ?? [],
           createdAt: o.createdAt,
+          items: o.items.map((item) => ({
+            id: item.id,
+            productId: item.productId ?? null,
+            productNameSnapshot: item.productNameSnapshot ?? null,
+            qty: item.qty,
+          })),
           itemsCount: o.items.length,
         };
         if (withRelations && "company" in o && "client" in o) {
