@@ -2,12 +2,14 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  listWarehouses,
   productsApi,
   type ProductCatalogItem,
   type ProductImageItem,
   type ProductImagesSyncResult,
   type ProductImagesSyncStatus,
   type StockUploadResult,
+  type WarehouseItem,
 } from "../../lib/api";
 import {
   formatSpecValue,
@@ -81,7 +83,7 @@ function qtyAtWarehouse(
   const w = p.stockByWarehouse?.find(
     (x) => x.warehouseName.toLowerCase() === warehouseName.toLowerCase(),
   );
-  return w?.qty ?? 0;
+  return w?.availableQty ?? w?.qty ?? 0;
 }
 
 /** Первые два символа артикула (группа товара). */
@@ -185,11 +187,13 @@ function CatalogRowEditButton({
 function EditProductModal({
   open,
   product,
+  warehouses,
   onClose,
   onSaved,
 }: {
   open: boolean;
   product: ProductCatalogItem | null;
+  warehouses: WarehouseItem[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -199,7 +203,7 @@ function EditProductModal({
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("");
   const [basePrice, setBasePrice] = useState<string>("");
-  const [stock, setStock] = useState<string>("");
+  const [warehouseStocks, setWarehouseStocks] = useState<Record<string, string>>({});
   const [showOnStore, setShowOnStore] = useState(true);
   const [isActive, setIsActive] = useState(true);
 
@@ -210,10 +214,22 @@ function EditProductModal({
     setName(product.name ?? "");
     setUnit(product.unit ?? "");
     setBasePrice(String(product.basePrice ?? 0));
-    setStock(String(product.stock ?? 0));
+    setWarehouseStocks(() => {
+      const byWarehouse = new Map(
+        (product.stockByWarehouse ?? []).map((row) => [row.warehouseId, String(row.qty ?? 0)]),
+      );
+      return Object.fromEntries(
+        warehouses.map((wh) => [wh.id, byWarehouse.get(wh.id) ?? "0"]),
+      );
+    });
     setShowOnStore(Boolean(product.showOnStore ?? true));
     setIsActive(product.isActive === false ? false : true);
-  }, [open, product]);
+  }, [open, product, warehouses]);
+
+  const totalStockFromWarehouses = warehouses.reduce(
+    (sum, wh) => sum + Math.max(0, Math.floor(Number(warehouseStocks[wh.id] ?? 0))),
+    0,
+  );
 
   const handleSave = async () => {
     if (!product) return;
@@ -225,7 +241,11 @@ function EditProductModal({
         name,
         unit,
         basePrice: Number(basePrice),
-        stock: Number(stock),
+        stock: totalStockFromWarehouses,
+        warehouseStocks: warehouses.map((wh) => ({
+          warehouseId: wh.id,
+          qty: Math.max(0, Math.floor(Number(warehouseStocks[wh.id] ?? 0))),
+        })),
         showOnStore,
         isActive,
       });
@@ -296,14 +316,34 @@ function EditProductModal({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-zinc-600">Количество (общий остаток)</span>
+            <span className="text-xs font-medium text-zinc-600">Количество (общий остаток, авто)</span>
             <input
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
+              value={String(totalStockFromWarehouses)}
+              readOnly
               inputMode="numeric"
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-zinc-200 bg-zinc-100 px-3 py-2 text-sm text-zinc-600"
             />
           </label>
+          {warehouses.length > 0 && (
+            <div className="sm:col-span-2">
+              <p className="mb-1 text-xs font-medium text-zinc-600">Остатки по складам</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {warehouses.map((wh) => (
+                  <label key={wh.id} className="flex flex-col gap-1">
+                    <span className="text-xs text-zinc-600">{wh.name}</span>
+                    <input
+                      value={warehouseStocks[wh.id] ?? "0"}
+                      onChange={(e) =>
+                        setWarehouseStocks((prev) => ({ ...prev, [wh.id]: e.target.value }))
+                      }
+                      inputMode="numeric"
+                      className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-4">
@@ -1053,6 +1093,7 @@ function AddProductModal({
 
 function CatalogPageContent() {
   const [items, setItems] = useState<ProductCatalogItem[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1117,6 +1158,12 @@ function CatalogPageContent() {
   useEffect(() => {
     loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => {
+    listWarehouses()
+      .then((rows) => setWarehouses(rows))
+      .catch(() => setWarehouses([]));
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchDebounced(search), 300);
@@ -1366,6 +1413,7 @@ function CatalogPageContent() {
       <EditProductModal
         open={Boolean(editModalProduct)}
         product={editModalProduct}
+        warehouses={warehouses}
         onClose={() => setEditModalProduct(null)}
         onSaved={loadCatalog}
       />

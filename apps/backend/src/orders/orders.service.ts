@@ -13,6 +13,8 @@ import {
   OrderPaymentStatus,
   OrderSource,
   OrderStatus,
+  ReservationHardness,
+  ReservationStatus,
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -69,6 +71,24 @@ const SPLIT_BLOCKED_ORDER_STAGES: OrderStage[] = [
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+  private static readonly STAGES_WITH_ACTIVE_RESERVATION = new Set<OrderStage>([
+    "NEW",
+    "CONFIRMED",
+    "AWAITING_PAYMENT",
+    "AWAITING_STOCK",
+    "READY_TO_SHIP",
+  ]);
+  private static readonly STAGES_RELEASE_RESERVATION = new Set<OrderStage>([
+    "CANCELED",
+    "REFUSED",
+    "RETURN_IN_PROGRESS",
+  ]);
+  private static readonly STAGES_CONSUME_RESERVATION = new Set<OrderStage>([
+    "SHIPPED",
+    "AWAITING_RECEIPT",
+    "RECEIVED",
+    "COMPLETED",
+  ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -184,6 +204,56 @@ export class OrdersService {
     const total = Math.max(0, s - d);
     const debt = Math.max(0, total - p);
     return { subtotal: s, discount: d, total, paid: p, debt };
+  }
+
+  private async syncActiveReservationsForOrder(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        warehouseId: true,
+        orderStage: true,
+        items: {
+          select: {
+            productId: true,
+            qty: true,
+            qtyShipped: true,
+          },
+        },
+      },
+    });
+    if (!order) return;
+    const stage = order.orderStage ?? "NEW";
+    const shouldKeepActive = OrdersService.STAGES_WITH_ACTIVE_RESERVATION.has(stage);
+
+    await this.prisma.materialReservation.updateMany({
+      where: { orderId, status: ReservationStatus.ACTIVE },
+      data: {
+        status: shouldKeepActive ? ReservationStatus.RELEASED : ReservationStatus.CONSUMED,
+      },
+    });
+
+    if (!shouldKeepActive) return;
+
+    const qtyByProduct = new Map<string, number>();
+    for (const item of order.items) {
+      if (!item.productId) continue;
+      const remainingQty = Math.max(0, Number(item.qty) - Number(item.qtyShipped ?? 0));
+      if (remainingQty <= 0) continue;
+      qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) ?? 0) + remainingQty);
+    }
+    if (qtyByProduct.size === 0) return;
+
+    await this.prisma.materialReservation.createMany({
+      data: Array.from(qtyByProduct.entries()).map(([productId, qty]) => ({
+        productId,
+        warehouseId: order.warehouseId ?? null,
+        qty,
+        hardness: ReservationHardness.HARD,
+        status: ReservationStatus.ACTIVE,
+        orderId,
+      })),
+    });
   }
 
   async list(q: ListOrdersQueryDto, actor?: AuthUser) {
@@ -676,6 +746,7 @@ export class OrdersService {
       data,
       include: ORDER_INCLUDE,
     });
+    await this.syncActiveReservationsForOrder(id);
     return this.mapToEntity(updated);
   }
 
@@ -716,6 +787,7 @@ export class OrdersService {
       });
     }
 
+    await this.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }
 
@@ -749,6 +821,7 @@ export class OrdersService {
       },
     });
 
+    await this.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }
 
@@ -766,6 +839,7 @@ export class OrdersService {
     if (!item) throw new NotFoundException("Order item not found");
 
     await this.prisma.orderItem.delete({ where: { id: itemId } });
+    await this.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }
 
@@ -989,6 +1063,8 @@ export class OrdersService {
 
     await this.recalcAndReturn(orderId);
     await this.recalcAndReturn(childId);
+    await this.syncActiveReservationsForOrder(orderId);
+    await this.syncActiveReservationsForOrder(childId);
 
     const [parentEntity, childEntity] = await Promise.all([
       this.getById(orderId, actor),
@@ -1007,6 +1083,10 @@ export class OrdersService {
       select: { id: true, ownerId: true },
     });
     if (!order) throw new NotFoundException("Order not found");
+    await this.prisma.materialReservation.updateMany({
+      where: { orderId: id, status: ReservationStatus.ACTIVE },
+      data: { status: ReservationStatus.RELEASED },
+    });
     await this.prisma.order.delete({ where: { id } });
     return { ok: true };
   }
@@ -1104,6 +1184,19 @@ export class OrdersService {
       },
       include: ORDER_INCLUDE,
     });
+    if (OrdersService.STAGES_RELEASE_RESERVATION.has(toStage)) {
+      await this.prisma.materialReservation.updateMany({
+        where: { orderId: id, status: ReservationStatus.ACTIVE },
+        data: { status: ReservationStatus.RELEASED },
+      });
+    } else if (OrdersService.STAGES_CONSUME_RESERVATION.has(toStage)) {
+      await this.prisma.materialReservation.updateMany({
+        where: { orderId: id, status: ReservationStatus.ACTIVE },
+        data: { status: ReservationStatus.CONSUMED },
+      });
+    } else {
+      await this.syncActiveReservationsForOrder(id);
+    }
 
     if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {

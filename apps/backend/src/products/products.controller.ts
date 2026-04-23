@@ -223,6 +223,7 @@ export class ProductsController {
       unit?: string;
       basePrice?: number;
       stock?: number;
+      warehouseStocks?: Array<{ warehouseId?: string; qty?: number }>;
       showOnStore?: boolean;
       isActive?: boolean;
       /** JSON object of attribute_code → value, or null to clear. */
@@ -247,6 +248,22 @@ export class ProductsController {
     }
     if (body.showOnStore !== undefined) {
       const ok = await this.productStore.updateShowOnStore(id, body.showOnStore);
+      if (!ok) throw new BadRequestException("Product not found");
+    }
+    if (body.warehouseStocks !== undefined) {
+      if (!Array.isArray(body.warehouseStocks)) {
+        throw new BadRequestException("warehouseStocks must be an array");
+      }
+      const rows = body.warehouseStocks.map((row) => ({
+        warehouseId: String(row?.warehouseId ?? "").trim(),
+        qty: Number(row?.qty ?? 0),
+      }));
+      if (rows.some((r) => !r.warehouseId || !Number.isFinite(r.qty))) {
+        throw new BadRequestException(
+          "Each warehouseStocks item must contain warehouseId and numeric qty",
+        );
+      }
+      const ok = await this.productStore.updateWarehouseStocksForProduct(id, rows);
       if (!ok) throw new BadRequestException("Product not found");
     }
     if (body.isActive !== undefined) {

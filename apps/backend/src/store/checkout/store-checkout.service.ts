@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { NpDeliveryType, NpRecipientType, OrderSource } from "@prisma/client";
+import {
+  NpDeliveryType,
+  NpRecipientType,
+  OrderSource,
+  ReservationHardness,
+  ReservationStatus,
+} from "@prisma/client";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
@@ -54,9 +60,19 @@ export class StoreCheckoutService {
       if (!product || !product.isActive || !product.showOnStore) {
         throw new BadRequestException(`Товар недоступний для замовлення: ${item.name}`);
       }
-      if (item.qty > product.stock) {
+      const hardReservedAgg = await this.prisma.materialReservation.aggregate({
+        where: {
+          productId: item.productId,
+          status: ReservationStatus.ACTIVE,
+          hardness: ReservationHardness.HARD,
+        },
+        _sum: { qty: true },
+      });
+      const hardReserved = hardReservedAgg._sum.qty ?? 0;
+      const available = Math.max(0, product.stock - hardReserved);
+      if (item.qty > available) {
         throw new BadRequestException(
-          `Недостатньо товару на складі для "${item.name}". Доступно: ${product.stock}, у кошику: ${item.qty}`,
+          `Недостатньо товару на складі для "${item.name}". Доступно: ${available}, у кошику: ${item.qty}`,
         );
       }
     }

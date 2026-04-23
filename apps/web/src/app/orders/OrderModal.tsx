@@ -169,7 +169,12 @@ type OrderDetails = {
   }>;
 };
 
-type StockByWarehouseItem = { warehouseId: string; warehouseName: string; qty: number };
+type StockByWarehouseItem = {
+  warehouseId: string;
+  warehouseName: string;
+  qty: number;
+  availableQty?: number;
+};
 
 type ProductSearchItem = {
   id: string;
@@ -178,6 +183,7 @@ type ProductSearchItem = {
   unit: string;
   basePrice: number;
   stock?: number;
+  availableStock?: number;
   stockByWarehouse?: StockByWarehouseItem[];
 };
 
@@ -192,10 +198,10 @@ function stockAtWarehouse(
   p: ProductSearchItem,
   warehouseId: string | null | undefined,
 ): number | undefined {
-  if (!p.stockByWarehouse?.length) return p.stock;
-  if (!warehouseId) return p.stock;
+  if (!p.stockByWarehouse?.length) return p.availableStock ?? p.stock;
+  if (!warehouseId) return p.availableStock ?? p.stock;
   const w = p.stockByWarehouse.find((x) => x.warehouseId === warehouseId);
-  return w?.qty ?? 0;
+  return w?.availableQty ?? w?.qty ?? 0;
 }
 
 function toIsoDateLocal(d: Date): string {

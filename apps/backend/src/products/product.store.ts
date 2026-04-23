@@ -1,11 +1,17 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, ReservationHardness, ReservationStatus } from "@prisma/client";
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProductImageStore } from "./product-image.store";
 
-export type StockByWarehouseItem = { warehouseId: string; warehouseName: string; qty: number };
+export type StockByWarehouseItem = {
+  warehouseId: string;
+  warehouseName: string;
+  qty: number;
+  /** Warehouse physical qty minus active hard reservations in this warehouse. */
+  availableQty: number;
+};
 
 type ProductListItem = Pick<
   Product,
@@ -21,14 +27,19 @@ type ProductListItem = Pick<
   | "characteristics"
 >;
 
-export type ProductListItemWithStockByWarehouse = ProductListItem & {
+type ProductListItemWithAvailability = ProductListItem & {
+  /** Physical stock minus active hard reservations. */
+  availableStock: number;
+};
+
+export type ProductListItemWithStockByWarehouse = ProductListItemWithAvailability & {
   stockByWarehouse?: StockByWarehouseItem[];
   /** Present when listing catalog with search (includes inactive matches). */
   isActive?: boolean;
 };
 
 type ProductListResult = {
-  items: ProductListItem[];
+  items: ProductListItemWithAvailability[];
   total: number;
 };
 
@@ -77,6 +88,11 @@ export type UpdateProductData = {
   stock?: number;
 };
 
+export type WarehouseStockUpdateInput = {
+  warehouseId: string;
+  qty: number;
+};
+
 function parseCharacteristicsJson(raw: Prisma.JsonValue | null): Record<string, unknown> | null {
   if (raw === null || raw === undefined) return null;
   if (typeof raw === "object" && !Array.isArray(raw)) {
@@ -123,6 +139,33 @@ export class ProductStore {
       ...item,
       primaryImageUrl: imageMap.get(item.id)?.url ?? null,
       primaryImageId: imageMap.get(item.id)?.imageId ?? null,
+    }));
+  }
+
+  private async getActiveHardReservationsByProductIds(
+    productIds: string[],
+  ): Promise<Map<string, number>> {
+    const ids = Array.from(new Set(productIds.filter(Boolean)));
+    if (ids.length === 0) return new Map();
+    const rows = await this.prisma.materialReservation.groupBy({
+      by: ["productId"],
+      where: {
+        productId: { in: ids },
+        status: ReservationStatus.ACTIVE,
+        hardness: ReservationHardness.HARD,
+      },
+      _sum: { qty: true },
+    });
+    return new Map(rows.map((r) => [r.productId, r._sum.qty ?? 0]));
+  }
+
+  private attachAvailableStock<T extends { id: string; stock: number }>(
+    items: T[],
+    hardReservedByProductId: Map<string, number>,
+  ): Array<T & { availableStock: number }> {
+    return items.map((item) => ({
+      ...item,
+      availableStock: Math.max(0, Number(item.stock ?? 0) - (hardReservedByProductId.get(item.id) ?? 0)),
     }));
   }
 
@@ -242,17 +285,39 @@ export class ProductStore {
     productIds: string[],
   ): Promise<Map<string, StockByWarehouseItem[]>> {
     if (productIds.length === 0) return new Map();
-    const rows = await this.prisma.productWarehouseStock.findMany({
-      where: { productId: { in: productIds } },
-      include: { warehouse: { select: { id: true, name: true } } },
-    });
+    const [rows, reservations] = await Promise.all([
+      this.prisma.productWarehouseStock.findMany({
+        where: { productId: { in: productIds } },
+        include: { warehouse: { select: { id: true, name: true } } },
+      }),
+      this.prisma.materialReservation.groupBy({
+        by: ["productId", "warehouseId"],
+        where: {
+          productId: { in: productIds },
+          warehouseId: { not: null },
+          status: ReservationStatus.ACTIVE,
+          hardness: ReservationHardness.HARD,
+        },
+        _sum: { qty: true },
+      }),
+    ]);
+    const reservedByProductWarehouse = new Map<string, number>();
+    for (const r of reservations) {
+      if (!r.warehouseId) continue;
+      reservedByProductWarehouse.set(
+        `${r.productId}:${r.warehouseId}`,
+        r._sum.qty ?? 0,
+      );
+    }
     const map = new Map<string, StockByWarehouseItem[]>();
     for (const r of rows) {
       const list = map.get(r.productId) ?? [];
+      const hardReserved = reservedByProductWarehouse.get(`${r.productId}:${r.warehouse.id}`) ?? 0;
       list.push({
         warehouseId: r.warehouse.id,
         warehouseName: r.warehouse.name,
         qty: r.qty,
+        availableQty: Math.max(0, r.qty - hardReserved),
       });
       map.set(r.productId, list);
     }
@@ -564,12 +629,16 @@ export class ProductStore {
             ${subFacetMatchSql}
         `;
         const enriched = await this.enrichWithPrimaryImage(rows);
-        const items = enriched.map((item) => ({
+        const itemsBase = enriched.map((item) => ({
           ...item,
           characteristics: parseCharacteristicsJson(
             (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
           ),
         }));
+        const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+          itemsBase.map((item) => item.id),
+        );
+        const items = this.attachAvailableStock(itemsBase, hardReservedByProductId);
         return { items, total: Number(count) };
       }
 
@@ -598,12 +667,16 @@ export class ProductStore {
         }),
       ]);
       const enriched = await this.enrichWithPrimaryImage(rows);
-      const items = enriched.map((item) => ({
+      const itemsBase = enriched.map((item) => ({
         ...item,
         characteristics: parseCharacteristicsJson(
           (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
         ),
       }));
+      const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+        itemsBase.map((item) => item.id),
+      );
+      const items = this.attachAvailableStock(itemsBase, hardReservedByProductId);
       return { items, total };
     }
 
@@ -648,12 +721,16 @@ export class ProductStore {
         )
     `;
     const enriched = await this.enrichWithPrimaryImage(rows);
-    const items = enriched.map((item) => ({
+    const itemsBase = enriched.map((item) => ({
       ...item,
       characteristics: parseCharacteristicsJson(
         (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
       ),
     }));
+    const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+      itemsBase.map((item) => item.id),
+    );
+    const items = this.attachAvailableStock(itemsBase, hardReservedByProductId);
     return { items, total: Number(count) };
   }
 
@@ -692,6 +769,54 @@ export class ProductStore {
       },
     });
     return result.count > 0;
+  }
+
+  public async updateWarehouseStocksForProduct(
+    productId: string,
+    rows: WarehouseStockUpdateInput[],
+  ): Promise<boolean> {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true },
+    });
+    if (!product) return false;
+    const normalized = rows
+      .map((r) => ({
+        warehouseId: r.warehouseId.trim(),
+        qty: Math.max(0, Math.floor(Number(r.qty))),
+      }))
+      .filter((r) => r.warehouseId.length > 0);
+    const deduped = new Map<string, number>();
+    for (const row of normalized) deduped.set(row.warehouseId, row.qty);
+    const items = Array.from(deduped.entries()).map(([warehouseId, qty]) => ({ warehouseId, qty }));
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of items) {
+        await tx.productWarehouseStock.upsert({
+          where: {
+            productId_warehouseId: { productId, warehouseId: row.warehouseId },
+          },
+          create: {
+            productId,
+            warehouseId: row.warehouseId,
+            qty: row.qty,
+          },
+          update: {
+            qty: row.qty,
+          },
+        });
+      }
+      const allWarehouseRows = await tx.productWarehouseStock.findMany({
+        where: { productId },
+        select: { qty: true },
+      });
+      const total = allWarehouseRows.reduce((sum, r) => sum + r.qty, 0);
+      await tx.product.update({
+        where: { id: productId },
+        data: { stock: total },
+      });
+    });
+    return true;
   }
 
   public async listCatalog(
@@ -775,13 +900,20 @@ export class ProductStore {
     const itemsWithImages = await this.enrichWithPrimaryImage(rows);
     const productIds = itemsWithImages.map((i) => i.id);
     const stockByWarehouseMap = await this.getStocksByWarehouseForProductIds(productIds);
-    const items: ProductListItemWithStockByWarehouse[] = itemsWithImages.map((item) => ({
+    const itemsBase = itemsWithImages.map((item) => ({
       ...item,
       characteristics: parseCharacteristicsJson(
         (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
       ),
       stockByWarehouse: stockByWarehouseMap.get(item.id) ?? [],
     }));
+    const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+      itemsBase.map((item) => item.id),
+    );
+    const items: ProductListItemWithStockByWarehouse[] = this.attachAvailableStock(
+      itemsBase,
+      hardReservedByProductId,
+    );
     return { items, total };
   }
 

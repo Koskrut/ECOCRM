@@ -4,6 +4,7 @@ export type StockByWarehouseItem = {
   warehouseId: string;
   warehouseName: string;
   qty: number;
+  availableQty?: number;
 };
 
 export type ProductCatalogItem = {
@@ -13,6 +14,7 @@ export type ProductCatalogItem = {
   unit: string;
   basePrice: number;
   stock: number;
+  availableStock?: number;
   showOnStore: boolean;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
@@ -88,6 +90,7 @@ export type UpdateProductPayload = {
   unit?: string;
   basePrice?: number;
   stock?: number;
+  warehouseStocks?: Array<{ warehouseId: string; qty: number }>;
   showOnStore?: boolean;
   isActive?: boolean;
   characteristics?: Record<string, unknown> | null;
