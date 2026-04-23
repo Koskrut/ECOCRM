@@ -411,7 +411,7 @@ export class OrdersService {
 
     const withRelations = q?.withCompanyClient === true;
     const include: Prisma.OrderInclude = {
-      items: true,
+      items: { include: { product: { select: { sku: true } } } },
       _count: { select: { ttns: true, shipments: true } },
     };
     if (withRelations) {
@@ -507,6 +507,7 @@ export class OrdersService {
             productId: item.productId ?? null,
             productNameSnapshot: item.productNameSnapshot ?? null,
             qty: item.qty,
+            product: item.product ? { sku: item.product.sku } : null,
           })),
           itemsCount: o.items.length,
         };

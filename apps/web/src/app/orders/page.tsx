@@ -50,6 +50,7 @@ type OrderSummary = {
     productId?: string | null;
     productNameSnapshot?: string | null;
     qty: number;
+    product?: { sku: string } | null;
   }>;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
@@ -812,20 +813,23 @@ function OrdersPageContent() {
                             orderStage={order.orderStage}
                           />
                         </td>
-                        <td
-                          className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell"
-                          title={
-                            order.items && order.items.length > 0
-                              ? order.items
-                                  .map(
-                                    (item) =>
-                                      `${item.productNameSnapshot ?? item.productId ?? "Товар"} x${item.qty}`,
-                                  )
-                                  .join("\n")
-                              : "Нет позиций"
-                          }
-                        >
-                          {order.itemsCount}
+                        <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
+                          <div className="relative inline-flex items-center justify-end group">
+                            <span className="cursor-help">{order.itemsCount}</span>
+                            <div className="pointer-events-none absolute right-0 top-full z-20 mt-1 hidden min-w-[220px] max-w-[360px] rounded-md border border-zinc-200 bg-white p-2 text-left text-xs text-zinc-700 shadow-lg group-hover:block">
+                              {order.items && order.items.length > 0 ? (
+                                <div className="space-y-1">
+                                  {order.items.map((item) => (
+                                    <div key={item.id} className="truncate">
+                                      {(item.product?.sku ?? "Без артикула")} x{item.qty}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-zinc-500">Нет позиций</span>
+                              )}
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-4 text-right font-medium text-zinc-900">
                           {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
