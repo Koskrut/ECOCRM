@@ -612,9 +612,10 @@ export class NpTtnService {
     }
 
     const serviceType = isAddress ? "WarehouseDoors" : "WarehouseWarehouse";
-
+    // NP InternetDocument.save uses different payload shapes:
+    // ADDRESS requires NewAddress + RecipientAddressName, but WAREHOUSE/POSTOMAT must be sent as SaveReq without them.
     return {
-      NewAddress: "1",
+      ...(isAddress ? { NewAddress: "1" } : {}),
 
       PayerType: payerType,
       PaymentMethod: paymentMethod,
@@ -644,7 +645,7 @@ export class NpTtnService {
       RecipientsPhone: this.normalizeNpPhone(String(recipientPhone ?? "")),
 
       RecipientAddress: String(recipientAddress ?? ""),
-      RecipientAddressName: recipientAddressName ?? "",
+      ...(isAddress ? { RecipientAddressName: recipientAddressName ?? "" } : {}),
 
       // NP API requires OptionsSeat; when frontend sends no parcels, send one default seat
       OptionsSeat:
