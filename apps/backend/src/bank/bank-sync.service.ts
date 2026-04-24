@@ -6,6 +6,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { RawBankTransaction } from "./providers/types";
 import { Privat24Provider } from "./providers/privat24.provider";
 import { MatchEngineService } from "./match-engine.service";
+import { Privat24StatementSkipError } from "./privat24.client";
 
 const DEBUG_LOG_PATH = "/Users/konstantin/CRM/.cursor/debug-f04031.log";
 function debugLog(msg: string, data: Record<string, unknown> = {}) {
@@ -18,6 +19,7 @@ function debugLog(msg: string, data: Record<string, unknown> = {}) {
 }
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+const CURSOR_MAX_AGE_MS = 15 * 60 * 1000;
 
 function computeTxHash(tx: RawBankTransaction): string {
   const payload = [
@@ -240,19 +242,54 @@ export class BankSyncService {
       from = new Date(base.getTime() - windowDays * 24 * 60 * 60 * 1000);
     }
 
-    const { transactions, nextCursor } = await this.privat24.fetchStatement(
-      account.id,
-      account.credentials,
-      account.iban,
-      from,
-      to,
-      account.syncCursor ?? undefined,
-    );
+    const isExplicitRange = !!range;
+    const canReuseCursor =
+      !isExplicitRange &&
+      !!account.syncCursor &&
+      !!account.lastSyncAt &&
+      Date.now() - account.lastSyncAt.getTime() <= CURSOR_MAX_AGE_MS;
+    const cursor = canReuseCursor ? account.syncCursor ?? undefined : undefined;
+
+    let transactions: RawBankTransaction[] = [];
+    let nextCursor: string | undefined;
+    try {
+      const result = await this.privat24.fetchStatement(
+        account.id,
+        account.credentials,
+        account.iban,
+        from,
+        to,
+        cursor,
+      );
+      transactions = result.transactions;
+      nextCursor = result.nextCursor;
+    } catch (e) {
+      if (e instanceof Privat24StatementSkipError) {
+        debugLog("syncAccount skip by Privat24 settings", {
+          bankAccountId,
+          reason: e.reason,
+          statusCode: e.statusCode ?? null,
+          requestId: e.requestId ?? null,
+          serviceCode: e.serviceCode ?? null,
+        });
+        this.logger.warn(
+          `Sync skipped for account ${bankAccountId}: ${e.reason} statusCode=${e.statusCode ?? "n/a"} requestId=${e.requestId ?? "n/a"} serviceCode=${e.serviceCode ?? "n/a"}`,
+        );
+        await this.prisma.bankAccount.update({
+          where: { id: bankAccountId },
+          data: { lastSyncAt: new Date(), syncCursor: null },
+        });
+        return 0;
+      }
+      throw e;
+    }
 
     debugLog("syncAccount fetchStatement result", {
       bankAccountId,
       transactionsCount: transactions.length,
       nextCursor: nextCursor ?? null,
+      cursorUsed: cursor ?? null,
+      cursorDropped: account.syncCursor && !cursor ? true : false,
     });
 
     let upserted = 0;

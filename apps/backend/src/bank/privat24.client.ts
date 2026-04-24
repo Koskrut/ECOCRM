@@ -15,6 +15,35 @@ export type Privat24StatementResult = {
   nextCursor?: string;
 };
 
+export type Privat24SettingsResult = {
+  phase?: string;
+  work_balance?: string;
+  today?: string;
+  lastday?: string;
+  date_final_statement?: string;
+  requestId?: string;
+  serviceCode?: string;
+};
+
+export class Privat24StatementSkipError extends Error {
+  readonly reason: string;
+  readonly statusCode?: number;
+  readonly requestId?: string;
+  readonly serviceCode?: string;
+
+  constructor(
+    reason: string,
+    meta?: { statusCode?: number; requestId?: string; serviceCode?: string },
+  ) {
+    super(reason);
+    this.name = "Privat24StatementSkipError";
+    this.reason = reason;
+    this.statusCode = meta?.statusCode;
+    this.requestId = meta?.requestId;
+    this.serviceCode = meta?.serviceCode;
+  }
+}
+
 /** One balance item from GET /api/statements/balance (nameACC = найменування рахунку для реквізитів). */
 export type Privat24BalanceItem = {
   acc: string;
@@ -33,8 +62,7 @@ export type Privat24BalancesResult = {
 /** Official Autoclient API: https://acp.privatbank.ua (docs: Опис API Автоклієнта 3.0) */
 const DEFAULT_BASE_URL = "https://acp.privatbank.ua";
 const TIMEOUT_MS = 30_000;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RETRY_DELAYS_MS = [1000, 3000, 7000] as const;
 
 /** Format date as DD-MM-YYYY for API query params (startDate, endDate), Kyiv calendar. */
 function formatDateDDMMYYYY(d: Date): string {
@@ -137,6 +165,46 @@ export class Privat24Client {
     this.baseUrl = (process.env.PRIVAT24_API_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   }
 
+  async getSettings(
+    credentials: Privat24Credentials,
+    id?: string,
+  ): Promise<Privat24SettingsResult> {
+    const { withIdHeader } = this.resolveIdMode(credentials, id);
+    const first = await this.callEndpointWithIdFallback(
+      "/api/statements/settings",
+      withIdHeader,
+      credentials,
+      undefined,
+    );
+    const data = JSON.parse(first.text || "{}") as Record<string, unknown>;
+    if ((data.status as string) === "ERROR") {
+      throw this.buildApiError(first.status, data, first.text);
+    }
+    return {
+      phase: typeof data.phase === "string" ? data.phase : undefined,
+      work_balance:
+        typeof data.work_balance === "string" ? data.work_balance : undefined,
+      today: typeof data.today === "string" ? data.today : undefined,
+      lastday: typeof data.lastday === "string" ? data.lastday : undefined,
+      date_final_statement:
+        typeof data.date_final_statement === "string"
+          ? data.date_final_statement
+          : undefined,
+      requestId:
+        typeof data.requestId === "string"
+          ? data.requestId
+          : typeof data.request_id === "string"
+            ? data.request_id
+            : undefined,
+      serviceCode:
+        typeof data.serviceCode === "string"
+          ? data.serviceCode
+          : typeof data.service_code === "string"
+            ? data.service_code
+            : undefined,
+    };
+  }
+
   /**
    * Fetch transactions for account (acc = IBAN or account number). Paginate with followId.
    */
@@ -154,78 +222,40 @@ export class Privat24Client {
     // Використовуємо GroupClientID як значення заголовка `id`.
     // У нашому оточенні це UUID (App ID/Group client ID), який передається ТІЛЬКИ в HTTP header.
     // Якщо окремий credentials.id не заданий, падаємо назад на credentials.clientId.
-    const rawId = credentials.id ?? credentials.clientId;
-    const providedId = rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
-    const providedIdLooksLikeUuid = providedId ? UUID_RE.test(providedId) : false;
+    const { withIdHeader } = this.resolveIdMode(credentials);
+    const params = new URLSearchParams();
+    params.set("acc", acc);
+    params.set("startDate", startDate);
+    params.set("endDate", endDate);
+    params.set("limit", String(Privat24Client.LIMIT));
+    if (cursor) params.set("followId", cursor);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    const buildRequest = (withIdHeader: boolean) => {
-      const params = new URLSearchParams();
-      params.set("acc", acc);
-      params.set("startDate", startDate);
-      params.set("endDate", endDate);
-      params.set("limit", String(Privat24Client.LIMIT));
-      if (cursor) params.set("followId", cursor);
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json;charset=utf-8",
-        "User-Agent": "ECOCRM",
-        token: credentials.token,
-      };
-      if (withIdHeader && providedId) {
-        headers.id = providedId;
-      }
-      return { params, headers };
-    };
-
-    try {
-      // If account has configured GroupClientID, use it first (через header id).
-      let withId = !!providedId;
-      let { params, headers } = buildRequest(withId);
-      const firstUrl = `${this.baseUrl}/api/statements/transactions?${params.toString()}`;
-      let res = await fetch(firstUrl, {
-        method: "GET",
-        headers,
-        signal: controller.signal,
+    const settings = await this.getSettings(credentials);
+    if ((settings.phase ?? "").toUpperCase() !== "WRK") {
+      throw new Privat24StatementSkipError("Privat24 settings phase is not WRK", {
+        requestId: settings.requestId,
+        serviceCode: settings.serviceCode,
       });
-      let text = await res.text();
+    }
+    if ((settings.work_balance ?? "").toUpperCase() === "Y") {
+      throw new Privat24StatementSkipError("Privat24 settings work_balance=Y", {
+        requestId: settings.requestId,
+        serviceCode: settings.serviceCode,
+      });
+    }
 
-      if (!res.ok && res.status === 400 && /id in mode for companies should not be present/i.test(text) && withId) {
-        // Token in non-group mode: retry once without id.
-        withId = false;
-        ({ params, headers } = buildRequest(false));
-        res = await fetch(`${this.baseUrl}/api/statements/transactions?${params.toString()}`, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        });
-        text = await res.text();
-      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !withId && providedId) {
-        // Token in group mode: retry once with configured id.
-        withId = true;
-        ({ params, headers } = buildRequest(true));
-        res = await fetch(`${this.baseUrl}/api/statements/transactions?${params.toString()}`, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        });
-        text = await res.text();
-      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !providedId) {
-        throw new Error("Приват24 працює в режимі групи ПП. Вкажіть ID для цього ФОП у налаштуваннях рахунку.");
-      }
+    const request = await this.callEndpointWithIdFallback(
+      "/api/statements/transactions",
+      withIdHeader,
+      credentials,
+      params,
+      true,
+    );
+    const data = JSON.parse(request.text || "{}") as Record<string, unknown>;
 
-      if (!res.ok) {
-        throw new Error(`Privat24 API HTTP ${res.status}. ${text.slice(0, 500)}`);
-      }
-
-      const data = JSON.parse(text || "{}") as Record<string, unknown>;
-
-      if ((data.status as string) === "ERROR") {
-        throw new Error(
-          (data.message as string) || (data.code as string) || "Privat24 API error",
-        );
-      }
+    if ((data.status as string) === "ERROR") {
+      throw this.buildApiError(request.status, data, request.text);
+    }
 
       const list = this.extractTransactionsList(data);
       const nextCursor =
@@ -237,10 +267,7 @@ export class Privat24Client {
         })
         .filter((t): t is RawBankTransaction => t !== null);
 
-      return { transactions, nextCursor };
-    } finally {
-      clearTimeout(timeout);
-    }
+    return { transactions, nextCursor };
   }
 
   /**
@@ -255,74 +282,29 @@ export class Privat24Client {
   ): Promise<Privat24BalancesResult> {
     const startDate = formatDateDDMMYYYY(from);
     const endDate = formatDateDDMMYYYY(to);
-    const rawId = credentials.id ?? credentials.clientId;
-    const providedId = rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const { withIdHeader } = this.resolveIdMode(credentials);
+    const params = new URLSearchParams();
+    params.set("startDate", startDate);
+    params.set("endDate", endDate);
+    params.set("limit", String(Privat24Client.LIMIT));
+    if (cursor) params.set("followId", cursor);
 
-    const buildRequest = (withIdHeader: boolean) => {
-      const params = new URLSearchParams();
-      params.set("startDate", startDate);
-      params.set("endDate", endDate);
-      params.set("limit", String(Privat24Client.LIMIT));
-      if (cursor) params.set("followId", cursor);
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json;charset=utf-8",
-        "User-Agent": "ECOCRM",
-        token: credentials.token,
-      };
-      if (withIdHeader && providedId) headers.id = providedId;
-      return { params, headers };
-    };
-
-    try {
-      let withId = !!providedId;
-      let { params, headers } = buildRequest(withId);
-      let res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
-        method: "GET",
-        headers,
-        signal: controller.signal,
-      });
-      let text = await res.text();
-
-      if (!res.ok && res.status === 400 && /id in mode for companies should not be present/i.test(text) && withId) {
-        withId = false;
-        ({ params, headers } = buildRequest(false));
-        res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        });
-        text = await res.text();
-      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !withId && providedId) {
-        withId = true;
-        ({ params, headers } = buildRequest(true));
-        res = await fetch(`${this.baseUrl}/api/statements/balance?${params.toString()}`, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        });
-        text = await res.text();
-      } else if (!res.ok && res.status === 400 && /id is not be null/i.test(text) && !providedId) {
-        throw new Error("Приват24 працює в режимі групи ПП. Вкажіть ID для цього ФОП у налаштуваннях рахунку.");
-      }
-
-      if (!res.ok) {
-        throw new Error(`Privat24 API HTTP ${res.status}. ${text.slice(0, 500)}`);
-      }
-
-      const data = JSON.parse(text || "{}") as Record<string, unknown>;
-      if ((data.status as string) === "ERROR") {
-        throw new Error((data.message as string) || (data.code as string) || "Privat24 API error");
-      }
-
-      const list = (data.balances as Privat24BalanceItem[]) ?? [];
-      const next_page_id =
-        data.exist_next_page && data.next_page_id != null ? String(data.next_page_id) : undefined;
-      return { balances: list, next_page_id };
-    } finally {
-      clearTimeout(timeout);
+    const request = await this.callEndpointWithIdFallback(
+      "/api/statements/balance",
+      withIdHeader,
+      credentials,
+      params,
+      true,
+    );
+    const data = JSON.parse(request.text || "{}") as Record<string, unknown>;
+    if ((data.status as string) === "ERROR") {
+      throw this.buildApiError(request.status, data, request.text);
     }
+
+    const list = (data.balances as Privat24BalanceItem[]) ?? [];
+    const next_page_id =
+      data.exist_next_page && data.next_page_id != null ? String(data.next_page_id) : undefined;
+    return { balances: list, next_page_id };
   }
 
   // Group clients autodiscovery removed by design:
@@ -379,5 +361,202 @@ export class Privat24Client {
       });
     }
     return { transactions: rows };
+  }
+
+  private resolveIdMode(credentials: Privat24Credentials, explicitId?: string): {
+    providedId: string;
+    withIdHeader: boolean;
+  } {
+    const rawId = explicitId ?? credentials.id ?? credentials.clientId;
+    const providedId =
+      rawId != null && String(rawId).trim() !== "" ? String(rawId).trim() : "";
+    return { providedId, withIdHeader: !!providedId };
+  }
+
+  private shouldRetryStatus(status: number): boolean {
+    return status === 503 || status === 504;
+  }
+
+  private parseMetaFromText(text: string): { requestId?: string; serviceCode?: string } {
+    try {
+      const data = JSON.parse(text || "{}") as Record<string, unknown>;
+      return {
+        requestId:
+          typeof data.requestId === "string"
+            ? data.requestId
+            : typeof data.request_id === "string"
+              ? data.request_id
+              : undefined,
+        serviceCode:
+          typeof data.serviceCode === "string"
+            ? data.serviceCode
+            : typeof data.service_code === "string"
+              ? data.service_code
+              : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async requestWithRetry(
+    path: string,
+    params: URLSearchParams,
+    headers: Record<string, string>,
+    retry503: boolean,
+  ): Promise<{ res: Response; text: string }> {
+    let attempt = 0;
+    while (true) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const res = await fetch(`${this.baseUrl}${path}?${params.toString()}`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        });
+        const text = await res.text();
+        if (
+          retry503 &&
+          this.shouldRetryStatus(res.status) &&
+          attempt < RETRY_DELAYS_MS.length
+        ) {
+          const jitter = Math.floor(Math.random() * 300);
+          await this.sleep(RETRY_DELAYS_MS[attempt] + jitter);
+          attempt += 1;
+          continue;
+        }
+        return { res, text };
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
+  private async callEndpointWithIdFallback(
+    path: string,
+    withIdHeader: boolean,
+    credentials: Privat24Credentials,
+    initialParams?: URLSearchParams,
+    retry503 = false,
+  ): Promise<{ status: number; text: string; requestId?: string; serviceCode?: string }> {
+    const { providedId } = this.resolveIdMode(credentials);
+    const params = new URLSearchParams(initialParams?.toString() ?? "");
+    const buildHeaders = (sendHeaderId: boolean) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json;charset=utf-8",
+        "User-Agent": "ECOCRM",
+        token: credentials.token,
+      };
+      if (sendHeaderId && providedId) headers.id = providedId;
+      return headers;
+    };
+
+    let sendHeaderId = withIdHeader;
+    let useQueryId = false;
+    while (true) {
+      if (useQueryId && providedId) params.set("id", providedId);
+      if (!useQueryId) params.delete("id");
+      const { res, text } = await this.requestWithRetry(
+        path,
+        params,
+        buildHeaders(sendHeaderId),
+        retry503,
+      );
+      const meta = this.parseMetaFromText(text);
+
+      if (
+        !res.ok &&
+        res.status === 400 &&
+        /id in mode for companies should not be present/i.test(text) &&
+        sendHeaderId
+      ) {
+        sendHeaderId = false;
+        useQueryId = false;
+        continue;
+      }
+
+      if (
+        !res.ok &&
+        res.status === 400 &&
+        /id is not be null/i.test(text) &&
+        !sendHeaderId &&
+        providedId &&
+        !useQueryId
+      ) {
+        sendHeaderId = true;
+        continue;
+      }
+
+      if (
+        !res.ok &&
+        res.status === 400 &&
+        /id/i.test(text) &&
+        providedId &&
+        sendHeaderId &&
+        !useQueryId
+      ) {
+        sendHeaderId = false;
+        useQueryId = true;
+        continue;
+      }
+
+      if (
+        !res.ok &&
+        res.status === 400 &&
+        /id is not be null/i.test(text) &&
+        !providedId
+      ) {
+        throw new Error(
+          "Приват24 працює в режимі групи ПП. Вкажіть ID для цього ФОП у налаштуваннях рахунку.",
+        );
+      }
+
+      if (!res.ok) {
+        const details = [`Privat24 API HTTP ${res.status}`];
+        if (meta.requestId) details.push(`requestId=${meta.requestId}`);
+        if (meta.serviceCode) details.push(`serviceCode=${meta.serviceCode}`);
+        throw new Error(`${details.join(" ")}. ${text.slice(0, 500)}`);
+      }
+
+      return {
+        status: res.status,
+        text,
+        requestId: meta.requestId,
+        serviceCode: meta.serviceCode,
+      };
+    }
+  }
+
+  private buildApiError(
+    statusCode: number,
+    data: Record<string, unknown>,
+    rawText: string,
+  ): Error {
+    const requestId =
+      typeof data.requestId === "string"
+        ? data.requestId
+        : typeof data.request_id === "string"
+          ? data.request_id
+          : undefined;
+    const serviceCode =
+      typeof data.serviceCode === "string"
+        ? data.serviceCode
+        : typeof data.service_code === "string"
+          ? data.service_code
+          : undefined;
+    const details = [`Privat24 API error status=${statusCode}`];
+    if (requestId) details.push(`requestId=${requestId}`);
+    if (serviceCode) details.push(`serviceCode=${serviceCode}`);
+    const message =
+      (data.message as string) ||
+      (data.code as string) ||
+      rawText.slice(0, 500) ||
+      "Privat24 API error";
+    return new Error(`${details.join(" ")}. ${message}`);
   }
 }
