@@ -16,14 +16,14 @@ export class BankSyncCron {
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
-  /** Working hours 08:00–20:00: every 2 minutes */
-  @Cron("*/2 8-20 * * *")
+  /** Working hours 08:00–20:00: every 10 minutes */
+  @Cron("*/10 8-20 * * *")
   async runDay() {
     await this.run();
   }
 
-  /** Night 00:00–07:59 and 21:00–23:59: every 15 minutes */
-  @Cron("*/15 0-7,21-23 * * *")
+  /** Night 00:00–07:59 and 21:00–23:59: every 10 minutes */
+  @Cron("*/10 0-7,21-23 * * *")
   async runNight() {
     await this.run();
   }
