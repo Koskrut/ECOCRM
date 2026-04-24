@@ -177,18 +177,26 @@ export class Privat24Client {
       undefined,
     );
     const data = JSON.parse(first.text || "{}") as Record<string, unknown>;
+    const container =
+      data.settings && typeof data.settings === "object"
+        ? (data.settings as Record<string, unknown>)
+        : data.data && typeof data.data === "object"
+          ? (data.data as Record<string, unknown>)
+          : data;
     if ((data.status as string) === "ERROR") {
       throw this.buildApiError(first.status, data, first.text);
     }
     return {
-      phase: typeof data.phase === "string" ? data.phase : undefined,
+      phase: typeof container.phase === "string" ? container.phase : undefined,
       work_balance:
-        typeof data.work_balance === "string" ? data.work_balance : undefined,
-      today: typeof data.today === "string" ? data.today : undefined,
-      lastday: typeof data.lastday === "string" ? data.lastday : undefined,
+        typeof container.work_balance === "string"
+          ? container.work_balance
+          : undefined,
+      today: typeof container.today === "string" ? container.today : undefined,
+      lastday: typeof container.lastday === "string" ? container.lastday : undefined,
       date_final_statement:
-        typeof data.date_final_statement === "string"
-          ? data.date_final_statement
+        typeof container.date_final_statement === "string"
+          ? container.date_final_statement
           : undefined,
       requestId:
         typeof data.requestId === "string"
@@ -231,13 +239,13 @@ export class Privat24Client {
     if (cursor) params.set("followId", cursor);
 
     const settings = await this.getSettings(credentials);
-    if ((settings.phase ?? "").toUpperCase() !== "WRK") {
+    if (settings.phase && settings.phase.toUpperCase() !== "WRK") {
       throw new Privat24StatementSkipError("Privat24 settings phase is not WRK", {
         requestId: settings.requestId,
         serviceCode: settings.serviceCode,
       });
     }
-    if ((settings.work_balance ?? "").toUpperCase() === "Y") {
+    if (settings.work_balance && settings.work_balance.toUpperCase() === "Y") {
       throw new Privat24StatementSkipError("Privat24 settings work_balance=Y", {
         requestId: settings.requestId,
         serviceCode: settings.serviceCode,

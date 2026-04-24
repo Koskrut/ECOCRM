@@ -173,6 +173,32 @@ describe("Privat24Client headers (Autoclient id handling)", () => {
     );
   });
 
+  it("does not skip when settings response has no phase/work_balance flags", async () => {
+    global.fetch = async (url) => {
+      if (String(url).includes("/settings")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ status: "SUCCESS", data: {} }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ status: "SUCCESS", transactions: [] }),
+      };
+    };
+
+    const client = new Privat24Client();
+    const result = await client.getStatement(
+      { token: "TEST_TOKEN" },
+      "UA123456789012345678901234567",
+      new Date("2024-01-01T00:00:00.000Z"),
+      new Date("2024-01-02T00:00:00.000Z"),
+    );
+    assert.deepStrictEqual(result, { transactions: [], nextCursor: undefined });
+  });
+
   it("falls back to query id when header id fails validation", async () => {
     const calls = [];
     global.fetch = async (url, init) => {
