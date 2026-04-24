@@ -203,6 +203,9 @@ export class NpTtnService {
           "Заповніть їх у картці контакта в Bitrix (поля Нова Пошта) або оберіть «Новий профіль» і вкажіть адресу вручну.",
       );
     }
+    if (deliveryType === NpDeliveryType.WAREHOUSE || deliveryType === NpDeliveryType.POSTOMAT) {
+      await this.enrichWarehouseRecipientData(resolvedData);
+    }
 
     // 1) ensure NP entities (Recipient counterparty/contact/address)
     const npRefs = await this.ensureNpRecipientRefs(resolved);
@@ -374,6 +377,28 @@ export class NpTtnService {
         select: { ref: true },
       });
       if (wh) resolvedData.warehouseRef = wh.ref;
+    }
+  }
+
+  /**
+   * Keep warehouse/postomat refs consistent before creating NP recipient entities.
+   * Counterparty.save binds to CityRef, so city must match selected warehouse.
+   */
+  private async enrichWarehouseRecipientData(resolvedData: Record<string, unknown>): Promise<void> {
+    const whRef = resolvedData.warehouseRef != null ? String(resolvedData.warehouseRef).trim() : "";
+    if (!whRef) return;
+
+    const wh = await this.prisma.npWarehouse.findUnique({ where: { ref: whRef } });
+    if (!wh) throw new BadRequestException("warehouseRef not found in cache (NpWarehouse)");
+
+    resolvedData.cityRef = wh.cityRef;
+    const whExt = wh as Record<string, unknown>;
+    resolvedData.warehouseNumber = String(whExt.number ?? "");
+    resolvedData.warehouseType = whExt.isPostomat ? "POSTOMAT" : "WAREHOUSE";
+
+    if (!resolvedData.cityName) {
+      const city = await this.prisma.npCity.findUnique({ where: { ref: wh.cityRef } });
+      resolvedData.cityName = city?.description ?? null;
     }
   }
 
