@@ -9,6 +9,7 @@ import { AnalyticsModule } from "./analytics/analytics.module";
 import { CustomFieldsModule } from "./custom-fields/custom-fields.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { DictionariesModule } from "./dictionaries/dictionaries.module";
+import { LayoutsModule } from "./layouts/layouts.module";
 import { LeadsModule } from "./leads/leads.module";
 import { ContactsModule } from "./contacts/contacts.module";
 import { OrderReturnsModule } from "./order-returns/order-returns.module";
@@ -47,6 +48,7 @@ import { AuditModule } from "./audit/audit.module";
     SettingsModule,
     DictionariesModule,
     CustomFieldsModule,
+    LayoutsModule,
     BankModule,
     NpModule,
     PaymentsModule,

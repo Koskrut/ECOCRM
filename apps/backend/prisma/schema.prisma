@@ -239,6 +239,13 @@ enum CustomFieldType {
   JSON
 }
 
+enum LayoutType {
+  FORM
+  CARD
+  TABLE
+  FILTERS
+}
+
 enum OrderSource {
   CRM
   STORE
@@ -1669,6 +1676,7 @@ model CustomFieldDefinition {
   dictionary Dictionary?          @relation(fields: [dictionaryId], references: [id], onDelete: SetNull)
   options    CustomFieldOption[]
   values     CustomFieldValue[]
+  layoutFields LayoutField[]
 
   @@unique([entityType, key])
   @@index([entityType, isActive])
@@ -1721,6 +1729,77 @@ model CustomFieldValue {
   @@index([definitionId, valueBoolean])
   @@index([definitionId, valueDate])
   @@index([dictionaryItemId])
+}
+
+model LayoutDefinition {
+  id          String                @id @default(cuid())
+  entityType  CustomFieldEntityType
+  type        LayoutType
+  key         String
+  name        String
+  description String?
+  isDefault   Boolean               @default(false)
+  isActive    Boolean               @default(true)
+  settings    Json?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  deletedAt   DateTime?
+
+  sections LayoutSection[]
+
+  @@unique([entityType, type, key])
+  @@index([entityType, type, isActive])
+  @@index([isDefault])
+  @@index([deletedAt])
+}
+
+model LayoutSection {
+  id          String    @id @default(cuid())
+  layoutId    String
+  key         String
+  title       String
+  description String?
+  sortOrder   Int       @default(0)
+  columns     Int       @default(1)
+  isActive    Boolean   @default(true)
+  settings    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  layout LayoutDefinition @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  fields LayoutField[]
+
+  @@unique([layoutId, key])
+  @@index([layoutId, sortOrder])
+  @@index([layoutId, isActive])
+  @@index([deletedAt])
+}
+
+model LayoutField {
+  id                      String   @id @default(cuid())
+  sectionId               String
+  key                     String
+  fieldKey                String?
+  customFieldDefinitionId String?
+  label                   String?
+  sortOrder               Int      @default(0)
+  required                Boolean  @default(false)
+  readonly                Boolean  @default(false)
+  hidden                  Boolean  @default(false)
+  width                   Int?
+  settings                Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  deletedAt               DateTime?
+
+  section               LayoutSection          @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  customFieldDefinition CustomFieldDefinition? @relation(fields: [customFieldDefinitionId], references: [id], onDelete: SetNull)
+
+  @@unique([sectionId, key])
+  @@index([sectionId, sortOrder])
+  @@index([customFieldDefinitionId])
+  @@index([deletedAt])
 }
 
 model KitBom {
