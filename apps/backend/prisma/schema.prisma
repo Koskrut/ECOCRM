@@ -246,6 +246,23 @@ enum LayoutType {
   FILTERS
 }
 
+enum WorkflowTriggerType {
+  RECORD_CREATED
+  RECORD_UPDATED
+  FIELD_CHANGED
+  STATUS_CHANGED
+  SCHEDULE
+  WEBHOOK_RECEIVED
+}
+
+enum WorkflowExecutionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  SKIPPED
+  RATE_LIMITED
+}
+
 enum OrderSource {
   CRM
   STORE
@@ -1864,6 +1881,52 @@ model LayoutField {
   @@index([sectionId, sortOrder])
   @@index([customFieldDefinitionId])
   @@index([deletedAt])
+}
+
+model WorkflowRule {
+  id                         String                @id @default(cuid())
+  key                        String                @unique
+  name                       String
+  description                String?
+  entityType                 CustomFieldEntityType?
+  triggerType                WorkflowTriggerType
+  triggerConfig              Json?
+  conditions                 Json
+  actions                    Json
+  rateLimitPerEntityPerHour  Int                   @default(10)
+  isActive                   Boolean               @default(false)
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  deletedAt                  DateTime?
+
+  executions WorkflowExecutionLog[]
+
+  @@index([entityType, triggerType])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model WorkflowExecutionLog {
+  id            String                  @id @default(cuid())
+  ruleId        String
+  entityType    CustomFieldEntityType?
+  entityId      String?
+  triggerType   WorkflowTriggerType
+  status        WorkflowExecutionStatus @default(PENDING)
+  correlationId String?
+  triggerPayload Json?
+  actionsResult Json?
+  error         String?
+  startedAt     DateTime                @default(now())
+  finishedAt    DateTime?
+  createdAt     DateTime                @default(now())
+
+  rule WorkflowRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([correlationId])
+  @@index([status, createdAt])
 }
 
 model KitBom {

@@ -33,6 +33,7 @@ import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.modu
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
+import { WorkflowsModule } from "./workflows/workflows.module";
 import { CallsModule } from "./calls/calls.module";
 import { ManualCallingModule } from "./manual-calling/manual-calling.module";
 import { OutboundModule } from "./outbound/outbound.module";
@@ -51,6 +52,7 @@ import { AuditModule } from "./audit/audit.module";
     DictionariesModule,
     CustomFieldsModule,
     LayoutsModule,
+    WorkflowsModule,
     BankModule,
     NpModule,
     PaymentsModule,
