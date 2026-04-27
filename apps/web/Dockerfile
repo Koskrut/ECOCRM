@@ -1,13 +1,17 @@
 # Web (Next.js) — CRM admin UI
 FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install && npm cache clean --force
+WORKDIR /repo
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/contracts/src ./packages/contracts/src
+WORKDIR /repo/apps/web
+RUN npm install --include=dev && npm cache clean --force
 
 FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+WORKDIR /repo/apps/web
+COPY --from=deps /repo/apps/web/node_modules ./node_modules
+COPY --from=deps /repo/packages /repo/packages
+COPY apps/web ./
 ENV NEXT_TELEMETRY_DISABLED=1
 # Build-time API URL for server-side calls (override in docker-compose if needed)
 ARG API_URL=http://backend:3001
@@ -20,7 +24,7 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 EXPOSE 3000
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+COPY --from=builder /repo/apps/web/.next/standalone ./
+COPY --from=builder /repo/apps/web/.next/static ./.next/static
+COPY --from=builder /repo/apps/web/public ./public
 CMD ["node", "server.js"]
