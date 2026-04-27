@@ -19,6 +19,14 @@ export class WorkflowRateLimiter {
     return true;
   }
 
+  release(ruleId: string, entityId: string | null | undefined): void {
+    if (!entityId) return;
+    const key = `${ruleId}:${entityId}`;
+    const recent = this.executions.get(key) ?? [];
+    recent.pop();
+    this.executions.set(key, recent);
+  }
+
   reset() {
     this.executions.clear();
   }

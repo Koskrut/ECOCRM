@@ -1,10 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { Prisma, WorkflowExecutionStatus, WorkflowRule } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { evaluateWorkflowConditions } from "./runtime/condition-evaluator";
 import { workflowRuleMatchesTrigger } from "./runtime/trigger-matcher";
-import { WORKFLOW_TRIGGER_EVENT, WorkflowTriggerEvent } from "./runtime/workflow-events";
+import { WorkflowInternalActionDispatcher } from "./runtime/workflow-actions";
+import { WORKFLOW_TRIGGER_EVENT, WorkflowEventPublisher, WorkflowTriggerEvent } from "./runtime/workflow-events";
 import {
   MAX_WORKFLOW_CHAIN_DEPTH,
   nextWorkflowCorrelation,
@@ -30,8 +31,15 @@ import {
 @Injectable()
 export class WorkflowRuntimeService {
   private readonly rateLimiter = new WorkflowRateLimiter();
+  private readonly actions?: WorkflowInternalActionDispatcher;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    eventPublisher?: WorkflowEventPublisher,
+  ) {
+    if (eventPublisher) this.actions = new WorkflowInternalActionDispatcher(prisma, eventPublisher);
+  }
 
   @OnEvent(WORKFLOW_TRIGGER_EVENT, { async: true })
   handleWorkflowTrigger(event: WorkflowTriggerEvent) {
@@ -125,6 +133,7 @@ export class WorkflowRuntimeService {
       return { matched: false, executionLogId: log.id };
     }
 
+    const idempotentNoop = mode === "enforced" ? await this.ruleIsIdempotentNoop(rule, trigger) : false;
     if (!this.rateLimiter.allow(rule.id, trigger.entityId, rule.rateLimitPerEntityPerHour)) {
       const log = await this.writeExecutionLog(rule, trigger, correlation, mode, {
         matched: false,
@@ -133,6 +142,7 @@ export class WorkflowRuntimeService {
       });
       return { matched: false, executionLogId: log.id };
     }
+    if (idempotentNoop) this.rateLimiter.release(rule.id, trigger.entityId);
 
     const actions = Array.isArray(rule.actions) ? rule.actions : [];
     if (actions.length > 10) {
@@ -162,7 +172,7 @@ export class WorkflowRuntimeService {
 
     const ruleCorrelation = nextWorkflowCorrelation(correlation, rule.id, trigger);
     const log = await runWithWorkflowCorrelation(ruleCorrelation, () =>
-      this.writeExecutionLog(rule, trigger, ruleCorrelation, mode, {
+      this.executeAndLog(rule, trigger, context, ruleCorrelation, mode, {
         matched: conditionsResult,
         conditionsResult,
         actionsPlanned: conditionsResult ? actions : [],
@@ -176,6 +186,53 @@ export class WorkflowRuntimeService {
     return evaluateWorkflowConditions(rule.conditions, context);
   }
 
+  private async ruleIsIdempotentNoop(rule: WorkflowRule, trigger: WorkflowRuntimeTrigger): Promise<boolean> {
+    const actions = Array.isArray(rule.actions) ? (rule.actions as Array<Record<string, unknown>>) : [];
+    if (actions.length === 0) return false;
+    const supported = actions.every((action) => ["update_field", "assign_user"].includes(String(action.type)));
+    if (!supported || !trigger.entityType || !trigger.entityId) return false;
+    const current = await this.findNoopEntity(trigger.entityType, trigger.entityId);
+    if (!current) return false;
+    return actions.every((action) => {
+      const config = action.config && typeof action.config === "object" ? (action.config as Record<string, unknown>) : {};
+      if (action.type === "update_field") {
+        const field = typeof config.field === "string" ? config.field : "";
+        return field ? (current as Record<string, unknown>)[field] === config.value : false;
+      }
+      const userId = typeof config.userId === "string" ? config.userId : typeof config.assigneeId === "string" ? config.assigneeId : "";
+      return userId ? (current as Record<string, unknown>).ownerId === userId : false;
+    });
+  }
+
+  private findNoopEntity(entityType: unknown, entityId: string) {
+    if (entityType === "LEAD") return this.prisma.lead.findUnique({ where: { id: entityId } });
+    if (entityType === "CONTACT") return this.prisma.contact.findUnique({ where: { id: entityId } });
+    if (entityType === "COMPANY") return this.prisma.company.findUnique({ where: { id: entityId }, select: { id: true, ownerId: true } });
+    if (entityType === "ORDER") return this.prisma.order.findUnique({ where: { id: entityId } });
+    return null;
+  }
+
+  private async executeAndLog(
+    rule: WorkflowRule,
+    trigger: WorkflowRuntimeTrigger,
+    context: WorkflowConditionContext,
+    correlation: WorkflowCorrelationContext,
+    mode: WorkflowRuntimeMode,
+    details: {
+      matched: boolean;
+      conditionsResult: boolean;
+      actionsPlanned?: unknown[];
+      error?: string;
+      where?: string;
+    },
+  ) {
+    const actionResults =
+      mode === "enforced" && details.conditionsResult && this.actions
+        ? await this.actions.executeInternalActions({ rule, trigger, context, correlation })
+        : [];
+    return this.writeExecutionLog(rule, trigger, correlation, mode, { ...details, actionResults });
+  }
+
   private async writeExecutionLog(
     rule: WorkflowRule,
     trigger: WorkflowRuntimeTrigger,
@@ -185,6 +242,7 @@ export class WorkflowRuntimeService {
       matched: boolean;
       conditionsResult: boolean;
       actionsPlanned?: unknown[];
+      actionResults?: unknown[];
       error?: string;
       where?: string;
     },
@@ -207,6 +265,7 @@ export class WorkflowRuntimeService {
           durationMs: Date.now() - started,
           conditionsResult: details.conditionsResult,
           actionsPlanned: (details.actionsPlanned ?? []) as Prisma.InputJsonValue[],
+          actionResults: (details.actionResults ?? []) as Prisma.InputJsonValue[],
           ...(details.error ? { error: details.error } : {}),
           ...(details.where ? { where: details.where } : {}),
         },

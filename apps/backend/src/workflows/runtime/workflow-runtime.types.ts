@@ -34,6 +34,7 @@ export type WorkflowCorrelationContext = {
   triggeredBy?: {
     type: string;
     entityId?: string | null;
+    userId?: string | null;
     timestamp: string;
   };
 };

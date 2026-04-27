@@ -25,6 +25,7 @@ export function normalizeWorkflowCorrelation(trigger: WorkflowRuntimeTrigger): W
     triggeredBy: {
       type: trigger.kind,
       entityId: trigger.entityId,
+      userId: trigger.payload && typeof trigger.payload.userId === "string" ? trigger.payload.userId : null,
       timestamp: new Date().toISOString(),
     },
   };
@@ -42,6 +43,7 @@ export function nextWorkflowCorrelation(
     triggeredBy: {
       type: trigger.kind,
       entityId: trigger.entityId,
+      userId: current.triggeredBy?.userId ?? null,
       timestamp: new Date().toISOString(),
     },
   };

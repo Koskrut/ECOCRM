@@ -13,6 +13,10 @@ export type WorkflowTriggerEvent = {
 export class WorkflowEventPublisher {
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
+  publish(event: WorkflowTriggerEvent) {
+    return this.emitTrigger(event);
+  }
+
   emitTrigger(event: WorkflowTriggerEvent) {
     return this.eventEmitter.emitAsync(WORKFLOW_TRIGGER_EVENT, event);
   }
