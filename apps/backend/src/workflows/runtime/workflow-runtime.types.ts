@@ -16,7 +16,7 @@ export type WorkflowRuntimeTrigger = {
   previousValue?: unknown;
   currentValue?: unknown;
   payload?: Record<string, unknown>;
-  correlationId?: string | null;
+  correlationId?: WorkflowCorrelationContext | string | null;
 };
 
 export type WorkflowConditionContext = {
@@ -26,6 +26,19 @@ export type WorkflowConditionContext = {
   changes?: Record<string, { previous?: unknown; current?: unknown }> | null;
   trigger?: WorkflowRuntimeTrigger;
 };
+
+export type WorkflowCorrelationContext = {
+  id: string;
+  depth: number;
+  ruleHistory: string[];
+  triggeredBy?: {
+    type: string;
+    entityId?: string | null;
+    timestamp: string;
+  };
+};
+
+export type WorkflowRuntimeMode = "shadow" | "enforced";
 
 export type WorkflowRuntimeEvaluationResult = {
   matchedRuleIds: string[];

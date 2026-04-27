@@ -112,7 +112,7 @@ export function validateWorkflowActions(value: unknown): Prisma.InputJsonValue {
   if (!Array.isArray(value) || value.length === 0) {
     throw new BadRequestException("actions must be a non-empty array");
   }
-  if (value.length > 20) throw new BadRequestException("actions cannot contain more than 20 items");
+  if (value.length > 10) throw new BadRequestException("actions cannot contain more than 10 items");
   for (const action of value) validateAction(action);
   return value as Prisma.InputJsonValue;
 }
