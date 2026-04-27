@@ -1,0 +1,43 @@
+# Client-specific production overrides.
+# Combine with compose.base.yml and optional compose.modules.*.yml overlays.
+
+services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    environment:
+      CORS_ORIGIN: ${CORS_ORIGIN:?Set CORS_ORIGIN}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
+
+      # File license mode is the default for client installs.
+      LICENSE_MODE: ${LICENSE_MODE:-file}
+      LICENSE_FILE_PATH: ${LICENSE_FILE_PATH:-/run/secrets/license.json}
+      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+
+      # Optional Control Plane license mode.
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-}
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-}
+      CONTROL_PLANE_INSTALLATION_ID: ${CONTROL_PLANE_INSTALLATION_ID:-}
+      LICENSE_CACHE_PATH: ${LICENSE_CACHE_PATH:-/data/license-cache.json}
+      LICENSE_PUBLIC_KEY_PEM: ${LICENSE_PUBLIC_KEY_PEM:-}
+    volumes:
+      - ${LICENSE_FILE_PATH_HOST:-/dev/null}:${LICENSE_FILE_PATH:-/run/secrets/license.json}:ro
+      - license_cache:/data
+    ports:
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-3001}:3001"
+
+  web:
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+
+  store:
+    ports:
+      - "${STORE_BIND_ADDRESS:-127.0.0.1}:${STORE_PORT:-3002}:3002"
+
+volumes:
+  postgres_data:
+    name: ${POSTGRES_DATA_VOLUME:-crm_postgres_data}
+  license_cache:
+    name: ${LICENSE_CACHE_VOLUME:-crm_license_cache}
