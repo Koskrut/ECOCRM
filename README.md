@@ -195,6 +195,27 @@ docker compose \
    ```
 3. Если rollback затрагивает БД-миграции, сначала восстанови PostgreSQL backup. Автоматического down-migrate нет.
 
+### Compatibility window
+
+Текущая Track D delivery line: `0.1.x`.
+
+| Component | Compatible versions |
+| --- | --- |
+| `crm-backend-core` | `0.1.x` |
+| `crm-web` | `0.1.x` |
+| `crm-store` | `0.1.x` |
+| `compose.base.yml` | `0.1.x` delivery line |
+| `compose.client.yml` | `0.1.x` delivery line |
+| `compose.modules.*.yml` | `0.1.x` delivery line |
+
+Правила совместимости:
+
+- Patch releases внутри `0.1.x` считаются совместимыми между core/web/store и compose files.
+- Minor bump, например `0.2.0`, требует review compose/env/migrations перед обновлением клиента.
+- D3 module overlays пока являются config overlays для in-process modules внутри `crm-backend-core`, а не отдельными `crm-module-*` images.
+- Rollback image tag безопасен только если применённые DB migrations совместимы назад. Если migration уже изменила данные или схему несовместимо, rollback начинается с восстановления PostgreSQL backup.
+- `v1.0.0` зарезервирован для первого платного production-клиента.
+
 ### Migration from docker-compose.prod.yml
 
 `docker-compose.prod.yml` остаётся deprecated compatibility entrypoint до проверки новой модели на реальном окружении. Для перехода:
