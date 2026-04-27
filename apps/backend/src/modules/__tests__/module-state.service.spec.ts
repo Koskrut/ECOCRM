@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { assertModuleManifestV1 } from "@crm/module-sdk/manifest";
 import { ModuleIds, type ModuleId } from "../module-ids";
 import { MODULE_REGISTRY, entitledModuleIds, registryModuleIds } from "../module-registry";
 import { ModuleStateService } from "../module-state.service";
@@ -78,6 +79,7 @@ test("MODULE_REGISTRY: manifest ids, entitlements, and dependencies are consiste
     assert.equal(def.id, id);
     assert.equal(def.version, 1);
     assert.equal(def.controlPlane.entitlementKey, id);
+    assert.equal(assertModuleManifestV1(def), def);
     for (const dep of def.dependsOn) {
       assert(ids.includes(dep), `module ${id} depends on unknown module ${dep}`);
     }

@@ -26,6 +26,7 @@
   "type": "commonjs",
   "dependencies": {
     "@crm/contracts": "file:../../packages/contracts",
+    "@crm/module-sdk": "file:../../packages/module-sdk",
     "@nestjs/common": "^11.1.12",
     "@nestjs/core": "^11.1.12",
     "@nestjs/platform-express": "^11.1.12",

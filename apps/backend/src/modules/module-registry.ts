@@ -1,10 +1,11 @@
+import { defineModule } from "@crm/module-sdk/manifest";
 import { ModuleIds } from "./module-ids";
 import type { ModuleDef, ModuleKind } from "./module-types";
 
 type Registry = Record<string, ModuleDef>;
 
 export const MODULE_REGISTRY: Registry = {
-  [ModuleIds.CoreCrm]: {
+  [ModuleIds.CoreCrm]: defineModule({
     id: ModuleIds.CoreCrm,
     kind: "core" satisfies ModuleKind,
     version: 1,
@@ -16,8 +17,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.CoreCrm,
       bundleSelectable: false,
     },
-  },
-  [ModuleIds.VoiceOutbound]: {
+  }),
+  [ModuleIds.VoiceOutbound]: defineModule({
     id: ModuleIds.VoiceOutbound,
     kind: "extension" satisfies ModuleKind,
     version: 1,
@@ -29,8 +30,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.VoiceOutbound,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.Finance]: {
+  }),
+  [ModuleIds.Finance]: defineModule({
     id: ModuleIds.Finance,
     kind: "extension" satisfies ModuleKind,
     version: 1,
@@ -42,8 +43,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.Finance,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.ProductionPlanning]: {
+  }),
+  [ModuleIds.ProductionPlanning]: defineModule({
     id: ModuleIds.ProductionPlanning,
     kind: "extension" satisfies ModuleKind,
     version: 1,
@@ -55,8 +56,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.ProductionPlanning,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.IntegrationsTelegram]: {
+  }),
+  [ModuleIds.IntegrationsTelegram]: defineModule({
     id: ModuleIds.IntegrationsTelegram,
     kind: "integration" satisfies ModuleKind,
     version: 1,
@@ -68,8 +69,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.IntegrationsTelegram,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.NovaPoshta]: {
+  }),
+  [ModuleIds.NovaPoshta]: defineModule({
     id: ModuleIds.NovaPoshta,
     kind: "integration" satisfies ModuleKind,
     version: 1,
@@ -81,8 +82,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.NovaPoshta,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.GoogleSheet]: {
+  }),
+  [ModuleIds.GoogleSheet]: defineModule({
     id: ModuleIds.GoogleSheet,
     kind: "integration" satisfies ModuleKind,
     version: 1,
@@ -94,8 +95,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.GoogleSheet,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.Bitrix]: {
+  }),
+  [ModuleIds.Bitrix]: defineModule({
     id: ModuleIds.Bitrix,
     kind: "integration" satisfies ModuleKind,
     version: 1,
@@ -107,8 +108,8 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.Bitrix,
       bundleSelectable: true,
     },
-  },
-  [ModuleIds.Ringostat]: {
+  }),
+  [ModuleIds.Ringostat]: defineModule({
     id: ModuleIds.Ringostat,
     kind: "integration" satisfies ModuleKind,
     version: 1,
@@ -120,7 +121,7 @@ export const MODULE_REGISTRY: Registry = {
       entitlementKey: ModuleIds.Ringostat,
       bundleSelectable: true,
     },
-  },
+  }),
 };
 
 export function registryModuleIds(): ModuleDef["id"][] {

@@ -7,6 +7,8 @@ COPY package.json package-lock.json* ./
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/src ./packages/contracts/src
+COPY packages/module-sdk/package.json ./packages/module-sdk/package.json
+COPY packages/module-sdk/src ./packages/module-sdk/src
 RUN npm install --workspace=backend --include=dev && npm cache clean --force
 
 COPY apps/backend/prisma ./apps/backend/prisma/
@@ -40,6 +42,8 @@ COPY package.json package-lock.json* ./
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/src ./packages/contracts/src
+COPY packages/module-sdk/package.json ./packages/module-sdk/package.json
+COPY packages/module-sdk/src ./packages/module-sdk/src
 RUN npm install --workspace=backend --omit=dev && npm cache clean --force
 
 COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
