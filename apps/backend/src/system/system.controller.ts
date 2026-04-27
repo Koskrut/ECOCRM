@@ -6,9 +6,12 @@ import { ModuleStateService } from "../modules/module-state.service";
 import type { SystemLicenseStatusDto } from "./dto/system-license-status.dto";
 import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
 import type { SystemReleaseDto } from "./dto/system-release.dto";
+import type { SystemVersionDto } from "./dto/system-version.dto";
 import type { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
 import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemVersionService } from "./system-version.service";
+import { Public } from "../auth/public.decorator";
 
 @Controller("system")
 export class SystemController {
@@ -18,6 +21,7 @@ export class SystemController {
     @Inject(SystemModulesEnabledWriteService)
     private readonly enabledWrite: SystemModulesEnabledWriteService,
     @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
+    @Inject(SystemVersionService) private readonly versionService: SystemVersionService,
   ) {}
 
   @Get("modules")
@@ -29,6 +33,12 @@ export class SystemController {
   @Roles(UserRole.ADMIN)
   release(): SystemReleaseDto {
     return this.releaseService.getRelease();
+  }
+
+  @Get("version")
+  @Public()
+  version(): SystemVersionDto {
+    return this.versionService.getVersion();
   }
 
   @Get("license-status")

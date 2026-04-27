@@ -15,6 +15,12 @@ RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+ARG IMAGE_VERSION="0.0.0-dev"
+ARG VCS_REF=""
+LABEL org.opencontainers.image.title="ECOCRM Store" \
+      org.opencontainers.image.version=$IMAGE_VERSION \
+      org.opencontainers.image.source="https://github.com/Koskrut/ECOCRM" \
+      org.opencontainers.image.revision=$VCS_REF
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3002

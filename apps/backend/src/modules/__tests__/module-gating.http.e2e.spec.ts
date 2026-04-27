@@ -20,6 +20,7 @@ import { ModuleStateService } from "../module-state.service";
 import { SystemController } from "../../system/system.controller";
 import { SystemModulesEnabledWriteService } from "../../system/system-modules-enabled-write.service";
 import { SystemReleaseService } from "../../system/system-release.service";
+import { SystemVersionService } from "../../system/system-version.service";
 import { PaymentsController } from "../../payments/payments.controller";
 import { OutboundVoiceWebhookController } from "../../outbound/outbound-voice-webhook.controller";
 
@@ -67,6 +68,7 @@ class TestLicenseStateProvider extends LicenseStateProvider {
       useValue: { setPilotExtensionsEnabled: async () => {} },
     },
     SystemReleaseService,
+    SystemVersionService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ModuleAccessGuard },

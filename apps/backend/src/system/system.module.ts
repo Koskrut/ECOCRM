@@ -7,12 +7,14 @@ import { ModuleStateService } from "../modules/module-state.service";
 import { SystemController } from "./system.controller";
 import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemVersionService } from "./system-version.service";
 
 @Module({
   controllers: [SystemController],
   providers: [
     ModuleStateService,
     SystemReleaseService,
+    SystemVersionService,
     SystemModulesEnabledWriteService,
     {
       provide: EnabledModulesProvider,

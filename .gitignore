@@ -32,6 +32,7 @@ crm_dump.sql
 *.swo
 *~
 package-lock.json
+apps/*/src/version.ts
 apps/web/test-results/
 
 # local env
