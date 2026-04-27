@@ -61,6 +61,8 @@ docker stop crm-web-1 crm-store-1
 
 Workflow runtime пока использует in-memory rate limit для защиты от повторных выполнений правил: `10` executions на пару `(rule_id, entity_id)` в rolling 1-hour window. Это подходит только для single-instance backend. Для multi-instance deployment этот guardrail нужно перенести в Redis, чтобы лимиты были общими для всех replicas.
 
+Workflow в текущей версии поддерживает изменение полей, назначение ответственных и создание задач. Уведомления (email, Telegram, webhook) появятся в следующей версии.
+
 **Переменные окружения (backend):**
 
 - `TELEGRAM_BOT_TOKEN` — токен бота от @BotFather

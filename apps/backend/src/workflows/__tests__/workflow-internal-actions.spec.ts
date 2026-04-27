@@ -65,6 +65,21 @@ test("workflow internal action: assign_user missing user is skipped with validat
   assert.equal(actionResult.reason, "validation_error");
 });
 
+test("workflow internal action: assign_user inactive user is skipped with user_inactive", async () => {
+  const prisma = createActionPrismaMock({
+    rule: workflowRule({ actions: [{ type: "assign_user", config: { userId: "inactive_user" } }] }),
+    users: [{ id: "inactive_user", isActive: false }],
+  });
+  const service = new WorkflowRuntimeService(prisma as never, createEventPublisherMock() as never);
+
+  await service.evaluateTrigger(trigger(), { current: { id: "lead_1", status: "NEW" } }, "enforced");
+
+  const actionResult = (lastLog(prisma).actionsResult as Record<string, unknown>).actionResults[0] as Record<string, unknown>;
+  assert.equal(actionResult.status, "skipped");
+  assert.equal(actionResult.reason, "validation_error");
+  assert.equal(actionResult.validationError, "user_inactive");
+});
+
 test("workflow internal action: create_task validates assignee", async () => {
   const prisma = createActionPrismaMock({
     rule: workflowRule({ actions: [{ type: "create_task", config: { title: "Call {{field.status}}", assignedTo: "missing" } }] }),
@@ -133,11 +148,13 @@ function createEventPublisherMock() {
   };
 }
 
-function createActionPrismaMock(opts: { rule?: ReturnType<typeof workflowRule>; lead?: Record<string, unknown>; users?: Array<{ id: string }> } = {}) {
+function createActionPrismaMock(
+  opts: { rule?: ReturnType<typeof workflowRule>; lead?: Record<string, unknown>; users?: Array<{ id: string; isActive?: boolean }> } = {},
+) {
   let sequence = 0;
   const logs: Array<Record<string, unknown>> = [];
   const lead = { id: "lead_1", ownerId: "user_1", status: "NEW", ...(opts.lead ?? {}) };
-  const users = opts.users ?? [{ id: "user_1" }, { id: "user_2" }];
+  const users = opts.users ?? [{ id: "user_1", isActive: true }, { id: "user_2", isActive: true }];
   const prisma: any = {
     logs,
     workflowRule: { findMany: async () => [opts.rule ?? workflowRule()] },

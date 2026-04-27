@@ -11,6 +11,7 @@ export type WorkflowActionResult = {
   type: string;
   status: "executed" | "skipped" | "noop";
   reason?: string;
+  validationError?: string;
   permission?: "checked" | "bypassed";
   warnings?: string[];
   eventPublished?: boolean;
@@ -107,8 +108,11 @@ export class WorkflowInternalActionDispatcher {
     if (!entityType || !entityId || !userId) return { type: "assign_user", status: "skipped", reason: "validation_error" };
     if (!this.allowedFields(entityType).has("ownerId")) return { type: "assign_user", status: "skipped", reason: "validation_error" };
 
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, isActive: true } });
     if (!user) return { type: "assign_user", status: "skipped", reason: "validation_error" };
+    if (!user.isActive) {
+      return { type: "assign_user", status: "skipped", reason: "validation_error", validationError: "user_inactive" };
+    }
     const permission = await this.checkPermission(params.correlation, entityType, "ownerId");
     if (!permission.allowed) return { type: "assign_user", status: "skipped", reason: "permission_denied" };
 
@@ -131,8 +135,11 @@ export class WorkflowInternalActionDispatcher {
     const warnings: string[] = [];
     const assigneeId = await this.resolveTaskAssignee(config, params, tx);
     if (!assigneeId) return { type: "create_task", status: "skipped", reason: "validation_error" };
-    const assignee = await tx.user.findUnique({ where: { id: assigneeId }, select: { id: true } });
+    const assignee = await tx.user.findUnique({ where: { id: assigneeId }, select: { id: true, isActive: true } });
     if (!assignee) return { type: "create_task", status: "skipped", reason: "validation_error" };
+    if (!assignee.isActive) {
+      return { type: "create_task", status: "skipped", reason: "validation_error", validationError: "user_inactive" };
+    }
 
     const related = this.taskRelation(params.trigger);
     if (!related) return { type: "create_task", status: "skipped", reason: "validation_error" };
@@ -183,6 +190,7 @@ export class WorkflowInternalActionDispatcher {
     }
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
     if (!user) return { allowed: false, bypassed: false };
+    // TRACK_B4: replace with RBAC permission check on field/entity, not role check
     return { allowed: user.role === "ADMIN", bypassed: false, entityType, field };
   }
 
