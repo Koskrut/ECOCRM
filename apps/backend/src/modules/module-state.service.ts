@@ -8,8 +8,12 @@ import { LicenseStateProvider } from "./license/license-state.provider";
 export type ModuleRuntimeState = {
   id: ModuleId;
   kind: ModuleDef["kind"];
+  version: ModuleDef["version"];
   displayName: string;
+  description: string;
   dependsOn: ModuleId[];
+  delivery: ModuleDef["delivery"];
+  controlPlane: ModuleDef["controlPlane"];
   installed: boolean;
   licensed: boolean;
   enabled: boolean;
@@ -51,8 +55,12 @@ export class ModuleStateService {
       base[id] = {
         id,
         kind: def.kind,
+        version: def.version,
         displayName: def.displayName,
+        description: def.description,
         dependsOn: def.dependsOn ?? [],
+        delivery: def.delivery,
+        controlPlane: def.controlPlane,
         installed: installed.has(id),
         licensed: licensed.has(id),
         enabled: enabled.has(id),

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { FileLicenseStateProvider } from "../file-license-state.provider";
 import { ModuleIds, type ModuleId } from "../../module-ids";
+import { registryModuleIds } from "../../module-registry";
 import { ModuleStateService } from "../../module-state.service";
 import { EnabledModulesProvider } from "../../enabled/enabled-modules.provider";
 import type { LicenseState } from "../license-state.provider";
@@ -96,12 +97,7 @@ function toLicenseStatusDto(state: LicenseState) {
 }
 
 class EnabledAllPilots extends EnabledModulesProvider {
-  private readonly pilots: ModuleId[] = [
-    ModuleIds.CoreCrm,
-    ModuleIds.Finance,
-    ModuleIds.VoiceOutbound,
-    ModuleIds.IntegrationsTelegram,
-  ];
+  private readonly pilots: ModuleId[] = registryModuleIds();
   async getEnabledModules() {
     return { enabledModules: new Set(this.pilots), source: "system_setting" as const };
   }

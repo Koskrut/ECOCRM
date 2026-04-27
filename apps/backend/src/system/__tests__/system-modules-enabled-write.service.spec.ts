@@ -6,7 +6,7 @@ import { MODULES_ENABLED_V1_KEY } from "../../modules/enabled/modules-enabled.co
 import { SystemModulesEnabledWriteService } from "../system-modules-enabled-write.service";
 
 describe("SystemModulesEnabledWriteService", () => {
-  it("upserts sorted pilot-only enabled list", async () => {
+  it("upserts sorted enabled entitled module list", async () => {
     const calls: unknown[] = [];
     const prisma = {
       systemSetting: {

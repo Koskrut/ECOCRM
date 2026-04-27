@@ -58,8 +58,12 @@ export class SystemController {
       modules: modules.map((m) => ({
         id: m.id,
         kind: m.kind,
+        version: m.version,
         displayName: m.displayName,
+        description: m.description,
         dependsOn: m.dependsOn,
+        delivery: m.delivery,
+        controlPlane: m.controlPlane,
         installed: m.installed,
         licensed: m.licensed,
         enabled: m.enabled,

@@ -83,13 +83,13 @@ async function withLicenseEnv(
   }
 }
 
-test("FileLicenseStateProvider: valid license populates extension modules and core", async () => {
+test("FileLicenseStateProvider: valid license populates entitled modules and core", async () => {
   const payload: LicensePayload = {
     licenseId: "lic_test_valid_123456",
     customer: "ACME",
     issuedAt: plusHours(-1),
     expiresAt: plusHours(24),
-    modules: [ModuleIds.Finance],
+    modules: [ModuleIds.Finance, ModuleIds.IntegrationsTelegram],
     instance: null,
   };
   const temp = await withTempLicense(payload);
@@ -104,6 +104,7 @@ test("FileLicenseStateProvider: valid license populates extension modules and co
   assert.equal(state.status, "valid");
   assert.equal(state.licensedModules.has(ModuleIds.CoreCrm), true);
   assert.equal(state.licensedModules.has(ModuleIds.Finance), true);
+  assert.equal(state.licensedModules.has(ModuleIds.IntegrationsTelegram), true);
   assert.equal(state.licensedModules.has(ModuleIds.VoiceOutbound), false);
 });
 
@@ -126,7 +127,7 @@ test("FileLicenseStateProvider: invalid signature -> fail-closed extensions", as
     customer: "ACME",
     issuedAt: plusHours(-1),
     expiresAt: plusHours(24),
-    modules: [ModuleIds.Finance, ModuleIds.VoiceOutbound],
+    modules: [ModuleIds.Finance, ModuleIds.VoiceOutbound, ModuleIds.NovaPoshta],
   };
   const temp = await withTempLicense(payload, { invalidSignature: true });
   let state!: Awaited<ReturnType<FileLicenseStateProvider["getLicenseState"]>>;
