@@ -7,6 +7,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { CompaniesModule } from "./companies/companies.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { DictionariesModule } from "./dictionaries/dictionaries.module";
 import { LeadsModule } from "./leads/leads.module";
 import { ContactsModule } from "./contacts/contacts.module";
 import { OrderReturnsModule } from "./order-returns/order-returns.module";
@@ -43,6 +44,7 @@ import { AuditModule } from "./audit/audit.module";
     AuditModule,
     SystemModule,
     SettingsModule,
+    DictionariesModule,
     BankModule,
     NpModule,
     PaymentsModule,

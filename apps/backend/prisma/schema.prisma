@@ -1588,6 +1588,45 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 }
 
+model Dictionary {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  system      Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  items DictionaryItem[]
+
+  @@index([system])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model DictionaryItem {
+  id           String    @id @default(cuid())
+  dictionaryId String
+  key          String
+  label        String
+  value        String?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  dictionary Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+
+  @@unique([dictionaryId, key])
+  @@index([dictionaryId, sortOrder])
+  @@index([dictionaryId, isActive])
+  @@index([deletedAt])
+}
+
 model KitBom {
   id            String   @id @default(cuid())
   kitProductId  String
