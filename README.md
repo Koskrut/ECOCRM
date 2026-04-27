@@ -81,7 +81,57 @@ Content-Type: application/json
 
 **Локальная разработка:** использовать ngrok или cloudflared, задать `PUBLIC_BASE_URL` на туннель и установить webhook на `https://<tunnel>/integrations/telegram/webhook`.
 
-## Деплой на Netcup (Docker + GitHub Actions)
+## Production deployment via registry images
+
+Новая production-модель использует заранее собранные registry images из GHCR и `compose.base.yml`. Старый `docker-compose.prod.yml` пока остаётся для совместимости, но больше не является целевым способом доставки.
+
+### Prerequisites
+
+- Docker Engine 24+ и Docker Compose Plugin.
+- Доступ к GHCR: `docker login ghcr.io -u koskrut`.
+- Backup текущей PostgreSQL БД перед обновлением работающего клиента.
+- `.env` на сервере, созданный из `.env.base.example`.
+
+### Setup
+
+```bash
+cp .env.base.example .env
+# заполни POSTGRES_PASSWORD, JWT_SECRET и версии образов
+
+docker compose -f compose.base.yml --env-file .env pull
+docker compose -f compose.base.yml --env-file .env up -d
+```
+
+`backend-migrate` запускается как отдельный one-off service перед backend. Сам backend container не выполняет миграции в entrypoint.
+
+### Verify
+
+```bash
+docker compose -f compose.base.yml --env-file .env ps
+docker compose -f compose.base.yml --env-file .env exec backend wget -O- http://localhost:3001/system/version
+```
+
+Ответ `/system/version` должен содержать `version`, `commitSha`, `builtAt` и `nodeEnv`.
+
+### Updating versions
+
+1. Измени `BACKEND_VERSION`, `WEB_VERSION` или `STORE_VERSION` в `.env`.
+2. Загрузи новые images:
+   ```bash
+   docker compose -f compose.base.yml --env-file .env pull
+   ```
+3. Перезапусти нужные сервисы:
+   ```bash
+   docker compose -f compose.base.yml --env-file .env up -d backend web store
+   ```
+
+### Migration from docker-compose.prod.yml
+
+TODO: будет заполнено в D4 после добавления `compose.client.yml` и legacy rename.
+
+## Деплой на Netcup (Docker + GitHub Actions) — DEPRECATED
+
+Этот раздел описывает legacy build-on-server модель через `docker-compose.prod.yml`. Она остаётся рабочей до стабилизации registry-based delivery, но будет удалена после проверки новой модели на реальном окружении.
 
 Деплой по `git push` в `main`: на VPS поднимается стек из `docker-compose.prod.yml` (PostgreSQL, backend, web, store).
 

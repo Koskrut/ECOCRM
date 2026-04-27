@@ -7,6 +7,8 @@ apps/web/.env
 apps/web/.env.local
 .env
 .env.local
+.local/
+*.pem
 
 # docker prod local overrides (do not push; server has its own config)
 docker-compose.prod.local.yml

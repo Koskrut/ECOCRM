@@ -1,0 +1,79 @@
+# Registry-based production base stack.
+# Publish ports and client-specific overrides in compose.client.yml (D4).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-crm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crm} -d ${POSTGRES_DB:-crm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend-migrate:
+    image: ghcr.io/koskrut/crm-backend-core:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    restart: "no"
+    working_dir: /repo/apps/backend
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: ghcr.io/koskrut/crm-backend-core:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/system/version >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web:
+    image: ghcr.io/koskrut/crm-web:${WEB_VERSION:?Set WEB_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  store:
+    image: ghcr.io/koskrut/crm-store:${STORE_VERSION:?Set STORE_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "3002"
+
+volumes:
+  postgres_data:
