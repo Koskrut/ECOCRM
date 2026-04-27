@@ -1,0 +1,20 @@
+# Outbound / AI calls activation overlay.
+# Current state: ext.voice_outbound is still in-process inside crm-backend-core.
+
+services:
+  backend:
+    environment:
+      MODULE_GATING_ENABLED: "true"
+      CRON_ENABLED: ${CRON_ENABLED:-true}
+
+      # ext.voice_outbound
+      OUTBOUND_VOICE_PUBLIC_BASE_URL: ${OUTBOUND_VOICE_PUBLIC_BASE_URL:-}
+      OUTBOUND_VOICE_WEBHOOK_SECRET: ${OUTBOUND_VOICE_WEBHOOK_SECRET:-}
+      OUTBOUND_CATALOG_PUBLIC_URL: ${OUTBOUND_CATALOG_PUBLIC_URL:-}
+      OUTBOUND_CALL_LINK_WINDOW_MINUTES: ${OUTBOUND_CALL_LINK_WINDOW_MINUTES:-90}
+      OUTBOUND_LINK_RECONCILE_BATCH: ${OUTBOUND_LINK_RECONCILE_BATCH:-50}
+      OUTBOUND_LINK_RECONCILE_MAX_AGE_HOURS: ${OUTBOUND_LINK_RECONCILE_MAX_AGE_HOURS:-72}
+      OUTBOUND_LINK_RECONCILE_PROVIDER: ${OUTBOUND_LINK_RECONCILE_PROVIDER:-RINGOSTAT}
+
+      # Optional AI fallback; can also be stored in CRM settings.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}

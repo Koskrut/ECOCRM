@@ -104,6 +104,32 @@ docker compose -f compose.base.yml --env-file .env up -d
 
 `backend-migrate` запускается как отдельный one-off service перед backend. Сам backend container не выполняет миграции в entrypoint.
 
+### Module overlays
+
+D3 overlays подключают in-process модули через конфигурацию `crm-backend-core`. Отдельные `crm-module-*` images появятся позже в Track E, когда модули будут физически вынесены в сервисы.
+
+```bash
+# Outbound / AI calls
+docker compose -f compose.base.yml -f compose.modules.outbound.yml --env-file .env up -d
+
+# Integrations: Telegram, Nova Poshta, Google Sheet, Bitrix, Ringostat
+docker compose -f compose.base.yml -f compose.modules.integrations.yml --env-file .env up -d
+
+# Finance
+docker compose -f compose.base.yml -f compose.modules.finance.yml --env-file .env up -d
+
+# Full enterprise-style stack
+docker compose \
+  -f compose.base.yml \
+  -f compose.modules.outbound.yml \
+  -f compose.modules.integrations.yml \
+  -f compose.modules.finance.yml \
+  -f compose.modules.production-planning.yml \
+  --env-file .env up -d
+```
+
+Module overlays set `MODULE_GATING_ENABLED=true`. Effective module access still depends on the client license and runtime enabled state in the client DB.
+
 ### Verify
 
 ```bash
