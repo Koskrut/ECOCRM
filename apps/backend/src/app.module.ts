@@ -19,6 +19,8 @@ import { UsersModule } from "./users/users.module";
 import { BankModule } from "./bank/bank.module";
 import { NpModule } from "./np/np.module";
 import { PaymentsModule } from "./payments/payments.module";
+import { PermissionsGuard } from "./rbac/permissions.guard";
+import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 import { VisitsModule } from "./visits/visits.module";
@@ -52,6 +54,7 @@ import { AuditModule } from "./audit/audit.module";
     BankModule,
     NpModule,
     PaymentsModule,
+    RbacModule,
     AuthModule,
     AnalyticsModule,
     DashboardModule,
@@ -85,6 +88,10 @@ import { AuditModule } from "./audit/audit.module";
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: APP_GUARD,

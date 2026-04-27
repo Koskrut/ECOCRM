@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
+import { RequirePermission } from "../rbac/permissions.decorator";
+import { PermissionKeys } from "../rbac/rbac.constants";
 import { CustomFieldsService } from "./custom-fields.service";
 import {
   parseCustomFieldEntityType,
@@ -19,6 +21,7 @@ function parseBoolean(value: unknown): boolean | undefined {
 
 @Controller("custom-fields")
 @Roles(UserRole.ADMIN)
+@RequirePermission(PermissionKeys.CustomFieldsManage)
 export class CustomFieldsController {
   constructor(private readonly customFields: CustomFieldsService) {}
 

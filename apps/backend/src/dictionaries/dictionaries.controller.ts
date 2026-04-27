@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
+import { RequirePermission } from "../rbac/permissions.decorator";
+import { PermissionKeys } from "../rbac/rbac.constants";
 import { DictionariesService } from "./dictionaries.service";
 import type { DictionaryListQuery, UpsertDictionaryDto, UpsertDictionaryItemDto } from "./dto/dictionaries.dto";
 
@@ -13,6 +15,7 @@ function parseBoolean(value: unknown): boolean | undefined {
 
 @Controller("dictionaries")
 @Roles(UserRole.ADMIN)
+@RequirePermission(PermissionKeys.DictionariesManage)
 export class DictionariesController {
   constructor(private readonly dictionaries: DictionariesService) {}
 

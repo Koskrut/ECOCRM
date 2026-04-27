@@ -450,9 +450,73 @@ model User {
   postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
   callQueueItems             CallQueueItem[]
   manualCallSessions         ManualCallSession[]
+  rbacAssignments            RbacUserRoleAssignment[]
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
+}
+
+model RbacRole {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  system      Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  permissions RbacRolePermission[]
+  assignments RbacUserRoleAssignment[]
+
+  @@index([system])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model RbacPermission {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  category    String?
+  system      Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  roles RbacRolePermission[]
+
+  @@index([category])
+  @@index([system])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model RbacRolePermission {
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now())
+
+  role       RbacRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission RbacPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model RbacUserRoleAssignment {
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role RbacRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
 }
 
 model PasswordResetCode {

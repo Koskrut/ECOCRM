@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
+import { RequirePermission } from "../rbac/permissions.decorator";
+import { PermissionKeys } from "../rbac/rbac.constants";
 import { LayoutsService } from "./layouts.service";
 import {
   parseLayoutEntityType,
@@ -20,6 +22,7 @@ function parseBoolean(value: unknown): boolean | undefined {
 
 @Controller("layouts")
 @Roles(UserRole.ADMIN)
+@RequirePermission(PermissionKeys.LayoutsManage)
 export class LayoutsController {
   constructor(private readonly layouts: LayoutsService) {}
 
