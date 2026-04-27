@@ -3,11 +3,11 @@ import type { OrderStage, Prisma } from "@prisma/client";
 import type { ReturnStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
-import { PaymentsService } from "../payments/payments.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateOrderReturnDto } from "./dto/create-order-return.dto";
 import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
@@ -28,7 +28,7 @@ const CLOSED_RETURN_STATUS: ReturnStatus = "CLOSED";
 export class OrderReturnsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly payments: PaymentsService,
+    private readonly integrations: IntegrationPortsService,
   ) {}
 
   private async syncOrderStateFromReturns(orderId: string) {
@@ -50,7 +50,7 @@ export class OrderReturnsService {
       where: { id: orderId },
       data: { returnAdjustmentAmount: totalAdjustment },
     });
-    await this.payments.recalcOrder(orderId);
+    await this.integrations.recalcOrderFinance(orderId);
 
     const orderAfter = await this.prisma.order.findUnique({
       where: { id: orderId },

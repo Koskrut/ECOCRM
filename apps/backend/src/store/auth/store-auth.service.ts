@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, UnauthorizedExcepti
 import { randomBytes } from "crypto";
 import { ContactsService } from "../../contacts/contacts.service";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
-import { TelegramService } from "../../integrations/telegram/telegram.service";
+import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword, verifyPassword, needsRehash } from "../../auth/password";
@@ -53,7 +53,7 @@ export class StoreAuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly contactsService: ContactsService,
-    private readonly telegram: TelegramService,
+    private readonly integrations: IntegrationPortsService,
   ) {}
 
   async register(dto: StoreRegisterDto): Promise<StoreAuthResponse> {
@@ -306,7 +306,7 @@ export class StoreAuthService {
     });
 
     try {
-      await this.telegram.sendMessageToChat(
+      await this.integrations.sendMessageToChat(
         telegramChatId,
         `Код для скидання пароля: ${codeStr}\nДійсний ${RESET_CODE_TTL_MINUTES} хв.`,
       );

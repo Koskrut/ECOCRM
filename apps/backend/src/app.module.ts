@@ -25,6 +25,7 @@ import { RingostatModule } from "./integrations/ringostat/ringostat.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
+import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
 import { CallsModule } from "./calls/calls.module";
@@ -37,6 +38,7 @@ import { AuditModule } from "./audit/audit.module";
 
 @Module({
   imports: [
+    IntegrationPortsModule,
     PrismaModule,
     AuditModule,
     SystemModule,

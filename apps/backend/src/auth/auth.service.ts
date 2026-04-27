@@ -8,7 +8,7 @@ import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
-import { TelegramService } from "../integrations/telegram/telegram.service";
+import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import type { User } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { LoginDto } from "./dto/login.dto";
@@ -42,7 +42,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
-    private readonly telegram: TelegramService,
+    private readonly integrations: IntegrationPortsService,
   ) {}
 
   public async register(dto: RegisterDto): Promise<AuthResponse> {
@@ -134,7 +134,7 @@ export class AuthService {
 
     if (account.telegramChatId) {
       try {
-        await this.telegram.sendMessageToChat(
+        await this.integrations.sendMessageToChat(
           account.telegramChatId,
           `Код для сброса пароля CRM: ${codeStr}\nДействует ${RESET_CODE_TTL_MINUTES} мин.`,
         );
