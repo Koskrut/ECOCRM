@@ -218,6 +218,27 @@ enum TaskStatus {
   CANCELED
 }
 
+enum CustomFieldEntityType {
+  CONTACT
+  COMPANY
+  LEAD
+  ORDER
+  PRODUCT
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  MONEY
+  DATE
+  BOOLEAN
+  SELECT
+  MULTISELECT
+  USER
+  DICTIONARY_ITEM
+  JSON
+}
+
 enum OrderSource {
   CRM
   STORE
@@ -1600,6 +1621,7 @@ model Dictionary {
   deletedAt   DateTime?
 
   items DictionaryItem[]
+  customFields CustomFieldDefinition[]
 
   @@index([system])
   @@index([isActive])
@@ -1620,11 +1642,85 @@ model DictionaryItem {
   deletedAt    DateTime?
 
   dictionary Dictionary @relation(fields: [dictionaryId], references: [id], onDelete: Cascade)
+  customFieldValues CustomFieldValue[]
 
   @@unique([dictionaryId, key])
   @@index([dictionaryId, sortOrder])
   @@index([dictionaryId, isActive])
   @@index([deletedAt])
+}
+
+model CustomFieldDefinition {
+  id           String                @id @default(cuid())
+  entityType   CustomFieldEntityType
+  key          String
+  label        String
+  description  String?
+  type         CustomFieldType
+  required     Boolean               @default(false)
+  isActive     Boolean               @default(true)
+  system       Boolean               @default(false)
+  dictionaryId String?
+  settings     Json?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  deletedAt    DateTime?
+
+  dictionary Dictionary?          @relation(fields: [dictionaryId], references: [id], onDelete: SetNull)
+  options    CustomFieldOption[]
+  values     CustomFieldValue[]
+
+  @@unique([entityType, key])
+  @@index([entityType, isActive])
+  @@index([dictionaryId])
+  @@index([deletedAt])
+}
+
+model CustomFieldOption {
+  id           String    @id @default(cuid())
+  definitionId String
+  key          String
+  label        String
+  value        String?
+  sortOrder    Int       @default(0)
+  isActive     Boolean   @default(true)
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  definition CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@unique([definitionId, key])
+  @@index([definitionId, sortOrder])
+  @@index([definitionId, isActive])
+  @@index([deletedAt])
+}
+
+model CustomFieldValue {
+  id               String                @id @default(cuid())
+  definitionId     String
+  entityType       CustomFieldEntityType
+  entityId         String
+  valueString      String?
+  valueNumber      Float?
+  valueBoolean     Boolean?
+  valueDate        DateTime?
+  valueJson        Json?
+  dictionaryItemId String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  definition     CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  dictionaryItem DictionaryItem?        @relation(fields: [dictionaryItemId], references: [id], onDelete: SetNull)
+
+  @@unique([definitionId, entityId])
+  @@index([entityType, entityId])
+  @@index([definitionId, valueString])
+  @@index([definitionId, valueNumber])
+  @@index([definitionId, valueBoolean])
+  @@index([definitionId, valueDate])
+  @@index([dictionaryItemId])
 }
 
 model KitBom {

@@ -6,6 +6,7 @@ import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
 import { CompaniesModule } from "./companies/companies.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
+import { CustomFieldsModule } from "./custom-fields/custom-fields.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { DictionariesModule } from "./dictionaries/dictionaries.module";
 import { LeadsModule } from "./leads/leads.module";
@@ -45,6 +46,7 @@ import { AuditModule } from "./audit/audit.module";
     SystemModule,
     SettingsModule,
     DictionariesModule,
+    CustomFieldsModule,
     BankModule,
     NpModule,
     PaymentsModule,
