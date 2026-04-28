@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/comm
 import { Cron } from "@nestjs/schedule";
 import { createHash } from "node:crypto";
 import { hostname, networkInterfaces } from "node:os";
-import backendPackageJson from "../../../package.json";
+import backendPackageJson from "../../package.json";
 import type { ModuleId } from "../modules/module-ids";
 import { MODULE_REGISTRY } from "../modules/module-registry";
 import { EnabledModulesProvider } from "../modules/enabled/enabled-modules.provider";
