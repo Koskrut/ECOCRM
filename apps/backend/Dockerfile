@@ -5,6 +5,8 @@ WORKDIR /repo
 
 COPY package.json package-lock.json* ./
 COPY apps/backend/package.json ./apps/backend/package.json
+COPY packages/contracts ./packages/contracts
+COPY packages/module-sdk ./packages/module-sdk
 RUN npm install --workspace=backend --include=dev && npm cache clean --force
 
 COPY apps/backend/prisma ./apps/backend/prisma
@@ -35,6 +37,8 @@ ENV PORT=3001
 
 COPY package.json package-lock.json* ./
 COPY apps/backend/package.json ./apps/backend/package.json
+COPY packages/contracts ./packages/contracts
+COPY packages/module-sdk ./packages/module-sdk
 RUN npm install --workspace=backend --omit=dev && npm cache clean --force
 
 COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
