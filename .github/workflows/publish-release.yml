@@ -121,8 +121,8 @@ jobs:
         id: web
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: apps/web/Dockerfile
+          context: ./apps/web
+          file: ./apps/web/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.web_image }}
           build-args: |
