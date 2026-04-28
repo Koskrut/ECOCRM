@@ -14,6 +14,7 @@ RUN npm run prisma:generate --workspace=backend
 
 COPY apps/backend/tsconfig.json ./apps/backend/
 COPY apps/backend/src ./apps/backend/src
+COPY scripts/generate-version-file.sh ./scripts/generate-version-file.sh
 RUN npm run build --workspace=backend
 
 FROM node:20-alpine AS runner
