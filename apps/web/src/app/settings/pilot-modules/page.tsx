@@ -3,20 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
-import { ModuleIds, type ModuleId } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
-
-const PILOTS: ModuleId[] = [
-  ModuleIds.VoiceOutbound,
-  ModuleIds.Finance,
-  ModuleIds.IntegrationsTelegram,
-];
-
-const LABELS: Record<string, string> = {
-  [ModuleIds.VoiceOutbound]: "AI Calls / Outbound",
-  [ModuleIds.Finance]: "Finance / Payments",
-  [ModuleIds.IntegrationsTelegram]: "Telegram Inbox",
-};
 
 export default function PilotModulesSettingsPage() {
   const { modules, refreshModules } = useModules();
@@ -36,8 +23,9 @@ export default function PilotModulesSettingsPage() {
   useEffect(() => {
     if (modules === null || role !== "ADMIN") return;
     const next: Record<string, boolean> = {};
-    for (const id of PILOTS) {
-      const m = modules.find((x) => x.id === id);
+    for (const m of modules) {
+      if (m.kind === "core" || m.controlPlane?.bundleSelectable === false) continue;
+      const id = m.id;
       next[id] = m?.enabled ?? false;
     }
     setToggles(next);
@@ -49,7 +37,10 @@ export default function PilotModulesSettingsPage() {
     setError(null);
     setOk(null);
     try {
-      const enabled = PILOTS.filter((id) => toggles[id]);
+      const enabled = Object.entries(toggles)
+        .filter(([, isEnabled]) => isEnabled)
+        .map(([id]) => id)
+        .sort();
       await apiHttp.put("/system/modules/enabled", { enabled });
       setOk("Збережено.");
       refreshModules();
@@ -71,6 +62,10 @@ export default function PilotModulesSettingsPage() {
   if (!toggles) {
     return <div className="p-6 text-sm text-zinc-500">Завантаження модулів…</div>;
   }
+  const configurableModules =
+    modules
+      ?.filter((m) => m.kind !== "core" && m.controlPlane?.bundleSelectable !== false)
+      .sort((a, b) => a.displayName.localeCompare(b.displayName)) ?? [];
 
   return (
     <div className="mx-auto max-w-xl">
@@ -82,7 +77,7 @@ export default function PilotModulesSettingsPage() {
       </Link>
       <h1 className="mt-2 text-2xl font-bold text-zinc-900">Pilot modules</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        Увімкнені pilot-розширення зберігаються в системі. Ядро CRM завжди активне (не вимикається).
+        Увімкнені модулі зберігаються в системі. Ядро CRM завжди активне (не вимикається).
       </p>
 
       <div className="mt-6 space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -90,18 +85,18 @@ export default function PilotModulesSettingsPage() {
           <span className="text-sm font-medium text-zinc-900">CRM Core</span>
           <span className="text-xs font-medium text-emerald-700">Завжди увімкнено</span>
         </div>
-        {PILOTS.map((id) => (
+        {configurableModules.map((m) => (
           <label
-            key={id}
+            key={m.id}
             className="flex cursor-pointer items-center justify-between gap-3 border-b border-zinc-50 py-2 last:border-0"
           >
-            <span className="text-sm text-zinc-800">{LABELS[id] ?? id}</span>
+            <span className="text-sm text-zinc-800">{m.displayName}</span>
             <input
               type="checkbox"
               className="size-4 rounded border-zinc-300"
-              checked={toggles[id] ?? false}
+              checked={toggles[m.id] ?? false}
               onChange={(e) =>
-                setToggles((prev) => (prev ? { ...prev, [id]: e.target.checked } : prev))
+                setToggles((prev) => (prev ? { ...prev, [m.id]: e.target.checked } : prev))
               }
             />
           </label>

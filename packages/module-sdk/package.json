@@ -1,0 +1,32 @@
+{
+  "name": "@crm/module-sdk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "@crm/contracts": "file:../contracts"
+  },
+  "typesVersions": {
+    "*": {
+      "manifest": ["src/manifest.d.ts"],
+      "registry": ["src/registry.d.ts"],
+      "*": ["src/index.d.ts"]
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./manifest": {
+      "types": "./src/manifest.d.ts",
+      "default": "./src/manifest.js"
+    },
+    "./registry": {
+      "types": "./src/registry.d.ts",
+      "default": "./src/registry.js"
+    }
+  }
+}

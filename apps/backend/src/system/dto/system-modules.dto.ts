@@ -1,15 +1,4 @@
-export type SystemModuleDto = {
-  id: string;
-  kind: "core" | "extension";
-  displayName: string;
-  dependsOn: string[];
-  installed: boolean;
-  licensed: boolean;
-  enabled: boolean;
-  depsOk: boolean;
-  effective: boolean;
-};
-
-export type SystemModulesResponseDto = {
-  modules: SystemModuleDto[];
-};
+export type {
+  SystemModuleState as SystemModuleDto,
+  SystemModulesResponse as SystemModulesResponseDto,
+} from "@crm/contracts/modules";

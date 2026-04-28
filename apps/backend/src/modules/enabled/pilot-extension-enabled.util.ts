@@ -2,7 +2,7 @@ import { ModuleIds, type ModuleId } from "../module-ids";
 import { PILOT_EXTENSION_ID_SET } from "./modules-enabled.constants";
 
 /**
- * Validates that `ids` are unique pilot extension ids and returns a stable sorted list for storage.
+ * Validates unique enabled entitled module ids and returns a stable sorted list for storage.
  */
 export function normalizePilotExtensionEnabledList(ids: readonly string[]): string[] {
   const uniq = new Set(ids);
@@ -18,8 +18,8 @@ export function normalizePilotExtensionEnabledList(ids: readonly string[]): stri
 }
 
 /**
- * Parse stored JSON `enabled` array: only pilot extension strings allowed (plus legacy core.crm ignored).
- * Returns sorted unique pilot ids, or null if shape is invalid.
+ * Parse stored JSON `enabled` array: only entitled module strings allowed (plus legacy core.crm ignored).
+ * Returns sorted unique enabled ids, or null if shape is invalid.
  */
 export function parseStoredPilotExtensionIds(v: unknown): string[] | null {
   if (!v || typeof v !== "object") return null;
@@ -35,7 +35,7 @@ export function parseStoredPilotExtensionIds(v: unknown): string[] | null {
   return [...acc].sort();
 }
 
-/** Full enabled set for module runtime: core always on + stored pilots. */
+/** Full enabled set for module runtime: core always on + stored entitled modules. */
 export function moduleIdSetFromPilotStorage(pilotIdsSorted: readonly string[]): Set<ModuleId> {
   const out = new Set<ModuleId>([ModuleIds.CoreCrm]);
   for (const id of pilotIdsSorted) {

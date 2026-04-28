@@ -57,6 +57,12 @@ docker stop crm-web-1 crm-store-1
 
 Канал общения с клиентами через Telegram-бота: клиенты пишут в бота, диалоги и сообщения хранятся в CRM, ответы отправляются из Inbox в web.
 
+## Workflow Runtime V1
+
+Workflow runtime пока использует in-memory rate limit для защиты от повторных выполнений правил: `10` executions на пару `(rule_id, entity_id)` в rolling 1-hour window. Это подходит только для single-instance backend. Для multi-instance deployment этот guardrail нужно перенести в Redis, чтобы лимиты были общими для всех replicas.
+
+Workflow в текущей версии поддерживает изменение полей, назначение ответственных и создание задач. Уведомления (email, Telegram, webhook) появятся в следующей версии.
+
 **Переменные окружения (backend):**
 
 - `TELEGRAM_BOT_TOKEN` — токен бота от @BotFather
@@ -75,7 +81,166 @@ Content-Type: application/json
 
 **Локальная разработка:** использовать ngrok или cloudflared, задать `PUBLIC_BASE_URL` на туннель и установить webhook на `https://<tunnel>/integrations/telegram/webhook`.
 
-## Деплой на Netcup (Docker + GitHub Actions)
+## Production deployment via registry images
+
+Новая production-модель использует заранее собранные registry images из GHCR и `compose.base.yml`. Старый `docker-compose.prod.yml` пока остаётся для совместимости, но больше не является целевым способом доставки.
+
+### Prerequisites
+
+- Docker Engine 24+ и Docker Compose Plugin.
+- Доступ к GHCR: `docker login ghcr.io -u koskrut`.
+- Backup текущей PostgreSQL БД перед обновлением работающего клиента.
+- `.env` на сервере, созданный из `.env.base.example` и `.env.client.example`.
+
+### Setup
+
+```bash
+cp .env.base.example .env
+cat .env.client.example >> .env
+# заполни POSTGRES_PASSWORD, JWT_SECRET, public URLs, license path/key и версии образов
+
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env pull
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
+```
+
+`backend-migrate` запускается как отдельный one-off service перед backend. Сам backend container не выполняет миграции в entrypoint.
+`compose.client.yml` публикует порты только на `127.0.0.1` по умолчанию; внешний HTTPS/reverse proxy настраивается отдельно.
+
+### Module overlays
+
+D3 overlays подключают in-process модули через конфигурацию `crm-backend-core`. Отдельные `crm-module-*` images появятся позже в Track E, когда модули будут физически вынесены в сервисы.
+
+```bash
+# Outbound / AI calls
+docker compose -f compose.base.yml -f compose.modules.outbound.yml -f compose.client.yml --env-file .env up -d
+
+# Integrations: Telegram, Nova Poshta, Google Sheet, Bitrix, Ringostat
+docker compose -f compose.base.yml -f compose.modules.integrations.yml -f compose.client.yml --env-file .env up -d
+
+# Finance
+docker compose -f compose.base.yml -f compose.modules.finance.yml -f compose.client.yml --env-file .env up -d
+
+# Full enterprise-style stack
+docker compose \
+  -f compose.base.yml \
+  -f compose.modules.outbound.yml \
+  -f compose.modules.integrations.yml \
+  -f compose.modules.finance.yml \
+  -f compose.modules.production-planning.yml \
+  -f compose.client.yml \
+  --env-file .env up -d
+```
+
+Module overlays set `MODULE_GATING_ENABLED=true`. Effective module access still depends on the client license and runtime enabled state in the client DB.
+
+### Verify
+
+```bash
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env ps
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env exec backend wget -O- http://localhost:3001/system/version
+```
+
+Ответ `/system/version` должен содержать `version`, `commitSha`, `builtAt` и `nodeEnv`.
+
+### Typical configurations
+
+Minimal core:
+
+```bash
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
+```
+
+CRM with Telegram/Nova Poshta/integration features:
+
+```bash
+docker compose \
+  -f compose.base.yml \
+  -f compose.modules.integrations.yml \
+  -f compose.client.yml \
+  --env-file .env up -d
+```
+
+Full enterprise-style configuration:
+
+```bash
+docker compose \
+  -f compose.base.yml \
+  -f compose.modules.outbound.yml \
+  -f compose.modules.integrations.yml \
+  -f compose.modules.finance.yml \
+  -f compose.modules.production-planning.yml \
+  -f compose.client.yml \
+  --env-file .env up -d
+```
+
+### Updating versions
+
+1. Измени `BACKEND_VERSION`, `WEB_VERSION` или `STORE_VERSION` в `.env`.
+2. Загрузи новые images:
+   ```bash
+   docker compose -f compose.base.yml -f compose.client.yml --env-file .env pull
+   ```
+3. Перезапусти нужные сервисы:
+   ```bash
+   docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d backend web store
+   ```
+
+### Rollback
+
+1. Верни предыдущий tag в `.env`, например `BACKEND_VERSION=0.1.0`.
+2. Pull старого image и перезапусти сервис:
+   ```bash
+   docker compose -f compose.base.yml -f compose.client.yml --env-file .env pull backend
+   docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d backend
+   ```
+3. Если rollback затрагивает БД-миграции, сначала восстанови PostgreSQL backup. Автоматического down-migrate нет.
+
+### Compatibility window
+
+Текущая Track D delivery line: `0.1.x`.
+
+| Component | Compatible versions |
+| --- | --- |
+| `crm-backend-core` | `0.1.x` |
+| `crm-web` | `0.1.x` |
+| `crm-store` | `0.1.x` |
+| `compose.base.yml` | `0.1.x` delivery line |
+| `compose.client.yml` | `0.1.x` delivery line |
+| `compose.modules.*.yml` | `0.1.x` delivery line |
+
+Правила совместимости:
+
+- Patch releases внутри `0.1.x` считаются совместимыми между core/web/store и compose files.
+- Minor bump, например `0.2.0`, требует review compose/env/migrations перед обновлением клиента.
+- D3 module overlays пока являются config overlays для in-process modules внутри `crm-backend-core`, а не отдельными `crm-module-*` images.
+- Rollback image tag безопасен только если применённые DB migrations совместимы назад. Если migration уже изменила данные или схему несовместимо, rollback начинается с восстановления PostgreSQL backup.
+- `v1.0.0` зарезервирован для первого платного production-клиента.
+
+### Migration from docker-compose.prod.yml
+
+`docker-compose.prod.yml` остаётся deprecated compatibility entrypoint до проверки новой модели на реальном окружении. Для перехода:
+
+1. Сделай backup БД старого стека:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env exec postgres pg_dump -U crm -d crm -Fc > crm-before-registry.dump
+   ```
+2. Останови legacy stack:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env down
+   ```
+3. Подготовь `.env` для registry stack из `.env.base.example` + `.env.client.example`; выставь те же домены, secrets, license path и нужные module env.
+4. Запусти новый stack с нужными overlays:
+   ```bash
+   docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
+   ```
+5. Если используется новый volume, восстанови backup в PostgreSQL до запуска backend или в maintenance window.
+6. Проверь `/system/version`, health, license status и ключевые пользовательские сценарии.
+
+Не запускай legacy и registry stacks одновременно против одной и той же БД.
+
+## Деплой на Netcup (Docker + GitHub Actions) — DEPRECATED
+
+Этот раздел описывает legacy build-on-server модель через `docker-compose.prod.yml`. Она остаётся рабочей до стабилизации registry-based delivery, но будет удалена после проверки новой модели на реальном окружении.
 
 Деплой по `git push` в `main`: на VPS поднимается стек из `docker-compose.prod.yml` (PostgreSQL, backend, web, store).
 

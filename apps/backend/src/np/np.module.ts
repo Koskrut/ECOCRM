@@ -1,6 +1,7 @@
 // src/np/np.module.ts
 import { Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
+import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { PrismaModule } from "../prisma/prisma.module";
 
 import { NpClient } from "./np-client.service";
@@ -10,14 +11,15 @@ import { NpSyncCron } from "./np-sync.cron";
 import { NpTtnCron } from "./np-ttn.cron";
 import { NpController } from "./np.controller";
 import { NpTtnController } from "./np-ttn.controller";
+import { NpIntegrationAdapter } from "./np-integration.adapter";
 
 @Module({
-  imports: [PrismaModule, ScheduleModule.forRoot()],
+  imports: [PrismaModule, IntegrationPortsModule, ScheduleModule.forRoot()],
   controllers: [
     NpController, // /np/cities /np/warehouses /np/streets /np/sync
     NpTtnController, // /np/ttn/:orderId + /np/sender/check
   ],
-  providers: [NpClient, NpTtnService, NpSyncService, NpSyncCron, NpTtnCron],
+  providers: [NpClient, NpTtnService, NpSyncService, NpSyncCron, NpTtnCron, NpIntegrationAdapter],
   exports: [NpTtnService, NpSyncService],
 })
 export class NpModule {}

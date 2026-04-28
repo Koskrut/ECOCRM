@@ -7,6 +7,8 @@ apps/web/.env
 apps/web/.env.local
 .env
 .env.local
+.local/
+*.pem
 
 # docker prod local overrides (do not push; server has its own config)
 docker-compose.prod.local.yml
@@ -32,6 +34,7 @@ crm_dump.sql
 *.swo
 *~
 package-lock.json
+apps/*/src/version.ts
 apps/web/test-results/
 
 # local env

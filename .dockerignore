@@ -1,0 +1,16 @@
+**/node_modules
+**/.next
+**/dist
+.git
+.env
+.env.*
+*.log
+npm-debug.log*
+.coverage
+.nyc_output
+**/__tests__
+**/*.spec.ts
+**/*.test.ts
+crm_dump.sql
+license_private_key.pem
+license_public_key.pem

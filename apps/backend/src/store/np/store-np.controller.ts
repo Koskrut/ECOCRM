@@ -1,13 +1,13 @@
 import { Controller, Get, Query } from "@nestjs/common";
-import { NpSyncService } from "../../np/np-sync.service";
+import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 
 @Controller("store/np")
 export class StoreNpController {
-  constructor(private readonly npSync: NpSyncService) {}
+  constructor(private readonly integrations: IntegrationPortsService) {}
 
   @Get("cities")
   async cities(@Query("q") q = "", @Query("limit") limit?: string) {
-    return this.npSync.searchCities({
+    return this.integrations.searchNpCities({
       q,
       limit: limit ? Number(limit) : undefined,
     });
@@ -20,7 +20,7 @@ export class StoreNpController {
     @Query("limit") limit?: string,
     @Query("type") type?: "WAREHOUSE" | "POSTOMAT",
   ) {
-    return this.npSync.searchWarehouses({
+    return this.integrations.searchNpWarehouses({
       cityRef,
       q,
       limit: limit ? Number(limit) : undefined,
@@ -35,7 +35,7 @@ export class StoreNpController {
     @Query("limit") limit?: string,
     @Query("browse") browse?: string,
   ) {
-    return this.npSync.searchStreets({
+    return this.integrations.searchNpStreets({
       cityRef: cityRef.trim(),
       q: q.trim(),
       limit: limit ? Number(limit) : undefined,

@@ -11,12 +11,15 @@ import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { CompleteSessionDto } from "./dto/complete-session.dto";
 import { EnqueueQueueItemDto } from "./dto/enqueue-queue-item.dto";
 import { StartSessionDto } from "./dto/start-session.dto";
 import { ManualCallingService } from "./manual-calling.service";
 
 @Controller("manual-calling")
+@RequireModule(ModuleIds.VoiceOutbound)
 @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
 export class ManualCallingController {
   constructor(private readonly manualCalling: ManualCallingService) {}

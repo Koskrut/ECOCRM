@@ -1,10 +1,7 @@
-import type { ModuleId } from "./module-ids";
-
-export type ModuleKind = "core" | "extension";
-
-export type ModuleDef = {
-  id: ModuleId;
-  kind: ModuleKind;
-  displayName: string;
-  dependsOn: ModuleId[];
-};
+export type {
+  ModuleControlPlane,
+  ModuleDelivery,
+  ModuleId,
+  ModuleKind,
+} from "@crm/contracts/modules";
+export type { ModuleRegistrationV1 as ModuleDef } from "@crm/module-sdk/manifest";

@@ -16,6 +16,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { BankAccountsService } from "./bank-accounts.service";
 import { BankSyncService } from "./bank-sync.service";
 import type { CreateBankAccountDto } from "./dto/create-bank-account.dto";
@@ -23,6 +25,7 @@ import type { UpdateBankAccountDto } from "./dto/update-bank-account.dto";
 import { parseCsvToRows, parsePrivat24CsvRows } from "./providers/privat24.provider";
 
 @Controller("bank/accounts")
+@RequireModule(ModuleIds.Finance)
 @Roles(UserRole.ADMIN)
 export class BankAccountsController {
   constructor(

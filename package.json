@@ -2,7 +2,8 @@
   "name": "crm",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "format": "prettier . --write",

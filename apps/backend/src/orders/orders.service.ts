@@ -18,7 +18,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
+import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { WarehousesService } from "../warehouses/warehouses.service";
@@ -94,7 +94,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly warehousesService: WarehousesService,
     private readonly settings: SettingsService,
-    private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
+    private readonly integrations: IntegrationPortsService,
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
   ) {}
 
@@ -1227,7 +1227,7 @@ export class OrdersService {
     if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
         if (sendOnReadyToShip) {
-          this.googleSheetSendOrder.sendOrderToSheet(id, { exportDate: new Date() }).catch((err) => {
+          this.integrations.sendOrderToSheet(id, { exportDate: new Date() }).catch((err) => {
             if (err instanceof Error) this.logger.error(`Send to sheet failed: ${err.message}`);
           });
         }

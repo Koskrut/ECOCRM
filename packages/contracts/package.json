@@ -1,0 +1,24 @@
+{
+  "name": "@crm/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "modules": ["src/modules.d.ts"],
+      "*": ["src/index.d.ts"]
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./modules": {
+      "types": "./src/modules.d.ts",
+      "default": "./src/modules.js"
+    }
+  }
+}

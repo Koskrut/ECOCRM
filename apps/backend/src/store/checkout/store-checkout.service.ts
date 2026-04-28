@@ -10,7 +10,7 @@ import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
-import { BankAccountsService } from "../../bank/bank-accounts.service";
+import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { OrdersService } from "../../orders/orders.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
@@ -45,7 +45,7 @@ export class StoreCheckoutService {
     private readonly ordersService: OrdersService,
     private readonly cartService: StoreCartService,
     private readonly settings: SettingsService,
-    private readonly bankAccounts: BankAccountsService,
+    private readonly integrations: IntegrationPortsService,
     private readonly productStore: ProductStore,
   ) {}
 
@@ -364,7 +364,7 @@ export class StoreCheckoutService {
     const rates = await this.settings.getExchangeRates();
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
 
-    const bankAccountId = await this.bankAccounts.resolveStoreDefaultBankAccountIdForCheckout();
+    const bankAccountId = await this.integrations.resolveStoreDefaultBankAccountIdForCheckout();
 
     const order = await this.ordersService.create(
       {

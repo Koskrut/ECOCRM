@@ -1,0 +1,9 @@
+# Production Planning activation overlay.
+# Current state: ext.production_planning is still in-process inside crm-backend-core.
+
+services:
+  backend:
+    environment:
+      MODULE_GATING_ENABLED: "true"
+
+      # ext.production_planning has no required environment variables in D3.

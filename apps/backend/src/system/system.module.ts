@@ -9,6 +9,16 @@ import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service
 import { SystemController } from "./system.controller";
 import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemVersionService } from "./system-version.service";
+
+const activeLicenseProviderClass =
+  process.env.LICENSE_MODE === "server" ? LicenseServerProvider : FileLicenseStateProvider;
+
+console.log(
+  `[LicenseModule] Active provider: ${
+    process.env.LICENSE_MODE === "server" ? "LicenseServerProvider" : "FileLicenseStateProvider"
+  }`,
+);
 
 const activeLicenseProviderClass =
   process.env.LICENSE_MODE === "server" ? LicenseServerProvider : FileLicenseStateProvider;
@@ -25,6 +35,7 @@ console.log(
     ModuleStateService,
     ControlPlanePhoneHomeService,
     SystemReleaseService,
+    SystemVersionService,
     SystemModulesEnabledWriteService,
     {
       provide: EnabledModulesProvider,

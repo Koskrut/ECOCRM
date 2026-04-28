@@ -15,8 +15,7 @@ import {
 import type { OrderStage, OrderStatus } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
-import { GoogleSheetSendOrderService } from "../integrations/google-sheet/google-sheet-send-order.service";
-import { PaymentsService } from "../payments/payments.service";
+import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PaymentRequestsService } from "../payment-requests/payment-requests.service";
 import { CreatePaymentRequestDto } from "../payment-requests/dto/create-payment-request.dto";
 import { Roles } from "../auth/roles.decorator";
@@ -39,9 +38,8 @@ import type { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
 export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
-    private readonly payments: PaymentsService,
+    private readonly integrations: IntegrationPortsService,
     private readonly paymentRequests: PaymentRequestsService,
-    private readonly googleSheetSendOrder: GoogleSheetSendOrderService,
     private readonly ordersDocuments: OrdersDocumentsService,
     private readonly orderReturns: OrderReturnsService,
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
@@ -77,7 +75,7 @@ export class OrdersController {
 
   @Get(":id/payments")
   getPayments(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.payments.listByOrderId(id, req.user);
+    return this.integrations.listOrderPaymentsByOrderId(id, req.user);
   }
 
   @Get(":id/payment-requests")
@@ -171,7 +169,7 @@ export class OrdersController {
   @Post(":id/send-to-sheet")
   async sendToSheet(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     await this.orders.getById(id, req.user);
-    await this.googleSheetSendOrder.sendOrderToSheet(id, { exportDate: new Date() });
+    await this.integrations.sendOrderToSheet(id, { exportDate: new Date() });
     return { ok: true };
   }
 

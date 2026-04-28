@@ -1,7 +1,6 @@
 import { Module } from "@nestjs/common";
-import { BankModule } from "../bank/bank.module";
 import { ContactsModule } from "../contacts/contacts.module";
-import { NpModule } from "../np/np.module";
+import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { OrdersModule } from "../orders/orders.module";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
 import { PrismaModule } from "../prisma/prisma.module";
@@ -27,12 +26,11 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
   imports: [
     PrismaModule,
     SettingsModule,
+    IntegrationPortsModule,
     StoreAuthModule,
-    BankModule,
     ContactsModule,
     ProductsModule,
     OrdersModule,
-    NpModule,
     PaymentRequestsModule,
   ],
   controllers: [

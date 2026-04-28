@@ -21,11 +21,10 @@ import {
   deriveUiStepKey,
 } from "../../leads/pipeline/lead-pipeline.defaults";
 
+import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { OrdersService } from "../../orders/orders.service";
-import { PaymentsService } from "../../payments/payments.service";
 import { PaymentRequestsService } from "../../payment-requests/payment-requests.service";
-import { GoogleSheetSendOrderService } from "../../integrations/google-sheet/google-sheet-send-order.service";
 import { OrdersDocumentsService } from "../../orders/orders-documents.service";
 import { OrderReturnsService } from "../../order-returns/order-returns.service";
 import { LeadsService } from "../../leads/leads.service";
@@ -139,9 +138,8 @@ class InMemoryPipelinePrisma {
     LeadsPipelineConfigService,
     { provide: PrismaService, useFactory: () => new InMemoryPipelinePrisma() },
     { provide: OrdersService, useValue: {} },
-    { provide: PaymentsService, useValue: {} },
+    { provide: IntegrationPortsService, useValue: {} },
     { provide: PaymentRequestsService, useValue: {} },
-    { provide: GoogleSheetSendOrderService, useValue: {} },
     { provide: OrdersDocumentsService, useValue: {} },
     { provide: OrderReturnsService, useValue: {} },
     { provide: LeadsService, useValue: {} },

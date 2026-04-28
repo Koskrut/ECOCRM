@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { readFile } from "node:fs/promises";
 import { createPublicKey, verify } from "node:crypto";
-import { MODULE_REGISTRY } from "../module-registry";
+import { coreModuleIds, entitledModuleIds } from "../module-registry";
 import type { ModuleId } from "../module-ids";
 import {
   LicenseStateProvider,
@@ -41,30 +41,12 @@ function shortLicenseId(licenseId: string | null): string | null {
   return licenseId.length <= 8 ? licenseId : `${licenseId.slice(0, 8)}...`;
 }
 
-function coreModuleIds(): Set<ModuleId> {
-  const ids = Object.keys(MODULE_REGISTRY) as ModuleId[];
-  const out = new Set<ModuleId>();
-  for (const id of ids) {
-    if (MODULE_REGISTRY[id]?.kind === "core") out.add(id);
-  }
-  return out;
-}
-
-function knownExtensionModuleIds(): Set<ModuleId> {
-  const ids = Object.keys(MODULE_REGISTRY) as ModuleId[];
-  const out = new Set<ModuleId>();
-  for (const id of ids) {
-    if (MODULE_REGISTRY[id]?.kind === "extension") out.add(id);
-  }
-  return out;
-}
-
 @Injectable()
 export class FileLicenseStateProvider extends LicenseStateProvider {
   private readonly filePath = process.env.LICENSE_FILE_PATH;
   private readonly publicKeyPem = process.env.LICENSE_PUBLIC_KEY;
-  private readonly coreModules = coreModuleIds();
-  private readonly extensionModules = knownExtensionModuleIds();
+  private readonly coreModules = new Set(coreModuleIds());
+  private readonly entitledModules = new Set(entitledModuleIds());
 
   async getLicenseState(): Promise<LicenseState> {
     if (!this.filePath) {
@@ -89,7 +71,7 @@ export class FileLicenseStateProvider extends LicenseStateProvider {
     const licensedModules = new Set<ModuleId>(this.coreModules);
     for (const id of payload.modules) {
       const moduleId = id as ModuleId;
-      if (this.extensionModules.has(moduleId)) licensedModules.add(moduleId);
+      if (this.entitledModules.has(moduleId)) licensedModules.add(moduleId);
     }
 
     return {
