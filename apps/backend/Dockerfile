@@ -61,8 +61,8 @@ RUN npm install --workspace=backend --omit=dev && npm cache clean --force
 
 COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /repo/apps/backend/dist ./apps/backend/dist
-COPY apps/backend/prisma ./apps/backend/prisma
-COPY apps/backend/prisma.config.cjs ./apps/backend/
+COPY --from=builder /repo/apps/backend/prisma ./apps/backend/prisma
+COPY --from=builder /repo/apps/backend/prisma.config.cjs ./apps/backend/prisma.config.cjs
 
 FROM runtime-base AS migrate
 CMD ["sh", "-c", "cd apps/backend && npx prisma migrate deploy"]
@@ -71,3 +71,17 @@ FROM runtime-base AS runner
 EXPOSE 3001
 
 CMD ["sh", "-c", "cd apps/backend && node dist/main.js"]
+
+# Optional: standalone voice outbound slice (same repo build, different entrypoint).
+# Prisma migrations still use the migrate image built from this Dockerfile (`migrate` target).
+FROM runtime-base AS outbound-runner
+ARG IMAGE_VERSION="0.0.0-dev"
+ARG VCS_REF="unknown"
+LABEL org.opencontainers.image.title="ECOCRM Module Outbound" \
+      org.opencontainers.image.version=$IMAGE_VERSION \
+      org.opencontainers.image.source="https://github.com/Koskrut/ECOCRM" \
+      org.opencontainers.image.revision=$VCS_REF
+
+EXPOSE 3001
+
+CMD ["sh", "-c", "cd apps/backend && node dist/outbound-main.js"]
