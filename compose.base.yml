@@ -20,7 +20,7 @@ services:
   backend-migrate:
     image: ghcr.io/koskrut/crm-backend-core:${BACKEND_VERSION:?Set BACKEND_VERSION}
     restart: "no"
-    working_dir: /repo/apps/backend
+    working_dir: /app
     command: ["npx", "prisma", "migrate", "deploy"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
