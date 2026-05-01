@@ -15,7 +15,8 @@
     "dev:store": "npm run dev --workspace=store",
     "dev:gateway": "npm run dev --workspace=gateway-service",
     "import:characteristics": "npm run import:characteristics --workspace=backend --",
-    "import:characteristic": "npm run import:characteristic --workspace=backend --"
+    "import:characteristic": "npm run import:characteristic --workspace=backend --",
+    "license:issue": "node scripts/issue-file-license.mjs"
   },
   "devDependencies": {
     "eslint-plugin-prettier": "^5.5.5"
