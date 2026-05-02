@@ -1,0 +1,12 @@
+{
+  "installationId": "REPLACE_WITH_CONTROL_PLANE_INSTALLATION_ID",
+  "productVersion": "REPLACE_WITH_MATCHING_CRM_IMAGE_VERSION",
+  "installedModules": [
+    { "code": "core.crm", "version": "REPLACE_WITH_MATCHING_CRM_IMAGE_VERSION" },
+    { "code": "ext.finance", "version": "REPLACE_WITH_MATCHING_CRM_IMAGE_VERSION" },
+    { "code": "int.nova_poshta", "version": "REPLACE_WITH_MATCHING_CRM_IMAGE_VERSION" }
+  ],
+  "enabledModules": ["core.crm", "ext.finance", "int.nova_poshta"],
+  "hardwareFingerprint": "manual-cli-phone-home",
+  "lastBootAt": "2026-05-01T12:00:00.000Z"
+}

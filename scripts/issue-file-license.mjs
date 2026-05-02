@@ -15,6 +15,10 @@
  *   LICENSE_FILE_PATH_HOST=/path/to/license.json (host path)
  *   LICENSE_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\n...\\n-----END PUBLIC KEY-----
  * (one line with \n escapes, as in .env.production.example)
+ *
+ * Control Plane phone-home (entitlement written by CP from subscription, not from body alone):
+ *   Copy scripts/phone-home-body.example.json → host path (e.g. /opt/crm/phone_home_body.json),
+ *   replace placeholders; installedModules/enabledModules should mirror CRM + CP subscription.
  */
 import {
   generateKeyPairSync,
