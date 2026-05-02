@@ -9,6 +9,8 @@ apps/web/.env.local
 .env.local
 .local/
 *.pem
+# Locally issued CRM file license (do not commit; prod uses /opt/crm/secrets/license.json)
+/license.json
 
 # docker prod local overrides (do not push; server has its own config)
 docker-compose.prod.local.yml

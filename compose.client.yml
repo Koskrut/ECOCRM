@@ -12,6 +12,9 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
 
       # File license mode is the default for client installs.
+      # Backend uses FileLicenseStateProvider: extension modules (e.g. ext.finance) are licensed ONLY
+      # from a valid signed license.json mounted at LICENSE_FILE_PATH. Pilot toggles / CP UI affect
+      # "enabled" only; without ext.finance inside the file, bank/payments routes stay 404 (Not Found).
       LICENSE_MODE: ${LICENSE_MODE:-file}
       LICENSE_FILE_PATH: ${LICENSE_FILE_PATH:-/run/secrets/license.json}
       LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
@@ -57,6 +60,8 @@ services:
       WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS: ${WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS:-30000}
       WORKFLOW_EXTERNAL_ACTION_CONCURRENCY: ${WORKFLOW_EXTERNAL_ACTION_CONCURRENCY:-5}
     volumes:
+      # Default /dev/null = no real license file → only core modules are "licensed". Set
+      # LICENSE_FILE_PATH_HOST to a host path with a real issued license.json (payload.modules includes ext.finance).
       - ${LICENSE_FILE_PATH_HOST:-/dev/null}:${LICENSE_FILE_PATH:-/run/secrets/license.json}:ro
       - license_cache:/data
     ports:
