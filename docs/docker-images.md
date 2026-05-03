@@ -4,7 +4,8 @@
 
 Production delivery images are pulled from GHCR using lowercase names:
 
-- `ghcr.io/koskrut/crm-backend-core:<version>`
+- `ghcr.io/koskrut/crm-backend-core:<version>` (full Nest `AppModule`, default)
+- `ghcr.io/koskrut/crm-core-api:<version>` (Docker target `core-runner`, `AppModuleCore`)
 - `ghcr.io/koskrut/crm-web:<version>`
 - `ghcr.io/koskrut/crm-store:<version>`
 - `ghcr.io/koskrut/crm-module-<name>:<version>`
@@ -15,6 +16,25 @@ Examples:
 - `ghcr.io/koskrut/crm-web:0.1.0`
 - `ghcr.io/koskrut/crm-store:0.1.0`
 - `ghcr.io/koskrut/crm-module-outbound:0.1.0`
+
+Dockerfile targets on `apps/backend/Dockerfile` (same context as backend):
+
+| Target | Process | `BACKEND_VARIANT` |
+|--------|---------|-------------------|
+| `core-runner` | `core-main.js` | `core` |
+| `outbound-runner` | `outbound-main.js` | `outbound_worker` |
+| `google-sheet-runner` | `google-sheet-main.js` | `google_sheet_worker` |
+| `ringostat-runner` | `ringostat-main.js` | `ringostat_worker` |
+| `bitrix-runner` | `bitrix-main.js` | `bitrix_worker` |
+| `np-runner` | `np-main.js` | `np_worker` |
+| `finance-runner` | `finance-main.js` | `finance_worker` |
+| `planning-runner` | `planning-main.js` | `planning_worker` |
+
+Example module build:
+
+```bash
+docker build -f apps/backend/Dockerfile --target np-runner -t ghcr.io/koskrut/crm-module-np:0.1.0 .
+```
 
 GHCR requires lowercase repository names. Keep the `ghcr.io/koskrut/...` prefix lowercase.
 

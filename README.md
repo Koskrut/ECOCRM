@@ -25,7 +25,7 @@ CRM для команды продаж и операций:
 
 - `apps/backend` — API
 - `apps/web` — Web UI
-- `docs/` — документация проекта
+- `docs/` — документация проекта (в т.ч. [`docs/bio3ua-core-only.md`](docs/bio3ua-core-only.md), [`docs/module-internal-auth.md`](docs/module-internal-auth.md), [**релиз в Git**](docs/RELEASING.md), [workflow тегов и CI](docs/git-release-workflow.md))
 
 ## Требования
 
@@ -106,13 +106,34 @@ docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
 `backend-migrate` запускается как отдельный one-off service перед backend. Сам backend container не выполняет миграции в entrypoint.
 `compose.client.yml` публикует порты только на `127.0.0.1` по умолчанию; внешний HTTPS/reverse proxy настраивается отдельно.
 
-### Module overlays
-
-D3 overlays подключают in-process модули через конфигурацию `crm-backend-core`. Отдельные `crm-module-*` images появятся позже в Track E, когда модули будут физически вынесены в сервисы.
+**Интернет-магазин (`crm-store`):** по умолчанию в `compose.base.yml` нет сервиса `store`. Подключите overlay после `compose.client.yml`:
 
 ```bash
-# Outbound / AI calls
+docker compose -f compose.base.yml -f compose.client.yml -f compose.modules.store.yml --env-file .env up -d
+```
+
+### Module overlays
+
+D3 overlays подключают in-process модули через конфигурацию `crm-backend-core`. Первый **отдельный** module image: `crm-module-outbound` (`Dockerfile` target `outbound-runner`) + `compose.modules.outbound-sidecar.yml` (сервис `backend-outbound`). Чтобы не дублировать cron, на `backend` задайте `OUTBOUND_CRON_DISABLED=true`, пока живёт `backend-outbound`.
+
+Манифест релиза (CP) по умолчанию описывает только `compose.base.yml` и `compose.client.yml`; store и module overlays подключает агент/оператор по entitlements.
+
+**Установка bio3ua core-only** (без store, пустой enabled list, чистая БД): см. [`docs/bio3ua-core-only.md`](docs/bio3ua-core-only.md).
+
+**Один origin для UI:** при `crm-core-api` + `backend-outbound` задайте на core `OUTBOUND_UPSTREAM_URL=http://backend-outbound:3001` — тогда `/outbound` и `/integrations/outbound-voice` проксируются на модуль (см. [`docs/module-internal-auth.md`](docs/module-internal-auth.md)).
+
+```bash
+# Outbound / AI calls (env на monolith backend)
 docker compose -f compose.base.yml -f compose.modules.outbound.yml -f compose.client.yml --env-file .env up -d
+
+# Outbound как отдельный контейнер (module image + sidecar)
+# На backend: OUTBOUND_CRON_DISABLED=true в .env
+docker compose \
+  -f compose.base.yml \
+  -f compose.modules.outbound.yml \
+  -f compose.modules.outbound-sidecar.yml \
+  -f compose.client.yml \
+  --env-file .env up -d
 
 # Integrations: Telegram, Nova Poshta, Google Sheet, Bitrix, Ringostat
 docker compose -f compose.base.yml -f compose.modules.integrations.yml -f compose.client.yml --env-file .env up -d
@@ -120,7 +141,7 @@ docker compose -f compose.base.yml -f compose.modules.integrations.yml -f compos
 # Finance
 docker compose -f compose.base.yml -f compose.modules.finance.yml -f compose.client.yml --env-file .env up -d
 
-# Full enterprise-style stack
+# Full enterprise-style stack (добавь compose.modules.store.yml перед up, если нужен интернет-магазин)
 docker compose \
   -f compose.base.yml \
   -f compose.modules.outbound.yml \
@@ -131,7 +152,7 @@ docker compose \
   --env-file .env up -d
 ```
 
-Module overlays set `MODULE_GATING_ENABLED=true`. Effective module access still depends on the client license and runtime enabled state in the client DB.
+`MODULE_GATING_ENABLED` задаётся в `.env` / `compose.base.yml` (см. `MODULE_GATING_ENABLED`); выставьте `"true"` только после того, как все non-core маршруты закрыты `@RequireModule`. Effective module access зависит от лицензии и pilot/modules в БД.
 
 ### Verify
 
@@ -169,6 +190,7 @@ docker compose \
   -f compose.modules.integrations.yml \
   -f compose.modules.finance.yml \
   -f compose.modules.production-planning.yml \
+  -f compose.modules.store.yml \
   -f compose.client.yml \
   --env-file .env up -d
 ```
@@ -182,8 +204,9 @@ docker compose \
    ```
 3. Перезапусти нужные сервисы:
    ```bash
-   docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d backend web store
+   docker compose -f compose.base.yml -f compose.client.yml -f compose.modules.store.yml --env-file .env up -d backend web store
    ```
+   (без магазина опусти `-f compose.modules.store.yml` и сервис `store`.)
 
 ### Rollback
 
