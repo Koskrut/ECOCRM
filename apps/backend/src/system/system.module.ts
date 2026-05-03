@@ -3,6 +3,7 @@ import { EnabledModulesProvider } from "../modules/enabled/enabled-modules.provi
 import { SystemSettingEnabledModulesProvider } from "../modules/enabled/system-setting-enabled-modules.provider";
 import { FileLicenseStateProvider } from "../modules/license/file-license-state.provider";
 import { LicenseStateProvider } from "../modules/license/license-state.provider";
+import { ModuleHealthService } from "../modules/module-health.service";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
 import { SystemController } from "./system.controller";
@@ -15,6 +16,7 @@ const activeLicenseProviderClass = FileLicenseStateProvider;
 @Module({
   controllers: [SystemController],
   providers: [
+    ModuleHealthService,
     ModuleStateService,
     ControlPlanePhoneHomeService,
     SystemReleaseService,
@@ -29,6 +31,6 @@ const activeLicenseProviderClass = FileLicenseStateProvider;
       useClass: activeLicenseProviderClass,
     },
   ],
-  exports: [ModuleStateService],
+  exports: [ModuleHealthService, ModuleStateService],
 })
 export class SystemModule {}

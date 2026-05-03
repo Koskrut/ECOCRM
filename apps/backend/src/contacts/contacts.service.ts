@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { randomInt } from "crypto";
 import type { Prisma } from "@prisma/client";
-import { UserRole } from "@prisma/client";
+import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { signJwt } from "../auth/jwt";
 import { hashPassword } from "../auth/password";
@@ -36,10 +36,58 @@ import type {
   ContactCardAnalyticsScope,
   ContactCardSummaryResponse,
 } from "./contact-card-summary.types";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+
+function shallowFieldChanges(
+  keys: string[],
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): Record<string, { previous?: unknown; current?: unknown }> {
+  const changes: Record<string, { previous?: unknown; current?: unknown }> = {};
+  for (const k of keys) {
+    if (!dataShapeForDiff[k]) continue;
+    const prev = before[k];
+    const cur = after[k];
+    if (prev !== cur) changes[k] = { previous: prev, current: cur };
+  }
+  return changes;
+}
+
+/** Keys we diff for workflow triggers (subset of update DTO keys). */
+const dataShapeForDiff: Record<string, true> = {
+  companyId: true,
+  firstName: true,
+  lastName: true,
+  middleName: true,
+  phone: true,
+  email: true,
+  position: true,
+  address: true,
+  lat: true,
+  lng: true,
+  googlePlaceId: true,
+  ownerId: true,
+  isPrimary: true,
+  externalCode: true,
+  documentDisplayName: true,
+  region: true,
+  addressInfo: true,
+  city: true,
+  clientType: true,
+  status: true,
+  marketingCallOptOut: true,
+  nextActionType: true,
+  nextActionAt: true,
+  nextActionNote: true,
+  clientStage: true,
+};
 
 @Injectable()
 export class ContactsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workflowEmitter: WorkflowDomainEmitterService,
+  ) {}
 
   /** Варианты номера для проверки уникальности (0XX ↔ 380XX и т.д.). */
   private getPhoneCandidatesForUniqueness(phoneNorm: string): string[] {
@@ -434,7 +482,13 @@ export class ContactsService {
       include: { company: true, owner: true },
     });
 
-    return this.mapToEntity(contact);
+    const created = this.mapToEntity(contact);
+    this.workflowEmitter.emitRecordCreated(
+      CustomFieldEntityType.CONTACT,
+      contact.id,
+      created as unknown as Record<string, unknown>,
+    );
+    return created;
   }
 
   // ===== LIST =====
@@ -971,10 +1025,11 @@ export class ContactsService {
   ) {
     const existing = await this.prisma.contact.findUnique({
       where: { id },
-      select: { id: true, ownerId: true, phoneNormalized: true },
+      include: { company: true, owner: true },
     });
     if (!existing) throw new BadRequestException("contact not found");
     if (actor) this.assertContactAccess(existing, actor);
+    const before = this.mapToEntity(existing);
 
     if (data.phone !== undefined) {
       const phoneNormalized = getPhoneNormalizedDigits(data.phone);
@@ -997,7 +1052,20 @@ export class ContactsService {
       include: { company: true, owner: true },
     });
 
-    return this.mapToEntity(contact);
+    const next = this.mapToEntity(contact);
+    const changedKeys = Object.keys(data).filter((k) => dataShapeForDiff[k]);
+    const changes = shallowFieldChanges(
+      changedKeys,
+      before as unknown as Record<string, unknown>,
+      next as unknown as Record<string, unknown>,
+    );
+    this.workflowEmitter.emitRecordUpdated(
+      CustomFieldEntityType.CONTACT,
+      id,
+      next as unknown as Record<string, unknown>,
+      changes,
+    );
+    return next;
   }
 
   // ===== DELETE =====

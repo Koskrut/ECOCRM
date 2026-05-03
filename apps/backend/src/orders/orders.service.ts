@@ -10,6 +10,7 @@ import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma
 import type { OrderFinancialStatus, OrderStage } from "@prisma/client";
 import {
   ActivityType,
+  CustomFieldEntityType,
   OrderPaymentStatus,
   OrderSource,
   OrderStatus,
@@ -34,6 +35,7 @@ import {
 } from "./order-status-sync.mapper";
 import { validateOrderStageTransition } from "./order-stage-transitions";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -96,6 +98,7 @@ export class OrdersService {
     private readonly settings: SettingsService,
     private readonly integrations: IntegrationPortsService,
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
+    private readonly workflowEmitter: WorkflowDomainEmitterService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
@@ -642,7 +645,13 @@ export class OrdersService {
         });
       });
 
-      return this.mapToEntity(order);
+      const mapped = this.mapToEntity(order as unknown as Record<string, unknown>);
+      this.workflowEmitter.emitRecordCreated(
+        CustomFieldEntityType.ORDER,
+        order.id,
+        mapped as unknown as Record<string, unknown>,
+      );
+      return mapped;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new InternalServerErrorException(`Order create failed: ${msg}`);
@@ -662,6 +671,7 @@ export class OrdersService {
     });
     if (!existing) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(existing, actor);
+    const before = this.mapToEntity(existing as unknown as Record<string, unknown>);
 
     const data: Prisma.OrderUpdateInput = {};
 
@@ -773,7 +783,21 @@ export class OrdersService {
       include: ORDER_INCLUDE,
     });
     await this.syncActiveReservationsForOrder(id);
-    return this.mapToEntity(updated);
+    const next = this.mapToEntity(updated as unknown as Record<string, unknown>);
+    const keys = Object.keys(dto);
+    const b = before as unknown as Record<string, unknown>;
+    const n = next as unknown as Record<string, unknown>;
+    const changes: Record<string, { previous?: unknown; current?: unknown }> = {};
+    for (const k of keys) {
+      if (b[k] !== n[k]) changes[k] = { previous: b[k], current: n[k] };
+    }
+    this.workflowEmitter.emitRecordUpdated(
+      CustomFieldEntityType.ORDER,
+      id,
+      n,
+      Object.keys(changes).length ? changes : undefined,
+    );
+    return next;
   }
 
   async addItem(orderId: string, dto: AddOrderItemDto, actor?: AuthUser) {

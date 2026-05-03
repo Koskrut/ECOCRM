@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { ModuleStateService } from "../../modules/module-state.service";
+import { ModuleIds } from "../../modules/module-ids";
 import { PrismaService } from "../../prisma/prisma.service";
 import { BitrixDeltaSyncService } from "../bitrix-sync/bitrix.delta-sync.service";
 
@@ -24,6 +26,7 @@ export class BitrixWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deltaSync: BitrixDeltaSyncService,
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
   /** Store incoming webhook payload and return the created event (for async processing). */
@@ -157,7 +160,12 @@ export class BitrixWebhookService {
 
   @Cron("*/5 * * * *")
   async retryFailedEvents(): Promise<void> {
+    if (process.env.BITRIX_CRON_DISABLED === "true") return;
     if (process.env.BITRIX_WEBHOOK_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Bitrix);
+      if (!ok) return;
+    }
     try {
       const processed = await this.processPendingEvents(50);
       if (processed > 0) this.logger.log(`Bitrix webhook retry: processed ${processed} events`);

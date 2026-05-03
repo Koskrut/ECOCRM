@@ -1,13 +1,10 @@
 import { Module } from "@nestjs/common";
-import { RingostatModule } from "../integrations/ringostat/ringostat.module";
-import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsController } from "./settings.controller";
-import { SettingsService } from "./settings.service";
+import { SettingsServiceModule } from "./settings-service.module";
 
 @Module({
-  imports: [PrismaModule, RingostatModule],
+  imports: [SettingsServiceModule],
   controllers: [SettingsController],
-  providers: [SettingsService],
-  exports: [SettingsService],
+  exports: [SettingsServiceModule],
 })
 export class SettingsModule {}

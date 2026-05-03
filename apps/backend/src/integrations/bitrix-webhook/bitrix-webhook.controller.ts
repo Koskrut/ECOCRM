@@ -10,6 +10,8 @@ import {
 } from "@nestjs/common";
 import { Public } from "../../auth/public.decorator";
 import { BitrixWebhookService } from "./bitrix-webhook.service";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
 
 const WEBHOOK_SECRET_HEADER = "x-bitrix-webhook-secret";
 
@@ -65,6 +67,7 @@ function parseBitrixWebhookPayload(body: unknown): {
 }
 
 @Controller("integrations/bitrix")
+@RequireModule(ModuleIds.Bitrix)
 export class BitrixWebhookController {
   private readonly logger = new Logger(BitrixWebhookController.name);
 

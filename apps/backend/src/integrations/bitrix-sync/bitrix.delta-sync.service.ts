@@ -1,5 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { ModuleStateService } from "../../modules/module-state.service";
+import { ModuleIds } from "../../modules/module-ids";
 import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
 import { BitrixClient } from "./bitrix.client";
 import { BITRIX_INTEGRATION, BitrixSyncStateService } from "./bitrix.sync-state.service";
@@ -31,12 +33,18 @@ export class BitrixDeltaSyncService {
     private readonly prisma: PrismaService,
     private readonly syncState: BitrixSyncStateService,
     private readonly client: BitrixClient,
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
   @Cron("*/5 * * * *") // every 5 minutes
   async run(): Promise<void> {
+    if (process.env.BITRIX_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true" || process.env.BITRIX_SYNC_ENABLED !== "true") {
       return;
+    }
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Bitrix);
+      if (!ok) return;
     }
     try {
       await withRetryOnConnectionClosed(

@@ -3,6 +3,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
+import { mountModuleUpstreamProxies } from "./proxy/module-upstream-proxy.setup";
 
 // Suppress pg deprecation from @prisma/adapter-pg: transaction runs multiple queries on one
 // client without awaiting (Prisma engine + PgTransaction.performIO). Harmless until pg@9.
@@ -57,6 +58,8 @@ async function bootstrap() {
     origin: corsOrigins,
     credentials: true,
   });
+
+  mountModuleUpstreamProxies(app);
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3001;
 

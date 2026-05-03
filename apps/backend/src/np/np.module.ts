@@ -12,12 +12,14 @@ import { NpTtnCron } from "./np-ttn.cron";
 import { NpController } from "./np.controller";
 import { NpTtnController } from "./np-ttn.controller";
 import { NpIntegrationAdapter } from "./np-integration.adapter";
+import { StoreNpController } from "../store/np/store-np.controller";
 
 @Module({
   imports: [PrismaModule, IntegrationPortsModule, ScheduleModule.forRoot()],
   controllers: [
     NpController, // /np/cities /np/warehouses /np/streets /np/sync
     NpTtnController, // /np/ttn/:orderId + /np/sender/check
+    StoreNpController, // /store/np/* (catalog search for checkout)
   ],
   providers: [NpClient, NpTtnService, NpSyncService, NpSyncCron, NpTtnCron, NpIntegrationAdapter],
   exports: [NpTtnService, NpSyncService],

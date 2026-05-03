@@ -29,6 +29,7 @@ export class BankSyncCron {
   }
 
   private async run() {
+    if (process.env.FINANCE_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.Finance);

@@ -1,5 +1,6 @@
-import { Prisma, ReservationHardness, ReservationStatus } from "@prisma/client";
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { CustomFieldEntityType, Prisma, ReservationHardness, ReservationStatus } from "@prisma/client";
+import { BadRequestException, ConflictException, Injectable, Optional } from "@nestjs/common";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
@@ -106,6 +107,7 @@ export class ProductStore {
   constructor(
     private readonly prisma: PrismaService,
     private readonly productImageStore: ProductImageStore,
+    @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
   ) {}
 
   private toEntity(
@@ -215,6 +217,10 @@ export class ProductStore {
       });
       const product = await this.findById(row.id);
       if (!product) throw new Error("Product not found after create");
+      this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.PRODUCT, product.id, {
+        ...product,
+        characteristics: product.characteristics ?? undefined,
+      });
       return product;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -271,6 +277,15 @@ export class ProductStore {
         where: { id },
         data: update,
       });
+      if (result.count > 0 && this.workflowEmitter) {
+        const next = await this.findById(id);
+        if (next) {
+          this.workflowEmitter.emitRecordUpdated(CustomFieldEntityType.PRODUCT, id, {
+            ...next,
+            characteristics: next.characteristics ?? undefined,
+          });
+        }
+      }
       return result.count > 0;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

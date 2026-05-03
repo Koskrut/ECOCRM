@@ -17,6 +17,15 @@ import { WorkflowsService } from "./workflows.service";
 export class WorkflowsController {
   constructor(private readonly workflows: WorkflowsService) {}
 
+  @Get("executions")
+  listExecutions(@Query("ruleId") ruleId?: string, @Query("limit") limit?: string) {
+    const n = limit ? Number(limit) : undefined;
+    return this.workflows.listExecutions({
+      ruleId: ruleId?.trim() || undefined,
+      limit: n !== undefined && !Number.isNaN(n) ? n : undefined,
+    });
+  }
+
   @Get("rules")
   listRules(
     @Query("entityType") entityType?: string,

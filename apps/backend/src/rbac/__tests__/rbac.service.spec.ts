@@ -12,10 +12,10 @@ test("RbacService default mapping gives ADMIN all platform permissions", () => {
   assert.equal(permissions.has(PermissionKeys.CustomFieldsManage), true);
 });
 
-test("RbacService default mapping keeps manager metadata read-only", () => {
+test("RbacService default mapping gives manager metadata read+write (operational custom field values)", () => {
   const svc = new RbacService({} as never);
   const permissions = svc.getDefaultPermissionsForLegacyRole(UserRole.MANAGER);
   assert.equal(permissions.has(PermissionKeys.MetadataRead), true);
-  assert.equal(permissions.has(PermissionKeys.MetadataWrite), false);
+  assert.equal(permissions.has(PermissionKeys.MetadataWrite), true);
   assert.equal(permissions.has(PermissionKeys.LayoutsManage), false);
 });

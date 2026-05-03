@@ -11,6 +11,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { FileLicenseStateProvider } from "../file-license-state.provider";
 import { ModuleIds, type ModuleId } from "../../module-ids";
 import { registryModuleIds } from "../../module-registry";
+import { ModuleHealthService } from "../../module-health.service";
 import { ModuleStateService } from "../../module-state.service";
 import { EnabledModulesProvider } from "../../enabled/enabled-modules.provider";
 import type { LicenseState } from "../license-state.provider";
@@ -30,6 +31,14 @@ type LicenseFile = {
   payload: LicensePayload;
   signature: string;
 };
+
+class HealthOk {
+  isUpstreamOk(_id: ModuleId): boolean {
+    return true;
+  }
+}
+
+const healthOk = new HealthOk() as unknown as ModuleHealthService;
 
 function sortedJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((v) => sortedJson(v)).join(",")}]`;
@@ -119,7 +128,7 @@ test("smoke: valid license → status valid; Finance licensed+effective; outboun
     assert.equal(dto.status, "valid");
     assert.equal(state.isValid, true);
 
-    const svc = new ModuleStateService(new EnabledAllPilots(), lic);
+    const svc = new ModuleStateService(new EnabledAllPilots(), lic, healthOk);
     const rows = await svc.listStates();
     const fin = rows.find((m) => m.id === ModuleIds.Finance);
     const voice = rows.find((m) => m.id === ModuleIds.VoiceOutbound);
@@ -141,7 +150,7 @@ test("smoke: missing file → status missing; extensions unlicensed; core licens
     assert.equal(toLicenseStatusDto(state).status, "missing");
     assert.equal(state.isValid, false);
 
-    const svc = new ModuleStateService(new EnabledAllPilots(), lic);
+    const svc = new ModuleStateService(new EnabledAllPilots(), lic, healthOk);
     const rows = await svc.listStates();
     const core = rows.find((m) => m.id === ModuleIds.CoreCrm);
     const fin = rows.find((m) => m.id === ModuleIds.Finance);
@@ -166,7 +175,7 @@ test("smoke: invalid signature → status invalid; extensions fail-closed; core 
     assert.equal(toLicenseStatusDto(state).status, "invalid");
     assert.equal(state.isValid, false);
 
-    const svc = new ModuleStateService(new EnabledAllPilots(), lic);
+    const svc = new ModuleStateService(new EnabledAllPilots(), lic, healthOk);
     const rows = await svc.listStates();
     const core = rows.find((m) => m.id === ModuleIds.CoreCrm);
     const fin = rows.find((m) => m.id === ModuleIds.Finance);
@@ -191,7 +200,7 @@ test("smoke: expired license → status expired; extensions unlicensed; core lic
     assert.equal(toLicenseStatusDto(state).status, "expired");
     assert.equal(state.isValid, false);
 
-    const svc = new ModuleStateService(new EnabledAllPilots(), lic);
+    const svc = new ModuleStateService(new EnabledAllPilots(), lic, healthOk);
     const rows = await svc.listStates();
     const core = rows.find((m) => m.id === ModuleIds.CoreCrm);
     const fin = rows.find((m) => m.id === ModuleIds.Finance);

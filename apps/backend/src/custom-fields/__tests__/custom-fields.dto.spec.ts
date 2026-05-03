@@ -11,6 +11,8 @@ import {
 
 test("custom field parsers normalize entity and field types", () => {
   assert.equal(parseCustomFieldEntityType("contact"), CustomFieldEntityType.CONTACT);
+  assert.equal(parseCustomFieldEntityType("task"), CustomFieldEntityType.TASK);
+  assert.equal(parseCustomFieldEntityType("activity"), CustomFieldEntityType.ACTIVITY);
   assert.equal(parseCustomFieldType("dictionary_item"), CustomFieldType.DICTIONARY_ITEM);
 });
 

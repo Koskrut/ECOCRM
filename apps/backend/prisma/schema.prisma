@@ -224,6 +224,8 @@ enum CustomFieldEntityType {
   LEAD
   ORDER
   PRODUCT
+  TASK
+  ACTIVITY
 }
 
 enum CustomFieldType {
@@ -469,6 +471,7 @@ model User {
   callQueueItems             CallQueueItem[]
   manualCallSessions         ManualCallSession[]
   rbacAssignments            RbacUserRoleAssignment[]
+  dataImportJobsCreated      DataImportJob[]           @relation("DataImportJobCreatedBy")
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -1930,6 +1933,54 @@ model WorkflowExecutionLog {
   @@index([status, createdAt])
 }
 
+/// Generic CSV import job (core data onboarding).
+model DataImportJob {
+  id           String   @id @default(cuid())
+  targetEntity String
+  status       String   @default("draft")
+  fileName     String?
+  summary      Json?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdBy User @relation("DataImportJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([createdById])
+  @@index([status])
+  @@index([targetEntity])
+}
+
+/// User-defined entity type (dynamic CRM extension).
+model CustomEntityDefinition {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  pluralName  String?
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  records CustomEntityRecord[]
+
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model CustomEntityRecord {
+  id           String   @id @default(cuid())
+  definitionId String
+  data         Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  definition CustomEntityDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  @@index([definitionId])
+}
+
 model KitBom {
   id            String   @id @default(cuid())
   kitProductId  String
@@ -2194,6 +2245,21 @@ model BankTransaction {
   @@index([bankAccountId, bookedAt])
   @@index([bankAccountId])
   @@index([bookedAt])
+}
+
+/// Stores completed (or in-flight) finance POST responses keyed by Idempotency-Key header.
+model FinanceIdempotencyRecord {
+  id               String   @id @default(cuid())
+  idempotencyKey   String   @unique
+  httpMethod       String
+  path             String
+  bodySha256       String
+  /// 0 = handler not finished yet; otherwise HTTP status of cached response body.
+  responseStatus   Int
+  responseBody     Json?
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Payment {

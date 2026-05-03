@@ -22,6 +22,7 @@ import { PaymentsModule } from "./payments/payments.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { FinanceIdempotencyModule } from "./finance-idempotency/finance-idempotency.module";
 import { SettingsModule } from "./settings/settings.module";
 import { VisitsModule } from "./visits/visits.module";
 import { TasksModule } from "./tasks/tasks.module";
@@ -41,11 +42,14 @@ import { ProductionPlanningModule } from "./production-planning/production-plann
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
+import { DataImportModule } from "./data-import/data-import.module";
+import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
 
 @Module({
   imports: [
     IntegrationPortsModule,
     PrismaModule,
+    FinanceIdempotencyModule,
     AuditModule,
     SystemModule,
     SettingsModule,
@@ -81,6 +85,8 @@ import { AuditModule } from "./audit/audit.module";
     CallsModule,
     ManualCallingModule,
     ProductionPlanningModule,
+    DataImportModule,
+    CustomEntitiesModule,
   ],
   providers: [
     {

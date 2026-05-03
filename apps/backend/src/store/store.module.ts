@@ -18,7 +18,6 @@ import { StoreCheckoutPaymentLinkService } from "./checkout/store-checkout-payme
 import { StoreCheckoutService } from "./checkout/store-checkout.service";
 import { StoreLeadsController } from "./leads/store-leads.controller";
 import { StoreLeadsService } from "./leads/store-leads.service";
-import { StoreNpController } from "./np/store-np.controller";
 import { StoreConfigController } from "./store-config.controller";
 import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service";
 
@@ -41,7 +40,6 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreLeadsController,
     StoreCabinetController,
     StoreCustomerController,
-    StoreNpController,
   ],
   providers: [
     StoreCartService,

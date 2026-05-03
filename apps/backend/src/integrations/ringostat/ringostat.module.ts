@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../../prisma/prisma.module";
+import { SettingsServiceModule } from "../../settings/settings-service.module";
 import { RingostatBackfillService } from "./ringostat-backfill.service";
 import { RingostatController } from "./ringostat.controller";
 import { RingostatIngestService } from "./ringostat-ingest.service";
@@ -8,10 +9,11 @@ import { RingostatReconcileService } from "./ringostat-reconcile.service";
 import { RingostatRekeyUniqueidService } from "./ringostat-rekey-uniqueid.service";
 import { RingostatRecordingsRefreshService } from "./ringostat-recordings-refresh.service";
 import { RingostatLeadsRetrofitService } from "./ringostat-leads-retrofit.service";
+import { RingostatSettingsController } from "./ringostat-settings.controller";
 
 @Module({
-  imports: [PrismaModule],
-  controllers: [RingostatController],
+  imports: [PrismaModule, SettingsServiceModule],
+  controllers: [RingostatController, RingostatSettingsController],
   providers: [
     RingostatIngestService,
     RingostatPollingService,

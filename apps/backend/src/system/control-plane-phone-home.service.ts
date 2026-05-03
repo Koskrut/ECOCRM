@@ -7,6 +7,7 @@ import type { ModuleId } from "../modules/module-ids";
 import { MODULE_REGISTRY } from "../modules/module-registry";
 import { EnabledModulesProvider } from "../modules/enabled/enabled-modules.provider";
 import { VERSION } from "../version";
+import type { SystemControlPlaneDto } from "./dto/system-control-plane.dto";
 
 const PHONE_HOME_CRON = "*/2 * * * *";
 const REQUEST_TIMEOUT_MS = 5000;
@@ -19,11 +20,30 @@ export class ControlPlanePhoneHomeService implements OnApplicationBootstrap {
   private readonly controlPlaneToken =
     process.env.CONTROL_PLANE_TOKEN ?? process.env.CONTROL_PLANE_INSTALLATION_TOKEN;
   private readonly installationId = process.env.CONTROL_PLANE_INSTALLATION_ID;
-  private lastSentAtMs: number | null = null;
+  private lastAttemptAtMs: number | null = null;
+  private lastSuccessAtMs: number | null = null;
+  private lastHttpStatus: number | null = null;
+  private lastError: string | null = null;
 
   constructor(
     @Inject(EnabledModulesProvider) private readonly enabledProvider: EnabledModulesProvider,
   ) {}
+
+  getTelemetry(): SystemControlPlaneDto {
+    const url = Boolean(this.controlPlaneUrl?.trim());
+    const token = Boolean(this.controlPlaneToken?.trim());
+    const id = this.installationId?.trim() ?? null;
+    return {
+      controlPlaneMode: url && token && Boolean(id),
+      installationId: id,
+      controlPlaneUrlConfigured: url,
+      tokenConfigured: token,
+      lastAttemptAt: this.lastAttemptAtMs ? new Date(this.lastAttemptAtMs).toISOString() : null,
+      lastSuccessAt: this.lastSuccessAtMs ? new Date(this.lastSuccessAtMs).toISOString() : null,
+      lastHttpStatus: this.lastHttpStatus,
+      lastError: this.lastError,
+    };
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     await this.sendPhoneHome("startup");
@@ -36,13 +56,17 @@ export class ControlPlanePhoneHomeService implements OnApplicationBootstrap {
 
   private async sendPhoneHome(reason: "startup" | "cron"): Promise<void> {
     if (!this.controlPlaneUrl || !this.controlPlaneToken || !this.installationId) return;
-    if (reason === "cron" && this.lastSentAtMs && Date.now() - this.lastSentAtMs < 30_000) return;
+    if (reason === "cron" && this.lastSuccessAtMs && Date.now() - this.lastSuccessAtMs < 30_000) return;
+
+    this.lastAttemptAtMs = Date.now();
+    this.lastError = null;
+    this.lastHttpStatus = null;
 
     try {
       const payload = await this.buildPhoneHomePayload();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      const response = await fetch(`${this.controlPlaneUrl}/api/v1/phone-home`, {
+      const response = await fetch(`${this.controlPlaneUrl.replace(/\/+$/, "")}/api/v1/phone-home`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -53,14 +77,22 @@ export class ControlPlanePhoneHomeService implements OnApplicationBootstrap {
       });
       clearTimeout(timer);
 
+      this.lastHttpStatus = response.status;
+
       if (!response.ok) {
-        this.logger.warn(`Control Plane phone-home rejected: status=${response.status}; reason=${reason}`);
+        const text = await response.text().catch(() => "");
+        this.lastError = text ? text.slice(0, 500) : `HTTP ${response.status}`;
+        this.logger.warn(
+          `Control Plane phone-home rejected: status=${response.status}; reason=${reason}; body=${this.lastError}`,
+        );
         return;
       }
-      this.lastSentAtMs = Date.now();
+      this.lastSuccessAtMs = Date.now();
       this.logger.log(`Control Plane phone-home accepted; reason=${reason}`);
-    } catch {
-      this.logger.warn(`Control Plane phone-home failed; reason=${reason}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.lastError = msg;
+      this.logger.warn(`Control Plane phone-home failed; reason=${reason}; error=${msg}`);
     }
   }
 

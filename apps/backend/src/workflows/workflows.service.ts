@@ -20,6 +20,16 @@ import {
 export class WorkflowsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  listExecutions(query: { ruleId?: string; limit?: number }) {
+    const take = Math.min(200, Math.max(1, query.limit ?? 50));
+    return this.prisma.workflowExecutionLog.findMany({
+      where: query.ruleId ? { ruleId: query.ruleId } : undefined,
+      orderBy: { createdAt: "desc" },
+      take,
+      include: { rule: { select: { id: true, key: true, name: true } } },
+    });
+  }
+
   listRules(query: WorkflowRuleListQuery = {}) {
     return this.prisma.workflowRule.findMany({
       where: {

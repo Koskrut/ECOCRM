@@ -1,6 +1,12 @@
 // src/np/np-ttn.service.ts
 
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { NpClient } from "./np-client.service";
 import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
 import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
@@ -65,6 +71,11 @@ export class NpTtnService {
   // PUBLIC: create TTN
   // ======================
   async createFromOrder(orderId: string, dto: CreateNpTtnDto) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { contact: true, client: true },
@@ -241,17 +252,20 @@ export class NpTtnService {
       recipientSnapshot: resolved.data as Record<string, unknown>,
     });
 
-    // 4) save TTN record
-    const saved = await this.prisma.orderTtn.create({
-      data: {
-        orderId: order.id,
-        shipmentId: shipment.id,
-        carrier: "NOVA_POSHTA" as Carrier,
-        documentNumber: String(docData.IntDocNumber ?? ""),
-        documentRef: docData.Ref != null ? String(docData.Ref) : null,
-        cost: docData.CostOnSite != null ? Number(docData.CostOnSite) : null,
-        payloadSnapshot: { request: payload, response: doc } as Prisma.InputJsonValue,
-      },
+    // 4) save TTN record (row lock on Order to avoid double-create under retries / split deploy)
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "Order" WHERE id = ${order.id} FOR UPDATE`);
+      return tx.orderTtn.create({
+        data: {
+          orderId: order.id,
+          shipmentId: shipment.id,
+          carrier: "NOVA_POSHTA" as Carrier,
+          documentNumber: String(docData.IntDocNumber ?? ""),
+          documentRef: docData.Ref != null ? String(docData.Ref) : null,
+          cost: docData.CostOnSite != null ? Number(docData.CostOnSite) : null,
+          payloadSnapshot: { request: payload, response: doc } as Prisma.InputJsonValue,
+        },
+      });
     });
 
     // 4.5) persist TTN into Order.deliveryData (+ move NEW -> IN_WORK)
@@ -901,6 +915,11 @@ export class NpTtnService {
   // PUBLIC: clear TTN from order (delete in NP API, then OrderTtn + deliveryData)
   // ======================
   async clearTtnFromOrder(orderId: string) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, deliveryData: true },
@@ -953,6 +972,11 @@ export class NpTtnService {
   }
 
   async clearTtnFromShipment(shipmentId: string) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
       select: { id: true, orderId: true },
@@ -1010,6 +1034,11 @@ export class NpTtnService {
   }
 
   async unlinkTtnFromShipment(shipmentId: string) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
     const shipment = await this.prisma.shipment.findUnique({
       where: { id: shipmentId },
       select: { id: true },
@@ -1038,6 +1067,11 @@ export class NpTtnService {
     orderId: string,
     input?: { sourceShipmentId?: string | null; sourceDocumentNumber?: string | null },
   ) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { contact: true, client: true },

@@ -37,6 +37,8 @@ export type SystemModuleState = ModuleManifestV1 & {
   licensed: boolean;
   enabled: boolean;
   depsOk: boolean;
+  /** Runtime can reach module service (health); monolith defaults true until split images. */
+  reachable: boolean;
   effective: boolean;
 };
 

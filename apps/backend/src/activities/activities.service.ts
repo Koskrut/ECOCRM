@@ -1,8 +1,15 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from "@nestjs/common";
 import type { ActivityType } from "@prisma/client";
-import { UserRole } from "@prisma/client";
+import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 
 type CreateActivityBody = {
   type: ActivityType;
@@ -13,7 +20,10 @@ type CreateActivityBody = {
 
 @Injectable()
 export class ActivitiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
+  ) {}
 
   // ---------- ORDER ----------
   async listForOrder(orderId: string, actor?: AuthUser) {
@@ -27,13 +37,15 @@ export class ActivitiesService {
   async createForOrder(orderId: string, body: CreateActivityBody, user: AuthUser) {
     await this.assertOrderAccess(orderId, user);
     const data = this.normalizeBody(body);
-    return this.prisma.activity.create({
+    const act = await this.prisma.activity.create({
       data: {
         ...data,
         createdBy: user.id,
         orderId,
       },
     });
+    this.emitActivityCreated(act);
+    return act;
   }
 
   // ---------- CONTACT ----------
@@ -52,13 +64,15 @@ export class ActivitiesService {
   async createForContact(contactId: string, body: CreateActivityBody, user: AuthUser) {
     await this.assertContactAccess(contactId, user);
     const data = this.normalizeBody(body);
-    return this.prisma.activity.create({
+    const act = await this.prisma.activity.create({
       data: {
         ...data,
         createdBy: user.id,
         contactId,
       },
     });
+    this.emitActivityCreated(act);
+    return act;
   }
 
   // ---------- LEAD ----------
@@ -77,13 +91,15 @@ export class ActivitiesService {
   async createForLead(leadId: string, body: CreateActivityBody, user: AuthUser) {
     await this.assertLeadAccess(leadId, user);
     const data = this.normalizeBody(body);
-    return this.prisma.activity.create({
+    const act = await this.prisma.activity.create({
       data: {
         ...data,
         createdBy: user.id,
         leadId,
       },
     });
+    this.emitActivityCreated(act);
+    return act;
   }
 
   // ---------- COMPANY ----------
@@ -96,13 +112,15 @@ export class ActivitiesService {
 
   async createForCompany(companyId: string, body: CreateActivityBody, user: AuthUser) {
     const data = this.normalizeBody(body);
-    return this.prisma.activity.create({
+    const act = await this.prisma.activity.create({
       data: {
         ...data,
         createdBy: user.id,
         companyId,
       },
     });
+    this.emitActivityCreated(act);
+    return act;
   }
 
   // ---------- UPDATE / DELETE (by activity id) ----------
@@ -137,10 +155,32 @@ export class ActivitiesService {
               return d;
             })();
     }
-    return this.prisma.activity.update({
+    const prev = await this.prisma.activity.findUnique({ where: { id: activityId } });
+    const updated = await this.prisma.activity.update({
       where: { id: activityId },
       data,
     });
+    if (prev && this.workflowEmitter) {
+      const changes: Record<string, { previous?: unknown; current?: unknown }> = {};
+      if (dto.body !== undefined && prev.body !== updated.body) {
+        changes.body = { previous: prev.body, current: updated.body };
+      }
+      if (dto.title !== undefined && prev.title !== updated.title) {
+        changes.title = { previous: prev.title, current: updated.title };
+      }
+      if (dto.pinnedAt !== undefined && String(prev.pinnedAt ?? "") !== String(updated.pinnedAt ?? "")) {
+        changes.pinnedAt = { previous: prev.pinnedAt, current: updated.pinnedAt };
+      }
+      if (Object.keys(changes).length) {
+        this.workflowEmitter.emitRecordUpdated(
+          CustomFieldEntityType.ACTIVITY,
+          activityId,
+          activityToRecord(updated),
+          changes,
+        );
+      }
+    }
+    return updated;
   }
 
   async deleteOne(activityId: string, actor: AuthUser) {
@@ -212,6 +252,20 @@ export class ActivitiesService {
     }));
   }
 
+  private emitActivityCreated(act: {
+    id: string;
+    type: string;
+    title: string | null;
+    body: string;
+    orderId: string | null;
+    contactId: string | null;
+    companyId: string | null;
+    leadId: string | null;
+    callId: string | null;
+  }) {
+    this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.ACTIVITY, act.id, activityToRecord(act));
+  }
+
   private normalizeBody(body: CreateActivityBody) {
     if (!body?.type) throw new BadRequestException("type is required");
     if (!body?.body || String(body.body).trim().length === 0) {
@@ -234,4 +288,28 @@ export class ActivitiesService {
       occurredAt,
     };
   }
+}
+
+function activityToRecord(a: {
+  id: string;
+  type: string;
+  title: string | null;
+  body: string;
+  orderId: string | null;
+  contactId: string | null;
+  companyId: string | null;
+  leadId: string | null;
+  callId: string | null;
+}): Record<string, unknown> {
+  return {
+    id: a.id,
+    type: a.type,
+    title: a.title,
+    body: a.body,
+    orderId: a.orderId,
+    contactId: a.contactId,
+    companyId: a.companyId,
+    leadId: a.leadId,
+    callId: a.callId,
+  };
 }

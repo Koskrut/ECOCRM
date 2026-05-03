@@ -1,6 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PlanningItemType, ProductionStageCode } from "@prisma/client";
+import { ModuleStateService } from "../modules/module-state.service";
+import { ModuleIds } from "../modules/module-ids";
 import { PrismaService } from "../prisma/prisma.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { ProductionService } from "./production.service";
@@ -22,6 +24,7 @@ export class WeeklyPlanningJob {
     private readonly prisma: PrismaService,
     private readonly production: ProductionService,
     private readonly calculations: PlanningCalculationService,
+    @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
   @Cron("0 6 * * 1")
@@ -30,6 +33,11 @@ export class WeeklyPlanningJob {
   }
 
   async runNow() {
+    if (process.env.PLANNING_CRON_DISABLED === "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.ProductionPlanning);
+      if (!ok) return;
+    }
     const weekStart = getWeekStart();
     await this.production.ensureDefaultStages();
     const [qcQueue, packQueue, launch] = await Promise.all([

@@ -20,12 +20,12 @@ function parseBoolean(value: unknown): boolean | undefined {
 }
 
 @Controller("custom-fields")
-@Roles(UserRole.ADMIN)
-@RequirePermission(PermissionKeys.CustomFieldsManage)
 export class CustomFieldsController {
   constructor(private readonly customFields: CustomFieldsService) {}
 
   @Get("definitions")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   listDefinitions(@Query() query: Record<string, unknown>) {
     const parsed: CustomFieldDefinitionListQuery = {
       entityType: query.entityType !== undefined ? parseCustomFieldEntityType(query.entityType) : undefined,
@@ -36,31 +36,43 @@ export class CustomFieldsController {
   }
 
   @Post("definitions")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   createDefinition(@Body() body: UpsertCustomFieldDefinitionDto) {
     return this.customFields.createDefinition(body);
   }
 
   @Get("definitions/:idOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   getDefinition(@Param("idOrKey") idOrKey: string) {
     return this.customFields.getDefinition(idOrKey);
   }
 
   @Patch("definitions/:idOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   updateDefinition(@Param("idOrKey") idOrKey: string, @Body() body: UpsertCustomFieldDefinitionDto) {
     return this.customFields.updateDefinition(idOrKey, body);
   }
 
   @Delete("definitions/:idOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   removeDefinition(@Param("idOrKey") idOrKey: string) {
     return this.customFields.softDeleteDefinition(idOrKey);
   }
 
   @Post("definitions/:idOrKey/options")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   createOption(@Param("idOrKey") idOrKey: string, @Body() body: UpsertCustomFieldOptionDto) {
     return this.customFields.createOption(idOrKey, body);
   }
 
   @Patch("definitions/:idOrKey/options/:optionIdOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   updateOption(
     @Param("idOrKey") idOrKey: string,
     @Param("optionIdOrKey") optionIdOrKey: string,
@@ -70,16 +82,22 @@ export class CustomFieldsController {
   }
 
   @Delete("definitions/:idOrKey/options/:optionIdOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.CustomFieldsManage)
   removeOption(@Param("idOrKey") idOrKey: string, @Param("optionIdOrKey") optionIdOrKey: string) {
     return this.customFields.softDeleteOption(idOrKey, optionIdOrKey);
   }
 
   @Get("values/:entityType/:entityId")
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD, UserRole.USER)
+  @RequirePermission(PermissionKeys.MetadataRead)
   listValues(@Param("entityType") entityType: string, @Param("entityId") entityId: string) {
     return this.customFields.listValues(entityType, entityId);
   }
 
   @Put("values/:definitionIdOrKey/:entityId")
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
+  @RequirePermission(PermissionKeys.MetadataWrite)
   upsertValue(
     @Param("definitionIdOrKey") definitionIdOrKey: string,
     @Param("entityId") entityId: string,
@@ -89,6 +107,8 @@ export class CustomFieldsController {
   }
 
   @Delete("values/:definitionIdOrKey/:entityId")
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
+  @RequirePermission(PermissionKeys.MetadataWrite)
   clearValue(@Param("definitionIdOrKey") definitionIdOrKey: string, @Param("entityId") entityId: string) {
     return this.customFields.clearValue(definitionIdOrKey, entityId);
   }

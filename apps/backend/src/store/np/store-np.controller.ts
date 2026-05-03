@@ -1,7 +1,10 @@
 import { Controller, Get, Query } from "@nestjs/common";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
 
 @Controller("store/np")
+@RequireModule(ModuleIds.NovaPoshta)
 export class StoreNpController {
   constructor(private readonly integrations: IntegrationPortsService) {}
 

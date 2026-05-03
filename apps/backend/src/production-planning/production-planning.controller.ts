@@ -23,8 +23,11 @@ import { InventorySnapshotService } from "./inventory-snapshot.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { ProductionService } from "./production.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 
 @Controller("planning")
+@RequireModule(ModuleIds.ProductionPlanning)
 export class ProductionPlanningController {
   constructor(
     private readonly demandRules: DemandRulesService,

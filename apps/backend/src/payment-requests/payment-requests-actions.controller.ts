@@ -3,9 +3,12 @@ import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { PaymentRequestsService } from "./payment-requests.service";
 
 @Controller("payment-requests")
+@RequireModule(ModuleIds.Finance)
 export class PaymentRequestsActionsController {
   constructor(private readonly paymentRequests: PaymentRequestsService) {}
 

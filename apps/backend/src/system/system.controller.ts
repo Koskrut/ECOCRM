@@ -12,6 +12,8 @@ import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write
 import { SystemReleaseService } from "./system-release.service";
 import { SystemVersionService } from "./system-version.service";
 import { Public } from "../auth/public.decorator";
+import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
+import type { SystemControlPlaneDto } from "./dto/system-control-plane.dto";
 
 @Controller("system")
 export class SystemController {
@@ -22,6 +24,7 @@ export class SystemController {
     private readonly enabledWrite: SystemModulesEnabledWriteService,
     @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
     @Inject(SystemVersionService) private readonly versionService: SystemVersionService,
+    @Inject(ControlPlanePhoneHomeService) private readonly controlPlanePhoneHome: ControlPlanePhoneHomeService,
   ) {}
 
   @Get("modules")
@@ -39,6 +42,18 @@ export class SystemController {
   @Public()
   version(): SystemVersionDto {
     return this.versionService.getVersion();
+  }
+
+  @Get("backend-variant")
+  @Roles(UserRole.ADMIN)
+  backendVariant(): { variant: string } {
+    return { variant: process.env.BACKEND_VARIANT ?? "full" };
+  }
+
+  @Get("control-plane")
+  @Roles(UserRole.ADMIN)
+  controlPlane(): SystemControlPlaneDto {
+    return this.controlPlanePhoneHome.getTelemetry();
   }
 
   @Get("license-status")
@@ -78,6 +93,7 @@ export class SystemController {
         licensed: m.licensed,
         enabled: m.enabled,
         depsOk: m.depsOk,
+        reachable: m.reachable,
         effective: m.effective,
       })),
     };

@@ -43,7 +43,7 @@ export class WorkflowRuntimeService {
 
   @OnEvent(WORKFLOW_TRIGGER_EVENT, { async: true })
   handleWorkflowTrigger(event: WorkflowTriggerEvent) {
-    return this.evaluateTrigger(event.trigger, event.context);
+    return this.evaluateTrigger(event.trigger, event.context, "enforced");
   }
 
   async evaluateTrigger(

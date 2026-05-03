@@ -20,6 +20,7 @@ export class OutboundOrchestratorCron {
   /** Promote queue + dial attempts. */
   @Cron("*/2 * * * *")
   async run(): Promise<void> {
+    if (process.env.OUTBOUND_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
@@ -41,6 +42,7 @@ export class OutboundOrchestratorCron {
   /** Safe-mode delayed Call linking (no ambiguity, no overwrite). */
   @Cron("*/5 * * * *")
   async reconcileOutboundCallLinks(): Promise<void> {
+    if (process.env.OUTBOUND_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);

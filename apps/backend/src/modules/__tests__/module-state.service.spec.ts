@@ -4,6 +4,7 @@ import { assertModuleManifestV1 } from "@crm/module-sdk/manifest";
 import { ModuleIds, type ModuleId } from "../module-ids";
 import { MODULE_REGISTRY, entitledModuleIds, registryModuleIds } from "../module-registry";
 import { ModuleStateService } from "../module-state.service";
+import { ModuleHealthService } from "../module-health.service";
 import { EnabledModulesProvider } from "../enabled/enabled-modules.provider";
 import { LicenseStateProvider } from "../license/license-state.provider";
 
@@ -32,6 +33,12 @@ class LicenseStub extends LicenseStateProvider {
   }
 }
 
+class HealthStub {
+  isUpstreamOk(_id: ModuleId): boolean {
+    return true;
+  }
+}
+
 test("ModuleStateService: effective = installed && licensed && enabled && depsOk", async () => {
   const enabled = [
     ModuleIds.CoreCrm,
@@ -40,7 +47,7 @@ test("ModuleStateService: effective = installed && licensed && enabled && depsOk
     ModuleIds.IntegrationsTelegram,
   ];
   const licensed = enabled;
-  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed));
+  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed), new HealthStub() as unknown as ModuleHealthService);
   const states = await svc.listStates();
   const outbound = states.find((m) => m.id === ModuleIds.VoiceOutbound);
   assert.equal(outbound?.effective, true);
@@ -49,7 +56,7 @@ test("ModuleStateService: effective = installed && licensed && enabled && depsOk
 test("ModuleStateService: unlicensed => effective=false", async () => {
   const enabled = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound];
   const licensed = [ModuleIds.CoreCrm]; // outbound missing
-  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed));
+  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed), new HealthStub() as unknown as ModuleHealthService);
   const states = await svc.listStates();
   const outbound = states.find((m) => m.id === ModuleIds.VoiceOutbound);
   assert.equal(outbound?.licensed, false);
@@ -59,11 +66,31 @@ test("ModuleStateService: unlicensed => effective=false", async () => {
 test("ModuleStateService: disabled => effective=false", async () => {
   const enabled = [ModuleIds.CoreCrm];
   const licensed = [ModuleIds.CoreCrm, ModuleIds.Finance];
-  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed));
+  const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed), new HealthStub() as unknown as ModuleHealthService);
   const states = await svc.listStates();
   const finance = states.find((m) => m.id === ModuleIds.Finance);
   assert.equal(finance?.enabled, false);
   assert.equal(finance?.effective, false);
+});
+
+test("ModuleStateService: outbound_worker marks only core + voice outbound installed", async () => {
+  const prev = process.env.BACKEND_VARIANT;
+  process.env.BACKEND_VARIANT = "outbound_worker";
+  try {
+    const enabled = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound];
+    const licensed = enabled;
+    const svc = new ModuleStateService(new EnabledStub(enabled), new LicenseStub(licensed), new HealthStub() as unknown as ModuleHealthService);
+    const states = await svc.listStates();
+    const voice = states.find((m) => m.id === ModuleIds.VoiceOutbound);
+    const finance = states.find((m) => m.id === ModuleIds.Finance);
+    assert.equal(voice?.installed, true);
+    assert.equal(finance?.installed, false);
+    assert.equal(voice?.effective, true);
+    assert.equal(finance?.effective, false);
+  } finally {
+    if (prev === undefined) delete process.env.BACKEND_VARIANT;
+    else process.env.BACKEND_VARIANT = prev;
+  }
 });
 
 test("MODULE_REGISTRY: manifest ids, entitlements, and dependencies are consistent", () => {

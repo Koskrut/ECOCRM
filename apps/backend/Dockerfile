@@ -34,6 +34,7 @@ ENV IMAGE_TAG=$IMAGE_TAG
 
 ENV NODE_ENV=production
 ENV PORT=3001
+ENV BACKEND_VARIANT=full
 
 COPY package.json package-lock.json* ./
 COPY apps/backend/package.json ./apps/backend/package.json
@@ -50,6 +51,12 @@ EXPOSE 3001
 
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
 
+# Core CRM API only (smaller runtime surface; same Prisma schema, migrations via backend-migrate).
+FROM runner AS core-runner
+ENV BACKEND_VARIANT=core
+EXPOSE 3001
+CMD ["node", "dist/core-main.js"]
+
 # Publish workflow may request this target when include_outbound_in_manifest is true.
 # On branches without outbound-main, this matches runner; replace with a dedicated image when outbound ships on main.
 FROM runner AS outbound-runner
@@ -59,5 +66,36 @@ LABEL org.opencontainers.image.title="ECOCRM Module Outbound" \
       org.opencontainers.image.version=$IMAGE_VERSION \
       org.opencontainers.image.source="https://github.com/Koskrut/ECOCRM" \
       org.opencontainers.image.revision=$VCS_REF
+ENV BACKEND_VARIANT=outbound_worker
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["node", "dist/outbound-main.js"]
+
+FROM runner AS google-sheet-runner
+ENV BACKEND_VARIANT=google_sheet_worker
+EXPOSE 3001
+CMD ["node", "dist/google-sheet-main.js"]
+
+FROM runner AS ringostat-runner
+ENV BACKEND_VARIANT=ringostat_worker
+EXPOSE 3001
+CMD ["node", "dist/ringostat-main.js"]
+
+FROM runner AS bitrix-runner
+ENV BACKEND_VARIANT=bitrix_worker
+EXPOSE 3001
+CMD ["node", "dist/bitrix-main.js"]
+
+FROM runner AS np-runner
+ENV BACKEND_VARIANT=np_worker
+EXPOSE 3001
+CMD ["node", "dist/np-main.js"]
+
+FROM runner AS finance-runner
+ENV BACKEND_VARIANT=finance_worker
+EXPOSE 3001
+CMD ["node", "dist/finance-main.js"]
+
+FROM runner AS planning-runner
+ENV BACKEND_VARIANT=planning_worker
+EXPOSE 3001
+CMD ["node", "dist/planning-main.js"]

@@ -1,10 +1,13 @@
 // src/np/np-ttn.controller.ts
 import { Body, Controller, Delete, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { Request } from "express";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { NpTtnService } from "./np-ttn.service";
 import type { CreateNpTtnDto } from "./dto/create-np-ttn.dto";
 
 @Controller("np")
+@RequireModule(ModuleIds.NovaPoshta)
 export class NpTtnController {
   constructor(private readonly ttn: NpTtnService) {}
 

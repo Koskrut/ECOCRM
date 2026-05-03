@@ -5,6 +5,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
 import { SettingsModule } from "../settings/settings.module";
 import { WarehousesModule } from "../warehouses/warehouses.module";
+import { WorkflowsModule } from "../workflows/workflows.module";
 import { OrdersController } from "./orders.controller";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
@@ -19,6 +20,7 @@ import { OrderStatusService } from "./order-status.service";
     SettingsModule,
     IntegrationPortsModule,
     OrderReturnsModule,
+    WorkflowsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, OrderStatusService, OrdersDocumentsService, OrdersPipelineConfigService],

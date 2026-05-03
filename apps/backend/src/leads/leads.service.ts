@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import type { LeadChannel, LeadSource, LeadStatus, Prisma } from "@prisma/client";
 import {
+  CustomFieldEntityType,
   LeadEventType,
   LeadIdentityType,
   LeadStatus as LeadStatusEnum,
@@ -37,6 +38,7 @@ import {
 } from "./leads-meta-webhook.utils";
 import { normalizePhone, scoreLeadFromAnswers } from "./leads-meta.utils";
 import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 
 export type MetaIngestWebhookResult =
   | { ok: true; leadId: string; deduped: boolean }
@@ -77,6 +79,7 @@ export class LeadsService {
     private readonly companiesService: CompaniesService,
     private readonly ordersService: OrdersService,
     private readonly leadsPipelineConfig: LeadsPipelineConfigService,
+    private readonly workflowEmitter: WorkflowDomainEmitterService,
   ) {}
 
   // ===== ACCESS HELPERS =====
@@ -200,7 +203,13 @@ export class LeadsService {
         convertedOrder: { select: { id: true, orderNumber: true } },
       },
     });
-    return this.mapToEntity(withItems ?? lead);
+    const mapped = this.mapToEntity(withItems ?? lead);
+    this.workflowEmitter.emitRecordCreated(
+      CustomFieldEntityType.LEAD,
+      mapped.id,
+      mapped as unknown as Record<string, unknown>,
+    );
+    return mapped;
   }
 
   async list(q: ListLeadsQueryDto, actor?: AuthUser) {
@@ -297,12 +306,17 @@ export class LeadsService {
   }
 
   async update(id: string, dto: UpdateLeadDto, actor?: AuthUser) {
-    const existing = await this.prisma.lead.findUnique({
+    const existingFull = await this.prisma.lead.findUnique({
       where: { id },
-      select: { id: true, ownerId: true, status: true },
+      include: {
+        items: { include: { product: true } },
+        convertedOrder: { select: { id: true, orderNumber: true } },
+      },
     });
-    if (!existing) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(existing, actor);
+    if (!existingFull) throw new NotFoundException("Lead not found");
+    if (actor) this.assertLeadAccess(existingFull, actor);
+    const before = this.mapToEntity(existingFull);
+    const existing = { id: existingFull.id, ownerId: existingFull.ownerId, status: existingFull.status };
 
     const data: Prisma.LeadUpdateInput = {};
     if ("name" in dto) data.name = dto.name ?? null;
@@ -387,7 +401,21 @@ export class LeadsService {
         convertedOrder: { select: { id: true, orderNumber: true } },
       },
     });
-    return this.mapToEntity(updated!);
+    const next = this.mapToEntity(updated!);
+    const keys = Object.keys(dto).filter((k) => k !== "items");
+    const changes: Record<string, { previous?: unknown; current?: unknown }> = {};
+    const b = before as unknown as Record<string, unknown>;
+    const n = next as unknown as Record<string, unknown>;
+    for (const k of keys) {
+      if (b[k] !== n[k]) changes[k] = { previous: b[k], current: n[k] };
+    }
+    this.workflowEmitter.emitRecordUpdated(
+      CustomFieldEntityType.LEAD,
+      id,
+      n,
+      Object.keys(changes).length ? changes : undefined,
+    );
+    return next;
   }
 
   // ===== STATUS =====

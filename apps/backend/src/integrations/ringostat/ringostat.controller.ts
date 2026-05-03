@@ -8,10 +8,13 @@ import {
 } from "@nestjs/common";
 import { Public } from "../../auth/public.decorator";
 import { RingostatIngestService } from "./ringostat-ingest.service";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
 
 const WEBHOOK_SECRET_HEADER = "x-ringostat-webhook-secret";
 
 @Controller("integrations/ringostat")
+@RequireModule(ModuleIds.Ringostat)
 export class RingostatController {
   constructor(private readonly ingest: RingostatIngestService) {}
 

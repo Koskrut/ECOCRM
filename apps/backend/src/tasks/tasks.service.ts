@@ -3,9 +3,11 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { Prisma, TaskStatus } from "@prisma/client";
-import { UserRole } from "@prisma/client";
+import { CustomFieldEntityType, UserRole } from "@prisma/client";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateTaskDto } from "./dto/create-task.dto";
@@ -14,7 +16,10 @@ import type { UpdateTaskDto } from "./dto/update-task.dto";
 
 @Injectable()
 export class TasksService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
+  ) {}
 
   private assertTaskAccess(task: { assigneeId: string; createdById?: string | null }, actor: AuthUser): void {
     if (actor.role === UserRole.MANAGER && task.assigneeId !== actor.id && task.createdById !== actor.id) {
@@ -143,6 +148,11 @@ export class TasksService {
         order: { select: { id: true, orderNumber: true } },
       },
     });
+    this.workflowEmitter?.emitRecordCreated(
+      CustomFieldEntityType.TASK,
+      task.id,
+      taskRecordFromRow(task as unknown as TaskRowLike),
+    );
     return task;
   }
 
@@ -239,6 +249,7 @@ export class TasksService {
       throw new NotFoundException("Task not found");
     }
     this.assertTaskAccess(task, actor);
+    const prevSnapshot = taskRecordFromRow(task as unknown as TaskRowLike);
 
     const dueAt =
       body.dueAt !== undefined
@@ -250,7 +261,7 @@ export class TasksService {
         ? await this.resolveAndValidateAssigneeId(actor, body.assigneeId)
         : undefined;
 
-    return this.prisma.task.update({
+    const updated = await this.prisma.task.update({
       where: { id },
       data: {
         ...(body.title !== undefined && { title: body.title.trim() }),
@@ -270,6 +281,10 @@ export class TasksService {
         order: { select: { id: true, orderNumber: true } },
       },
     });
+    const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
+    const changes = diffTaskRecords(prevSnapshot, nextSnapshot);
+    this.workflowEmitter?.emitRecordUpdated(CustomFieldEntityType.TASK, id, nextSnapshot, changes);
+    return updated;
   }
 
   async complete(id: string, actor: AuthUser | undefined) {
@@ -281,7 +296,8 @@ export class TasksService {
       throw new NotFoundException("Task not found");
     }
     this.assertTaskAccess(task, actor);
-    return this.prisma.task.update({
+    const prevSnapshot = taskRecordFromRow(task as unknown as TaskRowLike);
+    const updated = await this.prisma.task.update({
       where: { id },
       data: { status: "DONE", completedAt: new Date() },
       include: {
@@ -293,6 +309,14 @@ export class TasksService {
         order: { select: { id: true, orderNumber: true } },
       },
     });
+    const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
+    this.workflowEmitter?.emitRecordUpdated(
+      CustomFieldEntityType.TASK,
+      id,
+      nextSnapshot,
+      diffTaskRecords(prevSnapshot, nextSnapshot),
+    );
+    return updated;
   }
 
   async cancel(id: string, actor: AuthUser | undefined) {
@@ -304,7 +328,8 @@ export class TasksService {
       throw new NotFoundException("Task not found");
     }
     this.assertTaskAccess(task, actor);
-    return this.prisma.task.update({
+    const prevSnapshot = taskRecordFromRow(task as unknown as TaskRowLike);
+    const updated = await this.prisma.task.update({
       where: { id },
       data: { status: "CANCELED" },
       include: {
@@ -316,5 +341,61 @@ export class TasksService {
         order: { select: { id: true, orderNumber: true } },
       },
     });
+    const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
+    this.workflowEmitter?.emitRecordUpdated(
+      CustomFieldEntityType.TASK,
+      id,
+      nextSnapshot,
+      diffTaskRecords(prevSnapshot, nextSnapshot),
+    );
+    return updated;
   }
+}
+
+type TaskRowLike = {
+  id: string;
+  title: string;
+  body: string | null;
+  status: string;
+  assigneeId: string;
+  createdById: string | null;
+  contactId: string | null;
+  companyId: string | null;
+  leadId: string | null;
+  orderId: string | null;
+  dueAt: Date | null;
+  completedAt: Date | null;
+};
+
+function taskRecordFromRow(t: TaskRowLike): Record<string, unknown> {
+  return {
+    id: t.id,
+    title: t.title,
+    body: t.body,
+    status: t.status,
+    assigneeId: t.assigneeId,
+    createdById: t.createdById,
+    contactId: t.contactId,
+    companyId: t.companyId,
+    leadId: t.leadId,
+    orderId: t.orderId,
+    dueAt: t.dueAt ? t.dueAt.toISOString() : null,
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+  };
+}
+
+function diffTaskRecords(
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, { previous?: unknown; current?: unknown }> | undefined {
+  const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  const out: Record<string, { previous?: unknown; current?: unknown }> = {};
+  for (const k of keys) {
+    const a = prev[k];
+    const b = next[k];
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      out[k] = { previous: a, current: b };
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
 }

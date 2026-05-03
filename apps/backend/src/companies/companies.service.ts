@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { UserRole } from "@prisma/client";
+import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import type { AuthUser } from "../auth/auth.types";
 import type { Pagination } from "../common/pagination";
 import { normalizePhoneToE164 } from "../common/phone.utils";
@@ -31,7 +32,10 @@ function isPrismaUniqueError(e: unknown): boolean {
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
+  ) {}
 
   public async create(dto: CreateCompanyDto, actor?: AuthUser): Promise<Company> {
     const companyPhone =
@@ -70,6 +74,16 @@ export class CompaniesService {
             { field: "googlePlaceId", oldValue: null, newValue: dto.googlePlaceId ?? null },
           ] as Prisma.InputJsonValue,
         },
+      });
+
+      this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.COMPANY, company.id, {
+        id: company.id,
+        name: company.name,
+        edrpou: company.edrpou,
+        taxId: company.taxId,
+        phone: company.phone,
+        address: company.address,
+        ownerId: company.ownerId,
       });
 
       return {
@@ -288,6 +302,27 @@ export class CompaniesService {
             payload: payload as Prisma.InputJsonValue,
           },
         });
+        const wfChanges: Record<string, { previous?: unknown; current?: unknown }> = {};
+        for (const p of payload) {
+          wfChanges[p.field] = { previous: p.oldValue, current: p.newValue };
+        }
+        this.workflowEmitter?.emitRecordUpdated(
+          CustomFieldEntityType.COMPANY,
+          id,
+          {
+            id: company.id,
+            name: company.name,
+            edrpou: company.edrpou,
+            taxId: company.taxId,
+            phone: company.phone,
+            address: company.address,
+            lat: company.lat,
+            lng: company.lng,
+            googlePlaceId: company.googlePlaceId,
+            ownerId: company.ownerId,
+          },
+          wfChanges,
+        );
       }
 
       const owner = (company as { owner?: { id: string; fullName: string } | null }).owner;

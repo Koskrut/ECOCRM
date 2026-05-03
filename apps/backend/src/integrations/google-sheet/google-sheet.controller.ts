@@ -13,10 +13,13 @@ import { Public } from "../../auth/public.decorator";
 import type { OrderDocumentsUpdate } from "./google-sheet-order-documents.service";
 import { GoogleSheetOrderDocumentsService } from "./google-sheet-order-documents.service";
 import { SettingsService } from "../../settings/settings.service";
+import { RequireModule } from "../../modules/gating/require-module.decorator";
+import { ModuleIds } from "../../modules/module-ids";
 
 const WEBHOOK_SECRET_HEADER = "x-webhook-secret";
 
 @Controller("integrations/google-sheet")
+@RequireModule(ModuleIds.GoogleSheet)
 export class GoogleSheetController {
   private readonly logger = new Logger(GoogleSheetController.name);
 

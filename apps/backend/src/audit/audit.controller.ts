@@ -1,8 +1,14 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import type { AuditAction } from "@prisma/client";
+import { UserRole } from "@prisma/client";
+import { Roles } from "../auth/roles.decorator";
+import { RequirePermission } from "../rbac/permissions.decorator";
+import { PermissionKeys } from "../rbac/rbac.constants";
 import { AuditService } from "./audit.service";
 
 @Controller("audit")
+@Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
+@RequirePermission(PermissionKeys.MetadataRead)
 export class AuditController {
   constructor(private readonly audit: AuditService) {}
 

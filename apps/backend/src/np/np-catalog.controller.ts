@@ -1,7 +1,10 @@
 import { Controller, Get, Query } from "@nestjs/common";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import type { NpCatalogService } from "./np-catalog.service";
 
 @Controller("np")
+@RequireModule(ModuleIds.NovaPoshta)
 export class NpCatalogController {
   constructor(private readonly catalog: NpCatalogService) {}
 

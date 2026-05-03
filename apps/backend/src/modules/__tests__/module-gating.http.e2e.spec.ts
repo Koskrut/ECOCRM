@@ -15,9 +15,12 @@ import { EnabledModulesProvider } from "../enabled/enabled-modules.provider";
 import { LicenseStateProvider } from "../license/license-state.provider";
 import { ModuleIds, type ModuleId } from "../module-ids";
 import { MODULE_REGISTRY } from "../module-registry";
+import { ModuleHealthService } from "../module-health.service";
 import { ModuleStateService } from "../module-state.service";
 
 import { SystemController } from "../../system/system.controller";
+import type { SystemControlPlaneDto } from "../../system/dto/system-control-plane.dto";
+import { ControlPlanePhoneHomeService } from "../../system/control-plane-phone-home.service";
 import { SystemModulesEnabledWriteService } from "../../system/system-modules-enabled-write.service";
 import { SystemReleaseService } from "../../system/system-release.service";
 import { SystemVersionService } from "../../system/system-version.service";
@@ -35,6 +38,12 @@ class TestEnabledModulesProvider extends EnabledModulesProvider {
   }
   async getEnabledModules() {
     return { enabledModules: this.enabled, source: "system_setting" as const };
+  }
+}
+
+class TestModuleHealthService {
+  isUpstreamOk(_id: ModuleId): boolean {
+    return true;
   }
 }
 
@@ -56,6 +65,7 @@ class TestLicenseStateProvider extends LicenseStateProvider {
   controllers: [SystemController, PaymentsController, OutboundVoiceWebhookController],
   providers: [
     ModuleStateService,
+    { provide: ModuleHealthService, useClass: TestModuleHealthService },
     {
       provide: EnabledModulesProvider,
       useFactory: () => new TestEnabledModulesProvider(enabledForTest),
@@ -69,6 +79,21 @@ class TestLicenseStateProvider extends LicenseStateProvider {
     },
     SystemReleaseService,
     SystemVersionService,
+    {
+      provide: ControlPlanePhoneHomeService,
+      useValue: {
+        getTelemetry: (): SystemControlPlaneDto => ({
+          controlPlaneMode: false,
+          installationId: null,
+          controlPlaneUrlConfigured: false,
+          tokenConfigured: false,
+          lastAttemptAt: null,
+          lastSuccessAt: null,
+          lastHttpStatus: null,
+          lastError: null,
+        }),
+      },
+    },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ModuleAccessGuard },

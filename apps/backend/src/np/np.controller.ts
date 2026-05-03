@@ -1,9 +1,12 @@
 // src/np/np.controller.ts
 import { Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { NpSyncService } from "./np-sync.service";
 import { NpTtnService } from "./np-ttn.service";
 
 @Controller("np")
+@RequireModule(ModuleIds.NovaPoshta)
 export class NpController {
   constructor(
     private readonly sync: NpSyncService,
