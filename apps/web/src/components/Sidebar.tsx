@@ -25,6 +25,7 @@ import { apiHttp } from "../lib/api/client";
 import { strings } from "@/locales";
 import { ModuleIds } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
+import { sidebarHrefModuleId } from "@/lib/modules/pathModuleGating";
 
 type MenuItem = {
   label: string;
@@ -91,6 +92,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const gatedMenuItems =
     modulesStatus === "ready"
       ? menuItems.filter((it) => {
+          const mod = sidebarHrefModuleId(it.href);
+          if (mod) return moduleEffective(mod);
           if (it.href.startsWith("/outbound")) return moduleEffective(ModuleIds.VoiceOutbound);
           if (it.href.startsWith("/payments")) return moduleEffective(ModuleIds.Finance);
           if (it.href.startsWith("/inbox/telegram")) {

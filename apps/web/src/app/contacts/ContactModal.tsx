@@ -29,6 +29,9 @@ import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
 import { ContactCrmHint } from "./card/ContactCrmHint";
 import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
+import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
+import { ContactCardLayoutPanel } from "@/components/metadata/ContactCardLayoutPanel";
+import { ContactCardAuditPanel } from "@/components/metadata/ContactCardAuditPanel";
 import {
   useContactCardAnalytics,
   type ContactCardAnalyticsRange,
@@ -2382,6 +2385,15 @@ export function ContactModal({
                   {aboutContactSection}
                 </EntitySection>
               </div>
+              <EntitySection title="Custom fields">
+                <CustomFieldsPanel entityType="CONTACT" entityId={contactId} />
+              </EntitySection>
+              <EntitySection title="Layout (runtime)">
+                <ContactCardLayoutPanel contactId={contactId} />
+              </EntitySection>
+              <EntitySection title="Audit">
+                <ContactCardAuditPanel contactId={contactId} />
+              </EntitySection>
             </div>
           )
         )}

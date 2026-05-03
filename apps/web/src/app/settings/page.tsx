@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { useModules } from "@/lib/modules/useModules";
+import { settingsHrefModuleId } from "@/lib/modules/pathModuleGating";
 
 type SystemReleaseResponse = {
   version: string | null;
@@ -20,6 +22,7 @@ export default function SettingsHomePage() {
   const [role, setRole] = useState<string | null>(null);
   const [release, setRelease] = useState<SystemReleaseResponse | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  const { status: modulesStatus, effective: moduleEffective } = useModules();
 
   useEffect(() => {
     apiHttp
@@ -93,6 +96,7 @@ export default function SettingsHomePage() {
           </div>
         ) : null}
 
+        <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">Core CRM</div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/settings/access"
@@ -152,12 +156,12 @@ export default function SettingsHomePage() {
           </Link>
 
           <Link
-            href="/settings/fop"
+            href="/settings/google-maps"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
-            <div className="text-sm font-semibold text-zinc-900">ФОП (банковские счета)</div>
+            <div className="text-sm font-semibold text-zinc-900">Google Maps</div>
             <div className="mt-1 text-sm text-zinc-500">
-              Настройка ID и TOKEN для банковских счетов ФОП. Список используется в Платежах.
+              Maps JavaScript API key for visits planning map
             </div>
           </Link>
 
@@ -172,66 +176,6 @@ export default function SettingsHomePage() {
           </Link>
 
           <Link
-            href="/settings/google-maps"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Google Maps</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Maps JavaScript API key for visits planning map
-            </div>
-          </Link>
-
-          <Link
-            href="/settings/google-sheet"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Google-таблиця (1С)</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С
-            </div>
-          </Link>
-
-          <Link
-            href="/settings/ringostat"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Ringostat</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Телефония Ringostat: webhook secret, API token и маппинг внутренних линий.
-            </div>
-          </Link>
-
-          <Link
-            href="/settings/outbound-voice"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Outbound voice (AI Calls)</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              HTTP-провайдер исходящих звонков, секрет вебхука, путь и разбор ответа create-call.
-            </div>
-          </Link>
-
-          <Link
-            href="/settings/telegram"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Telegram Inbox</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Bot token, webhook secret and public URL for Inbox
-            </div>
-          </Link>
-
-          <Link
-            href="/settings/store"
-            className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
-          >
-            <div className="text-sm font-semibold text-zinc-900">Інтернет-магазин</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Тема, баннери, контакти, URL CRM для оплати з магазину
-            </div>
-          </Link>
-
-          <Link
             href="/employees"
             className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
           >
@@ -239,9 +183,89 @@ export default function SettingsHomePage() {
             <div className="mt-1 text-sm text-zinc-500">Manage employees and their roles</div>
           </Link>
 
-          <div className="rounded-lg border border-zinc-200 bg-white p-5 text-sm text-zinc-400">
-            More settings coming soon…
-          </div>
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/metadata"
+              className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm transition-colors hover:bg-emerald-50"
+            >
+              <div className="text-sm font-semibold text-emerald-900">Metadata &amp; automation</div>
+              <div className="mt-1 text-sm text-emerald-800">
+                Поля, словники, макети, workflow, RBAC, custom entities
+              </div>
+            </Link>
+          ) : null}
+
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/data-import"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-sm font-semibold text-zinc-900">Data import</div>
+              <div className="mt-1 text-sm text-zinc-500">CSV імпорт контактів (ядро)</div>
+            </Link>
+          ) : null}
+
+          {role === "ADMIN" ? (
+            <Link
+              href="/settings/health"
+              className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+            >
+              <div className="text-sm font-semibold text-zinc-900">System health</div>
+              <div className="mt-1 text-sm text-zinc-500">Release, license, modules, backend variant</div>
+            </Link>
+          ) : null}
+        </div>
+
+        <div className="mt-10 mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          Extensions &amp; integrations
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {(
+            [
+              { href: "/settings/fop", title: "ФОП (банковские счета)", desc: "Банк / платежи" },
+              {
+                href: "/settings/google-sheet",
+                title: "Google-таблиця (1С)",
+                desc: "Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С",
+              },
+              {
+                href: "/settings/ringostat",
+                title: "Ringostat",
+                desc: "Телефония Ringostat: webhook secret, API token и маппинг внутренних линий.",
+              },
+              {
+                href: "/settings/outbound-voice",
+                title: "Outbound voice (AI Calls)",
+                desc: "HTTP-провайдер исходящих звонков, секрет вебхука, путь и разбор ответа create-call.",
+              },
+              {
+                href: "/settings/telegram",
+                title: "Telegram Inbox",
+                desc: "Bot token, webhook secret and public URL for Inbox",
+              },
+              {
+                href: "/settings/store",
+                title: "Інтернет-магазин",
+                desc: "Тема, баннери, контакти, URL CRM для оплати з магазину",
+              },
+            ] as const
+          )
+            .filter((x) => {
+              if (modulesStatus !== "ready") return true;
+              const mid = settingsHrefModuleId(x.href);
+              if (!mid) return true;
+              return moduleEffective(mid);
+            })
+            .map((x) => (
+              <Link
+                key={x.href}
+                href={x.href}
+                className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm transition-colors hover:bg-zinc-50"
+              >
+                <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
+                <div className="mt-1 text-sm text-zinc-500">{x.desc}</div>
+              </Link>
+            ))}
         </div>
       </div>
     </div>
