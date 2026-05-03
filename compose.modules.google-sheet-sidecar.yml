@@ -1,0 +1,51 @@
+# Optional: `crm-module-google-sheet` alongside `crm-core-api`.
+# On `backend` (core): set GOOGLE_SHEET_UPSTREAM_URL=http://backend-google-sheet:3001
+# Avoid double handlers: not applicable (no Google Sheet cron in core).
+
+services:
+  backend:
+    environment:
+      GOOGLE_SHEET_UPSTREAM_URL: ${GOOGLE_SHEET_UPSTREAM_URL:-}
+
+  backend-google-sheet:
+    image: ghcr.io/koskrut/${GOOGLE_SHEET_MODULE_IMAGE_NAME:-crm-module-google-sheet}:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      BACKEND_VARIANT: google_sheet_worker
+      MODULE_GATING_ENABLED: ${MODULE_GATING_ENABLED:-}
+      LICENSE_MODE: ${LICENSE_MODE:-file}
+      LICENSE_FILE_PATH: ${LICENSE_FILE_PATH:-/run/secrets/license.json}
+      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-}
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-${CONTROL_PLANE_INSTALLATION_TOKEN:-}}
+      CONTROL_PLANE_INSTALLATION_ID: ${CONTROL_PLANE_INSTALLATION_ID:-}
+      CONTROL_PLANE_INSTALLATION_TOKEN: ${CONTROL_PLANE_INSTALLATION_TOKEN:-}
+      LICENSE_CACHE_PATH: ${LICENSE_CACHE_PATH:-/data/license-cache.json}
+      LICENSE_PUBLIC_KEY_PEM: ${LICENSE_PUBLIC_KEY_PEM:-}
+    volumes:
+      - ${LICENSE_FILE_PATH_HOST:-/dev/null}:${LICENSE_FILE_PATH:-/run/secrets/license.json}:ro
+      - license_cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/system/version >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+volumes:
+  license_cache:
+    name: ${LICENSE_CACHE_VOLUME:-crm_license_cache}

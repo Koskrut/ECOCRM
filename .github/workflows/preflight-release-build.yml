@@ -9,10 +9,15 @@ on:
         default: "0.1.0-rc"
         type: string
       include_outbound_in_manifest:
-        description: "Include outbound image row in manifest dry-run"
+        description: "Legacy: when modules is empty, treat as modules=outbound for manifest dry-run"
         required: false
         default: false
         type: boolean
+      modules:
+        description: "Comma-separated module slugs to build (no push) in addition to core images"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -64,6 +69,22 @@ jobs:
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
             IMAGE_TAG=local/crm-backend-core:preflight
 
+      - name: Build crm-core-api image (core-runner, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          target: core-runner
+          push: false
+          tags: local/crm-core-api:preflight
+          build-args: |
+            IMAGE_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ steps.meta.outputs.git_sha }}
+            CRM_RELEASE_VERSION=${{ steps.meta.outputs.version }}
+            GIT_SHA=${{ steps.meta.outputs.git_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            IMAGE_TAG=local/crm-core-api:preflight
+
       - name: Build web image (no push)
         uses: docker/build-push-action@v6
         with:
@@ -86,29 +107,64 @@ jobs:
             IMAGE_VERSION=${{ steps.meta.outputs.version }}
             VCS_REF=${{ steps.meta.outputs.git_sha }}
 
-      - name: Build outbound image target (no push)
-        if: ${{ inputs.include_outbound_in_manifest }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/backend/Dockerfile
-          target: outbound-runner
-          push: false
-          tags: local/crm-module-outbound:preflight
-          build-args: |
-            IMAGE_VERSION=${{ steps.meta.outputs.version }}
-            VCS_REF=${{ steps.meta.outputs.git_sha }}
-            CRM_RELEASE_VERSION=${{ steps.meta.outputs.version }}
-            GIT_SHA=${{ steps.meta.outputs.git_sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
-            IMAGE_TAG=local/crm-module-outbound:preflight
+      - name: Resolve modules CSV
+        id: modules_csv
+        shell: bash
+        env:
+          RAW_MODULES: ${{ inputs.modules }}
+        run: |
+          set -euo pipefail
+          LEG="false"
+          if [ "${{ inputs.include_outbound_in_manifest }}" = "true" ]; then LEG="true"; fi
+          RESOLVED=$(node scripts/resolve-modules-csv.mjs "${RAW_MODULES:-}" "${LEG}")
+          echo "csv=${RESOLVED}" >> "$GITHUB_OUTPUT"
+
+      - name: Build optional module images (no push)
+        if: ${{ steps.modules_csv.outputs.csv != '' }}
+        shell: bash
+        env:
+          CSV: ${{ steps.modules_csv.outputs.csv }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+          BUILD_TIME: ${{ steps.meta.outputs.build_time }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra SLUGS <<< "$CSV"
+          for s in "${SLUGS[@]}"; do
+            case "$s" in
+              outbound) T=outbound-runner; I=local/crm-module-outbound:preflight ;;
+              google-sheet) T=google-sheet-runner; I=local/crm-module-google-sheet:preflight ;;
+              ringostat) T=ringostat-runner; I=local/crm-module-ringostat:preflight ;;
+              bitrix) T=bitrix-runner; I=local/crm-module-bitrix:preflight ;;
+              np) T=np-runner; I=local/crm-module-np:preflight ;;
+              finance) T=finance-runner; I=local/crm-module-finance:preflight ;;
+              planning) T=planning-runner; I=local/crm-module-planning:preflight ;;
+              *) echo "unknown slug $s" >&2; exit 1 ;;
+            esac
+            docker buildx build --target "$T" -f apps/backend/Dockerfile -t "$I" \
+              --build-arg "IMAGE_VERSION=$VERSION" \
+              --build-arg "VCS_REF=$GIT_SHA" \
+              --build-arg "CRM_RELEASE_VERSION=$VERSION" \
+              --build-arg "GIT_SHA=$GIT_SHA" \
+              --build-arg "BUILD_TIME=$BUILD_TIME" \
+              --build-arg "IMAGE_TAG=$I" \
+              --load .
+          done
 
       - name: Manifest dry-run
         shell: bash
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           INCLUDE_OUTBOUND_IN_MANIFEST: ${{ inputs.include_outbound_in_manifest && 'true' || 'false' }}
+          MODULES: ${{ inputs.modules }}
         run: |
           set -euo pipefail
           sh scripts/rollout-loop-dry-run.sh
           node scripts/validate-deployment-manifest.mjs .local/rollout-dry-run/deployment-manifest.json
+
+      - name: Deployment manifest contract test (sample JSON)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/backend
+          node --test --require ts-node/register/transpile-only src/system/__tests__/deployment-manifest.contract.spec.ts

@@ -1,0 +1,18 @@
+# Internet store (Next.js). Optional overlay — omit this file for core-only installs (no crm-store container).
+# Combine after compose.client.yml so bind ports apply:
+#   docker compose -f compose.base.yml -f compose.client.yml -f compose.modules.store.yml up -d
+
+services:
+  store:
+    image: ghcr.io/koskrut/crm-store:${STORE_VERSION:?Set STORE_VERSION}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_URL: http://backend:3001
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "3002"
+    ports:
+      - "${STORE_BIND_ADDRESS:-127.0.0.1}:${STORE_PORT:-3002}:3002"

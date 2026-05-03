@@ -4,7 +4,6 @@
 services:
   backend:
     environment:
-      MODULE_GATING_ENABLED: "true"
       CRON_ENABLED: ${CRON_ENABLED:-true}
 
       # ext.voice_outbound

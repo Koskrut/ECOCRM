@@ -1,0 +1,4 @@
+services:
+  backend:
+    environment:
+      PLANNING_UPSTREAM_URL: ${PLANNING_UPSTREAM_URL:-}

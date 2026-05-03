@@ -71,10 +71,6 @@ services:
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
 
-  store:
-    ports:
-      - "${STORE_BIND_ADDRESS:-127.0.0.1}:${STORE_PORT:-3002}:3002"
-
 volumes:
   postgres_data:
     name: ${POSTGRES_DATA_VOLUME:-crm_postgres_data}

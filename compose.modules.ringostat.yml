@@ -1,0 +1,4 @@
+services:
+  backend:
+    environment:
+      RINGOSTAT_UPSTREAM_URL: ${RINGOSTAT_UPSTREAM_URL:-}

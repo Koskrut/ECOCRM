@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without leading v, for example 0.1.4"
+        description: "Release version without leading v, for example 0.1.6"
         required: true
         type: string
       channel:
@@ -20,10 +20,15 @@ on:
           - beta
           - edge
       include_outbound_in_manifest:
-        description: "Build crm-module-outbound and add as 4th image (module_outbound). Control Plane must have Prisma migration for module_outbound applied (cp migrate deploy) or Register release fails."
+        description: "Legacy: when modules is empty, treat as modules=outbound. Prefer `modules` CSV instead."
         required: false
         type: boolean
         default: false
+      modules:
+        description: "Comma-separated module slugs to build & add to manifest: outbound, google-sheet, ringostat, bitrix, np, finance, planning"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -72,6 +77,7 @@ jobs:
           WEB_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-web:${VERSION}"
           STORE_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-store:${VERSION}"
           OUTBOUND_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-module-outbound:${VERSION}"
+          CORE_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-core-api:${VERSION}"
 
           {
             echo "version=$VERSION"
@@ -79,6 +85,7 @@ jobs:
             echo "build_time=$BUILD_TIME"
             echo "git_sha=$GIT_SHA"
             echo "backend_image=$BACKEND_IMAGE"
+            echo "core_image=$CORE_IMAGE"
             echo "web_image=$WEB_IMAGE"
             echo "store_image=$STORE_IMAGE"
             echo "outbound_image=$OUTBOUND_IMAGE"
@@ -117,6 +124,23 @@ jobs:
             BUILD_TIME=${{ steps.meta.outputs.build_time }}
             IMAGE_TAG=${{ steps.meta.outputs.backend_image }}
 
+      - name: Build and push crm-core-api (core-only Nest entrypoint)
+        id: core_api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/backend/Dockerfile
+          target: core-runner
+          push: true
+          tags: ${{ steps.meta.outputs.core_image }}
+          build-args: |
+            IMAGE_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ steps.meta.outputs.git_sha }}
+            CRM_RELEASE_VERSION=${{ steps.meta.outputs.version }}
+            GIT_SHA=${{ steps.meta.outputs.git_sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+            IMAGE_TAG=${{ steps.meta.outputs.core_image }}
+
       - name: Build and push web
         id: web
         uses: docker/build-push-action@v6
@@ -141,23 +165,32 @@ jobs:
             IMAGE_VERSION=${{ steps.meta.outputs.version }}
             VCS_REF=${{ steps.meta.outputs.git_sha }}
 
-      - name: Build and push crm-module-outbound
-        id: outbound
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.include_outbound_in_manifest }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/backend/Dockerfile
-          target: outbound-runner
-          push: true
-          tags: ${{ steps.meta.outputs.outbound_image }}
-          build-args: |
-            IMAGE_VERSION=${{ steps.meta.outputs.version }}
-            VCS_REF=${{ steps.meta.outputs.git_sha }}
-            CRM_RELEASE_VERSION=${{ steps.meta.outputs.version }}
-            GIT_SHA=${{ steps.meta.outputs.git_sha }}
-            BUILD_TIME=${{ steps.meta.outputs.build_time }}
-            IMAGE_TAG=${{ steps.meta.outputs.outbound_image }}
+      - name: Resolve modules CSV for optional module images
+        id: modules_csv
+        shell: bash
+        env:
+          RAW_MODULES: ${{ inputs.modules }}
+        run: |
+          set -euo pipefail
+          LEG="false"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.include_outbound_in_manifest }}" = "true" ]; then
+            LEG="true"
+          fi
+          RESOLVED=$(node scripts/resolve-modules-csv.mjs "${RAW_MODULES:-}" "${LEG}")
+          echo "csv=${RESOLVED}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push optional module images (CSV)
+        if: ${{ steps.modules_csv.outputs.csv != '' }}
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          GIT_SHA: ${{ steps.meta.outputs.git_sha }}
+          BUILD_TIME: ${{ steps.meta.outputs.build_time }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
+          REPO_ROOT: ${{ github.workspace }}
+          MODULES_CSV: ${{ steps.modules_csv.outputs.csv }}
+        run: node scripts/ci-publish-module-builds.mjs
 
       - name: Create Control Plane deployment manifest
         shell: bash
@@ -167,14 +200,13 @@ jobs:
           BUILD_TIME: ${{ steps.meta.outputs.build_time }}
           GIT_SHA: ${{ steps.meta.outputs.git_sha }}
           BACKEND_IMAGE: ${{ steps.meta.outputs.backend_image }}
+          CORE_IMAGE: ${{ steps.meta.outputs.core_image }}
           WEB_IMAGE: ${{ steps.meta.outputs.web_image }}
           STORE_IMAGE: ${{ steps.meta.outputs.store_image }}
-          OUTBOUND_IMAGE: ${{ steps.meta.outputs.outbound_image }}
           BACKEND_DIGEST: ${{ steps.backend.outputs.digest }}
+          CORE_DIGEST: ${{ steps.core_api.outputs.digest }}
           WEB_DIGEST: ${{ steps.web.outputs.digest }}
           STORE_DIGEST: ${{ steps.store.outputs.digest }}
-          OUTBOUND_DIGEST: ${{ steps.outbound.outputs.digest }}
-          INCLUDE_OUTBOUND_IN_MANIFEST: ${{ (github.event_name == 'workflow_dispatch' && inputs.include_outbound_in_manifest) && 'true' || 'false' }}
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SOURCE_REPO: ${{ github.server_url }}/${{ github.repository }}
         run: |
@@ -191,14 +223,16 @@ jobs:
           }
 
           const backend = splitImage(process.env.BACKEND_IMAGE);
+          const coreApi = splitImage(process.env.CORE_IMAGE);
           const web = splitImage(process.env.WEB_IMAGE);
           const store = splitImage(process.env.STORE_IMAGE);
 
-          const includeOutbound = process.env.INCLUDE_OUTBOUND_IN_MANIFEST === "true";
-          if (includeOutbound) {
-            if (!process.env.OUTBOUND_DIGEST) {
-              throw new Error("OUTBOUND_DIGEST required when INCLUDE_OUTBOUND_IN_MANIFEST=true");
-            }
+          let addon = { images: [], composeFiles: [], moduleCodes: [] };
+          if (fs.existsSync("module-manifest-addon.json")) {
+            addon = JSON.parse(fs.readFileSync("module-manifest-addon.json", "utf8"));
+          }
+          if (!process.env.CORE_DIGEST) {
+            throw new Error("CORE_DIGEST missing (crm-core-api build step)");
           }
 
           const images = [
@@ -208,6 +242,13 @@ jobs:
               imageRepository: backend.repository,
               imageTag: backend.tag,
               imageDigest: process.env.BACKEND_DIGEST,
+            },
+            {
+              role: "backend_core_only",
+              serviceName: "backend",
+              imageRepository: coreApi.repository,
+              imageTag: coreApi.tag,
+              imageDigest: process.env.CORE_DIGEST,
             },
             {
               role: "web",
@@ -225,15 +266,18 @@ jobs:
             },
           ];
 
-          if (includeOutbound) {
-            const ob = splitImage(process.env.OUTBOUND_IMAGE);
-            images.push({
-              role: "module_outbound",
-              serviceName: "backend-outbound",
-              imageRepository: ob.repository,
-              imageTag: ob.tag,
-              imageDigest: process.env.OUTBOUND_DIGEST,
-            });
+          for (const row of addon.images ?? []) {
+            images.push(row);
+          }
+
+          const composeFiles = ["compose.base.yml", "compose.client.yml"];
+          for (const cf of addon.composeFiles ?? []) {
+            if (!composeFiles.includes(cf)) composeFiles.push(cf);
+          }
+
+          const moduleCodes = ["core.crm"];
+          for (const c of addon.moduleCodes ?? []) {
+            if (c && !moduleCodes.includes(c)) moduleCodes.push(c);
           }
 
           const payload = {
@@ -246,13 +290,8 @@ jobs:
             gitSha: process.env.GIT_SHA,
             ciRunUrl: process.env.CI_RUN_URL,
             builtAt: process.env.BUILD_TIME,
-            composeFiles: [
-              "compose.base.yml",
-              "compose.client.yml",
-            ],
-            moduleCodes: [
-              "core.crm",
-            ],
+            composeFiles,
+            moduleCodes,
             compatibility: {
               line: "0.1.x",
             },

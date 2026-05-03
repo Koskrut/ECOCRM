@@ -1,11 +1,4 @@
-# Finance activation overlay.
-# Current state: ext.finance is still in-process inside crm-backend-core.
-
 services:
   backend:
     environment:
-      MODULE_GATING_ENABLED: "true"
-      CRON_ENABLED: ${CRON_ENABLED:-true}
-
-      # ext.finance
-      PRIVAT24_API_URL: ${PRIVAT24_API_URL:-https://api.privatbank.ua}
+      FINANCE_UPSTREAM_URL: ${FINANCE_UPSTREAM_URL:-}

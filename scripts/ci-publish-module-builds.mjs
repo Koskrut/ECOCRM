@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+/**
+ * Build & push optional CRM module images (Docker Buildx). Writes module-manifest-addon.json for manifest merge.
+ * Env: VERSION, REGISTRY (ghcr.io), IMAGE_NAMESPACE, REPO_ROOT, MODULES_CSV (comma slugs from resolve-modules-csv)
+ */
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const VERSION = process.env.VERSION ?? "";
+const REGISTRY = (process.env.REGISTRY ?? "ghcr.io").replace(/\/$/, "");
+const NS = process.env.IMAGE_NAMESPACE ?? "koskrut";
+const ROOT = process.env.REPO_ROOT ?? process.cwd();
+const MODULES_CSV = process.env.MODULES_CSV ?? "";
+
+const MAP = {
+  outbound: {
+    target: "outbound-runner",
+    imageName: "crm-module-outbound",
+    role: "module_outbound",
+    moduleCode: "ext.voice_outbound",
+    serviceName: "backend-outbound",
+    compose: ["compose.modules.outbound.yml", "compose.modules.outbound-sidecar.yml"],
+  },
+  "google-sheet": {
+    target: "google-sheet-runner",
+    imageName: "crm-module-google-sheet",
+    role: "module_google_sheet",
+    moduleCode: "int.google_sheet",
+    serviceName: "backend-google-sheet",
+    compose: ["compose.modules.google-sheet.yml", "compose.modules.google-sheet-sidecar.yml"],
+  },
+  ringostat: {
+    target: "ringostat-runner",
+    imageName: "crm-module-ringostat",
+    role: "module_ringostat",
+    moduleCode: "int.ringostat",
+    serviceName: "backend-ringostat",
+    compose: ["compose.modules.ringostat.yml", "compose.modules.ringostat-sidecar.yml"],
+  },
+  bitrix: {
+    target: "bitrix-runner",
+    imageName: "crm-module-bitrix",
+    role: "module_bitrix",
+    moduleCode: "int.bitrix",
+    serviceName: "backend-bitrix",
+    compose: ["compose.modules.bitrix.yml", "compose.modules.bitrix-sidecar.yml"],
+  },
+  np: {
+    target: "np-runner",
+    imageName: "crm-module-np",
+    role: "module_np",
+    moduleCode: "int.nova_poshta",
+    serviceName: "backend-np",
+    compose: ["compose.modules.np.yml", "compose.modules.np-sidecar.yml"],
+  },
+  finance: {
+    target: "finance-runner",
+    imageName: "crm-module-finance",
+    role: "module_finance",
+    moduleCode: "ext.finance",
+    serviceName: "backend-finance",
+    compose: ["compose.modules.finance.yml", "compose.modules.finance-sidecar.yml"],
+  },
+  planning: {
+    target: "planning-runner",
+    imageName: "crm-module-planning",
+    role: "module_planning",
+    moduleCode: "ext.production_planning",
+    serviceName: "backend-planning",
+    compose: ["compose.modules.planning.yml", "compose.modules.planning-sidecar.yml"],
+  },
+};
+
+function run(cmd, args, opts = {}) {
+  execFileSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
+}
+
+function dockerDigest(imageUri) {
+  const out = execFileSync("docker", ["buildx", "imagetools", "inspect", imageUri, "--format", "{{.Digest}}"], {
+    encoding: "utf8",
+    cwd: ROOT,
+  }).trim();
+  if (!/^sha256:[a-fA-F0-9]{64}$/.test(out)) {
+    throw new Error(`Could not read digest for ${imageUri}: got ${JSON.stringify(out)}`);
+  }
+  return out;
+}
+
+const slugs = MODULES_CSV.split(",").map((s) => s.trim()).filter(Boolean);
+const addon = { images: [], composeFiles: [], moduleCodes: [] };
+
+for (const slug of slugs) {
+  const spec = MAP[slug];
+  if (!spec) {
+    console.error(`Unknown slug: ${slug}`);
+    process.exit(1);
+  }
+  const tag = `${REGISTRY}/${NS}/${spec.imageName}:${VERSION}`;
+  run("docker", [
+    "buildx",
+    "build",
+    "--push",
+    "--target",
+    spec.target,
+    "-f",
+    "apps/backend/Dockerfile",
+    "-t",
+    tag,
+    "--build-arg",
+    `IMAGE_VERSION=${VERSION}`,
+    "--build-arg",
+    `VCS_REF=${process.env.GIT_SHA ?? "unknown"}`,
+    "--build-arg",
+    `CRM_RELEASE_VERSION=${VERSION}`,
+    "--build-arg",
+    `GIT_SHA=${process.env.GIT_SHA ?? "unknown"}`,
+    "--build-arg",
+    `BUILD_TIME=${process.env.BUILD_TIME ?? new Date().toISOString()}`,
+    "--build-arg",
+    `IMAGE_TAG=${tag}`,
+    ".",
+  ]);
+  const digest = dockerDigest(tag);
+  addon.images.push({
+    role: spec.role,
+    serviceName: spec.serviceName,
+    moduleCode: spec.moduleCode,
+    imageRepository: `${REGISTRY}/${NS}/${spec.imageName}`.toLowerCase(),
+    imageTag: VERSION,
+    imageDigest: digest,
+  });
+  addon.moduleCodes.push(spec.moduleCode);
+  for (const cf of spec.compose) {
+    if (!addon.composeFiles.includes(cf)) addon.composeFiles.push(cf);
+  }
+}
+
+const outPath = path.join(ROOT, "module-manifest-addon.json");
+fs.writeFileSync(outPath, `${JSON.stringify(addon, null, 2)}\n`);
+console.log(`Wrote ${outPath} (${addon.images.length} module image(s))`);

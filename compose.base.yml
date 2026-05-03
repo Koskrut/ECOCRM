@@ -18,7 +18,7 @@ services:
       retries: 10
 
   backend-migrate:
-    image: ghcr.io/koskrut/crm-backend-core:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    image: ghcr.io/koskrut/${BACKEND_IMAGE_NAME:-crm-backend-core}:${BACKEND_VERSION:?Set BACKEND_VERSION}
     restart: "no"
     working_dir: /app
     command: ["npx", "prisma", "migrate", "deploy"]
@@ -29,7 +29,7 @@ services:
         condition: service_healthy
 
   backend:
-    image: ghcr.io/koskrut/crm-backend-core:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    image: ghcr.io/koskrut/${BACKEND_IMAGE_NAME:-crm-backend-core}:${BACKEND_VERSION:?Set BACKEND_VERSION}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -37,6 +37,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Set to "true" only after all non-core routes have @RequireModule (see module-access.guard).
+      MODULE_GATING_ENABLED: ${MODULE_GATING_ENABLED:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,18 +64,6 @@ services:
         condition: service_healthy
     expose:
       - "3000"
-
-  store:
-    image: ghcr.io/koskrut/crm-store:${STORE_VERSION:?Set STORE_VERSION}
-    restart: unless-stopped
-    environment:
-      NODE_ENV: production
-      API_URL: http://backend:3001
-    depends_on:
-      backend:
-        condition: service_healthy
-    expose:
-      - "3002"
 
 volumes:
   postgres_data:

@@ -1,0 +1,66 @@
+# Optional: run `crm-module-outbound` as a separate container (cron + outbound HTTP) alongside `backend`.
+# Combine after compose.base.yml + compose.client.yml (+ compose.modules.outbound.yml for outbound env on `backend`).
+#
+# Avoid double outbound crons: set OUTBOUND_CRON_DISABLED=true on service `backend` when `backend-outbound` is running.
+# Example in `.env`: OUTBOUND_CRON_DISABLED=true
+#
+# When `backend` image is crm-core-api, set OUTBOUND_UPSTREAM_URL=http://backend-outbound:3001 so core proxies
+# /outbound and /integrations/outbound-voice to the module (single browser origin via web → backend).
+
+services:
+  backend:
+    environment:
+      OUTBOUND_UPSTREAM_URL: ${OUTBOUND_UPSTREAM_URL:-}
+      OUTBOUND_CRON_DISABLED: ${OUTBOUND_CRON_DISABLED:-true}
+
+  backend-outbound:
+    image: ghcr.io/koskrut/${OUTBOUND_MODULE_IMAGE_NAME:-crm-module-outbound}:${BACKEND_VERSION:?Set BACKEND_VERSION}
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      CRON_ENABLED: ${CRON_ENABLED:-true}
+      MODULE_GATING_ENABLED: ${MODULE_GATING_ENABLED:-}
+      LICENSE_MODE: ${LICENSE_MODE:-file}
+      LICENSE_FILE_PATH: ${LICENSE_FILE_PATH:-/run/secrets/license.json}
+      LICENSE_PUBLIC_KEY: ${LICENSE_PUBLIC_KEY:-}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-}
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-${CONTROL_PLANE_INSTALLATION_TOKEN:-}}
+      CONTROL_PLANE_INSTALLATION_ID: ${CONTROL_PLANE_INSTALLATION_ID:-}
+      CONTROL_PLANE_INSTALLATION_TOKEN: ${CONTROL_PLANE_INSTALLATION_TOKEN:-}
+      LICENSE_CACHE_PATH: ${LICENSE_CACHE_PATH:-/data/license-cache.json}
+      LICENSE_PUBLIC_KEY_PEM: ${LICENSE_PUBLIC_KEY_PEM:-}
+      OUTBOUND_VOICE_PUBLIC_BASE_URL: ${OUTBOUND_VOICE_PUBLIC_BASE_URL:-}
+      OUTBOUND_VOICE_WEBHOOK_SECRET: ${OUTBOUND_VOICE_WEBHOOK_SECRET:-}
+      OUTBOUND_CATALOG_PUBLIC_URL: ${OUTBOUND_CATALOG_PUBLIC_URL:-}
+      OUTBOUND_CALL_LINK_WINDOW_MINUTES: ${OUTBOUND_CALL_LINK_WINDOW_MINUTES:-90}
+      OUTBOUND_LINK_RECONCILE_BATCH: ${OUTBOUND_LINK_RECONCILE_BATCH:-50}
+      OUTBOUND_LINK_RECONCILE_MAX_AGE_HOURS: ${OUTBOUND_LINK_RECONCILE_MAX_AGE_HOURS:-72}
+      OUTBOUND_LINK_RECONCILE_PROVIDER: ${OUTBOUND_LINK_RECONCILE_PROVIDER:-RINGOSTAT}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - ${LICENSE_FILE_PATH_HOST:-/dev/null}:${LICENSE_FILE_PATH:-/run/secrets/license.json}:ro
+      - license_cache:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/system/version >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+volumes:
+  license_cache:
+    name: ${LICENSE_CACHE_VOLUME:-crm_license_cache}

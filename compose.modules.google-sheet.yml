@@ -1,0 +1,5 @@
+# Google Sheet module activation overlay (env on core `backend` when using sidecar).
+services:
+  backend:
+    environment:
+      GOOGLE_SHEET_UPSTREAM_URL: ${GOOGLE_SHEET_UPSTREAM_URL:-}
