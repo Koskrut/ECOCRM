@@ -20,6 +20,7 @@
 
 - Для **core-only**: образы `crm-core-api`, `crm-web`, Postgres; **без** `crm-module-*`, если модулей в SKU нет.
 - Файлы: `compose.base.yml` + `compose.client.yml` + при необходимости только те overlays, которые реально нужны (без модульных sidecar).
+- **Только CP + core-only без модульных compose:** пошаговый контур (релиз в CP, installation, `CONTROL_PLANE_*`, подписанный `license.json` с CP, phone-home) — раздел **«2. Всё через Control Plane»** в [`docs/bio3ua-core-only.md`](bio3ua-core-only.md).
 
 ---
 

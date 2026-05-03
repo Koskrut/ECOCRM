@@ -71,6 +71,7 @@ const digestRe = /^sha256:[a-fA-F0-9]{64}$/;
 const knownRoles = new Set([
   "backend_core",
   "backend_core_only",
+  "other",
   "web",
   "store",
   "module_outbound",

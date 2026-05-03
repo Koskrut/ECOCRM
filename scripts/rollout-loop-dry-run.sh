@@ -217,8 +217,8 @@ const payload = {
       imageDigest: process.env.BACKEND_DIGEST,
     },
     {
-      role: "backend_core_only",
-      serviceName: "backend",
+      role: "other",
+      serviceName: "crm-core-api",
       imageRepository: coreApi.repository,
       imageTag: coreApi.tag,
       imageDigest: process.env.CORE_DIGEST,

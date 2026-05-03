@@ -244,8 +244,10 @@ jobs:
               imageDigest: process.env.BACKEND_DIGEST,
             },
             {
-              role: "backend_core_only",
-              serviceName: "backend",
+              // CP allowlist uses generic "other" for images outside backend_core/web/store/module_*;
+              // serviceName distinguishes crm-core-api from full backend digest (same compose service "backend").
+              role: "other",
+              serviceName: "crm-core-api",
               imageRepository: coreApi.repository,
               imageTag: coreApi.tag,
               imageDigest: process.env.CORE_DIGEST,

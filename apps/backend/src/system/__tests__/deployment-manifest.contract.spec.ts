@@ -34,8 +34,8 @@ test("Control Plane deployment manifest shape matches validate-deployment-manife
         imageDigest: digest,
       },
       {
-        role: "backend_core_only",
-        serviceName: "backend",
+        role: "other",
+        serviceName: "crm-core-api",
         imageRepository: "ghcr.io/example/crm-core-api",
         imageTag: "0.0.0-contract",
         imageDigest: digest,

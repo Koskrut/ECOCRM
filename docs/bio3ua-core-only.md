@@ -13,12 +13,29 @@ cat .env.client.example >> .env
 
 - `POSTGRES_PASSWORD`, `JWT_SECRET`
 - `BACKEND_VERSION`, `WEB_VERSION` (теги образов из GHCR)
-- `BACKEND_IMAGE_NAME=crm-core-api` — образ **core-only** (`Dockerfile` target `core-runner`), см. релизный манифест `role: backend_core_only` / digest `CORE_DIGEST`
+- `BACKEND_IMAGE_NAME=crm-core-api` — образ **core-only** (`Dockerfile` target `core-runner`); в манифесте CP это отдельная строка с ролью **`other`**, `serviceName: crm-core-api`, digest **`CORE_DIGEST`**
 - `CORS_ORIGIN`, `PUBLIC_BASE_URL` (как в `.env.client.example`)
 
 Не подключайте `compose.modules.store.yml` и другие `compose.modules.*`, если магазин и модули не нужны.
 
-## 2. Чистая база
+## 2. Всё через Control Plane (узкий контур)
+
+Ниже — порядок, когда **образы и дайджесты** живут в GHCR, **подписка и установка** — в CP, на сервере **только core** (`crm-core-api` + web), **без** `compose.modules.*`.
+
+1. **Релиз в registry** — в GitHub Actions успешно прошёл **Publish Registry Release** на нужный тег; в CP виден релиз с образами `crm-core-api` (роль **`other`**, `serviceName: crm-core-api`) и `crm-web`.
+2. **Объект в CP** — клиент / **installation** для bio3ua, подписка **только на `core.crm`** (без extension-модулей в entitlements).
+3. **Переменные в `.env`** (попадают в `backend` из `compose.client.yml`):
+   - `CONTROL_PLANE_URL` — URL CP без завершающего `/`;
+   - `CONTROL_PLANE_INSTALLATION_ID`;
+   - `CONTROL_PLANE_INSTALLATION_TOKEN` (или задайте `CONTROL_PLANE_TOKEN`; в compose токен по умолчанию подставляется из installation token, см. комментарии в `compose.client.yml`).
+4. **Подписанная лицензия** — backend по-прежнему читает модули из **`FileLicenseStateProvider`**: файл **`license.json`** на хосте → `LICENSE_FILE_PATH_HOST`, в контейнере путь `LICENSE_FILE_PATH`, плюс **`LICENSE_PUBLIC_KEY`** (или PEM), которые выдаёт CP. Без валидного файла расширения остаются **unlicensed**, даже если phone-home в CP «зелёный».
+5. **Образ API** — `BACKEND_IMAGE_NAME=crm-core-api`, `BACKEND_VERSION` = тегу, согласованному с CP/манифестом.
+6. **Compose** — только `-f compose.base.yml -f compose.client.yml` (ни store, ни module sidecars).
+7. **Запуск** — `pull` и `up -d` как в §4.
+8. **Проверка CP-связи** — под ADMIN: `GET /system/control-plane` или страница **`/settings/health`** (режим CP, installation id, последний phone-home без утечки секретов).
+9. **Pilot** — список enabled через UI или `PUT /system/modules/enabled` **в рамках SKU** (для чистого core — только `core.crm` или пусто по вашей политике).
+
+## 3. Чистая база
 
 На новом сервере достаточно первого `up` (создаётся volume Postgres). Если нужно **обнулить** данные:
 
@@ -28,7 +45,7 @@ docker compose -f compose.base.yml -f compose.client.yml --env-file .env down -v
 
 Убедитесь, что удаляется нужный volume (`POSTGRES_DATA_VOLUME` в `.env`).
 
-## 3. Запуск стека
+## 4. Запуск стека
 
 ```bash
 docker compose -f compose.base.yml -f compose.client.yml --env-file .env pull
@@ -37,7 +54,7 @@ docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
 
 Сервисы: `postgres`, `backend-migrate`, `backend` (crm-core-api), `web`.
 
-## 4. Модули и лицензия
+## 5. Модули и лицензия
 
 - **Control Plane / подписка:** только starter / `core.crm` (без entitlements на extension-модули).
 - **Файл лицензии** (`license.json`): payload с перечнем модулей должен соответствовать подписке; для core-only — без extension ids (или только то, что реально выдано CP).
@@ -51,11 +68,11 @@ curl -sS -H "Authorization: Bearer <admin_jwt>" http://127.0.0.1:3001/system/mod
 
 Ожидаемо: non-core модули с `installed: false` / `effective: false` при `BACKEND_VARIANT=core` в образе `crm-core-api`.
 
-## 5. Внутренний доступ core ↔ modules (далее)
+## 6. Внутренний доступ core ↔ modules (далее)
 
 Черновой контракт: см. [`module-internal-auth.md`](module-internal-auth.md) (`MODULE_INTERNAL_SECRET`). На core-only установке эти переменные **не обязательны**.
 
-## 6. Outbound как отдельный контейнер (опционально)
+## 7. Outbound как отдельный контейнер (опционально)
 
 Если подключаете `crm-module-outbound`:
 
@@ -64,7 +81,7 @@ curl -sS -H "Authorization: Bearer <admin_jwt>" http://127.0.0.1:3001/system/mod
 - На сервисе **`backend`** при работающем `backend-outbound` задайте **`OUTBOUND_CRON_DISABLED=true`**, чтобы не дублировать outbound cron
 - При образе **`crm-core-api`** задайте **`OUTBOUND_UPSTREAM_URL=http://backend-outbound:3001`**, чтобы web продолжал ходить в один `API_URL`, а core проксировал `/outbound` и `/integrations/outbound-voice` на модуль (см. [`module-internal-auth.md`](module-internal-auth.md))
 
-## 7. Пример `client_extension` (bio3ua)
+## 8. Пример `client_extension` (bio3ua)
 
 Шаблон отдельного процесса клиента (не CRM backend): [`apps/crm-client-bio3ua`](../apps/crm-client-bio3ua) — NestJS с `GET /health`, порт по умолчанию `3010`.
 
