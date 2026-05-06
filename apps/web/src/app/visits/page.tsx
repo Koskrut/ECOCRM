@@ -15,6 +15,7 @@ import { apiHttp } from "@/lib/api/client";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import { Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
+import { useConfirm, useToast } from "@/components/feedback";
 
 function formatHmKyiv(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -57,9 +58,7 @@ type VisitsMapContentProps = {
 };
 
 function computeVisitLayout(visits: VisitInterval[]): Map<string, VisitLayout> {
-  const sorted = [...visits].sort(
-    (a, b) => a.startsAt.getTime() - b.startsAt.getTime(),
-  );
+  const sorted = [...visits].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
   type TempMeta = { column: number; groupId: number };
   const temp = new Map<string, TempMeta>();
   const groupMaxColumn = new Map<number, number>();
@@ -162,7 +161,9 @@ function findNearestAvailableSlot(
     return false;
   };
 
-  const minStartMs = isSelectedToday ? Math.max(dayStart.getTime(), Date.now()) : dayStart.getTime();
+  const minStartMs = isSelectedToday
+    ? Math.max(dayStart.getTime(), Date.now())
+    : dayStart.getTime();
 
   for (const slot of slots) {
     const startMs = slot.start.getTime();
@@ -213,9 +214,7 @@ function VisitsMapContent({
         fullscreenControl: false,
       }}
     >
-      {routeAnchors?.start ? (
-        <Marker position={routeAnchors.start} label="A" />
-      ) : null}
+      {routeAnchors?.start ? <Marker position={routeAnchors.start} label="A" /> : null}
       {routeAnchors?.end &&
       (routeAnchors.end.lat !== routeAnchors.start?.lat ||
         routeAnchors.end.lng !== routeAnchors.start?.lng) ? (
@@ -237,6 +236,8 @@ function VisitsMapContent({
 }
 
 export default function VisitsPage() {
+  const { pushToast } = useToast();
+  const { confirm } = useConfirm();
   const [date, setDate] = useState<Date>(() =>
     DateTime.now().setZone(CRM_TIME_ZONE).startOf("day").toJSDate(),
   );
@@ -270,6 +271,7 @@ export default function VisitsPage() {
   const [useTrafficAware, setUseTrafficAware] = useState(false);
   const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleSaveRouteRef = useRef<() => Promise<void>>(async () => {});
 
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [resultModalVisit, setResultModalVisit] = useState<Visit | null>(null);
@@ -331,7 +333,7 @@ export default function VisitsPage() {
   const savedPlanVisitIds = useMemo(() => {
     if (!routePlan?.stops?.length) return [];
     return routePlan.stops.map((s) => s.visitId);
-  }, [routePlan?.id, routePlan?.stops]);
+  }, [routePlan?.stops]);
 
   const hasUnsavedPlanOrder = useMemo(() => {
     if (!routePlan?.stops?.length) return false;
@@ -380,7 +382,11 @@ export default function VisitsPage() {
       if (!k) continue;
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    const dupKeys = new Set(Array.from(counts.entries()).filter(([, c]) => c >= 2).map(([k]) => k));
+    const dupKeys = new Set(
+      Array.from(counts.entries())
+        .filter(([, c]) => c >= 2)
+        .map(([k]) => k),
+    );
     const duplicates = scheduled.filter((v) => dupKeys.has(key(v)));
     return { zeroCount: zero.length, duplicateCount: duplicates.length };
   }, [dayVisits]);
@@ -397,7 +403,7 @@ export default function VisitsPage() {
     if (hasScheduledWithoutCoords) return;
     if (currentOrderVisitIds.length === 0) return;
     autoSaveTimerRef.current = setTimeout(() => {
-      void handleSaveRoute();
+      void handleSaveRouteRef.current();
     }, 1200);
   }, [
     autoSaveRoutePlan,
@@ -566,7 +572,7 @@ export default function VisitsPage() {
         });
       });
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to schedule visit");
+      pushToast(e instanceof Error ? e.message : "Failed to schedule visit", "error");
       void loadData();
     }
   };
@@ -601,7 +607,7 @@ export default function VisitsPage() {
           }),
       );
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to move visit");
+      pushToast(e instanceof Error ? e.message : "Failed to move visit", "error");
       void loadData();
     }
   };
@@ -618,7 +624,7 @@ export default function VisitsPage() {
       });
       setDayVisits((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to resize visit");
+      pushToast(e instanceof Error ? e.message : "Failed to resize visit", "error");
       void loadData();
     }
   };
@@ -649,11 +655,13 @@ export default function VisitsPage() {
         setRouteMetrics(null);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save route");
+      pushToast(e instanceof Error ? e.message : "Failed to save route", "error");
     } finally {
       setSavingRoute(false);
     }
   };
+
+  handleSaveRouteRef.current = handleSaveRoute;
 
   const centerLatLng = useMemo(() => {
     const withCoords = scheduledVisits.filter((v) => v.lat != null && v.lng != null);
@@ -679,7 +687,7 @@ export default function VisitsPage() {
       });
       setDayVisits((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update coordinates");
+      pushToast(err instanceof Error ? err.message : "Failed to update coordinates", "error");
     }
   };
 
@@ -742,29 +750,35 @@ export default function VisitsPage() {
       setDayVisits((prev) => prev.filter((v) => v.id !== visit.id));
       setBacklog((prev) => [updated, ...prev.filter((v) => v.id !== visit.id)]);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to move visit to backlog");
+      pushToast(e instanceof Error ? e.message : "Failed to move visit to backlog", "error");
       void loadData();
     }
   };
 
   const handleRemoveVisit = useCallback(
     async (visit: Visit) => {
-      if (!confirm("Remove this visit from the plan?")) return;
+      const ok = await confirm({
+        title: "Remove visit",
+        message: "Remove this visit from the plan?",
+        confirmText: "Remove",
+        destructive: true,
+      });
+      if (!ok) return;
       try {
         await visitsApi.update(visit.id, { status: "CANCELED" });
         setBacklog((prev) => prev.filter((v) => v.id !== visit.id));
         setDayVisits((prev) => prev.filter((v) => v.id !== visit.id));
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to remove visit");
+        pushToast(e instanceof Error ? e.message : "Failed to remove visit", "error");
         void loadData();
       }
     },
-    [],
+    [confirm, loadData, pushToast],
   );
 
   const handleResultSubmit = async () => {
     if (!resultModalVisit || !resultOutcome.trim() || !resultNote.trim()) {
-      alert("Укажите результат (outcome) и комментарий (resultNote).");
+      pushToast("Укажите результат (outcome) и комментарий (resultNote).", "error");
       return;
     }
     try {
@@ -774,9 +788,7 @@ export default function VisitsPage() {
         nextActionAt: resultNextActionAt ? new Date(resultNextActionAt).toISOString() : undefined,
         nextActionNote: resultNextActionNote.trim() || undefined,
       });
-      setDayVisits((prev) =>
-        prev.map((v) => (v.id === resultModalVisit.id ? updated : v)),
-      );
+      setDayVisits((prev) => prev.map((v) => (v.id === resultModalVisit.id ? updated : v)));
       setResultModalOpen(false);
       setResultModalVisit(null);
       setResultOutcome("");
@@ -794,7 +806,7 @@ export default function VisitsPage() {
         setRouteSessionLoading(false);
       }
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save result");
+      pushToast(e instanceof Error ? e.message : "Failed to save result", "error");
     }
   };
 
@@ -809,7 +821,7 @@ export default function VisitsPage() {
   const handleCreateBacklogFromContact = async () => {
     if (!pendingContactId) return;
     if (!newVisitPurpose.trim()) {
-      alert("Укажите цель встречи.");
+      pushToast("Укажите цель встречи.", "error");
       return;
     }
     setCreatingBacklogVisit(true);
@@ -825,7 +837,7 @@ export default function VisitsPage() {
       setContactHits([]);
       setContactPickerOpen(false);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Не удалось создать визит");
+      pushToast(e instanceof Error ? e.message : "Не удалось создать визит", "error");
     } finally {
       setCreatingBacklogVisit(false);
     }
@@ -838,7 +850,10 @@ export default function VisitsPage() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-2">
               <h1 className="text-lg font-semibold text-zinc-900 sm:text-xl">Visits planning</h1>
-              <Link href="/visits/history" className="text-xs font-medium text-emerald-700 hover:underline">
+              <Link
+                href="/visits/history"
+                className="text-xs font-medium text-emerald-700 hover:underline"
+              >
                 История
               </Link>
             </div>
@@ -890,7 +905,7 @@ export default function VisitsPage() {
                     const state = await routeSessionsApi.start(dateParam);
                     setRouteSessionState(state);
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : "Failed to start route");
+                    pushToast(e instanceof Error ? e.message : "Failed to start route", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -908,7 +923,9 @@ export default function VisitsPage() {
         <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white px-4 py-3 shadow-sm">
           <div className="mx-auto flex max-w-6xl flex-wrap items-start gap-4">
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold uppercase text-zinc-500">Текущая / следующая встреча</div>
+              <div className="text-xs font-semibold uppercase text-zinc-500">
+                Текущая / следующая встреча
+              </div>
               {routeSessionState.currentVisit ? (
                 <div className="mt-1 text-sm">
                   <div className="font-medium text-zinc-900">
@@ -921,19 +938,23 @@ export default function VisitsPage() {
                   </div>
                   <div className="mt-0.5 text-zinc-500">
                     {routeSessionState.currentVisit.phone ? (
-                      <a href={`tel:${routeSessionState.currentVisit.phone}`} className="hover:underline">
+                      <a
+                        href={`tel:${routeSessionState.currentVisit.phone}`}
+                        className="hover:underline"
+                      >
                         {routeSessionState.currentVisit.phone}
                       </a>
                     ) : (
                       "—"
                     )}
                   </div>
-                  {routeSessionState.currentVisit.startsAt && routeSessionState.currentVisit.endsAt && (
-                    <div className="mt-0.5 text-zinc-500">
-                      {formatHmKyiv(routeSessionState.currentVisit.startsAt)}–
-                      {formatHmKyiv(routeSessionState.currentVisit.endsAt)}
-                    </div>
-                  )}
+                  {routeSessionState.currentVisit.startsAt &&
+                    routeSessionState.currentVisit.endsAt && (
+                      <div className="mt-0.5 text-zinc-500">
+                        {formatHmKyiv(routeSessionState.currentVisit.startsAt)}–
+                        {formatHmKyiv(routeSessionState.currentVisit.endsAt)}
+                      </div>
+                    )}
                 </div>
               ) : (
                 <div className="mt-1 text-sm text-zinc-500">Нет запланированных встреч</div>
@@ -953,7 +974,7 @@ export default function VisitsPage() {
                     );
                     window.open(url, "_blank");
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : "No coordinates");
+                    pushToast(e instanceof Error ? e.message : "No coordinates", "error");
                   }
                 }}
                 className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
@@ -971,7 +992,10 @@ export default function VisitsPage() {
                     const { url } = await routePlansApi.navigation(dateParam, "multi");
                     window.open(url, "_blank");
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : "No route plan or coordinates");
+                    pushToast(
+                      e instanceof Error ? e.message : "No route plan or coordinates",
+                      "error",
+                    );
                   }
                 }}
                 className="rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
@@ -1003,7 +1027,7 @@ export default function VisitsPage() {
                     const state = await routeSessionsApi.next(dateParam);
                     setRouteSessionState(state);
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : "Failed");
+                    pushToast(e instanceof Error ? e.message : "Failed", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -1020,7 +1044,7 @@ export default function VisitsPage() {
                     const state = await routeSessionsApi.stop(dateParam);
                     setRouteSessionState(state ?? null);
                   } catch (e) {
-                    alert(e instanceof Error ? e.message : "Failed");
+                    pushToast(e instanceof Error ? e.message : "Failed", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -1057,7 +1081,10 @@ export default function VisitsPage() {
                                 const state = await routeSessionsApi.setCurrent(dateParam, v.id);
                                 setRouteSessionState(state);
                               } catch (e) {
-                                alert(e instanceof Error ? e.message : "Не удалось выбрать визит");
+                                pushToast(
+                                  e instanceof Error ? e.message : "Не удалось выбрать визит",
+                                  "error",
+                                );
                               } finally {
                                 setRouteSessionLoading(false);
                               }
@@ -1117,7 +1144,10 @@ export default function VisitsPage() {
                                   const state = await routeSessionsApi.setCurrent(dateParam, v.id);
                                   setRouteSessionState(state);
                                 } catch (e) {
-                                  alert(e instanceof Error ? e.message : "Не удалось выбрать визит");
+                                  pushToast(
+                                    e instanceof Error ? e.message : "Не удалось выбрать визит",
+                                    "error",
+                                  );
                                 } finally {
                                   setRouteSessionLoading(false);
                                 }
@@ -1156,355 +1186,378 @@ export default function VisitsPage() {
 
       <div className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(240px,280px)_minmax(0,1fr)_minmax(260px,340px)] md:items-stretch">
         <div className="flex min-w-0 flex-col gap-3">
-        <section className="flex min-h-[280px] w-full flex-col rounded-lg border border-zinc-200 bg-white md:min-h-0">
-          <div className="border-b border-zinc-200 px-3 py-2">
-            <div className="text-sm font-semibold text-zinc-900">Backlog (planned, unscheduled)</div>
-            <div className="mt-2 space-y-2">
-              <button
-                type="button"
-                onClick={() => setContactPickerOpen((o) => !o)}
-                className="text-xs font-medium text-emerald-700 hover:underline"
-              >
-                + Добавить из контакта
-              </button>
-              {contactPickerOpen ? (
-                <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
-                  <input
-                    type="search"
-                    placeholder="Поиск контакта (мин. 2 символа)…"
-                    className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                    value={contactQuery}
-                    onChange={(e) => setContactQuery(e.target.value)}
-                  />
-                  {contactHits.length > 0 ? (
-                    <ul className="mt-1 max-h-32 overflow-auto text-xs">
-                      {contactHits.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            className={
-                              "w-full rounded px-1 py-1 text-left hover:bg-white " +
-                              (pendingContactId === c.id ? "bg-white ring-1 ring-emerald-300" : "")
-                            }
-                            onClick={() => {
-                              setPendingContactId(c.id);
-                              setNewVisitPurpose("");
-                            }}
-                          >
-                            {c.firstName} {c.lastName} · {c.phone}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {pendingContactId ? (
-                    <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2">
-                      <label className="text-[10px] font-medium text-zinc-600">Цель встречи *</label>
-                      <input
-                        className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                        value={newVisitPurpose}
-                        onChange={(e) => setNewVisitPurpose(e.target.value)}
-                        placeholder="Например: презентация, оплата…"
-                      />
-                      <button
-                        type="button"
-                        disabled={creatingBacklogVisit}
-                        onClick={() => void handleCreateBacklogFromContact()}
-                        className="mt-1 w-full rounded bg-zinc-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                      >
-                        {creatingBacklogVisit ? "…" : "В backlog"}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div
-            className="flex-1 space-y-2 overflow-auto p-3"
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              let visitId = dragVisitId;
-              const payload = e.dataTransfer.getData("application/json");
-              if (payload) {
-                try {
-                  const parsed = JSON.parse(payload) as { visitId?: string };
-                  if (parsed.visitId) visitId = parsed.visitId;
-                } catch {
-                  // ignore malformed payload
-                }
-              }
-              if (!visitId) return;
-              const visit = dayVisits.find((v) => v.id === visitId);
-              if (!visit) {
-                setDragVisitId(null);
-                return;
-              }
-              setDragVisitId(null);
-              setHoverSlotKey(null);
-              void handleMoveToBacklog(visit);
-            }}
-          >
-            {backlog.length === 0 ? (
-              <div className="text-xs text-zinc-500">No backlog visits.</div>
-            ) : (
-              backlog.map((v) => {
-                const contactName = v.contact ? formatContactNameLastFirst(v.contact) : "";
-                const nameLine = contactName || v.title?.trim() || "—";
-                return (
-                  <div
-                    key={v.id}
-                    draggable
-                    onDragStart={(e) => {
-                      dragSessionRef.current += 1;
-                      const session = dragSessionRef.current;
-                      cancelledDragSessionRef.current = null;
-                      e.dataTransfer.setData(
-                        "application/json",
-                        JSON.stringify({ visitId: v.id, session }),
-                      );
-                      e.dataTransfer.effectAllowed = "move";
-                      setDragVisitId(v.id);
-                      requestAnimationFrame(() => {
-                        scheduleSectionRef.current?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "nearest",
-                        });
-                      });
-                    }}
-                    onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
-                    className={[
-                      "group/card relative cursor-grab rounded-md border px-2 py-1.5 pr-[7.5rem] text-xs shadow-sm hover:bg-zinc-100",
-                      routeSessionState?.session?.isActive && routeSessionState.session.currentVisitId === v.id
-                        ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
-                        : "border-zinc-200 bg-zinc-50",
-                    ].join(" ")}
-                  >
-                    <div className="absolute right-1 top-1 z-[1] flex items-center gap-1">
-                      <span className="shrink-0 rounded-md bg-zinc-200/90 px-1.5 py-1 text-[10px] font-semibold tabular-nums leading-none text-zinc-900">
-                        {v.durationMin ?? 60} мин
-                      </span>
-                      <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 flex items-center gap-1">
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
-                            if (!slot) {
-                              alert(
-                                "На выбранный день нет свободного окна под длительность этого визита.",
-                              );
-                              return;
-                            }
-                            handleDropToSlot(v, slot);
-                            requestAnimationFrame(() => {
-                              scheduleSectionRef.current?.scrollIntoView({
-                                behavior: "smooth",
-                                block: "nearest",
-                              });
-                            });
-                          }}
-                          className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-sm font-semibold leading-none text-emerald-700 hover:bg-emerald-100"
-                          title="На ближайшее свободное время в выбранный день"
-                          aria-label="На ближайшее свободное время в выбранный день"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleRemoveVisit(v);
-                          }}
-                          className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-base font-medium leading-none text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
-                          title="Remove visit"
-                          aria-label="Remove visit"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                    <div className="min-w-0 w-full">
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="min-w-0 truncate font-medium leading-tight text-zinc-900">
-                          {nameLine}
-                        </span>
-                        <span className="min-w-0 truncate text-[11px] tabular-nums text-zinc-600">
-                          {v.phone ?? "—"}
-                        </span>
-                      </div>
-                      <div className="mt-1 w-full min-w-0 text-[11px] leading-snug text-zinc-600">
-                        <div className="line-clamp-2 break-words">
-                          {v.addressText?.trim() ? (
-                            v.addressText
-                          ) : (
-                            <span className="text-amber-800">Адрес не указан</span>
-                          )}
-                        </div>
-                        {v.purpose?.trim() ? (
-                          <div className="mt-0.5 line-clamp-2 break-words text-zinc-700">{v.purpose}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-        </div>
-
-        <section
-            ref={scheduleSectionRef}
-            className={[
-              "flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border bg-white transition-shadow md:min-h-0",
-              isDraggingFromBacklog
-                ? "border-blue-400 ring-2 ring-blue-200 ring-offset-2 ring-offset-zinc-50"
-                : "border-zinc-200",
-            ].join(" ")}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Day schedule</div>
-                {dayConflicts.size > 0 && (
-                  <div className="mt-0.5 text-xs text-amber-600">
-                    Some visits overlap in time — please review.
-                  </div>
-                )}
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
-                  <label className="inline-flex items-center gap-1">
+          <section className="flex min-h-[280px] w-full flex-col rounded-lg border border-zinc-200 bg-white md:min-h-0">
+            <div className="border-b border-zinc-200 px-3 py-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Backlog (planned, unscheduled)
+              </div>
+              <div className="mt-2 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setContactPickerOpen((o) => !o)}
+                  className="text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  + Добавить из контакта
+                </button>
+                {contactPickerOpen ? (
+                  <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
                     <input
-                      type="checkbox"
-                      checked={useTrafficAware}
-                      onChange={(e) => setUseTrafficAware(e.target.checked)}
+                      type="search"
+                      placeholder="Поиск контакта (мин. 2 символа)…"
+                      className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                      value={contactQuery}
+                      onChange={(e) => setContactQuery(e.target.value)}
                     />
-                    Учитывать пробки
-                  </label>
-                  {routePlan?.stops?.length ? (
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                        type="checkbox"
-                        checked={autoSaveRoutePlan}
-                        onChange={(e) => setAutoSaveRoutePlan(e.target.checked)}
-                      />
-                      Автосохранение
-                    </label>
-                  ) : null}
-                  {routePlan?.stops?.length && hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
-                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
-                      Есть несохранённые изменения
-                    </span>
-                  ) : null}
-                  {coordQuality.zeroCount > 0 || coordQuality.duplicateCount > 0 ? (
-                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
-                      Координаты:{" "}
-                      {coordQuality.zeroCount > 0 ? `0,0 = ${coordQuality.zeroCount}` : ""}
-                      {coordQuality.zeroCount > 0 && coordQuality.duplicateCount > 0 ? ", " : ""}
-                      {coordQuality.duplicateCount > 0 ? `дубликаты = ${coordQuality.duplicateCount}` : ""}
-                    </span>
-                  ) : null}
-                </div>
-
-                {routePlan?.stops?.length ? (
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {routeMetricsLoading ? (
-                      "План: считаем…"
-                    ) : routeMetrics?.distanceKm != null ? (
-                      <>
-                        План: {routeMetrics.distanceKm} км
-                        {routeMetrics.durationMin != null ? ` · ~${routeMetrics.durationMin} мин` : ""}
-                        {routeMetrics.source === "fallback" ? " (примерно)" : ""}
-                      </>
-                    ) : (
-                      "План: —"
-                    )}
-                    {" · "}
-                    {routeMetricsPreviewLoading ? (
-                      "Текущий: считаем…"
-                    ) : routeMetricsPreview?.distanceKm != null ? (
-                      <>
-                        Текущий: {routeMetricsPreview.distanceKm} км
-                        {routeMetricsPreview.durationMin != null
-                          ? ` · ~${routeMetricsPreview.durationMin} мин`
-                          : ""}
-                        {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
-                      </>
-                    ) : (
-                      "Текущий: —"
-                    )}
-                    {" · "}
-                    {routeFactMetricsLoading ? (
-                      "Факт: …"
-                    ) : routeFactMetrics?.distanceKm != null ? (
-                      <>
-                        Факт: {routeFactMetrics.distanceKm} км
-                        {routeFactMetrics.durationMin != null ? ` · ~${routeFactMetrics.durationMin} мин` : ""}
-                        {routeFactMetrics.source === "fallback" ? " (примерно)" : ""}
-                      </>
-                    ) : (
-                      "Факт: —"
-                    )}
+                    {contactHits.length > 0 ? (
+                      <ul className="mt-1 max-h-32 overflow-auto text-xs">
+                        {contactHits.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              className={
+                                "w-full rounded px-1 py-1 text-left hover:bg-white " +
+                                (pendingContactId === c.id
+                                  ? "bg-white ring-1 ring-emerald-300"
+                                  : "")
+                              }
+                              onClick={() => {
+                                setPendingContactId(c.id);
+                                setNewVisitPurpose("");
+                              }}
+                            >
+                              {c.firstName} {c.lastName} · {c.phone}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {pendingContactId ? (
+                      <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2">
+                        <label className="text-[10px] font-medium text-zinc-600">
+                          Цель встречи *
+                        </label>
+                        <input
+                          className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                          value={newVisitPurpose}
+                          onChange={(e) => setNewVisitPurpose(e.target.value)}
+                          placeholder="Например: презентация, оплата…"
+                        />
+                        <button
+                          type="button"
+                          disabled={creatingBacklogVisit}
+                          onClick={() => void handleCreateBacklogFromContact()}
+                          className="mt-1 w-full rounded bg-zinc-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                        >
+                          {creatingBacklogVisit ? "…" : "В backlog"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => void handleSaveRoute()}
-                disabled={savingRoute || hasScheduledWithoutCoords || scheduledVisits.length === 0}
-                title={
-                  hasScheduledWithoutCoords
-                    ? "Укажите точки для всех"
-                    : savingRoute
-                      ? "Сохранение…"
-                      : "Сохранить маршрут"
+            </div>
+            <div
+              className="flex-1 space-y-2 overflow-auto p-3"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                let visitId = dragVisitId;
+                const payload = e.dataTransfer.getData("application/json");
+                if (payload) {
+                  try {
+                    const parsed = JSON.parse(payload) as { visitId?: string };
+                    if (parsed.visitId) visitId = parsed.visitId;
+                  } catch {
+                    // ignore malformed payload
+                  }
                 }
-                className="inline-flex shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 p-2 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Save className="h-4 w-4" aria-hidden />
-                <span className="sr-only">
-                  {hasScheduledWithoutCoords
-                    ? "Укажите точки для всех"
-                    : savingRoute
-                      ? "Сохранение маршрута"
-                      : "Сохранить маршрут"}
-                </span>
-              </button>
+                if (!visitId) return;
+                const visit = dayVisits.find((v) => v.id === visitId);
+                if (!visit) {
+                  setDragVisitId(null);
+                  return;
+                }
+                setDragVisitId(null);
+                setHoverSlotKey(null);
+                void handleMoveToBacklog(visit);
+              }}
+            >
+              {backlog.length === 0 ? (
+                <div className="text-xs text-zinc-500">No backlog visits.</div>
+              ) : (
+                backlog.map((v) => {
+                  const contactName = v.contact ? formatContactNameLastFirst(v.contact) : "";
+                  const nameLine = contactName || v.title?.trim() || "—";
+                  return (
+                    <div
+                      key={v.id}
+                      draggable
+                      onDragStart={(e) => {
+                        dragSessionRef.current += 1;
+                        const session = dragSessionRef.current;
+                        cancelledDragSessionRef.current = null;
+                        e.dataTransfer.setData(
+                          "application/json",
+                          JSON.stringify({ visitId: v.id, session }),
+                        );
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragVisitId(v.id);
+                        requestAnimationFrame(() => {
+                          scheduleSectionRef.current?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "nearest",
+                          });
+                        });
+                      }}
+                      onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
+                      className={[
+                        "group/card relative cursor-grab rounded-md border px-2 py-1.5 pr-[7.5rem] text-xs shadow-sm hover:bg-zinc-100",
+                        routeSessionState?.session?.isActive &&
+                        routeSessionState.session.currentVisitId === v.id
+                          ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
+                          : "border-zinc-200 bg-zinc-50",
+                      ].join(" ")}
+                    >
+                      <div className="absolute right-1 top-1 z-[1] flex items-center gap-1">
+                        <span className="shrink-0 rounded-md bg-zinc-200/90 px-1.5 py-1 text-[10px] font-semibold tabular-nums leading-none text-zinc-900">
+                          {v.durationMin ?? 60} мин
+                        </span>
+                        <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
+                              if (!slot) {
+                                pushToast(
+                                  "На выбранный день нет свободного окна под длительность этого визита.",
+                                );
+                                return;
+                              }
+                              handleDropToSlot(v, slot);
+                              requestAnimationFrame(() => {
+                                scheduleSectionRef.current?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "nearest",
+                                });
+                              });
+                            }}
+                            className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-sm font-semibold leading-none text-emerald-700 hover:bg-emerald-100"
+                            title="На ближайшее свободное время в выбранный день"
+                            aria-label="На ближайшее свободное время в выбранный день"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleRemoveVisit(v);
+                            }}
+                            className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-base font-medium leading-none text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
+                            title="Remove visit"
+                            aria-label="Remove visit"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                      <div className="min-w-0 w-full">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          <span className="min-w-0 truncate font-medium leading-tight text-zinc-900">
+                            {nameLine}
+                          </span>
+                          <span className="min-w-0 truncate text-[11px] tabular-nums text-zinc-600">
+                            {v.phone ?? "—"}
+                          </span>
+                        </div>
+                        <div className="mt-1 w-full min-w-0 text-[11px] leading-snug text-zinc-600">
+                          <div className="line-clamp-2 break-words">
+                            {v.addressText?.trim() ? (
+                              v.addressText
+                            ) : (
+                              <span className="text-amber-800">Адрес не указан</span>
+                            )}
+                          </div>
+                          {v.purpose?.trim() ? (
+                            <div className="mt-0.5 line-clamp-2 break-words text-zinc-700">
+                              {v.purpose}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        </div>
+
+        <section
+          ref={scheduleSectionRef}
+          className={[
+            "flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border bg-white transition-shadow md:min-h-0",
+            isDraggingFromBacklog
+              ? "border-blue-400 ring-2 ring-blue-200 ring-offset-2 ring-offset-zinc-50"
+              : "border-zinc-200",
+          ].join(" ")}
+        >
+          <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Day schedule</div>
+              {dayConflicts.size > 0 && (
+                <div className="mt-0.5 text-xs text-amber-600">
+                  Some visits overlap in time — please review.
+                </div>
+              )}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
+                <label className="inline-flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={useTrafficAware}
+                    onChange={(e) => setUseTrafficAware(e.target.checked)}
+                  />
+                  Учитывать пробки
+                </label>
+                {routePlan?.stops?.length ? (
+                  <label className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={autoSaveRoutePlan}
+                      onChange={(e) => setAutoSaveRoutePlan(e.target.checked)}
+                    />
+                    Автосохранение
+                  </label>
+                ) : null}
+                {routePlan?.stops?.length && hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
+                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
+                    Есть несохранённые изменения
+                  </span>
+                ) : null}
+                {coordQuality.zeroCount > 0 || coordQuality.duplicateCount > 0 ? (
+                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
+                    Координаты:{" "}
+                    {coordQuality.zeroCount > 0 ? `0,0 = ${coordQuality.zeroCount}` : ""}
+                    {coordQuality.zeroCount > 0 && coordQuality.duplicateCount > 0 ? ", " : ""}
+                    {coordQuality.duplicateCount > 0
+                      ? `дубликаты = ${coordQuality.duplicateCount}`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
+
               {routePlan?.stops?.length ? (
-                <button
-                  type="button"
-                  disabled={savingRoute || hasScheduledWithoutCoords || currentOrderVisitIds.length < 3}
-                  onClick={async () => {
-                    try {
-                      const optimized = await routePlansApi.optimize(dateParam, currentOrderVisitIds, {
-                        traffic: useTrafficAware,
-                      });
-                      const res = await routePlansApi.saveForDay(dateParam, optimized.visitIds);
-                      setRoutePlan(res.plan ?? null);
-                      setRouteMetricsLoading(true);
-                      try {
-                        const m = await routePlansApi.metrics(dateParam, { traffic: useTrafficAware });
-                        setRouteMetrics(m);
-                      } finally {
-                        setRouteMetricsLoading(false);
-                      }
-                    } catch (e) {
-                      alert(e instanceof Error ? e.message : "Failed to optimize route");
-                    }
-                  }}
-                  className="ml-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  title="Оптимизировать порядок остановок (сохранит маршрут)"
-                >
-                  Оптимизировать
-                </button>
+                <div className="mt-0.5 text-[11px] text-zinc-500">
+                  {routeMetricsLoading ? (
+                    "План: считаем…"
+                  ) : routeMetrics?.distanceKm != null ? (
+                    <>
+                      План: {routeMetrics.distanceKm} км
+                      {routeMetrics.durationMin != null
+                        ? ` · ~${routeMetrics.durationMin} мин`
+                        : ""}
+                      {routeMetrics.source === "fallback" ? " (примерно)" : ""}
+                    </>
+                  ) : (
+                    "План: —"
+                  )}
+                  {" · "}
+                  {routeMetricsPreviewLoading ? (
+                    "Текущий: считаем…"
+                  ) : routeMetricsPreview?.distanceKm != null ? (
+                    <>
+                      Текущий: {routeMetricsPreview.distanceKm} км
+                      {routeMetricsPreview.durationMin != null
+                        ? ` · ~${routeMetricsPreview.durationMin} мин`
+                        : ""}
+                      {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
+                    </>
+                  ) : (
+                    "Текущий: —"
+                  )}
+                  {" · "}
+                  {routeFactMetricsLoading ? (
+                    "Факт: …"
+                  ) : routeFactMetrics?.distanceKm != null ? (
+                    <>
+                      Факт: {routeFactMetrics.distanceKm} км
+                      {routeFactMetrics.durationMin != null
+                        ? ` · ~${routeFactMetrics.durationMin} мин`
+                        : ""}
+                      {routeFactMetrics.source === "fallback" ? " (примерно)" : ""}
+                    </>
+                  ) : (
+                    "Факт: —"
+                  )}
+                </div>
               ) : null}
             </div>
-            <div className="flex flex-1 overflow-auto">
+            <button
+              type="button"
+              onClick={() => void handleSaveRoute()}
+              disabled={savingRoute || hasScheduledWithoutCoords || scheduledVisits.length === 0}
+              title={
+                hasScheduledWithoutCoords
+                  ? "Укажите точки для всех"
+                  : savingRoute
+                    ? "Сохранение…"
+                    : "Сохранить маршрут"
+              }
+              className="inline-flex shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 p-2 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save className="h-4 w-4" aria-hidden />
+              <span className="sr-only">
+                {hasScheduledWithoutCoords
+                  ? "Укажите точки для всех"
+                  : savingRoute
+                    ? "Сохранение маршрута"
+                    : "Сохранить маршрут"}
+              </span>
+            </button>
+            {routePlan?.stops?.length ? (
+              <button
+                type="button"
+                disabled={
+                  savingRoute || hasScheduledWithoutCoords || currentOrderVisitIds.length < 3
+                }
+                onClick={async () => {
+                  try {
+                    const optimized = await routePlansApi.optimize(
+                      dateParam,
+                      currentOrderVisitIds,
+                      {
+                        traffic: useTrafficAware,
+                      },
+                    );
+                    const res = await routePlansApi.saveForDay(dateParam, optimized.visitIds);
+                    setRoutePlan(res.plan ?? null);
+                    setRouteMetricsLoading(true);
+                    try {
+                      const m = await routePlansApi.metrics(dateParam, {
+                        traffic: useTrafficAware,
+                      });
+                      setRouteMetrics(m);
+                    } finally {
+                      setRouteMetricsLoading(false);
+                    }
+                  } catch (e) {
+                    pushToast(e instanceof Error ? e.message : "Failed to optimize route", "error");
+                  }
+                }}
+                className="ml-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                title="Оптимизировать порядок остановок (сохранит маршрут)"
+              >
+                Оптимизировать
+              </button>
+            ) : null}
+          </div>
+          <div className="flex flex-1 overflow-auto">
             {(() => {
               const dayStart = slots[0]?.start;
               const dayEnd = slots[slots.length - 1]?.end;
@@ -1515,7 +1568,7 @@ export default function VisitsPage() {
                     className="flex shrink-0 flex-col border-r border-zinc-200 pr-2 text-right"
                     style={{ width: 44 }}
                   >
-                    {slots.map((slot, i) => {
+                    {slots.map((slot) => {
                       const isHour = slot.start.getMinutes() === 0;
                       return (
                         <div
@@ -1526,14 +1579,15 @@ export default function VisitsPage() {
                             lineHeight: `${ROW_HEIGHT_PX}px`,
                           }}
                         >
-                          {isHour
-                            ? `${String(slot.start.getHours()).padStart(2, "0")}:00`
-                            : ""}
+                          {isHour ? `${String(slot.start.getHours()).padStart(2, "0")}:00` : ""}
                         </div>
                       );
                     })}
                   </div>
-                  <div className="relative min-w-0 flex-1" style={{ height: TOTAL_SLOTS * ROW_HEIGHT_PX }}>
+                  <div
+                    className="relative min-w-0 flex-1"
+                    style={{ height: TOTAL_SLOTS * ROW_HEIGHT_PX }}
+                  >
                     {/** Drop grid — выше карточек при перетаскивании, чтобы ловить дроп на строку ниже */}
                     {slots.map((slot, slotIndex) => (
                       <div
@@ -1578,11 +1632,10 @@ export default function VisitsPage() {
                               // ignore malformed payload
                             }
                           }
-                          const visit =
-                            visitId
-                              ? backlog.find((v) => v.id === visitId) ||
-                                dayVisits.find((v) => v.id === visitId)
-                              : null;
+                          const visit = visitId
+                            ? backlog.find((v) => v.id === visitId) ||
+                              dayVisits.find((v) => v.id === visitId)
+                            : null;
                           if (!visit || !visitId) return;
                           setDragVisitId(null);
                           setHoverSlotKey(null);
@@ -1592,19 +1645,15 @@ export default function VisitsPage() {
                     ))}
                     {dragVisitId && hoverSlotKey
                       ? (() => {
-                          const slotIndex = slots.findIndex(
-                            (s) => s.key === hoverSlotKey,
-                          );
+                          const slotIndex = slots.findIndex((s) => s.key === hoverSlotKey);
                           if (slotIndex === -1) return null;
-                          const slot = slots[slotIndex]!;
                           const visit =
                             backlog.find((v) => v.id === dragVisitId) ||
                             dayVisits.find((v) => v.id === dragVisitId);
                           if (!visit) return null;
                           const durationMin = visit.durationMin ?? 60;
                           const topPx = slotIndex * ROW_HEIGHT_PX;
-                          const heightPx =
-                            (durationMin / SLOT_MINUTES) * ROW_HEIGHT_PX;
+                          const heightPx = (durationMin / SLOT_MINUTES) * ROW_HEIGHT_PX;
                           return (
                             <div
                               className="pointer-events-none absolute left-0 right-0 rounded-md border-2 border-dashed border-blue-300 bg-blue-50/30"
@@ -1621,10 +1670,7 @@ export default function VisitsPage() {
                       const visible = sortedForTimeline.filter((v) => {
                         if (!v.startsAt || !v.endsAt) return false;
                         const s = new Date(v.startsAt);
-                        return (
-                          s.getTime() >= dayStart.getTime() &&
-                          s.getTime() < dayEnd.getTime()
-                        );
+                        return s.getTime() >= dayStart.getTime() && s.getTime() < dayEnd.getTime();
                       });
                       const layout = computeVisitLayout(
                         visible.map((v) => ({
@@ -1639,11 +1685,8 @@ export default function VisitsPage() {
                         const startMinutesFromDayStart =
                           (start.getTime() - dayStart.getTime()) / (60 * 1000);
                         const durationMin = v.durationMin ?? 60;
-                        const topPx =
-                          (startMinutesFromDayStart / SLOT_MINUTES) *
-                          ROW_HEIGHT_PX;
-                        const heightPx =
-                          (durationMin / SLOT_MINUTES) * ROW_HEIGHT_PX;
+                        const topPx = (startMinutesFromDayStart / SLOT_MINUTES) * ROW_HEIGHT_PX;
+                        const heightPx = (durationMin / SLOT_MINUTES) * ROW_HEIGHT_PX;
                         const layoutInfo = layout.get(v.id);
                         const column = layoutInfo?.column ?? 0;
                         const columns = layoutInfo?.columns ?? 1;
@@ -1668,11 +1711,11 @@ export default function VisitsPage() {
                                   : v.status === "DONE"
                                     ? "border-emerald-300 bg-emerald-50 hover:border-emerald-400"
                                     : v.status === "IN_PROGRESS"
-                                    ? "border-amber-300 bg-amber-50 hover:border-amber-400"
-                                    : routeSessionState?.session?.isActive &&
-                                        routeSessionState.session.currentVisitId === v.id
-                                      ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
-                                      : "border-zinc-200 bg-zinc-50 hover:border-zinc-400 hover:bg-zinc-50",
+                                      ? "border-amber-300 bg-amber-50 hover:border-amber-400"
+                                      : routeSessionState?.session?.isActive &&
+                                          routeSessionState.session.currentVisitId === v.id
+                                        ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200"
+                                        : "border-zinc-200 bg-zinc-50 hover:border-zinc-400 hover:bg-zinc-50",
                               isExpanded ? "z-10 shadow-md" : "",
                             ].join(" ")}
                             style={{
@@ -1694,9 +1737,7 @@ export default function VisitsPage() {
                               setDragVisitId(v.id);
                               setHoveredVisitId(null);
                             }}
-                            onDragEnd={() =>
-                              setDragVisitId((cur) => (cur === v.id ? null : cur))
-                            }
+                            onDragEnd={() => setDragVisitId((cur) => (cur === v.id ? null : cur))}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0 truncate font-medium text-zinc-900">
@@ -1709,14 +1750,12 @@ export default function VisitsPage() {
                               </span>
                             </div>
                             {v.purpose ? (
-                              <div className="mt-0.5 line-clamp-2 text-[10px] text-zinc-600">{v.purpose}</div>
+                              <div className="mt-0.5 line-clamp-2 text-[10px] text-zinc-600">
+                                {v.purpose}
+                              </div>
                             ) : null}
                             <div className="mt-0.5 truncate text-[11px] text-zinc-500">
-                              {v.addressText || (
-                                <span className="text-amber-600">
-                                  Нет адреса
-                                </span>
-                              )}
+                              {v.addressText || <span className="text-amber-600">Нет адреса</span>}
                             </div>
                             <div
                               className={
@@ -1729,21 +1768,14 @@ export default function VisitsPage() {
                                 <button
                                   type="button"
                                   className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
-                                  onClick={() =>
-                                    void handleMoveOnTimeline(
-                                      v,
-                                      -SLOT_MINUTES,
-                                    )
-                                  }
+                                  onClick={() => void handleMoveOnTimeline(v, -SLOT_MINUTES)}
                                 >
                                   ↑ earlier
                                 </button>
                                 <button
                                   type="button"
                                   className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
-                                  onClick={() =>
-                                    void handleMoveOnTimeline(v, SLOT_MINUTES)
-                                  }
+                                  onClick={() => void handleMoveOnTimeline(v, SLOT_MINUTES)}
                                 >
                                   ↓ later
                                 </button>
@@ -1751,10 +1783,7 @@ export default function VisitsPage() {
                                   type="button"
                                   className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
                                   onClick={() =>
-                                    void handleResizeVisit(
-                                      v,
-                                      (v.durationMin ?? 60) + SLOT_MINUTES,
-                                    )
+                                    void handleResizeVisit(v, (v.durationMin ?? 60) + SLOT_MINUTES)
                                   }
                                 >
                                   +30m
@@ -1763,10 +1792,7 @@ export default function VisitsPage() {
                                   type="button"
                                   className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
                                   onClick={() =>
-                                    void handleResizeVisit(
-                                      v,
-                                      (v.durationMin ?? 60) - SLOT_MINUTES,
-                                    )
+                                    void handleResizeVisit(v, (v.durationMin ?? 60) - SLOT_MINUTES)
                                   }
                                 >
                                   -30m
@@ -1793,8 +1819,8 @@ export default function VisitsPage() {
                 </>
               );
             })()}
-            </div>
-          </section>
+          </div>
+        </section>
 
         <section
           className="max-md:hidden flex min-h-0 min-w-0 flex-col rounded-lg border border-zinc-200 bg-white md:min-h-[min(560px,calc(100vh-200px))]"
@@ -1813,7 +1839,9 @@ export default function VisitsPage() {
                     ) : routeMetrics?.distanceKm != null ? (
                       <>
                         {routeMetrics.distanceKm} км
-                        {routeMetrics.durationMin != null ? ` · ~${routeMetrics.durationMin} мин` : ""}
+                        {routeMetrics.durationMin != null
+                          ? ` · ~${routeMetrics.durationMin} мин`
+                          : ""}
                         {routeMetrics.source === "fallback" ? " (примерно)" : ""}
                       </>
                     ) : (
@@ -1953,7 +1981,7 @@ export default function VisitsPage() {
                 onClick={() => {
                   const text = purposeDraft.trim();
                   if (!text) {
-                    alert("Укажите цель встречи.");
+                    pushToast("Укажите цель встречи.", "error");
                     return;
                   }
                   const ps = pendingSchedule;
@@ -1977,11 +2005,12 @@ export default function VisitsPage() {
             <div className="px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Маршрут визитов</div>
               <p className="mt-1 text-sm text-zinc-600">
-                Для «Маршрут дня» нужна стартовая точка. Финиш по умолчанию будет таким же, как старт.
+                Для «Маршрут дня» нужна стартовая точка. Финиш по умолчанию будет таким же, как
+                старт.
               </p>
               <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
-                Откройте сотрудника → «Маршрут визитов» и заполните «Старт — подпись» через автокомплит (координаты
-                подставятся автоматически).
+                Откройте сотрудника → «Маршрут визитов» и заполните «Старт — подпись» через
+                автокомплит (координаты подставятся автоматически).
               </div>
               <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-3">
                 <button
@@ -2044,7 +2073,9 @@ export default function VisitsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-700">Следующее действие (дата)</label>
+                <label className="block text-xs font-medium text-zinc-700">
+                  Следующее действие (дата)
+                </label>
                 <input
                   type="datetime-local"
                   value={resultNextActionAt}
@@ -2053,7 +2084,9 @@ export default function VisitsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-700">Заметка к следующему действию</label>
+                <label className="block text-xs font-medium text-zinc-700">
+                  Заметка к следующему действию
+                </label>
                 <textarea
                   value={resultNextActionNote}
                   onChange={(e) => setResultNextActionNote(e.target.value)}
@@ -2093,4 +2126,3 @@ export default function VisitsPage() {
     </div>
   );
 }
-

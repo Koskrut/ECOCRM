@@ -1,8 +1,11 @@
 export declare const ModuleIds: {
   readonly CoreCrm: "core.crm";
+  readonly Visits: "ext.visits";
+  readonly ManualCalling: "ext.manual_calling";
   readonly VoiceOutbound: "ext.voice_outbound";
   readonly Finance: "ext.finance";
   readonly ProductionPlanning: "ext.production_planning";
+  readonly Store: "ext.store";
   readonly IntegrationsTelegram: "int.integrations_telegram";
   readonly NovaPoshta: "int.nova_poshta";
   readonly GoogleSheet: "int.google_sheet";

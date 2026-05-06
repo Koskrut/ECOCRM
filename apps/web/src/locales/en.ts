@@ -5,10 +5,156 @@ export const en = {
     cancel: "Cancel",
     save: "Save",
     close: "Close",
+    retry: "Retry",
+    backToDashboard: "Back to Dashboard",
+    showDetails: "Show details",
+    hideDetails: "Hide details",
+    backToSettings: "Back to Settings",
   },
   nav: {
+    dashboard: "Dashboard",
+    leads: "Leads",
+    orders: "Orders",
+    companies: "Companies",
+    contacts: "Contacts",
+    tasks: "Tasks",
+    calls: "Manual calling",
+    callsHistory: "Call history",
+    inbox: "Inbox",
+    catalog: "Catalog",
+    visits: "Visits",
+    visitsHistory: "Visit history",
+    aiCalls: "AI Calls",
+    analytics: "Analytics",
+    settings: "Settings",
     payments: "Payments",
     planning: "Planning",
+  },
+  modules: {
+    unavailableTitle: "Module unavailable",
+    unavailableNotEffective: "This module is not licensed or not enabled for this installation.",
+    unavailableApiError:
+      "Could not load module state from the server. Some features are hidden until the connection is restored.",
+    apiErrorBanner: "Module state is unavailable; gated sections are hidden.",
+    moduleIdLabel: "Module",
+  },
+  analytics: {
+    pageTitle: "Analytics",
+    pageSubtitle: "Key CRM metrics overview by period and manager.",
+    loading: "Loading analytics…",
+    accessDeniedTitle: "Access denied",
+    accessDeniedHint: "Analytics is available only for ADMIN and LEAD roles.",
+    tabs: {
+      overview: "Overview",
+      sales: "Sales",
+      leads: "Leads",
+      attention: "Attention",
+      managers: "Managers",
+      finance: "Finance",
+      clients: "Clients",
+      products: "Products",
+      visits: "Visits",
+      operations: "Operations",
+      map: "Map",
+    },
+  },
+  auth: {
+    loginTitle: "Sign in",
+    resetTitle: "Reset password",
+    emailOrLogin: "Email or login",
+    password: "Password",
+    signIn: "Sign in",
+    signingIn: "Signing in…",
+    resetPassword: "Reset password",
+    sendCode: "Send code",
+    sendingCode: "Sending…",
+    codeFromTelegram: "Code from Telegram",
+    newPassword: "New password",
+    savePassword: "Save password",
+    savingPassword: "Saving…",
+    resetRequestError: "Request failed",
+    resetSubmitError: "Password reset failed",
+  },
+  settings: {
+    pageTitle: "Settings",
+    pageSubtitle: "Manage system configuration",
+    sectionCore: "Core CRM",
+    sectionExtensions: "Extensions & integrations",
+    release: {
+      title: "Release",
+      hint: "Read-only deployment metadata from the API. Updates are done on the server by the operator, not from this UI.",
+      version: "Version",
+      gitSha: "Git SHA",
+      builtAt: "Built at",
+      imageTag: "Image tag",
+      loadError: "Could not load release info.",
+    },
+    cards: {
+      access: {
+        title: "Access & Permissions",
+        desc: "Manage employee roles (USER / LEAD / MANAGER / ADMIN)",
+      },
+      ordersPipeline: {
+        title: "Orders pipeline",
+        desc: "Kanban columns, stage labels and allowed transitions (read-only for non-ADMIN roles in orders UI).",
+      },
+      leadsPipeline: {
+        title: "Leads pipeline",
+        desc: "Lead status labels, order, visibility and allowed transitions (ADMIN only).",
+      },
+      exchangeRates: {
+        title: "Exchange rates",
+        desc: "UAH and EUR to USD — used for payment conversion",
+      },
+      googleMaps: {
+        title: "Google Maps",
+        desc: "Maps JavaScript API key for visits planning map",
+      },
+      metaLeadAds: {
+        title: "Facebook / Meta Lead Ads",
+        desc: "Webhook verify token, Page Access Token — for receiving leads from Meta",
+      },
+      employees: {
+        title: "Employees",
+        desc: "Manage employees and their roles",
+      },
+      metadata: {
+        title: "Metadata & automation",
+        desc: "Custom fields, dictionaries, layouts, workflows, RBAC, custom entities",
+      },
+      dataImport: {
+        title: "Data import",
+        desc: "CSV import for core entities (contacts and similar)",
+      },
+      health: {
+        title: "System health",
+        desc: "Release, license, modules, backend variant",
+      },
+      fop: {
+        title: "FOP (bank accounts)",
+        desc: "Bank / payments configuration",
+      },
+      googleSheet: {
+        title: "Google Sheet (1C)",
+        desc: "Webhook for sending orders to a Google Sheet and receiving document numbers from 1C",
+      },
+      ringostat: {
+        title: "Ringostat",
+        desc: "Ringostat telephony: webhook secret, API token and internal line mapping",
+      },
+      outboundVoice: {
+        title: "Outbound voice (AI Calls)",
+        desc: "HTTP provider for outbound calls, webhook secret, path and create-call response parsing",
+      },
+      telegram: {
+        title: "Telegram Inbox",
+        desc: "Bot token, webhook secret and public URL for Inbox",
+      },
+      store: {
+        title: "Online store",
+        desc: "Theme, banners, contacts, CRM URL for store-side payment",
+      },
+    },
   },
   np: {
     shippingProfileForm: {
@@ -18,7 +164,7 @@ export const en = {
       label: "Label",
       labelOptionalHint: "(optional)",
       labelPlaceholderRequired: "e.g. Home, Office",
-      labelPlaceholderOptional: 'Наприклад, "Дім", "Офіс"',
+      labelPlaceholderOptional: "e.g. Home, Office",
 
       recipientType: "Recipient type",
       recipientPerson: "Person",
@@ -176,8 +322,7 @@ export const en = {
         "Upload an Excel file with SKU and quantity columns, optionally with warehouse name/code.",
       snapshotsHint:
         "Snapshots are first staged, then published as the current physical stock baseline.",
-      bomHint:
-        "Each new save creates a fresh active BOM revision for the selected kit.",
+      bomHint: "Each new save creates a fresh active BOM revision for the selected kit.",
       bomUploadHint:
         "Upload an Excel or CSV file with kitSku, componentSku and qtyPerKit columns. Leading ` in SKU values will be ignored during lookup.",
       batchesHint:
@@ -186,8 +331,7 @@ export const en = {
         "Recommendations are calculated from hard demand minus available stock and expected output.",
       dashboardHint:
         "This dashboard summarizes current rules, snapshots and weekly queue pressure.",
-      capacityHint:
-        "Capacity is calculated from available component stock in the active BOM.",
+      capacityHint: "Capacity is calculated from available component stock in the active BOM.",
     },
     errors: {
       loadDashboard: "Failed to load planning dashboard",

@@ -1,70 +1,18 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { API_URL } from "@/lib/api/config";
 
-type ActivityItem = {
-  id: string;
-  type: string;
-  body: string;
-  occurredAt?: string;
-  createdAt?: string;
-  createdBy?: string;
-};
-
-type ActivitiesResponse = { items?: ActivityItem[] };
-
-type TimelineItem = {
-  id: string;
-  source: "ACTIVITY";
-  type: string;
-  title: string;
-  body: string;
-  occurredAt: string;
-  createdAt: string;
-  createdBy: string;
-};
-
-const titleFor = (type: string): string => {
-  if (type === "CALL") return "Звонок";
-  if (type === "MEETING") return "Встреча";
-  if (type === "COMMENT") return "Комментарий";
-  return type;
-};
-
-export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const token = (await cookies()).get("token")?.value;
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-
-  const r = await fetch(`${API_URL}/companies/${id}/activities`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  const url = new URL(req.url);
+  const params = url.searchParams.toString();
+  const suffix = params ? `?${params}` : "";
+  const res = await fetch(new URL(`/api/timeline/company/${id}${suffix}`, req.url), {
+    method: "GET",
+    headers: req.headers,
     cache: "no-store",
   });
-
-  const text = await r.text();
-  if (!r.ok) {
-    return new NextResponse(text, {
-      status: r.status,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  const data = JSON.parse(text) as ActivitiesResponse;
-
-  const items: TimelineItem[] = (data.items ?? []).map((a) => {
-    const occurredAt = a.occurredAt ?? a.createdAt ?? new Date().toISOString();
-    const createdAt = a.createdAt ?? occurredAt;
-    return {
-      id: a.id,
-      source: "ACTIVITY",
-      type: a.type,
-      title: titleFor(a.type),
-      body: a.body ?? "",
-      occurredAt,
-      createdAt,
-      createdBy: a.createdBy ?? "system",
-    };
+  const text = await res.text();
+  return new NextResponse(text, {
+    status: res.status,
+    headers: { "Content-Type": "application/json" },
   });
-
-  items.sort((x, y) => +new Date(y.occurredAt) - +new Date(x.occurredAt));
-  return NextResponse.json({ items });
 }

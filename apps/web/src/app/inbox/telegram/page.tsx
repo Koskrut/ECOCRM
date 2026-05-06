@@ -13,6 +13,7 @@ import { isTextSelected } from "@/lib/dom";
 import { Link2, MessageCircle, Send, Sparkles, User, UserPlus } from "lucide-react";
 import { DateTime } from "luxon";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import { PageLoading } from "@/components/feedback";
 
 const PAGE_SIZE = 50;
 const LIST_PAGE_SIZE = 30;
@@ -49,7 +50,7 @@ function conversationTitle(c: ConversationItem): string {
 
 export default function InboxTelegramPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<PageLoading />}>
       <InboxTelegramContent />
     </Suspense>
   );

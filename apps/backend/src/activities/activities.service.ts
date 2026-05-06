@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/consistent-type-imports -- Nest DI tokens must be value imports */
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,18 +6,29 @@ import {
   NotFoundException,
   Optional,
 } from "@nestjs/common";
-import type { ActivityType } from "@prisma/client";
+import type { ActivityType, Prisma } from "@prisma/client";
 import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import {
+  ACTIVITIES_LIST_DEFAULT_LIMIT,
+  ACTIVITIES_LIST_MAX_LIMIT,
+} from "./dto/list-activities.query.dto";
 
 type CreateActivityBody = {
   type: ActivityType;
-  title?: string;
+  title?: string | null;
   body: string;
-  occurredAt?: string; // ISO
+  occurredAt?: string;
 };
+
+type ListPagination = {
+  limit?: number;
+  cursor?: string;
+};
+
+type ActivityIncludeArgs = Prisma.ActivityFindManyArgs["include"];
 
 @Injectable()
 export class ActivitiesService {
@@ -26,12 +38,13 @@ export class ActivitiesService {
   ) {}
 
   // ---------- ORDER ----------
-  async listForOrder(orderId: string, actor?: AuthUser) {
+  async listForOrder(orderId: string, actor?: AuthUser, pagination: ListPagination = {}) {
     await this.assertOrderAccess(orderId, actor);
-    return this.prisma.activity.findMany({
-      where: { orderId },
-      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
-    });
+    return this.runListQuery(
+      { orderId },
+      [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      pagination,
+    );
   }
 
   async createForOrder(orderId: string, body: CreateActivityBody, user: AuthUser) {
@@ -49,16 +62,16 @@ export class ActivitiesService {
   }
 
   // ---------- CONTACT ----------
-  async listForContact(contactId: string, actor?: AuthUser) {
+  async listForContact(contactId: string, actor?: AuthUser, pagination: ListPagination = {}) {
     await this.assertContactAccess(contactId, actor);
-    const items = await this.prisma.activity.findMany({
-      where: { contactId },
-      orderBy: [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
-      include: {
-        call: true,
-      },
-    });
-    return this.withCreatedByName(items);
+    const { items, nextCursor } = await this.runListQuery(
+      { contactId },
+      [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
+      pagination,
+      { call: true },
+    );
+    const withNames = await this.withCreatedByName(items);
+    return { items: withNames, nextCursor };
   }
 
   async createForContact(contactId: string, body: CreateActivityBody, user: AuthUser) {
@@ -76,16 +89,16 @@ export class ActivitiesService {
   }
 
   // ---------- LEAD ----------
-  async listForLead(leadId: string, actor?: AuthUser) {
+  async listForLead(leadId: string, actor?: AuthUser, pagination: ListPagination = {}) {
     await this.assertLeadAccess(leadId, actor);
-    const items = await this.prisma.activity.findMany({
-      where: { leadId },
-      orderBy: [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
-      include: {
-        call: true,
-      },
-    });
-    return this.withCreatedByName(items);
+    const { items, nextCursor } = await this.runListQuery(
+      { leadId },
+      [{ pinnedAt: "desc" }, { occurredAt: "desc" }, { createdAt: "desc" }],
+      pagination,
+      { call: true },
+    );
+    const withNames = await this.withCreatedByName(items);
+    return { items: withNames, nextCursor };
   }
 
   async createForLead(leadId: string, body: CreateActivityBody, user: AuthUser) {
@@ -103,14 +116,17 @@ export class ActivitiesService {
   }
 
   // ---------- COMPANY ----------
-  async listForCompany(companyId: string) {
-    return this.prisma.activity.findMany({
-      where: { companyId },
-      orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
-    });
+  async listForCompany(companyId: string, actor?: AuthUser, pagination: ListPagination = {}) {
+    await this.assertCompanyAccess(companyId, actor);
+    return this.runListQuery(
+      { companyId },
+      [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      pagination,
+    );
   }
 
   async createForCompany(companyId: string, body: CreateActivityBody, user: AuthUser) {
+    await this.assertCompanyAccess(companyId, user);
     const data = this.normalizeBody(body);
     const act = await this.prisma.activity.create({
       data: {
@@ -126,23 +142,13 @@ export class ActivitiesService {
   // ---------- UPDATE / DELETE (by activity id) ----------
   async updateOne(
     activityId: string,
-    dto: { body?: string; title?: string; pinnedAt?: string | null },
+    dto: { body?: string; title?: string | null; pinnedAt?: string | null },
     actor: AuthUser,
   ) {
-    const activity = await this.prisma.activity.findUnique({
-      where: { id: activityId },
-      select: { id: true, contactId: true, leadId: true, companyId: true, orderId: true },
-    });
-    if (!activity) throw new NotFoundException("Activity not found");
-    if (activity.contactId) await this.assertContactAccess(activity.contactId, actor);
-    else if (activity.leadId) await this.assertLeadAccess(activity.leadId, actor);
-    else if (activity.companyId) {
-      // listForCompany has no assert; allow update if user exists
-      if (!actor) throw new ForbiddenException("Unauthorized");
-    } else if (activity.orderId) await this.assertOrderAccess(activity.orderId, actor);
-    else throw new ForbiddenException("Activity has no linked entity");
+    const activity = await this.loadActivityWithLinks(activityId);
+    await this.assertActivityAccess(activity, actor);
 
-    const data: { body?: string; title?: string; pinnedAt?: Date | null } = {};
+    const data: { body?: string; title?: string | null; pinnedAt?: Date | null } = {};
     if (dto.body !== undefined) data.body = dto.body;
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.pinnedAt !== undefined) {
@@ -151,10 +157,13 @@ export class ActivitiesService {
           ? null
           : (() => {
               const d = new Date(dto.pinnedAt!);
-              if (Number.isNaN(d.getTime())) throw new BadRequestException("pinnedAt must be valid ISO or null");
+              if (Number.isNaN(d.getTime())) {
+                throw new BadRequestException("pinnedAt must be valid ISO or null");
+              }
               return d;
             })();
     }
+
     const prev = await this.prisma.activity.findUnique({ where: { id: activityId } });
     const updated = await this.prisma.activity.update({
       where: { id: activityId },
@@ -168,7 +177,10 @@ export class ActivitiesService {
       if (dto.title !== undefined && prev.title !== updated.title) {
         changes.title = { previous: prev.title, current: updated.title };
       }
-      if (dto.pinnedAt !== undefined && String(prev.pinnedAt ?? "") !== String(updated.pinnedAt ?? "")) {
+      if (
+        dto.pinnedAt !== undefined &&
+        String(prev.pinnedAt ?? "") !== String(updated.pinnedAt ?? "")
+      ) {
         changes.pinnedAt = { previous: prev.pinnedAt, current: updated.pinnedAt };
       }
       if (Object.keys(changes).length) {
@@ -184,60 +196,130 @@ export class ActivitiesService {
   }
 
   async deleteOne(activityId: string, actor: AuthUser) {
+    const activity = await this.loadActivityWithLinks(activityId);
+    await this.assertActivityAccess(activity, actor);
+    return this.prisma.activity.delete({ where: { id: activityId } });
+  }
+
+  // ---------- access ----------
+
+  /** Multi-link safe: enforce access policy for every linked entity (logical AND). */
+  private async assertActivityAccess(
+    activity: {
+      contactId: string | null;
+      leadId: string | null;
+      companyId: string | null;
+      orderId: string | null;
+    },
+    actor: AuthUser,
+  ): Promise<void> {
+    const links: Array<keyof typeof activity> = ["contactId", "leadId", "companyId", "orderId"];
+    const linked = links.filter((k) => activity[k]);
+    if (linked.length === 0) {
+      throw new ForbiddenException("Activity has no linked entity");
+    }
+    if (activity.contactId) await this.assertContactAccess(activity.contactId, actor);
+    if (activity.leadId) await this.assertLeadAccess(activity.leadId, actor);
+    if (activity.companyId) await this.assertCompanyAccess(activity.companyId, actor);
+    if (activity.orderId) await this.assertOrderAccess(activity.orderId, actor);
+  }
+
+  private async loadActivityWithLinks(activityId: string) {
     const activity = await this.prisma.activity.findUnique({
       where: { id: activityId },
       select: { id: true, contactId: true, leadId: true, companyId: true, orderId: true },
     });
     if (!activity) throw new NotFoundException("Activity not found");
-    if (activity.contactId) await this.assertContactAccess(activity.contactId, actor);
-    else if (activity.leadId) await this.assertLeadAccess(activity.leadId, actor);
-    else if (activity.companyId) {
-      if (!actor) throw new ForbiddenException("Unauthorized");
-    } else if (activity.orderId) await this.assertOrderAccess(activity.orderId, actor);
-    else throw new ForbiddenException("Activity has no linked entity");
-
-    return this.prisma.activity.delete({
-      where: { id: activityId },
-    });
+    return activity;
   }
 
   private async assertOrderAccess(orderId: string, actor?: AuthUser): Promise<void> {
-    if (!actor || actor.role !== UserRole.MANAGER) return;
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { ownerId: true },
     });
-    if (!order) return;
+    if (!order) throw new NotFoundException("Order not found");
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    // Mirrors OrdersService.assertOrderAccess: MANAGER must be the owner.
     if (order.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access orders assigned to you");
     }
   }
 
   private async assertContactAccess(contactId: string, actor?: AuthUser): Promise<void> {
-    if (!actor || actor.role !== UserRole.MANAGER) return;
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
       select: { ownerId: true },
     });
-    if (!contact) return;
-    if (contact.ownerId !== actor.id) {
+    if (!contact) throw new NotFoundException("Contact not found");
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    // Mirrors ContactsService.assertContactAccess: legacy/unassigned visible to MANAGER.
+    if (contact.ownerId && contact.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access contacts assigned to you");
     }
   }
 
   private async assertLeadAccess(leadId: string, actor?: AuthUser): Promise<void> {
-    if (!actor || actor.role !== UserRole.MANAGER) return;
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
       select: { ownerId: true },
     });
-    if (!lead) return;
+    if (!lead) throw new NotFoundException("Lead not found");
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    // Mirrors LeadsService.assertLeadAccess: unassigned visible to MANAGER.
     if (lead.ownerId && lead.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access leads assigned to you");
     }
   }
 
+  private async assertCompanyAccess(companyId: string, actor?: AuthUser): Promise<void> {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { ownerId: true },
+    });
+    if (!company) throw new NotFoundException("Company not found");
+    if (!actor || actor.role !== UserRole.MANAGER) return;
+    // Mirrors CompaniesService company-access policy: unassigned visible to MANAGER.
+    if (company.ownerId && company.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access companies assigned to you");
+    }
+  }
+
   // ---------- helpers ----------
+
+  private resolveLimit(raw?: number): number {
+    if (!raw || !Number.isFinite(raw)) return ACTIVITIES_LIST_DEFAULT_LIMIT;
+    return Math.min(Math.max(Math.floor(raw), 1), ACTIVITIES_LIST_MAX_LIMIT);
+  }
+
+  private async runListQuery(
+    where: Prisma.ActivityWhereInput,
+    orderBy: Prisma.ActivityOrderByWithRelationInput[],
+    pagination: ListPagination,
+    include?: ActivityIncludeArgs,
+  ): Promise<{
+    items: Awaited<ReturnType<PrismaService["activity"]["findMany"]>>;
+    nextCursor: string | null;
+  }> {
+    const take = this.resolveLimit(pagination.limit);
+    const findArgs: Prisma.ActivityFindManyArgs = {
+      where,
+      orderBy,
+      take,
+    };
+    if (pagination.cursor) {
+      findArgs.cursor = { id: pagination.cursor };
+      findArgs.skip = 1;
+    }
+    if (include) findArgs.include = include;
+    const items = await this.prisma.activity.findMany(findArgs);
+    const nextCursor =
+      items.length === take && items.length > 0
+        ? (items[items.length - 1] as { id: string }).id
+        : null;
+    return { items, nextCursor };
+  }
+
   private async withCreatedByName<T extends { createdBy: string }>(items: T[]) {
     const ids = [...new Set(items.map((a) => a.createdBy).filter(Boolean))];
     if (ids.length === 0) return items.map((a) => ({ ...a, createdByName: a.createdBy }));
@@ -263,7 +345,11 @@ export class ActivitiesService {
     leadId: string | null;
     callId: string | null;
   }) {
-    this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.ACTIVITY, act.id, activityToRecord(act));
+    this.workflowEmitter?.emitRecordCreated(
+      CustomFieldEntityType.ACTIVITY,
+      act.id,
+      activityToRecord(act),
+    );
   }
 
   private normalizeBody(body: CreateActivityBody) {

@@ -10,10 +10,13 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { VisitsService } from "./visits.service";
 import type { LocationSource, VisitStatus } from "@prisma/client";
 
 @Controller("visits")
+@RequireModule(ModuleIds.Visits)
 export class VisitsController {
   constructor(private readonly visits: VisitsService) {}
 

@@ -7,6 +7,7 @@ import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { strings as t } from "@/locales";
 import { formatDate } from "@/lib/crmDatetime";
+import { useToast } from "@/components/feedback";
 
 type BankAccount = { id: string; name: string; currency: string };
 
@@ -112,6 +113,7 @@ export default function PaymentsPage() {
 }
 
 function PaymentsContent() {
+  const { pushToast } = useToast();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -414,7 +416,7 @@ function PaymentsContent() {
       setImportFile(null);
       await fetchUnmatched();
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.importFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.importFailed, "error");
     } finally {
       setImporting(false);
     }
@@ -636,12 +638,12 @@ function PaymentsContent() {
 
   const submitAddCashPayment = async () => {
     if (!addCashOrderId) {
-      alert(t.payments.errors.selectOrder);
+      pushToast(t.payments.errors.selectOrder, "error");
       return;
     }
     const num = parseFloat(addCashAmount.replace(/,/g, "."));
     if (!Number.isFinite(num) || num <= 0) {
-      alert(t.payments.errors.positiveAmount);
+      pushToast(t.payments.errors.positiveAmount, "error");
       return;
     }
     setAddCashSubmitting(true);
@@ -664,7 +666,7 @@ function PaymentsContent() {
       setAddCashNote("");
       await fetchPayments("");
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.addPaymentFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.addPaymentFailed, "error");
     } finally {
       setAddCashSubmitting(false);
     }
@@ -740,7 +742,7 @@ function PaymentsContent() {
       setView("payments");
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.allocationFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
     } finally {
       setAllocating(null);
     }
@@ -754,17 +756,17 @@ function PaymentsContent() {
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
     if (valid.length === 0) {
-      alert(t.payments.errors.splitNeedOrder);
+      pushToast(t.payments.errors.splitNeedOrder, "error");
       return;
     }
     const amounts = valid.map((r) => parseFloat(r.amount.replace(/,/g, ".")));
     if (amounts.some((a) => !Number.isFinite(a) || a <= 0)) {
-      alert(t.payments.errors.splitPositive);
+      pushToast(t.payments.errors.splitPositive, "error");
       return;
     }
     const total = amounts.reduce((s, a) => s + a, 0);
     if (Math.abs(total - splitTotalAmount) > 0.01) {
-      alert(
+      pushToast(
         t.payments.errors.splitTotal(
           total.toFixed(2),
           splitTotalAmount.toFixed(2),
@@ -798,7 +800,7 @@ function PaymentsContent() {
       setSplitOrderSearch("");
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.splitFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.splitFailed, "error");
     } finally {
       setSplitSubmitting(false);
     }
@@ -849,7 +851,7 @@ function PaymentsContent() {
       setEditPayment(null);
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.updateFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.updateFailed, "error");
     } finally {
       setSavingPayment(false);
     }
@@ -865,7 +867,7 @@ function PaymentsContent() {
       await fetchUnmatched();
       await fetchPayments();
     } catch (e) {
-      alert(e instanceof Error ? e.message : t.payments.errors.unallocateFailed);
+      pushToast(e instanceof Error ? e.message : t.payments.errors.unallocateFailed, "error");
     } finally {
       setSavingPayment(false);
     }
@@ -2071,7 +2073,7 @@ function PaymentsContent() {
                             }
                             const valid = rows.filter((r) => parseFloat(r.amount) > 0);
                             if (valid.length === 0) {
-                              alert(t.payments.errors.noAmountsSplit);
+                              pushToast(t.payments.errors.noAmountsSplit, "error");
                               return;
                             }
                             setSavingPayment(true);
@@ -2087,7 +2089,7 @@ function PaymentsContent() {
                               setEditOrderNumber("");
                               await fetchPayments();
                             } catch (e) {
-                              alert(e instanceof Error ? e.message : t.payments.distributeFailed);
+                              pushToast(e instanceof Error ? e.message : t.payments.distributeFailed, "error");
                             } finally {
                               setSavingPayment(false);
                             }

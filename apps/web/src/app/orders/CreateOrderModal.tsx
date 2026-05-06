@@ -5,6 +5,8 @@ import { SearchableSelect } from "../../components/SearchableSelect";
 import { apiHttp } from "../../lib/api/client";
 import { listBankAccountsForOrder } from "../../lib/api/resources/bank";
 import { listWarehouses, type WarehouseItem } from "../../lib/api/resources/warehouses";
+import { ModuleIds } from "@/lib/modules/module-ids";
+import { useModules } from "@/lib/modules/useModules";
 
 // --- Enums (должны совпадать с Prisma) ---
 enum DeliveryMethod {
@@ -73,6 +75,9 @@ export function CreateOrderModal({
   const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const { status: modulesStatus, effective: moduleEffective } = useModules();
+  const npModuleEffective =
+    modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
 
   // (Загрузка данных useEffect остается без изменений...)
   useEffect(() => {
@@ -113,6 +118,12 @@ export function CreateOrderModal({
   useEffect(() => {
     void fetchContacts(companyId);
   }, [companyId, fetchContacts]);
+
+  useEffect(() => {
+    if (!npModuleEffective && deliveryMethod === DeliveryMethod.NOVA_POSHTA) {
+      setDeliveryMethod(DeliveryMethod.PICKUP);
+    }
+  }, [deliveryMethod, npModuleEffective]);
 
   useEffect(() => {
     let mounted = true;
@@ -242,7 +253,9 @@ export function CreateOrderModal({
                 onChange={(e) => setDeliveryMethod(e.target.value as DeliveryMethod)}
               >
                 <option value={DeliveryMethod.PICKUP}>Pickup</option>
-                <option value={DeliveryMethod.NOVA_POSHTA}>Nova Poshta</option>
+                {npModuleEffective ? (
+                  <option value={DeliveryMethod.NOVA_POSHTA}>Nova Poshta</option>
+                ) : null}
               </select>
             </div>
             <div>
@@ -295,7 +308,7 @@ export function CreateOrderModal({
           </div>
 
           {/* Nova Poshta Fields */}
-          {deliveryMethod === DeliveryMethod.NOVA_POSHTA && (
+          {npModuleEffective && deliveryMethod === DeliveryMethod.NOVA_POSHTA && (
             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
               <div>
                 <label className="block text-xs font-medium text-zinc-600 mb-1">City</label>

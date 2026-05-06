@@ -9,6 +9,8 @@ import {
   type ContactWorkQueueItem,
   type ContactWorkQueueSummaryResponse,
 } from "@/lib/api/resources/contacts";
+import { PageLoading } from "@/components/feedback";
+import { strings } from "@/locales";
 
 const PAGE_SIZE = 20;
 
@@ -137,19 +139,21 @@ function ManagerQueuePageContent() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Who should I call today?</h1>
-          <p className="text-sm text-zinc-500">Read-only manager queue based on CRM priority signals.</p>
+          <h1 className="text-2xl font-bold text-zinc-900">Кого прозвонити сьогодні?</h1>
+          <p className="text-sm text-zinc-500">
+            Черга менеджера у режимі перегляду на основі пріоритетних сигналів CRM.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <Link href="/work/calls" className="text-sm font-medium text-blue-600 hover:underline">
-            Call workspace
+            {strings.nav.calls}
           </Link>
           <button
             type="button"
             onClick={() => void load()}
             className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Refresh
+            Оновити
           </button>
         </div>
       </div>
@@ -157,7 +161,9 @@ function ManagerQueuePageContent() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">In queue</div>
-          <div className="mt-1 text-lg font-semibold text-zinc-900">{summary?.totalInQueue ?? 0}</div>
+          <div className="mt-1 text-lg font-semibold text-zinc-900">
+            {summary?.totalInQueue ?? 0}
+          </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Overdue follow-up</div>
@@ -173,11 +179,15 @@ function ManagerQueuePageContent() {
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Debt control</div>
-          <div className="mt-1 text-lg font-semibold text-zinc-900">{summary?.buckets.debtControl ?? 0}</div>
+          <div className="mt-1 text-lg font-semibold text-zinc-900">
+            {summary?.buckets.debtControl ?? 0}
+          </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
           <div className="text-xs text-zinc-500">Avg score</div>
-          <div className="mt-1 text-lg font-semibold text-zinc-900">{summary?.avgPriorityScore ?? 0}</div>
+          <div className="mt-1 text-lg font-semibold text-zinc-900">
+            {summary?.avgPriorityScore ?? 0}
+          </div>
         </div>
       </div>
 
@@ -195,7 +205,9 @@ function ManagerQueuePageContent() {
         </div>
 
         {loading ? (
-          <div className="px-4 py-10 text-center text-sm text-zinc-500">Loading manager queue...</div>
+          <div className="px-4 py-10 text-center text-sm text-zinc-500">
+            Loading manager queue...
+          </div>
         ) : error ? (
           <div className="flex items-center justify-between gap-3 px-4 py-6 text-sm text-red-700">
             <span>{error}</span>
@@ -242,7 +254,9 @@ function ManagerQueuePageContent() {
                           ? `${row.metrics.daysSinceLastContact} d ago`
                           : "no contact yet"}
                       </span>
-                      <span>Suggested: {nextActionLabel(row.suggestion.suggestedNextActionType)}</span>
+                      <span>
+                        Suggested: {nextActionLabel(row.suggestion.suggestedNextActionType)}
+                      </span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {row.priorityReasons.slice(0, 3).map((reason) => (
@@ -301,7 +315,7 @@ function ManagerQueuePageContent() {
 
 export default function ManagerQueuePage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Loading...</div>}>
+    <Suspense fallback={<PageLoading />}>
       <ManagerQueuePageContent />
     </Suspense>
   );

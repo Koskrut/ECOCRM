@@ -9,6 +9,7 @@ import { isTextSelected } from "@/lib/dom";
 import { ContactModal } from "../contacts/ContactModal";
 import { CompanyModal } from "./CompanyModal";
 import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
+import { strings } from "@/locales";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -87,7 +88,7 @@ function CompaniesPageContent() {
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Ошибка загрузки компаний");
+          (e instanceof Error ? e.message : "Помилка завантаження компаній");
         setError(msg);
         setItems([]);
       } finally {
@@ -134,7 +135,7 @@ function CompaniesPageContent() {
     } catch (e) {
       setError(
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Ошибка удаления"),
+          (e instanceof Error ? e.message : "Помилка видалення"),
       );
     } finally {
       setBulkDeleting(false);
@@ -151,7 +152,7 @@ function CompaniesPageContent() {
       } catch (err) {
         setError(
           (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-            (err instanceof Error ? err.message : "Ошибка удаления"),
+            (err instanceof Error ? err.message : "Помилка видалення"),
         );
       }
     },
@@ -191,9 +192,9 @@ function CompaniesPageContent() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Компании</h1>
+        <h1 className="text-2xl font-bold">{strings.nav.companies}</h1>
         <button type="button" onClick={openCreate} className="btn-primary">
-          + Добавить
+          + Додати
         </button>
       </div>
 
@@ -208,7 +209,7 @@ function CompaniesPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="название, ЕДРПОУ, ИНН"
+                placeholder="назва, ЄДРПОУ, ІПН"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
                 aria-label="Поиск компаний"
@@ -244,9 +245,7 @@ function CompaniesPageContent() {
 
       {selectedIds.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-          <span className="text-sm font-medium text-zinc-700">
-            Выбрано: {selectedIds.size}
-          </span>
+          <span className="text-sm font-medium text-zinc-700">Выбрано: {selectedIds.size}</span>
           <button
             type="button"
             onClick={bulkDelete}
@@ -320,10 +319,7 @@ function CompaniesPageContent() {
                   {showOwnerColumn && (
                     <td className="px-4 py-4 text-zinc-600">{c.owner?.fullName ?? EMPTY}</td>
                   )}
-                  <td
-                    className="px-4 py-4 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <button
                         type="button"
@@ -379,7 +375,7 @@ function CompaniesPageContent() {
               onClick={() => goToPage(page + 1)}
               className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
             >
-              Вперёд
+              Вперед
             </button>
           </div>
         </div>

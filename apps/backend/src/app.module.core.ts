@@ -25,7 +25,6 @@ import { PermissionsGuard } from "./rbac/permissions.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
-import { VisitsModule } from "./visits/visits.module";
 import { TasksModule } from "./tasks/tasks.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
@@ -33,6 +32,7 @@ import { WorkflowsModule } from "./workflows/workflows.module";
 import { SystemModule } from "./system/system.module";
 import { DataImportModule } from "./data-import/data-import.module";
 import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
+import { TimelineModule } from "./timeline/timeline.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
 
@@ -52,7 +52,6 @@ import { AuditModule } from "./audit/audit.module";
     AnalyticsModule,
     DashboardModule,
     ActivitiesModule,
-    VisitsModule,
     TasksModule,
     OrderReturnsModule,
     OrdersModule,
@@ -64,6 +63,7 @@ import { AuditModule } from "./audit/audit.module";
     WarehousesModule,
     DataImportModule,
     CustomEntitiesModule,
+    TimelineModule,
   ],
   providers: [
     {

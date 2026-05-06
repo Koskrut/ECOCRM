@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
 import { DateTime } from "luxon";
+import { ErrorPanel, PageLoading } from "@/components/feedback";
 import {
   CRM_LOCALE,
   CRM_TIME_ZONE,
@@ -240,19 +241,11 @@ export default function DashboardPage() {
   }, [loadActivity]);
 
   if (loading && !data) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <div className="text-zinc-500">Loading…</div>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   if (error && !data) {
-    return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
-        Load error: {error}
-      </div>
-    );
+    return <ErrorPanel message={error} onRetry={() => void load()} />;
   }
 
   const kpi = data?.kpi ?? {
@@ -455,7 +448,7 @@ export default function DashboardPage() {
           </Link>
         </div>
         {tasksLoading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <PageLoading inline />
         ) : tasks.length === 0 ? (
           <p className="text-sm text-zinc-500">No open tasks.</p>
         ) : (

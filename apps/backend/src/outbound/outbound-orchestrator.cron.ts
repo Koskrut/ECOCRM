@@ -23,7 +23,7 @@ export class OutboundOrchestratorCron {
     if (process.env.OUTBOUND_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
-      const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
+      const ok = await this.modules.isEffective(ModuleIds.ManualCalling);
       if (!ok) return;
     }
     try {
@@ -45,7 +45,7 @@ export class OutboundOrchestratorCron {
     if (process.env.OUTBOUND_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
-      const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
+      const ok = await this.modules.isEffective(ModuleIds.ManualCalling);
       if (!ok) return;
     }
     try {

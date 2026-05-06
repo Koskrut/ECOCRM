@@ -95,14 +95,14 @@ export class SettingsController {
   }
 
   @Get("outbound-voice")
-  @RequireModule(ModuleIds.VoiceOutbound)
+  @RequireModule(ModuleIds.ManualCalling)
   @Roles(UserRole.ADMIN)
   getOutboundVoiceIntegrationConfig() {
     return this.settings.getOutboundVoiceIntegrationConfig();
   }
 
   @Patch("outbound-voice")
-  @RequireModule(ModuleIds.VoiceOutbound)
+  @RequireModule(ModuleIds.ManualCalling)
   @Roles(UserRole.ADMIN)
   setOutboundVoiceIntegrationConfig(
     @Body()

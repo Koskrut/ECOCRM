@@ -1,47 +1,56 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ModuleIds } from "../module-ids";
-import {
-  moduleIdSetFromPilotStorage,
-  normalizePilotExtensionEnabledList,
-  parseStoredPilotExtensionIds,
-} from "../enabled/pilot-extension-enabled.util";
+import { ModuleIds, type ModuleId } from "../module-ids";
+import { ModuleStateService } from "../module-state.service";
+import { EnabledModulesProvider } from "../enabled/enabled-modules.provider";
+import { LicenseStateProvider } from "../license/license-state.provider";
+import { ModuleHealthService } from "../module-health.service";
 
-describe("pilot-extension-enabled.util", () => {
-  it("normalize sorts and accepts subset", () => {
-    const out = normalizePilotExtensionEnabledList([
-      ModuleIds.IntegrationsTelegram,
-      ModuleIds.VoiceOutbound,
-    ]);
-    assert.deepEqual(out, [ModuleIds.IntegrationsTelegram, ModuleIds.VoiceOutbound].sort());
-    assert.equal(out.length, 2);
-  });
+class EnabledStub extends EnabledModulesProvider {
+  constructor(private readonly enabled: ModuleId[]) {
+    super();
+  }
+  async getEnabledModules() {
+    return { enabledModules: new Set(this.enabled), source: "license_state" as const };
+  }
+}
 
-  it("normalize rejects duplicate", () => {
-    assert.throws(
-      () => normalizePilotExtensionEnabledList([ModuleIds.Finance, ModuleIds.Finance]),
-      /DUPLICATE_IDS/,
+class LicenseStub extends LicenseStateProvider {
+  constructor(private readonly licensed: ModuleId[]) {
+    super();
+  }
+  async getLicenseState() {
+    return {
+      isValid: true,
+      licensedModules: new Set(this.licensed),
+      status: "valid" as const,
+      expiresAt: null,
+      customer: "test",
+      shortLicenseId: "test",
+    };
+  }
+}
+
+class HealthStub {
+  isUpstreamOk(_id: ModuleId): boolean {
+    return true;
+  }
+}
+
+describe("CP-only module compatibility", () => {
+  it("legacy ext.voice_outbound enables manual calling and ringostat in runtime state", async () => {
+    const legacy = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound];
+    const svc = new ModuleStateService(
+      new EnabledStub(legacy),
+      new LicenseStub(legacy),
+      new HealthStub() as unknown as ModuleHealthService,
     );
-  });
-
-  it("normalize rejects invalid id", () => {
-    assert.throws(() => normalizePilotExtensionEnabledList(["ext.unknown"]), /INVALID_ID/);
-  });
-
-  it("parseStored rejects unknown string", () => {
-    assert.equal(parseStoredPilotExtensionIds({ enabled: ["ext.voice_outbound", "nope"] }), null);
-  });
-
-  it("parseStored ignores legacy core in array", () => {
-    const out = parseStoredPilotExtensionIds({
-      enabled: [ModuleIds.CoreCrm, ModuleIds.Finance],
-    });
-    assert.deepEqual(out, [ModuleIds.Finance]);
-  });
-
-  it("moduleIdSetFromPilotStorage always includes core", () => {
-    const s = moduleIdSetFromPilotStorage([]);
-    assert.equal(s.has(ModuleIds.CoreCrm), true);
-    assert.equal(s.size, 1);
+    const states = await svc.listStates();
+    const manual = states.find((m) => m.id === ModuleIds.ManualCalling);
+    const ringostat = states.find((m) => m.id === ModuleIds.Ringostat);
+    assert.equal(manual?.enabled, true);
+    assert.equal(manual?.licensed, true);
+    assert.equal(ringostat?.enabled, true);
+    assert.equal(ringostat?.licensed, true);
   });
 });

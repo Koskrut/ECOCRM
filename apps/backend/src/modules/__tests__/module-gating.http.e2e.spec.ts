@@ -21,7 +21,6 @@ import { ModuleStateService } from "../module-state.service";
 import { SystemController } from "../../system/system.controller";
 import type { SystemControlPlaneDto } from "../../system/dto/system-control-plane.dto";
 import { ControlPlanePhoneHomeService } from "../../system/control-plane-phone-home.service";
-import { SystemModulesEnabledWriteService } from "../../system/system-modules-enabled-write.service";
 import { SystemReleaseService } from "../../system/system-release.service";
 import { SystemVersionService } from "../../system/system-version.service";
 import { PaymentsController } from "../../payments/payments.controller";
@@ -37,7 +36,7 @@ class TestEnabledModulesProvider extends EnabledModulesProvider {
     super();
   }
   async getEnabledModules() {
-    return { enabledModules: this.enabled, source: "system_setting" as const };
+    return { enabledModules: this.enabled, source: "license_state" as const };
   }
 }
 
@@ -73,10 +72,6 @@ class TestLicenseStateProvider extends LicenseStateProvider {
     { provide: LicenseStateProvider, useClass: TestLicenseStateProvider },
     { provide: PaymentsService, useValue: { list: async () => ({ items: [], total: 0 }) } },
     { provide: OutboundVoiceWebhookService, useValue: { handleWebhook: async () => ({ ok: true }) } },
-    {
-      provide: SystemModulesEnabledWriteService,
-      useValue: { setPilotExtensionsEnabled: async () => {} },
-    },
     SystemReleaseService,
     SystemVersionService,
     {
@@ -139,7 +134,7 @@ async function jsonFetch(url: string, init?: RequestInit) {
   return { res, body };
 }
 
-describe("pilot module gating (HTTP smoke)", () => {
+describe("module gating (HTTP smoke)", () => {
   let current: Awaited<ReturnType<typeof createApp>> | null = null;
 
   afterEach(async () => {
@@ -214,34 +209,6 @@ describe("pilot module gating (HTTP smoke)", () => {
     assert(voice, "voice outbound module should be present");
     assert.equal(voice.enabled, false);
     assert.equal(voice.effective, false);
-  });
-
-  it("PUT /system/modules/enabled: non-admin => 403", async () => {
-    current = await createApp({
-      gatingEnabled: false,
-      enabledModules: [
-        ModuleIds.VoiceOutbound,
-        ModuleIds.Finance,
-        ModuleIds.IntegrationsTelegram,
-        ModuleIds.CoreCrm,
-      ],
-    });
-
-    const userToken = signJwt(
-      { sub: "u1", email: "u@example.com", role: "USER", fullName: "User" },
-      current.jwtSecret,
-      { expiresInSeconds: 60 },
-    );
-
-    const res = await jsonFetch(`${current.baseUrl}/system/modules/enabled`, {
-      method: "PUT",
-      headers: {
-        authorization: `Bearer ${userToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ enabled: [] }),
-    });
-    assert.equal(res.res.status, 403);
   });
 
   it("GET /system/license-status: admin can read minimal status", async () => {

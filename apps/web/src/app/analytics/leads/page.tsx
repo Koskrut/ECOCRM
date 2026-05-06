@@ -76,9 +76,16 @@ function sortRows<T extends Record<string, unknown>>(rows: T[], key: SortKey, di
 export default function AnalyticsLeadsPage() {
   const filters = useAnalyticsFilters();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [sourceSort, setSourceSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "count", dir: "desc" });
+  const [sourceSort, setSourceSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "count",
+    dir: "desc",
+  });
 
-  const { data, loading, error } = useAnalyticsFetch<LeadsResponse>("leads", filters.querySuffix, refreshKey);
+  const { data, loading, error } = useAnalyticsFetch<LeadsResponse>(
+    "leads",
+    filters.querySuffix,
+    refreshKey,
+  );
 
   const kpi = data?.data.kpi;
   const charts = data?.data.charts;
@@ -86,7 +93,10 @@ export default function AnalyticsLeadsPage() {
   const tables = data?.data.tables;
   const cmp = data?.compare?.kpi;
 
-  const attentionHref = useMemo(() => `/analytics/attention${filters.querySuffix}`, [filters.querySuffix]);
+  const attentionHref = useMemo(
+    () => `/analytics/attention${filters.querySuffix}`,
+    [filters.querySuffix],
+  );
 
   const sortedSourceRows = useMemo(
     () => sortRows(tables?.bySource ?? [], sourceSort.key, sourceSort.dir),
@@ -95,11 +105,14 @@ export default function AnalyticsLeadsPage() {
 
   const toggleSourceSort = (key: SortKey) => {
     setSourceSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "key" ? "asc" : "desc" },
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "key" ? "asc" : "desc" },
     );
   };
 
-  const sortIndicator = (key: SortKey) => (sourceSort.key === key ? (sourceSort.dir === "asc" ? " ↑" : " ↓") : "");
+  const sortIndicator = (key: SortKey) =>
+    sourceSort.key === key ? (sourceSort.dir === "asc" ? " ↑" : " ↓") : "";
 
   const filtersBar = (
     <AnalyticsFiltersBar
@@ -145,8 +158,9 @@ export default function AnalyticsLeadsPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Ліди — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Періодні метрики — за датою створення ліда (createdAt). Дельта показується лише з увімкненим порівнянням. Знімки
-          внизу (без дотику, задачі) — стан «зараз», без дельти до попереднього періоду.
+          Періодні метрики — за датою створення ліда (createdAt). Дельта показується лише з
+          увімкненим порівнянням. Знімки внизу (без дотику, задачі) — стан «зараз», без дельти до
+          попереднього періоду.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
@@ -154,7 +168,9 @@ export default function AnalyticsLeadsPage() {
             title="Створені ліди"
             subtitle="createdAt у вибраному періоді"
             value={formatNumber(kpi?.leadsCreated)}
-            deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.leadsCreated ?? 0, cmp?.leadsCreated) : null}
+            deltaLabel={
+              filters.comparePrev ? deltaCountLine(kpi?.leadsCreated ?? 0, cmp?.leadsCreated) : null
+            }
           />
           <KpiDeltaCard
             variant="count"
@@ -170,7 +186,11 @@ export default function AnalyticsLeadsPage() {
             subtitle="WON / створені в періоді"
             tooltip="Це частка лідів зі статусом WON серед створених у періоді, не конверсія в замовлення."
             value={formatPercent(kpi?.wonShareProxy)}
-            deltaLabel={filters.comparePrev ? deltaPctPoints(kpi?.wonShareProxy ?? 0, cmp?.wonShareProxy) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaPctPoints(kpi?.wonShareProxy ?? 0, cmp?.wonShareProxy)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="count"
@@ -185,7 +205,9 @@ export default function AnalyticsLeadsPage() {
             title="В роботі"
             subtitle="IN_PROGRESS, створені в періоді"
             value={formatNumber(kpi?.inProgress)}
-            deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.inProgress ?? 0, cmp?.inProgress) : null}
+            deltaLabel={
+              filters.comparePrev ? deltaCountLine(kpi?.inProgress ?? 0, cmp?.inProgress) : null
+            }
           />
           {showExact ? (
             <KpiDeltaCard
@@ -194,7 +216,11 @@ export default function AnalyticsLeadsPage() {
               subtitle={`Записаний зв’язок (convertedOrderId), не статус WON. У періоді: ${formatNumber(kpi?.leadsWithConvertedOrder)} лідів`}
               tooltip="Частка лідів, створених у періоді, у яких заповнено convertedOrderId після конверсії з замовленням. Не плутати з «Частка WON (proxy)»."
               value={formatPercent(kpi?.exactConversionRate)}
-              deltaLabel={filters.comparePrev ? deltaPctPoints(kpi?.exactConversionRate ?? 0, cmp?.exactConversionRate) : null}
+              deltaLabel={
+                filters.comparePrev
+                  ? deltaPctPoints(kpi?.exactConversionRate ?? 0, cmp?.exactConversionRate)
+                  : null
+              }
             />
           ) : null}
         </div>
@@ -213,24 +239,38 @@ export default function AnalyticsLeadsPage() {
 
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Джерела — зведення</h2>
-        <p className="mt-1 text-sm text-zinc-500">Частка від усіх лідів, створених у періоді. Клік по заголовку — сортування.</p>
+        <p className="mt-1 text-sm text-zinc-500">
+          Частка від усіх лідів, створених у періоді. Клік по заголовку — сортування.
+        </p>
         <div className="mt-4 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="bg-zinc-50 text-left text-zinc-500">
                 <tr>
                   <th className="px-4 py-3 font-medium">
-                    <button type="button" className="hover:text-zinc-800" onClick={() => toggleSourceSort("key")}>
+                    <button
+                      type="button"
+                      className="hover:text-zinc-800"
+                      onClick={() => toggleSourceSort("key")}
+                    >
                       Джерело{sortIndicator("key")}
                     </button>
                   </th>
                   <th className="px-4 py-3 font-medium">
-                    <button type="button" className="hover:text-zinc-800" onClick={() => toggleSourceSort("count")}>
+                    <button
+                      type="button"
+                      className="hover:text-zinc-800"
+                      onClick={() => toggleSourceSort("count")}
+                    >
                       Кількість{sortIndicator("count")}
                     </button>
                   </th>
                   <th className="px-4 py-3 font-medium">
-                    <button type="button" className="hover:text-zinc-800" onClick={() => toggleSourceSort("share")}>
+                    <button
+                      type="button"
+                      className="hover:text-zinc-800"
+                      onClick={() => toggleSourceSort("share")}
+                    >
                       Частка{sortIndicator("share")}
                     </button>
                   </th>
@@ -261,9 +301,12 @@ export default function AnalyticsLeadsPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Ризики та увага (знімок)</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Не залежать від дат періоду на сторінці — це поточний стан у межах обраного менеджера / команди. Без дельти
-          «vs попередній». Частина визначень збігається з{" "}
-          <Link href={attentionHref} className="font-medium text-indigo-600 underline-offset-2 hover:underline">
+          Не залежать від дат періоду на сторінці — це поточний стан у межах обраного менеджера /
+          команди. Без дельти «vs попередній». Частина визначень збігається з{" "}
+          <Link
+            href={attentionHref}
+            className="font-medium text-indigo-600 underline-offset-2 hover:underline"
+          >
             /analytics/attention
           </Link>
           .

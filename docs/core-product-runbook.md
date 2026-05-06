@@ -12,7 +12,7 @@
 ## License & modules
 
 - `license.json` / Control Plane controls **licensed** modules.
-- Pilot toggles in **Settings → Pilot modules** control **enabled** extensions.
+- **CP-only mode:** `enabled` is derived from licensed modules (no pilot toggles / no manual enabled overrides).
 - With `MODULE_GATING_ENABLED=true`, HTTP routes without an effective module return **404** (by design).
 
 ## RBAC
@@ -36,3 +36,16 @@
 
 - Чеклист: `docs/e2e-core-smoke.md`.
 - Security / onboarding: `docs/security-compliance-baseline.md`, `docs/customer-success-onboarding.md`.
+
+## UI smoke (core-only)
+
+Перед релізом ядра пройти вручну на стенді з `BACKEND_VARIANT=core` і `license.json` без розширень:
+
+- **Sidebar**: відображені тільки core-пункти (`Dashboard`, `Leads`, `Orders`, `Companies`, `Contacts`, `Tasks`, `Catalog`, для ADMIN — `Analytics`, `Settings`). Пункти `AI Calls`, `Прозвін`, `Visits`, `Inbox`, `Payments`, `Planning` — приховані.
+- **Direct navigation** на `/outbound/campaigns`, `/visits`, `/work/calls`, `/inbox/telegram`, `/payments`, `/planning` і на gated settings маршрути (`/settings/fop`, `/settings/google-sheet`, `/settings/ringostat`, `/settings/outbound-voice`, `/settings/telegram`, `/settings/store`) показує екран `Module unavailable` (компонент `ModuleUnavailable`), а не порожнє "Not found" чи 500.
+- **Settings → Extensions & integrations**: секція повністю порожня (всі картки приховано) або, при сбої `/system/modules`, замість списку показано банер "Стан модулів недоступний".
+- **Module API failure**: при заблокованому `/system/modules` (наприклад, мережева помилка) Sidebar не показує жодного gated-пункту, всі gated-сторінки рендерять `ModuleUnavailable variant="api-error"` з кнопкою `Retry`.
+- **Loading state**: при першому завантаженні Sidebar показує skeleton-полоски, а gated-layouts — компактний skeleton, без миготіння повного UI.
+- **Мова**: у Sidebar / Settings немає змішаних RU+EN рядків — тільки EN base + UA-overrides з `apps/web/src/locales/uk.ts`.
+
+При розширенні переліку gated-розділів додавати маршрут і у `apps/web/src/lib/modules/pathModuleGating.ts`, і у відповідний `layout.tsx` через `<ModuleSection moduleId={...}>`.

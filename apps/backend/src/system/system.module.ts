@@ -7,7 +7,6 @@ import { ModuleHealthService } from "../modules/module-health.service";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
 import { SystemController } from "./system.controller";
-import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 import { SystemReleaseService } from "./system-release.service";
 import { SystemVersionService } from "./system-version.service";
 
@@ -21,7 +20,6 @@ const activeLicenseProviderClass = FileLicenseStateProvider;
     ControlPlanePhoneHomeService,
     SystemReleaseService,
     SystemVersionService,
-    SystemModulesEnabledWriteService,
     {
       provide: EnabledModulesProvider,
       useClass: SystemSettingEnabledModulesProvider,

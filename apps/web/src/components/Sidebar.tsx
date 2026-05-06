@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LayoutDashboard,
   Package,
@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
 import { strings } from "@/locales";
-import { ModuleIds } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
 import { sidebarHrefModuleId } from "@/lib/modules/pathModuleGating";
 
@@ -31,31 +30,43 @@ type MenuItem = {
   label: string;
   icon: LucideIcon;
   href: string;
+  /** Exact-match active highlighting (no descendant prefix). */
+  exact?: boolean;
 };
 
 type MeResponse = { user?: { role?: string } };
 
-const baseMenuItems: MenuItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/" },
-  { label: "Leads", icon: UserPlus, href: "/leads" },
-  { label: "Orders", icon: Package, href: "/orders" },
-  { label: "Companies", icon: Building2, href: "/companies" },
-  { label: "Contacts", icon: Users, href: "/contacts" },
-  { label: "Tasks", icon: ListTodo, href: "/tasks" },
-  { label: "Прозвін", icon: PhoneCall, href: "/work/calls" },
-  { label: "Історія дзвінків", icon: Archive, href: "/work/calls/history" },
-  { label: "Inbox", icon: MessageCircle, href: "/inbox/telegram" },
-  { label: "Catalog", icon: LayoutGrid, href: "/catalog" },
-  { label: strings.nav.planning, icon: BarChart3, href: "/planning" },
-  { label: "Visits", icon: MapPin, href: "/visits" },
-  { label: "Visit history", icon: History, href: "/visits/history" },
-  { label: "AI Calls", icon: PhoneCall, href: "/outbound/campaigns" },
-];
+function buildMenuItems() {
+  const t = strings.nav;
+  const base: MenuItem[] = [
+    { label: t.dashboard, icon: LayoutDashboard, href: "/", exact: true },
+    { label: t.leads, icon: UserPlus, href: "/leads" },
+    { label: t.orders, icon: Package, href: "/orders" },
+    { label: t.companies, icon: Building2, href: "/companies" },
+    { label: t.contacts, icon: Users, href: "/contacts" },
+    { label: t.tasks, icon: ListTodo, href: "/tasks" },
+    { label: t.calls, icon: PhoneCall, href: "/work/calls", exact: true },
+    { label: t.callsHistory, icon: Archive, href: "/work/calls/history" },
+    { label: t.inbox, icon: MessageCircle, href: "/inbox/telegram" },
+    { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
+    { label: t.planning, icon: BarChart3, href: "/planning" },
+    { label: t.visits, icon: MapPin, href: "/visits", exact: true },
+    { label: t.visitsHistory, icon: History, href: "/visits/history" },
+    { label: t.aiCalls, icon: PhoneCall, href: "/outbound/campaigns" },
+  ];
+  const analytics: MenuItem = { label: t.analytics, icon: BarChart3, href: "/analytics" };
+  const payments: MenuItem = { label: t.payments, icon: Wallet, href: "/payments" };
+  const settingsItem: MenuItem = { label: t.settings, icon: Settings, href: "/settings" };
+  return { base, analytics, payments, settingsItem };
+}
 
-const analyticsItem: MenuItem = { label: "Analytics", icon: BarChart3, href: "/analytics" };
-const paymentsItem: MenuItem = { label: strings.nav.payments, icon: Wallet, href: "/payments" };
-const settingsItem: MenuItem = { label: "Settings", icon: Settings, href: "/settings" };
 const managerHiddenHrefs = new Set(["/planning", "/visits/history", "/outbound/campaigns"]);
+
+function isHrefActive(pathname: string, item: MenuItem): boolean {
+  if (item.exact) return pathname === item.href;
+  if (item.href === "/") return pathname === "/";
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}
 
 type SidebarProps = {
   mobileOpen: boolean;
@@ -77,40 +88,38 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
-  const managerMenuItems = baseMenuItems
-    .filter((item) => !managerHiddenHrefs.has(item.href))
-    .concat(paymentsItem);
 
-  const menuItems =
-    role === "ADMIN"
-      ? [...baseMenuItems, analyticsItem, paymentsItem, settingsItem]
-      : role === "MANAGER" || role === "LEAD"
-        ? managerMenuItems
-        : baseMenuItems;
+  const { base, analytics, payments, settingsItem } = useMemo(() => buildMenuItems(), []);
 
-  // Phase 1: module visibility gating (fail-open on loading/error).
-  const gatedMenuItems =
-    modulesStatus === "ready"
-      ? menuItems.filter((it) => {
-          const mod = sidebarHrefModuleId(it.href);
-          if (mod) return moduleEffective(mod);
-          if (it.href.startsWith("/outbound")) return moduleEffective(ModuleIds.VoiceOutbound);
-          if (it.href.startsWith("/payments")) return moduleEffective(ModuleIds.Finance);
-          if (it.href.startsWith("/inbox/telegram")) {
-            return moduleEffective(ModuleIds.IntegrationsTelegram);
-          }
-          return true;
-        })
-      : menuItems;
+  const managerMenuItems = useMemo(
+    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(payments),
+    [base, payments],
+  );
 
-  // Detect mobile on mount
+  const menuItems = useMemo(() => {
+    if (role === "ADMIN") return [...base, analytics, payments, settingsItem];
+    if (role === "MANAGER" || role === "LEAD") return managerMenuItems;
+    return base;
+  }, [role, base, analytics, payments, settingsItem, managerMenuItems]);
+
+  // Fail-closed gating: hide gated entries while loading and on API error;
+  // show only when the module is explicitly effective. Non-gated entries always render.
+  const gatedMenuItems = useMemo(() => {
+    return menuItems.filter((it) => {
+      const mod = sidebarHrefModuleId(it.href);
+      if (!mod) return true;
+      if (modulesStatus !== "ready") return false;
+      return moduleEffective(mod);
+    });
+  }, [menuItems, modulesStatus, moduleEffective]);
+
   useEffect(() => {
     apiHttp
       .get<MeResponse>("/auth/me")
       .then((res) => setRole(res.data?.user?.role ?? null))
       .catch(() => setRole(null));
   }, []);
-  // Load collapsed state from localStorage (desktop only)
+
   useEffect(() => {
     if (typeof window !== "undefined" && !isMobile) {
       const saved = localStorage.getItem("crm_sidebar_collapsed");
@@ -120,12 +129,9 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     }
   }, [isMobile]);
 
-  // Hotkey Ctrl/Cmd + B
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Check if Ctrl+B (Windows/Linux) or Cmd+B (macOS)
       if ((event.ctrlKey || event.metaKey) && event.key === "b") {
-        // Don't trigger if focused on input/textarea/contentEditable
         const target = event.target as HTMLElement;
         if (
           target.tagName === "INPUT" ||
@@ -138,16 +144,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         event.preventDefault();
 
         if (isMobile) {
-          // Mobile: toggle open/close
           if (mobileOpen) {
             onMobileClose();
           } else {
-            // Signal to parent to open (we need to call parent's open handler)
-            // For now we just close, parent handles opening
             onMobileClose();
           }
         } else {
-          // Desktop: toggle collapsed
           setCollapsed((prev) => {
             const newValue = !prev;
             localStorage.setItem("crm_sidebar_collapsed", String(newValue));
@@ -167,7 +169,26 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const sidebarWidth = collapsed ? "w-16" : "w-60";
   const sidebarWidthPx = collapsed ? 64 : 240;
 
-  // Mobile: сайдбар оверлей (как было)
+  const renderNav = (onNavigate?: () => void) =>
+    gatedMenuItems.map((item) => {
+      const isActive = isHrefActive(pathname, item);
+      const Icon = item.icon;
+      return (
+        <Link
+          key={item.href}
+          href={item.href}
+          onClick={onNavigate}
+          className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+            isActive ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
+          }`}
+          title={collapsed && !onNavigate ? item.label : undefined}
+        >
+          <Icon className="size-5 shrink-0" aria-hidden />
+          {(!collapsed || onNavigate) && <span>{item.label}</span>}
+        </Link>
+      );
+    });
+
   if (isMobile) {
     return (
       <>
@@ -189,48 +210,19 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               type="button"
               onClick={onMobileClose}
               className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-100"
-              aria-label="Close menu"
+              aria-label={strings.common.close}
             >
               ✕
             </button>
           </div>
           <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-            {gatedMenuItems.map((item) => {
-              const isActive =
-                item.href === "/"
-                  ? pathname === "/"
-                  : item.href === "/visits"
-                    ? pathname === "/visits"
-                    : item.href === "/visits/history"
-                      ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
-                      : item.href === "/work/calls"
-                        ? pathname === "/work/calls"
-                        : item.href === "/work/calls/history"
-                          ? pathname === "/work/calls/history" ||
-                            pathname.startsWith("/work/calls/history/")
-                          : pathname === item.href || pathname.startsWith(`${item.href}/`);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={onMobileClose}
-                  className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
-                  }`}
-                >
-                  <Icon className="size-5 shrink-0" aria-hidden />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
+            {modulesStatus === "loading" ? <SidebarLoadingSkeleton /> : renderNav(onMobileClose)}
           </nav>
         </aside>
       </>
     );
   }
 
-  // Desktop sidebar
   return (
     <aside
       className={`fixed left-0 top-0 z-30 flex h-screen flex-col border-r border-zinc-200 bg-zinc-50 transition-all duration-300 ${sidebarWidth}`}
@@ -258,36 +250,29 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         </button>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-        {gatedMenuItems.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : item.href === "/visits"
-                ? pathname === "/visits"
-                : item.href === "/visits/history"
-                  ? pathname === "/visits/history" || pathname.startsWith("/visits/history/")
-                  : item.href === "/work/calls"
-                    ? pathname === "/work/calls"
-                    : item.href === "/work/calls/history"
-                      ? pathname === "/work/calls/history" ||
-                        pathname.startsWith("/work/calls/history/")
-                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
-              }`}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon className="size-5 shrink-0" aria-hidden />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
+        {modulesStatus === "loading" ? (
+          <SidebarLoadingSkeleton collapsed={collapsed} />
+        ) : (
+          renderNav()
+        )}
       </nav>
     </aside>
+  );
+}
+
+function SidebarLoadingSkeleton({ collapsed = false }: { collapsed?: boolean }) {
+  const rows = Array.from({ length: 8 });
+  return (
+    <div aria-hidden className="space-y-1.5">
+      {rows.map((_, i) => (
+        <div
+          key={i}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 ${collapsed ? "justify-center" : ""}`}
+        >
+          <div className="size-5 shrink-0 animate-pulse rounded bg-zinc-200" />
+          {!collapsed && <div className="h-3 w-32 animate-pulse rounded bg-zinc-200" />}
+        </div>
+      ))}
+    </div>
   );
 }

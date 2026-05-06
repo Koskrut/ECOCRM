@@ -8,6 +8,7 @@
   "typesVersions": {
     "*": {
       "modules": ["src/modules.d.ts"],
+      "timeline": ["src/timeline.d.ts"],
       "*": ["src/index.d.ts"]
     }
   },
@@ -19,6 +20,10 @@
     "./modules": {
       "types": "./src/modules.d.ts",
       "default": "./src/modules.js"
+    },
+    "./timeline": {
+      "types": "./src/timeline.d.ts",
+      "default": "./src/timeline.js"
     }
   }
 }

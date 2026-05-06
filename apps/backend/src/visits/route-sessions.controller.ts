@@ -1,9 +1,12 @@
 import { Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { RouteSessionsService } from "./route-sessions.service";
 
 @Controller("route-sessions")
+@RequireModule(ModuleIds.Visits)
 export class RouteSessionsController {
   constructor(private readonly routeSessions: RouteSessionsService) {}
 

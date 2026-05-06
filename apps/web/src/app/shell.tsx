@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { UserMenu } from "@/components/UserMenu";
 import { ModulesProvider } from "@/lib/modules/useModules";
+import { ConfirmProvider, ToastProvider } from "@/components/feedback";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -43,31 +44,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ModulesProvider>
-      <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+      <ConfirmProvider>
+        <ToastProvider>
+          <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
-      {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
-      <div
-        style={{ ["--sidebar-px" as string]: `${sidebarPx}px` }}
-        className="min-h-screen md:ml-[var(--sidebar-px)]"
-      >
-        <header className="sticky top-0 z-20 h-14 bg-white border-b flex items-center gap-3 px-3 md:px-4">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            className="md:hidden rounded-md px-3 py-2 text-sm border bg-white"
-            aria-label="Відкрити меню"
+          {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
+          <div
+            style={{ ["--sidebar-px" as string]: `${sidebarPx}px` }}
+            className="min-h-screen md:ml-[var(--sidebar-px)]"
           >
-            ☰
-          </button>
-          <div className="font-semibold text-zinc-900">CRM</div>
-          <div className="ml-auto">
-            <UserMenu />
+            <header className="sticky top-0 z-20 h-14 bg-white border-b flex items-center gap-3 px-3 md:px-4">
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="md:hidden rounded-md px-3 py-2 text-sm border bg-white"
+                aria-label="Відкрити меню"
+              >
+                ☰
+              </button>
+              <div className="font-semibold text-zinc-900">CRM</div>
+              <div className="ml-auto">
+                <UserMenu />
+              </div>
+            </header>
+            <main className="min-h-screen bg-zinc-50">
+              <div className="p-4">{children}</div>
+            </main>
           </div>
-        </header>
-        <main className="min-h-screen bg-zinc-50">
-          <div className="p-4">{children}</div>
-        </main>
-      </div>
+        </ToastProvider>
+      </ConfirmProvider>
     </ModulesProvider>
   );
 }

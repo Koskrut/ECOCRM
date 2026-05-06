@@ -72,21 +72,29 @@ export default function AnalyticsFinancePage() {
     dir: "desc",
   });
 
-  const { data, loading, error } = useAnalyticsFetch<FinanceApiResponse>("finance", filters.querySuffix, refreshKey);
+  const { data, loading, error } = useAnalyticsFetch<FinanceApiResponse>(
+    "finance",
+    filters.querySuffix,
+    refreshKey,
+  );
 
   const kpi = data?.data.kpi;
   const charts = data?.data.charts;
   const tables = data?.data.tables;
   const cmp = data?.compare?.kpi;
 
-  const attentionHref = useMemo(() => `/analytics/attention${filters.querySuffix}`, [filters.querySuffix]);
+  const attentionHref = useMemo(
+    () => `/analytics/attention${filters.querySuffix}`,
+    [filters.querySuffix],
+  );
 
   const sortedDebtors = useMemo(() => {
     const rows = [...(tables?.topDebtors ?? [])];
     const mul = debtorSort.dir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
       const k = debtorSort.key;
-      if (k === "clientName") return mul * (a.clientName ?? a.clientId).localeCompare(b.clientName ?? b.clientId, "uk");
+      if (k === "clientName")
+        return mul * (a.clientName ?? a.clientId).localeCompare(b.clientName ?? b.clientId, "uk");
       return mul * (Number(a[k]) - Number(b[k]));
     });
     return rows;
@@ -94,11 +102,14 @@ export default function AnalyticsFinancePage() {
 
   const toggleDebtorSort = (key: DebtorSortKey) => {
     setDebtorSort((prev) =>
-      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "clientName" ? "asc" : "desc" },
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "clientName" ? "asc" : "desc" },
     );
   };
 
-  const sortMark = (key: DebtorSortKey) => (debtorSort.key === key ? (debtorSort.dir === "asc" ? " ↑" : " ↓") : "");
+  const sortMark = (key: DebtorSortKey) =>
+    debtorSort.key === key ? (debtorSort.dir === "asc" ? " ↑" : " ↓") : "";
 
   const filtersBar = (
     <AnalyticsFiltersBar
@@ -141,9 +152,10 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Фінанси — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          <strong>Collected</strong> — період (COMPLETED, paidAt). <strong>Борг / прострочення</strong> — замовлення з{" "}
-          <code className="rounded bg-zinc-100 px-1">createdAt</code> у вибраному періоді; дельта «vs попередній» лише для
-          збору платежів. Booked revenue тут не показуємо.
+          <strong>Collected</strong> — період (COMPLETED, paidAt).{" "}
+          <strong>Борг / прострочення</strong> — замовлення з{" "}
+          <code className="rounded bg-zinc-100 px-1">createdAt</code> у вибраному періоді; дельта
+          «vs попередній» лише для збору платежів. Booked revenue тут не показуємо.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
@@ -152,21 +164,33 @@ export default function AnalyticsFinancePage() {
             subtitle="COMPLETED → USD, paidAt у періоді"
             tooltip="Та сама семантика, що Overview / Sales collected."
             value={formatMoneyUsd(kpi?.collectedPayments)}
-            deltaLabel={filters.comparePrev ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="count"
             title="Payments count"
             subtitle="Кількість COMPLETED у періоді"
             value={formatNumber(kpi?.paymentsCount)}
-            deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.paymentsCount ?? 0, cmp?.paymentsCount) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaCountLine(kpi?.paymentsCount ?? 0, cmp?.paymentsCount)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="money"
             title="Avg payment size"
             subtitle="Collected / count (USD)"
             value={formatMoneyUsdFine(kpi?.avgPaymentUsd)}
-            deltaLabel={filters.comparePrev ? deltaMoneyLineFine(kpi?.avgPaymentUsd ?? 0, cmp?.avgPaymentUsd) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaMoneyLineFine(kpi?.avgPaymentUsd ?? 0, cmp?.avgPaymentUsd)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="risk"
@@ -213,7 +237,8 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Графіки</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Збір платежів і борг за віком — для обраного періоду (вік рахується відносно кінця періоду).
+          Збір платежів і борг за віком — для обраного періоду (вік рахується відносно кінця
+          періоду).
         </p>
         <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
           <CollectedPaymentsTrendChart
@@ -230,12 +255,21 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0 rounded-xl border border-amber-200/60 bg-amber-50/20 p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Операційні сигнали</h2>
         <p className="mt-1 text-sm text-amber-900/85">
-          Борг, прострочення та PENDING на цій сторінці — у межах обраного періоду (див. KPI). Детальні черги:{" "}
-          <Link href={`${attentionHref}#finance-overdue`} scroll={false} className="font-medium text-indigo-700 underline-offset-2 hover:underline">
+          Борг, прострочення та PENDING на цій сторінці — у межах обраного періоду (див. KPI).
+          Детальні черги:{" "}
+          <Link
+            href={`${attentionHref}#finance-overdue`}
+            scroll={false}
+            className="font-medium text-indigo-700 underline-offset-2 hover:underline"
+          >
             прострочені оплати
           </Link>
           ,{" "}
-          <Link href={`${attentionHref}#overdue-tasks`} scroll={false} className="font-medium text-indigo-700 underline-offset-2 hover:underline">
+          <Link
+            href={`${attentionHref}#overdue-tasks`}
+            scroll={false}
+            className="font-medium text-indigo-700 underline-offset-2 hover:underline"
+          >
             задачі
           </Link>
           .
@@ -244,28 +278,46 @@ export default function AnalyticsFinancePage() {
 
       <section className="min-w-0 space-y-3">
         <h2 className="text-lg font-semibold text-zinc-900">Топ боржників (за сумою боргу)</h2>
-        <p className="text-sm text-zinc-500">Агрегація по клієнту з замовлень з debt і paymentDueDate; snapshot.</p>
+        <p className="text-sm text-zinc-500">
+          Агрегація по клієнту з замовлень з debt і paymentDueDate; snapshot.
+        </p>
         <div className="min-w-0 overflow-x-auto">
           <table className="min-w-[640px] w-full border-collapse rounded-xl border border-zinc-200 bg-white text-sm shadow-sm">
             <thead className="bg-zinc-50 text-left text-zinc-500">
               <tr>
                 <th className="px-4 py-3 font-medium">
-                  <button type="button" className="hover:text-zinc-800" onClick={() => toggleDebtorSort("clientName")}>
+                  <button
+                    type="button"
+                    className="hover:text-zinc-800"
+                    onClick={() => toggleDebtorSort("clientName")}
+                  >
                     Клієнт{sortMark("clientName")}
                   </button>
                 </th>
                 <th className="px-4 py-3 font-medium text-right">
-                  <button type="button" className="hover:text-zinc-800" onClick={() => toggleDebtorSort("debtAmount")}>
+                  <button
+                    type="button"
+                    className="hover:text-zinc-800"
+                    onClick={() => toggleDebtorSort("debtAmount")}
+                  >
                     Борг (USD){sortMark("debtAmount")}
                   </button>
                 </th>
                 <th className="px-4 py-3 font-medium text-right">
-                  <button type="button" className="hover:text-zinc-800" onClick={() => toggleDebtorSort("overdueAmount")}>
+                  <button
+                    type="button"
+                    className="hover:text-zinc-800"
+                    onClick={() => toggleDebtorSort("overdueAmount")}
+                  >
                     Прострочено{sortMark("overdueAmount")}
                   </button>
                 </th>
                 <th className="px-4 py-3 font-medium text-right">
-                  <button type="button" className="hover:text-zinc-800" onClick={() => toggleDebtorSort("orderCount")}>
+                  <button
+                    type="button"
+                    className="hover:text-zinc-800"
+                    onClick={() => toggleDebtorSort("orderCount")}
+                  >
                     Замовлень{sortMark("orderCount")}
                   </button>
                 </th>
@@ -282,9 +334,15 @@ export default function AnalyticsFinancePage() {
                 sortedDebtors.map((row) => (
                   <tr key={row.clientId} className="border-t border-zinc-100">
                     <td className="px-4 py-3 text-zinc-900">{row.clientName ?? row.clientId}</td>
-                    <td className="px-4 py-3 text-right text-zinc-800">{formatMoneyUsd(row.debtAmount)}</td>
-                    <td className="px-4 py-3 text-right text-zinc-800">{formatMoneyUsd(row.overdueAmount)}</td>
-                    <td className="px-4 py-3 text-right text-zinc-800">{formatNumber(row.orderCount)}</td>
+                    <td className="px-4 py-3 text-right text-zinc-800">
+                      {formatMoneyUsd(row.debtAmount)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-800">
+                      {formatMoneyUsd(row.overdueAmount)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-800">
+                      {formatNumber(row.orderCount)}
+                    </td>
                   </tr>
                 ))
               )}
@@ -295,15 +353,25 @@ export default function AnalyticsFinancePage() {
 
       <section className="min-w-0 space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Прострочені замовлення (приклад)</h2>
-        <p className="text-sm text-zinc-500">До 50 рядків, найближчі paymentDueDate спочатку. USD.</p>
+        <p className="text-sm text-zinc-500">
+          До 50 рядків, найближчі paymentDueDate спочатку. USD.
+        </p>
         <div className="min-w-0 overflow-x-auto">
           <SimpleTable
             rows={tables?.overdueOrders ?? []}
             columns={[
               { key: "orderNumber", title: "Замовлення", render: (row) => row.orderNumber },
               { key: "clientName", title: "Клієнт", render: (row) => row.clientName ?? "—" },
-              { key: "debtAmount", title: "Борг (USD)", render: (row) => formatMoneyUsd(row.debtAmount) },
-              { key: "paymentDueDate", title: "Оплата до", render: (row) => row.paymentDueDate ?? "—" },
+              {
+                key: "debtAmount",
+                title: "Борг (USD)",
+                render: (row) => formatMoneyUsd(row.debtAmount),
+              },
+              {
+                key: "paymentDueDate",
+                title: "Оплата до",
+                render: (row) => row.paymentDueDate ?? "—",
+              },
             ]}
           />
         </div>

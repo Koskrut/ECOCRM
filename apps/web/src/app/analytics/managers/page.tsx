@@ -30,7 +30,11 @@ type ManagersResponse = {
 export default function AnalyticsManagersPage() {
   const filters = useAnalyticsFilters();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, loading, error } = useAnalyticsFetch<ManagersResponse>("managers", filters.querySuffix, refreshKey);
+  const { data, loading, error } = useAnalyticsFetch<ManagersResponse>(
+    "managers",
+    filters.querySuffix,
+    refreshKey,
+  );
   const rows = data?.managers ?? [];
 
   const filtersBar = (
@@ -73,8 +77,8 @@ export default function AnalyticsManagersPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Менеджери</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Booked / collected / orders — за період (як на Sales). Overdue tasks — операційний знімок по виконавцю.
-          Прапорець compare в URL не змінює цей endpoint (немає compare у API).
+          Booked / collected / orders — за період (як на Sales). Overdue tasks — операційний знімок
+          по виконавцю. Прапорець compare в URL не змінює цей endpoint (немає compare у API).
         </p>
         <div className="mt-4 min-w-0 overflow-x-auto">
           <SimpleTable
@@ -91,7 +95,11 @@ export default function AnalyticsManagersPage() {
                 title: "Collected payments",
                 render: (row) => formatMoneyUsd(row.collectedPayments),
               },
-              { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
+              {
+                key: "ordersCount",
+                title: "Orders",
+                render: (row) => formatNumber(row.ordersCount),
+              },
               {
                 key: "avgCheck",
                 title: "Avg check",

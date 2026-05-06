@@ -27,7 +27,17 @@ function formatAxisDate(iso: string): string {
   return `${d}.${m}`;
 }
 
-function ChartCard({ title, subtitle, children, empty }: { title: string; subtitle: string; children: ReactNode; empty?: boolean }) {
+function ChartCard({
+  title,
+  subtitle,
+  children,
+  empty,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  empty?: boolean;
+}) {
   return (
     <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div>
@@ -107,7 +117,11 @@ export function LeadsCreatedTrendChart({ rows }: { rows: { date: string; count: 
             }}
             contentStyle={tooltipBox}
           />
-          <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }} />
+          <Legend
+            verticalAlign="top"
+            align="right"
+            wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }}
+          />
           <Area
             type="monotone"
             dataKey="count"
@@ -138,7 +152,13 @@ export function LeadsBySourceBarChart({ rows }: { rows: { source: string; count:
         <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" horizontal={false} />
           <XAxis type="number" tick={{ fontSize: 10, fill: CHART_MUTED }} allowDecimals={false} />
-          <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: CHART_MUTED }} interval={0} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={100}
+            tick={{ fontSize: 10, fill: CHART_MUTED }}
+            interval={0}
+          />
           <Tooltip formatter={(value: number) => [value, "Лідів"]} contentStyle={tooltipBox} />
           <Bar dataKey="count" fill={SOURCE_FILL} radius={[0, 4, 4, 0]} name="Лідів" />
         </BarChart>
@@ -171,7 +191,13 @@ export function LeadsByStatusBarChart({ rows }: { rows: { status: string; count:
         <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" horizontal={false} />
           <XAxis type="number" tick={{ fontSize: 10, fill: CHART_MUTED }} allowDecimals={false} />
-          <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fill: CHART_MUTED }} interval={0} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={120}
+            tick={{ fontSize: 10, fill: CHART_MUTED }}
+            interval={0}
+          />
           <Tooltip formatter={(value: number) => [value, "Лідів"]} contentStyle={tooltipBox} />
           <Bar dataKey="count" fill={STATUS_FILL} radius={[0, 4, 4, 0]} name="Лідів" />
         </BarChart>

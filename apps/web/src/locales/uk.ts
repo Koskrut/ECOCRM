@@ -6,10 +6,156 @@ export const uk = {
     cancel: "Скасувати",
     save: "Зберегти",
     close: "Закрити",
+    retry: "Спробувати ще раз",
+    backToDashboard: "Повернутися на головну",
+    showDetails: "Показати деталі",
+    hideDetails: "Приховати деталі",
+    backToSettings: "Повернутися до налаштувань",
   },
   nav: {
+    dashboard: "Дашборд",
+    leads: "Ліди",
+    orders: "Замовлення",
+    companies: "Компанії",
+    contacts: "Контакти",
+    tasks: "Завдання",
+    calls: "Прозвін",
+    callsHistory: "Історія дзвінків",
+    inbox: "Inbox",
+    catalog: "Каталог",
+    visits: "Візити",
+    visitsHistory: "Історія візитів",
+    aiCalls: "AI-дзвінки",
+    analytics: "Аналітика",
+    settings: "Налаштування",
     payments: "Оплати",
     planning: "Планування",
+  },
+  modules: {
+    unavailableTitle: "Модуль недоступний",
+    unavailableNotEffective: "Модуль не включений у ліцензію або вимкнений для цього інстансу.",
+    unavailableApiError:
+      "Не вдалося завантажити стан модулів з сервера. Частина розділів прихована до відновлення з'єднання.",
+    apiErrorBanner: "Стан модулів недоступний — захищені розділи приховано.",
+    moduleIdLabel: "Модуль",
+  },
+  analytics: {
+    pageTitle: "Аналітика",
+    pageSubtitle: "Огляд ключових показників CRM за період та менеджером.",
+    loading: "Завантаження аналітики…",
+    accessDeniedTitle: "Доступ заборонено",
+    accessDeniedHint: "Розділ аналітики доступний лише для ролей ADMIN та LEAD.",
+    tabs: {
+      overview: "Огляд",
+      sales: "Продажі",
+      leads: "Ліди",
+      attention: "Увага",
+      managers: "Менеджери",
+      finance: "Фінанси",
+      clients: "Клієнти",
+      products: "Товари",
+      visits: "Візити",
+      operations: "Операції",
+      map: "Мапа",
+    },
+  },
+  auth: {
+    loginTitle: "Вхід",
+    resetTitle: "Скидання пароля",
+    emailOrLogin: "Email або логін",
+    password: "Пароль",
+    signIn: "Увійти",
+    signingIn: "Вхід…",
+    resetPassword: "Скинути пароль",
+    sendCode: "Надіслати код",
+    sendingCode: "Надсилання…",
+    codeFromTelegram: "Код із Telegram",
+    newPassword: "Новий пароль",
+    savePassword: "Зберегти пароль",
+    savingPassword: "Збереження…",
+    resetRequestError: "Помилка запиту",
+    resetSubmitError: "Помилка скидання пароля",
+  },
+  settings: {
+    pageTitle: "Налаштування",
+    pageSubtitle: "Керування системною конфігурацією",
+    sectionCore: "Ядро CRM",
+    sectionExtensions: "Розширення та інтеграції",
+    release: {
+      title: "Реліз",
+      hint: "Метадані поточного релізу, лише для перегляду. Оновлення виконує оператор на сервері, а не з цього UI.",
+      version: "Версія",
+      gitSha: "Git SHA",
+      builtAt: "Зібрано",
+      imageTag: "Тег образу",
+      loadError: "Не вдалося завантажити інформацію про реліз.",
+    },
+    cards: {
+      access: {
+        title: "Доступ і ролі",
+        desc: "Керування ролями співробітників (USER / LEAD / MANAGER / ADMIN)",
+      },
+      ordersPipeline: {
+        title: "Воронка замовлень",
+        desc: "Колонки канбану, підписи та дозволені переходи стадій (для інших ролей у UI замовлень — лише читання).",
+      },
+      leadsPipeline: {
+        title: "Воронка лідів",
+        desc: "Підписи, порядок, видимість і дозволені переходи між статусами лідів (тільки ADMIN).",
+      },
+      exchangeRates: {
+        title: "Курси валют",
+        desc: "UAH та EUR до USD — використовується для перерахунку платежів",
+      },
+      googleMaps: {
+        title: "Google Maps",
+        desc: "Maps JavaScript API key для карти планування візитів",
+      },
+      metaLeadAds: {
+        title: "Facebook / Meta Lead Ads",
+        desc: "Webhook verify token, Page Access Token — для отримання лідів з Meta",
+      },
+      employees: {
+        title: "Співробітники",
+        desc: "Керування співробітниками та їхніми ролями",
+      },
+      metadata: {
+        title: "Метадані та автоматизація",
+        desc: "Поля, словники, макети, workflow, RBAC, custom entities",
+      },
+      dataImport: {
+        title: "Імпорт даних",
+        desc: "CSV-імпорт контактів та інших сутностей ядра",
+      },
+      health: {
+        title: "Системне здоров'я",
+        desc: "Реліз, ліцензія, модулі, варіант бекенду",
+      },
+      fop: {
+        title: "ФОП (банківські рахунки)",
+        desc: "Налаштування банку та платежів",
+      },
+      googleSheet: {
+        title: "Google-таблиця (1С)",
+        desc: "Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С",
+      },
+      ringostat: {
+        title: "Ringostat",
+        desc: "Телефонія Ringostat: webhook secret, API token та маппінг внутрішніх ліній",
+      },
+      outboundVoice: {
+        title: "Outbound voice (AI Calls)",
+        desc: "HTTP-провайдер вихідних дзвінків, секрет вебхука, шлях і розбір відповіді create-call",
+      },
+      telegram: {
+        title: "Telegram Inbox",
+        desc: "Bot token, webhook secret і публічний URL для Inbox",
+      },
+      store: {
+        title: "Інтернет-магазин",
+        desc: "Тема, банери, контакти, URL CRM для оплати з магазину",
+      },
+    },
   },
   np: {
     shippingProfileForm: {
@@ -177,8 +323,7 @@ export const uk = {
         "Завантажте Excel-файл з колонками SKU та кількість, за потреби також назву або код складу.",
       snapshotsHint:
         "Снапшот спочатку створюється у STAGED, після чого його потрібно опублікувати як актуальну фізику.",
-      bomHint:
-        "Кожне збереження створює нову активну ревізію BOM для обраного комплекту.",
+      bomHint: "Кожне збереження створює нову активну ревізію BOM для обраного комплекту.",
       bomUploadHint:
         "Завантажте Excel або CSV з колонками kitSku, componentSku та qtyPerKit. Ведучий символ ` у SKU ігнорується під час пошуку.",
       batchesHint:
@@ -330,8 +475,7 @@ export const uk = {
     orderCurrent: "Замовлення (поточне)",
     amountUsdFixed: "Сума (USD), фіксована",
     amountInCurrency: (cur: string) => `Сума (${cur})`,
-    editPaymentHint: (kind: string) =>
-      `${kind} · змінити замовлення — оберіть контакт нижче`,
+    editPaymentHint: (kind: string) => `${kind} · змінити замовлення — оберіть контакт нижче`,
     distributeFailed: "Не вдалося розподілити",
     distributing: "Розподіл…",
     splitAcrossOrders: (n: number) => `Розподілити по замовленнях (${n})`,

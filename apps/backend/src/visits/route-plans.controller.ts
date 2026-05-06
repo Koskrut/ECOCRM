@@ -1,9 +1,12 @@
 import { Body, Controller, Get, Post, Put, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { RequireModule } from "../modules/gating/require-module.decorator";
+import { ModuleIds } from "../modules/module-ids";
 import { RoutePlansService } from "./route-plans.service";
 
 @Controller("route-plans")
+@RequireModule(ModuleIds.Visits)
 export class RoutePlansController {
   constructor(private readonly routePlans: RoutePlansService) {}
 

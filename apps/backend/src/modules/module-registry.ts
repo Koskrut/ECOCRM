@@ -10,7 +10,7 @@ export const MODULE_REGISTRY: Registry = {
     kind: "core" satisfies ModuleKind,
     version: 1,
     displayName: "CRM Core",
-    description: "Core CRM entities, auth, settings, store, orders, leads, contacts, and platform services.",
+    description: "Core CRM entities, auth, settings, orders, leads, contacts, and platform services.",
     dependsOn: [],
     delivery: "in_process",
     controlPlane: {
@@ -18,17 +18,44 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: false,
     },
   }),
+  [ModuleIds.Visits]: defineModule({
+    id: ModuleIds.Visits,
+    kind: "extension" satisfies ModuleKind,
+    version: 1,
+    displayName: "Visits",
+    description: "Field visit planning, timeline scheduling, route plans, route sessions, and visit history.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.Visits,
+      bundleSelectable: true,
+    },
+  }),
+  [ModuleIds.ManualCalling]: defineModule({
+    id: ModuleIds.ManualCalling,
+    kind: "extension" satisfies ModuleKind,
+    version: 1,
+    displayName: "Manual Calling",
+    description: "Manual calling workspace, calls history, outbound campaigns, and outbound voice webhooks.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "external_service",
+    controlPlane: {
+      entitlementKey: ModuleIds.ManualCalling,
+      bundleSelectable: true,
+    },
+  }),
   [ModuleIds.VoiceOutbound]: defineModule({
     id: ModuleIds.VoiceOutbound,
     kind: "extension" satisfies ModuleKind,
     version: 1,
-    displayName: "AI Calls / Outbound",
-    description: "Outbound calling, manual calling workspace, call history, and voice gateway integrations.",
+    displayName: "AI Calls / Outbound (Legacy)",
+    description:
+      "Deprecated compatibility entitlement for old licenses. Use ext.manual_calling + int.ringostat.",
     dependsOn: [ModuleIds.CoreCrm],
     delivery: "external_service",
     controlPlane: {
       entitlementKey: ModuleIds.VoiceOutbound,
-      bundleSelectable: true,
+      bundleSelectable: false,
     },
   }),
   [ModuleIds.Finance]: defineModule({
@@ -54,6 +81,20 @@ export const MODULE_REGISTRY: Registry = {
     delivery: "in_process",
     controlPlane: {
       entitlementKey: ModuleIds.ProductionPlanning,
+      bundleSelectable: true,
+    },
+  }),
+  [ModuleIds.Store]: defineModule({
+    id: ModuleIds.Store,
+    kind: "extension" satisfies ModuleKind,
+    version: 1,
+    displayName: "Online Store",
+    description:
+      "Public storefront integration: theme, banners, contacts, store configuration, and CRM payment URL.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.Store,
       bundleSelectable: true,
     },
   }),

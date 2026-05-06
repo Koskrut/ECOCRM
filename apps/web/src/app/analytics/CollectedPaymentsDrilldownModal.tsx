@@ -25,7 +25,11 @@ type DrilldownResponse = {
 
 function pickErrorMessage(error: unknown, fallback: string): string {
   const err = error as { response?: { data?: { message?: string; error?: string } } };
-  return err?.response?.data?.message || err?.response?.data?.error || (error instanceof Error ? error.message : fallback);
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data?.error ||
+    (error instanceof Error ? error.message : fallback)
+  );
 }
 
 function formatPaidAt(iso: string | null): string {
@@ -96,8 +100,8 @@ export function CollectedPaymentsDrilldownModal({
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Зібрані оплати (деталізація)</h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Ті самі правила, що й KPI: статус COMPLETED, дата <code className="text-xs">paidAt</code> у періоді, фільтр по
-              власнику замовлення.
+              Ті самі правила, що й KPI: статус COMPLETED, дата{" "}
+              <code className="text-xs">paidAt</code> у періоді, фільтр по власнику замовлення.
             </p>
             {data != null && (
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-700">
@@ -122,7 +126,8 @@ export function CollectedPaymentsDrilldownModal({
             )}
             {data != null && data.totalCount > data.items.length && (
               <p className="mt-2 text-xs text-zinc-500">
-                У таблиці показано перші {data.items.length} рядків (за датою оплати). Повна сума вгорі враховує всі платежі.
+                У таблиці показано перші {data.items.length} рядків (за датою оплати). Повна сума
+                вгорі враховує всі платежі.
               </p>
             )}
           </div>
@@ -137,7 +142,9 @@ export function CollectedPaymentsDrilldownModal({
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {loading && <div className="text-sm text-zinc-500">Завантаження...</div>}
-          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+          {error && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+          )}
           {!loading && !error && data && (
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 bg-zinc-50 text-left text-zinc-500">

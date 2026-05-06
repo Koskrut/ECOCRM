@@ -13,7 +13,7 @@ class EnabledStub extends EnabledModulesProvider {
     super();
   }
   async getEnabledModules() {
-    return { enabledModules: new Set(this.enabled), source: "system_setting" as const };
+    return { enabledModules: new Set(this.enabled), source: "license_state" as const };
   }
 }
 

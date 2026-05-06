@@ -3,25 +3,31 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "../../lib/api/client";
+import { strings } from "@/locales";
 
 type ResetStep = null | "email" | "code";
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center text-sm text-zinc-500">
+          {strings.common.loading}
+        </div>
+      }
+    >
       <LoginContent />
     </Suspense>
   );
 }
 
 function LoginContent() {
+  const a = strings.auth;
   const router = useRouter();
   const searchParams = useSearchParams();
   const fromParam = searchParams.get("from");
   const from =
-    fromParam && fromParam.startsWith("/") && !fromParam.startsWith("//")
-      ? fromParam
-      : "/orders";
+    fromParam && fromParam.startsWith("/") && !fromParam.startsWith("//") ? fromParam : "/orders";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,12 +73,12 @@ function LoginContent() {
         suggestConnectTelegram?: boolean;
         message?: string;
       }>("/auth/password-reset/request", { email: resetEmail.trim() });
-      setResetMessage(res.data?.message ?? "Проверьте Telegram или email.");
+      setResetMessage(res.data?.message ?? "Перевірте Telegram або email.");
       if (res.data?.sentVia === "telegram") {
         setResetStep("code");
       }
     } catch (e) {
-      setResetError(e instanceof Error ? e.message : "Ошибка запроса");
+      setResetError(e instanceof Error ? e.message : a.resetRequestError);
     } finally {
       setResetLoading(false);
     }
@@ -91,7 +97,7 @@ function LoginContent() {
       router.push(from);
       router.refresh();
     } catch (e) {
-      setResetError(e instanceof Error ? e.message : "Ошибка сброса пароля");
+      setResetError(e instanceof Error ? e.message : a.resetSubmitError);
     } finally {
       setResetLoading(false);
     }
@@ -104,10 +110,8 @@ function LoginContent() {
       <div className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
         {showReset ? (
           <>
-            <h1 className="text-xl font-bold text-zinc-900">Сброс пароля</h1>
-            {resetMessage ? (
-              <p className="mt-2 text-sm text-zinc-600">{resetMessage}</p>
-            ) : null}
+            <h1 className="text-xl font-bold text-zinc-900">{a.resetTitle}</h1>
+            {resetMessage ? <p className="mt-2 text-sm text-zinc-600">{resetMessage}</p> : null}
             {resetError ? (
               <div className="mt-2 rounded-md bg-red-50 p-2 text-sm text-red-700 border border-red-100">
                 {resetError}
@@ -116,7 +120,7 @@ function LoginContent() {
 
             {resetStep === "email" ? (
               <form onSubmit={onRequestReset} className="mt-4 space-y-3">
-                <label className="block text-sm font-medium text-zinc-700">Email или логин</label>
+                <label className="block text-sm font-medium text-zinc-700">{a.emailOrLogin}</label>
                 <input
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                   type="text"
@@ -135,20 +139,22 @@ function LoginContent() {
                     }}
                     className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Назад
+                    {strings.common.cancel}
                   </button>
                   <button
                     type="submit"
                     disabled={resetLoading}
                     className="btn-primary px-4 py-2 text-sm"
                   >
-                    {resetLoading ? "Отправка…" : "Отправить код"}
+                    {resetLoading ? a.sendingCode : a.sendCode}
                   </button>
                 </div>
               </form>
             ) : resetStep === "code" ? (
               <form onSubmit={onConfirmReset} className="mt-4 space-y-3">
-                <label className="block text-sm font-medium text-zinc-700">Код из Telegram</label>
+                <label className="block text-sm font-medium text-zinc-700">
+                  {a.codeFromTelegram}
+                </label>
                 <input
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm font-mono"
                   value={resetCode}
@@ -156,7 +162,7 @@ function LoginContent() {
                   placeholder="000000"
                   maxLength={6}
                 />
-                <label className="block text-sm font-medium text-zinc-700">Новый пароль</label>
+                <label className="block text-sm font-medium text-zinc-700">{a.newPassword}</label>
                 <input
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                   type="password"
@@ -171,14 +177,14 @@ function LoginContent() {
                     onClick={() => setResetStep("email")}
                     className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Назад
+                    {strings.common.cancel}
                   </button>
                   <button
                     type="submit"
                     disabled={resetLoading || resetCode.length < 4 || resetPassword.length < 6}
                     className="btn-primary px-4 py-2 text-sm"
                   >
-                    {resetLoading ? "Сохранение…" : "Сохранить пароль"}
+                    {resetLoading ? a.savingPassword : a.savePassword}
                   </button>
                 </div>
               </form>
@@ -186,8 +192,10 @@ function LoginContent() {
           </>
         ) : (
           <>
-            <h1 className="text-xl font-bold text-zinc-900">Вход</h1>
-            <p className="mt-1 text-sm text-zinc-500">Email или логин и пароль</p>
+            <h1 className="text-xl font-bold text-zinc-900">{a.loginTitle}</h1>
+            <p className="mt-1 text-sm text-zinc-500">
+              {a.emailOrLogin} / {a.password}
+            </p>
 
             {error ? (
               <div className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-100">
@@ -196,14 +204,14 @@ function LoginContent() {
             ) : null}
 
             <form onSubmit={onSubmit} className="mt-4 space-y-3">
-              <label className="block text-sm font-medium text-zinc-700">Email или логин</label>
+              <label className="block text-sm font-medium text-zinc-700">{a.emailOrLogin}</label>
               <input
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="username"
               />
-              <label className="block text-sm font-medium text-zinc-700">Пароль</label>
+              <label className="block text-sm font-medium text-zinc-700">{a.password}</label>
               <input
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
                 type="password"
@@ -212,7 +220,7 @@ function LoginContent() {
                 autoComplete="current-password"
               />
               <button type="submit" disabled={loading} className="btn-primary w-full py-2">
-                {loading ? "Вход…" : "Войти"}
+                {loading ? a.signingIn : a.signIn}
               </button>
               <p className="text-center">
                 <button
@@ -225,7 +233,7 @@ function LoginContent() {
                   }}
                   className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                 >
-                  Сбросить пароль
+                  {a.resetPassword}
                 </button>
               </p>
             </form>

@@ -21,7 +21,10 @@ type OperationsResponse = {
 
 export default function AnalyticsOperationsPage() {
   const filters = useAnalyticsFilters();
-  const { data, loading, error } = useAnalyticsFetch<OperationsResponse>("operations", filters.querySuffix);
+  const { data, loading, error } = useAnalyticsFetch<OperationsResponse>(
+    "operations",
+    filters.querySuffix,
+  );
 
   return (
     <div className="space-y-4">
@@ -56,4 +59,3 @@ export default function AnalyticsOperationsPage() {
     </div>
   );
 }
-

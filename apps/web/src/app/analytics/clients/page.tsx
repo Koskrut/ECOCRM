@@ -15,13 +15,25 @@ type ClientsResponse = {
   newClientsCount: number;
   repeatClientsCount: number;
   sleepingClientsCount: number;
-  topByBookedRevenue: { clientId: string; clientName: string | null; bookedRevenue: number; ordersCount: number }[];
-  topByCollectedPayments: { clientId: string; clientName: string | null; collectedPayments: number }[];
+  topByBookedRevenue: {
+    clientId: string;
+    clientName: string | null;
+    bookedRevenue: number;
+    ordersCount: number;
+  }[];
+  topByCollectedPayments: {
+    clientId: string;
+    clientName: string | null;
+    collectedPayments: number;
+  }[];
 };
 
 export default function AnalyticsClientsPage() {
   const filters = useAnalyticsFilters();
-  const { data, loading, error } = useAnalyticsFetch<ClientsResponse>("clients", filters.querySuffix);
+  const { data, loading, error } = useAnalyticsFetch<ClientsResponse>(
+    "clients",
+    filters.querySuffix,
+  );
 
   return (
     <div className="space-y-4">
@@ -48,7 +60,11 @@ export default function AnalyticsClientsPage() {
           rows={data?.topByBookedRevenue ?? []}
           columns={[
             { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
-            { key: "bookedRevenue", title: "Booked Revenue", render: (row) => formatMoneyUsd(row.bookedRevenue) },
+            {
+              key: "bookedRevenue",
+              title: "Booked Revenue",
+              render: (row) => formatMoneyUsd(row.bookedRevenue),
+            },
             { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
           ]}
         />
@@ -56,11 +72,14 @@ export default function AnalyticsClientsPage() {
           rows={data?.topByCollectedPayments ?? []}
           columns={[
             { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
-            { key: "collectedPayments", title: "Collected Payments", render: (row) => formatMoneyUsd(row.collectedPayments) },
+            {
+              key: "collectedPayments",
+              title: "Collected Payments",
+              render: (row) => formatMoneyUsd(row.collectedPayments),
+            },
           ]}
         />
       </AnalyticsState>
     </div>
   );
 }
-

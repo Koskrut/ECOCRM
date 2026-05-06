@@ -19,7 +19,7 @@ import { StartSessionDto } from "./dto/start-session.dto";
 import { ManualCallingService } from "./manual-calling.service";
 
 @Controller("manual-calling")
-@RequireModule(ModuleIds.VoiceOutbound)
+@RequireModule(ModuleIds.ManualCalling)
 @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
 export class ManualCallingController {
   constructor(private readonly manualCalling: ManualCallingService) {}

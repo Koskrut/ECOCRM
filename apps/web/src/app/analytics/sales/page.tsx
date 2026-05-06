@@ -59,8 +59,32 @@ type ManagerRow = {
 
 type ManagersResponse = { managers: ManagerRow[] };
 
-type SortKey = "name" | "bookedRevenue" | "collectedPayments" | "ordersCount" | "avgCheck" | "overdueTasks";
+type SortKey =
+  | "name"
+  | "bookedRevenue"
+  | "collectedPayments"
+  | "ordersCount"
+  | "avgCheck"
+  | "overdueTasks";
 type SortDir = "asc" | "desc";
+type NumericSortKey = Exclude<SortKey, "name">;
+
+function getManagerNumericSortValue(row: ManagerRow, key: NumericSortKey): number {
+  switch (key) {
+    case "bookedRevenue":
+      return row.bookedRevenue;
+    case "collectedPayments":
+      return row.collectedPayments;
+    case "ordersCount":
+      return row.ordersCount;
+    case "avgCheck":
+      return row.avgCheck;
+    case "overdueTasks":
+      return row.overdueTasks;
+    default:
+      return 0;
+  }
+}
 
 function parseYmd(dateYmd: string) {
   const [y, m, d] = dateYmd.split("-").map((x) => Number(x));
@@ -71,7 +95,10 @@ function toYmdUTC(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function previousPeriodOfSameLengthUTC(fromYmd: string, toYmd: string): { prevFrom: string; prevTo: string } {
+function previousPeriodOfSameLengthUTC(
+  fromYmd: string,
+  toYmd: string,
+): { prevFrom: string; prevTo: string } {
   const f = parseYmd(fromYmd);
   const t = parseYmd(toYmd);
 
@@ -115,16 +142,37 @@ function ManagerBookedRevenueChart({ rows }: { rows: ManagerRow[] }) {
       </div>
       <div className="mt-3 min-h-[260px] w-full min-w-0 flex-1 overflow-x-auto">
         <ResponsiveContainer width="100%" height={260} minWidth={320}>
-          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 8, right: 16, left: 4, bottom: 8 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" horizontal={false} />
             <XAxis type="number" tick={{ fontSize: 10, fill: "#64748b" }} />
-            <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 10, fill: "#64748b" }} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={120}
+              tick={{ fontSize: 10, fill: "#64748b" }}
+            />
             <Tooltip
-              formatter={(value: number) => [`${Math.round(value).toLocaleString("en-US")} $`, "Booked"]}
+              formatter={(value: number) => [
+                `${Math.round(value).toLocaleString("en-US")} $`,
+                "Booked",
+              ]}
               contentStyle={{ borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12px" }}
             />
-            <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }} />
-            <Bar dataKey="bookedRevenue" fill="#10b981" radius={[0, 4, 4, 0]} name="Booked revenue" />
+            <Legend
+              verticalAlign="top"
+              align="right"
+              wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }}
+            />
+            <Bar
+              dataKey="bookedRevenue"
+              fill="#10b981"
+              radius={[0, 4, 4, 0]}
+              name="Booked revenue"
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -156,7 +204,9 @@ function SortableTh({
         aria-label={`Sort by ${label}`}
       >
         {label}
-        {active ? <span className="text-[10px] text-zinc-500">{dir === "asc" ? "▲" : "▼"}</span> : null}
+        {active ? (
+          <span className="text-[10px] text-zinc-500">{dir === "asc" ? "▲" : "▼"}</span>
+        ) : null}
       </button>
     </th>
   );
@@ -180,9 +230,12 @@ export default function AnalyticsSalesPage() {
   const kpi = salesData?.data.kpi;
   const compareKpi = salesData?.compare?.kpi;
   const byStage = salesData?.data.byStage ?? [];
-  const managers = managersData?.managers ?? [];
+  const managers = useMemo(() => managersData?.managers ?? [], [managersData?.managers]);
 
-  const attentionHref = useMemo(() => `/analytics/attention${filters.querySuffix}`, [filters.querySuffix]);
+  const attentionHref = useMemo(
+    () => `/analytics/attention${filters.querySuffix}`,
+    [filters.querySuffix],
+  );
 
   const [prevManagers, setPrevManagers] = useState<ManagersResponse | null>(null);
   const [prevManagersLoading, setPrevManagersLoading] = useState(false);
@@ -242,7 +295,13 @@ export default function AnalyticsSalesPage() {
       if (prev === 0) continue;
       const delta = cur.bookedRevenue - prev;
       if (delta >= 0) continue;
-      rows.push({ id: cur.id, name: cur.name, currentBooked: cur.bookedRevenue, previousBooked: prev, deltaBooked: delta });
+      rows.push({
+        id: cur.id,
+        name: cur.name,
+        currentBooked: cur.bookedRevenue,
+        previousBooked: prev,
+        deltaBooked: delta,
+      });
     }
 
     rows.sort((a, b) => Math.abs(b.deltaBooked) - Math.abs(a.deltaBooked));
@@ -250,7 +309,10 @@ export default function AnalyticsSalesPage() {
   }, [filters.comparePrev, managers, prevManagers]);
 
   const overdueManagersTop = useMemo(() => {
-    return managers.filter((m) => m.overdueTasks > 0).sort((a, b) => b.overdueTasks - a.overdueTasks).slice(0, 10);
+    return managers
+      .filter((m) => m.overdueTasks > 0)
+      .sort((a, b) => b.overdueTasks - a.overdueTasks)
+      .slice(0, 10);
   }, [managers]);
 
   const [sortKey, setSortKey] = useState<SortKey>("bookedRevenue");
@@ -261,7 +323,11 @@ export default function AnalyticsSalesPage() {
     const rows = [...managers];
     rows.sort((a, b) => {
       if (sortKey === "name") return dirMul * a.name.localeCompare(b.name, "uk");
-      return dirMul * (Number((a as any)[sortKey]) - Number((b as any)[sortKey]));
+      const numericKey = sortKey as NumericSortKey;
+      return (
+        dirMul *
+        (getManagerNumericSortValue(a, numericKey) - getManagerNumericSortValue(b, numericKey))
+      );
     });
     return rows;
   }, [managers, sortDir, sortKey]);
@@ -314,7 +380,10 @@ export default function AnalyticsSalesPage() {
           onRangePresetChange={filters.setRangePreset}
           onComparePrevChange={filters.setComparePrev}
         />
-        <AnalyticsErrorPanel message={salesError || managersError || "Failed to load sales data"} onRetry={() => window.location.reload()} />
+        <AnalyticsErrorPanel
+          message={salesError || managersError || "Failed to load sales data"}
+          onRetry={() => window.location.reload()}
+        />
       </div>
     );
   }
@@ -338,7 +407,9 @@ export default function AnalyticsSalesPage() {
       <div className="min-w-0 space-y-8">
         <section className="min-w-0">
           <h2 className="text-lg font-semibold text-zinc-900">Sales overview</h2>
-          <p className="mt-1 text-sm text-zinc-500">Поточні продажі за період + порівняння vs попередній період (compare).</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            Поточні продажі за період + порівняння vs попередній період (compare).
+          </p>
 
           <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <KpiDeltaCard
@@ -347,21 +418,33 @@ export default function AnalyticsSalesPage() {
               subtitle="USD, createdAt (period-based)"
               tooltip="Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → USD."
               value={formatMoneyUsd(kpi?.bookedRevenue)}
-              deltaLabel={filters.comparePrev ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, compareKpi?.bookedRevenue) : null}
+              deltaLabel={
+                filters.comparePrev
+                  ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, compareKpi?.bookedRevenue)
+                  : null
+              }
             />
             <KpiDeltaCard
               variant="count"
               title="Orders count"
               subtitle="Orders у періоді (createdAt)"
               value={formatNumber(kpi?.ordersCount)}
-              deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.ordersCount ?? 0, compareKpi?.ordersCount) : null}
+              deltaLabel={
+                filters.comparePrev
+                  ? deltaCountLine(kpi?.ordersCount ?? 0, compareKpi?.ordersCount)
+                  : null
+              }
             />
             <KpiDeltaCard
               variant="money"
               title="Avg check"
               subtitle="Booked / orders (USD)"
               value={formatMoneyUsdFine(kpi?.avgCheck)}
-              deltaLabel={filters.comparePrev ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, compareKpi?.avgCheck) : null}
+              deltaLabel={
+                filters.comparePrev
+                  ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, compareKpi?.avgCheck)
+                  : null
+              }
             />
             <KpiDeltaCard
               variant="money"
@@ -369,7 +452,11 @@ export default function AnalyticsSalesPage() {
               subtitle="USD, COMPLETED + paidAt (period-based)"
               tooltip="Collected payments ≠ booked revenue."
               value={formatMoneyUsd(kpi?.collectedPayments)}
-              deltaLabel={filters.comparePrev ? deltaMoneyLine(kpi?.collectedPayments ?? 0, compareKpi?.collectedPayments) : null}
+              deltaLabel={
+                filters.comparePrev
+                  ? deltaMoneyLine(kpi?.collectedPayments ?? 0, compareKpi?.collectedPayments)
+                  : null
+              }
             />
             <KpiDeltaCard
               variant="risk"
@@ -378,7 +465,9 @@ export default function AnalyticsSalesPage() {
               tooltip="Узгоджено з overview / managers / attention для того ж періоду."
               value={formatNumber(kpi?.overdueTasksCount)}
               deltaLabel={
-                filters.comparePrev ? deltaCountLine(kpi?.overdueTasksCount ?? 0, compareKpi?.overdueTasksCount) : null
+                filters.comparePrev
+                  ? deltaCountLine(kpi?.overdueTasksCount ?? 0, compareKpi?.overdueTasksCount)
+                  : null
               }
             />
           </div>
@@ -387,14 +476,21 @@ export default function AnalyticsSalesPage() {
         <section className="min-w-0 space-y-4">
           <div>
             <h3 className="text-base font-semibold text-zinc-900">Manager performance</h3>
-            <p className="mt-1 text-sm text-zinc-500">Сортування по KPI (без proxy / без generic activities).</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Сортування по KPI (без proxy / без generic activities).
+            </p>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
             <table className="min-w-[920px] border-collapse text-sm">
               <thead className="sticky top-0 bg-zinc-50 text-left text-zinc-500">
                 <tr>
-                  <SortableTh label="Manager" active={sortKey === "name"} dir={sortDir} onClick={() => toggleSort("name")} />
+                  <SortableTh
+                    label="Manager"
+                    active={sortKey === "name"}
+                    dir={sortDir}
+                    onClick={() => toggleSort("name")}
+                  />
                   <SortableTh
                     label="Booked revenue"
                     active={sortKey === "bookedRevenue"}
@@ -444,7 +540,9 @@ export default function AnalyticsSalesPage() {
                     <tr key={m.id} className="hover:bg-zinc-50/60">
                       <td className="px-4 py-3 font-medium text-zinc-900">{m.name}</td>
                       <td className="px-4 py-3 text-right">{formatMoneyUsd(m.bookedRevenue)}</td>
-                      <td className="px-4 py-3 text-right">{formatMoneyUsd(m.collectedPayments)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {formatMoneyUsd(m.collectedPayments)}
+                      </td>
                       <td className="px-4 py-3 text-right">{formatNumber(m.ordersCount)}</td>
                       <td className="px-4 py-3 text-right">{formatMoneyUsdFine(m.avgCheck)}</td>
                       <td className="px-4 py-3 text-right">{formatNumber(m.overdueTasks)}</td>
@@ -459,7 +557,9 @@ export default function AnalyticsSalesPage() {
         <section className="min-w-0 space-y-4">
           <div>
             <h3 className="text-base font-semibold text-zinc-900">Charts</h3>
-            <p className="mt-1 text-sm text-zinc-500">Поточний період only. Booked і Collected — не змішуються.</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Поточний період only. Booked і Collected — не змішуються.
+            </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <ManagerBookedRevenueChart rows={managers} />
@@ -474,7 +574,9 @@ export default function AnalyticsSalesPage() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="rounded-xl border border-amber-200/60 bg-amber-50/20 p-4 shadow-sm">
-              <h4 className="text-sm font-semibold text-zinc-900">Declining booked revenue vs previous period</h4>
+              <h4 className="text-sm font-semibold text-zinc-900">
+                Declining booked revenue vs previous period
+              </h4>
               <p className="mt-1 text-xs text-amber-900/80">
                 Top-10 негативних delta. Якщо prev відсутній або prev=0 — не класифікуємо.
               </p>
@@ -486,7 +588,9 @@ export default function AnalyticsSalesPage() {
               ) : prevManagersLoading ? (
                 <div className="mt-3 h-24 animate-pulse rounded-lg bg-white/60" />
               ) : prevManagersError ? (
-                <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{prevManagersError}</div>
+                <div className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">
+                  {prevManagersError}
+                </div>
               ) : declineTop.length === 0 ? (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-white/60 p-3 text-xs text-amber-900/70">
                   Немає менеджерів з падінням booked revenue у цьому порівнянні.
@@ -506,9 +610,15 @@ export default function AnalyticsSalesPage() {
                       {declineTop.map((r) => (
                         <tr key={r.id}>
                           <td className="px-3 py-2 font-medium text-zinc-900">{r.name}</td>
-                          <td className="px-3 py-2 text-right">{formatMoneyUsd(r.currentBooked)}</td>
-                          <td className="px-3 py-2 text-right">{formatMoneyUsd(r.previousBooked)}</td>
-                          <td className="px-3 py-2 text-right text-red-700">{formatMoneyUsd(r.deltaBooked)}</td>
+                          <td className="px-3 py-2 text-right">
+                            {formatMoneyUsd(r.currentBooked)}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {formatMoneyUsd(r.previousBooked)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-red-700">
+                            {formatMoneyUsd(r.deltaBooked)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -539,7 +649,9 @@ export default function AnalyticsSalesPage() {
                       {overdueManagersTop.map((m) => (
                         <tr key={m.id}>
                           <td className="px-3 py-2 font-medium text-zinc-900">{m.name}</td>
-                          <td className="px-3 py-2 text-right text-amber-800">{formatNumber(m.overdueTasks)}</td>
+                          <td className="px-3 py-2 text-right text-amber-800">
+                            {formatNumber(m.overdueTasks)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -548,7 +660,11 @@ export default function AnalyticsSalesPage() {
               )}
               <div className="mt-3 text-xs text-zinc-500">
                 Для деталей:{" "}
-                <Link href={`${attentionHref}#overdue-tasks`} scroll={false} className="text-zinc-900 underline underline-offset-2">
+                <Link
+                  href={`${attentionHref}#overdue-tasks`}
+                  scroll={false}
+                  className="text-zinc-900 underline underline-offset-2"
+                >
                   Attention
                 </Link>
               </div>
@@ -559,4 +675,3 @@ export default function AnalyticsSalesPage() {
     </div>
   );
 }
-

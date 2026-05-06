@@ -19,7 +19,17 @@ const SOURCE_BANK = "#0ea5e9";
 
 const tooltipBox = { borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12px" };
 
-function ChartCard({ title, subtitle, children, empty }: { title: string; subtitle: string; children: ReactNode; empty?: boolean }) {
+function ChartCard({
+  title,
+  subtitle,
+  children,
+  empty,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  empty?: boolean;
+}) {
   return (
     <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div>
@@ -61,7 +71,12 @@ export function DebtAgingBucketsChart({
         <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" horizontal={false} />
           <XAxis type="number" tick={{ fontSize: 10, fill: CHART_MUTED }} />
-          <YAxis type="category" dataKey="label" width={52} tick={{ fontSize: 10, fill: CHART_MUTED }} />
+          <YAxis
+            type="category"
+            dataKey="label"
+            width={52}
+            tick={{ fontSize: 10, fill: CHART_MUTED }}
+          />
           <Tooltip
             formatter={(value: number, name: string) => [
               name === "amount" ? `${Math.round(value).toLocaleString("en-US")} $` : value,
@@ -110,7 +125,13 @@ export function PaymentsBySourceTypeChart({
             tick={{ fontSize: 10, fill: CHART_MUTED }}
             width={48}
             tickFormatter={(v) => `${v}`}
-            label={{ value: "USD", angle: -90, position: "insideLeft", fill: CHART_MUTED, fontSize: 10 }}
+            label={{
+              value: "USD",
+              angle: -90,
+              position: "insideLeft",
+              fill: CHART_MUTED,
+              fontSize: 10,
+            }}
           />
           <Tooltip
             formatter={(value: number, name: string) => [

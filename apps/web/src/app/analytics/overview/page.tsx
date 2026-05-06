@@ -21,7 +21,12 @@ import {
   CollectedPaymentsTrendChart,
   OrdersByStageBarChart,
 } from "./overview-charts";
-import { deltaCountLine, deltaMoneyLine, deltaMoneyLineFine, deltaPctPoints } from "../analytics-delta";
+import {
+  deltaCountLine,
+  deltaMoneyLine,
+  deltaMoneyLineFine,
+  deltaPctPoints,
+} from "../analytics-delta";
 
 type OverviewPayload = {
   kpi: {
@@ -118,8 +123,8 @@ export default function AnalyticsOverviewPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Ключові показники</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Booked revenue та collected payments — різні метрики (дата створення замовлення vs дата оплати). Порівняння з
-          попереднім періодом — лише коли увімкнено фільтр.
+          Booked revenue та collected payments — різні метрики (дата створення замовлення vs дата
+          оплати). Порівняння з попереднім періодом — лише коли увімкнено фільтр.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
@@ -128,7 +133,11 @@ export default function AnalyticsOverviewPage() {
             subtitle="max(0, total − returns) → USD за період (createdAt)"
             tooltip="Не змішувати з collected payments."
             value={formatMoneyUsd(kpi?.bookedRevenue)}
-            deltaLabel={filters.comparePrev ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, cmp?.bookedRevenue) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, cmp?.bookedRevenue)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="money"
@@ -136,7 +145,11 @@ export default function AnalyticsOverviewPage() {
             subtitle="COMPLETED, дата paidAt → USD"
             tooltip="Окремо від booked revenue."
             value={formatMoneyUsd(kpi?.collectedPayments)}
-            deltaLabel={filters.comparePrev ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments)
+                : null
+            }
             onDrill={() => setPaymentsDrillOpen(true)}
           />
           <KpiDeltaCard
@@ -144,7 +157,9 @@ export default function AnalyticsOverviewPage() {
             title="Orders"
             subtitle="Замовлення у періоді (createdAt)"
             value={formatNumber(kpi?.ordersCount)}
-            deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.ordersCount ?? 0, cmp?.ordersCount) : null}
+            deltaLabel={
+              filters.comparePrev ? deltaCountLine(kpi?.ordersCount ?? 0, cmp?.ordersCount) : null
+            }
           />
           <KpiDeltaCard
             variant="money"
@@ -152,7 +167,9 @@ export default function AnalyticsOverviewPage() {
             subtitle="Booked / orders (USD)"
             tooltip="Те саме, що bookedRevenue / ordersCount для обраного періоду; порівняння — попередній період тієї ж довжини."
             value={formatMoneyUsdFine(kpi?.avgCheck)}
-            deltaLabel={filters.comparePrev ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, cmp?.avgCheck) : null}
+            deltaLabel={
+              filters.comparePrev ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, cmp?.avgCheck) : null
+            }
           />
           <KpiDeltaCard
             variant="risk"
@@ -177,7 +194,11 @@ export default function AnalyticsOverviewPage() {
             title="Leads created"
             subtitle="Ліди з createdAt у періоді"
             value={formatNumber(kpi?.leadsCreatedCount)}
-            deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.leadsCreatedCount ?? 0, cmp?.leadsCreatedCount) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaCountLine(kpi?.leadsCreatedCount ?? 0, cmp?.leadsCreatedCount)
+                : null
+            }
           />
           <KpiDeltaCard
             variant="percent"
@@ -185,7 +206,11 @@ export default function AnalyticsOverviewPage() {
             subtitle="WON / створені ліди у періоді"
             tooltip="Не конверсія в замовлення; API поле leadConversionProxy."
             value={formatPercent(kpi?.leadConversionProxy)}
-            deltaLabel={filters.comparePrev ? deltaPctPoints(kpi?.leadConversionProxy ?? 0, cmp?.leadConversionProxy) : null}
+            deltaLabel={
+              filters.comparePrev
+                ? deltaPctPoints(kpi?.leadConversionProxy ?? 0, cmp?.leadConversionProxy)
+                : null
+            }
           />
         </div>
       </section>
@@ -207,8 +232,12 @@ export default function AnalyticsOverviewPage() {
       <section className="min-w-0 rounded-xl border border-amber-200/60 bg-amber-50/20 p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Потребує уваги</h2>
         <p className="mt-1 text-sm text-amber-900/80">
-          Лічильники та посилання на Attention узгоджені з обраним діапазоном дат (ті самі правила фільтрації, що й на{" "}
-          <Link href={attentionHref} className="font-medium text-indigo-800 underline-offset-2 hover:underline">
+          Лічильники та посилання на Attention узгоджені з обраним діапазоном дат (ті самі правила
+          фільтрації, що й на{" "}
+          <Link
+            href={attentionHref}
+            className="font-medium text-indigo-800 underline-offset-2 hover:underline"
+          >
             /analytics/attention
           </Link>
           ).
@@ -248,7 +277,8 @@ export default function AnalyticsOverviewPage() {
             Відкрити Attention
           </Link>
           <span className="self-center text-xs text-zinc-500">
-            Сума простроченого боргу (attention): {formatMoneyUsd(attention?.finance.overdueDebtAmount)}
+            Сума простроченого боргу (attention):{" "}
+            {formatMoneyUsd(attention?.finance.overdueDebtAmount)}
           </span>
         </div>
       </section>

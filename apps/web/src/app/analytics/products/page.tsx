@@ -11,12 +11,21 @@ import {
 } from "../analytics-ui";
 
 type ProductsResponse = {
-  products: { productId: string; productName: string; quantity: number; revenue: number; ordersCount: number }[];
+  products: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    revenue: number;
+    ordersCount: number;
+  }[];
 };
 
 export default function AnalyticsProductsPage() {
   const filters = useAnalyticsFilters();
-  const { data, loading, error } = useAnalyticsFetch<ProductsResponse>("products", filters.querySuffix);
+  const { data, loading, error } = useAnalyticsFetch<ProductsResponse>(
+    "products",
+    filters.querySuffix,
+  );
 
   return (
     <div className="space-y-4">
@@ -47,4 +56,3 @@ export default function AnalyticsProductsPage() {
     </div>
   );
 }
-

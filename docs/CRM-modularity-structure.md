@@ -57,7 +57,7 @@ flowchart TB
 Для **не-core** модулей эффективная доступность — пересечение:
 
 1. **Licensed** — есть в подписи: файл `license.json` (режим по умолчанию на клиенте) и/или Control Plane (`compose.client.yml` задаёт `LICENSE_MODE`, пути к ключу и токенам).
-2. **Enabled** — включено в установке (системная настройка / pilot; см. провайдеры в `apps/backend/src/modules/enabled/`).
+2. **Enabled** — в CP-only режиме автоматически равно лицензии (`enabled = licensed`; ручного pilot-слоя нет).
 3. **Installed (runtime)** — сейчас в `ModuleStateService` фактически означает «модуль есть в `MODULE_REGISTRY`», а не «отдельный контейнер поднят». Планируется уточнение через manifest/health.
 
 **Effective** = licensed ∧ enabled ∧ depsOk ∧ (в перспективе) reachable/installation-capability.

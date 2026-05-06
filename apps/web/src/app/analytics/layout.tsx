@@ -4,28 +4,31 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { PageShell } from "@/components/PageShell";
+import { strings } from "@/locales";
 
 type MeResponse = { user?: { role?: string } };
 
 const tabs = [
-  { href: "/analytics/overview", label: "Overview" },
-  { href: "/analytics/sales", label: "Sales" },
-  { href: "/analytics/leads", label: "Leads" },
-  { href: "/analytics/attention", label: "Attention" },
-  { href: "/analytics/managers", label: "Managers" },
-  { href: "/analytics/finance", label: "Finance" },
-  { href: "/analytics/clients", label: "Clients" },
-  { href: "/analytics/products", label: "Products" },
-  { href: "/analytics/visits", label: "Visits" },
-  { href: "/analytics/operations", label: "Operations" },
-  { href: "/analytics/map", label: "Map" },
-];
+  { href: "/analytics/overview", labelKey: "overview" },
+  { href: "/analytics/sales", labelKey: "sales" },
+  { href: "/analytics/leads", labelKey: "leads" },
+  { href: "/analytics/attention", labelKey: "attention" },
+  { href: "/analytics/managers", labelKey: "managers" },
+  { href: "/analytics/finance", labelKey: "finance" },
+  { href: "/analytics/clients", labelKey: "clients" },
+  { href: "/analytics/products", labelKey: "products" },
+  { href: "/analytics/visits", labelKey: "visits" },
+  { href: "/analytics/operations", labelKey: "operations" },
+  { href: "/analytics/map", labelKey: "map" },
+] as const;
 
 function AnalyticsTabsNav() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const qs = searchParams.toString();
   const suffix = qs ? `?${qs}` : "";
+  const t = strings.analytics.tabs;
 
   return (
     <div className="mb-6 flex flex-wrap gap-2">
@@ -36,10 +39,12 @@ function AnalyticsTabsNav() {
             key={tab.href}
             href={`${tab.href}${suffix}`}
             className={`rounded-full px-3 py-2 text-sm font-medium ${
-              active ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100"
+              active
+                ? "bg-zinc-900 text-white"
+                : "bg-white text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-100"
             }`}
           >
-            {tab.label}
+            {t[tab.labelKey]}
           </Link>
         );
       })}
@@ -48,7 +53,6 @@ function AnalyticsTabsNav() {
 }
 
 export default function AnalyticsLayout({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -63,41 +67,40 @@ export default function AnalyticsLayout({ children }: { children: ReactNode }) {
   const canAccess = useMemo(() => role === "ADMIN" || role === "LEAD", [role]);
 
   if (loading) {
-    return <div className="p-6 text-sm text-zinc-500">Завантаження аналітики...</div>;
+    return (
+      <PageShell>
+        <div className="text-sm text-zinc-500">{strings.analytics.loading}</div>
+      </PageShell>
+    );
   }
 
   if (!canAccess) {
     return (
-      <div className="p-6">
+      <PageShell>
         <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-zinc-900">Доступ заборонено</h1>
-          <p className="mt-2 text-sm text-zinc-600">Розділ аналітики доступний лише для ADMIN та LEAD.</p>
+          <h1 className="text-xl font-semibold text-zinc-900">
+            {strings.analytics.accessDeniedTitle}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600">{strings.analytics.accessDeniedHint}</p>
         </div>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50">
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <div className="mb-4">
-          <h1 className="text-2xl font-semibold text-zinc-900">Analytics</h1>
-          <p className="mt-1 text-sm text-zinc-500">Огляд ключових показників CRM по періоду та менеджеру.</p>
-        </div>
-        <Suspense fallback={<div className="mb-6 h-10 animate-pulse rounded-lg bg-zinc-200" />}>
-          <AnalyticsTabsNav />
-        </Suspense>
-        <Suspense
-          fallback={
-            <div className="min-h-[40vh] rounded-xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
-              Завантаження...
-            </div>
-          }
-        >
-          {children}
-        </Suspense>
-      </div>
-    </main>
+    <PageShell title={strings.analytics.pageTitle} subtitle={strings.analytics.pageSubtitle}>
+      <Suspense fallback={<div className="mb-6 h-10 animate-pulse rounded-lg bg-zinc-200" />}>
+        <AnalyticsTabsNav />
+      </Suspense>
+      <Suspense
+        fallback={
+          <div className="min-h-[40vh] rounded-xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
+            {strings.common.loading}
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    </PageShell>
   );
 }
-

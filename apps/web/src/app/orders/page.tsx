@@ -21,6 +21,7 @@ import {
   type OrdersFiltersState,
   type OwnerOption,
 } from "./OrdersFiltersPopover";
+import { strings } from "@/locales";
 
 type OrderSummary = {
   id: string;
@@ -137,23 +138,25 @@ function OrdersPageContent() {
   const [financialStatusFilter, setFinancialStatusFilter] = useState<string>(
     () => searchParams.get("financialStatus") ?? "",
   );
-  const [financialOverdue, setFinancialOverdue] = useState<boolean>(() =>
-    searchParams.get("financialOverdue") === "true",
+  const [financialOverdue, setFinancialOverdue] = useState<boolean>(
+    () => searchParams.get("financialOverdue") === "true",
   );
-  const [financialDueSoon, setFinancialDueSoon] = useState<boolean>(() =>
-    searchParams.get("financialDueSoon") === "true",
+  const [financialDueSoon, setFinancialDueSoon] = useState<boolean>(
+    () => searchParams.get("financialDueSoon") === "true",
   );
-  const [financialHasDebt, setFinancialHasDebt] = useState<boolean>(() =>
-    searchParams.get("financialHasDebt") === "true",
+  const [financialHasDebt, setFinancialHasDebt] = useState<boolean>(
+    () => searchParams.get("financialHasDebt") === "true",
   );
-  const [financialHasDueDate, setFinancialHasDueDate] = useState<boolean>(() =>
-    searchParams.get("financialHasDueDate") === "true",
+  const [financialHasDueDate, setFinancialHasDueDate] = useState<boolean>(
+    () => searchParams.get("financialHasDueDate") === "true",
   );
   const [orderStageFilter, setOrderStageFilter] = useState<string>(
     () => searchParams.get("orderStage") ?? "",
   );
   const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get("status") ?? "");
-  const [ownerIdFilter, setOwnerIdFilter] = useState<string>(() => searchParams.get("ownerId") ?? "");
+  const [ownerIdFilter, setOwnerIdFilter] = useState<string>(
+    () => searchParams.get("ownerId") ?? "",
+  );
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<string>(
     () => searchParams.get("paymentType") ?? "",
   );
@@ -271,7 +274,9 @@ function OrdersPageContent() {
 
     const loadOwners = async () => {
       try {
-        const res = await apiHttp.get<{ items?: Array<{ id: string; fullName?: string }> }>("/users");
+        const res = await apiHttp.get<{ items?: Array<{ id: string; fullName?: string }> }>(
+          "/users",
+        );
         if (cancelled) return;
         const items = res.data?.items ?? [];
         setOwners(
@@ -359,7 +364,6 @@ function OrdersPageContent() {
     sortBy,
     sortDir,
     orderStageFilter,
-    statusFilter,
   ]);
 
   useEffect(() => {
@@ -420,7 +424,9 @@ function OrdersPageContent() {
     setKanbanRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("orderId");
-    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, {
+      scroll: false,
+    });
   };
 
   const onSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -481,19 +487,6 @@ function OrdersPageContent() {
     sortDir,
   };
 
-  const activeFiltersCount = [
-    orderStageFilter,
-    statusFilter,
-    ownerIdFilter,
-    amountFrom,
-    amountTo,
-    dateFrom,
-    dateTo,
-    paymentTypeFilter,
-    paymentStatusFilter,
-    hasTtnFilter,
-  ].filter(Boolean).length;
-
   const getClientLabel = (order: OrderSummary) => {
     if (order.client) {
       const full = `${order.client.lastName ?? ""} ${order.client.firstName ?? ""}`.trim();
@@ -507,8 +500,8 @@ function OrdersPageContent() {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-900">Заказы</h1>
-            <p className="text-sm text-zinc-500">Список заказов по всем менеджерам</p>
+            <h1 className="text-2xl font-bold text-zinc-900">{strings.nav.orders}</h1>
+            <p className="text-sm text-zinc-500">Список замовлень по всіх менеджерах</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -518,7 +511,7 @@ function OrdersPageContent() {
               disabled={creating}
               className="btn-primary hidden sm:inline-flex"
             >
-              {creating ? "Создание…" : "+ Новый заказ"}
+              {creating ? "Створення…" : "+ Нове замовлення"}
             </button>
           </div>
         </div>
@@ -537,42 +530,50 @@ function OrdersPageContent() {
             >
               <div className="flex shrink-0 overflow-x-auto overflow-y-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-sm sm:inline-flex">
                 <div className="flex gap-0 flex-nowrap min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setView("list")}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                    view === "list" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                >
-                  Список
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView("kanban")}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                    view === "kanban" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                >
-                  Kanban
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView("financial")}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                    view === "financial" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                >
-                  Фінанси
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setView("returns")}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                    view === "returns" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-50"
-                  }`}
-                >
-                  Повернення
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("list")}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                      view === "list"
+                        ? "bg-accent-gradient text-white"
+                        : "text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Список
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("kanban")}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                      view === "kanban"
+                        ? "bg-accent-gradient text-white"
+                        : "text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Kanban
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("financial")}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                      view === "financial"
+                        ? "bg-accent-gradient text-white"
+                        : "text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Фінанси
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("returns")}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                      view === "returns"
+                        ? "bg-accent-gradient text-white"
+                        : "text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    Повернення
+                  </button>
                 </div>
               </div>
               <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
@@ -722,7 +723,7 @@ function OrdersPageContent() {
                   ) : orders.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
-                        Заказы не найдены
+                        Замовлення не знайдено
                       </td>
                     </tr>
                   ) : (
@@ -756,7 +757,9 @@ function OrdersPageContent() {
                                   className="inline-flex text-amber-600"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setTtnHintOrderId((prev) => (prev === order.id ? null : order.id));
+                                    setTtnHintOrderId((prev) =>
+                                      prev === order.id ? null : order.id,
+                                    );
                                   }}
                                 >
                                   <AlertTriangle className="h-4 w-4" />
@@ -775,7 +778,9 @@ function OrdersPageContent() {
                                 )}
                               </span>
                             )}
-                            {(order.isPaid || order.paymentStatus === "PAID" || order.paymentStatus === "OVERPAID") && (
+                            {(order.isPaid ||
+                              order.paymentStatus === "PAID" ||
+                              order.paymentStatus === "OVERPAID") && (
                               <span title="Заказ оплачен" className="inline-flex text-emerald-600">
                                 <CheckCircle2 className="h-4 w-4" />
                               </span>
@@ -788,9 +793,7 @@ function OrdersPageContent() {
                         <td className="px-4 py-4 hidden lg:table-cell text-zinc-700">
                           {order.owner?.fullName || "—"}
                         </td>
-                        <td className="px-4 py-4 text-zinc-500">
-                          {formatDate(order.createdAt)}
-                        </td>
+                        <td className="px-4 py-4 text-zinc-500">{formatDate(order.createdAt)}</td>
                         <td className="px-4 py-4 hidden md:table-cell">
                           {order.paymentType ? (
                             <span
@@ -821,7 +824,7 @@ function OrdersPageContent() {
                                 <div className="space-y-1">
                                   {order.items.map((item) => (
                                     <div key={item.id} className="truncate">
-                                      {(item.product?.sku ?? "Без артикула")} x{item.qty}
+                                      {item.product?.sku ?? "Без артикула"} x{item.qty}
                                     </div>
                                   ))}
                                 </div>
@@ -863,7 +866,7 @@ function OrdersPageContent() {
                     }}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                   >
-                    Вперёд
+                    Вперед
                   </button>
                   <button
                     disabled={!canLoadMore || loading}
@@ -887,7 +890,7 @@ function OrdersPageContent() {
                 </div>
               ) : orders.length === 0 ? (
                 <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
-                  Заказы не найдены
+                  Замовлення не знайдено
                 </div>
               ) : (
                 <>
@@ -924,7 +927,7 @@ function OrdersPageContent() {
                         }}
                         className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                       >
-                        Вперёд
+                        Вперед
                       </button>
                       <button
                         disabled={!canLoadMore || loading}
@@ -971,7 +974,7 @@ function OrdersPageContent() {
         onClick={() => void openNewOrder()}
         disabled={creating}
         className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 disabled:opacity-50 sm:hidden"
-        aria-label="Новый заказ"
+        aria-label="Нове замовлення"
       >
         <span className="text-2xl leading-none">+</span>
       </button>

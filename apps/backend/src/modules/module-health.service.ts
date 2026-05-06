@@ -3,6 +3,7 @@ import { ModuleIds, type ModuleId } from "./module-ids";
 
 /** Env var → upstream base URL for health probes (GET /system/version). */
 export const MODULE_UPSTREAM_ENV: Partial<Record<ModuleId, string>> = {
+  [ModuleIds.ManualCalling]: "OUTBOUND_UPSTREAM_URL",
   [ModuleIds.VoiceOutbound]: "OUTBOUND_UPSTREAM_URL",
   [ModuleIds.Finance]: "FINANCE_UPSTREAM_URL",
   [ModuleIds.ProductionPlanning]: "PLANNING_UPSTREAM_URL",

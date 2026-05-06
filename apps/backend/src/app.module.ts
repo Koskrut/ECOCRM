@@ -44,6 +44,7 @@ import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
 import { DataImportModule } from "./data-import/data-import.module";
 import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
+import { TimelineModule } from "./timeline/timeline.module";
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
     ProductionPlanningModule,
     DataImportModule,
     CustomEntitiesModule,
+    TimelineModule,
   ],
   providers: [
     {

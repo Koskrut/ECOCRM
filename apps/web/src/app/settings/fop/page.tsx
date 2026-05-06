@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { deleteBankAccount } from "@/lib/api/resources";
+import { strings } from "@/locales";
+import { ErrorPanel, PageLoading } from "@/components/feedback";
 
 type BankAccount = {
   id: string;
@@ -207,13 +209,8 @@ export default function FopSettingsPage() {
           }
         : undefined;
       const res = await (payload
-        ? apiHttp.post<RequisitesFromBank>(
-            `/bank/accounts/${editId}/requisites-from-bank`,
-            payload,
-          )
-        : apiHttp.get<RequisitesFromBank>(
-            `/bank/accounts/${editId}/requisites-from-bank`,
-          ));
+        ? apiHttp.post<RequisitesFromBank>(`/bank/accounts/${editId}/requisites-from-bank`, payload)
+        : apiHttp.get<RequisitesFromBank>(`/bank/accounts/${editId}/requisites-from-bank`));
       const data = res.data || {};
       setEditReqLegalName(data.legalName ?? "");
       setEditReqBankDetails(data.bankDetails ?? "");
@@ -322,11 +319,12 @@ export default function FopSettingsPage() {
             href="/settings"
             className="inline-flex items-center text-sm text-zinc-600 hover:text-zinc-900"
           >
-            ← Back to Settings
+            ← {strings.common.backToSettings}
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">ФОП (банковские счета)</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Настройка ID и TOKEN для банковских счетов ФОП. Список используется в разделе Платежи для переключения между ФОПами.
+            Настройка ID и TOKEN для банковских счетов ФОП. Список используется в разделе Платежи
+            для переключения между ФОПами.
           </p>
         </div>
 
@@ -334,8 +332,9 @@ export default function FopSettingsPage() {
           <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-zinc-900">Інтернет-магазин</h2>
             <p className="mt-1 text-xs text-zinc-500">
-              ФОП за замовчуванням для нових замовлень з магазину (оплата за посиланням, картка замовлення в CRM). Якщо не
-              обрано — за наявності використовується змінна середовища STORE_DEFAULT_BANK_ACCOUNT_ID на бекенді.
+              ФОП за замовчуванням для нових замовлень з магазину (оплата за посиланням, картка
+              замовлення в CRM). Якщо не обрано — за наявності використовується змінна середовища
+              STORE_DEFAULT_BANK_ACCOUNT_ID на бекенді.
             </p>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
               <label className="block flex-1 text-xs font-medium text-zinc-600">
@@ -352,8 +351,7 @@ export default function FopSettingsPage() {
                       value={a.id}
                       disabled={!a.isActive && a.id !== storeDefaultShopId}
                     >
-                      {a.name} ({a.currency})
-                      {!a.isActive ? " — вимкнено" : ""}
+                      {a.name} ({a.currency}){!a.isActive ? " — вимкнено" : ""}
                     </option>
                   ))}
                 </select>
@@ -370,14 +368,10 @@ export default function FopSettingsPage() {
           </div>
         )}
 
-        {error && (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {error}
-          </p>
-        )}
+        {error ? <ErrorPanel variant="inline" message={error} /> : null}
 
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <PageLoading inline />
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
@@ -435,8 +429,11 @@ export default function FopSettingsPage() {
                         .join(", ") || "—"}
                     </div>
                     <div className="mt-0.5 text-xs text-zinc-500">
-                      ID: {acc.credentialsMasked?.clientIdMasked ?? acc.credentialsMasked?.idMasked ?? "—"} · TOKEN:{" "}
-                      {acc.credentialsMasked?.tokenMasked ?? "—"}
+                      ID:{" "}
+                      {acc.credentialsMasked?.clientIdMasked ??
+                        acc.credentialsMasked?.idMasked ??
+                        "—"}{" "}
+                      · TOKEN: {acc.credentialsMasked?.tokenMasked ?? "—"}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -497,7 +494,8 @@ export default function FopSettingsPage() {
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">IBAN</label>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Выписка тянуется только по счёту с указанным IBAN. Обязательно для синхронизации.
+                    Выписка тянуется только по счёту с указанным IBAN. Обязательно для
+                    синхронизации.
                   </p>
                   <input
                     type="text"
@@ -601,230 +599,256 @@ export default function FopSettingsPage() {
               <div className="flex-none p-6 pb-0">
                 <h3 className="text-lg font-semibold text-zinc-900">Редактировать ФОП</h3>
                 <p className="mt-0.5 text-xs text-zinc-500">
-                  Залиште App ID, Group client ID і TOKEN порожніми, щоб не змінювати поточні значення.
+                  Залиште App ID, Group client ID і TOKEN порожніми, щоб не змінювати поточні
+                  значення.
                 </p>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto p-6 pt-4">
                 <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Название</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">IBAN</label>
-                  <input
-                    type="text"
-                    value={editIban}
-                    onChange={(e) => setEditIban(e.target.value)}
-                    placeholder="Выписка только по этому счёту"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Код 1С (ФОП)</label>
-                  <input
-                    type="text"
-                    value={editExternalCode}
-                    onChange={(e) => setEditExternalCode(e.target.value)}
-                    placeholder="000000123"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Код счета (1С)</label>
-                  <input
-                    type="text"
-                    value={editAccountExternalCode}
-                    onChange={(e) => setEditAccountExternalCode(e.target.value)}
-                    placeholder="000000456"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-zinc-600">Реквизити для документів (рахунок/РН)</span>
-                    <button
-                      type="button"
-                      onClick={() => void fetchRequisitesFromBank()}
-                      disabled={loadingRequisites || (!editAccountHasToken && !editToken.trim())}
-                      className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      {loadingRequisites ? "Завантаження…" : "Заповнити з Приват24"}
-                    </button>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">Название</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                    />
                   </div>
-                  {!editAccountHasToken && !editToken.trim() && (
-                    <p className="text-xs text-amber-600">
-                      Введіть TOKEN (та за потреби App ID / Group client ID) нижче і натисніть кнопку, або збережіть їх і натисніть «Сохранить».
-                    </p>
-                  )}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs text-zinc-500">Назва (legalName)</label>
-                      <input
-                        type="text"
-                        value={editReqLegalName}
-                        onChange={(e) => setEditReqLegalName(e.target.value)}
-                        placeholder="Фонова О. О. ФОП"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500">Р/р (IBAN)</label>
-                      <input
-                        type="text"
-                        value={editReqIban}
-                        onChange={(e) => setEditReqIban(e.target.value)}
-                        placeholder="UA153052990000026007050597127"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500">МФО</label>
-                      <input
-                        type="text"
-                        value={editReqMfo}
-                        onChange={(e) => setEditReqMfo(e.target.value)}
-                        placeholder="305299"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs text-zinc-500">Банк (bankDetails)</label>
-                      <input
-                        type="text"
-                        value={editReqBankDetails}
-                        onChange={(e) => setEditReqBankDetails(e.target.value)}
-                        placeholder='АТ КБ "ПРИВАТБАНК"'
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs text-zinc-500">Юр. адреса</label>
-                      <input
-                        type="text"
-                        value={editReqAddress}
-                        onChange={(e) => setEditReqAddress(e.target.value)}
-                        placeholder="49069, Дніпропетровська обл., місто Дніпро, ..."
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500">ЄДРПОУ</label>
-                      <input
-                        type="text"
-                        value={editReqEdrpou}
-                        onChange={(e) => setEditReqEdrpou(e.target.value)}
-                        placeholder="3531102191"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-zinc-500">ІПН (taxId)</label>
-                      <input
-                        type="text"
-                        value={editReqTaxId}
-                        onChange={(e) => setEditReqTaxId(e.target.value)}
-                        placeholder="3531102191"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs text-zinc-500">Статус платника (taxPayerStatus)</label>
-                      <input
-                        type="text"
-                        value={editReqTaxPayerStatus}
-                        onChange={(e) => setEditReqTaxPayerStatus(e.target.value)}
-                        placeholder="Платник єдиного податку"
-                        className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">IBAN</label>
+                    <input
+                      type="text"
+                      value={editIban}
+                      onChange={(e) => setEditIban(e.target.value)}
+                      placeholder="Выписка только по этому счёту"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 font-mono"
+                    />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">App ID</label>
-                  <input
-                    type="text"
-                    value={editClientIdVal}
-                    onChange={(e) => setEditClientIdVal(e.target.value)}
-                    placeholder="Залиште порожнім, щоб не змінювати"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">Group client ID</label>
-                  <input
-                    type="text"
-                    value={editGroupIdVal}
-                    onChange={(e) => setEditGroupIdVal(e.target.value)}
-                    placeholder="Наприклад: 44****05 (лише для групи ПП)"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600">TOKEN</label>
-                  <input
-                    type="password"
-                    value={editToken}
-                    onChange={(e) => setEditToken(e.target.value)}
-                    placeholder="Залиште порожнім, щоб не змінювати"
-                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs font-medium text-zinc-700">Сотрудники с доступом к ФОП</div>
-                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                    {users.map((u) => {
-                      const label = u.fullName?.trim() || u.email;
-                      return (
-                        <label key={`vis-${u.id}`} className="flex items-center gap-2 text-xs text-zinc-700">
-                          <input
-                            type="checkbox"
-                            checked={editVisibleUserIds.includes(u.id)}
-                            onChange={(e) => {
-                              setEditVisibleUserIds((prev) =>
-                                e.target.checked ? Array.from(new Set([...prev, u.id])) : prev.filter((id) => id !== u.id),
-                              );
-                              if (!e.target.checked) {
-                                setEditDefaultUserIds((prev) => prev.filter((id) => id !== u.id));
-                              }
-                            }}
-                          />
-                          <span>{label}</span>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">Код 1С (ФОП)</label>
+                    <input
+                      type="text"
+                      value={editExternalCode}
+                      onChange={(e) => setEditExternalCode(e.target.value)}
+                      placeholder="000000123"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">
+                      Код счета (1С)
+                    </label>
+                    <input
+                      type="text"
+                      value={editAccountExternalCode}
+                      onChange={(e) => setEditAccountExternalCode(e.target.value)}
+                      placeholder="000000456"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
+                  <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-zinc-600">
+                        Реквизити для документів (рахунок/РН)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void fetchRequisitesFromBank()}
+                        disabled={loadingRequisites || (!editAccountHasToken && !editToken.trim())}
+                        className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        {loadingRequisites ? "Завантаження…" : "Заповнити з Приват24"}
+                      </button>
+                    </div>
+                    {!editAccountHasToken && !editToken.trim() && (
+                      <p className="text-xs text-amber-600">
+                        Введіть TOKEN (та за потреби App ID / Group client ID) нижче і натисніть
+                        кнопку, або збережіть їх і натисніть «Сохранить».
+                      </p>
+                    )}
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs text-zinc-500">Назва (legalName)</label>
+                        <input
+                          type="text"
+                          value={editReqLegalName}
+                          onChange={(e) => setEditReqLegalName(e.target.value)}
+                          placeholder="Фонова О. О. ФОП"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500">Р/р (IBAN)</label>
+                        <input
+                          type="text"
+                          value={editReqIban}
+                          onChange={(e) => setEditReqIban(e.target.value)}
+                          placeholder="UA153052990000026007050597127"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500">МФО</label>
+                        <input
+                          type="text"
+                          value={editReqMfo}
+                          onChange={(e) => setEditReqMfo(e.target.value)}
+                          placeholder="305299"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs text-zinc-500">Банк (bankDetails)</label>
+                        <input
+                          type="text"
+                          value={editReqBankDetails}
+                          onChange={(e) => setEditReqBankDetails(e.target.value)}
+                          placeholder='АТ КБ "ПРИВАТБАНК"'
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs text-zinc-500">Юр. адреса</label>
+                        <input
+                          type="text"
+                          value={editReqAddress}
+                          onChange={(e) => setEditReqAddress(e.target.value)}
+                          placeholder="49069, Дніпропетровська обл., місто Дніпро, ..."
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500">ЄДРПОУ</label>
+                        <input
+                          type="text"
+                          value={editReqEdrpou}
+                          onChange={(e) => setEditReqEdrpou(e.target.value)}
+                          placeholder="3531102191"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-zinc-500">ІПН (taxId)</label>
+                        <input
+                          type="text"
+                          value={editReqTaxId}
+                          onChange={(e) => setEditReqTaxId(e.target.value)}
+                          placeholder="3531102191"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs text-zinc-500">
+                          Статус платника (taxPayerStatus)
                         </label>
-                      );
-                    })}
+                        <input
+                          type="text"
+                          value={editReqTaxPayerStatus}
+                          onChange={(e) => setEditReqTaxPayerStatus(e.target.value)}
+                          placeholder="Платник єдиного податку"
+                          className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-3 text-xs font-medium text-zinc-700">ФОП по умолчанию для сотрудников</div>
-                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                    {users
-                      .filter((u) => editVisibleUserIds.includes(u.id))
-                      .map((u) => {
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">App ID</label>
+                    <input
+                      type="text"
+                      value={editClientIdVal}
+                      onChange={(e) => setEditClientIdVal(e.target.value)}
+                      placeholder="Залиште порожнім, щоб не змінювати"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">
+                      Group client ID
+                    </label>
+                    <input
+                      type="text"
+                      value={editGroupIdVal}
+                      onChange={(e) => setEditGroupIdVal(e.target.value)}
+                      placeholder="Наприклад: 44****05 (лише для групи ПП)"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-600">TOKEN</label>
+                    <input
+                      type="password"
+                      value={editToken}
+                      onChange={(e) => setEditToken(e.target.value)}
+                      placeholder="Залиште порожнім, щоб не змінювати"
+                      className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="text-xs font-medium text-zinc-700">
+                      Сотрудники с доступом к ФОП
+                    </div>
+                    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                      {users.map((u) => {
                         const label = u.fullName?.trim() || u.email;
                         return (
-                          <label key={`def-${u.id}`} className="flex items-center gap-2 text-xs text-zinc-700">
+                          <label
+                            key={`vis-${u.id}`}
+                            className="flex items-center gap-2 text-xs text-zinc-700"
+                          >
                             <input
                               type="checkbox"
-                              checked={editDefaultUserIds.includes(u.id)}
-                              onChange={(e) =>
-                                setEditDefaultUserIds((prev) =>
-                                  e.target.checked ? Array.from(new Set([...prev, u.id])) : prev.filter((id) => id !== u.id),
-                                )
-                              }
+                              checked={editVisibleUserIds.includes(u.id)}
+                              onChange={(e) => {
+                                setEditVisibleUserIds((prev) =>
+                                  e.target.checked
+                                    ? Array.from(new Set([...prev, u.id]))
+                                    : prev.filter((id) => id !== u.id),
+                                );
+                                if (!e.target.checked) {
+                                  setEditDefaultUserIds((prev) => prev.filter((id) => id !== u.id));
+                                }
+                              }}
                             />
                             <span>{label}</span>
                           </label>
                         );
                       })}
-                    {editVisibleUserIds.length === 0 ? (
-                      <div className="text-xs text-zinc-500">Сначала выберите сотрудников с доступом.</div>
-                    ) : null}
+                    </div>
+                    <div className="mt-3 text-xs font-medium text-zinc-700">
+                      ФОП по умолчанию для сотрудников
+                    </div>
+                    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                      {users
+                        .filter((u) => editVisibleUserIds.includes(u.id))
+                        .map((u) => {
+                          const label = u.fullName?.trim() || u.email;
+                          return (
+                            <label
+                              key={`def-${u.id}`}
+                              className="flex items-center gap-2 text-xs text-zinc-700"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editDefaultUserIds.includes(u.id)}
+                                onChange={(e) =>
+                                  setEditDefaultUserIds((prev) =>
+                                    e.target.checked
+                                      ? Array.from(new Set([...prev, u.id]))
+                                      : prev.filter((id) => id !== u.id),
+                                  )
+                                }
+                              />
+                              <span>{label}</span>
+                            </label>
+                          );
+                        })}
+                      {editVisibleUserIds.length === 0 ? (
+                        <div className="text-xs text-zinc-500">
+                          Сначала выберите сотрудников с доступом.
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
                 </div>
               </div>
               <div className="flex-none border-t border-zinc-100 p-6 pt-4 flex justify-end gap-2">

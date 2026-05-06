@@ -1,21 +1,22 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
-import type { ActivityType } from "@prisma/client";
+/* eslint-disable @typescript-eslint/consistent-type-imports -- DTO classes must be concrete for ValidationPipe metadata */
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { ActivitiesService } from "./activities.service";
-
-type CreateBody = {
-  type: ActivityType;
-  title?: string;
-  body: string;
-  occurredAt?: string;
-};
-
-type UpdateActivityBody = {
-  body?: string;
-  title?: string;
-  pinnedAt?: string | null;
-};
+import { CreateActivityDto } from "./dto/create-activity.dto";
+import { UpdateActivityDto } from "./dto/update-activity.dto";
+import { ListActivitiesQueryDto } from "./dto/list-activities.query.dto";
 
 @Controller()
 export class ActivitiesController {
@@ -23,15 +24,18 @@ export class ActivitiesController {
 
   // -------- ORDER --------
   @Get("/orders/:id/activities")
-  async listForOrder(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    const items = await this.activitiesService.listForOrder(id, req.user);
-    return { items };
+  async listForOrder(
+    @Param("id") id: string,
+    @Query() query: ListActivitiesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.activitiesService.listForOrder(id, req.user, query);
   }
 
   @Post("/orders/:id/activities")
   async createForOrder(
     @Param("id") id: string,
-    @Body() body: CreateBody,
+    @Body() body: CreateActivityDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -41,15 +45,18 @@ export class ActivitiesController {
 
   // -------- CONTACT --------
   @Get("/contacts/:id/activities")
-  async listForContact(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    const items = await this.activitiesService.listForContact(id, req.user);
-    return { items };
+  async listForContact(
+    @Param("id") id: string,
+    @Query() query: ListActivitiesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.activitiesService.listForContact(id, req.user, query);
   }
 
   @Post("/contacts/:id/activities")
   async createForContact(
     @Param("id") id: string,
-    @Body() body: CreateBody,
+    @Body() body: CreateActivityDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -59,15 +66,18 @@ export class ActivitiesController {
 
   // -------- LEAD --------
   @Get("/leads/:id/activities")
-  async listForLead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    const items = await this.activitiesService.listForLead(id, req.user);
-    return { items };
+  async listForLead(
+    @Param("id") id: string,
+    @Query() query: ListActivitiesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.activitiesService.listForLead(id, req.user, query);
   }
 
   @Post("/leads/:id/activities")
   async createForLead(
     @Param("id") id: string,
-    @Body() body: CreateBody,
+    @Body() body: CreateActivityDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -77,15 +87,18 @@ export class ActivitiesController {
 
   // -------- COMPANY --------
   @Get("/companies/:id/activities")
-  async listForCompany(@Param("id") id: string) {
-    const items = await this.activitiesService.listForCompany(id);
-    return { items };
+  async listForCompany(
+    @Param("id") id: string,
+    @Query() query: ListActivitiesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.activitiesService.listForCompany(id, req.user, query);
   }
 
   @Post("/companies/:id/activities")
   async createForCompany(
     @Param("id") id: string,
-    @Body() body: CreateBody,
+    @Body() body: CreateActivityDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -97,7 +110,7 @@ export class ActivitiesController {
   @Patch("/activities/:id")
   async updateOne(
     @Param("id") id: string,
-    @Body() body: UpdateActivityBody,
+    @Body() body: UpdateActivityDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!req.user) throw new BadRequestException("User not found in request");

@@ -17,6 +17,7 @@ import {
   type RegionAssignments,
 } from "./OrgChartFlow";
 import { apiHttp } from "../../lib/api/client";
+import { ErrorPanel, PageLoading } from "@/components/feedback";
 
 type UsersResponse = {
   items?: Employee[];
@@ -233,9 +234,13 @@ export default function EmployeesPage() {
       {tab === "list" && (
       <div className="mt-4 rounded-lg border border-zinc-200 bg-white">
         {loading ? (
-          <div className="p-4 text-sm text-zinc-500">Loading…</div>
+          <div className="p-4">
+            <PageLoading inline />
+          </div>
         ) : err ? (
-          <div className="p-4 text-sm text-red-600">{err}</div>
+          <div className="p-4">
+            <ErrorPanel variant="inline" message={err} onRetry={() => void load()} />
+          </div>
         ) : items.length === 0 ? (
           <div className="p-4 text-sm text-zinc-500">No employees</div>
         ) : (

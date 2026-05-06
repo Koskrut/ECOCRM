@@ -1,8 +1,8 @@
 "use client";
 
-import { ModuleGate } from "@/components/ModuleGate";
+import { ModuleSection } from "@/components/ModuleSection";
 import { ModuleIds } from "@/lib/modules/module-ids";
 
 export default function PaymentsLayout({ children }: { children: React.ReactNode }) {
-  return <ModuleGate moduleId={ModuleIds.Finance}>{children}</ModuleGate>;
+  return <ModuleSection moduleId={ModuleIds.Finance}>{children}</ModuleSection>;
 }

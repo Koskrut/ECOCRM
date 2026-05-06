@@ -23,7 +23,10 @@ export function toInputDate(d: Date): string {
 }
 
 /** Same rules as backend resolvePresetPeriod("week" | "month" | "quarter"). */
-export function getDatesForPreset(preset: Exclude<RangePreset, "custom">): { dateFrom: string; dateTo: string } {
+export function getDatesForPreset(preset: Exclude<RangePreset, "custom">): {
+  dateFrom: string;
+  dateTo: string;
+} {
   const to = endOfDay(new Date());
   const from = startOfDay(new Date(to));
   switch (preset) {

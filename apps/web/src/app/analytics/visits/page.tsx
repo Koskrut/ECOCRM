@@ -51,7 +51,11 @@ export default function AnalyticsVisitsPage() {
         <SimpleTable
           rows={data?.byManager ?? []}
           columns={[
-            { key: "managerName", title: "Менеджер", render: (row) => row.managerName ?? row.managerId ?? "Unknown" },
+            {
+              key: "managerName",
+              title: "Менеджер",
+              render: (row) => row.managerName ?? row.managerId ?? "Unknown",
+            },
             { key: "count", title: "Візити", render: (row) => formatNumber(row.count) },
           ]}
         />
@@ -59,4 +63,3 @@ export default function AnalyticsVisitsPage() {
     </div>
   );
 }
-

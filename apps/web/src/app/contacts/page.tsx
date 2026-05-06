@@ -27,9 +27,9 @@ import { formatDate } from "@/lib/crmDatetime";
 import {
   formatContactClientStage,
   formatContactNextActionType,
-  formatContactPriorityReason,
   formatContactPriorityReasonCompact,
 } from "./contact-formatters";
+import { strings } from "@/locales";
 
 const PAGE_SIZE = 20;
 type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
@@ -111,11 +111,15 @@ function WorkQueueMobileCard({
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-zinc-500">Дата</span>
-              <span className="text-right">{item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}</span>
+              <span className="text-right">
+                {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-zinc-500">Последний контакт</span>
-              <span className="text-right">{formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}</span>
+              <span className="text-right">
+                {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
+              </span>
             </div>
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
@@ -153,34 +157,35 @@ function ContactsPageContent() {
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
-  const [filterCompanyId, setFilterCompanyId] = useState<string | null>(() =>
-    searchParams.get("companyId") || null,
+  const [filterCompanyId, setFilterCompanyId] = useState<string | null>(
+    () => searchParams.get("companyId") || null,
   );
-  const [filterOwnerId, setFilterOwnerId] = useState<string | null>(() =>
-    searchParams.get("ownerId") || null,
+  const [filterOwnerId, setFilterOwnerId] = useState<string | null>(
+    () => searchParams.get("ownerId") || null,
   );
-  const [filterHasPhone, setFilterHasPhone] = useState<string>(() =>
-    searchParams.get("hasPhone") || "",
+  const [filterHasPhone, setFilterHasPhone] = useState<string>(
+    () => searchParams.get("hasPhone") || "",
   );
-  const [filterHasEmail, setFilterHasEmail] = useState<string>(() =>
-    searchParams.get("hasEmail") || "",
+  const [filterHasEmail, setFilterHasEmail] = useState<string>(
+    () => searchParams.get("hasEmail") || "",
   );
-  const [filterHasCallToday, setFilterHasCallToday] = useState<string>(() =>
-    searchParams.get("hasCallToday") || "",
+  const [filterHasCallToday, setFilterHasCallToday] = useState<string>(
+    () => searchParams.get("hasCallToday") || "",
   );
-  const [filterHasMissedCall, setFilterHasMissedCall] = useState<string>(() =>
-    searchParams.get("hasMissedCall") || "",
+  const [filterHasMissedCall, setFilterHasMissedCall] = useState<string>(
+    () => searchParams.get("hasMissedCall") || "",
   );
-  const [filterRegion, setFilterRegion] = useState<string>(() =>
-    searchParams.get("region") || "",
-  );
+  const [filterRegion, setFilterRegion] = useState<string>(() => searchParams.get("region") || "");
   const [filterCity, setFilterCity] = useState<string>(() => searchParams.get("city") || "");
-  const [filterClientType, setFilterClientType] = useState<string>(() =>
-    searchParams.get("clientType") || "",
+  const [filterClientType, setFilterClientType] = useState<string>(
+    () => searchParams.get("clientType") || "",
   );
   const [sortBy, setSortBy] = useState<ContactsSortBy>(() => {
     const raw = searchParams.get("sortBy");
-    return raw === "updatedAt" || raw === "name" || raw === "hasCallToday" || raw === "hasMissedCall"
+    return raw === "updatedAt" ||
+      raw === "name" ||
+      raw === "hasCallToday" ||
+      raw === "hasMissedCall"
       ? raw
       : "createdAt";
   });
@@ -189,7 +194,9 @@ function ContactsPageContent() {
   );
   const [workPreset, setWorkPreset] = useState<ContactsWorkPreset>(() => {
     const raw = searchParams.get("workPreset");
-    return raw === "all" || raw == null || !CONTACT_WORK_QUEUE_PRESETS.includes(raw as ContactWorkQueuePreset)
+    return raw === "all" ||
+      raw == null ||
+      !CONTACT_WORK_QUEUE_PRESETS.includes(raw as ContactWorkQueuePreset)
       ? "all"
       : (raw as ContactWorkQueuePreset);
   });
@@ -279,8 +286,10 @@ function ContactsPageContent() {
             q: q.trim() || undefined,
             companyId: filterCompanyId || undefined,
             ownerId: filterOwnerId || undefined,
-            hasPhone: (filterHasPhone === "yes" || filterHasPhone === "no") ? filterHasPhone : undefined,
-            hasEmail: (filterHasEmail === "yes" || filterHasEmail === "no") ? filterHasEmail : undefined,
+            hasPhone:
+              filterHasPhone === "yes" || filterHasPhone === "no" ? filterHasPhone : undefined,
+            hasEmail:
+              filterHasEmail === "yes" || filterHasEmail === "no" ? filterHasEmail : undefined,
             hasCallToday:
               filterHasCallToday === "yes" || filterHasCallToday === "no"
                 ? filterHasCallToday
@@ -321,7 +330,7 @@ function ContactsPageContent() {
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Ошибка загрузки контактов");
+          (e instanceof Error ? e.message : "Помилка завантаження контактів");
         setError(msg);
         setItems([]);
         setWorkItems([]);
@@ -351,7 +360,6 @@ function ContactsPageContent() {
   useEffect(() => {
     void reload({ keepPage: true });
   }, [reload]);
-
 
   useEffect(() => {
     companiesApi
@@ -440,7 +448,6 @@ function ContactsPageContent() {
     setPage(1);
   };
 
-
   const filtersState: ContactsFiltersState = {
     companyId: filterCompanyId ?? "",
     ownerId: filterOwnerId ?? "",
@@ -527,7 +534,7 @@ function ContactsPageContent() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Контакты</h1>
+        <h1 className="text-2xl font-bold">{strings.nav.contacts}</h1>
         <button type="button" onClick={openCreate} className="btn-primary">
           + Добавить
         </button>
@@ -748,7 +755,7 @@ function ContactsPageContent() {
               onClick={resetAllFilters}
               className="rounded-full border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-100"
             >
-              Сбросить всё
+              Скинути все
             </button>
           </div>
         )}
@@ -758,7 +765,9 @@ function ContactsPageContent() {
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
           <div className="space-y-1">
             <div className="font-medium">
-              {isPresetMode ? "Не удалось загрузить рабочий список" : "Не удалось загрузить контакты"}
+              {isPresetMode
+                ? "Не удалось загрузить рабочий список"
+                : "Не удалось загрузить контакты"}
             </div>
             <div>{error}</div>
           </div>
@@ -844,28 +853,32 @@ function ContactsPageContent() {
                     className="flex shrink-0 flex-col items-end gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
-                  <a
-                    href={c.phone ? `tel:${normalizePhone(c.phone) ?? c.phone.replace(/\s/g, "")}` : undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className={`rounded p-2.5 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
-                    title="Позвонить"
-                    aria-label="Позвонить"
-                  >
-                    <Phone className="h-5 w-5" />
-                  </a>
-                  <a
-                    href={c.email ? `mailto:${c.email}` : undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className={`rounded p-2.5 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
-                    title="Написать"
-                    aria-label="Написать"
-                  >
-                    <Mail className="h-5 w-5" />
-                  </a>
+                    <a
+                      href={
+                        c.phone
+                          ? `tel:${normalizePhone(c.phone) ?? c.phone.replace(/\s/g, "")}`
+                          : undefined
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className={`rounded p-2.5 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
+                      title="Позвонить"
+                      aria-label="Позвонить"
+                    >
+                      <Phone className="h-5 w-5" />
+                    </a>
+                    <a
+                      href={c.email ? `mailto:${c.email}` : undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className={`rounded p-2.5 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
+                      title="Написать"
+                      aria-label="Написать"
+                    >
+                      <Mail className="h-5 w-5" />
+                    </a>
                   </div>
                 </div>
               </article>
@@ -874,252 +887,274 @@ function ContactsPageContent() {
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-        {isPresetMode ? (
-        <table className="w-full min-w-[1120px] text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
-            <tr>
-              <th className="w-[18%] px-3 py-3">Имя</th>
-              <th className="w-[14%] px-3 py-3">Компания</th>
-              <th className="w-[12%] px-3 py-3">Owner</th>
-              <th className="w-[8%] px-3 py-3 text-right">Score</th>
-              <th className="w-[18%] px-3 py-3">Причины</th>
-              <th className="w-[12%] px-3 py-3">Stage</th>
-              <th className="w-[10%] px-3 py-3">Action</th>
-              <th className="w-[10%] px-3 py-3">Дата</th>
-              <th className="w-[10%] px-3 py-3">Контакт</th>
-              <th className="w-[8%] px-3 py-3 text-right">Долг</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {loading ? (
-              <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
-                  Формируем рабочий список…
-                </td>
-              </tr>
-            ) : workItems.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-4 py-10 text-center">
-                  <div className="text-sm font-medium text-zinc-700">В этом списке сейчас пусто</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    Попробуйте другой preset или снимите поиск/фильтр по ответственному.
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              workItems.map((item) => (
-                <tr
-                  key={item.contact.id}
-                  className="cursor-pointer align-top transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
-                  onClick={() => {
-                    if (isTextSelected()) return;
-                    openContact(item.contact.id);
-                  }}
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openContact(item.contact.id);
-                    }
-                  }}
-                >
-                  <td className="px-3 py-3.5">
-                    <div className="font-medium text-zinc-900">{item.contact.fullName || "Без имени"}</div>
-                    <div className="mt-1 text-xs text-zinc-500">{item.contact.companyName ?? "Без компании"}</div>
-                  </td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-600">{item.contact.companyName ?? "—"}</td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-600">{item.contact.ownerName ?? "—"}</td>
-                  <td className="px-3 py-3.5 text-right">
-                    <span
-                      className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(item.priorityScore)}`}
+          {isPresetMode ? (
+            <table className="w-full min-w-[1120px] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
+                <tr>
+                  <th className="w-[18%] px-3 py-3">Имя</th>
+                  <th className="w-[14%] px-3 py-3">Компания</th>
+                  <th className="w-[12%] px-3 py-3">Owner</th>
+                  <th className="w-[8%] px-3 py-3 text-right">Score</th>
+                  <th className="w-[18%] px-3 py-3">Причины</th>
+                  <th className="w-[12%] px-3 py-3">Stage</th>
+                  <th className="w-[10%] px-3 py-3">Action</th>
+                  <th className="w-[10%] px-3 py-3">Дата</th>
+                  <th className="w-[10%] px-3 py-3">Контакт</th>
+                  <th className="w-[8%] px-3 py-3 text-right">Долг</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
+                      Формируем рабочий список…
+                    </td>
+                  </tr>
+                ) : workItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-10 text-center">
+                      <div className="text-sm font-medium text-zinc-700">
+                        В этом списке сейчас пусто
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Попробуйте другой preset или снимите поиск/фильтр по ответственному.
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  workItems.map((item) => (
+                    <tr
+                      key={item.contact.id}
+                      className="cursor-pointer align-top transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
+                      onClick={() => {
+                        if (isTextSelected()) return;
+                        openContact(item.contact.id);
+                      }}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openContact(item.contact.id);
+                        }
+                      }}
                     >
-                      {item.priorityScore}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <div className="flex flex-wrap gap-1">
-                      {item.priorityReasons.slice(0, 3).map((reason) => (
+                      <td className="px-3 py-3.5">
+                        <div className="font-medium text-zinc-900">
+                          {item.contact.fullName || "Без имени"}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {item.contact.companyName ?? "Без компании"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-600">
+                        {item.contact.companyName ?? "—"}
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-600">
+                        {item.contact.ownerName ?? "—"}
+                      </td>
+                      <td className="px-3 py-3.5 text-right">
                         <span
-                          key={reason}
-                          className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium leading-none text-zinc-700"
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(item.priorityScore)}`}
                         >
-                          {formatContactPriorityReasonCompact(reason)}
+                          {item.priorityScore}
                         </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-600">{formatContactClientStage(item.contact.clientStage)}</td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-800">
-                    <span className="font-medium">{formatContactNextActionType(item.contact.nextActionType)}</span>
-                  </td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-600">
-                    {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
-                  </td>
-                  <td className="px-3 py-3.5 text-sm text-zinc-600">
-                    {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
-                  </td>
-                  <td className="px-3 py-3.5 text-right text-sm text-zinc-600">
-                    {item.metrics.debtAmount > 0 ? (
-                      <span className="font-medium text-amber-700">{item.metrics.debtAmount}</span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <div className="flex flex-wrap gap-1">
+                          {item.priorityReasons.slice(0, 3).map((reason) => (
+                            <span
+                              key={reason}
+                              className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium leading-none text-zinc-700"
+                            >
+                              {formatContactPriorityReasonCompact(reason)}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-600">
+                        {formatContactClientStage(item.contact.clientStage)}
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-800">
+                        <span className="font-medium">
+                          {formatContactNextActionType(item.contact.nextActionType)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-600">
+                        {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
+                      </td>
+                      <td className="px-3 py-3.5 text-sm text-zinc-600">
+                        {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
+                      </td>
+                      <td className="px-3 py-3.5 text-right text-sm text-zinc-600">
+                        {item.metrics.debtAmount > 0 ? (
+                          <span className="font-medium text-amber-700">
+                            {item.metrics.debtAmount}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
+                <tr>
+                  <th className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("name")}
+                      className="inline-flex items-center gap-1 hover:text-zinc-700"
+                    >
+                      Имя{sortIndicator("name")}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3">Телефон</th>
+                  <th className="hidden px-4 py-3 md:table-cell">Email</th>
+                  <th className="hidden px-4 py-3 text-right lg:table-cell">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("hasMissedCall")}
+                      className="inline-flex items-center gap-1 hover:text-zinc-700"
+                    >
+                      Пропущенные{sortIndicator("hasMissedCall")}
+                    </button>
+                  </th>
+                  <th className="hidden px-4 py-3 text-right lg:table-cell">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("hasCallToday")}
+                      className="inline-flex items-center gap-1 hover:text-zinc-700"
+                    >
+                      Звонок сегодня{sortIndicator("hasCallToday")}
+                    </button>
+                  </th>
+                  <th className="hidden px-4 py-3 lg:table-cell">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("updatedAt")}
+                      className="inline-flex items-center gap-1 hover:text-zinc-700"
+                    >
+                      Обновлен{sortIndicator("updatedAt")}
+                    </button>
+                  </th>
+                  <th className="w-28 px-2 py-3 text-right">Действия</th>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-        ) : (
-        <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
-            <tr>
-              <th className="px-4 py-3">
-                <button
-                  type="button"
-                  onClick={() => toggleSort("name")}
-                  className="inline-flex items-center gap-1 hover:text-zinc-700"
-                >
-                  Имя{sortIndicator("name")}
-                </button>
-              </th>
-              <th className="px-4 py-3">Телефон</th>
-              <th className="hidden px-4 py-3 md:table-cell">Email</th>
-              <th className="hidden px-4 py-3 text-right lg:table-cell">
-                <button
-                  type="button"
-                  onClick={() => toggleSort("hasMissedCall")}
-                  className="inline-flex items-center gap-1 hover:text-zinc-700"
-                >
-                  Пропущенные{sortIndicator("hasMissedCall")}
-                </button>
-              </th>
-              <th className="hidden px-4 py-3 text-right lg:table-cell">
-                <button
-                  type="button"
-                  onClick={() => toggleSort("hasCallToday")}
-                  className="inline-flex items-center gap-1 hover:text-zinc-700"
-                >
-                  Звонок сегодня{sortIndicator("hasCallToday")}
-                </button>
-              </th>
-              <th className="hidden px-4 py-3 lg:table-cell">
-                <button
-                  type="button"
-                  onClick={() => toggleSort("updatedAt")}
-                  className="inline-flex items-center gap-1 hover:text-zinc-700"
-                >
-                  Обновлен{sortIndicator("updatedAt")}
-                </button>
-              </th>
-              <th className="w-28 px-2 py-3 text-right">Действия</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
-                  Загрузка…
-                </td>
-              </tr>
-            ) : items.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
-                  Нет контактов
-                </td>
-              </tr>
-            ) : (
-              items.map((c) => (
-                <tr
-                  key={c.id}
-                  className="cursor-pointer transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
-                  onClick={() => {
-                    if (isTextSelected()) return;
-                    openContact(c.id);
-                  }}
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openContact(c.id);
-                    }
-                  }}
-                >
-                  <td className="px-4 py-4 font-medium text-zinc-900">
-                    {c.lastName} {c.firstName}
-                    {c.hasDebt && (
-                      <span className="ml-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                        Debt
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
-                  <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">{c.email || "—"}</td>
-                  <td className="hidden px-4 py-4 text-right lg:table-cell">
-                    {c.hasMissedCall ? (
-                      <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                        Yes
-                      </span>
-                    ) : (
-                      <span className="text-xs text-zinc-400">No</span>
-                    )}
-                  </td>
-                  <td className="hidden px-4 py-4 text-right lg:table-cell">
-                    {c.hasCallToday ? (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                        Yes
-                      </span>
-                    ) : (
-                      <span className="text-xs text-zinc-400">No</span>
-                    )}
-                  </td>
-                  <td className="hidden px-4 py-4 text-zinc-600 lg:table-cell">
-                    {formatDate(c.updatedAt)}
-                  </td>
-                  <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1">
-                      <a
-                        href={c.phone ? `tel:${normalizePhone(c.phone) ?? c.phone.replace(/\s/g, "")}` : undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={`rounded p-2 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
-                        title="Позвонить"
-                        aria-label="Позвонить"
-                      >
-                        <Phone className="h-5 w-5 sm:h-4 sm:w-4" />
-                      </a>
-                      <a
-                        href={c.email ? `mailto:${c.email}` : undefined}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className={`rounded p-2 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
-                        title="Написать"
-                        aria-label="Написать"
-                      >
-                        <Mail className="h-5 w-5 sm:h-4 sm:w-4" />
-                      </a>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                      Загрузка…
+                    </td>
+                  </tr>
+                ) : items.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                      Нет контактов
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((c) => (
+                    <tr
+                      key={c.id}
+                      className="cursor-pointer transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
+                      onClick={() => {
+                        if (isTextSelected()) return;
+                        openContact(c.id);
+                      }}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
                           openContact(c.id);
-                        }}
-                        className="rounded p-2 text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
-                        title="Открыть"
-                        aria-label="Открыть"
-                      >
-                        <Pencil className="h-5 w-5 sm:h-4 sm:w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-        )}
+                        }
+                      }}
+                    >
+                      <td className="px-4 py-4 font-medium text-zinc-900">
+                        {c.lastName} {c.firstName}
+                        {c.hasDebt && (
+                          <span className="ml-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                            Debt
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
+                      <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">
+                        {c.email || "—"}
+                      </td>
+                      <td className="hidden px-4 py-4 text-right lg:table-cell">
+                        {c.hasMissedCall ? (
+                          <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="text-xs text-zinc-400">No</span>
+                        )}
+                      </td>
+                      <td className="hidden px-4 py-4 text-right lg:table-cell">
+                        {c.hasCallToday ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="text-xs text-zinc-400">No</span>
+                        )}
+                      </td>
+                      <td className="hidden px-4 py-4 text-zinc-600 lg:table-cell">
+                        {formatDate(c.updatedAt)}
+                      </td>
+                      <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <a
+                            href={
+                              c.phone
+                                ? `tel:${normalizePhone(c.phone) ?? c.phone.replace(/\s/g, "")}`
+                                : undefined
+                            }
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`rounded p-2 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
+                            title="Позвонить"
+                            aria-label="Позвонить"
+                          >
+                            <Phone className="h-5 w-5 sm:h-4 sm:w-4" />
+                          </a>
+                          <a
+                            href={c.email ? `mailto:${c.email}` : undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`rounded p-2 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
+                            title="Написать"
+                            aria-label="Написать"
+                          >
+                            <Mail className="h-5 w-5 sm:h-4 sm:w-4" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openContact(c.id);
+                            }}
+                            className="rounded p-2 text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
+                            title="Открыть"
+                            aria-label="Открыть"
+                          >
+                            <Pencil className="h-5 w-5 sm:h-4 sm:w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">

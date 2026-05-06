@@ -10,7 +10,7 @@ void OutboundVoiceWebhookDto;
 const WEBHOOK_SECRET_HEADER = "x-outbound-voice-secret";
 
 @Controller("integrations/outbound-voice")
-@RequireModule(ModuleIds.VoiceOutbound)
+@RequireModule(ModuleIds.ManualCalling)
 export class OutboundVoiceWebhookController {
   constructor(
     @Inject(OutboundVoiceWebhookService)

@@ -43,7 +43,17 @@ function formatAxisDate(iso: string): string {
   return `${d}.${m}`;
 }
 
-function ChartCard({ title, subtitle, children, empty }: { title: string; subtitle: string; children: ReactNode; empty?: boolean }) {
+function ChartCard({
+  title,
+  subtitle,
+  children,
+  empty,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+  empty?: boolean;
+}) {
   return (
     <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div>
@@ -105,18 +115,33 @@ export function BookedRevenueTrendChart({
             axisLine={false}
             width={44}
             tickFormatter={(v) => `${v}`}
-            label={{ value: "USD", angle: -90, position: "insideLeft", fill: CHART_MUTED, fontSize: 10 }}
+            label={{
+              value: "USD",
+              angle: -90,
+              position: "insideLeft",
+              fill: CHART_MUTED,
+              fontSize: 10,
+            }}
           />
           <Tooltip
-            formatter={(value: number) => [`${Math.round(value).toLocaleString("en-US")} $`, "Booked"]}
+            formatter={(value: number) => [
+              `${Math.round(value).toLocaleString("en-US")} $`,
+              "Booked",
+            ]}
             labelFormatter={(_, payload) => {
-              const p = payload?.[0]?.payload as { date?: string; ordersCount?: number } | undefined;
+              const p = payload?.[0]?.payload as
+                | { date?: string; ordersCount?: number }
+                | undefined;
               if (!p?.date) return "";
               return `${p.date} · ${p.ordersCount ?? 0} замовл.`;
             }}
             contentStyle={tooltipBox}
           />
-          <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }} />
+          <Legend
+            verticalAlign="top"
+            align="right"
+            wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }}
+          />
           <Area
             type="monotone"
             dataKey="usd"
@@ -144,11 +169,7 @@ export function CollectedPaymentsTrendChart({
   const data = rows.map((r) => ({ ...r, label: formatAxisDate(r.date) }));
   const empty = data.length === 0;
   return (
-    <ChartCard
-      title="Collected payments (USD)"
-      subtitle={subtitle}
-      empty={empty}
-    >
+    <ChartCard title="Collected payments (USD)" subtitle={subtitle} empty={empty}>
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
         <AreaChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
           <defs>
@@ -170,18 +191,33 @@ export function CollectedPaymentsTrendChart({
             tickLine={false}
             axisLine={false}
             width={44}
-            label={{ value: "USD", angle: -90, position: "insideLeft", fill: CHART_MUTED, fontSize: 10 }}
+            label={{
+              value: "USD",
+              angle: -90,
+              position: "insideLeft",
+              fill: CHART_MUTED,
+              fontSize: 10,
+            }}
           />
           <Tooltip
-            formatter={(value: number) => [`${Math.round(value).toLocaleString("en-US")} $`, "Collected"]}
+            formatter={(value: number) => [
+              `${Math.round(value).toLocaleString("en-US")} $`,
+              "Collected",
+            ]}
             labelFormatter={(_, payload) => {
-              const p = payload?.[0]?.payload as { date?: string; paymentCount?: number } | undefined;
+              const p = payload?.[0]?.payload as
+                | { date?: string; paymentCount?: number }
+                | undefined;
               if (!p?.date) return "";
               return `${p.date} · ${p.paymentCount ?? 0} платежів`;
             }}
             contentStyle={tooltipBox}
           />
-          <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }} />
+          <Legend
+            verticalAlign="top"
+            align="right"
+            wrapperStyle={{ fontSize: "11px", paddingBottom: 4 }}
+          />
           <Area
             type="monotone"
             dataKey="usd"
@@ -240,7 +276,17 @@ export function OrdersByStageBarChart({ rows }: { rows: { stage: string; count: 
       <ResponsiveContainer width="100%" height={Math.max(260, data.length * 28)} minWidth={320}>
         <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" horizontal={false} />
-          <XAxis type="number" tick={{ fontSize: 10, fill: CHART_MUTED }} label={{ value: "Кількість", position: "bottom", offset: 0, fill: CHART_MUTED, fontSize: 10 }} />
+          <XAxis
+            type="number"
+            tick={{ fontSize: 10, fill: CHART_MUTED }}
+            label={{
+              value: "Кількість",
+              position: "bottom",
+              offset: 0,
+              fill: CHART_MUTED,
+              fontSize: 10,
+            }}
+          />
           <YAxis
             type="category"
             dataKey="name"

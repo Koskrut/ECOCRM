@@ -12,9 +12,24 @@ import {
 
 type AttentionResponse = {
   crm: {
-    overdueTasks: Array<{ id: string; title: string; assigneeName: string | null; dueAt: string | null }>;
-    stuckOrders: Array<{ id: string; orderNumber: string; ownerName: string | null; orderStage: string | null }>;
-    leadsWithoutTouch: Array<{ id: string; name: string | null; ownerName: string | null; source: string | null }>;
+    overdueTasks: Array<{
+      id: string;
+      title: string;
+      assigneeName: string | null;
+      dueAt: string | null;
+    }>;
+    stuckOrders: Array<{
+      id: string;
+      orderNumber: string;
+      ownerName: string | null;
+      orderStage: string | null;
+    }>;
+    leadsWithoutTouch: Array<{
+      id: string;
+      name: string | null;
+      ownerName: string | null;
+      source: string | null;
+    }>;
   };
   finance: {
     overdueOrders: Array<{
@@ -30,7 +45,11 @@ type AttentionResponse = {
 export default function AnalyticsAttentionPage() {
   const filters = useAnalyticsFilters();
   const [refreshKey, setRefreshKey] = useState(0);
-  const { data, loading, error } = useAnalyticsFetch<AttentionResponse>("attention", filters.querySuffix, refreshKey);
+  const { data, loading, error } = useAnalyticsFetch<AttentionResponse>(
+    "attention",
+    filters.querySuffix,
+    refreshKey,
+  );
 
   const filtersBar = (
     <AnalyticsFiltersBar
@@ -73,14 +92,17 @@ export default function AnalyticsAttentionPage() {
       <div className="rounded-xl border border-amber-200/70 bg-amber-50/30 p-4 text-sm text-amber-950/90">
         <p className="font-medium text-zinc-900">Період з панелі фільтрів</p>
         <p className="mt-1 text-zinc-700">
-          Усі списки враховують діапазон дат і менеджера так само, як KPI на Overview. Прапорець «Порівняти з
-          попереднім періодом» лише залишає узгоджений URL між вкладками; для Attention порівняння не показуємо.
+          Усі списки враховують діапазон дат і менеджера так само, як KPI на Overview. Прапорець
+          «Порівняти з попереднім періодом» лише залишає узгоджений URL між вкладками; для Attention
+          порівняння не показуємо.
         </p>
       </div>
 
       <section id="overdue-tasks" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">Прострочені задачі</h2>
-        <p className="text-xs text-zinc-500">OPEN/IN_PROGRESS, дедлайн (dueAt) у вибраному періоді.</p>
+        <p className="text-xs text-zinc-500">
+          OPEN/IN_PROGRESS, дедлайн (dueAt) у вибраному періоді.
+        </p>
         <SimpleTable
           rows={data?.crm.overdueTasks ?? []}
           columns={[
@@ -106,7 +128,9 @@ export default function AnalyticsAttentionPage() {
       </section>
       <section id="leads-without-touch" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">Ліди без дотику</h2>
-        <p className="text-xs text-zinc-500">Ліди з createdAt у періоді; правила «без дотику» vs кінець періоду.</p>
+        <p className="text-xs text-zinc-500">
+          Ліди з createdAt у періоді; правила «без дотику» vs кінець періоду.
+        </p>
         <SimpleTable
           rows={data?.crm.leadsWithoutTouch ?? []}
           columns={[
@@ -118,13 +142,19 @@ export default function AnalyticsAttentionPage() {
       </section>
       <section id="finance-overdue" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">Прострочені оплати (замовлення)</h2>
-        <p className="text-xs text-zinc-500">Замовлення з createdAt у періоді; OVERDUE + debt &gt; 0.</p>
+        <p className="text-xs text-zinc-500">
+          Замовлення з createdAt у періоді; OVERDUE + debt &gt; 0.
+        </p>
         <SimpleTable
           rows={data?.finance.overdueOrders ?? []}
           columns={[
             { key: "orderNumber", title: "Замовлення", render: (row) => row.orderNumber },
             { key: "clientName", title: "Клієнт", render: (row) => row.clientName ?? "—" },
-            { key: "paymentDueDate", title: "Оплата до", render: (row) => row.paymentDueDate ?? "—" },
+            {
+              key: "paymentDueDate",
+              title: "Оплата до",
+              render: (row) => row.paymentDueDate ?? "—",
+            },
           ]}
         />
       </section>

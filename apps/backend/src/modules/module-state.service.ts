@@ -25,7 +25,13 @@ export type ModuleRuntimeState = {
 };
 
 const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
-  outbound_worker: [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound, ModuleIds.IntegrationsTelegram],
+  outbound_worker: [
+    ModuleIds.CoreCrm,
+    ModuleIds.ManualCalling,
+    ModuleIds.Ringostat,
+    ModuleIds.IntegrationsTelegram,
+    ModuleIds.VoiceOutbound,
+  ],
   finance_worker: [ModuleIds.CoreCrm, ModuleIds.Finance],
   planning_worker: [ModuleIds.CoreCrm, ModuleIds.ProductionPlanning],
   np_worker: [ModuleIds.CoreCrm, ModuleIds.NovaPoshta],
@@ -35,12 +41,21 @@ const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
   telegram_worker: [ModuleIds.CoreCrm, ModuleIds.IntegrationsTelegram],
 };
 
+function withLegacyVoiceOutboundCompat(ids: Set<ModuleId>): Set<ModuleId> {
+  const out = new Set(ids);
+  if (out.has(ModuleIds.VoiceOutbound)) {
+    out.add(ModuleIds.ManualCalling);
+    out.add(ModuleIds.Ringostat);
+  }
+  return out;
+}
+
 function externalInstalledFromUpstreamEnv(): Set<ModuleId> {
   const s = new Set<ModuleId>();
   for (const [id, envKey] of Object.entries(MODULE_UPSTREAM_ENV) as [ModuleId, string][]) {
     if (process.env[envKey]?.trim()) {
       s.add(id);
-      if (id === ModuleIds.VoiceOutbound) {
+      if (id === ModuleIds.VoiceOutbound || id === ModuleIds.ManualCalling) {
         s.add(ModuleIds.IntegrationsTelegram);
       }
     }
@@ -51,13 +66,15 @@ function externalInstalledFromUpstreamEnv(): Set<ModuleId> {
 function resolveInstalledSet(): Set<ModuleId> {
   const variant = process.env.BACKEND_VARIANT ?? "full";
   if (variant === "core") {
-    return new Set<ModuleId>([ModuleIds.CoreCrm, ...externalInstalledFromUpstreamEnv()]);
+    return withLegacyVoiceOutboundCompat(
+      new Set<ModuleId>([ModuleIds.CoreCrm, ...externalInstalledFromUpstreamEnv()]),
+    );
   }
   const worker = WORKER_VARIANT_INSTALLED[variant];
   if (worker) {
-    return new Set(worker);
+    return withLegacyVoiceOutboundCompat(new Set(worker));
   }
-  return new Set(Object.keys(MODULE_REGISTRY) as ModuleId[]);
+  return withLegacyVoiceOutboundCompat(new Set(Object.keys(MODULE_REGISTRY) as ModuleId[]));
 }
 
 @Injectable()
@@ -85,10 +102,16 @@ export class ModuleStateService {
     if (!installed.has(id)) {
       return false;
     }
-    if (id === ModuleIds.IntegrationsTelegram && installed.has(ModuleIds.VoiceOutbound)) {
+    if (
+      id === ModuleIds.IntegrationsTelegram &&
+      (installed.has(ModuleIds.ManualCalling) || installed.has(ModuleIds.VoiceOutbound))
+    ) {
       const ob = process.env.OUTBOUND_UPSTREAM_URL?.trim();
       if (!ob) return true;
-      return this.moduleHealth.isUpstreamOk(ModuleIds.VoiceOutbound);
+      return (
+        this.moduleHealth.isUpstreamOk(ModuleIds.ManualCalling) ||
+        this.moduleHealth.isUpstreamOk(ModuleIds.VoiceOutbound)
+      );
     }
     const envKey = MODULE_UPSTREAM_ENV[id];
     if (!envKey || !process.env[envKey]?.trim()) {
@@ -102,8 +125,8 @@ export class ModuleStateService {
       this.enabledProvider.getEnabledModules(),
       this.licenseProvider.getLicenseState(),
     ]);
-    const enabled = enabledState.enabledModules;
-    const licensed = licenseState.licensedModules;
+    const enabled = withLegacyVoiceOutboundCompat(enabledState.enabledModules);
+    const licensed = withLegacyVoiceOutboundCompat(licenseState.licensedModules);
 
     const installed = resolveInstalledSet();
 

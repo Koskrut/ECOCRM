@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Put } from "@nestjs/common";
+import { Controller, Get, Inject } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { Roles } from "../auth/roles.decorator";
 import { LicenseStateProvider } from "../modules/license/license-state.provider";
@@ -7,8 +7,6 @@ import type { SystemLicenseStatusDto } from "./dto/system-license-status.dto";
 import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
 import type { SystemReleaseDto } from "./dto/system-release.dto";
 import type { SystemVersionDto } from "./dto/system-version.dto";
-import type { UpdateSystemModulesEnabledDto } from "./dto/update-system-modules-enabled.dto";
-import { SystemModulesEnabledWriteService } from "./system-modules-enabled-write.service";
 import { SystemReleaseService } from "./system-release.service";
 import { SystemVersionService } from "./system-version.service";
 import { Public } from "../auth/public.decorator";
@@ -20,8 +18,6 @@ export class SystemController {
   constructor(
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
     @Inject(LicenseStateProvider) private readonly licenseProvider: LicenseStateProvider,
-    @Inject(SystemModulesEnabledWriteService)
-    private readonly enabledWrite: SystemModulesEnabledWriteService,
     @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
     @Inject(SystemVersionService) private readonly versionService: SystemVersionService,
     @Inject(ControlPlanePhoneHomeService) private readonly controlPlanePhoneHome: ControlPlanePhoneHomeService,
@@ -66,15 +62,6 @@ export class SystemController {
       customer: state.customer,
       licenseId: state.shortLicenseId,
     };
-  }
-
-  @Put("modules/enabled")
-  @Roles(UserRole.ADMIN)
-  async updateModulesEnabled(
-    @Body() body: UpdateSystemModulesEnabledDto,
-  ): Promise<SystemModulesResponseDto> {
-    await this.enabledWrite.setPilotExtensionsEnabled(body.enabled);
-    return this.buildModulesResponse();
   }
 
   private async buildModulesResponse(): Promise<SystemModulesResponseDto> {

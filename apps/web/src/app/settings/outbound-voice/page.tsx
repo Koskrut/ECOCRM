@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { strings } from "@/locales";
+import { ErrorPanel } from "@/components/feedback";
 
 type OutboundVoiceRuntimeMode = "stub" | "generic_http" | "kyivstar_openai_gateway";
 
@@ -83,7 +85,9 @@ export default function OutboundVoiceSettingsPage() {
       );
       setGatewayCreateCallPath(data.gatewayCreateCallPath ?? "");
       setPublicWebhookBaseUrl(data.publicWebhookBaseUrl ?? "");
-      setRequestTimeoutMs(typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000);
+      setRequestTimeoutMs(
+        typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000,
+      );
       setRetryMax(typeof data.retryMax === "number" ? data.retryMax : 0);
       setApiToken("");
       setWebhookSecret("");
@@ -115,7 +119,9 @@ export default function OutboundVoiceSettingsPage() {
         runtimeMode:
           runtimeMode === ""
             ? null
-            : runtimeMode === "stub" || runtimeMode === "generic_http" || runtimeMode === "kyivstar_openai_gateway"
+            : runtimeMode === "stub" ||
+                runtimeMode === "generic_http" ||
+                runtimeMode === "kyivstar_openai_gateway"
               ? runtimeMode
               : undefined,
         gatewayCreateCallPath: gatewayCreateCallPath.trim() || undefined,
@@ -144,7 +150,9 @@ export default function OutboundVoiceSettingsPage() {
       );
       setGatewayCreateCallPath(data.gatewayCreateCallPath ?? "");
       setPublicWebhookBaseUrl(data.publicWebhookBaseUrl ?? "");
-      setRequestTimeoutMs(typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000);
+      setRequestTimeoutMs(
+        typeof data.requestTimeoutMs === "number" ? data.requestTimeoutMs : 30_000,
+      );
       setRetryMax(typeof data.retryMax === "number" ? data.retryMax : 0);
       setApiToken("");
       setWebhookSecret("");
@@ -160,7 +168,8 @@ export default function OutboundVoiceSettingsPage() {
 
   const configured =
     Boolean(config?.apiBaseUrl?.trim()) &&
-    (config?.apiTokenMasked && config.apiTokenMasked.length > 0);
+    config?.apiTokenMasked &&
+    config.apiTokenMasked.length > 0;
 
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
@@ -171,12 +180,12 @@ export default function OutboundVoiceSettingsPage() {
               href="/settings"
               className="mb-2 inline-block text-sm text-zinc-500 hover:text-zinc-800"
             >
-              ← Settings
+              ← {strings.common.backToSettings}
             </Link>
             <h1 className="text-2xl font-bold text-zinc-900">Outbound voice (AI Calls)</h1>
             <p className="mt-1 text-sm text-zinc-500">
-              HTTP-провайдер исходящих звонков и секрет вебхука для событий после звонка. Сценарии
-              и кампании настраиваются в разделе{" "}
+              HTTP-провайдер исходящих звонков и секрет вебхука для событий после звонка. Сценарии и
+              кампании настраиваются в разделе{" "}
               <Link href="/outbound/campaigns" className="text-blue-600 hover:underline">
                 AI Calls
               </Link>
@@ -200,11 +209,7 @@ export default function OutboundVoiceSettingsPage() {
           </div>
         ) : (
           <>
-            {error && (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                {error}
-              </div>
-            )}
+            {error ? <ErrorPanel variant="inline" message={error} /> : null}
             {success && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
                 {success}
@@ -259,8 +264,8 @@ export default function OutboundVoiceSettingsPage() {
                 <label className="block text-sm font-medium text-zinc-900">Режим runtime</label>
                 <p className="mb-1 text-xs text-zinc-500">
                   Пусто = прежняя логика: при наличии URL и токена — generic HTTP, иначе stub.{" "}
-                  <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code> — отдельный
-                  путь создания вызова для шлюза Kyivstar/OpenAI.
+                  <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code> —
+                  отдельный путь создания вызова для шлюза Kyivstar/OpenAI.
                 </p>
                 <select
                   value={runtimeMode}
@@ -298,8 +303,9 @@ export default function OutboundVoiceSettingsPage() {
                 </label>
                 <p className="mb-1 text-xs text-zinc-500">
                   Без завершающего слэша. Уходит в теле create-call как{" "}
-                  <code className="rounded bg-zinc-100 px-1">callback.webhookUrl</code> для шлюза. Можно
-                  задать через <code className="rounded bg-zinc-100 px-1">OUTBOUND_VOICE_PUBLIC_BASE_URL</code>{" "}
+                  <code className="rounded bg-zinc-100 px-1">callback.webhookUrl</code> для шлюза.
+                  Можно задать через{" "}
+                  <code className="rounded bg-zinc-100 px-1">OUTBOUND_VOICE_PUBLIC_BASE_URL</code>{" "}
                   на сервере.
                 </p>
                 <input
@@ -313,7 +319,9 @@ export default function OutboundVoiceSettingsPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-900">Таймаут HTTP (мс)</label>
+                  <label className="block text-sm font-medium text-zinc-900">
+                    Таймаут HTTP (мс)
+                  </label>
                   <input
                     type="number"
                     min={1000}
@@ -337,7 +345,9 @@ export default function OutboundVoiceSettingsPage() {
               </div>
 
               <div className="border-t border-zinc-100 pt-4">
-                <label className="block text-sm font-medium text-zinc-900">Базовый URL API провайдера</label>
+                <label className="block text-sm font-medium text-zinc-900">
+                  Базовый URL API провайдера
+                </label>
                 <p className="mb-1 text-xs text-zinc-500">
                   Без завершающего слэша. К нему добавляется путь создания звонка (ниже).
                 </p>
@@ -351,7 +361,9 @@ export default function OutboundVoiceSettingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-zinc-900">Путь создания звонка</label>
+                <label className="block text-sm font-medium text-zinc-900">
+                  Путь создания звонка
+                </label>
                 <p className="mb-1 text-xs text-zinc-500">
                   Относительный путь от базового URL. Пусто = по умолчанию{" "}
                   <code className="rounded bg-zinc-100 px-1">/calls</code>.
@@ -371,10 +383,8 @@ export default function OutboundVoiceSettingsPage() {
                 </label>
                 <p className="mb-1 text-xs text-zinc-500">
                   Сохранённый токен:{" "}
-                  <span className="font-mono text-zinc-700">
-                    {config?.apiTokenMasked || "—"}
-                  </span>
-                  . Введите новое значение, чтобы заменить.
+                  <span className="font-mono text-zinc-700">{config?.apiTokenMasked || "—"}</span>.
+                  Введите новое значение, чтобы заменить.
                 </p>
                 <input
                   type="password"
@@ -407,9 +417,11 @@ export default function OutboundVoiceSettingsPage() {
                   Ключи ответа для session / call id
                 </label>
                 <p className="mb-1 text-xs text-zinc-500">
-                  Имена полей в JSON-ответе провайдера после POST создания звонка. Через запятую или с
-                  новой строки. Пусто на бэкенде подставит значения по умолчанию (
-                  <code className="rounded bg-zinc-100 px-1 text-[11px]">id, call_id, session_id…</code>
+                  Имена полей в JSON-ответе провайдера после POST создания звонка. Через запятую или
+                  с новой строки. Пусто на бэкенде подставит значения по умолчанию (
+                  <code className="rounded bg-zinc-100 px-1 text-[11px]">
+                    id, call_id, session_id…
+                  </code>
                   ).
                 </p>
                 <textarea
@@ -424,8 +436,9 @@ export default function OutboundVoiceSettingsPage() {
               <div className="border-t border-zinc-100 pt-4">
                 <label className="block text-sm font-medium text-zinc-900">Секрет вебхука</label>
                 <p className="mb-1 text-xs text-zinc-500">
-                  Заголовок <code className="rounded bg-zinc-100 px-1">x-outbound-voice-secret</code> при
-                  POST на CRM. Текущее значение:{" "}
+                  Заголовок{" "}
+                  <code className="rounded bg-zinc-100 px-1">x-outbound-voice-secret</code> при POST
+                  на CRM. Текущее значение:{" "}
                   <span className="font-mono text-zinc-700">
                     {config?.webhookSecretMasked || "—"}
                   </span>
@@ -477,13 +490,14 @@ export default function OutboundVoiceSettingsPage() {
               </p>
               <ul className="list-inside list-disc space-y-1 text-zinc-600">
                 <li>
-                  Заголовок: <code className="rounded bg-white px-1">x-outbound-voice-secret</code> =
-                  тот же секрет, что выше.
+                  Заголовок: <code className="rounded bg-white px-1">x-outbound-voice-secret</code>{" "}
+                  = тот же секрет, что выше.
                 </li>
                 <li>
-                  В теле можно передавать <code className="rounded bg-white px-1">externalCallId</code>{" "}
-                  и при необходимости <code className="rounded bg-white px-1">callProvider</code> для
-                  привязки к записи Call в CRM.
+                  В теле можно передавать{" "}
+                  <code className="rounded bg-white px-1">externalCallId</code> и при необходимости{" "}
+                  <code className="rounded bg-white px-1">callProvider</code> для привязки к записи
+                  Call в CRM.
                 </li>
                 <li>
                   Пост-анализ транскрипта использует OpenAI (тот же ключ, что для Telegram Inbox AI,

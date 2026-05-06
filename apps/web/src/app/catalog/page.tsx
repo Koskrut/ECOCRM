@@ -51,9 +51,9 @@ function CatalogExpandedCharacteristics({
             <p className="text-sm text-zinc-500">
               Немає заповнених характеристик. Імпорт з Excel:{" "}
               <code className="rounded bg-zinc-200/60 px-1 text-xs">
-                npm run import:characteristics
+                команду імпорту характеристик
               </code>{" "}
-              у каталозі backend.
+              у бекенд-сервісі.
             </p>
           ) : (
             <dl className="grid grid-cols-1 gap-x-10 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -574,7 +574,7 @@ function SyncImagesModal({
       if (res?.status === 409 && res.data && typeof res.data === "object") {
         setStatus(res.data);
       } else {
-        setError(err instanceof Error ? err.message : "Ошибка запуска синхронизации");
+        setError(err instanceof Error ? err.message : "Помилка запуску синхронізації");
       }
     } finally {
       setStarting(false);
@@ -751,7 +751,7 @@ function StockUploadModal({
         onSuccess();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка загрузки");
+      setError(err instanceof Error ? err.message : "Помилка завантаження");
     } finally {
       setUploading(false);
     }
@@ -862,7 +862,7 @@ function StockUploadByWarehousesModal({
         onSuccess();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка загрузки");
+      setError(err instanceof Error ? err.message : "Помилка завантаження");
     } finally {
       setUploading(false);
     }
@@ -987,7 +987,7 @@ function AddProductModal({
       onSuccess();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка создания");
+      setError(err instanceof Error ? err.message : "Помилка створення");
     } finally {
       setSubmitting(false);
     }

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { strings } from "@/locales";
+import { ErrorPanel } from "@/components/feedback";
 
 type StoreTheme = {
   primary?: string;
@@ -81,8 +83,15 @@ export default function StoreSettingsPage() {
       const data = res.data;
       if (data) {
         setConfig({
-          theme: data.theme ?? { primary: "#1e3a5f", primaryHover: "#152a47", surface: "#f8fafc", border: "#e2e8f0" },
-          banners: Array.isArray(data.banners) ? [...data.banners].sort((a, b) => a.order - b.order) : [],
+          theme: data.theme ?? {
+            primary: "#1e3a5f",
+            primaryHover: "#152a47",
+            surface: "#f8fafc",
+            border: "#e2e8f0",
+          },
+          banners: Array.isArray(data.banners)
+            ? [...data.banners].sort((a, b) => a.order - b.order)
+            : [],
           contact: data.contact ?? {},
           analytics: data.analytics ?? {},
           crmPayPageUrl: typeof data.crmPayPageUrl === "string" ? data.crmPayPageUrl : "",
@@ -158,7 +167,7 @@ export default function StoreSettingsPage() {
             href="/settings"
             className="inline-flex items-center text-sm text-zinc-600 hover:text-zinc-900"
           >
-            ← Назад до налаштувань
+            ← {strings.common.backToSettings}
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Інтернет-магазин</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -166,11 +175,7 @@ export default function StoreSettingsPage() {
           </p>
         </div>
 
-        {error && (
-          <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {error}
-          </p>
-        )}
+        {error ? <ErrorPanel variant="inline" message={error} /> : null}
 
         {loading ? (
           <p className="text-sm text-zinc-500">Завантаження…</p>
@@ -181,7 +186,9 @@ export default function StoreSettingsPage() {
               <h2 className="text-sm font-semibold text-zinc-900">Тема (кольори)</h2>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-600">Основний колір (Primary)</label>
+                  <label className="block text-sm font-medium text-zinc-600">
+                    Основний колір (Primary)
+                  </label>
                   <div className="mt-1 flex gap-2">
                     <input
                       type="color"
@@ -199,7 +206,9 @@ export default function StoreSettingsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-zinc-600">Primary (при наведенні)</label>
+                  <label className="block text-sm font-medium text-zinc-600">
+                    Primary (при наведенні)
+                  </label>
                   <div className="mt-1 flex gap-2">
                     <input
                       type="color"
@@ -280,7 +289,9 @@ export default function StoreSettingsPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-zinc-500">Підзаголовок</label>
+                        <label className="block text-xs font-medium text-zinc-500">
+                          Підзаголовок
+                        </label>
                         <input
                           type="text"
                           value={banner.subtitle ?? ""}
@@ -291,7 +302,9 @@ export default function StoreSettingsPage() {
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                          <label className="block text-xs font-medium text-zinc-500">Текст кнопки</label>
+                          <label className="block text-xs font-medium text-zinc-500">
+                            Текст кнопки
+                          </label>
                           <input
                             type="text"
                             value={banner.ctaText ?? ""}
@@ -301,7 +314,9 @@ export default function StoreSettingsPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-zinc-500">Посилання кнопки</label>
+                          <label className="block text-xs font-medium text-zinc-500">
+                            Посилання кнопки
+                          </label>
                           <input
                             type="text"
                             value={banner.ctaHref ?? ""}
@@ -312,7 +327,9 @@ export default function StoreSettingsPage() {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-zinc-500">URL зображення (необов’язково)</label>
+                        <label className="block text-xs font-medium text-zinc-500">
+                          URL зображення (необов’язково)
+                        </label>
                         <input
                           type="text"
                           value={banner.imageUrl ?? ""}
@@ -333,12 +350,15 @@ export default function StoreSettingsPage() {
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-zinc-900">Оплата замовлень з магазину</h2>
               <p className="mt-1 text-xs text-zinc-500">
-                Базовий URL застосунку CRM (де відкривається /pay/…). Без завершального слеша, наприклад{" "}
-                <span className="font-mono text-zinc-600">https://crm.example.com</span>. Якщо порожньо — на магазині
-                використовується змінна середовища NEXT_PUBLIC_CRM_PAY_URL (при збірці).
+                Базовий URL застосунку CRM (де відкривається /pay/…). Без завершального слеша,
+                наприклад <span className="font-mono text-zinc-600">https://crm.example.com</span>.
+                Якщо порожньо — на магазині використовується змінна середовища
+                NEXT_PUBLIC_CRM_PAY_URL (при збірці).
               </p>
               <div className="mt-3">
-                <label className="block text-sm font-medium text-zinc-600">URL CRM для оплати</label>
+                <label className="block text-sm font-medium text-zinc-600">
+                  URL CRM для оплати
+                </label>
                 <input
                   type="url"
                   value={config.crmPayPageUrl ?? ""}
@@ -349,12 +369,15 @@ export default function StoreSettingsPage() {
                 />
               </div>
               <div className="mt-4 border-t border-zinc-100 pt-4">
-                <label className="block text-sm font-medium text-zinc-600">Публічна URL вітрини</label>
+                <label className="block text-sm font-medium text-zinc-600">
+                  Публічна URL вітрини
+                </label>
                 <p className="mt-1 text-xs text-zinc-500">
                   Базовий URL інтернет-магазину (apps/store), без слеша в кінці, наприклад{" "}
-                  <span className="font-mono text-zinc-600">https://shop.example.com</span>. Потрібен для готового
-                  посилання «встановити пароль» після скидання з картки контакту. Якщо порожньо — у CRM може
-                  використовуватись <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці web.
+                  <span className="font-mono text-zinc-600">https://shop.example.com</span>.
+                  Потрібен для готового посилання «встановити пароль» після скидання з картки
+                  контакту. Якщо порожньо — у CRM може використовуватись{" "}
+                  <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці web.
                 </p>
                 <input
                   type="url"
@@ -368,13 +391,18 @@ export default function StoreSettingsPage() {
             </section>
 
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-zinc-900">Аналітика та пікселі (публічний сайт)</h2>
+              <h2 className="text-sm font-semibold text-zinc-900">
+                Аналітика та пікселі (публічний сайт)
+              </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                Ці значення використовуються у storefront (apps/store) для підключення GA4 / GTM / Meta Pixel через tracking layer.
+                Ці значення використовуються у storefront (apps/store) для підключення GA4 / GTM /
+                Meta Pixel через tracking layer.
               </p>
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-600">GA4 Measurement ID</label>
+                  <label className="block text-sm font-medium text-zinc-600">
+                    GA4 Measurement ID
+                  </label>
                   <input
                     type="text"
                     value={config.analytics?.gaId ?? ""}
@@ -390,7 +418,9 @@ export default function StoreSettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-zinc-600">GTM Container ID (опціонально)</label>
+                  <label className="block text-sm font-medium text-zinc-600">
+                    GTM Container ID (опціонально)
+                  </label>
                   <input
                     type="text"
                     value={config.analytics?.gtmId ?? ""}

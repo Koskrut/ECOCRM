@@ -28,7 +28,9 @@ export function deltaMoneyLineFine(current: number, prev: number | undefined): s
   if (prev === undefined) return null;
   const diff = current - prev;
   const sign = diff >= 0 ? "+" : "−";
-  const absFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Math.abs(diff));
+  const absFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(
+    Math.abs(diff),
+  );
   const pct = prev === 0 ? null : (diff / prev) * 100;
   const base = `vs попередній: ${sign}${absFmt} $`;
   if (pct === null || !Number.isFinite(pct)) return base;

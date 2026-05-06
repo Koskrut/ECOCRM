@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { apiHttp } from "@/lib/api/client";
 import {
   getDefaultCustomRange,
@@ -46,10 +54,13 @@ type SimpleTableColumn<T> = {
   render: (row: T) => ReactNode;
 };
 
-
 function pickErrorMessage(error: unknown, fallback: string): string {
   const err = error as { response?: { data?: { message?: string; error?: string } } };
-  return err?.response?.data?.message || err?.response?.data?.error || (error instanceof Error ? error.message : fallback);
+  return (
+    err?.response?.data?.message ||
+    err?.response?.data?.error ||
+    (error instanceof Error ? error.message : fallback)
+  );
 }
 
 function urlSearchParamsEqual(a: URLSearchParams, b: URLSearchParams): boolean {
@@ -94,11 +105,18 @@ export function useAnalyticsFilters() {
   const [rangePreset, setRangePresetState] = useState<RangePreset>("custom");
   const [comparePrev, setComparePrevState] = useState(false);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
+  // Prevent immediate re-sync after our own router.replace.
+  const lastPushedQueryRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
-    const df = searchParams.get("dateFrom");
-    const dt = searchParams.get("dateTo");
-    const presetRaw = searchParams.get("preset") as RangePreset | null;
+    if (lastPushedQueryRef.current && lastPushedQueryRef.current === searchKey) {
+      lastPushedQueryRef.current = null;
+      return;
+    }
+    const params = new URLSearchParams(searchKey);
+    const df = params.get("dateFrom");
+    const dt = params.get("dateTo");
+    const presetRaw = params.get("preset") as RangePreset | null;
     const preset =
       presetRaw === "week" || presetRaw === "month" || presetRaw === "quarter" ? presetRaw : null;
 
@@ -121,8 +139,8 @@ export function useAnalyticsFilters() {
       nextRangePreset = preset;
     }
 
-    const mid = searchParams.get("managerId") ?? "";
-    const cmp = searchParams.get("compare") === "prev_period";
+    const mid = params.get("managerId") ?? "";
+    const cmp = params.get("compare") === "prev_period";
 
     setManagerIdState((prev) => (prev !== mid ? mid : prev));
     setComparePrevState((prev) => (prev !== cmp ? cmp : prev));
@@ -190,7 +208,9 @@ export function useAnalyticsFilters() {
     if (rangePreset !== "custom") params.set("preset", rangePreset);
     const current = new URLSearchParams(searchKey);
     if (urlSearchParamsEqual(params, current)) return;
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    const nextQuery = params.toString();
+    lastPushedQueryRef.current = nextQuery;
+    router.replace(`${pathname}?${nextQuery}`, { scroll: false });
   }, [dateFrom, dateTo, managerId, comparePrev, rangePreset, pathname, router, searchKey]);
 
   const querySuffix = useMemo(() => {
@@ -433,7 +453,10 @@ export function AnalyticsOverviewSkeleton() {
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100" />
+          <div
+            key={i}
+            className="h-28 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100"
+          />
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -526,11 +549,18 @@ export function AnalyticsState({
   children: ReactNode;
 }) {
   if (loading) {
-    return <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">Завантаження...</div>;
+    return (
+      <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">
+        Завантаження...
+      </div>
+    );
   }
   if (error) {
-    return <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">{error}</div>;
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+        {error}
+      </div>
+    );
   }
   return <>{children}</>;
 }
-

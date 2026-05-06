@@ -2,6 +2,7 @@
 
 import type { ModuleId } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
+import { ModuleGateSkeleton, ModuleUnavailable } from "@/components/ModuleUnavailable";
 
 export function ModuleGate({
   moduleId,
@@ -10,13 +11,18 @@ export function ModuleGate({
   moduleId: ModuleId;
   children: React.ReactNode;
 }) {
-  const { status, effective } = useModules();
+  const { status, effective, refreshModules } = useModules();
 
-  // Phase 1: fail-open on loading/error to preserve current behavior.
-  if (status !== "ready") return <>{children}</>;
+  if (status === "loading") {
+    return <ModuleGateSkeleton />;
+  }
+
+  if (status === "error") {
+    return <ModuleUnavailable variant="api-error" moduleId={moduleId} onRetry={refreshModules} />;
+  }
 
   if (!effective(moduleId)) {
-    return <div className="p-6 text-sm text-zinc-600">Not found</div>;
+    return <ModuleUnavailable variant="not-effective" moduleId={moduleId} />;
   }
 
   return <>{children}</>;
