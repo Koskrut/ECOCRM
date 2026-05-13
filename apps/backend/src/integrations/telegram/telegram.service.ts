@@ -6,6 +6,9 @@ import { OrderStage } from "@prisma/client";
 import { OrderStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { AuthService } from "../../auth/auth.service";
+import { getPhoneCandidatesForLookup, getPhoneNormalizedDigits } from "../../common/phone.utils";
+import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
+import { ContactsService } from "../../contacts/contacts.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { ParsedInbound, TelegramUpdate } from "./telegram.types";
@@ -65,6 +68,8 @@ export class TelegramService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly contactsService: ContactsService,
+    private readonly phoneEntityLookup: PhoneEntityLookupService,
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
   ) {}
 
@@ -201,23 +206,33 @@ export class TelegramService {
 
       if (!contactId && !leadId) {
         if (parsed.phone) {
-          const phoneNorm = normalizePhoneDigits(parsed.phone);
-          const contact = await this.prisma.contact.findUnique({
-            where: { phoneNormalized: phoneNorm },
-            select: { id: true },
-          });
-          if (contact) {
-            contactId = contact.id;
+          const digits =
+            getPhoneNormalizedDigits(parsed.phone) ?? normalizePhoneDigits(parsed.phone);
+          const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
+
+          for (const c of candidates) {
+            const row = await this.contactsService.findContactByPhone(c);
+            if (row) {
+              contactId = row.id;
+              break;
+            }
+          }
+
+          if (contactId) {
             await this.prisma.telegramAccount.update({
               where: { id: account.id },
               data: { contactId },
             });
             shouldSendExistingClientMenu = true;
           } else {
-            const existingLead = await this.prisma.lead.findFirst({
-              where: { phoneNormalized: phoneNorm },
-              select: { id: true },
-            });
+            const existingLead =
+              candidates.length > 0
+                ? await this.prisma.lead.findFirst({
+                    where: { OR: candidates.map((phoneNormalized) => ({ phoneNormalized })) },
+                    select: { id: true },
+                  })
+                : null;
+
             if (existingLead) {
               leadId = existingLead.id;
               await this.prisma.telegramAccount.update({
@@ -225,61 +240,64 @@ export class TelegramService {
                 data: { leadId },
               });
               shouldSendExistingClientMenu = true;
-            }
-          }
-        }
-
-        if (!contactId && !leadId) {
-          if (parsed.phone) {
-            const secrets = await this.settings.getTelegramSecrets();
-            const companyId =
-              secrets.leadCompanyId ||
-              (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
-              (await this.prisma.company.findFirst({ select: { id: true } }))?.id;
-
-            if (companyId) {
-              const lead = await this.prisma.lead.create({
-                data: {
-                  companyId,
-                  status: LeadStatus.NEW,
-                  source: LeadSource.TELEGRAM,
-                  firstName: parsed.firstName ?? "Telegram",
-                  lastName: parsed.lastName ?? "User",
-                  middleName: null,
-                  fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                  name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                  phone: parsed.phone,
-                  phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
-                },
-              });
-              leadId = lead.id;
-              await this.prisma.telegramAccount.update({
-                where: { id: account.id },
-                data: { leadId },
-              });
-              shouldRequestProfileDetails = true;
             } else {
-              const placeholderPhone =
-                "0" + parsed.userId.replace(/\D/g, "").slice(-10).padStart(10, "0");
-              const contact = await this.prisma.contact.create({
-                data: {
-                  firstName: parsed.firstName ?? "Telegram",
-                  lastName: parsed.lastName ?? "User",
-                  phone: placeholderPhone,
-                  phoneNormalized: placeholderPhone,
-                },
-              });
-              contactId = contact.id;
-              await this.prisma.telegramAccount.update({
-                where: { id: account.id },
-                data: { contactId },
-              });
+              const knownCompanyId =
+                candidates.length > 0
+                  ? await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates)
+                  : null;
+
+              if (!knownCompanyId) {
+                const secrets = await this.settings.getTelegramSecrets();
+                const companyId =
+                  secrets.leadCompanyId ||
+                  (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
+                  (await this.prisma.company.findFirst({ select: { id: true } }))?.id;
+
+                if (companyId) {
+                  const lead = await this.prisma.lead.create({
+                    data: {
+                      companyId,
+                      status: LeadStatus.NEW,
+                      source: LeadSource.TELEGRAM,
+                      firstName: parsed.firstName ?? "Telegram",
+                      lastName: parsed.lastName ?? "User",
+                      middleName: null,
+                      fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                      name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                      phone: parsed.phone,
+                      phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
+                    },
+                  });
+                  leadId = lead.id;
+                  await this.prisma.telegramAccount.update({
+                    where: { id: account.id },
+                    data: { leadId },
+                  });
+                  shouldRequestProfileDetails = true;
+                } else {
+                  const placeholderPhone =
+                    "0" + parsed.userId.replace(/\D/g, "").slice(-10).padStart(10, "0");
+                  const contact = await this.prisma.contact.create({
+                    data: {
+                      firstName: parsed.firstName ?? "Telegram",
+                      lastName: parsed.lastName ?? "User",
+                      phone: placeholderPhone,
+                      phoneNormalized: placeholderPhone,
+                    },
+                  });
+                  contactId = contact.id;
+                  await this.prisma.telegramAccount.update({
+                    where: { id: account.id },
+                    data: { contactId },
+                  });
+                }
+              }
             }
-          } else {
-            await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
-              requestContactButton: true,
-            });
           }
+        } else {
+          await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
+            requestContactButton: true,
+          });
         }
       }
 

@@ -25,7 +25,7 @@ export default function CustomEntitiesMetadataPage() {
     apiHttp
       .get<{ items: Def[] }>("/custom-entities/definitions")
       .then((r) => setDefs(r.data?.items ?? []))
-      .catch(() => setErr("Не вдалося завантажити custom entities"));
+      .catch(() => setErr("Не вдалося завантажити користувацькі сутності"));
 
   useEffect(() => {
     if (role !== "ADMIN") return;
@@ -44,25 +44,25 @@ export default function CustomEntitiesMetadataPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-5xl">
         <Link href="/settings/metadata" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Metadata hub
+          ← Хаб метаданих
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Custom entities</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Користувацькі сутності</h1>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-emerald-700">{msg}</p> : null}
         <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Create definition</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Створити визначення сутності</h2>
           <div className="mt-2 flex flex-wrap gap-2">
             <input
               className="rounded border border-zinc-200 px-2 py-1 font-mono text-xs"
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
-              placeholder="key"
+              placeholder="Ключ сутності"
             />
             <input
               className="min-w-[12rem] flex-1 rounded border border-zinc-200 px-2 py-1 text-sm"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              placeholder="name"
+              placeholder="Назва сутності"
             />
             <button
               type="button"
@@ -73,13 +73,13 @@ export default function CustomEntitiesMetadataPage() {
                 void apiHttp
                   .post("/custom-entities/definitions", { key: newKey.trim(), name: newName.trim() })
                   .then(() => {
-                    setMsg("Created");
+                    setMsg("Сутність створено.");
                     void refresh();
                   })
-                  .catch(() => setErr("Create failed"));
+                  .catch(() => setErr("Не вдалося створити сутність."));
               }}
             >
-              Create
+              Створити
             </button>
           </div>
         </div>
@@ -93,7 +93,7 @@ export default function CustomEntitiesMetadataPage() {
                 href={`/custom-data/${encodeURIComponent(d.key)}`}
                 className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
               >
-                Open records
+                Відкрити записи
               </Link>
             </li>
           ))}

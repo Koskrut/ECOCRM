@@ -8,6 +8,7 @@ import { ModuleStateService } from "../modules/module-state.service";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
 import { SystemController } from "./system.controller";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemUpdateService } from "./system-update.service";
 import { SystemVersionService } from "./system-version.service";
 
 const activeLicenseProviderClass = FileLicenseStateProvider;
@@ -19,6 +20,7 @@ const activeLicenseProviderClass = FileLicenseStateProvider;
     ModuleStateService,
     ControlPlanePhoneHomeService,
     SystemReleaseService,
+    SystemUpdateService,
     SystemVersionService,
     {
       provide: EnabledModulesProvider,

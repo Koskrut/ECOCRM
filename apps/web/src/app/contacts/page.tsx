@@ -30,6 +30,8 @@ import {
   formatContactPriorityReasonCompact,
 } from "./contact-formatters";
 import { strings } from "@/locales";
+import { useListColumns } from "@/lib/lists/useListColumns";
+import { renderCellText } from "@/lib/lists/renderCell";
 
 const PAGE_SIZE = 20;
 type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
@@ -208,6 +210,12 @@ function ContactsPageContent() {
   const isPresetMode = workPreset !== "all";
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
+  const { extraColumns, customValues, loadValuesFor } = useListColumns("CONTACT");
+
+  useEffect(() => {
+    if (isPresetMode || items.length === 0) return;
+    void loadValuesFor(items.map((c) => c.id));
+  }, [isPresetMode, items, loadValuesFor]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -575,7 +583,7 @@ function ContactsPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="имя, телефон, email"
+                placeholder="имя, телефон, email, компания, адрес, город"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
                 aria-label="Поиск контактов"
@@ -1041,19 +1049,24 @@ function ContactsPageContent() {
                       Обновлен{sortIndicator("updatedAt")}
                     </button>
                   </th>
+                  {extraColumns.map((col) => (
+                    <th key={col.fieldId} className="px-4 py-3">
+                      {col.label}
+                    </th>
+                  ))}
                   <th className="w-28 px-2 py-3 text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={7 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
                       Загрузка…
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={7 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
                       Нет контактов
                     </td>
                   </tr>
@@ -1107,6 +1120,11 @@ function ContactsPageContent() {
                       <td className="hidden px-4 py-4 text-zinc-600 lg:table-cell">
                         {formatDate(c.updatedAt)}
                       </td>
+                      {extraColumns.map((col) => (
+                        <td key={col.fieldId} className="px-4 py-4 text-zinc-600">
+                          {renderCellText(col, c as unknown as Record<string, unknown>, customValues)}
+                        </td>
+                      ))}
                       <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
                           <a

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 
 type Perm = { id: string; key: string; name: string; category?: string | null };
 type Role = {
@@ -32,7 +33,7 @@ export default function RbacMetadataPage() {
     return apiHttp
       .get<{ roles: Role[]; permissions: Perm[] }>("/rbac")
       .then((r) => setCatalog(r.data ?? null))
-      .catch(() => setErr("Не вдалося завантажити RBAC"));
+      .catch((e) => setErr(getUserFriendlyApiError(e, "Не вдалося завантажити каталог ролей.")));
   }, []);
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export default function RbacMetadataPage() {
       const r = await apiHttp.get(`/rbac/users/${userId}/effective`);
       setEffective(r.data);
     } catch {
-      setErr("Не вдалося завантажити effective permissions");
+      setErr("Не вдалося завантажити підсумкові дозволи.");
     }
   };
 
@@ -77,11 +78,10 @@ export default function RbacMetadataPage() {
         name: newRoleName.trim(),
         permissionKeys: keys,
       });
-      setMsg("Role created");
+      setMsg("Роль створено.");
       await loadCatalog();
     } catch (e: unknown) {
-      const m = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : "Failed";
-      setErr(m);
+      setErr(getUserFriendlyApiError(e));
     }
   };
 
@@ -91,11 +91,10 @@ export default function RbacMetadataPage() {
     setMsg(null);
     try {
       await apiHttp.post(`/rbac/users/${selectedUserId}/roles`, { roleId: assignRoleId });
-      setMsg("Role assigned");
+      setMsg("Роль призначено.");
       await loadEffective(selectedUserId);
     } catch (e: unknown) {
-      const m = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : "Failed";
-      setErr(m);
+      setErr(getUserFriendlyApiError(e));
     }
   };
 
@@ -111,15 +110,15 @@ export default function RbacMetadataPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
         <Link href="/settings/metadata" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Metadata hub
+          ← Хаб метаданих
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">RBAC catalog</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Каталог ролей та дозволів</h1>
         {err ? <p className="text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-zinc-200 bg-white p-3">
-            <h2 className="text-sm font-semibold text-zinc-900">Roles ({catalog?.roles.length ?? 0})</h2>
+            <h2 className="text-sm font-semibold text-zinc-900">Ролі ({catalog?.roles.length ?? 0})</h2>
             <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs text-zinc-700">
               {(catalog?.roles ?? []).map((ro) => (
                 <li key={ro.id}>
@@ -129,7 +128,7 @@ export default function RbacMetadataPage() {
             </ul>
           </div>
           <div className="rounded-lg border border-zinc-200 bg-white p-3">
-            <h2 className="text-sm font-semibold text-zinc-900">Permissions ({catalog?.permissions.length ?? 0})</h2>
+            <h2 className="text-sm font-semibold text-zinc-900">Дозволи ({catalog?.permissions.length ?? 0})</h2>
             <ul className="mt-2 max-h-80 space-y-1 overflow-y-auto text-xs text-zinc-700">
               {(catalog?.permissions ?? []).map((p) => (
                 <li key={p.id}>
@@ -141,10 +140,10 @@ export default function RbacMetadataPage() {
         </div>
 
         <div className="rounded-lg border border-zinc-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zinc-900">Create custom role</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Створити додаткову роль</h2>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <label className="text-xs text-zinc-600">
-              Key
+              Ключ
               <input
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1 text-sm"
                 value={newRoleKey}
@@ -153,7 +152,7 @@ export default function RbacMetadataPage() {
               />
             </label>
             <label className="text-xs text-zinc-600">
-              Name
+              Назва
               <input
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1 text-sm"
                 value={newRoleName}
@@ -163,7 +162,7 @@ export default function RbacMetadataPage() {
             </label>
           </div>
           <label className="mt-2 block text-xs text-zinc-600">
-            Permission keys (comma-separated)
+            Permission keys (через кому)
             <input
               className="mt-1 w-full rounded border border-zinc-200 px-2 py-1 font-mono text-xs"
               value={newRolePermKeys}
@@ -175,19 +174,19 @@ export default function RbacMetadataPage() {
             className="mt-3 rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
             onClick={() => void createRole()}
           >
-            Create role
+            Створити роль
           </button>
         </div>
 
         <div className="rounded-lg border border-zinc-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zinc-900">Effective permissions</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Підсумкові дозволи</h2>
           <div className="mt-2 flex flex-wrap gap-2">
             <select
               className="rounded border border-zinc-200 px-2 py-1 text-sm"
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
             >
-              <option value="">Select user</option>
+              <option value="">Оберіть користувача</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.fullName ?? u.email ?? u.id}
@@ -199,7 +198,7 @@ export default function RbacMetadataPage() {
               className="rounded border border-zinc-200 px-3 py-1 text-xs"
               onClick={() => void loadEffective(selectedUserId)}
             >
-              Load
+              Завантажити
             </button>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -208,7 +207,7 @@ export default function RbacMetadataPage() {
               value={assignRoleId}
               onChange={(e) => setAssignRoleId(e.target.value)}
             >
-              <option value="">Role to assign</option>
+              <option value="">Роль для призначення</option>
               {customRoles.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.key}
@@ -220,7 +219,7 @@ export default function RbacMetadataPage() {
               className="rounded bg-zinc-800 px-3 py-1 text-xs font-medium text-white"
               onClick={() => void assign()}
             >
-              Assign
+              Призначити
             </button>
           </div>
           {effective ? (

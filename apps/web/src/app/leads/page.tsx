@@ -18,6 +18,8 @@ import { CreateLeadModal } from "./CreateLeadModal";
 import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopover";
 import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
+import { useListColumns } from "@/lib/lists/useListColumns";
+import { renderCellText } from "@/lib/lists/renderCell";
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All statuses" },
@@ -67,6 +69,12 @@ function LeadsPageContent() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
+  const { extraColumns, customValues, loadValuesFor } = useListColumns("LEAD");
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    void loadValuesFor(items.map((l) => l.id));
+  }, [items, loadValuesFor]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -198,7 +206,7 @@ function LeadsPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="Search by name, phone, email, company, message"
+                placeholder="Search by name, phone, email, company, message, address/city"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
                 aria-label="Search leads"
@@ -249,18 +257,23 @@ function LeadsPageContent() {
                 <th className="px-4 py-3">Відповідальний</th>
                 <th className="px-4 py-3">Дата</th>
                 <th className="px-4 py-3 text-right">Дзвінки</th>
+                {extraColumns.map((col) => (
+                  <th key={col.fieldId} className="px-4 py-3">
+                    {col.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                  <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                     Завантаження лідів...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                  <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                     Лідів не знайдено
                   </td>
                 </tr>
@@ -313,6 +326,11 @@ function LeadsPageContent() {
                         )}
                       </div>
                     </td>
+                    {extraColumns.map((col) => (
+                      <td key={col.fieldId} className="px-4 py-4 text-zinc-600">
+                        {renderCellText(col, l as unknown as Record<string, unknown>, customValues)}
+                      </td>
+                    ))}
                   </tr>
                 ))
               )}

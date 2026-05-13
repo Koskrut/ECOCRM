@@ -23,19 +23,24 @@ export default function MetadataSettingsHubPage() {
   }
 
   const links = [
-    { href: "/settings/metadata/custom-fields", title: "Custom fields", desc: "Визначення полів по сутностях CRM" },
-    { href: "/settings/metadata/dictionaries", title: "Dictionaries", desc: "Довідники та елементи" },
-    { href: "/settings/metadata/layouts", title: "Layouts", desc: "Форми, картки, таблиці, фільтри" },
-    { href: "/settings/metadata/workflows", title: "Workflows", desc: "Правила автоматизації" },
-    { href: "/settings/metadata/rbac", title: "RBAC catalog", desc: "Ролі та дозволи (каталог + призначення)" },
-    { href: "/settings/metadata/custom-entities", title: "Custom entities", desc: "Динамічні сутності та записи" },
+    { href: "/settings/metadata/custom-fields", title: "Користувацькі поля", desc: "Визначення полів для сутностей CRM" },
+    { href: "/settings/metadata/dictionaries", title: "Довідники", desc: "Списки значень та елементи" },
+    { href: "/settings/metadata/layouts", title: "Макети інтерфейсу", desc: "Форми, картки, таблиці, фільтри" },
+    {
+      href: "/settings/metadata/list-columns",
+      title: "Колонки списків",
+      desc: "Додаткові колонки в списках компаній, контактів, замовлень і лідів",
+    },
+    { href: "/settings/metadata/workflows", title: "Автоматизації", desc: "Правила автоматизації процесів" },
+    { href: "/settings/metadata/rbac", title: "Ролі та дозволи", desc: "Каталог ролей і призначення прав" },
+    { href: "/settings/metadata/custom-entities", title: "Користувацькі сутності", desc: "Динамічні сутності та їх записи" },
   ];
 
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-2xl font-bold text-zinc-900">Metadata &amp; automation</h1>
-        <p className="mt-1 text-sm text-zinc-500">Налаштування ядра CRM через API-проксі `/api/*`.</p>
+        <h1 className="text-2xl font-bold text-zinc-900">Метадані та автоматизація</h1>
+        <p className="mt-1 text-sm text-zinc-500">Розширені налаштування структури CRM і бізнес-правил.</p>
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {links.map((l) => (
             <Link

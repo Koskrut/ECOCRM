@@ -25,3 +25,20 @@ export function getPhoneNormalizedDigits(phone: string | null | undefined): stri
   if (!e164) return null;
   return e164.replace(/\D/g, "");
 }
+
+/** Candidate normalized digit strings for DB lookup (e.g. 099… and 38099…). */
+export function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
+  const candidates = new Set<string>();
+  candidates.add(phoneNorm);
+  if (phoneNorm.length === 10 && phoneNorm.startsWith("0")) {
+    candidates.add("38" + phoneNorm);
+  }
+  if (phoneNorm.length === 9 && phoneNorm.startsWith("9")) {
+    candidates.add("0" + phoneNorm);
+    candidates.add("380" + phoneNorm);
+  }
+  if (phoneNorm.length === 12 && phoneNorm.startsWith("380")) {
+    candidates.add("0" + phoneNorm.slice(3));
+  }
+  return Array.from(candidates);
+}

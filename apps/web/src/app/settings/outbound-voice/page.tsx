@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { strings } from "@/locales";
 import { ErrorPanel } from "@/components/feedback";
 
@@ -24,11 +25,7 @@ type OutboundVoiceConfig = {
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
+  return getUserFriendlyApiError(e, fallback);
 }
 
 function keysToText(keys: string[] | undefined) {
@@ -94,7 +91,7 @@ export default function OutboundVoiceSettingsPage() {
       setClearApiToken(false);
       setClearWebhookSecret(false);
     } catch (e) {
-      setError(getApiErrorMessage(e, "Не удалось загрузить настройки"));
+      setError(getApiErrorMessage(e, "Не вдалося завантажити налаштування."));
     } finally {
       setLoading(false);
     }
@@ -158,9 +155,9 @@ export default function OutboundVoiceSettingsPage() {
       setWebhookSecret("");
       setClearApiToken(false);
       setClearWebhookSecret(false);
-      setSuccess("Настройки Outbound voice сохранены");
+      setSuccess("Налаштування Outbound voice збережено.");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Не удалось сохранить"));
+      setError(getApiErrorMessage(e, "Не вдалося зберегти налаштування."));
     } finally {
       setSaving(false);
     }
@@ -184,8 +181,8 @@ export default function OutboundVoiceSettingsPage() {
             </Link>
             <h1 className="text-2xl font-bold text-zinc-900">Outbound voice (AI Calls)</h1>
             <p className="mt-1 text-sm text-zinc-500">
-              HTTP-провайдер исходящих звонков и секрет вебхука для событий после звонка. Сценарии и
-              кампании настраиваются в разделе{" "}
+              HTTP-провайдер вихідних дзвінків і секрет вебхука для подій після дзвінка. Сценарії та
+              кампанії налаштовуються в розділі{" "}
               <Link href="/outbound/campaigns" className="text-blue-600 hover:underline">
                 AI Calls
               </Link>
@@ -199,13 +196,13 @@ export default function OutboundVoiceSettingsPage() {
                 : "border-zinc-200 bg-zinc-100 text-zinc-600"
             }`}
           >
-            {configured ? "Провайдер настроен" : "Провайдер не настроен"}
+            {configured ? "Провайдер налаштований" : "Провайдер не налаштований"}
           </div>
         </div>
 
         {loading ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-600 shadow-sm">
-            Загрузка…
+            Завантаження...
           </div>
         ) : (
           <>
@@ -219,9 +216,9 @@ export default function OutboundVoiceSettingsPage() {
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <div className="text-sm font-semibold text-zinc-900">Включить интеграцию</div>
+                  <div className="text-sm font-semibold text-zinc-900">Увімкнути інтеграцію</div>
                   <div className="text-xs text-zinc-500">
-                    При выключении вебхук и исходящие вызовы через провайдера не используются.
+                    Коли вимкнено, вебхук і вихідні виклики через провайдера не використовуються.
                   </div>
                 </div>
                 <button
@@ -263,7 +260,7 @@ export default function OutboundVoiceSettingsPage() {
               <div className="border-t border-zinc-100 pt-4">
                 <label className="block text-sm font-medium text-zinc-900">Режим runtime</label>
                 <p className="mb-1 text-xs text-zinc-500">
-                  Пусто = прежняя логика: при наличии URL и токена — generic HTTP, иначе stub.{" "}
+                  Порожньо = попередня логіка: якщо є URL і токен -> generic HTTP, інакше stub.{" "}
                   <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code> —
                   отдельный путь создания вызова для шлюза Kyivstar/OpenAI.
                 </p>
@@ -382,9 +379,9 @@ export default function OutboundVoiceSettingsPage() {
                   Bearer token провайдера
                 </label>
                 <p className="mb-1 text-xs text-zinc-500">
-                  Сохранённый токен:{" "}
+                  Збережений токен:{" "}
                   <span className="font-mono text-zinc-700">{config?.apiTokenMasked || "—"}</span>.
-                  Введите новое значение, чтобы заменить.
+                  Введіть нове значення, щоб замінити.
                 </p>
                 <input
                   type="password"
@@ -408,7 +405,7 @@ export default function OutboundVoiceSettingsPage() {
                     }}
                     className="rounded border-zinc-300"
                   />
-                  Удалить сохранённый токен
+                  Видалити збережений токен
                 </label>
               </div>
 
@@ -453,7 +450,7 @@ export default function OutboundVoiceSettingsPage() {
                     setClearWebhookSecret(false);
                   }}
                   disabled={clearWebhookSecret}
-                  placeholder="Новый секрет или пусто"
+                  placeholder="Новий секрет або порожньо"
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm disabled:bg-zinc-100"
                 />
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600">
@@ -466,7 +463,7 @@ export default function OutboundVoiceSettingsPage() {
                     }}
                     className="rounded border-zinc-300"
                   />
-                  Удалить сохранённый секрет вебхука
+                  Видалити збережений секрет вебхука
                 </label>
               </div>
 
@@ -476,7 +473,7 @@ export default function OutboundVoiceSettingsPage() {
                 disabled={saving}
                 className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {saving ? "Сохранение…" : "Сохранить"}
+                {saving ? "Збереження..." : "Зберегти"}
               </button>
             </div>
 
@@ -491,7 +488,7 @@ export default function OutboundVoiceSettingsPage() {
               <ul className="list-inside list-disc space-y-1 text-zinc-600">
                 <li>
                   Заголовок: <code className="rounded bg-white px-1">x-outbound-voice-secret</code>{" "}
-                  = тот же секрет, что выше.
+                  = той самий секрет, що вище.
                 </li>
                 <li>
                   В теле можно передавать{" "}
@@ -500,7 +497,7 @@ export default function OutboundVoiceSettingsPage() {
                   Call в CRM.
                 </li>
                 <li>
-                  Пост-анализ транскрипта использует OpenAI (тот же ключ, что для Telegram Inbox AI,
+                  Пост-аналіз транскрипту використовує OpenAI (той самий ключ, що для Telegram Inbox AI,
                   или переменная окружения на сервере).
                 </li>
                 <li>

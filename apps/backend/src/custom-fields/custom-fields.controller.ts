@@ -35,6 +35,14 @@ export class CustomFieldsController {
     return this.customFields.listDefinitions(parsed);
   }
 
+  /** Active definitions for one entity type — MetadataRead (UI forms); no admin-only fields. */
+  @Get("field-schema")
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD, UserRole.USER)
+  @RequirePermission(PermissionKeys.MetadataRead)
+  listFieldSchema(@Query("entityType") entityType: string) {
+    return this.customFields.listFieldSchema(entityType);
+  }
+
   @Post("definitions")
   @Roles(UserRole.ADMIN)
   @RequirePermission(PermissionKeys.CustomFieldsManage)
@@ -93,6 +101,13 @@ export class CustomFieldsController {
   @RequirePermission(PermissionKeys.MetadataRead)
   listValues(@Param("entityType") entityType: string, @Param("entityId") entityId: string) {
     return this.customFields.listValues(entityType, entityId);
+  }
+
+  @Post("values/batch")
+  @Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD, UserRole.USER)
+  @RequirePermission(PermissionKeys.MetadataRead)
+  batchValues(@Body() body: { entityType?: unknown; entityIds?: unknown; definitionKeys?: unknown }) {
+    return this.customFields.batchValues(body ?? {});
   }
 
   @Put("values/:definitionIdOrKey/:entityId")

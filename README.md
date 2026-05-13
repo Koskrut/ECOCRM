@@ -210,7 +210,7 @@ docker compose \
 
 ### Rollback
 
-1. Верни предыдущий tag в `.env`, например `BACKEND_VERSION=0.1.0`.
+1. Верни предыдущий tag в `.env`, например `BACKEND_VERSION=0.1.19`.
 2. Pull старого image и перезапусти сервис:
    ```bash
    docker compose -f compose.base.yml -f compose.client.yml --env-file .env pull backend
@@ -220,21 +220,21 @@ docker compose \
 
 ### Compatibility window
 
-Текущая Track D delivery line: `0.1.x`.
+Текущая линия поставки registry: **`0.2.x`** (минор **0.2.0** и patch внутри неё). Линия **`0.1.x`** остаётся для уже развёрнутых клиентов до перехода на `0.2.x`.
 
 | Component | Compatible versions |
 | --- | --- |
-| `crm-backend-core` | `0.1.x` |
-| `crm-web` | `0.1.x` |
-| `crm-store` | `0.1.x` |
-| `compose.base.yml` | `0.1.x` delivery line |
-| `compose.client.yml` | `0.1.x` delivery line |
-| `compose.modules.*.yml` | `0.1.x` delivery line |
+| `crm-backend-core` | `0.2.x` (новые релизы); `0.1.x` (наследие) |
+| `crm-web` | `0.2.x`; `0.1.x` |
+| `crm-store` | `0.2.x`; `0.1.x` |
+| `compose.base.yml` | та же минор-линия, что и образы |
+| `compose.client.yml` | та же минор-линия, что и образы |
+| `compose.modules.*.yml` | та же минор-линия, что и образы |
 
 Правила совместимости:
 
-- Patch releases внутри `0.1.x` считаются совместимыми между core/web/store и compose files.
-- Minor bump, например `0.2.0`, требует review compose/env/migrations перед обновлением клиента.
+- Patch releases внутри одной минор-линии (`0.2.x`, ранее `0.1.x`) считаются совместимыми между core/web/store и compose files.
+- Minor bump (`0.1.x` → `0.2.0`) требует review compose/env/migrations и лицензии перед обновлением клиента.
 - D3 module overlays пока являются config overlays для in-process modules внутри `crm-backend-core`, а не отдельными `crm-module-*` images.
 - Rollback image tag безопасен только если применённые DB migrations совместимы назад. Если migration уже изменила данные или схему несовместимо, rollback начинается с восстановления PostgreSQL backup.
 - `v1.0.0` зарезервирован для первого платного production-клиента.

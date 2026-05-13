@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { ErrorPanel } from "@/components/feedback";
 
 function initialBackfillDates(): { from: string; to: string } {
@@ -65,10 +66,7 @@ export default function RingostatSettingsPage() {
         const p = data.phonesToUserId ?? {};
         setPhones(Object.entries(p).map(([phone, userId]) => ({ phone, userId })));
       } catch (e) {
-        const msg =
-          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to load Ringostat settings");
-        setError(msg);
+        setError(getUserFriendlyApiError(e, "Не вдалося завантажити налаштування Ringostat."));
       } finally {
         setLoading(false);
       }
@@ -132,12 +130,9 @@ export default function RingostatSettingsPage() {
       setExtensions(Object.entries(ext).map(([extension, userId]) => ({ extension, userId })));
       const p = res.data.phonesToUserId ?? {};
       setPhones(Object.entries(p).map(([phone, userId]) => ({ phone, userId })));
-      setSuccess("Настройки Ringostat сохранены");
+      setSuccess("Налаштування Ringostat збережено.");
     } catch (e) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to save Ringostat settings");
-      setError(msg);
+      setError(getUserFriendlyApiError(e, "Не вдалося зберегти налаштування Ringostat."));
     } finally {
       setSaving(false);
     }
@@ -182,13 +177,13 @@ export default function RingostatSettingsPage() {
       }>("/settings/ringostat/backfill", { from: fromIso, to: toIso }, { timeout: 600_000 });
       const data = r.data;
       setBackfillMsg(
-        `Готово: запросов к API ${data.chunks}, записей в ответах ${data.totalEvents}. Повторный импорт безопасен (звонки с тем же id обновляются).`,
+        `Готово: API-запитів ${data.chunks}, записів у відповідях ${data.totalEvents}. Повторний імпорт безпечний (дзвінки з тим самим id оновлюються).`,
       );
     } catch (e) {
       const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data
         ?.message;
       const text = Array.isArray(msg) ? msg.join(", ") : msg;
-      setError(text ?? (e instanceof Error ? e.message : "Не удалось выполнить импорт"));
+      setError(text ?? getUserFriendlyApiError(e, "Не вдалося виконати імпорт."));
     } finally {
       setBackfillBusy(false);
     }
@@ -198,16 +193,16 @@ export default function RingostatSettingsPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-4xl space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Ringostat integration</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">Інтеграція Ringostat</h1>
           <p className="text-sm text-zinc-500">
-            Настройки телефонии Ringostat: включение, режимы webhook/polling и маппинг внутренних
-            линий на пользователей CRM.
+            Налаштування телефонії Ringostat: увімкнення інтеграції, webhook/polling режими та
+            прив'язка внутрішніх ліній до користувачів CRM.
           </p>
         </div>
 
         {loading ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-600 shadow-sm">
-            Загрузка настроек…
+            Завантаження налаштувань...
           </div>
         ) : (
           <>
@@ -227,10 +222,10 @@ export default function RingostatSettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">
-                    Включить интеграцию Ringostat
+                    Увімкнути інтеграцію Ringostat
                   </div>
                   <div className="text-xs text-zinc-500">
-                    При выключенной интеграции вебхуки и polling будут игнорироваться.
+                    Коли інтеграцію вимкнено, вебхуки та polling ігноруються.
                   </div>
                 </div>
                 <button
@@ -271,14 +266,14 @@ export default function RingostatSettingsPage() {
                     </button>
                   </label>
                   <p className="text-xs text-zinc-500">
-                    При включенном режиме ожидается POST запрос на{" "}
+                    Увімкнений режим очікує POST-запит на{" "}
                     <code>/integrations/ringostat/webhook</code>.
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <label className="flex items-center justify-between gap-2 text-sm font-medium text-zinc-900">
-                    <span>Polling (резервный источник)</span>
+                    <span>Polling (резервне джерело)</span>
                     <button
                       type="button"
                       onClick={() => handleToggle("usePolling")}
@@ -296,15 +291,15 @@ export default function RingostatSettingsPage() {
                     </button>
                   </label>
                   <p className="text-xs text-zinc-500">
-                    При включении система будет периодически опрашивать Ringostat API для
-                    подтягивания звонков и записей.
+                    Увімкнений polling періодично опитує Ringostat API для підтягування дзвінків і
+                    записів.
                   </p>
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="block text-xs font-medium text-zinc-700">Webhook secret</label>
+                  <label className="block text-xs font-medium text-zinc-700">Секрет вебхука</label>
                   <input
                     type="password"
                     autoComplete="off"
@@ -313,12 +308,12 @@ export default function RingostatSettingsPage() {
                     onChange={(e) => setWebhookSecret(e.target.value)}
                     placeholder={
                       config?.webhookSecretMasked
-                        ? "•••••••• — введите новый для смены"
-                        : "Тот же секрет укажите в ЛК Ringostat в настройках вебхука"
+                        ? "•••••••• — введіть новий, щоб змінити"
+                        : "Той самий секрет вкажіть у кабінеті Ringostat в налаштуваннях вебхука"
                     }
                   />
                   <p className="text-xs text-zinc-500">
-                    Заголовок в ЛК Ringostat: X-Ringostat-Webhook-Secret
+                    Заголовок у кабінеті Ringostat: X-Ringostat-Webhook-Secret
                   </p>
                 </div>
                 <div className="space-y-1">
@@ -333,7 +328,7 @@ export default function RingostatSettingsPage() {
                     placeholder="https://xxxx.ngrok-free.app"
                   />
                   <p className="text-xs text-zinc-500">
-                    URL бэкенда для вебхука. Скопируйте Webhook URL ниже в ЛК Ringostat.
+                    URL бекенду для вебхука. Скопіюйте Webhook URL нижче у кабінет Ringostat.
                   </p>
                 </div>
               </div>
@@ -347,7 +342,7 @@ export default function RingostatSettingsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-zinc-700">
-                    API Token (Auth key)
+                    API token (ключ доступу)
                   </label>
                   <input
                     type="password"
@@ -357,8 +352,8 @@ export default function RingostatSettingsPage() {
                     onChange={(e) => setApiTokenValue(e.target.value)}
                     placeholder={
                       config?.apiTokenMasked
-                        ? "•••••••• — введите новый для смены"
-                        : "Ключ из Ringostat → Интеграции → Ringostat API"
+                        ? "•••••••• — введіть новий, щоб змінити"
+                        : "Ключ із Ringostat -> Інтеграції -> Ringostat API"
                     }
                   />
                 </div>
@@ -374,7 +369,7 @@ export default function RingostatSettingsPage() {
                         projectId: e.target.value || undefined,
                       }))
                     }
-                    placeholder="ID проекта из Ringostat"
+                    placeholder="ID проєкту з Ringostat"
                   />
                 </div>
               </div>
@@ -382,7 +377,7 @@ export default function RingostatSettingsPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-zinc-700">
-                    Окно polling, минут
+                    Вікно polling, хвилин
                   </label>
                   <input
                     type="number"
@@ -400,7 +395,7 @@ export default function RingostatSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-zinc-700">
-                    API base URL (опционально)
+                    API base URL (необов'язково)
                   </label>
                   <input
                     type="text"
@@ -417,7 +412,7 @@ export default function RingostatSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-zinc-700">
-                    Polling endpoint (опционально)
+                    Polling endpoint (необов'язково)
                   </label>
                   <input
                     type="text"
@@ -436,18 +431,18 @@ export default function RingostatSettingsPage() {
 
               <div className="border-t border-zinc-100 pt-4">
                 <h2 className="text-sm font-semibold text-zinc-900">
-                  Импорт истории звонков (API)
+                  Імпорт історії дзвінків (API)
                 </h2>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Подтягивает звонки из Ringostat{" "}
+                  Підтягує дзвінки з Ringostat{" "}
                   <code className="rounded bg-zinc-100 px-0.5">/calls/list</code> за выбранные
-                  календарные дни (UTC). Запросы идут чанками по 2 суток с перекрытием 15 минут,
-                  чтобы не терять записи на границах. Нужен сохранённый API token (и те же project
-                  ID / endpoint, что для polling).
+                  за вибрані календарні дні (UTC). Запити йдуть чанками по 2 доби з перекриттям 15
+                  хвилин, щоб не втрачати записи на межах. Потрібен збережений API token (і ті самі
+                  project ID / endpoint, що й для polling).
                 </p>
                 <div className="mt-3 flex flex-wrap items-end gap-3">
                   <div className="space-y-1">
-                    <label className="block text-xs font-medium text-zinc-700">С даты (UTC)</label>
+                    <label className="block text-xs font-medium text-zinc-700">З дати (UTC)</label>
                     <input
                       type="date"
                       className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
@@ -456,7 +451,7 @@ export default function RingostatSettingsPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="block text-xs font-medium text-zinc-700">По дату (UTC)</label>
+                    <label className="block text-xs font-medium text-zinc-700">До дати (UTC)</label>
                     <input
                       type="date"
                       className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
@@ -470,7 +465,7 @@ export default function RingostatSettingsPage() {
                     onClick={() => void runBackfill()}
                     className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 disabled:opacity-50"
                   >
-                    {backfillBusy ? "Импорт…" : "Запустить импорт"}
+                    {backfillBusy ? "Імпорт..." : "Запустити імпорт"}
                   </button>
                 </div>
               </div>
@@ -478,15 +473,15 @@ export default function RingostatSettingsPage() {
 
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-zinc-900">
-                Маппинг внутренних линий → пользователи CRM
+                Мапінг внутрішніх ліній -> користувачі CRM
               </h2>
               <p className="text-xs text-zinc-500">
-                Ответственный менеджер определяется только по этой таблице (ключ — значение
-                добавочного из Ringostat, например{" "}
+                Відповідальний менеджер визначається лише за цією таблицею (ключ - значення
+                додаткового номера з Ringostat, наприклад{" "}
                 <code className="rounded bg-zinc-100 px-0.5">extension_number</code>
-                из вебхука). Если добавочного нет в таблице, в настройках интеграции можно задать{" "}
-                <code className="rounded bg-zinc-100 px-0.5">defaultManagerId</code> (fallback на
-                одного пользователя).
+                з вебхука). Якщо додаткового номера немає в таблиці, в налаштуваннях інтеграції
+                можна вказати <code className="rounded bg-zinc-100 px-0.5">defaultManagerId</code>{" "}
+                (fallback на одного користувача).
               </p>
 
               <div className="overflow-hidden rounded-md border border-zinc-200">
@@ -502,7 +497,7 @@ export default function RingostatSettingsPage() {
                     {extensions.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
-                          Пока нет ни одной записи. Добавьте соответствие extension → userId.
+                          Поки що немає жодного запису. Додайте відповідність extension -> userId.
                         </td>
                       </tr>
                     ) : (
@@ -530,7 +525,7 @@ export default function RingostatSettingsPage() {
                               onClick={() => removeExtensionRow(idx)}
                               className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-50"
                             >
-                              Удалить
+                              Видалити
                             </button>
                           </td>
                         </tr>
@@ -544,20 +539,20 @@ export default function RingostatSettingsPage() {
                 onClick={addExtensionRow}
                 className="rounded-md border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
               >
-                + Добавить extension
+                + Додати extension
               </button>
             </div>
 
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-zinc-900">
-                Маппинг рабочего телефона → пользователи CRM (fallback)
+                Мапінг робочого телефону -> користувачі CRM (fallback)
               </h2>
               <p className="text-xs text-zinc-500">
-                Ringostat иногда не присылает{" "}
-                <code className="rounded bg-zinc-100 px-0.5">extension_number</code>. Тогда менеджер
-                определяется по номеру линии/телефона из{" "}
+                Ringostat інколи не надсилає{" "}
+                <code className="rounded bg-zinc-100 px-0.5">extension_number</code>. Тоді менеджер
+                визначається за номером лінії/телефону з{" "}
                 <code className="rounded bg-zinc-100 px-0.5">toNormalized</code>. Формат номера
-                любой — сравнение идёт по цифрам.
+                довільний - порівняння йде за цифрами.
               </p>
 
               <div className="overflow-hidden rounded-md border border-zinc-200">
@@ -573,7 +568,7 @@ export default function RingostatSettingsPage() {
                     {phones.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
-                          Пока нет ни одной записи. Добавьте соответствие телефон → userId.
+                          Поки що немає жодного запису. Додайте відповідність телефон -> userId.
                         </td>
                       </tr>
                     ) : (
@@ -601,7 +596,7 @@ export default function RingostatSettingsPage() {
                               onClick={() => removePhoneRow(idx)}
                               className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-50"
                             >
-                              Удалить
+                              Видалити
                             </button>
                           </td>
                         </tr>
@@ -615,7 +610,7 @@ export default function RingostatSettingsPage() {
                 onClick={addPhoneRow}
                 className="rounded-md border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
               >
-                + Добавить телефон
+                + Додати телефон
               </button>
             </div>
 
@@ -626,7 +621,7 @@ export default function RingostatSettingsPage() {
                 disabled={saving}
                 className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 disabled:opacity-50"
               >
-                {saving ? "Сохранение…" : "Сохранить"}
+                {saving ? "Збереження..." : "Зберегти"}
               </button>
             </div>
           </>

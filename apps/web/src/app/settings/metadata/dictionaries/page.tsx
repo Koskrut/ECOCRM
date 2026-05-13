@@ -44,23 +44,23 @@ export default function DictionariesMetadataPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-5xl">
         <Link href="/settings/metadata" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Metadata hub
+          ← Хаб метаданих
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Dictionaries</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Довідники</h1>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-emerald-700">{msg}</p> : null}
         <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Create dictionary</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Створити довідник</h2>
           <div className="mt-2 flex flex-wrap gap-2">
             <input
               className="min-w-[10rem] rounded border border-zinc-200 px-2 py-1 font-mono text-xs"
-              placeholder="key (e.g. region.ukr)"
+              placeholder="Ключ (наприклад region.ukr)"
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
             />
             <input
               className="min-w-[12rem] flex-1 rounded border border-zinc-200 px-2 py-1 text-sm"
-              placeholder="Display name"
+              placeholder="Назва довідника"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
             />
@@ -73,13 +73,13 @@ export default function DictionariesMetadataPage() {
                 void apiHttp
                   .post("/dictionaries", { key: newKey.trim(), name: newName.trim() })
                   .then(() => {
-                    setMsg("Created");
+                    setMsg("Довідник створено.");
                     void refresh();
                   })
-                  .catch(() => setErr("Create failed"));
+                  .catch(() => setErr("Не вдалося створити довідник."));
               }}
             >
-              Create
+              Створити
             </button>
           </div>
         </div>
@@ -87,7 +87,7 @@ export default function DictionariesMetadataPage() {
           {rows.map((d) => (
             <li key={d.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm">
               <span className="font-mono text-xs text-zinc-600">{d.key}</span> — {d.name}
-              <span className="ml-2 text-xs text-zinc-400">items: {d._count?.items ?? 0}</span>
+              <span className="ml-2 text-xs text-zinc-400">елементів: {d._count?.items ?? 0}</span>
             </li>
           ))}
         </ul>

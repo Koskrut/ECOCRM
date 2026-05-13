@@ -1,6 +1,7 @@
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { ActivityType, LeadSource, LeadStatus } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
+import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export const RINGOSTAT_PROVIDER = "RINGOSTAT";
@@ -59,7 +60,10 @@ type NormalizedRecording = {
 export class RingostatIngestService {
   private readonly logger = new Logger(RingostatIngestService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly phoneEntityLookup: PhoneEntityLookupService,
+  ) {}
 
   private digitsOnly(v: string): string {
     return (v || "").replace(/\D/g, "");
@@ -937,24 +941,14 @@ export class RingostatIngestService {
 
     const candidates = this.phoneNormalizedCandidates(customerPhoneNormalized);
 
-    // 1) Try to find Contact by primary or additional phone (same candidate formats).
-    for (const key of candidates) {
-      const contact = await this.prisma.contact.findFirst({
-        where: {
-          OR: [
-            { phoneNormalized: key },
-            { phones: { some: { phoneNormalized: key } } },
-          ],
-        },
-        select: { id: true, companyId: true },
-      });
-      if (contact) {
-        return {
-          contactId: contact.id,
-          leadId: null,
-          companyId: contact.companyId ?? null,
-        };
-      }
+    // 1) Contact by primary or additional phone (all candidate formats in one query).
+    const contactByPhone = await this.phoneEntityLookup.findContactByNormalizedKeys(candidates);
+    if (contactByPhone) {
+      return {
+        contactId: contactByPhone.id,
+        leadId: null,
+        companyId: contactByPhone.companyId ?? null,
+      };
     }
 
     // 1b) Fallback: contacts with phoneNormalized null (e.g. legacy) — match by phone field.
@@ -1009,6 +1003,15 @@ export class RingostatIngestService {
     if (!company) {
       this.logger.warn("No company found while creating lead for Ringostat call");
       return { contactId: null, leadId: null, companyId: null };
+    }
+
+    const companyIdFromPhone = await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates);
+    if (companyIdFromPhone) {
+      return {
+        contactId: null,
+        leadId: null,
+        companyId: companyIdFromPhone,
+      };
     }
 
     const name =

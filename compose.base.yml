@@ -20,8 +20,14 @@ services:
   backend-migrate:
     image: ghcr.io/koskrut/${BACKEND_IMAGE_NAME:-crm-backend-core}:${BACKEND_VERSION:?Set BACKEND_VERSION}
     restart: "no"
-    working_dir: /app
-    command: ["npx", "prisma", "migrate", "deploy"]
+    platform: linux/amd64
+    # Images may use monorepo layout (/repo/apps/backend) or flat runtime (/app); support both.
+    command:
+      [
+        "sh",
+        "-ec",
+        "if test -f /repo/apps/backend/prisma/schema.prisma; then cd /repo/apps/backend; elif test -f /app/prisma/schema.prisma; then cd /app; else echo 'Could not find prisma/schema.prisma'; exit 1; fi; exec npx prisma migrate deploy",
+      ]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
     depends_on:
@@ -31,6 +37,7 @@ services:
   backend:
     image: ghcr.io/koskrut/${BACKEND_IMAGE_NAME:-crm-backend-core}:${BACKEND_VERSION:?Set BACKEND_VERSION}
     restart: unless-stopped
+    platform: linux/amd64
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-crm}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crm}
@@ -56,6 +63,7 @@ services:
   web:
     image: ghcr.io/koskrut/crm-web:${WEB_VERSION:?Set WEB_VERSION}
     restart: unless-stopped
+    platform: linux/amd64
     environment:
       NODE_ENV: production
       API_URL: http://backend:3001

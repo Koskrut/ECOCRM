@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 
@@ -16,11 +17,7 @@ type TelegramConfig = {
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
+  return getUserFriendlyApiError(e, fallback);
 }
 
 export default function TelegramSettingsPage() {
@@ -56,7 +53,7 @@ export default function TelegramSettingsPage() {
       setAiOpenaiApiKey("");
       setAiModel(data.aiModel ?? "");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load settings"));
+      setError(getApiErrorMessage(e, "Не вдалося завантажити налаштування."));
     } finally {
       setLoading(false);
     }
@@ -90,7 +87,7 @@ export default function TelegramSettingsPage() {
       setAiEnabled(data.aiEnabled ?? aiEnabled);
       setAiModel(data.aiModel ?? aiModel);
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to save"));
+      setError(getApiErrorMessage(e, "Не вдалося зберегти налаштування."));
     } finally {
       setSaving(false);
     }
@@ -107,7 +104,7 @@ export default function TelegramSettingsPage() {
       setLinkToken(res.data?.token ?? null);
       setLinkBotUsername(res.data?.botUsername ?? "бот");
     } catch (e) {
-      setLinkError(getApiErrorMessage(e, "Не удалось запросить ссылку"));
+      setLinkError(getApiErrorMessage(e, "Не вдалося створити посилання для підключення."));
     } finally {
       setLinkLoading(false);
     }

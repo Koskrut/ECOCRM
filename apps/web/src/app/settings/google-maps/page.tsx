@@ -3,18 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 
 type GoogleMapsConfigResponse = {
   mapsApiKeyMasked?: string;
 };
-
-function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
-}
 
 export default function GoogleMapsSettingsPage() {
   const [config, setConfig] = useState<GoogleMapsConfigResponse>({});
@@ -32,7 +25,7 @@ export default function GoogleMapsSettingsPage() {
       setConfig(data);
       setMapsApiKey("");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load settings"));
+      setError(getUserFriendlyApiError(e, "Не вдалося завантажити налаштування."));
     } finally {
       setLoading(false);
     }
@@ -53,7 +46,7 @@ export default function GoogleMapsSettingsPage() {
       setConfig(data);
       setMapsApiKey("");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to save"));
+      setError(getUserFriendlyApiError(e, "Не вдалося зберегти налаштування."));
     } finally {
       setSaving(false);
     }
@@ -67,7 +60,7 @@ export default function GoogleMapsSettingsPage() {
             href="/settings"
             className="inline-flex items-center text-sm text-zinc-600 hover:text-zinc-900"
           >
-            ← Back to Settings
+            ← До налаштувань
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Google Maps</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -82,7 +75,7 @@ export default function GoogleMapsSettingsPage() {
         )}
 
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-zinc-500">Завантаження...</p>
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="space-y-4">

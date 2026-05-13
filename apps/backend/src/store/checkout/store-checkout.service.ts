@@ -99,6 +99,16 @@ export class StoreCheckoutService {
       contact = await this.contactsService.findContactByPhone(candidate);
       if (contact) break;
     }
+
+    const org = await this.settings.getOrgChartStructure();
+    const assignment = resolveAssignedManagerForRegion(org, region);
+    const ownerIdFromRegion = assignment?.managerId ?? null;
+    const storeOwnerId = process.env.STORE_OWNER_ID?.trim() || null;
+    const ownerId = ownerIdFromRegion || storeOwnerId;
+    if (!ownerId) {
+      throw new BadRequestException("Для обраної області не призначено менеджера");
+    }
+
     const lastName = (dto.lastName ?? "").trim() || "—";
     const email = (dto.email ?? "").trim() || null;
     if (!contact) {
@@ -109,13 +119,24 @@ export class StoreCheckoutService {
           phone: normalizePhoneToE164(rawPhone) ?? (rawPhone || phoneNorm),
           email,
           region,
+          ownerId,
         },
         undefined,
       ) as { id: string };
     } else {
+      const existingOwner = await this.prisma.contact.findUnique({
+        where: { id: contact.id },
+        select: { ownerId: true },
+      });
       await this.contactsService.update(
         contact.id,
-        { firstName, lastName, email, region },
+        {
+          firstName,
+          lastName,
+          email,
+          region,
+          ...(!existingOwner?.ownerId ? { ownerId } : {}),
+        },
         undefined,
       );
     }
@@ -350,15 +371,6 @@ export class StoreCheckoutService {
           },
         };
       }
-    }
-
-    const org = await this.settings.getOrgChartStructure();
-    const assignment = resolveAssignedManagerForRegion(org, region);
-    const ownerIdFromRegion = assignment?.managerId ?? null;
-    const storeOwnerId = process.env.STORE_OWNER_ID?.trim() || null;
-    const ownerId = ownerIdFromRegion || storeOwnerId;
-    if (!ownerId) {
-      throw new BadRequestException("Для обраної області не призначено менеджера");
     }
 
     const rates = await this.settings.getExchangeRates();

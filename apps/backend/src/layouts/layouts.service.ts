@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { CustomFieldEntityType, Prisma } from "@prisma/client";
+import { CustomFieldEntityType, LayoutType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   normalizeColumns,
@@ -251,6 +251,62 @@ export class LayoutsService {
       include: { customFieldDefinition: true },
     });
     return { field };
+  }
+
+  /**
+   * Ensures a default TABLE layout exists for the entity (used to back the
+   * "list columns" admin UI). Creates the layout + a single "columns" section
+   * on first call; subsequent calls just return the existing layout.
+   */
+  async ensureDefaultListLayout(entityTypeRaw: unknown) {
+    const entityType = parseLayoutEntityType(entityTypeRaw);
+    const key = `${entityType.toLowerCase()}.list.default`;
+
+    let layout = await this.prisma.layoutDefinition.findFirst({
+      where: { entityType, type: LayoutType.TABLE, key, deletedAt: null },
+      include: LAYOUT_INCLUDE,
+    });
+
+    if (!layout) {
+      layout = await this.prisma.layoutDefinition.create({
+        data: {
+          entityType,
+          type: LayoutType.TABLE,
+          key,
+          name: `${entityType} list columns`,
+          description: "Default list columns configured by admin",
+          isDefault: true,
+          isActive: true,
+          sections: {
+            create: {
+              key: "columns",
+              title: "Columns",
+              sortOrder: 0,
+              columns: 1,
+              isActive: true,
+            },
+          },
+        },
+        include: LAYOUT_INCLUDE,
+      });
+    } else if (layout.sections.length === 0) {
+      await this.prisma.layoutSection.create({
+        data: {
+          layoutId: layout.id,
+          key: "columns",
+          title: "Columns",
+          sortOrder: 0,
+          columns: 1,
+          isActive: true,
+        },
+      });
+      layout = await this.prisma.layoutDefinition.findFirst({
+        where: { id: layout.id },
+        include: LAYOUT_INCLUDE,
+      });
+    }
+
+    return { layout };
   }
 
   private async normalizeFieldReference(entityType: CustomFieldEntityType, body: UpsertLayoutFieldDto) {

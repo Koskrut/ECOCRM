@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 
@@ -9,14 +10,6 @@ type ExchangeRates = {
   UAH_TO_USD: number;
   EUR_TO_USD: number;
 };
-
-function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
-}
 
 export default function ExchangeRatesSettingsPage() {
   const [uahInput, setUahInput] = useState("");
@@ -34,7 +27,7 @@ export default function ExchangeRatesSettingsPage() {
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : "41.5");
       setEurInput(data.EUR_TO_USD.toString());
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load exchange rates"));
+      setError(getUserFriendlyApiError(e, "Не вдалося завантажити курси валют."));
     } finally {
       setLoading(false);
     }
@@ -62,7 +55,7 @@ export default function ExchangeRatesSettingsPage() {
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : uahInput);
       setEurInput(data.EUR_TO_USD.toString());
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to save"));
+      setError(getUserFriendlyApiError(e, "Не вдалося зберегти курси валют."));
     } finally {
       setSaving(false);
     }

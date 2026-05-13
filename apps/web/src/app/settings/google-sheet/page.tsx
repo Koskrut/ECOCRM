@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 
@@ -13,11 +14,7 @@ type GoogleSheetConfigResponse = {
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
+  return getUserFriendlyApiError(e, fallback);
 }
 
 export default function GoogleSheetSettingsPage() {
@@ -42,7 +39,7 @@ export default function GoogleSheetSettingsPage() {
       setWebhookSecretOut("");
       setWebhookSecretIn("");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load settings"));
+      setError(getApiErrorMessage(e, "Не вдалося завантажити налаштування."));
     } finally {
       setLoading(false);
     }
@@ -68,7 +65,7 @@ export default function GoogleSheetSettingsPage() {
       setWebhookSecretOut("");
       setWebhookSecretIn("");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to save"));
+      setError(getApiErrorMessage(e, "Не вдалося зберегти налаштування."));
     } finally {
       setSaving(false);
     }

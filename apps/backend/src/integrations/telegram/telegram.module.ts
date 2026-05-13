@@ -1,5 +1,6 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { AuthModule } from "../../auth/auth.module";
+import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { ContactsModule } from "../../contacts/contacts.module";
 import { IntegrationPortsModule } from "../../integration-ports/integration-ports.module";
 import { PrismaModule } from "../../prisma/prisma.module";
@@ -20,7 +21,13 @@ import { TelegramService } from "./telegram.service";
     forwardRef(() => AuthModule),
   ],
   controllers: [TelegramController, ConversationsController],
-  providers: [TelegramService, TelegramAiService, ConversationsService, TelegramIntegrationAdapter],
+  providers: [
+    PhoneEntityLookupService,
+    TelegramService,
+    TelegramAiService,
+    ConversationsService,
+    TelegramIntegrationAdapter,
+  ],
   exports: [TelegramService],
 })
 export class TelegramModule {}

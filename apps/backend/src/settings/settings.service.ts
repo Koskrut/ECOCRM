@@ -380,7 +380,7 @@ export class SettingsService {
 
   /**
    * Public pixel id for embedding in the web app (no auth).
-   * DB value wins; optional fallback `FB_PIXEL_ID` on the API server.
+   * UI-stored value only (no .env fallback).
    */
   async getMetaLeadAdsPublicConfig(): Promise<{ fbPixelId: string | null }> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -391,8 +391,7 @@ export class SettingsService {
       const v = row.value as Record<string, unknown>;
       fromDb = typeof v.fbPixelId === "string" ? v.fbPixelId.trim() : "";
     }
-    const fromEnv = process.env.FB_PIXEL_ID?.trim() ?? "";
-    const raw = fromDb || fromEnv;
+    const raw = fromDb;
     if (!raw) return { fbPixelId: null };
     if (!/^\d+$/.test(raw)) return { fbPixelId: null };
     return { fbPixelId: raw };
@@ -677,7 +676,7 @@ export class SettingsService {
     const openaiApiKey =
       typeof v.aiOpenaiApiKey === "string" && v.aiOpenaiApiKey
         ? v.aiOpenaiApiKey
-        : (process.env.OPENAI_API_KEY as string) || null;
+        : null;
     const model = typeof v.aiModel === "string" && v.aiModel ? v.aiModel : "gpt-4o-mini";
     return { enabled, openaiApiKey, model };
   }
@@ -874,12 +873,11 @@ export class SettingsService {
       : [];
     const pathRaw = typeof cfg.createCallPath === "string" ? cfg.createCallPath.trim() : "";
     const gwPathRaw = typeof cfg.gatewayCreateCallPath === "string" ? cfg.gatewayCreateCallPath.trim() : "";
-    const envPublic = process.env.OUTBOUND_VOICE_PUBLIC_BASE_URL?.trim();
     const cfgPublic =
       typeof cfg.publicWebhookBaseUrl === "string" && cfg.publicWebhookBaseUrl.trim()
         ? cfg.publicWebhookBaseUrl.trim()
         : null;
-    const publicWebhookBaseUrl = envPublic || cfgPublic || null;
+    const publicWebhookBaseUrl = cfgPublic || null;
     const mode =
       cfg.runtimeMode === "stub" ||
       cfg.runtimeMode === "generic_http" ||

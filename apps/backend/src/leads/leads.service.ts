@@ -106,6 +106,7 @@ export class LeadsService {
 
   private buildListWhere(q: ListLeadsQueryDto, actor?: AuthUser): Prisma.LeadWhereInput {
     const where: Prisma.LeadWhereInput = {};
+    const andParts: Prisma.LeadWhereInput[] = [];
 
     if (q.status) where.status = q.status as LeadStatus;
     if (q.source) where.source = q.source as LeadSource;
@@ -120,7 +121,8 @@ export class LeadsService {
     if (q.q) {
       const search = q.q.trim();
       if (search.length > 0) {
-        where.OR = [
+        const phoneDigits = search.replace(/\D/g, "");
+        const searchOr: Prisma.LeadWhereInput[] = [
           { name: { contains: search, mode: "insensitive" } },
           { fullName: { contains: search, mode: "insensitive" } },
           { firstName: { contains: search, mode: "insensitive" } },
@@ -130,13 +132,22 @@ export class LeadsService {
           { email: { contains: search, mode: "insensitive" } },
           { companyName: { contains: search, mode: "insensitive" } },
           { message: { contains: search, mode: "insensitive" } },
+          { address: { contains: search, mode: "insensitive" } },
+          { region: { contains: search, mode: "insensitive" } },
+          { city: { contains: search, mode: "insensitive" } },
         ];
+        if (phoneDigits.length >= 5) {
+          searchOr.push({ phoneNormalized: { contains: phoneDigits } });
+        }
+        andParts.push({ OR: searchOr });
       }
     }
 
     if (actor?.role === UserRole.MANAGER) {
-      where.OR = [...(where.OR ?? []), { ownerId: actor.id }, { ownerId: null }];
+      andParts.push({ OR: [{ ownerId: actor.id }, { ownerId: null }] });
     }
+
+    if (andParts.length > 0) where.AND = andParts;
 
     return where;
   }

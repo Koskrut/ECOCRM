@@ -23,35 +23,46 @@ type CardDescriptor = {
   href: string;
   title: string;
   desc: string;
+  group: "accessTeam" | "salesProcesses" | "integrations" | "system" | "advanced";
   /** When non-null, the card is shown only if the role matches. */
   adminOnly?: boolean;
   accent?: boolean;
 };
 
-function useCoreCards(role: string | null): CardDescriptor[] {
+function allCards(): CardDescriptor[] {
   const t = strings.settings.cards;
-  const all: CardDescriptor[] = [
-    { href: "/settings/access", title: t.access.title, desc: t.access.desc },
+  return [
+    { href: "/settings/access", title: t.access.title, desc: t.access.desc, group: "accessTeam" },
+    { href: "/employees", title: t.employees.title, desc: t.employees.desc, group: "accessTeam" },
     {
       href: "/settings/orders-pipeline",
       title: t.ordersPipeline.title,
       desc: t.ordersPipeline.desc,
+      group: "salesProcesses",
       adminOnly: true,
     },
     {
       href: "/settings/leads-pipeline",
       title: t.leadsPipeline.title,
       desc: t.leadsPipeline.desc,
+      group: "salesProcesses",
       adminOnly: true,
     },
-    { href: "/settings/exchange-rates", title: t.exchangeRates.title, desc: t.exchangeRates.desc },
-    { href: "/settings/google-maps", title: t.googleMaps.title, desc: t.googleMaps.desc },
-    { href: "/settings/meta-lead-ads", title: t.metaLeadAds.title, desc: t.metaLeadAds.desc },
-    { href: "/employees", title: t.employees.title, desc: t.employees.desc },
+    { href: "/settings/exchange-rates", title: t.exchangeRates.title, desc: t.exchangeRates.desc, group: "salesProcesses" },
+    { href: "/settings/google-maps", title: t.googleMaps.title, desc: t.googleMaps.desc, group: "integrations" },
+    { href: "/settings/meta-lead-ads", title: t.metaLeadAds.title, desc: t.metaLeadAds.desc, group: "integrations" },
+    { href: "/settings/fop", title: t.fop.title, desc: t.fop.desc, group: "integrations" },
+    { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc, group: "integrations" },
+    { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc, group: "integrations" },
+    { href: "/settings/outbound-voice", title: t.outboundVoice.title, desc: t.outboundVoice.desc, group: "integrations" },
+    { href: "/settings/telegram", title: t.telegram.title, desc: t.telegram.desc, group: "integrations" },
+    { href: "/settings/store", title: t.store.title, desc: t.store.desc, group: "integrations" },
+    { href: "/settings/health", title: t.health.title, desc: t.health.desc, group: "system", adminOnly: true },
     {
       href: "/settings/metadata",
       title: t.metadata.title,
       desc: t.metadata.desc,
+      group: "advanced",
       adminOnly: true,
       accent: true,
     },
@@ -59,22 +70,9 @@ function useCoreCards(role: string | null): CardDescriptor[] {
       href: "/settings/data-import",
       title: t.dataImport.title,
       desc: t.dataImport.desc,
+      group: "advanced",
       adminOnly: true,
     },
-    { href: "/settings/health", title: t.health.title, desc: t.health.desc, adminOnly: true },
-  ];
-  return all.filter((c) => !c.adminOnly || role === "ADMIN");
-}
-
-function extensionCards(): CardDescriptor[] {
-  const t = strings.settings.cards;
-  return [
-    { href: "/settings/fop", title: t.fop.title, desc: t.fop.desc },
-    { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc },
-    { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc },
-    { href: "/settings/outbound-voice", title: t.outboundVoice.title, desc: t.outboundVoice.desc },
-    { href: "/settings/telegram", title: t.telegram.title, desc: t.telegram.desc },
-    { href: "/settings/store", title: t.store.title, desc: t.store.desc },
   ];
 }
 
@@ -112,17 +110,21 @@ export default function SettingsHomePage() {
   }, [role]);
 
   const t = strings.settings;
-  const coreCards = useCoreCards(role);
+  const groupOrder: Array<CardDescriptor["group"]> = ["accessTeam", "salesProcesses", "integrations", "system", "advanced"];
+  const cardsByGroup = new Map<CardDescriptor["group"], CardDescriptor[]>(
+    groupOrder.map((group) => [group, []]),
+  );
 
-  // Fail-closed: while modules are loading or errored, hide gated extensions.
-  const visibleExtensions =
-    modulesStatus === "ready"
-      ? extensionCards().filter((card) => {
-          const mid = settingsHrefModuleId(card.href);
-          if (!mid) return true;
-          return moduleEffective(mid);
-        })
-      : [];
+  for (const card of allCards()) {
+    if (card.adminOnly && role !== "ADMIN") continue;
+    const mid = settingsHrefModuleId(card.href);
+    if (mid) {
+      // Fail-closed: while modules are loading or errored, hide module-gated sections.
+      if (modulesStatus !== "ready") continue;
+      if (!moduleEffective(mid)) continue;
+    }
+    cardsByGroup.get(card.group)?.push(card);
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -165,45 +167,47 @@ export default function SettingsHomePage() {
         </div>
       ) : null}
 
-      <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        {t.sectionCore}
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {coreCards.map((c) => (
-          <SettingCard
-            key={c.href}
-            href={c.href}
-            title={c.title}
-            description={c.desc}
-            accent={c.accent}
-          />
-        ))}
-      </div>
-
-      <div className="mt-10 mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-        {t.sectionExtensions}
-      </div>
-
       {modulesStatus === "error" ? (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {strings.modules.apiErrorBanner}
         </div>
       ) : null}
 
-      {modulesStatus === "loading" ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <SettingCardSkeleton />
-          <SettingCardSkeleton />
-          <SettingCardSkeleton />
-        </div>
-      ) : visibleExtensions.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visibleExtensions.map((c) => (
-            <SettingCard key={c.href} href={c.href} title={c.title} description={c.desc} />
-          ))}
-        </div>
-      ) : modulesStatus === "ready" ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500">
+      {groupOrder.map((group) => {
+        const cards = cardsByGroup.get(group) ?? [];
+        const title = t.groups[group].title;
+        const desc = t.groups[group].desc;
+        const isIntegrations = group === "integrations";
+        if (cards.length === 0 && !(isIntegrations && modulesStatus === "loading")) return null;
+        return (
+          <section key={group} className="mt-8">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</div>
+            <p className="mb-4 text-sm text-zinc-500">{desc}</p>
+            {isIntegrations && modulesStatus === "loading" ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <SettingCardSkeleton />
+                <SettingCardSkeleton />
+                <SettingCardSkeleton />
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {cards.map((c) => (
+                  <SettingCard
+                    key={c.href}
+                    href={c.href}
+                    title={c.title}
+                    description={c.desc}
+                    accent={c.accent}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      {modulesStatus === "ready" && (cardsByGroup.get("integrations")?.length ?? 0) === 0 ? (
+        <div className="mt-6 rounded-lg border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500">
           {strings.modules.unavailableNotEffective}
         </div>
       ) : null}

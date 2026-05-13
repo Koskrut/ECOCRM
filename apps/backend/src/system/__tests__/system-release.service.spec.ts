@@ -3,7 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import { SystemReleaseService } from "../system-release.service";
 
 describe("SystemReleaseService", () => {
-  const keys = ["CRM_RELEASE_VERSION", "GIT_SHA", "BUILD_TIME", "IMAGE_TAG"] as const;
+  const keys = ["CRM_RELEASE_VERSION", "GIT_SHA", "BUILD_TIME", "IMAGE_TAG", "UPDATER_AGENT_URL"] as const;
   const prev: Partial<Record<(typeof keys)[number], string | undefined>> = {};
 
   afterEach(() => {
@@ -30,6 +30,8 @@ describe("SystemReleaseService", () => {
     assert.equal(r.imageTag, "crm-backend:1.2.3");
     assert.equal(r.update.mode, "operator_only");
     assert.equal(r.update.state, "idle");
+    assert.equal(r.update.canUpdate, false);
+    assert.match(r.update.reason, /operator/);
     assert.match(r.update.message, /manually/);
   });
 
@@ -57,5 +59,16 @@ describe("SystemReleaseService", () => {
     const r = svc.getRelease();
 
     assert.equal(r.version, null);
+  });
+
+  it("marks update mode as agent_available when updater is configured", () => {
+    for (const k of keys) prev[k] = process.env[k];
+    process.env.UPDATER_AGENT_URL = "http://127.0.0.1:7788";
+
+    const svc = new SystemReleaseService();
+    const r = svc.getRelease();
+
+    assert.equal(r.update.mode, "agent_available");
+    assert.match(r.update.message, /updater agent/i);
   });
 });

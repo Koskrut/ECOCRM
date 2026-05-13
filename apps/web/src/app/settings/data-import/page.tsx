@@ -116,9 +116,9 @@ export default function DataImportSettingsPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-3xl">
         <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Settings
+          ← Налаштування
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Import contacts (CSV)</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Імпорт контактів (CSV)</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Заголовок: <code className="font-mono">phone,first_name,last_name</code>
         </p>

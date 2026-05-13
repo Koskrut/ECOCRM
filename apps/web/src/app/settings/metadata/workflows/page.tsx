@@ -72,7 +72,7 @@ export default function WorkflowsMetadataPage() {
       setMsg("Rule saved");
       await refresh();
     } catch (e: unknown) {
-      const m = e instanceof SyntaxError ? "Invalid JSON" : String(e);
+      const m = e instanceof SyntaxError ? "Некоректний JSON у правилі." : "Не вдалося зберегти правило.";
       setErr(m);
     }
   };
@@ -89,29 +89,29 @@ export default function WorkflowsMetadataPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-5xl space-y-6">
         <Link href="/settings/metadata" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Metadata hub
+          ← Хаб метаданих
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Workflows</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Автоматизації</h1>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
 
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Rules ({rules.length})</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Правила ({rules.length})</h2>
           <ul className="mt-2 space-y-2">
             {rules.map((w) => (
               <li key={w.id} className="rounded-lg border border-zinc-100 px-3 py-2 text-sm">
                 <span className="font-medium">{w.name}</span>{" "}
                 <span className="font-mono text-xs text-zinc-500">{w.key}</span> — {w.triggerType}{" "}
-                <span className="text-xs text-zinc-400">{w.isActive ? "active" : "inactive"}</span>
+                <span className="text-xs text-zinc-400">{w.isActive ? "активне" : "неактивне"}</span>
               </li>
             ))}
           </ul>
         </div>
 
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Constructor (JSON)</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Конструктор правила (JSON)</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Мінімальний чернетковий редактор. Для production додайте UI-степпер та валідацію з бекенду.
+            Базовий редактор чернетки. Для продакшену рекомендовано покроковий UI і валідацію полів.
           </p>
           <textarea
             className="mt-2 h-64 w-full rounded border border-zinc-200 bg-zinc-50 p-2 font-mono text-xs"
@@ -123,12 +123,12 @@ export default function WorkflowsMetadataPage() {
             className="mt-2 rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
             onClick={() => void createRule()}
           >
-            POST rule
+            Зберегти правило
           </button>
         </div>
 
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Execution log (recent)</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Журнал виконання (останні)</h2>
           <ul className="mt-2 max-h-96 space-y-1 overflow-y-auto text-xs text-zinc-700">
             {executions.map((ex) => (
               <li key={ex.id} className="rounded border border-zinc-100 px-2 py-1">

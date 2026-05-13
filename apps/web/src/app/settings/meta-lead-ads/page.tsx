@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { leadsApi } from "@/lib/api/resources/leads";
 
 type MetaLeadAdsConfig = {
@@ -11,14 +12,6 @@ type MetaLeadAdsConfig = {
   companyId?: string;
   fbPixelId?: string;
 };
-
-function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
-}
 
 export default function MetaLeadAdsSettingsPage() {
   const [config, setConfig] = useState<MetaLeadAdsConfig>({});
@@ -51,7 +44,7 @@ export default function MetaLeadAdsSettingsPage() {
       setCompanyId(data.companyId ?? "");
       setFbPixelId(data.fbPixelId ?? "");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load settings"));
+      setError(getUserFriendlyApiError(e, "Не вдалося завантажити налаштування."));
     } finally {
       setLoading(false);
     }
@@ -96,15 +89,15 @@ export default function MetaLeadAdsSettingsPage() {
       });
       const errPart =
         data.errors.length > 0
-          ? ` Errors: ${data.errors.length} request(s) failed (see API logs for details).`
+          ? ` Помилки: ${data.errors.length} запит(ів) завершилися невдало (деталі дивіться в логах API).`
           : "";
       setSyncMessage(
         syncDryRun
-          ? `Dry run: ${data.leadsFetched} lead(s) across ${data.pagesFetched} page(s).${errPart}`
-          : `Imported ${data.persistedCreated} new, merged/skipped ${data.persistedDeduped} (by phone/email/Meta ID). Fetched ${data.leadsFetched} lead(s), ${data.pagesFetched} page(s).${errPart}`,
+          ? `Тестовий запуск: отримано ${data.leadsFetched} лідів із ${data.pagesFetched} сторінок.${errPart}`
+          : `Імпортовано нових: ${data.persistedCreated}, об'єднано/пропущено: ${data.persistedDeduped} (за phone/email/Meta ID). Отримано ${data.leadsFetched} лідів із ${data.pagesFetched} сторінок.${errPart}`,
       );
     } catch (e) {
-      setError(getApiErrorMessage(e, "Sync failed"));
+      setError(getUserFriendlyApiError(e, "Синхронізацію не виконано."));
     } finally {
       setSyncBusy(false);
     }
@@ -128,7 +121,7 @@ export default function MetaLeadAdsSettingsPage() {
       setCompanyId(data.companyId ?? companyId);
       setFbPixelId(data.fbPixelId ?? fbPixelId);
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to save"));
+      setError(getUserFriendlyApiError(e, "Не вдалося зберегти налаштування."));
     } finally {
       setSaving(false);
     }
@@ -142,7 +135,7 @@ export default function MetaLeadAdsSettingsPage() {
             href="/settings"
             className="inline-flex items-center text-sm text-zinc-600 hover:text-zinc-900"
           >
-            ← Back to Settings
+            ← До налаштувань
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Facebook / Meta Lead Ads</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -166,7 +159,7 @@ export default function MetaLeadAdsSettingsPage() {
         )}
 
         {loading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-zinc-500">Завантаження...</p>
         ) : (
           <>
           <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">

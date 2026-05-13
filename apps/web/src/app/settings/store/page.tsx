@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { strings } from "@/locales";
 import { ErrorPanel } from "@/components/feedback";
 
@@ -46,11 +47,7 @@ type StoreConfig = {
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
+  return getUserFriendlyApiError(e, fallback);
 }
 
 function newBanner(order: number): StoreBanner {

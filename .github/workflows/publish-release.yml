@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without leading v, for example 0.1.6"
+        description: "Release version without leading v, for example 0.2.0"
         required: true
         type: string
       channel:
@@ -25,7 +25,7 @@ on:
         type: boolean
         default: false
       modules:
-        description: "Comma-separated module slugs to build & add to manifest: outbound, google-sheet, ringostat, bitrix, np, finance, planning"
+        description: "Comma-separated module slugs: outbound, google-sheet, ringostat, bitrix, np, finance, planning. Leave empty: no extra module images for 0.1.x; for 0.2.x (tag or dispatch) empty means build all."
         required: false
         default: ""
         type: string
@@ -170,13 +170,19 @@ jobs:
         shell: bash
         env:
           RAW_MODULES: ${{ inputs.modules }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
           LEG="false"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.include_outbound_in_manifest }}" = "true" ]; then
             LEG="true"
           fi
-          RESOLVED=$(node scripts/resolve-modules-csv.mjs "${RAW_MODULES:-}" "${LEG}")
+          RAW="${RAW_MODULES:-}"
+          # Empty CSV: for 0.2.x line, build all optional module images (tag push has no inputs; dispatch may omit modules).
+          if [ -z "$RAW" ] && echo "$VERSION" | grep -qE '^0\.2\.'; then
+            RAW="outbound,google-sheet,ringostat,bitrix,np,finance,planning"
+          fi
+          RESOLVED=$(node scripts/resolve-modules-csv.mjs "$RAW" "${LEG}")
           echo "csv=${RESOLVED}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push optional module images (CSV)
@@ -282,6 +288,9 @@ jobs:
             if (c && !moduleCodes.includes(c)) moduleCodes.push(c);
           }
 
+          const semverMinor = /^(\d+\.\d+)\./.exec(process.env.VERSION ?? "");
+          const compatLine = semverMinor ? `${semverMinor[1]}.x` : "0.2.x";
+
           const payload = {
             version: process.env.VERSION,
             channel: process.env.CHANNEL,
@@ -295,7 +304,7 @@ jobs:
             composeFiles,
             moduleCodes,
             compatibility: {
-              line: "0.1.x",
+              line: compatLine,
             },
             images,
           };

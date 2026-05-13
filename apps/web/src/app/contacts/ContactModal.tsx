@@ -15,6 +15,7 @@ import {
   validateNpShippingProfileForm,
   type NpShippingProfileFormValues,
 } from "@/components/np/NpShippingProfileFormFields";
+import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import { contactsApi } from "@/lib/api/resources/contacts";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
@@ -2385,7 +2386,7 @@ export function ContactModal({
                   {aboutContactSection}
                 </EntitySection>
               </div>
-              <EntitySection title="Custom fields">
+              <EntitySection title={strings.entityUi.contactCustomFieldsSection}>
                 <CustomFieldsPanel entityType="CONTACT" entityId={contactId} />
               </EntitySection>
               <EntitySection title="Layout (runtime)">

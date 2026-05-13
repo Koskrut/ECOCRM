@@ -3,6 +3,7 @@
 ## Deploy
 
 - **Release-based deploy (основний шлях):** Git tag / workflow **Publish Registry Release** (`.github/workflows/publish-release.yml`) збирає й пушить образи, формує `deployment-manifest.json` і реєструє реліз у Control Plane. На стороні клієнта оновлення = підняти нові теги образів з того релізу (agent / compose / ваш процес).
+- **Admin updater button (optional):** CRM can expose update status and "Update" action for ADMIN, but Docker operations must be executed by a host-side updater agent (`scripts/updater/agent.mjs`), not by backend container.
 - **Міграції БД:** навіть при деплої тільки через реліз, схема оновлюється окремим кроком у вашому rollout (типово сервіс `backend-migrate` / one-shot `prisma migrate deploy` перед стартом `backend`). Нові таблиці/enum з релізу не застосуються лише від зміни тега образу без migrate.
 - Run `crm-core-api` with `BACKEND_VARIANT=core` (Docker target `core-runner`).
 - Run `crm-web` with `API_URL` pointing at the core API.
@@ -31,6 +32,7 @@
 
 - Env: `CONTROL_PLANE_URL`, `CONTROL_PLANE_INSTALLATION_ID`, `CONTROL_PLANE_TOKEN` (або `CONTROL_PLANE_INSTALLATION_TOKEN`).
 - Діагностика: `GET /system/control-plane` (ADMIN) і блок `controlPlane` на `/settings/health`.
+- CP update status contract: `GET /api/installations/:installationId/updates/status` with `{ latestVersion, targetVersion }` (see `docs/control-plane-update-contract.md`).
 
 ## E2E / smoke
 

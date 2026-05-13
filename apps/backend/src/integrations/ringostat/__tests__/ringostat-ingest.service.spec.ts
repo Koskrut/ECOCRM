@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PrismaService } from "../../prisma/prisma.service";
+import type { PhoneEntityLookupService } from "../../../common/phone-entity-lookup.service";
 import { RingostatIngestService } from "../ringostat-ingest.service";
 
 describe("RingostatIngestService", () => {
@@ -9,7 +10,11 @@ describe("RingostatIngestService", () => {
       findFirst: async () => null,
     },
   } as unknown as PrismaService;
-  const service = new RingostatIngestService(prisma);
+  const phoneLookup = {
+    findContactByNormalizedKeys: async () => null,
+    findCompanyIdByNormalizedKeys: async () => null,
+  } as unknown as PhoneEntityLookupService;
+  const service = new RingostatIngestService(prisma, phoneLookup);
 
   it("normalizes UA phone numbers to E.164-like format", () => {
     const normalize = (s: string | undefined) =>

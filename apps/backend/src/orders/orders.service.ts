@@ -344,9 +344,12 @@ export class OrdersService {
     const search = q?.q?.trim();
     if (search) {
       const phoneDigits = search.replace(/\D/g, "");
+      const ttnDigits = phoneDigits;
       andWhere.push({
         OR: [
           { orderNumber: { contains: search, mode: "insensitive" } },
+          { invoiceNumber: { contains: search, mode: "insensitive" } },
+          { waybillNumber: { contains: search, mode: "insensitive" } },
           {
             company: {
               is: { name: { contains: search, mode: "insensitive" } },
@@ -376,6 +379,51 @@ export class OrdersService {
                   ...(phoneDigits.length >= 5
                     ? [{ phoneNormalized: { contains: phoneDigits } }]
                     : []),
+                ],
+              },
+            },
+          },
+          // TTN: legacy direct attachment to order + current via shipment
+          {
+            ttns: {
+              some: { documentNumber: { contains: search, mode: "insensitive" } },
+            },
+          },
+          {
+            shipments: {
+              some: {
+                ttns: {
+                  some: { documentNumber: { contains: search, mode: "insensitive" } },
+                },
+              },
+            },
+          },
+          // TTN numbers are usually entered with spaces / dashes — match by digits only.
+          ...(ttnDigits.length >= 5
+            ? [
+                {
+                  ttns: {
+                    some: { documentNumber: { contains: ttnDigits } },
+                  },
+                },
+                {
+                  shipments: {
+                    some: {
+                      ttns: {
+                        some: { documentNumber: { contains: ttnDigits } },
+                      },
+                    },
+                  },
+                },
+              ]
+            : []),
+          // Product search: legacy snapshot + linked Product
+          {
+            items: {
+              some: {
+                OR: [
+                  { productNameSnapshot: { contains: search, mode: "insensitive" } },
+                  { product: { name: { contains: search, mode: "insensitive" } } },
                 ],
               },
             },

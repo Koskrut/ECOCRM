@@ -43,7 +43,7 @@ export function CompaniesFiltersPopover({ open, onClose, onApply, onReset }: Pro
       </div>
 
       <p className="mb-4 text-xs text-zinc-500">
-        Поиск по названию, ЕДРПОУ и ИНН доступен в строке поиска.
+        Поиск по названию, ЕДРПОУ, ИНН, телефону и адресу доступен в строке поиска.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">

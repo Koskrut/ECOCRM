@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
+import { SystemModule } from "../system/system.module";
 import { BomImportService } from "./bom-import.service";
 import { BomService } from "./bom.service";
 import { DemandRulesService } from "./demand-rules.service";
@@ -10,7 +11,7 @@ import { ProductionService } from "./production.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, SystemModule],
   controllers: [ProductionPlanningController],
   providers: [
     DemandRulesService,

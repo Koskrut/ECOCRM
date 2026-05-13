@@ -9,6 +9,8 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
+import { useListColumns } from "@/lib/lists/useListColumns";
+import { renderCellText } from "@/lib/lists/renderCell";
 import { FinancialKanban } from "./FinancialKanban";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
@@ -122,6 +124,12 @@ function OrdersPageContent() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { extraColumns, customValues, loadValuesFor } = useListColumns("ORDER");
+
+  useEffect(() => {
+    if (orders.length === 0) return;
+    void loadValuesFor(orders.map((o) => o.id));
+  }, [orders, loadValuesFor]);
 
   const [page, setPage] = useState<number>(() => {
     const raw = Number(searchParams.get("page"));
@@ -581,7 +589,7 @@ function OrdersPageContent() {
                 <input
                   value={qInput}
                   onChange={(e) => setQInput(e.target.value)}
-                  placeholder="Поиск по номеру, клиенту, компании"
+                  placeholder="Поиск по номеру, клиенту, компании, ТТН, товару"
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   type="search"
                   aria-label="Поиск заказов"
@@ -711,18 +719,23 @@ function OrdersPageContent() {
                     <th className="px-4 py-3">Статус</th>
                     <th className="px-4 py-3 text-right hidden lg:table-cell">Товары</th>
                     <th className="px-4 py-3 text-right">Сумма</th>
+                    {extraColumns.map((col) => (
+                      <th key={col.fieldId} className="px-4 py-3">
+                        {col.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         Загрузка заказов...
                       </td>
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         Замовлення не знайдено
                       </td>
                     </tr>
@@ -837,6 +850,11 @@ function OrdersPageContent() {
                         <td className="px-4 py-4 text-right font-medium text-zinc-900">
                           {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
                         </td>
+                        {extraColumns.map((col) => (
+                          <td key={col.fieldId} className="px-4 py-4 text-zinc-600">
+                            {renderCellText(col, order as unknown as Record<string, unknown>, customValues)}
+                          </td>
+                        ))}
                       </tr>
                     ))
                   )}

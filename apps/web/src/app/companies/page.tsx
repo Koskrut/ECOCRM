@@ -10,6 +10,8 @@ import { ContactModal } from "../contacts/ContactModal";
 import { CompanyModal } from "./CompanyModal";
 import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
 import { strings } from "@/locales";
+import { useListColumns } from "@/lib/lists/useListColumns";
+import { renderCellText } from "@/lib/lists/renderCell";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -39,7 +41,8 @@ function CompaniesPageContent() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
   const showOwnerColumn = userRole === "ADMIN" || userRole === "LEAD";
-  const colCount = showOwnerColumn ? 4 : 3;
+  const { extraColumns, customValues, loadValuesFor } = useListColumns("COMPANY");
+  const colCount = (showOwnerColumn ? 4 : 3) + extraColumns.length;
 
   useEffect(() => {
     apiHttp
@@ -101,6 +104,11 @@ function CompaniesPageContent() {
   useEffect(() => {
     void reload({ keepPage: true });
   }, [reload]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    void loadValuesFor(items.map((c) => c.id));
+  }, [items, loadValuesFor]);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -209,7 +217,7 @@ function CompaniesPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="назва, ЄДРПОУ, ІПН"
+                placeholder="назва, ЄДРПОУ, ІПН, телефон, адреса"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
                 aria-label="Поиск компаний"
@@ -280,6 +288,11 @@ function CompaniesPageContent() {
               </th>
               <th className="px-4 py-3">Название</th>
               {showOwnerColumn && <th className="px-4 py-3">Ответственный</th>}
+              {extraColumns.map((col) => (
+                <th key={col.fieldId} className="px-4 py-3">
+                  {col.label}
+                </th>
+              ))}
               <th className="w-24 px-4 py-3 text-right">Действия</th>
             </tr>
           </thead>
@@ -319,6 +332,11 @@ function CompaniesPageContent() {
                   {showOwnerColumn && (
                     <td className="px-4 py-4 text-zinc-600">{c.owner?.fullName ?? EMPTY}</td>
                   )}
+                  {extraColumns.map((col) => (
+                    <td key={col.fieldId} className="px-4 py-4 text-zinc-600">
+                      {renderCellText(col, c as unknown as Record<string, unknown>, customValues)}
+                    </td>
+                  ))}
                   <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <button

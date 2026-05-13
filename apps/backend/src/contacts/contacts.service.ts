@@ -544,6 +544,10 @@ export class ContactsService {
         { phone: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
         { company: { name: { contains: search, mode: "insensitive" } } },
+        { address: { contains: search, mode: "insensitive" } },
+        { addressInfo: { contains: search, mode: "insensitive" } },
+        { region: { contains: search, mode: "insensitive" } },
+        { city: { contains: search, mode: "insensitive" } },
       ];
       if (tokens.length === 2) {
         const [a, b] = [tokens[0]!, tokens[1]!];

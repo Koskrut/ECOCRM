@@ -103,3 +103,24 @@ export function mapAxiosError(err: unknown): ApiError {
     cause: err,
   });
 }
+
+const DEFAULT_MESSAGES: Record<ApiErrorCode, string> = {
+  NETWORK: "Немає з'єднання із сервером. Перевірте мережу та спробуйте ще раз.",
+  TIMEOUT: "Сервер відповідає занадто довго. Спробуйте ще раз.",
+  UNAUTHORIZED: "Сесію завершено. Увійдіть повторно.",
+  FORBIDDEN: "Недостатньо прав для цієї дії.",
+  NOT_FOUND: "Запитаний ресурс не знайдено.",
+  VALIDATION: "Перевірте заповнення полів і повторіть спробу.",
+  CONFLICT: "Операцію неможливо виконати через конфлікт даних.",
+  RATE_LIMIT: "Забагато запитів. Спробуйте трохи пізніше.",
+  SERVER: "Помилка сервера. Спробуйте ще раз пізніше.",
+  UNKNOWN: "Не вдалося виконати запит. Спробуйте ще раз.",
+};
+
+export function getUserFriendlyApiError(error: unknown, fallback?: string): string {
+  const mapped = mapAxiosError(error);
+  if (mapped.code === "VALIDATION" && mapped.message) return mapped.message;
+  if (mapped.code === "CONFLICT" && mapped.message) return mapped.message;
+  if (mapped.code === "NOT_FOUND" && mapped.message) return mapped.message;
+  return fallback ?? DEFAULT_MESSAGES[mapped.code] ?? DEFAULT_MESSAGES.UNKNOWN;
+}

@@ -80,6 +80,28 @@ export const en = {
     pageSubtitle: "Manage system configuration",
     sectionCore: "Core CRM",
     sectionExtensions: "Extensions & integrations",
+    groups: {
+      accessTeam: {
+        title: "Access & team",
+        desc: "Employees, roles, and access management.",
+      },
+      salesProcesses: {
+        title: "Sales & processes",
+        desc: "Pipelines and operational settings that affect sales workflows.",
+      },
+      integrations: {
+        title: "Integrations",
+        desc: "External services, communication channels, and data exchange.",
+      },
+      system: {
+        title: "System",
+        desc: "Health, release metadata, and operational diagnostics.",
+      },
+      advanced: {
+        title: "Advanced",
+        desc: "Technical settings for administrators and implementation teams.",
+      },
+    },
     release: {
       title: "Release",
       hint: "Read-only deployment metadata from the API. Updates are done on the server by the operator, not from this UI.",
@@ -499,6 +521,9 @@ export const en = {
       invalidAmount: "Invalid amount",
       unallocateFailed: "Failed to cancel allocation",
     },
+  },
+  entityUi: {
+    contactCustomFieldsSection: "Custom fields",
   },
 } as const;
 

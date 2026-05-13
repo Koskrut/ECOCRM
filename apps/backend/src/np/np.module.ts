@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { SystemModule } from "../system/system.module";
 
 import { NpClient } from "./np-client.service";
 import { NpSyncService } from "./np-sync.service";
@@ -15,7 +16,7 @@ import { NpIntegrationAdapter } from "./np-integration.adapter";
 import { StoreNpController } from "../store/np/store-np.controller";
 
 @Module({
-  imports: [PrismaModule, IntegrationPortsModule, ScheduleModule.forRoot()],
+  imports: [PrismaModule, IntegrationPortsModule, SystemModule, ScheduleModule.forRoot()],
   controllers: [
     NpController, // /np/cities /np/warehouses /np/streets /np/sync
     NpTtnController, // /np/ttn/:orderId + /np/sender/check

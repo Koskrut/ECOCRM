@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { deleteBankAccount } from "@/lib/api/resources";
 import { strings } from "@/locales";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
@@ -42,11 +43,7 @@ type RequisitesFromBank = {
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
-  const msg =
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
-      ?.message ??
-    (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data?.error;
-  return msg ?? (e instanceof Error ? e.message : fallback);
+  return getUserFriendlyApiError(e, fallback);
 }
 
 export default function FopSettingsPage() {
@@ -114,7 +111,7 @@ export default function FopSettingsPage() {
       setUserDefaultBankMap(visibilityRes.data?.userDefaultMap ?? {});
       setStoreDefaultShopId(visibilityRes.data?.storeDefaultBankAccountId ?? "");
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to load FOPs"));
+      setError(getApiErrorMessage(e, "Не вдалося завантажити ФОП."));
       setAccounts([]);
       setUsers([]);
       setVisibilityMap({});
@@ -131,7 +128,7 @@ export default function FopSettingsPage() {
 
   async function submitAdd() {
     if (!addName.trim()) {
-      setError("Enter name");
+      setError("Вкажіть назву ФОП.");
       return;
     }
     setAddSubmitting(true);
@@ -161,7 +158,7 @@ export default function FopSettingsPage() {
       setAddToken("");
       await load();
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to add FOP"));
+      setError(getApiErrorMessage(e, "Не вдалося додати ФОП."));
     } finally {
       setAddSubmitting(false);
     }
@@ -270,7 +267,7 @@ export default function FopSettingsPage() {
       setEditId(null);
       await load();
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to update FOP"));
+      setError(getApiErrorMessage(e, "Не вдалося оновити ФОП."));
     } finally {
       setEditSubmitting(false);
     }
@@ -294,7 +291,7 @@ export default function FopSettingsPage() {
   async function handleDelete(acc: BankAccount) {
     if (
       !window.confirm(
-        `Вы уверены, что хотите удалить ФОП "${acc.name}" (${acc.currency})? Это также удалит связанные банковские транзакции.`,
+        `Ви впевнені, що хочете видалити ФОП "${acc.name}" (${acc.currency})? Це також видалить пов'язані банківські транзакції.`,
       )
     ) {
       return;
@@ -305,7 +302,7 @@ export default function FopSettingsPage() {
       await deleteBankAccount(acc.id);
       await load();
     } catch (e) {
-      setError(getApiErrorMessage(e, "Failed to delete FOP"));
+      setError(getApiErrorMessage(e, "Не вдалося видалити ФОП."));
     } finally {
       setDeleteId(null);
     }
@@ -321,10 +318,10 @@ export default function FopSettingsPage() {
           >
             ← {strings.common.backToSettings}
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-zinc-900">ФОП (банковские счета)</h1>
+          <h1 className="mt-2 text-2xl font-bold text-zinc-900">ФОП (банківські рахунки)</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Настройка ID и TOKEN для банковских счетов ФОП. Список используется в разделе Платежи
-            для переключения между ФОПами.
+            Налаштування ID і TOKEN для банківських рахунків ФОП. Список використовується в розділі
+            «Оплати» для перемикання між ФОП.
           </p>
         </div>
 
@@ -389,7 +386,7 @@ export default function FopSettingsPage() {
                 }}
                 className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
               >
-                + Добавить ФОП
+                + Додати ФОП
               </button>
             </div>
             <ul className="divide-y divide-zinc-100">
@@ -409,7 +406,7 @@ export default function FopSettingsPage() {
                     )}
                     {acc.accountExternalCode && (
                       <div className="mt-0.5 text-xs text-zinc-600">
-                        Код счета (1С): {acc.accountExternalCode}
+                        Код рахунку (1С): {acc.accountExternalCode}
                       </div>
                     )}
                     <div className="mt-0.5 text-xs text-zinc-600">
@@ -450,14 +447,14 @@ export default function FopSettingsPage() {
                       disabled={deleteId === acc.id}
                       className="rounded border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                     >
-                      {deleteId === acc.id ? "Удаление…" : "Удалить"}
+                      {deleteId === acc.id ? "Видалення..." : "Видалити"}
                     </button>
                   </div>
                 </li>
               ))}
               {accounts.length === 0 && (
                 <li className="px-4 py-8 text-center text-sm text-zinc-500">
-                  Нет добавленных ФОПов. Нажмите «Добавить ФОП».
+                  Ще немає доданих ФОП. Натисніть «Додати ФОП».
                 </li>
               )}
             </ul>
@@ -467,7 +464,7 @@ export default function FopSettingsPage() {
         {showAdd && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
             <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
-              <h3 className="text-lg font-semibold text-zinc-900">Добавить ФОП</h3>
+              <h3 className="text-lg font-semibold text-zinc-900">Додати ФОП</h3>
               <div className="mt-4 space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-zinc-600">Название</label>
@@ -519,9 +516,9 @@ export default function FopSettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-zinc-600">Код счета (1С)</label>
+                  <label className="block text-xs font-medium text-zinc-600">Код рахунку (1С)</label>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Код счета ФОП для інтеграції з таблицею / 1С (напр. 000000456).
+                    Код рахунку ФОП для інтеграції з таблицею / 1С (напр. 000000456).
                   </p>
                   <input
                     type="text"
@@ -578,7 +575,7 @@ export default function FopSettingsPage() {
                   disabled={addSubmitting}
                   className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  Отмена
+                  Скасувати
                 </button>
                 <button
                   type="button"
@@ -586,7 +583,7 @@ export default function FopSettingsPage() {
                   disabled={!addName.trim() || addSubmitting}
                   className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {addSubmitting ? "Сохранение…" : "Добавить"}
+                  {addSubmitting ? "Збереження..." : "Додати"}
                 </button>
               </div>
             </div>
@@ -636,7 +633,7 @@ export default function FopSettingsPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-zinc-600">
-                      Код счета (1С)
+                      Код рахунку (1С)
                     </label>
                     <input
                       type="text"
@@ -663,7 +660,7 @@ export default function FopSettingsPage() {
                     {!editAccountHasToken && !editToken.trim() && (
                       <p className="text-xs text-amber-600">
                         Введіть TOKEN (та за потреби App ID / Group client ID) нижче і натисніть
-                        кнопку, або збережіть їх і натисніть «Сохранить».
+                        кнопку, або збережіть їх і натисніть «Зберегти».
                       </p>
                     )}
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -858,7 +855,7 @@ export default function FopSettingsPage() {
                   disabled={editSubmitting}
                   className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  Отмена
+                  Скасувати
                 </button>
                 <button
                   type="button"
@@ -866,7 +863,7 @@ export default function FopSettingsPage() {
                   disabled={!editName.trim() || editSubmitting}
                   className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  {editSubmitting ? "Сохранение…" : "Сохранить"}
+                  {editSubmitting ? "Збереження..." : "Зберегти"}
                 </button>
               </div>
             </div>

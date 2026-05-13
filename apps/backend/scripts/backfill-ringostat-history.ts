@@ -25,6 +25,7 @@ import {
   RINGOSTAT_PROVIDER,
   RingostatIngestService,
 } from "../src/integrations/ringostat/ringostat-ingest.service";
+import { PhoneEntityLookupService } from "../src/common/phone-entity-lookup.service";
 import type { PrismaService } from "../src/prisma/prisma.service";
 
 function loadEnvFiles(): void {
@@ -110,8 +111,9 @@ async function main() {
   // @prisma/adapter-pg may bundle its own @types/pg; root `pg` Pool is fine at runtime (see PrismaService).
   const adapter = new PrismaPg(pool as any);
   const prisma = new PrismaClient({ adapter });
+  const phoneLookup = new PhoneEntityLookupService(prisma as unknown as PrismaService);
   // RingostatIngestService is typed for Nest DI (PrismaService); script uses a plain PrismaClient + adapter.
-  const ingest = new RingostatIngestService(prisma as unknown as PrismaService);
+  const ingest = new RingostatIngestService(prisma as unknown as PrismaService, phoneLookup);
 
   try {
     const setting = await prisma.integrationSetting.findFirst({

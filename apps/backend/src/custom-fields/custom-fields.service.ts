@@ -14,6 +14,7 @@ import {
   type UpsertCustomFieldOptionDto,
   type UpsertCustomFieldValueDto,
 } from "./dto/custom-fields.dto";
+import { mapDefinitionToFieldSchema } from "./custom-fields-ui-schema";
 
 const DEFINITION_INCLUDE = {
   dictionary: { select: { id: true, key: true, name: true } },
@@ -39,6 +40,20 @@ export class CustomFieldsService {
       orderBy: [{ entityType: "asc" }, { label: "asc" }],
     });
     return { items };
+  }
+
+  /** Active field definitions for one entity — safe for MetadataRead (forms, lists). */
+  async listFieldSchema(entityTypeRaw: unknown) {
+    if (entityTypeRaw === undefined || entityTypeRaw === null || String(entityTypeRaw).trim() === "") {
+      throw new BadRequestException("entityType query parameter is required");
+    }
+    const entityType = parseCustomFieldEntityType(entityTypeRaw);
+    const rows = await this.prisma.customFieldDefinition.findMany({
+      where: { entityType, deletedAt: null, isActive: true },
+      include: DEFINITION_INCLUDE,
+      orderBy: [{ label: "asc" }],
+    });
+    return { items: rows.map(mapDefinitionToFieldSchema) };
   }
 
   async getDefinition(idOrKey: string) {
@@ -186,6 +201,93 @@ export class CustomFieldsService {
       orderBy: { definition: { label: "asc" } },
     });
     return { items };
+  }
+
+  async batchValues(body: { entityType?: unknown; entityIds?: unknown; definitionKeys?: unknown }) {
+    const entityType = parseCustomFieldEntityType(body.entityType);
+    const idsInput = Array.isArray(body.entityIds) ? body.entityIds : [];
+    const entityIds = Array.from(
+      new Set(
+        idsInput
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .map((v) => v.trim()),
+      ),
+    );
+    if (entityIds.length === 0) {
+      return { byEntityId: {} as Record<string, Record<string, unknown>>, definitions: [] };
+    }
+    if (entityIds.length > 500) {
+      throw new BadRequestException("entityIds must contain at most 500 ids");
+    }
+
+    const keys = Array.isArray(body.definitionKeys)
+      ? body.definitionKeys.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      : null;
+
+    let definitionFilter: Prisma.CustomFieldValueWhereInput["definition"] | undefined;
+    if (keys && keys.length > 0) {
+      definitionFilter = { entityType, deletedAt: null, key: { in: keys } };
+    } else {
+      definitionFilter = { entityType, deletedAt: null };
+    }
+
+    const rows = await this.prisma.customFieldValue.findMany({
+      where: {
+        entityType,
+        entityId: { in: entityIds },
+        definition: definitionFilter,
+      },
+      include: {
+        definition: true,
+        dictionaryItem: { select: { id: true, key: true, label: true, value: true } },
+      },
+    });
+
+    const byEntityId: Record<string, Record<string, unknown>> = {};
+    const definitionsById = new Map<string, { id: string; key: string; type: CustomFieldType }>();
+
+    for (const row of rows) {
+      const bag = (byEntityId[row.entityId] ||= {});
+      const def = row.definition;
+      definitionsById.set(def.id, { id: def.id, key: def.key, type: def.type });
+
+      let display: unknown = null;
+      switch (def.type) {
+        case CustomFieldType.TEXT:
+        case CustomFieldType.SELECT:
+        case CustomFieldType.USER:
+          display = row.valueString;
+          break;
+        case CustomFieldType.NUMBER:
+        case CustomFieldType.MONEY:
+          display = row.valueNumber;
+          break;
+        case CustomFieldType.BOOLEAN:
+          display = row.valueBoolean;
+          break;
+        case CustomFieldType.DATE:
+          display = row.valueDate ? row.valueDate.toISOString() : null;
+          break;
+        case CustomFieldType.MULTISELECT:
+        case CustomFieldType.JSON:
+          display = row.valueJson;
+          break;
+        case CustomFieldType.DICTIONARY_ITEM:
+          display = row.dictionaryItem
+            ? { id: row.dictionaryItem.id, label: row.dictionaryItem.label, value: row.dictionaryItem.value }
+            : null;
+          break;
+        default:
+          display = null;
+      }
+
+      bag[def.key] = display;
+    }
+
+    return {
+      byEntityId,
+      definitions: Array.from(definitionsById.values()),
+    };
   }
 
   async upsertValue(definitionIdOrKey: string, entityId: string, body: UpsertCustomFieldValueDto) {

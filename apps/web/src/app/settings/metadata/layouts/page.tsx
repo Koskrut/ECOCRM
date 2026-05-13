@@ -53,25 +53,25 @@ export default function LayoutsMetadataPage() {
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-5xl">
         <Link href="/settings/metadata" className="text-sm text-zinc-600 hover:text-zinc-900">
-          ← Metadata hub
+          ← Хаб метаданих
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Layouts</h1>
+        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Макети інтерфейсу</h1>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="mt-2 text-sm text-emerald-700">{msg}</p> : null}
         <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
-          <h2 className="text-sm font-semibold text-zinc-900">Create layout shell</h2>
+          <h2 className="text-sm font-semibold text-zinc-900">Створити шаблон макета</h2>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <input
               className="rounded border border-zinc-200 px-2 py-1 font-mono text-xs"
               value={lKey}
               onChange={(e) => setLKey(e.target.value)}
-              placeholder="key"
+              placeholder="Ключ макета"
             />
             <input
               className="rounded border border-zinc-200 px-2 py-1 text-sm"
               value={lName}
               onChange={(e) => setLName(e.target.value)}
-              placeholder="name"
+              placeholder="Назва макета"
             />
             <select
               className="rounded border border-zinc-200 px-2 py-1 text-sm"
@@ -111,13 +111,13 @@ export default function LayoutsMetadataPage() {
                   isActive: true,
                 })
                 .then(() => {
-                  setMsg("Layout created — add sections/fields via API або майбутній UI.");
+                  setMsg("Макет створено. Далі можна додати секції та поля.");
                   void refresh();
                 })
-                .catch(() => setErr("Create failed"));
+                .catch(() => setErr("Не вдалося створити макет."));
             }}
           >
-            Create layout
+            Створити макет
           </button>
         </div>
         <ul className="mt-4 space-y-2">

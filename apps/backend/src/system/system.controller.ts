@@ -1,13 +1,17 @@
-import { Controller, Get, Inject } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Req } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
+import type { Request } from "express";
 import { Roles } from "../auth/roles.decorator";
+import type { AuthUser } from "../auth/auth.types";
 import { LicenseStateProvider } from "../modules/license/license-state.provider";
 import { ModuleStateService } from "../modules/module-state.service";
 import type { SystemLicenseStatusDto } from "./dto/system-license-status.dto";
 import type { SystemModulesResponseDto } from "./dto/system-modules.dto";
 import type { SystemReleaseDto } from "./dto/system-release.dto";
+import type { SystemUpdateApplyRequestDto, SystemUpdateJobDto, SystemUpdatePreflightDto, SystemUpdateStatusDto } from "./dto/system-update.dto";
 import type { SystemVersionDto } from "./dto/system-version.dto";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemUpdateService } from "./system-update.service";
 import { SystemVersionService } from "./system-version.service";
 import { Public } from "../auth/public.decorator";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
@@ -19,6 +23,7 @@ export class SystemController {
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
     @Inject(LicenseStateProvider) private readonly licenseProvider: LicenseStateProvider,
     @Inject(SystemReleaseService) private readonly releaseService: SystemReleaseService,
+    @Inject(SystemUpdateService) private readonly updateService: SystemUpdateService,
     @Inject(SystemVersionService) private readonly versionService: SystemVersionService,
     @Inject(ControlPlanePhoneHomeService) private readonly controlPlanePhoneHome: ControlPlanePhoneHomeService,
   ) {}
@@ -30,8 +35,36 @@ export class SystemController {
 
   @Get("release")
   @Roles(UserRole.ADMIN)
-  release(): SystemReleaseDto {
+  async release(): Promise<SystemReleaseDto> {
     return this.releaseService.getRelease();
+  }
+
+  @Get("update-status")
+  @Roles(UserRole.ADMIN)
+  async updateStatus(): Promise<SystemUpdateStatusDto> {
+    return this.updateService.getStatus();
+  }
+
+  @Post("update/preflight")
+  @Roles(UserRole.ADMIN)
+  async updatePreflight(): Promise<SystemUpdatePreflightDto> {
+    return this.updateService.preflight();
+  }
+
+  @Post("update/apply")
+  @Roles(UserRole.ADMIN)
+  async updateApply(
+    @Body() body: SystemUpdateApplyRequestDto,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<SystemUpdateJobDto> {
+    const requestedBy = req.user?.email ?? req.user?.id ?? "admin";
+    return this.updateService.apply(requestedBy, body ?? {});
+  }
+
+  @Get("update/jobs/:id")
+  @Roles(UserRole.ADMIN)
+  async updateJob(@Param("id") id: string): Promise<SystemUpdateJobDto | null> {
+    return this.updateService.getJob(id);
   }
 
   @Get("version")

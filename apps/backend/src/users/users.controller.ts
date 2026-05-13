@@ -1,6 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { UserRole } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
+import { Roles } from "../auth/roles.decorator";
+import { RequirePermission } from "../rbac/permissions.decorator";
+import { PermissionKeys } from "../rbac/rbac.constants";
 import { UsersService } from "./users.service";
 
 @Controller("users")
@@ -13,6 +17,8 @@ export class UsersController {
   }
 
   @Post()
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.UsersManage)
   async create(@Body() body: Record<string, unknown>) {
     const user = await this.usersService.createUser({
       email: String(body.email ?? ""),
@@ -29,6 +35,8 @@ export class UsersController {
   }
 
   @Patch(":id")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.UsersManage)
   async update(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     const numOrNull = (v: unknown): number | null | undefined => {
       if (v === undefined) return undefined;
@@ -76,12 +84,16 @@ export class UsersController {
   }
 
   @Patch(":id/role")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.UsersManage)
   async updateRole(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     const user = await this.usersService.updateRole(id, String(body.role ?? ""));
     return { user };
   }
 
   @Delete(":id")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.UsersManage)
   async remove(@Param("id") id: string) {
     return this.usersService.deleteUser(id);
   }
