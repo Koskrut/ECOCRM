@@ -4,13 +4,25 @@
 
 ## Unreleased
 
-### Changed
+_(планируемые изменения после **0.2.4**.)_
 
-- **`docs/cp-v0.2.3.md`**: явное разделение манифеста (compose/stack) и лицензии (entitlement из подписки); `moduleCodes` в манифесте vs effective modules; `metadata.ci_unknown_root_fields`; preflight сервера (`LICENSE_FILE_PATH_HOST` — файл, orphan store, полный `-f`).
+## [0.2.4] — 2026-05-15
+
+### Summary
+
+Патч **0.2.4**: манифест для Control Plane по умолчанию включает **`compose.modules.store.yml`** (вместе с **`composeFileUrls`**), чтобы **`client-pull-agent`** и **`docker compose`** поднимали **`crm-store`** без отдельного PATCH; обновлены операторские доки (**`docs/cp-v0.2.3.md`**, **`docs/bio3ua-core-only.md`**, **`README.md`**).
 
 ### Added
 
-- Манифест **Publish Registry Release**: в **`composeFiles`** / **`composeFileUrls`** включён **`compose.modules.store.yml`** (сервис `store` в стеке по манифесту, без отдельного PATCH в CP).
+- **`compose.modules.store.yml`** в **`composeFiles`** / **`composeFileUrls`** при **Publish Registry Release** и в **`rollout-loop-dry-run`**.
+
+### Changed
+
+- **`docs/cp-v0.2.3.md`**: манифест vs лицензия, **`moduleCodes`** vs подписка, **`metadata.ci_unknown_root_fields`**, preflight сервера (**`LICENSE_FILE_PATH_HOST`**, orphan-сервисы, полный **`-f`**); allowlist CP для **`compose.modules.store.yml`**.
+
+### Upgrade notes
+
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.4`**, затем манифест из CI/CP (с **`compose.modules.store.yml`**) и **`client-pull-agent`** или **`pull` + `up -d`** с полным **`-f`**.
 
 ## [0.2.3] — 2026-05-14
 
@@ -49,7 +61,7 @@
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): для актуального патча с **`composeFileUrls`** в манифесте — **`0.2.3`**; минимум **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.4`**; иначе минимум **`0.2.3`** / **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
