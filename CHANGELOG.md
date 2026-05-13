@@ -4,7 +4,10 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.2**.)_
+### Added
+
+- **`composeFileUrls`** в `deployment-manifest.json` при **Publish Registry Release** (URL на `raw.githubusercontent.com` по полному SHA коммита GitHub Actions) для **каждого** пути из **`composeFiles`** — клиент может подтянуть все overlay compose без отдельного коммита каждого файла в install bundle.
+- **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**: скачивание отсутствующих compose из манифеста и **`docker compose … pull`** по списку `-f` из манифеста.
 
 ## [0.2.2] — 2026-05-13
 

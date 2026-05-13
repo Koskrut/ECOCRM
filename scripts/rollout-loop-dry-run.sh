@@ -21,7 +21,7 @@ if [ -z "${VERSION:-}" ]; then
 fi
 
 CHANNEL="${CHANNEL:-stable}"
-GIT_SHA="${GIT_SHA:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+GIT_SHA="${GIT_SHA:-$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)}"
 BUILD_TIME="${BUILD_TIME:-$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")}"
 SOURCE_REPO="${SOURCE_REPO:-https://github.com/Koskrut/ECOCRM}"
 CI_RUN_URL="${CI_RUN_URL:-local-dry-run}"
@@ -62,6 +62,7 @@ GIT_SHA="$GIT_SHA" \
 BUILD_TIME="$BUILD_TIME" \
 SOURCE_REPO="$SOURCE_REPO" \
 CI_RUN_URL="$CI_RUN_URL" \
+REPO_ROOT="$REPO_ROOT" \
 BACKEND_IMAGE="$BACKEND_IMAGE" \
 CORE_IMAGE="$CORE_IMAGE" \
 WEB_IMAGE="$WEB_IMAGE" \
@@ -120,7 +121,8 @@ function resolveModulesCsv() {
   const legacy = process.env.INCLUDE_OUTBOUND_IN_MANIFEST === "true";
   const { execFileSync } = require("node:child_process");
   const path = require("node:path");
-  const script = path.join(__dirname, "resolve-modules-csv.mjs");
+  const root = process.env.REPO_ROOT || path.join(__dirname, "..");
+  const script = path.join(root, "scripts", "resolve-modules-csv.mjs");
   return execFileSync(process.execPath, [script, raw, legacy ? "true" : "false"], { encoding: "utf8" }).trim();
 }
 
@@ -207,7 +209,10 @@ const payload = {
   builtAt: process.env.BUILD_TIME,
   composeFiles: ["compose.base.yml", "compose.client.yml"],
   moduleCodes: ["core.crm"],
-  compatibility: { line: "0.1.x" },
+  compatibility: (() => {
+    const semverMinor = /^(\d+\.\d+)\./.exec(process.env.VERSION ?? "");
+    return { line: semverMinor ? `${semverMinor[1]}.x` : "0.1.x" };
+  })(),
   images: [
     {
       role: "backend_core",
@@ -263,6 +268,22 @@ for (const image of payload.images) {
   if (image.imageRepository !== image.imageRepository.toLowerCase()) {
     throw new Error(`image repository must be lowercase: ${image.imageRepository}`);
   }
+}
+
+function githubRawBase(sourceRepo, gitSha) {
+  if (!sourceRepo || !gitSha || gitSha === "unknown") return null;
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/.]+)(\.git)?\/?$/i.exec(String(sourceRepo).trim());
+  if (!m) return null;
+  return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${gitSha}`;
+}
+
+const rawBase = githubRawBase(process.env.SOURCE_REPO, process.env.GIT_SHA);
+if (rawBase) {
+  const composeFileUrls = {};
+  for (const cf of payload.composeFiles) {
+    composeFileUrls[cf] = `${rawBase}/${cf}`;
+  }
+  payload.composeFileUrls = composeFileUrls;
 }
 
 fs.writeFileSync(process.env.MANIFEST_PATH, `${JSON.stringify(payload, null, 2)}\n`);

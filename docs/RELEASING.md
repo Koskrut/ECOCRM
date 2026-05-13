@@ -35,4 +35,13 @@ git push origin v0.2.2
 - Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.2`**, `docker compose pull` и перезапуск.
 - При наличии новых миграций в релизе: **`prisma migrate deploy`** на стороне клиента (или сервис `backend-migrate` в compose).
 
+## Compose на сервере клиента (SUPREX / install bundle)
+
+Манифест релиза из **Publish Registry Release** содержит **`composeFileUrls`**: прямые `https://raw.githubusercontent.com/.../gitSha/<файл>` для **каждого** пути из **`composeFiles`**, чтобы не собирать compose вручную по модулям.
+
+- Скрипт **`suprex/client-pull-agent.sh`** (из корня bundle, как у вас `/opt/crm`): подставляет манифест (`MANIFEST_URL` или `DEPLOYMENT_MANIFEST_PATH` или `deployment-manifest.json` в корне), вызывает **`scripts/sync-compose-from-manifest.mjs`**, затем **`docker compose pull`** со всеми `-f` из манифеста. Пример:
+  - `cd /opt/crm && ENV_FILE=suprex/.env MANIFEST_URL='https://…/deployment-manifest.json' ./suprex/client-pull-agent.sh`
+- Чтобы только скачать compose без pull: **`SKIP_DOCKER_PULL=1`**.
+- Control Plane должен **сохранять и отдавать** поле **`composeFileUrls`** при регистрации релиза (как в JSON из CI). Если CP обрезает неизвестные поля — обновите CP или временно кладите актуальный `deployment-manifest.json` в корень bundle.
+
 Подробности про semver и совместимость: `docs/git-release-workflow.md`, `README.md` (раздел registry / compatibility).

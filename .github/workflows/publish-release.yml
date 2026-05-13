@@ -72,7 +72,7 @@ jobs:
 
           CHANNEL="${{ inputs.channel || 'stable' }}"
           BUILD_TIME="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
-          GIT_SHA="$(git rev-parse --short HEAD)"
+          GIT_SHA="$(git rev-parse HEAD)"
           BACKEND_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-backend-core:${VERSION}"
           WEB_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-web:${VERSION}"
           STORE_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/crm-store:${VERSION}"
@@ -216,6 +216,7 @@ jobs:
           STORE_DIGEST: ${{ steps.store.outputs.digest }}
           CI_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SOURCE_REPO: ${{ github.server_url }}/${{ github.repository }}
+          RAW_COMPOSE_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -309,6 +310,15 @@ jobs:
             },
             images,
           };
+
+          const rawBase = (process.env.RAW_COMPOSE_BASE ?? "").replace(/\/$/, "");
+          if (rawBase) {
+            const composeFileUrls = {};
+            for (const cf of composeFiles) {
+              composeFileUrls[cf] = `${rawBase}/${cf}`;
+            }
+            payload.composeFileUrls = composeFileUrls;
+          }
 
           fs.writeFileSync("deployment-manifest.json", `${JSON.stringify(payload, null, 2)}\n`);
           NODE

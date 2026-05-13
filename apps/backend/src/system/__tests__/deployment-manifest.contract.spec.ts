@@ -23,6 +23,10 @@ test("Control Plane deployment manifest shape matches validate-deployment-manife
     ciRunUrl: "https://github.com/example/crm/actions/runs/1",
     builtAt: "2026-05-02T00:00:00.000Z",
     composeFiles: ["compose.base.yml", "compose.client.yml"],
+    composeFileUrls: {
+      "compose.base.yml": "https://raw.githubusercontent.com/example/crm/abc1234/compose.base.yml",
+      "compose.client.yml": "https://raw.githubusercontent.com/example/crm/abc1234/compose.client.yml",
+    },
     moduleCodes: ["core.crm"],
     compatibility: { line: "0.1.x" },
     images: [

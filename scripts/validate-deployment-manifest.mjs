@@ -123,4 +123,18 @@ for (let i = 0; i < doc.images.length; i++) {
   }
 }
 
+if ("composeFileUrls" in doc) {
+  const urls = doc.composeFileUrls;
+  if (urls === null || typeof urls !== "object" || Array.isArray(urls)) {
+    fail("composeFileUrls must be a non-null object when present");
+  }
+  const httpsUrl = /^https:\/\/.+/;
+  for (const cf of doc.composeFiles) {
+    const u = urls[cf];
+    if (typeof u !== "string" || !httpsUrl.test(u)) {
+      fail(`composeFileUrls[${JSON.stringify(cf)}] must be a non-empty https URL when composeFileUrls is set`);
+    }
+  }
+}
+
 console.log(`OK: deployment manifest valid (${doc.images.length} image(s))`);
