@@ -114,6 +114,7 @@ jobs:
         with:
           context: .
           file: apps/backend/Dockerfile
+          target: runner
           push: true
           tags: ${{ steps.meta.outputs.backend_image }}
           build-args: |

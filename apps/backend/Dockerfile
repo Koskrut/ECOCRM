@@ -99,3 +99,7 @@ FROM runner AS planning-runner
 ENV BACKEND_VARIANT=planning_worker
 EXPOSE 3001
 CMD ["node", "dist/planning-main.js"]
+
+# Default image when `docker build` / compose omits `--target`: must be full CRM (`runner`),
+# not the last module stage above.
+FROM runner

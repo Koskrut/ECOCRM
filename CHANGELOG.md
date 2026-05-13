@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.0**.)_
+- **CI / Docker**: образ `crm-backend-core` собирался без `--target`; последний stage в `apps/backend/Dockerfile` был `planning-runner` → в registry уходил **planning worker** вместо полного API. Исправлено: финальный `FROM runner` в Dockerfile, `target: runner` в **Publish Registry Release** и **Preflight**, `target: runner` в `docker-compose.prod.yml`.
 
 ## [0.2.0] — 2026-05-13
 

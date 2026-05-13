@@ -59,6 +59,7 @@ jobs:
         with:
           context: .
           file: apps/backend/Dockerfile
+          target: runner
           push: false
           tags: local/crm-backend-core:preflight
           build-args: |

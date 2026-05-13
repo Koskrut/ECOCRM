@@ -25,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
+      target: runner
     env_file: .env
     environment:
       NODE_ENV: production
