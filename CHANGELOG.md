@@ -4,10 +4,28 @@
 
 ## Unreleased
 
+_(планируемые изменения после **0.2.3**.)_
+
+## [0.2.3] — 2026-05-14
+
+### Summary
+
+Патч **0.2.3**: манифест релиза для Control Plane дополняется **`composeFileUrls`** (ссылки на compose в GitHub по SHA коммита), плюс скрипты для клиента (**`sync-compose-from-manifest`**, **`suprex/client-pull-agent.sh`**). Рекомендуемый образ для прода после зелёного CI.
+
 ### Added
 
-- **`composeFileUrls`** в `deployment-manifest.json` при **Publish Registry Release** (URL на `raw.githubusercontent.com` по полному SHA коммита GitHub Actions) для **каждого** пути из **`composeFiles`** — клиент может подтянуть все overlay compose без отдельного коммита каждого файла в install bundle.
-- **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**: скачивание отсутствующих compose из манифеста и **`docker compose … pull`** по списку `-f` из манифеста.
+- **`composeFileUrls`** в `deployment-manifest.json` при **Publish Registry Release** (URL на `raw.githubusercontent.com` по полному SHA коммита GitHub Actions) для **каждого** пути из **`composeFiles`**.
+- **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**: скачивание отсутствующих compose с хоста и **`docker compose … pull`** по списку `-f` из манифеста.
+
+### Changed
+
+- В манифесте поле **`gitSha`** — полный SHA коммита (согласовано с URL raw compose).
+- **`scripts/rollout-loop-dry-run.sh`**: те же `composeFileUrls` в dry-run, исправлен путь к **`resolve-modules-csv.mjs`** через **`REPO_ROOT`**, **`compatibility.line`** из версии.
+
+### Upgrade notes
+
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.3`**, затем pull/up. Для install bundle без полного git clone: **`MANIFEST_URL`** (или локальный манифест) + **`suprex/client-pull-agent.sh`** — см. **`docs/RELEASING.md`** и **`docs/cp-v0.2.3.md`**.
+- **Control Plane** должен хранить и отдавать **`composeFileUrls`** в JSON манифеста (см. **`docs/cp-v0.2.3.md`**).
 
 ## [0.2.2] — 2026-05-13
 
@@ -25,7 +43,7 @@
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): переходите на **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): для актуального патча с **`composeFileUrls`** в манифесте — **`0.2.3`**; минимум **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
