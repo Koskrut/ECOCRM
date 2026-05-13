@@ -19,4 +19,4 @@ ENV_FILE=suprex/.env MANIFEST_URL='https://your-control-plane/.../manifest.json'
 
 Control Plane должен **сохранять** поле **`composeFileUrls`** в JSON манифеста при регистрации релиза; иначе используйте локальный экспорт манифеста из CI или файл в корне bundle.
 
-После обновления модули «не подтягиваются» — чеклист: **`docs/suprex-post-update-checklist.md`**.
+**Лицензия:** в `.env` переменная **`LICENSE_FILE_PATH_HOST`** должна указывать на **файл** `…/license.json`, а не на каталог `…/secrets/` — иначе модули в API/UI останутся «только core». Манифест релиза и entitlement из подписки — разные вещи; см. **`docs/cp-v0.2.3.md`**.

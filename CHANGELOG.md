@@ -4,7 +4,10 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.3**.)_
+### Changed
+
+- **`docs/cp-v0.2.3.md`**: явное разделение манифеста (compose/stack) и лицензии (entitlement из подписки); `moduleCodes` в манифесте vs effective modules; `metadata.ci_unknown_root_fields`; preflight сервера (`LICENSE_FILE_PATH_HOST` — файл, orphan store, полный `-f`).
+
 
 ## [0.2.3] — 2026-05-14
 
