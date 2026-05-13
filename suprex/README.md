@@ -18,3 +18,5 @@ ENV_FILE=suprex/.env MANIFEST_URL='https://your-control-plane/.../manifest.json'
 Только скачать compose без `docker pull`: **`SKIP_DOCKER_PULL=1`**.
 
 Control Plane должен **сохранять** поле **`composeFileUrls`** в JSON манифеста при регистрации релиза; иначе используйте локальный экспорт манифеста из CI или файл в корне bundle.
+
+После обновления модули «не подтягиваются» — чеклист: **`docs/suprex-post-update-checklist.md`**.
