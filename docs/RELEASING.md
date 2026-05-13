@@ -37,7 +37,7 @@ git push origin v0.2.3
 
 ## Compose на сервере клиента (SUPREX / install bundle)
 
-Манифест релиза из **Publish Registry Release** содержит **`composeFileUrls`**: прямые `https://raw.githubusercontent.com/.../gitSha/<файл>` для **каждого** пути из **`composeFiles`**, чтобы не собирать compose вручную по модулям.
+Манифест релиза из **Publish Registry Release** содержит **`composeFileUrls`** для **`compose.base.yml`**, **`compose.client.yml`**, **`compose.modules.store.yml`** и всех module overlays из релиза (`0.2.x` — полный набор модулей): прямые `https://raw.githubusercontent.com/.../…/<файл>` для **каждого** пути из **`composeFiles`**, чтобы не собирать compose вручную по модулям.
 
 - Скрипт **`suprex/client-pull-agent.sh`** (из корня bundle, как у вас `/opt/crm`): подставляет манифест (`MANIFEST_URL` или `DEPLOYMENT_MANIFEST_PATH` или `deployment-manifest.json` в корне), вызывает **`scripts/sync-compose-from-manifest.mjs`**, затем **`docker compose pull`** со всеми `-f` из манифеста. Пример:
   - `cd /opt/crm && ENV_FILE=suprex/.env MANIFEST_URL='https://…/deployment-manifest.json' ./suprex/client-pull-agent.sh`

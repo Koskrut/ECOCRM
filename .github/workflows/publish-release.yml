@@ -280,7 +280,7 @@ jobs:
             images.push(row);
           }
 
-          const composeFiles = ["compose.base.yml", "compose.client.yml"];
+          const composeFiles = ["compose.base.yml", "compose.client.yml", "compose.modules.store.yml"];
           for (const cf of addon.composeFiles ?? []) {
             if (!composeFiles.includes(cf)) composeFiles.push(cf);
           }

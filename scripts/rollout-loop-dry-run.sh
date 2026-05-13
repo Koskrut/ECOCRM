@@ -207,7 +207,7 @@ const payload = {
   gitSha: process.env.GIT_SHA,
   ciRunUrl: process.env.CI_RUN_URL,
   builtAt: process.env.BUILD_TIME,
-  composeFiles: ["compose.base.yml", "compose.client.yml"],
+  composeFiles: ["compose.base.yml", "compose.client.yml", "compose.modules.store.yml"],
   moduleCodes: ["core.crm"],
   compatibility: (() => {
     const semverMinor = /^(\d+\.\d+)\./.exec(process.env.VERSION ?? "");
@@ -289,7 +289,7 @@ if (rawBase) {
 fs.writeFileSync(process.env.MANIFEST_PATH, `${JSON.stringify(payload, null, 2)}\n`);
 NODE
 
-for compose_file in compose.base.yml compose.client.yml; do
+for compose_file in compose.base.yml compose.client.yml compose.modules.store.yml; do
   if [ ! -f "$REPO_ROOT/$compose_file" ]; then
     echo "Missing compose file referenced by manifest: $compose_file" >&2
     exit 1

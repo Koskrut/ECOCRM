@@ -17,7 +17,7 @@
 
 ## Control Plane — манифест и отдача
 
-1. **`composeFiles`** — полный список overlay под релиз (не только base + client, если в релизе заявлены модули).
+1. **`composeFiles`** — полный список overlay под релиз: **`compose.base.yml`**, **`compose.client.yml`**, **`compose.modules.store.yml`**, затем module compose из релиза (не только base + client). Если в CP есть allowlist имён compose-файлов, добавьте **`compose.modules.store.yml`**.
 2. **`composeFileUrls`** — у **каждого** элемента **`composeFiles`** своя строка **`https://…`** (в т.ч. при политиках **`passthrough`** / **`ci_urls`** на PATCH — см. ниже).
 3. **`gitSha` vs URL в raw:** в raw-URL часто встречается ref вида **`v0.2.3`**, в манифесте — **полный коммит**; это **нормально**, если вы осознанно публикуете оба ref и **содержимое файлов** на GitHub совпадает с релизом.
 4. После **`POST …/releases/register`**: **`composeFileUrls`** и неизвестные корневые поля CI **не выкидываются молча** — в CP лишнее с корня может уходить в **`metadata.ci_unknown_root_fields`** (проверяйте при отладке).
@@ -40,7 +40,7 @@
 3. **`.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** = версия релиза; **`CORS_ORIGIN`**, **`PUBLIC_BASE_URL`**, секреты БД; **`*_MODULE_IMAGE_NAME`** можно не задавать (дефолты в compose).
 4. **`MODULE_GATING_ENABLED`** — если не задан / пусто, гейтинг по env обычно не включает жёсткий режим; при **`true`** дополнительно проверяйте pilot / enabled в БД и health апстримов (как в вашем чеклисте).
 5. **Compose на диске** — все пути из **`composeFiles`** присутствуют в корне bundle (после sync или git).
-6. **Docker** — **`docker compose pull`** и **`up -d`** с **тем же** набором **`-f`**, что в манифесте; модули в **`docker compose ps`** — **`up` / healthy**. Если в манифесте **нет** `store`, а контейнер **`crm-store`** остался от старого стека — это **orphan**; для чистоты: **`docker compose … up -d --remove-orphans`** после решения, нужен ли store в этом релизе.
+6. **Docker** — **`docker compose pull`** и **`up -d`** с **тем же** набором **`-f`**, что в манифесте (включая **`store`**, если он в **`composeFiles`**); модули в **`docker compose ps`** — **`up` / healthy**. Если сервис был в старом стеке, а из манифеста убран — **`docker compose … up -d --remove-orphans`**.
 7. **Лицензия (UI/API модулей)** — **`LICENSE_FILE_PATH_HOST`** (и **`LICENSE_FILE_PATH`** в контейнере) должны указывать на **файл** `license.json` с подписанным envelope и нужными **`ext.*` / `int.*`** в payload, а **не на каталог**. Если путь ведёт на директорию, монтирование/чтение лицензии ломаются; в API возможен сценарий «effective только **core.crm**».
 
 ---

@@ -106,17 +106,17 @@ docker compose -f compose.base.yml -f compose.client.yml --env-file .env up -d
 `backend-migrate` запускается как отдельный one-off service перед backend. Сам backend container не выполняет миграции в entrypoint.
 `compose.client.yml` публикует порты только на `127.0.0.1` по умолчанию; внешний HTTPS/reverse proxy настраивается отдельно.
 
-**Интернет-магазин (`crm-store`):** по умолчанию в `compose.base.yml` нет сервиса `store`. Подключите overlay после `compose.client.yml`:
+**Интернет-магазин (`crm-store`):** по умолчанию в `compose.base.yml` нет сервиса `store`. Без манифеста CP подключите overlay после `compose.client.yml`:
 
 ```bash
 docker compose -f compose.base.yml -f compose.client.yml -f compose.modules.store.yml --env-file .env up -d
 ```
 
+Манифест релиза из CI (**Publish Registry Release**) для Control Plane включает **`compose.base.yml`**, **`compose.client.yml`**, **`compose.modules.store.yml`** и overlays опциональных модулей по версии релиза (для **`0.2.x`** с пустым `modules` в workflow — полный набор модулей). Ручной минимальный стек без магазина — только два первых `-f`.
+
 ### Module overlays
 
 D3 overlays подключают in-process модули через конфигурацию `crm-backend-core`. Первый **отдельный** module image: `crm-module-outbound` (`Dockerfile` target `outbound-runner`) + `compose.modules.outbound-sidecar.yml` (сервис `backend-outbound`). Чтобы не дублировать cron, на `backend` задайте `OUTBOUND_CRON_DISABLED=true`, пока живёт `backend-outbound`.
-
-Манифест релиза (CP) по умолчанию описывает только `compose.base.yml` и `compose.client.yml`; store и module overlays подключает агент/оператор по entitlements.
 
 **Установка bio3ua core-only** (без store, пустой enabled list, чистая БД): см. [`docs/bio3ua-core-only.md`](docs/bio3ua-core-only.md).
 

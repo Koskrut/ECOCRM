@@ -8,6 +8,9 @@
 
 - **`docs/cp-v0.2.3.md`**: явное разделение манифеста (compose/stack) и лицензии (entitlement из подписки); `moduleCodes` в манифесте vs effective modules; `metadata.ci_unknown_root_fields`; preflight сервера (`LICENSE_FILE_PATH_HOST` — файл, orphan store, полный `-f`).
 
+### Added
+
+- Манифест **Publish Registry Release**: в **`composeFiles`** / **`composeFileUrls`** включён **`compose.modules.store.yml`** (сервис `store` в стеке по манифесту, без отдельного PATCH в CP).
 
 ## [0.2.3] — 2026-05-14
 

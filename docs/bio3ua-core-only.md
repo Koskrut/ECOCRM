@@ -18,6 +18,8 @@ cat .env.client.example >> .env
 
 Не подключайте `compose.modules.store.yml` и другие `compose.modules.*`, если магазин и модули не нужны.
 
+Стандартный манифест релиза **ECOCRM 0.2.x** из CI для CP включает **`compose.modules.store.yml`** и overlays модулей. Для **core-only** не подставляйте такой манифест в `client-pull-agent` без доработки: используйте только **`compose.base.yml` + `compose.client.yml`** вручную или урезанный манифест / PATCH в CP (см. `docs/cp-v0.2.3.md`).
+
 ## 2. Всё через Control Plane (узкий контур)
 
 Ниже — порядок, когда **образы и дайджесты** живут в GHCR, **подписка и установка** — в CP, на сервере **только core** (`crm-core-api` + web), **без** `compose.modules.*`.
