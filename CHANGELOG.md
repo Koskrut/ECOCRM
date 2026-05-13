@@ -4,9 +4,26 @@
 
 ## Unreleased
 
-- **CP manifest / composeFiles**: для модуля `google-sheet` в манифесте больше не перечисляется несуществующий у части bundle `compose.modules.google-sheet.yml`; только `compose.modules.google-sheet-sidecar.yml`. В CI добавлена проверка, что каждый путь из `compose` существует в репозитории.
+_(планируемые изменения после **0.2.2**.)_
 
-- **CI / Docker**: образ `crm-backend-core` собирался без `--target`; последний stage в `apps/backend/Dockerfile` был `planning-runner` → в registry уходил **planning worker** вместо полного API. Исправлено: финальный `FROM runner` в Dockerfile, `target: runner` в **Publish Registry Release** и **Preflight**, `target: runner` в `docker-compose.prod.yml`.
+## [0.2.2] — 2026-05-13
+
+### Summary
+
+Патч-релиз **0.2.2** по линии **0.2.x**: исправления инфраструктуры релиза и манифеста, чтобы **образ `crm-backend-core`**, **список `composeFiles` для Control Plane** и **сборка web** соответствовали ожиданиям операторов и client-pull-agent.
+
+### Fixed
+
+- **Docker / `crm-backend-core`**: последний stage в `apps/backend/Dockerfile` больше не «уезжает» в `planning-runner`; добавлен финальный **`FROM runner`**. В **Publish Registry Release** и **Preflight** для образа backend явно **`target: runner`**. В **`docker-compose.prod.yml`** для `backend` указан **`target: runner`** при `--build`. Устраняет **`BACKEND_VARIANT=planning_worker`** у контейнера, который должен быть полным API.
+- **CI module images**: `docker buildx imagetools inspect` — чтение digest через **`json .Manifest`** и fallback по тексту **`Digest:`** (совместимость с новым buildx).
+- **Control Plane manifest**: роли optional module-образов — **`module`** (не `module_*`), кроме **`module_outbound`**; соответствие allowlist CP.
+- **`composeFiles` в манифесте**: для `google-sheet` только **`compose.modules.google-sheet-sidecar.yml`**; удалён дублирующий **`compose.modules.google-sheet.yml`**. В **`ci-publish-module-builds.mjs`** проверка **существования каждого compose-пути** в репозитории перед записью addon.
+- **Web production build**: в JSX заменены **`->`** на **`→`** в `outbound-voice` и `ringostat` settings (парсер JSX).
+
+### Upgrade notes
+
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): переходите на **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
 
@@ -22,7 +39,7 @@
 
 ### Upgrade notes
 
-- Клиентам на **0.1.x**: переход на **0.2.0** — минорный bump; сверить **compose**, **`.env`**, **миграции Prisma**, **license.json** / пилоты и **`MODULE_GATING_ENABLED`**. Patch-совместимость внутри **0.2.x** — по правилам в `README.md`.
+- Клиентам на **0.1.x**: переход на **0.2.x** — минорный bump; сверить **compose**, **`.env`**, **миграции Prisma**, **license.json** / пилоты и **`MODULE_GATING_ENABLED`**. Patch-совместимость внутри **0.2.x** — по правилам в `README.md`.
 
 ## [0.1.5] — 2026-05-02
 
