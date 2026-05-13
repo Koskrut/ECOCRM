@@ -260,7 +260,7 @@ export default function OutboundVoiceSettingsPage() {
               <div className="border-t border-zinc-100 pt-4">
                 <label className="block text-sm font-medium text-zinc-900">Режим runtime</label>
                 <p className="mb-1 text-xs text-zinc-500">
-                  Порожньо = попередня логіка: якщо є URL і токен -> generic HTTP, інакше stub.{" "}
+                  Порожньо = попередня логіка: якщо є URL і токен → generic HTTP, інакше stub.{" "}
                   <code className="rounded bg-zinc-100 px-1">kyivstar_openai_gateway</code> —
                   отдельный путь создания вызова для шлюза Kyivstar/OpenAI.
                 </p>

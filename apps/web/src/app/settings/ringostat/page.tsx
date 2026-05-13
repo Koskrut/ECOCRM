@@ -353,7 +353,7 @@ export default function RingostatSettingsPage() {
                     placeholder={
                       config?.apiTokenMasked
                         ? "•••••••• — введіть новий, щоб змінити"
-                        : "Ключ із Ringostat -> Інтеграції -> Ringostat API"
+                        : "Ключ із Ringostat → Інтеграції → Ringostat API"
                     }
                   />
                 </div>
@@ -473,7 +473,7 @@ export default function RingostatSettingsPage() {
 
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-zinc-900">
-                Мапінг внутрішніх ліній -> користувачі CRM
+                Мапінг внутрішніх ліній → користувачі CRM
               </h2>
               <p className="text-xs text-zinc-500">
                 Відповідальний менеджер визначається лише за цією таблицею (ключ - значення
@@ -497,7 +497,7 @@ export default function RingostatSettingsPage() {
                     {extensions.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
-                          Поки що немає жодного запису. Додайте відповідність extension -> userId.
+                          Поки що немає жодного запису. Додайте відповідність extension → userId.
                         </td>
                       </tr>
                     ) : (
@@ -545,7 +545,7 @@ export default function RingostatSettingsPage() {
 
             <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <h2 className="text-sm font-semibold text-zinc-900">
-                Мапінг робочого телефону -> користувачі CRM (fallback)
+                Мапінг робочого телефону → користувачі CRM (fallback)
               </h2>
               <p className="text-xs text-zinc-500">
                 Ringostat інколи не надсилає{" "}
@@ -568,7 +568,7 @@ export default function RingostatSettingsPage() {
                     {phones.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
-                          Поки що немає жодного запису. Додайте відповідність телефон -> userId.
+                          Поки що немає жодного запису. Додайте відповідність телефон → userId.
                         </td>
                       </tr>
                     ) : (
