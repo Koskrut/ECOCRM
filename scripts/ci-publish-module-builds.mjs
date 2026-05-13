@@ -77,14 +77,30 @@ function run(cmd, args, opts = {}) {
 }
 
 function dockerDigest(imageUri) {
-  const out = execFileSync("docker", ["buildx", "imagetools", "inspect", imageUri, "--format", "{{.Digest}}"], {
+  // buildx ≥0.13+: format root is tplInput with .Name / .Manifest / .Image — not .Digest (see docker docs).
+  const jsonRaw = execFileSync(
+    "docker",
+    ["buildx", "imagetools", "inspect", imageUri, "--format", "{{json .Manifest}}"],
+    { encoding: "utf8", cwd: ROOT },
+  ).trim();
+  try {
+    const doc = JSON.parse(jsonRaw);
+    let digest = typeof doc?.digest === "string" ? doc.digest : "";
+    if (!digest && Array.isArray(doc?.manifests)) {
+      const amd = doc.manifests.find((m) => m?.platform?.architecture === "amd64" && m?.platform?.os === "linux");
+      digest = (amd ?? doc.manifests[0])?.digest ?? "";
+    }
+    if (/^sha256:[a-fA-F0-9]{64}$/.test(digest)) return digest;
+  } catch {
+    // fall through to text parse
+  }
+  const text = execFileSync("docker", ["buildx", "imagetools", "inspect", imageUri, "--format", "{{.Manifest}}"], {
     encoding: "utf8",
     cwd: ROOT,
-  }).trim();
-  if (!/^sha256:[a-fA-F0-9]{64}$/.test(out)) {
-    throw new Error(`Could not read digest for ${imageUri}: got ${JSON.stringify(out)}`);
-  }
-  return out;
+  });
+  const m = text.match(/Digest:\s*(sha256:[a-fA-F0-9]{64})/);
+  if (m?.[1] && /^sha256:[a-fA-F0-9]{64}$/.test(m[1])) return m[1];
+  throw new Error(`Could not read digest for ${imageUri} (json=${jsonRaw.slice(0, 200)}…)`);
 }
 
 const slugs = MODULES_CSV.split(",").map((s) => s.trim()).filter(Boolean);
