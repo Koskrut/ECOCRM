@@ -28,7 +28,9 @@ const MAP = {
     role: "module",
     moduleCode: "int.google_sheet",
     serviceName: "backend-google-sheet",
-    compose: ["compose.modules.google-sheet.yml", "compose.modules.google-sheet-sidecar.yml"],
+    // Upstream URL for core `backend` is in this sidecar overlay; avoid listing
+    // compose.modules.google-sheet.yml (optional thin file) so CP composeFiles match install bundles.
+    compose: ["compose.modules.google-sheet-sidecar.yml"],
   },
   ringostat: {
     target: "ringostat-runner",
@@ -148,6 +150,11 @@ for (const slug of slugs) {
   });
   addon.moduleCodes.push(spec.moduleCode);
   for (const cf of spec.compose) {
+    const abs = path.join(ROOT, cf);
+    if (!fs.existsSync(abs)) {
+      console.error(`Missing compose file referenced for module "${slug}": ${cf}`);
+      process.exit(1);
+    }
     if (!addon.composeFiles.includes(cf)) addon.composeFiles.push(cf);
   }
 }

@@ -139,7 +139,7 @@ const MODULE_MAP = {
     moduleCode: "int.google_sheet",
     imageVar: "GOOGLE_SHEET_MODULE_IMAGE",
     digestVar: "GOOGLE_SHEET_DIGEST",
-    compose: ["compose.modules.google-sheet.yml", "compose.modules.google-sheet-sidecar.yml"],
+    compose: ["compose.modules.google-sheet-sidecar.yml"],
   },
   ringostat: {
     role: "module",

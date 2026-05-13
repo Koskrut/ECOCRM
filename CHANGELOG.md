@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- **CP manifest / composeFiles**: для модуля `google-sheet` в манифесте больше не перечисляется несуществующий у части bundle `compose.modules.google-sheet.yml`; только `compose.modules.google-sheet-sidecar.yml`. В CI добавлена проверка, что каждый путь из `compose` существует в репозитории.
+
 - **CI / Docker**: образ `crm-backend-core` собирался без `--target`; последний stage в `apps/backend/Dockerfile` был `planning-runner` → в registry уходил **planning worker** вместо полного API. Исправлено: финальный `FROM runner` в Dockerfile, `target: runner` в **Publish Registry Release** и **Preflight**, `target: runner` в `docker-compose.prod.yml`.
 
 ## [0.2.0] — 2026-05-13
