@@ -74,6 +74,7 @@ const knownRoles = new Set([
   "other",
   "web",
   "store",
+  "module",
   "module_outbound",
   "client_extension",
 ]);
@@ -109,7 +110,7 @@ for (let i = 0; i < doc.images.length; i++) {
       fail(`${p}: client_extension images require clientCode`);
     }
   }
-  if (typeof im.role === "string" && im.role.startsWith("module_")) {
+  if (im.role === "module" || im.role === "module_outbound" || (typeof im.role === "string" && im.role.startsWith("module_"))) {
     if (typeof im.moduleCode !== "string" || !im.moduleCode) {
       fail(`${p}: moduleCode is required for role ${JSON.stringify(im.role)}`);
     }

@@ -6,7 +6,7 @@ set -eu
 #   OUTBOUND_MODULE_IMAGE=ghcr.io/koskrut/crm-module-outbound:0.1.4 \
 #   OUTBOUND_DIGEST=sha256:... \
 #   sh scripts/rollout-loop-dry-run.sh
-# Do not POST to Control Plane until CP accepts role "module_outbound" (or your chosen role).
+# Do not POST to Control Plane until manifest roles match CP allowlist (e.g. role "module" for sidecars, "module_outbound" for outbound).
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -134,7 +134,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.outbound.yml", "compose.modules.outbound-sidecar.yml"],
   },
   "google-sheet": {
-    role: "module_google_sheet",
+    role: "module",
     serviceName: "backend-google-sheet",
     moduleCode: "int.google_sheet",
     imageVar: "GOOGLE_SHEET_MODULE_IMAGE",
@@ -142,7 +142,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.google-sheet.yml", "compose.modules.google-sheet-sidecar.yml"],
   },
   ringostat: {
-    role: "module_ringostat",
+    role: "module",
     serviceName: "backend-ringostat",
     moduleCode: "int.ringostat",
     imageVar: "RINGOSTAT_MODULE_IMAGE",
@@ -150,7 +150,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.ringostat.yml", "compose.modules.ringostat-sidecar.yml"],
   },
   bitrix: {
-    role: "module_bitrix",
+    role: "module",
     serviceName: "backend-bitrix",
     moduleCode: "int.bitrix",
     imageVar: "BITRIX_MODULE_IMAGE",
@@ -158,7 +158,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.bitrix.yml", "compose.modules.bitrix-sidecar.yml"],
   },
   np: {
-    role: "module_np",
+    role: "module",
     serviceName: "backend-np",
     moduleCode: "int.nova_poshta",
     imageVar: "NP_MODULE_IMAGE",
@@ -166,7 +166,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.np.yml", "compose.modules.np-sidecar.yml"],
   },
   finance: {
-    role: "module_finance",
+    role: "module",
     serviceName: "backend-finance",
     moduleCode: "ext.finance",
     imageVar: "FINANCE_MODULE_IMAGE",
@@ -174,7 +174,7 @@ const MODULE_MAP = {
     compose: ["compose.modules.finance.yml", "compose.modules.finance-sidecar.yml"],
   },
   planning: {
-    role: "module_planning",
+    role: "module",
     serviceName: "backend-planning",
     moduleCode: "ext.production_planning",
     imageVar: "PLANNING_MODULE_IMAGE",

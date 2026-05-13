@@ -25,7 +25,7 @@ const MAP = {
   "google-sheet": {
     target: "google-sheet-runner",
     imageName: "crm-module-google-sheet",
-    role: "module_google_sheet",
+    role: "module",
     moduleCode: "int.google_sheet",
     serviceName: "backend-google-sheet",
     compose: ["compose.modules.google-sheet.yml", "compose.modules.google-sheet-sidecar.yml"],
@@ -33,7 +33,7 @@ const MAP = {
   ringostat: {
     target: "ringostat-runner",
     imageName: "crm-module-ringostat",
-    role: "module_ringostat",
+    role: "module",
     moduleCode: "int.ringostat",
     serviceName: "backend-ringostat",
     compose: ["compose.modules.ringostat.yml", "compose.modules.ringostat-sidecar.yml"],
@@ -41,7 +41,7 @@ const MAP = {
   bitrix: {
     target: "bitrix-runner",
     imageName: "crm-module-bitrix",
-    role: "module_bitrix",
+    role: "module",
     moduleCode: "int.bitrix",
     serviceName: "backend-bitrix",
     compose: ["compose.modules.bitrix.yml", "compose.modules.bitrix-sidecar.yml"],
@@ -49,7 +49,7 @@ const MAP = {
   np: {
     target: "np-runner",
     imageName: "crm-module-np",
-    role: "module_np",
+    role: "module",
     moduleCode: "int.nova_poshta",
     serviceName: "backend-np",
     compose: ["compose.modules.np.yml", "compose.modules.np-sidecar.yml"],
@@ -57,7 +57,7 @@ const MAP = {
   finance: {
     target: "finance-runner",
     imageName: "crm-module-finance",
-    role: "module_finance",
+    role: "module",
     moduleCode: "ext.finance",
     serviceName: "backend-finance",
     compose: ["compose.modules.finance.yml", "compose.modules.finance-sidecar.yml"],
@@ -65,7 +65,7 @@ const MAP = {
   planning: {
     target: "planning-runner",
     imageName: "crm-module-planning",
-    role: "module_planning",
+    role: "module",
     moduleCode: "ext.production_planning",
     serviceName: "backend-planning",
     compose: ["compose.modules.planning.yml", "compose.modules.planning-sidecar.yml"],
