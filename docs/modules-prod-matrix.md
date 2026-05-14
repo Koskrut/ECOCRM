@@ -1,5 +1,7 @@
 # Матрица модулей CRM (production)
 
+> Синхронизировано с релизом **`v0.2.6`**: NP **IntegrationSetting** + UI **`/settings/nova-poshta`**, rewrite путей прокси NP → upstream, матрица cron/upstream без изменения состава модулей в манифесте CI.
+
 Документ фиксирует **фактическое** состояние репозитория: реестр (`module-registry.ts`), варианты `BACKEND_VARIANT`, Docker, compose, reverse-proxy на sidecar, health-пробы, UI настроек и cron. Для лицензирования и CP см. `ModuleManifestV1` в `@crm/contracts`; поле `delivery` в манифесте описывает **продуктовый** тип, а не каждый способ деплоя — при необходимости sidecar переменные `*_UPSTREAM_URL` документированы ниже (см. также комментарии `// RU:` в `apps/backend/src/modules/module-registry.ts`).
 
 Связанные документы:

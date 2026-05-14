@@ -2,6 +2,19 @@
 
 Контекст: install bundle вроде **`/opt/crm`**, env **`suprex/.env`**, манифест с CP или **`deployment-manifest.json`**.
 
+Актуализировано под зелёный релиз **`v0.2.6`** (полный манифест CI: **store** + overlays модулей, **`composeFileUrls`**, NP settings в БД — см. **`CHANGELOG.md` [0.2.6]**).
+
+## 0. Rollout после зелёного **Publish Registry Release** (CP → сервер)
+
+1. **Control Plane:** для установки выставлен целевой релиз **`0.2.6`**; **`rollouts/next`** (или выдача **`MANIFEST_URL`**) возвращает JSON с **`version`: `0.2.6`**, полным **`composeFiles`** (в т.ч. **`compose.modules.store.yml`**) и **`composeFileUrls`** на каждый путь.
+2. **Сервер:** в **`suprex/.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.6`** (и остальные секреты без изменений, если не требует релиз).
+3. **Синк compose + образы:**  
+   `cd /opt/crm && ENV_FILE=suprex/.env MANIFEST_URL='…' ./suprex/client-pull-agent.sh`  
+   (или **`DEPLOYMENT_MANIFEST_PATH`** / локальный **`deployment-manifest.json`**).
+4. **Поднять стек:** **`docker compose … up -d`** с **тем же** набором **`-f`**, что в **`composeFiles`** манифеста (после **`pull`** иначе новые **`backend-*`** не появятся); при смене состава — **`--remove-orphans`** по необходимости.
+5. **Миграции:** если в релизе были Prisma-миграции — **`backend-migrate`** / **`prisma migrate deploy`** до **`up`** (как у вас принято).
+6. **NP (0.2.6+):** ключ и отправитель — в **Settings → Nova Poshta** (БД), не только env; см. **`docs/np-module-prod.md`**.
+
 ## 1. Манифест (JSON)
 
 **Где:** ответ CP (**`MANIFEST_URL`**), файл **`DEPLOYMENT_MANIFEST_PATH`**, или **`/opt/crm/deployment-manifest.json`**.
@@ -12,7 +25,7 @@
 |------|----------|
 | **`composeFiles`** | Непустой массив; для полного релиза **0.2.x** с модулями — не только `compose.base.yml` + `compose.client.yml`, но и **`compose.modules.*.yml`** (несколько штук). |
 | **`composeFileUrls`** | Объект; **у каждого** имени из **`composeFiles`** есть строка **`https://…`**. |
-| **`images`** | Есть строки с ролями **`module`** / **`module_outbound`** и тегами **`…:ВАША_ВЕРСИЯ`** (например **0.2.3**). |
+| **`images`** | Есть строки с ролями **`module`** / **`module_outbound`** / **`store`** и тегами **`…:ВАША_ВЕРСИЯ`** (для текущего патча — **`0.2.6`**). |
 | **`moduleCodes`** | Содержит **`core.crm`** и коды модулей (**`ext.voice_outbound`**, **`int.google_sheet`**, …), если модули заявлены в релизе. |
 
 Если **`composeFiles`** короткий — проблема на стороне CP (сохранение/отдача манифеста) или устаревший JSON; см. **`docs/cp-v0.2.3.md`**.
@@ -25,11 +38,12 @@
 
 ```bash
 cd /opt/crm
-# подставьте список из манифеста composeFiles:
-for f in compose.base.yml compose.client.yml; do test -f "$f" && echo "OK $f" || echo "MISSING $f"; done
+# все пути из манифеста (нужен jq) — для полного 0.2.x обычно 16 файлов:
+MANIFEST="${MANIFEST:-deployment-manifest.json}"
+jq -r '.composeFiles[]' "$MANIFEST" | while read -r f; do test -f "$f" && echo "OK $f" || echo "MISSING $f"; done
 ```
 
-Для каждого пути из **`composeFiles`** файл должен существовать (после **`client-pull-agent`** или **`git pull`**).
+Без **`jq`:** вручную пройдите каждый элемент **`composeFiles`** из JSON. Для каждого пути файл должен существовать (после **`client-pull-agent`** или **`git pull`**).
 
 ## 3. Переменные `.env`
 
@@ -37,7 +51,7 @@ for f in compose.base.yml compose.client.yml; do test -f "$f" && echo "OK $f" ||
 
 **Проверить:**
 
-- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с релизом в registry (например **0.2.3**).
+- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с релизом в registry (целевой патч линии **0.2.x**, сейчас **`0.2.6`**).
 - При необходимости имена образов модулей (**`*_MODULE_IMAGE_NAME`**) — см. соответствующие **`compose.modules.*.yml`**.
 
 ## 4. Docker: тот же набор `-f`, что в манифесте
@@ -48,7 +62,7 @@ for f in compose.base.yml compose.client.yml; do test -f "$f" && echo "OK $f" ||
 
 ```bash
 cd /opt/crm
-# пример: соберите -f из манифеста вручную или скопируйте из лога агента
+# реальный список -f — из composeFiles манифеста (ниже только иллюстрация двух файлов):
 docker compose -f compose.base.yml -f compose.client.yml --env-file suprex/.env config --services
 docker compose … --env-file suprex/.env ps
 ```
@@ -79,4 +93,5 @@ docker compose … --env-file suprex/.env ps
 1. Манифест: полный **`composeFiles`** + **`composeFileUrls`**?  
 2. На диске: все эти yaml есть?  
 3. **`docker compose ps`**: есть **`backend-*`** модулей?  
-4. Если контейнеры есть, а API «без модуля» → **`license.json`** + **`MODULE_GATING_ENABLED`**.
+4. После rollout: **`GET /system/modules`** (или эквивалент в вашем BFF) — ожидаемый набор enabled / entitlements.  
+5. Если контейнеры есть, а API «без модуля» → **`license.json`** + **`MODULE_GATING_ENABLED`**.
