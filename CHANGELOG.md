@@ -4,7 +4,9 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.6**.)_
+### Changed
+
+- Документация и **`.env.base.example`**: явно — при **NP sidecar** в манифесте нужны **`NP_UPSTREAM_URL`** / **`NP_WRITES_DISABLED`** на `backend`; монолит без воркера — политика **`composeFiles`** в CP; phone-home / перезапуск backend.
 
 ## [0.2.6] — 2026-05-17
 

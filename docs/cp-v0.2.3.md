@@ -43,6 +43,8 @@
 6. **Docker** — **`docker compose pull`** и **`up -d`** с **тем же** набором **`-f`**, что в манифесте (включая **`store`**, если он в **`composeFiles`**); модули в **`docker compose ps`** — **`up` / healthy**. Если сервис был в старом стеке, а из манифеста убран — **`docker compose … up -d --remove-orphans`**.
 7. **Лицензия (UI/API модулей)** — **`LICENSE_FILE_PATH_HOST`** (и **`LICENSE_FILE_PATH`** в контейнере) должны указывать на **файл** `license.json` с подписанным envelope и нужными **`ext.*` / `int.*`** в payload, а **не на каталог**. Если путь ведёт на директорию, монтирование/чтение лицензии ломаются; в API возможен сценарий «effective только **core.crm**».
 
+8. **Модули-сайдкары из манифеста** (NP и др.): если в **`composeFiles`** есть **`compose.modules.np-sidecar.yml`**, на сервисе **`backend`** в `.env` нужен **`NP_UPSTREAM_URL=http://backend-np:3001`** (и обычно **`NP_WRITES_DISABLED=true`** на монолите), иначе прокси **`/np`** на воркер **не включится**. Убрать воркер и оставить только монолит — меняют **манифест в CP** (`composeFiles` / PATCH), не агент на bundle. **Phone-home** обновит версию в CP после обычного цикла; при необходимости один раз перезапустите **`backend`**.
+
 ---
 
 **Запуск агента:** **`docs/RELEASING.md`** (`ENV_FILE`, `MANIFEST_URL`, при необходимости **`SKIP_DOCKER_PULL=1`**).

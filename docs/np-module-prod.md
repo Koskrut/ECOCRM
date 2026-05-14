@@ -28,7 +28,8 @@
 2. **Secrets**: Settings → Nova Poshta (or env) — API key + sender refs validated before TTN (`GET /np/sender/check`).
 3. **Directories**: run NP sync (`POST /np/sync` or scheduled job) so `npCity` / `npWarehouse` caches exist.
 4. **Sidecar** (if used): same DB URL as core; worker image version aligned with `BACKEND_VERSION`; `NP_WRITES_DISABLED` **not** `true` on worker; main API has `NP_UPSTREAM_URL` pointing at worker; deploy includes proxy path-rewrite fix.
-5. **Observability**: monitor 502 from module proxy (`Module upstream unavailable`), NP API errors in logs, TTN cron (`NpTtnCron`) if enabled on worker only.
+5. **Манифест CP и `.env`:** если в **`composeFiles`** снова есть **`compose.modules.np-sidecar.yml`**, а в `.env` на **`backend`** нет **`NP_UPSTREAM_URL`** — прокси **`/np` → `backend-np`** не включится, пока не зададите, например, **`NP_UPSTREAM_URL=http://backend-np:3001`** (на монолите при таком режиме обычно **`NP_WRITES_DISABLED=true`**). Убрать сайдкар и оставить только in-process NP — правка **`composeFiles`** / политики манифеста в **Control Plane**, не действие `client-pull-agent`. **Phone-home** подтянет версию в CP после обычного цикла бэкенда; при необходимости один раз перезапустите **`backend`**.
+6. **Observability**: monitor 502 from module proxy (`Module upstream unavailable`), NP API errors in logs, TTN cron (`NpTtnCron`) if enabled on worker only.
 
 ## UI entry points
 
