@@ -1,5 +1,7 @@
 /**
  * Standalone Bitrix sync + webhook worker (`bitrix-runner` in Dockerfile).
+ * Delta sync (`BitrixDeltaSyncService`) and webhook handlers live in `BitrixWebhookModule`, which imports `BitrixSyncModule`.
+ * Compose `BITRIX_SYNC_ENABLED` / `BITRIX_WEBHOOK_ENABLED` gate cron and webhook paths inside those services.
  */
 import "dotenv/config";
 import { Module, ValidationPipe } from "@nestjs/common";
@@ -12,13 +14,22 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
 @Module({
-  imports: [PrismaModule, ScheduleModule.forRoot(), AuthModule, RbacModule, SystemModule, BitrixWebhookModule],
+  imports: [
+    PrismaModule,
+    ScheduleModule.forRoot(),
+    AuthModule,
+    RbacModule,
+    SystemModule,
+    BitrixSyncModule,
+    BitrixWebhookModule,
+  ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

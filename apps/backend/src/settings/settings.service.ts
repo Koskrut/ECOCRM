@@ -11,6 +11,7 @@ import {
 } from "./org-chart-region-resolver";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
+import { NOVA_POSHTA_INTEGRATION_PROVIDER } from "../np/np.constants";
 
 export type ExchangeRates = {
   UAH_TO_USD: number;
@@ -259,6 +260,20 @@ export type OutboundVoiceIntegrationConfig = {
   retryMax?: number;
   transferDefaults?: Record<string, unknown>;
   catalogDefaults?: Record<string, unknown>;
+};
+
+/** Persisted in `IntegrationSetting` (provider {@link NOVA_POSHTA_INTEGRATION_PROVIDER}); secrets in `apiToken`. */
+export type NovaPoshtaIntegrationConfig = {
+  /** API v2 JSON endpoint (optional; default NP public API). */
+  apiUrl?: string;
+  apiTimeoutMs?: number;
+  senderCityRef?: string;
+  senderWarehouseRef?: string;
+  senderCounterpartyRef?: string;
+  senderContactRef?: string;
+  senderPhone?: string;
+  defaultPayerType?: string;
+  defaultPaymentMethod?: string;
 };
 
 function maskToken(value: string | undefined): string {
@@ -807,6 +822,204 @@ export class SettingsService {
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),
     };
+  }
+
+  async getNovaPoshtaIntegrationConfig(): Promise<
+    NovaPoshtaIntegrationConfig & {
+      isEnabled: boolean;
+      apiKeyMasked: string;
+    }
+  > {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    return {
+      isEnabled: row?.isEnabled ?? false,
+      apiUrl: typeof cfg.apiUrl === "string" ? cfg.apiUrl : undefined,
+      apiTimeoutMs: typeof cfg.apiTimeoutMs === "number" ? cfg.apiTimeoutMs : undefined,
+      senderCityRef: typeof cfg.senderCityRef === "string" ? cfg.senderCityRef : undefined,
+      senderWarehouseRef: typeof cfg.senderWarehouseRef === "string" ? cfg.senderWarehouseRef : undefined,
+      senderCounterpartyRef: typeof cfg.senderCounterpartyRef === "string" ? cfg.senderCounterpartyRef : undefined,
+      senderContactRef: typeof cfg.senderContactRef === "string" ? cfg.senderContactRef : undefined,
+      senderPhone: typeof cfg.senderPhone === "string" ? cfg.senderPhone : undefined,
+      defaultPayerType: typeof cfg.defaultPayerType === "string" ? cfg.defaultPayerType : undefined,
+      defaultPaymentMethod: typeof cfg.defaultPaymentMethod === "string" ? cfg.defaultPaymentMethod : undefined,
+      apiKeyMasked: maskToken(row?.apiToken ?? undefined),
+    };
+  }
+
+  async setNovaPoshtaIntegrationConfig(
+    body: Partial<
+      NovaPoshtaIntegrationConfig & {
+        isEnabled?: boolean;
+        /** Non-empty replaces stored key; empty string clears (env NP_API_KEY used if set). */
+        apiKey?: string;
+      }
+    >,
+  ): Promise<
+    NovaPoshtaIntegrationConfig & {
+      isEnabled: boolean;
+      apiKeyMasked: string;
+    }
+  > {
+    const existing = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const currentConfig = (existing?.config ?? {}) as NovaPoshtaIntegrationConfig;
+
+    const nextConfig: NovaPoshtaIntegrationConfig = {
+      apiUrl:
+        body.apiUrl !== undefined
+          ? String(body.apiUrl).trim() || undefined
+          : typeof currentConfig.apiUrl === "string"
+            ? currentConfig.apiUrl
+            : undefined,
+      apiTimeoutMs:
+        body.apiTimeoutMs !== undefined
+          ? Number(body.apiTimeoutMs) > 0
+            ? Number(body.apiTimeoutMs)
+            : undefined
+          : typeof currentConfig.apiTimeoutMs === "number"
+            ? currentConfig.apiTimeoutMs
+            : undefined,
+      senderCityRef:
+        body.senderCityRef !== undefined
+          ? String(body.senderCityRef).trim() || undefined
+          : typeof currentConfig.senderCityRef === "string"
+            ? currentConfig.senderCityRef
+            : undefined,
+      senderWarehouseRef:
+        body.senderWarehouseRef !== undefined
+          ? String(body.senderWarehouseRef).trim() || undefined
+          : typeof currentConfig.senderWarehouseRef === "string"
+            ? currentConfig.senderWarehouseRef
+            : undefined,
+      senderCounterpartyRef:
+        body.senderCounterpartyRef !== undefined
+          ? String(body.senderCounterpartyRef).trim() || undefined
+          : typeof currentConfig.senderCounterpartyRef === "string"
+            ? currentConfig.senderCounterpartyRef
+            : undefined,
+      senderContactRef:
+        body.senderContactRef !== undefined
+          ? String(body.senderContactRef).trim() || undefined
+          : typeof currentConfig.senderContactRef === "string"
+            ? currentConfig.senderContactRef
+            : undefined,
+      senderPhone:
+        body.senderPhone !== undefined
+          ? String(body.senderPhone).trim() || undefined
+          : typeof currentConfig.senderPhone === "string"
+            ? currentConfig.senderPhone
+            : undefined,
+      defaultPayerType:
+        body.defaultPayerType !== undefined
+          ? String(body.defaultPayerType).trim() || undefined
+          : typeof currentConfig.defaultPayerType === "string"
+            ? currentConfig.defaultPayerType
+            : undefined,
+      defaultPaymentMethod:
+        body.defaultPaymentMethod !== undefined
+          ? String(body.defaultPaymentMethod).trim() || undefined
+          : typeof currentConfig.defaultPaymentMethod === "string"
+            ? currentConfig.defaultPaymentMethod
+            : undefined,
+    };
+
+    const isEnabled =
+      typeof body.isEnabled === "boolean" ? body.isEnabled : (existing?.isEnabled ?? false);
+
+    let apiToken =
+      typeof body.apiKey === "string" ? body.apiKey : (existing?.apiToken ?? null);
+    if (body.apiKey === "") apiToken = null;
+
+    const row = await this.prisma.integrationSetting.upsert({
+      where: existing ? { id: existing.id } : { id: "np_integration_default" },
+      create: {
+        id: existing?.id ?? "np_integration_default",
+        provider: NOVA_POSHTA_INTEGRATION_PROVIDER,
+        isEnabled,
+        apiToken,
+        config: nextConfig as Prisma.InputJsonValue,
+      },
+      update: {
+        isEnabled,
+        ...(body.apiKey !== undefined ? { apiToken } : {}),
+        config: nextConfig as Prisma.InputJsonValue,
+      },
+    });
+
+    return {
+      isEnabled: row.isEnabled,
+      ...nextConfig,
+      apiKeyMasked: maskToken(row.apiToken ?? undefined),
+    };
+  }
+
+  /** DB `apiToken` overrides env `NP_API_KEY` when non-empty. */
+  async resolveNovaPoshtaApiCallParams(): Promise<{ apiKey: string; apiUrl: string; timeoutMs: number }> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    const dbKey = (row?.apiToken ?? "").trim();
+    const envKey = (process.env.NP_API_KEY ?? "").trim();
+    const apiKey = dbKey || envKey;
+    if (!apiKey) {
+      throw new BadRequestException(
+        "Nova Poshta API key is missing: set it in Settings → Nova Poshta or set NP_API_KEY in the environment.",
+      );
+    }
+    const apiUrlRaw =
+      (typeof cfg.apiUrl === "string" && cfg.apiUrl.trim()
+        ? cfg.apiUrl.trim()
+        : (process.env.NP_API_URL ?? "").trim()) || "https://api.novaposhta.ua/v2.0/json/";
+    const apiUrl = apiUrlRaw.endsWith("/") ? apiUrlRaw : `${apiUrlRaw}/`;
+    const timeoutMs =
+      typeof cfg.apiTimeoutMs === "number" && cfg.apiTimeoutMs > 0
+        ? cfg.apiTimeoutMs
+        : Number(process.env.NP_API_TIMEOUT_MS || 30000);
+    return { apiKey, apiUrl, timeoutMs };
+  }
+
+  /** Sender refs: `IntegrationSetting.config` first, then env `NP_SENDER_*`. */
+  async resolveNovaPoshtaSenderStrings(): Promise<{
+    senderCityRef: string;
+    senderWarehouseRef: string;
+    senderCounterpartyRef: string;
+    senderContactRef: string;
+    senderPhone: string;
+  }> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    const pick = (fromDb: string | undefined, envName: string) =>
+      (typeof fromDb === "string" ? fromDb.trim() : "") || String(process.env[envName] ?? "").trim();
+    return {
+      senderCityRef: pick(cfg.senderCityRef, "NP_SENDER_CITY_REF"),
+      senderWarehouseRef: pick(cfg.senderWarehouseRef, "NP_SENDER_WAREHOUSE_REF"),
+      senderCounterpartyRef: pick(cfg.senderCounterpartyRef, "NP_SENDER_COUNTERPARTY_REF"),
+      senderContactRef: pick(cfg.senderContactRef, "NP_SENDER_CONTACT_REF"),
+      senderPhone: pick(cfg.senderPhone, "NP_SENDER_PHONE"),
+    };
+  }
+
+  async resolveNovaPoshtaFinancialDefaults(): Promise<{ payerType: string; paymentMethod: string }> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    const payerType =
+      (typeof cfg.defaultPayerType === "string" && cfg.defaultPayerType.trim()
+        ? cfg.defaultPayerType.trim()
+        : String(process.env.NP_DEFAULT_PAYER_TYPE ?? "").trim()) || "Recipient";
+    const paymentMethod =
+      (typeof cfg.defaultPaymentMethod === "string" && cfg.defaultPaymentMethod.trim()
+        ? cfg.defaultPaymentMethod.trim()
+        : String(process.env.NP_DEFAULT_PAYMENT_METHOD ?? "").trim()) || "Cash";
+    return { payerType, paymentMethod };
   }
 
   async getOutboundVoiceIntegrationConfig(): Promise<

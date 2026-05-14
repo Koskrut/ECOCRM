@@ -9,6 +9,7 @@ import type {
   GoogleMapsConfig,
   GoogleSheetConfig,
   MetaLeadAdsConfig,
+  NovaPoshtaIntegrationConfig,
   StoreConfig,
   TelegramConfig,
 } from "./settings.service";
@@ -80,6 +81,22 @@ export class SettingsController {
     return this.settings.setGoogleSheetConfig(body);
   }
 
+  @Get("nova-poshta")
+  @RequireModule(ModuleIds.NovaPoshta)
+  @Roles(UserRole.ADMIN)
+  getNovaPoshtaIntegrationConfig() {
+    return this.settings.getNovaPoshtaIntegrationConfig();
+  }
+
+  @Patch("nova-poshta")
+  @RequireModule(ModuleIds.NovaPoshta)
+  @Roles(UserRole.ADMIN)
+  setNovaPoshtaIntegrationConfig(
+    @Body() body: Partial<NovaPoshtaIntegrationConfig & { isEnabled?: boolean; apiKey?: string }>,
+  ) {
+    return this.settings.setNovaPoshtaIntegrationConfig(body);
+  }
+
   @Get("telegram")
   @RequireModule(ModuleIds.IntegrationsTelegram)
   @Roles(UserRole.ADMIN)
@@ -95,14 +112,14 @@ export class SettingsController {
   }
 
   @Get("outbound-voice")
-  @RequireModule(ModuleIds.ManualCalling)
+  @RequireModule(ModuleIds.VoiceOutbound)
   @Roles(UserRole.ADMIN)
   getOutboundVoiceIntegrationConfig() {
     return this.settings.getOutboundVoiceIntegrationConfig();
   }
 
   @Patch("outbound-voice")
-  @RequireModule(ModuleIds.ManualCalling)
+  @RequireModule(ModuleIds.VoiceOutbound)
   @Roles(UserRole.ADMIN)
   setOutboundVoiceIntegrationConfig(
     @Body()

@@ -23,6 +23,7 @@ import {
   orderStageToLegacyStatus,
 } from "../orders/order-status-sync.mapper";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
 
 type SenderCache = {
@@ -60,11 +61,10 @@ type OrderStatus =
 
 @Injectable()
 export class NpTtnService {
-  private senderCache: SenderCache | null = null;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly np: NpClient,
+    private readonly settings: SettingsService,
   ) {}
 
   // ======================
@@ -417,23 +417,41 @@ export class NpTtnService {
   }
 
   // =====================================
-  // Sender: ONLY from ENV refs + validation
+  // Sender: Settings (IntegrationSetting) or ENV refs + validation
   // =====================================
   private async getSenderRefsFromEnv(): Promise<SenderCache> {
-    if (this.senderCache) return this.senderCache;
+    const merged = await this.settings.resolveNovaPoshtaSenderStrings();
+    const senderCityRef = merged.senderCityRef;
+    const senderWarehouseRef = merged.senderWarehouseRef;
+    const senderCounterpartyRef = merged.senderCounterpartyRef;
+    const senderContactRef = merged.senderContactRef;
+    const senderPhoneEnv = merged.senderPhone;
 
-    const senderCityRef = (process.env.NP_SENDER_CITY_REF ?? "").trim();
-    const senderWarehouseRef = (process.env.NP_SENDER_WAREHOUSE_REF ?? "").trim();
-    const senderCounterpartyRef = (process.env.NP_SENDER_COUNTERPARTY_REF ?? "").trim();
-    const senderContactRef = (process.env.NP_SENDER_CONTACT_REF ?? "").trim();
-    const senderPhoneEnv = (process.env.NP_SENDER_PHONE ?? "").trim();
-
-    if (!senderCityRef) throw new BadRequestException("Set NP_SENDER_CITY_REF in .env");
-    if (!senderWarehouseRef) throw new BadRequestException("Set NP_SENDER_WAREHOUSE_REF in .env");
-    if (!senderCounterpartyRef)
-      throw new BadRequestException("Set NP_SENDER_COUNTERPARTY_REF in .env");
-    if (!senderContactRef) throw new BadRequestException("Set NP_SENDER_CONTACT_REF in .env");
-    if (!senderPhoneEnv) throw new BadRequestException("Set NP_SENDER_PHONE in .env");
+    if (!senderCityRef) {
+      throw new BadRequestException(
+        "Sender city ref: set in Settings → Nova Poshta or NP_SENDER_CITY_REF in the environment.",
+      );
+    }
+    if (!senderWarehouseRef) {
+      throw new BadRequestException(
+        "Sender warehouse ref: set in Settings → Nova Poshta or NP_SENDER_WAREHOUSE_REF in the environment.",
+      );
+    }
+    if (!senderCounterpartyRef) {
+      throw new BadRequestException(
+        "Sender counterparty ref: set in Settings → Nova Poshta or NP_SENDER_COUNTERPARTY_REF in the environment.",
+      );
+    }
+    if (!senderContactRef) {
+      throw new BadRequestException(
+        "Sender contact ref: set in Settings → Nova Poshta or NP_SENDER_CONTACT_REF in the environment.",
+      );
+    }
+    if (!senderPhoneEnv) {
+      throw new BadRequestException(
+        "Sender phone: set in Settings → Nova Poshta or NP_SENDER_PHONE in the environment.",
+      );
+    }
 
     const city = await this.prisma.npCity.findUnique({ where: { ref: senderCityRef } });
     if (!city) {
@@ -451,7 +469,7 @@ export class NpTtnService {
 
     if (wh.cityRef !== senderCityRef) {
       throw new BadRequestException(
-        `Sender warehouseRef city mismatch: wh.cityRef=${wh.cityRef} vs NP_SENDER_CITY_REF=${senderCityRef}`,
+        `Sender warehouseRef city mismatch: wh.cityRef=${wh.cityRef} vs sender cityRef=${senderCityRef}`,
       );
     }
     if ((wh as Record<string, unknown>).isPostomat) {
@@ -471,7 +489,6 @@ export class NpTtnService {
       ),
     };
 
-    this.senderCache = cache;
     return cache;
   }
 
@@ -605,8 +622,9 @@ export class NpTtnService {
     const weight = totals.weight > 0 ? totals.weight : defaultWeight;
     const volumeGeneral = totals.volume > 0 ? totals.volume : defaultVolume;
 
-    const payerType = dto.payerType ?? (process.env.NP_DEFAULT_PAYER_TYPE || "Recipient");
-    const paymentMethod = dto.paymentMethod ?? (process.env.NP_DEFAULT_PAYMENT_METHOD || "Cash");
+    const fin = await this.settings.resolveNovaPoshtaFinancialDefaults();
+    const payerType = dto.payerType ?? fin.payerType;
+    const paymentMethod = dto.paymentMethod ?? fin.paymentMethod;
 
     const isAddress = d.deliveryType === NpDeliveryType.ADDRESS;
     const recipientAddress = isAddress ? npRefs.addressRef : d.warehouseRef;
@@ -1192,8 +1210,13 @@ export class NpTtnService {
       };
     }
 
-    const phone = (process.env.NP_SENDER_PHONE ?? "").trim();
-    if (!phone) throw new BadRequestException("NP_SENDER_PHONE is required for status tracking");
+    const mergedPhone = await this.settings.resolveNovaPoshtaSenderStrings();
+    const phone = this.normalizeNpPhone(mergedPhone.senderPhone);
+    if (!phone) {
+      throw new BadRequestException(
+        "Sender phone is required for status tracking (Settings → Nova Poshta or NP_SENDER_PHONE).",
+      );
+    }
 
     const payload = {
       Documents: [

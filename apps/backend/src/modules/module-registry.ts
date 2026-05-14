@@ -5,6 +5,7 @@ import type { ModuleDef, ModuleKind } from "./module-types";
 type Registry = Record<string, ModuleDef>;
 
 export const MODULE_REGISTRY: Registry = {
+  // RU: ядро всегда in-process; sidecar не предусмотрен. Поле delivery в CP — «как лицензируется», не схема деплоя.
   [ModuleIds.CoreCrm]: defineModule({
     id: ModuleIds.CoreCrm,
     kind: "core" satisfies ModuleKind,
@@ -18,6 +19,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: false,
     },
   }),
+  // RU: только внутри монолита/полного backend; отдельного *_UPSTREAM_URL нет.
   [ModuleIds.Visits]: defineModule({
     id: ModuleIds.Visits,
     kind: "extension" satisfies ModuleKind,
@@ -31,12 +33,14 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: в CP — external_service; HTTP может идти в outbound sidecar (`OUTBOUND_UPSTREAM_URL`), префиксы `/manual-calling`, `/calls` проксируются вместе с voice outbound.
   [ModuleIds.ManualCalling]: defineModule({
     id: ModuleIds.ManualCalling,
     kind: "extension" satisfies ModuleKind,
     version: 1,
     displayName: "Manual Calling",
-    description: "Manual calling workspace, calls history, outbound campaigns, and outbound voice webhooks.",
+    description:
+      "Manual calling workspace, calls history, and per-user manual dial queue (separate from AI outbound).",
     dependsOn: [ModuleIds.CoreCrm],
     delivery: "external_service",
     controlPlane: {
@@ -44,13 +48,14 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: external_service в CP; опционально `outbound_worker` + `OUTBOUND_UPSTREAM_URL` (прокси `/outbound`, `/integrations/outbound-voice`, …).
   [ModuleIds.VoiceOutbound]: defineModule({
     id: ModuleIds.VoiceOutbound,
     kind: "extension" satisfies ModuleKind,
     version: 1,
-    displayName: "AI Calls / Outbound (Legacy)",
+    displayName: "AI Outbound (Voice)",
     description:
-      "Deprecated compatibility entitlement for old licenses. Use ext.manual_calling + int.ringostat.",
+      "AI outbound campaigns, dial queue, gateway webhooks, and outbound voice integration (ext.voice_outbound).",
     dependsOn: [ModuleIds.CoreCrm],
     delivery: "external_service",
     controlPlane: {
@@ -58,6 +63,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: false,
     },
   }),
+  // RU: in_process в манифесте; при FINANCE_UPSTREAM_URL ядро проксирует /payments, /bank и т.д. на finance_worker — без смены типа delivery в SDK.
   [ModuleIds.Finance]: defineModule({
     id: ModuleIds.Finance,
     kind: "extension" satisfies ModuleKind,
@@ -71,6 +77,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при PLANNING_UPSTREAM_URL — прокси на planning_worker.
   [ModuleIds.ProductionPlanning]: defineModule({
     id: ModuleIds.ProductionPlanning,
     kind: "extension" satisfies ModuleKind,
@@ -84,6 +91,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: бизнес-логика в backend; публичный фронт — отдельный образ crm-store (compose.modules.store.yml), не Nest sidecar.
   [ModuleIds.Store]: defineModule({
     id: ModuleIds.Store,
     kind: "extension" satisfies ModuleKind,
@@ -98,6 +106,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: только внутри процесса backend; отдельного worker-образа и TELEGRAM_UPSTREAM_URL в репозитории нет (не путать с outbound sidecar, куда входит модуль как зависимость worker).
   [ModuleIds.IntegrationsTelegram]: defineModule({
     id: ModuleIds.IntegrationsTelegram,
     kind: "integration" satisfies ModuleKind,
@@ -111,12 +120,14 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при NP_UPSTREAM_URL — np_worker и прокси /np, /store/np и regex под заказы/отгрузки. См. docs/np-module-prod.md.
   [ModuleIds.NovaPoshta]: defineModule({
     id: ModuleIds.NovaPoshta,
     kind: "integration" satisfies ModuleKind,
     version: 1,
     displayName: "Nova Poshta",
-    description: "Nova Poshta directories, TTN creation, and delivery status synchronization.",
+    description:
+      "Nova Poshta directories, TTN creation, and delivery status synchronization. API key and sender: Settings → Nova Poshta (or env fallbacks).",
     dependsOn: [ModuleIds.CoreCrm],
     delivery: "in_process",
     controlPlane: {
@@ -124,6 +135,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при GOOGLE_SHEET_UPSTREAM_URL — google_sheet_worker и прокси /integrations/google-sheet и regex.
   [ModuleIds.GoogleSheet]: defineModule({
     id: ModuleIds.GoogleSheet,
     kind: "integration" satisfies ModuleKind,
@@ -137,6 +149,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при BITRIX_UPSTREAM_URL — bitrix_worker и прокси /integrations/bitrix.
   [ModuleIds.Bitrix]: defineModule({
     id: ModuleIds.Bitrix,
     kind: "integration" satisfies ModuleKind,
@@ -150,6 +163,7 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при RINGOSTAT_UPSTREAM_URL — ringostat_worker и regex-прокси /integrations/ringostat, /settings/ringostat.
   [ModuleIds.Ringostat]: defineModule({
     id: ModuleIds.Ringostat,
     kind: "integration" satisfies ModuleKind,

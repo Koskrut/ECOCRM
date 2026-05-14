@@ -161,6 +161,10 @@ export const uk = {
         title: "Google-таблиця (1С)",
         desc: "Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С",
       },
+      novaPoshta: {
+        title: "Nova Poshta",
+        desc: "API-ключ, відправник, дефолти ТТН (або fallback через змінні оточення)",
+      },
       ringostat: {
         title: "Ringostat",
         desc: "Телефонія Ringostat: webhook secret, API token та маппінг внутрішніх ліній",

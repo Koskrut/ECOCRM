@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.5**.)_
+_(планируемые изменения после **0.2.6**.)_
+
+## [0.2.6] — 2026-05-17
+
+### Summary
+
+Патч **0.2.6**: доработки **модульного прокси** (rewrite путей к upstream), **Nova Poshta** (TTN/клиент/константы, настройки в CRM вместо env), **Settings** (Nova Poshta API + UI), **module state / registry**, **Bitrix** webhook, мелкие правки **outbound / planning**; **web** — RBAC BFF на **`[[...path]]`**, redirect **`/api/api/*`**, гейтинг **«Nova Poshta»** в настройках, локали и health; документация **`docs/modules-prod-matrix.md`**, **`docs/np-module-prod.md`**; контрактные/юнит-тесты модулей и прокси.
+
+### Added
+
+- **`apps/web`**: страница и API-прокси **Settings → Nova Poshta**; **`apps/backend`**: расширение **`settings.service`** / controller под NP integration.
+- **`module-upstream-path-rewrite`** и тесты; **`np.constants`**, **`modules-prod-contract.spec.ts`**.
+- Доки: **`docs/modules-prod-matrix.md`**, **`docs/np-module-prod.md`**.
+
+### Changed
+
+- **NP module**: `np-ttn`, client, catalog/cron sync, module wiring.
+- **Module proxy**: `module-upstream-proxy.setup`, health/registry/state.
+- **Web**: `next.config` redirects; `api/rbac` optional catch-all segment; `api/client`, outbound/settings layouts, settings home link.
+
+### Upgrade notes
+
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.6`**, манифест + **`client-pull-agent`** или **`pull` / `up -d`**. Конфиг НП в проде — см. **`docs/np-module-prod.md`**.
 
 ## [0.2.5] — 2026-05-16
 
@@ -71,7 +93,7 @@ _(планируемые изменения после **0.2.5**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.5`**; иначе минимум **`0.2.4`** / **`0.2.3`** / **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.6`**; иначе минимум **`0.2.5`** / **`0.2.4`** / **`0.2.3`** / **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

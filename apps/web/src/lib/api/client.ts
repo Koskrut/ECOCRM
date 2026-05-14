@@ -11,6 +11,14 @@ export const apiHttp = axios.create({
   withCredentials: true,
 });
 
+apiHttp.interceptors.request.use((config) => {
+  const url = config.url;
+  if (typeof url === "string" && url.startsWith("api/")) {
+    config.url = `/${url.slice(4)}`;
+  }
+  return config;
+});
+
 apiHttp.interceptors.response.use(
   (r) => r,
   (e) => {

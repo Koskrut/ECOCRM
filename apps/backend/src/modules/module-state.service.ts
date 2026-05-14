@@ -24,7 +24,8 @@ export type ModuleRuntimeState = {
   effective: boolean;
 };
 
-const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
+/** Installed module ids per `BACKEND_VARIANT` worker image (must match `*-main.ts` + Dockerfile stage). */
+export const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
   outbound_worker: [
     ModuleIds.CoreCrm,
     ModuleIds.ManualCalling,
@@ -38,13 +39,12 @@ const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
   google_sheet_worker: [ModuleIds.CoreCrm, ModuleIds.GoogleSheet],
   bitrix_worker: [ModuleIds.CoreCrm, ModuleIds.Bitrix],
   ringostat_worker: [ModuleIds.CoreCrm, ModuleIds.Ringostat],
-  telegram_worker: [ModuleIds.CoreCrm, ModuleIds.IntegrationsTelegram],
 };
 
+/** Legacy `ext.voice_outbound` bundles implied Ringostat for telephony; manual calling is `ext.manual_calling` separately. */
 function withLegacyVoiceOutboundCompat(ids: Set<ModuleId>): Set<ModuleId> {
   const out = new Set(ids);
   if (out.has(ModuleIds.VoiceOutbound)) {
-    out.add(ModuleIds.ManualCalling);
     out.add(ModuleIds.Ringostat);
   }
   return out;
@@ -87,16 +87,13 @@ export class ModuleStateService {
 
   private resolveReachable(id: ModuleId, installed: Set<ModuleId>): boolean {
     const variant = process.env.BACKEND_VARIANT ?? "full";
-    if (!variant || variant === "full") {
-      return true;
-    }
     if (id === ModuleIds.CoreCrm) {
       return true;
     }
     if (variant.endsWith("_worker") && installed.has(id)) {
       return true;
     }
-    if (variant !== "core") {
+    if (variant !== "core" && variant !== "full") {
       return true;
     }
     if (!installed.has(id)) {

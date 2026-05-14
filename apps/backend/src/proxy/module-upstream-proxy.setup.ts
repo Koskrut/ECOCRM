@@ -3,6 +3,10 @@ import { Logger } from "@nestjs/common";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import type { Request, Response } from "express";
 import type { ModuleId } from "../modules/module-ids";
+import {
+  restorePathAfterExpressMount,
+  rewriteNovaPoshtaUpstreamPath,
+} from "./module-upstream-path-rewrite";
 
 const log = new Logger("ModuleUpstreamProxy");
 
@@ -54,7 +58,7 @@ export const MODULE_UPSTREAM_STATIC_MOUNTS: ModuleUpstreamMount[] = [
 ];
 
 /** Regex mounts: first match wins (finance / orders send-to-sheet / np under orders if ever added). */
-const REGEX_UPSTREAM: Array<{
+export const MODULE_UPSTREAM_REGEX_MOUNTS: Array<{
   moduleId: ModuleId;
   envVar: string;
   test: (pathname: string) => boolean;
@@ -101,11 +105,16 @@ const REGEX_UPSTREAM: Array<{
   },
 ];
 
-function buildProxyMiddleware(target: string, secret: string | undefined) {
+function buildProxyMiddleware(target: string, secret: string | undefined, mountPrefix?: string) {
+  const pathRewrite = mountPrefix
+    ? (pathname: string) => restorePathAfterExpressMount(mountPrefix, pathname)
+    : undefined;
+
   return createProxyMiddleware<Request, Response>({
     target,
     changeOrigin: true,
     xfwd: true,
+    ...(pathRewrite ? { pathRewrite } : {}),
     on: {
       proxyReq: (proxyReq) => {
         if (secret) {
@@ -135,9 +144,9 @@ export function mountModuleUpstreamProxies(app: INestApplication): void {
     if (!raw) continue;
     const target = raw.replace(/\/$/, "");
     const sorted = [...spec.pathPrefixes].sort((a, b) => b.length - a.length);
-    for (const path of sorted) {
-      app.use(path, buildProxyMiddleware(target, secret));
-      log.log(`${spec.moduleId}: mounted ${path} -> ${target}`);
+    for (const mountPrefix of sorted) {
+      app.use(mountPrefix, buildProxyMiddleware(target, secret, mountPrefix));
+      log.log(`${spec.moduleId}: mounted ${mountPrefix} -> ${target}`);
     }
   }
 
@@ -145,7 +154,7 @@ export function mountModuleUpstreamProxies(app: INestApplication): void {
     string,
     { target: string; tests: Array<(pathname: string) => boolean>; logId: ModuleId }
   >();
-  for (const spec of REGEX_UPSTREAM) {
+  for (const spec of MODULE_UPSTREAM_REGEX_MOUNTS) {
     const raw = process.env[spec.envVar]?.trim();
     if (!raw) continue;
     const target = raw.replace(/\/$/, "");
@@ -157,11 +166,14 @@ export function mountModuleUpstreamProxies(app: INestApplication): void {
     }
   }
   for (const [envVar, { target, tests, logId }] of regexByEnv) {
+    const pathRewrite = envVar === "NP_UPSTREAM_URL" ? rewriteNovaPoshtaUpstreamPath : undefined;
+
     const proxy = createProxyMiddleware<Request, Response>({
       target,
       changeOrigin: true,
       xfwd: true,
       pathFilter: (pathname) => tests.some((t) => t(pathname)),
+      ...(pathRewrite ? { pathRewrite } : {}),
       on: {
         proxyReq: (proxyReq) => {
           if (secret) {

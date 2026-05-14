@@ -15,6 +15,8 @@ export class NpCatalogSync {
   // каждый день в 03:00 по серверному TZ (у тебя Europe/Zaporozhye — отлично)
   @Cron("0 3 * * *")
   async syncDaily() {
+    if (process.env.NP_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
     this.logger.log("NP daily sync started");
 
     await this.syncCities();

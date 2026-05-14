@@ -161,6 +161,7 @@ export class BitrixWebhookService {
   @Cron("*/5 * * * *")
   async retryFailedEvents(): Promise<void> {
     if (process.env.BITRIX_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.BITRIX_WEBHOOK_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.Bitrix);

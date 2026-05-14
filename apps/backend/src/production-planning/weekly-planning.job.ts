@@ -29,6 +29,8 @@ export class WeeklyPlanningJob {
 
   @Cron("0 6 * * 1")
   async generateWeeklyItems() {
+    if (process.env.PLANNING_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
     await this.runNow();
   }
 

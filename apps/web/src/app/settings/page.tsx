@@ -53,6 +53,7 @@ function allCards(): CardDescriptor[] {
     { href: "/settings/meta-lead-ads", title: t.metaLeadAds.title, desc: t.metaLeadAds.desc, group: "integrations" },
     { href: "/settings/fop", title: t.fop.title, desc: t.fop.desc, group: "integrations" },
     { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc, group: "integrations" },
+    { href: "/settings/nova-poshta", title: t.novaPoshta.title, desc: t.novaPoshta.desc, group: "integrations" },
     { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc, group: "integrations" },
     { href: "/settings/outbound-voice", title: t.outboundVoice.title, desc: t.outboundVoice.desc, group: "integrations" },
     { href: "/settings/telegram", title: t.telegram.title, desc: t.telegram.desc, group: "integrations" },

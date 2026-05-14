@@ -11,7 +11,6 @@ export const MODULE_UPSTREAM_ENV: Partial<Record<ModuleId, string>> = {
   [ModuleIds.GoogleSheet]: "GOOGLE_SHEET_UPSTREAM_URL",
   [ModuleIds.Bitrix]: "BITRIX_UPSTREAM_URL",
   [ModuleIds.Ringostat]: "RINGOSTAT_UPSTREAM_URL",
-  [ModuleIds.IntegrationsTelegram]: "TELEGRAM_UPSTREAM_URL",
 };
 
 const log = new Logger("ModuleHealthService");

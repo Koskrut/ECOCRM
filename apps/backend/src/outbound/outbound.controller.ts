@@ -29,7 +29,7 @@ void ReviewAttemptDto;
 
 @Controller("outbound")
 @Roles(UserRole.ADMIN)
-@RequireModule(ModuleIds.ManualCalling)
+@RequireModule(ModuleIds.VoiceOutbound)
 export class OutboundController {
   constructor(
     @Inject(OutboundCampaignService) private readonly campaigns: OutboundCampaignService,

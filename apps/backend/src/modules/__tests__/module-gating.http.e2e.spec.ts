@@ -23,6 +23,7 @@ import type { SystemControlPlaneDto } from "../../system/dto/system-control-plan
 import { ControlPlanePhoneHomeService } from "../../system/control-plane-phone-home.service";
 import { SystemReleaseService } from "../../system/system-release.service";
 import { SystemVersionService } from "../../system/system-version.service";
+import { SystemUpdateService } from "../../system/system-update.service";
 import { PaymentsController } from "../../payments/payments.controller";
 import { OutboundVoiceWebhookController } from "../../outbound/outbound-voice-webhook.controller";
 
@@ -74,6 +75,7 @@ class TestLicenseStateProvider extends LicenseStateProvider {
     { provide: OutboundVoiceWebhookService, useValue: { handleWebhook: async () => ({ ok: true }) } },
     SystemReleaseService,
     SystemVersionService,
+    SystemUpdateService,
     {
       provide: ControlPlanePhoneHomeService,
       useValue: {

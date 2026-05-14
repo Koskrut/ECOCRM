@@ -14,7 +14,7 @@ const TABS: ModuleSectionTab[] = [
 export default function OutboundLayout({ children }: { children: React.ReactNode }) {
   return (
     <ModuleSection
-      moduleId={ModuleIds.ManualCalling}
+      moduleId={ModuleIds.VoiceOutbound}
       title={strings.nav.aiCalls}
       icon={PhoneCall}
       tabs={TABS}

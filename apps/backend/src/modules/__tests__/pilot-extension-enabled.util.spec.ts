@@ -38,7 +38,7 @@ class HealthStub {
 }
 
 describe("CP-only module compatibility", () => {
-  it("legacy ext.voice_outbound enables manual calling and ringostat in runtime state", async () => {
+  it("legacy ext.voice_outbound still expands ringostat but not manual calling", async () => {
     const legacy = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound];
     const svc = new ModuleStateService(
       new EnabledStub(legacy),
@@ -48,8 +48,8 @@ describe("CP-only module compatibility", () => {
     const states = await svc.listStates();
     const manual = states.find((m) => m.id === ModuleIds.ManualCalling);
     const ringostat = states.find((m) => m.id === ModuleIds.Ringostat);
-    assert.equal(manual?.enabled, true);
-    assert.equal(manual?.licensed, true);
+    assert.equal(manual?.enabled, false);
+    assert.equal(manual?.licensed, false);
     assert.equal(ringostat?.enabled, true);
     assert.equal(ringostat?.licensed, true);
   });

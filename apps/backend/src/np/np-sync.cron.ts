@@ -17,6 +17,7 @@ export class NpSyncCron {
   @Cron("10 3 * * *")
   async run() {
     if (process.env.NP_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.NovaPoshta);
       if (!ok) return;
@@ -34,6 +35,7 @@ export class NpSyncCron {
   @Cron("0 4 * * 0")
   async runStreets() {
     if (process.env.NP_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
       const ok = await this.modules.isEffective(ModuleIds.NovaPoshta);
       if (!ok) return;

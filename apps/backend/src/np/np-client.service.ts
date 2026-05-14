@@ -1,5 +1,6 @@
 // src/np/np-client.service.ts
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { SettingsService } from "../settings/settings.service";
 
 export type NpResponse<T> = {
   success: boolean;
@@ -15,16 +16,14 @@ export type NpResponse<T> = {
 
 @Injectable()
 export class NpClient {
-  private readonly url = process.env.NP_API_URL || "https://api.novaposhta.ua/v2.0/json/";
-  private readonly apiKey = process.env.NP_API_KEY || "";
-  private readonly timeoutMs = Number(process.env.NP_API_TIMEOUT_MS || 30000);
+  constructor(private readonly settings: SettingsService) {}
 
   async call<T = unknown>(
     modelName: string,
     calledMethod: string,
     methodProperties: Record<string, unknown> = {},
   ): Promise<NpResponse<T>> {
-    if (!this.apiKey) throw new Error("NP_API_KEY is not set");
+    const { apiKey, apiUrl, timeoutMs } = await this.settings.resolveNovaPoshtaApiCallParams();
     if (typeof fetch !== "function") {
       throw new Error(
         "Global fetch is not available. Use Node 18+ OR install undici and use the undici version of NpClient.",
@@ -32,15 +31,15 @@ export class NpClient {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(this.url, {
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
-          apiKey: this.apiKey,
+          apiKey,
           modelName,
           calledMethod,
           methodProperties,
@@ -72,7 +71,7 @@ export class NpClient {
     } catch (e: unknown) {
       if ((e as { name?: string })?.name === "AbortError") {
         throw new Error(
-          `Nova Poshta API timeout after ${this.timeoutMs}ms (model=${modelName}.${calledMethod})`,
+          `Nova Poshta API timeout after ${timeoutMs}ms (model=${modelName}.${calledMethod})`,
         );
       }
       throw e;

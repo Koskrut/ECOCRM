@@ -39,6 +39,13 @@ class HealthStub {
   }
 }
 
+class HealthOutboundDownStub {
+  isUpstreamOk(id: ModuleId): boolean {
+    if (id === ModuleIds.ManualCalling || id === ModuleIds.VoiceOutbound) return false;
+    return true;
+  }
+}
+
 test("ModuleStateService: effective = installed && licensed && enabled && depsOk", async () => {
   const enabled = [
     ModuleIds.CoreCrm,
@@ -71,6 +78,66 @@ test("ModuleStateService: disabled => effective=false", async () => {
   const finance = states.find((m) => m.id === ModuleIds.Finance);
   assert.equal(finance?.enabled, false);
   assert.equal(finance?.effective, false);
+});
+
+test("ModuleStateService: full variant + outbound upstream URL + health down => outbound ineffective", async () => {
+  const prevVariant = process.env.BACKEND_VARIANT;
+  const prevUrl = process.env.OUTBOUND_UPSTREAM_URL;
+  process.env.BACKEND_VARIANT = "full";
+  process.env.OUTBOUND_UPSTREAM_URL = "http://backend-outbound:3001";
+  try {
+    const enabled = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound, ModuleIds.ManualCalling];
+    const licensed = enabled;
+    const svc = new ModuleStateService(
+      new EnabledStub(enabled),
+      new LicenseStub(licensed),
+      new HealthOutboundDownStub() as unknown as ModuleHealthService,
+    );
+    const states = await svc.listStates();
+    const voice = states.find((m) => m.id === ModuleIds.VoiceOutbound);
+    const manual = states.find((m) => m.id === ModuleIds.ManualCalling);
+    assert.equal(voice?.reachable, false);
+    assert.equal(voice?.effective, false);
+    assert.equal(manual?.reachable, false);
+    assert.equal(manual?.effective, false);
+  } finally {
+    if (prevVariant === undefined) delete process.env.BACKEND_VARIANT;
+    else process.env.BACKEND_VARIANT = prevVariant;
+    if (prevUrl === undefined) delete process.env.OUTBOUND_UPSTREAM_URL;
+    else process.env.OUTBOUND_UPSTREAM_URL = prevUrl;
+  }
+});
+
+test("ModuleStateService: VoiceOutbound only does not enable manual calling", async () => {
+  const enabled = [ModuleIds.CoreCrm, ModuleIds.VoiceOutbound];
+  const licensed = enabled;
+  const svc = new ModuleStateService(
+    new EnabledStub(enabled),
+    new LicenseStub(licensed),
+    new HealthStub() as unknown as ModuleHealthService,
+  );
+  const states = await svc.listStates();
+  const manual = states.find((m) => m.id === ModuleIds.ManualCalling);
+  const voice = states.find((m) => m.id === ModuleIds.VoiceOutbound);
+  assert.equal(manual?.enabled, false);
+  assert.equal(manual?.effective, false);
+  assert.equal(voice?.effective, true);
+});
+
+test("ModuleStateService: ManualCalling only does not enable VoiceOutbound", async () => {
+  const enabled = [ModuleIds.CoreCrm, ModuleIds.ManualCalling];
+  const licensed = enabled;
+  const svc = new ModuleStateService(
+    new EnabledStub(enabled),
+    new LicenseStub(licensed),
+    new HealthStub() as unknown as ModuleHealthService,
+  );
+  const states = await svc.listStates();
+  const manual = states.find((m) => m.id === ModuleIds.ManualCalling);
+  const voice = states.find((m) => m.id === ModuleIds.VoiceOutbound);
+  assert.equal(voice?.enabled, false);
+  assert.equal(voice?.effective, false);
+  assert.equal(manual?.effective, true);
 });
 
 test("ModuleStateService: outbound_worker marks only core + voice outbound installed", async () => {

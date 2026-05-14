@@ -160,6 +160,10 @@ export const en = {
         title: "Google Sheet (1C)",
         desc: "Webhook for sending orders to a Google Sheet and receiving document numbers from 1C",
       },
+      novaPoshta: {
+        title: "Nova Poshta",
+        desc: "API key, sender refs, TTN defaults (or environment variable fallback)",
+      },
       ringostat: {
         title: "Ringostat",
         desc: "Ringostat telephony: webhook secret, API token and internal line mapping",

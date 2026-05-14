@@ -67,7 +67,7 @@ export default function SettingsHealthPage() {
       apiHttp.get("/system/backend-variant"),
       apiHttp.get("/system/modules"),
       apiHttp.get("/system/control-plane"),
-      apiHttp.get<UpdateStatus>("/api/system/update-status"),
+      apiHttp.get<UpdateStatus>("/system/update-status"),
     ])
       .then(([a, b, c, d, e, f]) => {
         if (cancelled) return;
@@ -93,7 +93,7 @@ export default function SettingsHealthPage() {
     const timer = setInterval(() => {
       if (stop) return;
       apiHttp
-        .get<UpdateJob>(`/api/system/update/jobs/${encodeURIComponent(id)}`)
+        .get<UpdateJob>(`/system/update/jobs/${encodeURIComponent(id)}`)
         .then((r) => {
           const data = r.data;
           if (!data) return;
@@ -101,7 +101,7 @@ export default function SettingsHealthPage() {
           if (data.status === "failed" || data.status === "succeeded") {
             stop = true;
             clearInterval(timer);
-            apiHttp.get<UpdateStatus>("/api/system/update-status").then((s) => setUpdateStatus(s.data ?? null));
+            apiHttp.get<UpdateStatus>("/system/update-status").then((s) => setUpdateStatus(s.data ?? null));
           }
         })
         .catch(() => {
@@ -116,7 +116,7 @@ export default function SettingsHealthPage() {
 
   async function refreshUpdateStatus() {
     try {
-      const res = await apiHttp.get<UpdateStatus>("/api/system/update-status");
+      const res = await apiHttp.get<UpdateStatus>("/system/update-status");
       setUpdateStatus(res.data ?? null);
     } catch (e) {
       setErr(getUserFriendlyApiError(e, "Не вдалося оновити статус оновлення."));
@@ -127,7 +127,7 @@ export default function SettingsHealthPage() {
     setIsPreflighting(true);
     setErr(null);
     try {
-      const res = await apiHttp.post<UpdatePreflight>("/api/system/update/preflight", {});
+      const res = await apiHttp.post<UpdatePreflight>("/system/update/preflight", {});
       setPreflight(res.data ?? null);
       await refreshUpdateStatus();
     } catch (e) {
@@ -141,7 +141,7 @@ export default function SettingsHealthPage() {
     setIsApplying(true);
     setErr(null);
     try {
-      const res = await apiHttp.post<UpdateJob>("/api/system/update/apply", {});
+      const res = await apiHttp.post<UpdateJob>("/system/update/apply", {});
       setJob(res.data ?? null);
       await refreshUpdateStatus();
     } catch (e) {
