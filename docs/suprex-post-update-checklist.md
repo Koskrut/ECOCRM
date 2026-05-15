@@ -16,6 +16,7 @@
 6. **NP (0.2.6+):** ключ и отправитель — в **Settings → Nova Poshta** (БД), не только env; см. **`docs/np-module-prod.md`**. При **`backend-np`** в манифесте — **`NP_UPSTREAM_URL`** на **`backend`**.
 7. **Google Drive (0.2.61+):** папка и service account — **Settings → Google-таблиця** (или env **`GOOGLE_*`** в compose).
 8. **Companies (0.2.62+):** создание компании с одним именем, ответственный по умолчанию — создатель.
+9. **Полный манифест (0.2.63):** все **`compose.modules.*.yml`** + **store** — проверьте **`docker compose ps`** на **`backend-*`**; upstream URL на **`backend`** для каждого сайдкара из манифеста.
 
 ## 1. Манифест (JSON)
 
