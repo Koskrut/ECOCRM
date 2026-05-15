@@ -20,19 +20,19 @@ export const validateUpdateCompanyDto = (payload: UpdateCompanyDto): ValidationE
     validateString(payload.name, "name", errors);
   }
 
-  if (payload.edrpou !== undefined) {
+  if (payload.edrpou != null) {
     validateString(payload.edrpou, "edrpou", errors, { allowEmpty: true });
   }
 
-  if (payload.taxId !== undefined) {
+  if (payload.taxId != null) {
     validateString(payload.taxId, "taxId", errors, { allowEmpty: true });
   }
 
-  if (payload.phone !== undefined) {
+  if (payload.phone != null) {
     validateString(payload.phone, "phone", errors, { allowEmpty: true });
   }
 
-  if (payload.address !== undefined) {
+  if (payload.address != null) {
     validateString(payload.address, "address", errors, { allowEmpty: true });
   }
 

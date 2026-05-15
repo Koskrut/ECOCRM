@@ -5,6 +5,7 @@ import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { apiHttp } from "../../lib/api/client";
+import type { MeResponse } from "@/lib/api/resources/auth";
 import { companiesApi, type CompanyChangeHistoryItem } from "@/lib/api/resources/companies";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime } from "@/lib/crmDatetime";
@@ -185,6 +186,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setAddressStatus(null);
       setAddressError(null);
       setIsMapEnabled(false);
+      setCreateOwnerId(null);
+      void apiHttp
+        .get<MeResponse>("/auth/me")
+        .then((res) => {
+          const uid = res.data?.user?.id;
+          if (uid) setCreateOwnerId(String(uid));
+        })
+        .catch(() => {});
       return;
     }
     setLoading(true);
@@ -353,14 +362,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     try {
       const payload = {
         name: name.trim(),
-        edrpou: edrpou.trim() || null,
-        taxId: taxId.trim() || null,
-        phone: phone.trim() || null,
-        address: address.trim() || null,
-        lat,
-        lng,
-        googlePlaceId,
-        ownerId: createOwnerId ?? null,
+        ...(edrpou.trim() ? { edrpou: edrpou.trim() } : {}),
+        ...(taxId.trim() ? { taxId: taxId.trim() } : {}),
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
+        ...(address.trim() ? { address: address.trim() } : {}),
+        ...(lat != null ? { lat } : {}),
+        ...(lng != null ? { lng } : {}),
+        ...(googlePlaceId ? { googlePlaceId } : {}),
+        ownerId: createOwnerId,
       };
       if (!payload.name) throw new Error("Name is required");
 
