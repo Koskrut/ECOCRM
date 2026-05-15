@@ -4,7 +4,19 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.62**.)_
+_(планируемые изменения после **0.2.63**.)_
+
+## [0.2.63] — 2026-05-15
+
+### Summary
+
+Полный релиз линии **0.2.x**: CI собирает **все** образы — **`crm-backend-core`**, **`crm-core-api`**, **`crm-web`**, **`crm-store`**, модули **outbound**, **google-sheet**, **ringostat**, **bitrix**, **np**, **finance**, **planning**. Манифест с **`compose.base.yml`**, **`compose.client.yml`**, **`compose.modules.store.yml`** и всеми **`compose.modules.*-sidecar.yml`**, **`composeFileUrls`**. Код = **0.2.62** (Google Drive, companies, NP docs).
+
+### Upgrade notes
+
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.63`**, целевой релиз в CP, **`client-pull-agent`** или полный **`docker compose pull`** по **`composeFiles`** из манифеста + **`up -d`** (при смене состава — **`--remove-orphans`**).
+- При сайдкарах в манифесте: на **`backend`** задайте **`NP_UPSTREAM_URL`**, **`OUTBOUND_UPSTREAM_URL`** и т.д. (см. **`docs/modules-prod-matrix.md`**, **`docs/np-module-prod.md`**).
+- Фото каталога: **Settings → Google-таблиця**; NP: **Settings → Nova Poshta**.
 
 ## [0.2.62] — 2026-05-15
 
@@ -130,7 +142,7 @@ _(планируемые изменения после **0.2.62**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.62`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.63`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
