@@ -11,6 +11,9 @@ type GoogleSheetConfigResponse = {
   webhookSecretOutMasked?: string;
   webhookSecretInMasked?: string;
   sendOnReadyToShip?: boolean;
+  driveFolderId?: string;
+  serviceAccountConfigured?: boolean;
+  serviceAccountEmail?: string;
 };
 
 function getApiErrorMessage(e: unknown, fallback: string) {
@@ -23,6 +26,8 @@ export default function GoogleSheetSettingsPage() {
   const [webhookSecretOut, setWebhookSecretOut] = useState("");
   const [webhookSecretIn, setWebhookSecretIn] = useState("");
   const [sendOnReadyToShip, setSendOnReadyToShip] = useState(true);
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const [serviceAccountJson, setServiceAccountJson] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +41,8 @@ export default function GoogleSheetSettingsPage() {
       setConfig(data);
       setWebhookUrl(data.webhookUrl ?? "");
       setSendOnReadyToShip(data.sendOnReadyToShip !== false);
+      setDriveFolderId(data.driveFolderId ?? "");
+      setServiceAccountJson("");
       setWebhookSecretOut("");
       setWebhookSecretIn("");
     } catch (e) {
@@ -56,14 +63,17 @@ export default function GoogleSheetSettingsPage() {
       const body: Record<string, unknown> = {
         webhookUrl: webhookUrl.trim() || undefined,
         sendOnReadyToShip,
+        driveFolderId: driveFolderId.trim() || undefined,
       };
       if (webhookSecretOut !== "") body.webhookSecretOut = webhookSecretOut;
       if (webhookSecretIn !== "") body.webhookSecretIn = webhookSecretIn;
+      if (serviceAccountJson.trim()) body.serviceAccountJson = serviceAccountJson.trim();
       const res = await apiHttp.patch<GoogleSheetConfigResponse>("/settings/google-sheet", body);
       const data = res.data ?? {};
       setConfig(data);
       setWebhookSecretOut("");
       setWebhookSecretIn("");
+      setServiceAccountJson("");
     } catch (e) {
       setError(getApiErrorMessage(e, "Не вдалося зберегти налаштування."));
     } finally {
@@ -75,7 +85,7 @@ export default function GoogleSheetSettingsPage() {
     <SettingsPageShell
       maxWidthClassName="max-w-xl"
       title="Google-таблиця (1С)"
-      subtitle="URL webhook Apps Script для відправки замовлень у таблицю. Секрет для вхідного push від 1С."
+      subtitle="Webhook таблиці, синхронізація з 1С і фото товарів з Google Drive."
     >
       {error ? <ErrorPanel variant="inline" message={error} /> : null}
       {loading ? (
@@ -130,6 +140,43 @@ export default function GoogleSheetSettingsPage() {
                     : "Залиште порожнім, щоб не змінювати"
                 }
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              />
+            </div>
+            <div className="border-t border-zinc-200 pt-4">
+              <h3 className="text-sm font-semibold text-zinc-900">Фото товаров (Google Drive)</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Папка с изображениями для каталога. Service account JSON — ключ с доступом к Drive.
+                Расшарьте папку на email service account (client_email в JSON).
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">ID папки Google Drive</label>
+              <input
+                type="text"
+                value={driveFolderId}
+                onChange={(e) => setDriveFolderId(e.target.value)}
+                placeholder="1hYTCXaueChl7RMgsPR5xufjInmHcZTZU"
+                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm text-zinc-900 placeholder:text-zinc-400"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">Service account JSON</label>
+              {config.serviceAccountConfigured && config.serviceAccountEmail ? (
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  Настроено: {config.serviceAccountEmail}
+                </p>
+              ) : null}
+              <textarea
+                value={serviceAccountJson}
+                onChange={(e) => setServiceAccountJson(e.target.value)}
+                rows={4}
+                placeholder={
+                  config.serviceAccountConfigured
+                    ? "Оставьте пустым, чтобы не менять"
+                    : '{"type":"service_account",...}'
+                }
+                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono text-xs text-zinc-900 placeholder:text-zinc-400"
+                spellCheck={false}
               />
             </div>
             <div className="flex items-center gap-2">

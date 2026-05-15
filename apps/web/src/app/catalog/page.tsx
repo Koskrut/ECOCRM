@@ -598,7 +598,11 @@ function SyncImagesModal({
         </h2>
         <p className="mb-4 text-sm text-zinc-600">
           Файлы из папки сопоставляются с товарами по артикулу в имени файла.
-          Настройте GOOGLE_DRIVE_FOLDER_ID и учётные данные на бэкенде.
+          Настройте папку и service account в{" "}
+          <a href="/settings/google-sheet" className="font-medium text-zinc-900 underline">
+            Настройки → Google-таблиця
+          </a>
+          .
         </p>
         {error && (
           <p className="mb-3 text-sm text-red-600" role="alert">

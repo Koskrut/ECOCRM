@@ -10,15 +10,23 @@ _(планируемые изменения после **0.2.61**.)_
 
 ### Summary
 
-Патч **0.2.61**: документация и **`.env.base.example`** — при **NP sidecar** в манифесте на **`backend`** нужны **`NP_UPSTREAM_URL`** и обычно **`NP_WRITES_DISABLED`**; чистый монолит без воркера — **`composeFiles`** в Control Plane, не агент; phone-home / перезапуск **`backend`**. Код приложений совпадает с **0.2.6** (пересборка образов под новым тегом).
+Патч **0.2.61**: **Google Drive** для фото каталога — папка и service account в **Settings → Google-таблиця** (БД), с fallback на env; прокси картинок без auth cookie; **MANAGER** может создавать/редактировать свои компании; **compose.client.yml** — проброс `GOOGLE_*` в `backend`; документация **NP sidecar** (`NP_UPSTREAM_URL` / `NP_WRITES_DISABLED` / CP manifest).
+
+### Added
+
+- **Settings → Google-таблиця**: `driveFolderId`, `serviceAccountJson`; **`resolveGoogleDriveConfig()`** для sync и proxy.
+- **Web**: UI Drive в **`/settings/google-sheet`**; публичный BFF **`/api/products/images/.../source`** (stream с backend).
 
 ### Changed
 
-- **`docs/np-module-prod.md`**, **`docs/cp-v0.2.3.md`**, **`.env.base.example`**: NP sidecar vs `.env`, CP manifest, phone-home.
+- **Product images**: sync/proxy через credentials из Settings; **`google-drive.client`** принимает auth снаружи.
+- **Companies**: **MANAGER** на create/update; update только своих компаний.
+- **Catalog**: ссылка на настройки Drive вместо env-only подсказки.
+- **Docs**: NP sidecar vs `.env`, **`docs/cp-v0.2.3.md`**, **`.env.base.example`**, чеклист suprex под **0.2.61**.
 
 ### Upgrade notes
 
-- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.61`**, манифест + **`client-pull-agent`** или **`pull` / `up -d`**. Если в манифесте **`backend-np`**, задайте **`NP_UPSTREAM_URL=http://backend-np:3001`** (см. **`docs/np-module-prod.md`**).
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.61`**, манифест + **`client-pull-agent`** или **`pull` / `up -d`**. Фото товаров: **Settings → Google-таблиця** (или env **`GOOGLE_*`** в **`compose.client.yml`**). NP sidecar: **`NP_UPSTREAM_URL=http://backend-np:3001`** — см. **`docs/np-module-prod.md`**.
 
 ## [0.2.6] — 2026-05-17
 

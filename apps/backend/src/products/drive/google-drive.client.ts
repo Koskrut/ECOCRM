@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { google, type Auth } from "googleapis";
 
 export type DriveFile = {
   id: string;
@@ -7,13 +7,22 @@ export type DriveFile = {
   mimeType?: string;
 };
 
+export type DriveAuth = Auth.GoogleAuth;
+
+export function createDriveAuth(serviceAccount: Record<string, unknown>): DriveAuth {
+  return new google.auth.GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+  });
+}
+
 /**
  * List files in a Google Drive folder.
- * Requires: GOOGLE_DRIVE_FOLDER_ID, and either GOOGLE_APPLICATION_CREDENTIALS (path to JSON key)
- * or GOOGLE_SERVICE_ACCOUNT_JSON (stringified JSON).
  */
-export async function listFilesInFolder(folderId: string): Promise<DriveFile[]> {
-  const auth = getAuth();
+export async function listFilesInFolder(
+  folderId: string,
+  auth: DriveAuth,
+): Promise<DriveFile[]> {
   const drive = google.drive({ version: "v3", auth });
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
@@ -45,7 +54,7 @@ export async function listFilesInFolder(folderId: string): Promise<DriveFile[]> 
 
 /**
  * Build a viewable URL for a Drive file (for images).
- * Note: works only if file/folder is shared publicly; otherwise use proxy endpoint.
+ * Note: works only if file/folder is shared publicly; catalog uses proxy endpoint instead.
  */
 export function getDriveFileViewUrl(fileId: string): string {
   return `https://drive.google.com/uc?export=view&id=${fileId}`;
@@ -59,8 +68,10 @@ export type DriveFileStream = {
 /**
  * Get file content as stream (for proxying to client; uses service account auth).
  */
-export async function getFileStream(fileId: string): Promise<DriveFileStream> {
-  const auth = getAuth();
+export async function getFileStream(
+  fileId: string,
+  auth: DriveAuth,
+): Promise<DriveFileStream> {
   const drive = google.drive({ version: "v3", auth });
   const res = await drive.files.get(
     { fileId, alt: "media", supportsAllDrives: true },
@@ -69,34 +80,4 @@ export async function getFileStream(fileId: string): Promise<DriveFileStream> {
   const stream = res.data as NodeJS.ReadableStream;
   const mimeType = (res.headers["content-type"] as string) || undefined;
   return { stream, mimeType };
-}
-
-function getAuth() {
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  const jsonString = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-
-  if (jsonString) {
-    try {
-      const keys = JSON.parse(jsonString);
-      return new google.auth.GoogleAuth({
-        credentials: keys,
-        scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-      });
-    } catch {
-      throw new Error(
-        "GOOGLE_SERVICE_ACCOUNT_JSON is set but invalid JSON. Use path GOOGLE_APPLICATION_CREDENTIALS or valid JSON string.",
-      );
-    }
-  }
-
-  if (credentialsPath) {
-    return new google.auth.GoogleAuth({
-      keyFile: credentialsPath,
-      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-    });
-  }
-
-  throw new Error(
-    "Google Drive credentials not configured. Set GOOGLE_APPLICATION_CREDENTIALS (path to key JSON) or GOOGLE_SERVICE_ACCOUNT_JSON (JSON string).",
-  );
 }

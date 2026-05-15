@@ -218,6 +218,10 @@ export class CompaniesService {
       throw new NotFoundException("Company not found");
     }
 
+    if (actor?.role === UserRole.MANAGER && existing.ownerId != null && existing.ownerId !== actor.id) {
+      throw new NotFoundException("Company not found");
+    }
+
     const payload: { field: string; oldValue: string | null; newValue: string | null }[] = [];
     const newName = dto.name != null ? dto.name : existing.name;
     const newEdrpou = dto.edrpou !== undefined ? dto.edrpou : existing.edrpou;

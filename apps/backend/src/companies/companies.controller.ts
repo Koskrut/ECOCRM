@@ -35,7 +35,7 @@ const assertValid = (errors: ValidationError[]): void => {
 export class CompaniesController {
   constructor(private readonly companiesService: CompaniesService) {}
 
-  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   @Post()
   public async create(
     @Body() body: CreateCompanyDto,
@@ -86,7 +86,7 @@ export class CompaniesController {
     return this.companiesService.remove(id);
   }
 
-  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   @Patch("/:id")
   public async update(
     @Param() params: { id: string },

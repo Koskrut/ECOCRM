@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
@@ -46,6 +47,10 @@ export type GoogleSheetConfig = {
   webhookSecretIn?: string;
   /** Відправляти в таблицю при переході в статус READY_TO_SHIP. */
   sendOnReadyToShip?: boolean;
+  /** Google Drive folder ID for catalog product image sync. */
+  driveFolderId?: string;
+  /** Service account JSON key for Drive API (secret). */
+  serviceAccountJson?: string;
 };
 
 const GOOGLE_SHEET_KEY = "google_sheet";
@@ -281,6 +286,33 @@ function maskToken(value: string | undefined): string {
   return "••••" + value.slice(-4);
 }
 
+function parseServiceAccountJson(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new BadRequestException("Invalid service account JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || (parsed as { type?: string }).type !== "service_account") {
+    throw new BadRequestException("Service account JSON must have type \"service_account\"");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function serviceAccountClientEmail(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const email = (value as { client_email?: unknown }).client_email;
+  return typeof email === "string" && email.trim() ? email.trim() : undefined;
+}
+
+function tryParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -464,7 +496,12 @@ export class SettingsService {
   }
 
   async getGoogleSheetConfig(): Promise<
-    GoogleSheetConfig & { webhookSecretOutMasked?: string; webhookSecretInMasked?: string }
+    GoogleSheetConfig & {
+      webhookSecretOutMasked?: string;
+      webhookSecretInMasked?: string;
+      serviceAccountConfigured?: boolean;
+      serviceAccountEmail?: string;
+    }
   > {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: GOOGLE_SHEET_KEY },
@@ -474,6 +511,7 @@ export class SettingsService {
         webhookSecretOutMasked: "",
         webhookSecretInMasked: "",
         sendOnReadyToShip: true,
+        serviceAccountConfigured: false,
       };
     }
     const v = row.value as Record<string, unknown>;
@@ -481,17 +519,33 @@ export class SettingsService {
     const webhookSecretOut = typeof v.webhookSecretOut === "string" ? v.webhookSecretOut : undefined;
     const webhookSecretIn = typeof v.webhookSecretIn === "string" ? v.webhookSecretIn : undefined;
     const sendOnReadyToShip = v.sendOnReadyToShip !== false;
+    const driveFolderId = typeof v.driveFolderId === "string" ? v.driveFolderId.trim() : undefined;
+    const serviceAccountJson =
+      typeof v.serviceAccountJson === "string" ? v.serviceAccountJson : undefined;
+    const serviceAccountEmail = serviceAccountClientEmail(
+      serviceAccountJson ? tryParseJson(serviceAccountJson) : null,
+    );
     return {
       webhookUrl: webhookUrl || undefined,
       webhookSecretOutMasked: maskToken(webhookSecretOut),
       webhookSecretInMasked: maskToken(webhookSecretIn),
       sendOnReadyToShip,
+      driveFolderId: driveFolderId || undefined,
+      serviceAccountConfigured: Boolean(serviceAccountJson?.trim()),
+      serviceAccountEmail,
     };
   }
 
   async setGoogleSheetConfig(
     config: Partial<GoogleSheetConfig>,
-  ): Promise<GoogleSheetConfig & { webhookSecretOutMasked?: string; webhookSecretInMasked?: string }> {
+  ): Promise<
+    GoogleSheetConfig & {
+      webhookSecretOutMasked?: string;
+      webhookSecretInMasked?: string;
+      serviceAccountConfigured?: boolean;
+      serviceAccountEmail?: string;
+    }
+  > {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: GOOGLE_SHEET_KEY },
     });
@@ -510,31 +564,39 @@ export class SettingsService {
           ? (config.webhookSecretIn || undefined)
           : (current.webhookSecretIn as string | undefined),
       sendOnReadyToShip: config.sendOnReadyToShip !== undefined ? config.sendOnReadyToShip : current.sendOnReadyToShip !== false,
+      driveFolderId:
+        typeof config.driveFolderId === "string"
+          ? config.driveFolderId.trim() || undefined
+          : (current.driveFolderId as string | undefined),
+      serviceAccountJson:
+        config.serviceAccountJson !== undefined
+          ? config.serviceAccountJson.trim() || undefined
+          : (current.serviceAccountJson as string | undefined),
     };
     if (config.webhookUrl === "") next.webhookUrl = undefined;
     if (config.webhookSecretOut === "") next.webhookSecretOut = undefined;
     if (config.webhookSecretIn === "") next.webhookSecretIn = undefined;
+    if (config.driveFolderId === "") next.driveFolderId = undefined;
+    if (config.serviceAccountJson === "") next.serviceAccountJson = undefined;
+    if (typeof next.serviceAccountJson === "string" && next.serviceAccountJson) {
+      parseServiceAccountJson(next.serviceAccountJson);
+    }
     await this.prisma.systemSetting.upsert({
       where: { id: GOOGLE_SHEET_KEY },
       create: { id: GOOGLE_SHEET_KEY, value: next as Prisma.InputJsonValue },
       update: { value: next as Prisma.InputJsonValue },
     });
-    const webhookSecretOut = next.webhookSecretOut as string | undefined;
-    const webhookSecretIn = next.webhookSecretIn as string | undefined;
-    return {
-      webhookUrl: next.webhookUrl as string | undefined,
-      webhookSecretOutMasked: maskToken(webhookSecretOut),
-      webhookSecretInMasked: maskToken(webhookSecretIn),
-      sendOnReadyToShip: next.sendOnReadyToShip as boolean,
-    };
+    return this.getGoogleSheetConfig();
   }
 
-  /** Raw values for internal use (outgoing service, incoming webhook). */
+  /** Raw values for internal use (outgoing service, incoming webhook, Drive sync). */
   async getGoogleSheetSecrets(): Promise<{
     webhookUrl: string | null;
     webhookSecretOut: string | null;
     webhookSecretIn: string | null;
     sendOnReadyToShip: boolean;
+    driveFolderId: string | null;
+    serviceAccountJson: string | null;
   }> {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: GOOGLE_SHEET_KEY },
@@ -545,6 +607,8 @@ export class SettingsService {
         webhookSecretOut: null,
         webhookSecretIn: null,
         sendOnReadyToShip: true,
+        driveFolderId: null,
+        serviceAccountJson: null,
       };
     }
     const v = row.value as Record<string, unknown>;
@@ -553,7 +617,49 @@ export class SettingsService {
       webhookSecretOut: typeof v.webhookSecretOut === "string" ? v.webhookSecretOut : null,
       webhookSecretIn: typeof v.webhookSecretIn === "string" ? v.webhookSecretIn : null,
       sendOnReadyToShip: v.sendOnReadyToShip !== false,
+      driveFolderId: typeof v.driveFolderId === "string" ? v.driveFolderId.trim() || null : null,
+      serviceAccountJson:
+        typeof v.serviceAccountJson === "string" ? v.serviceAccountJson.trim() || null : null,
     };
+  }
+
+  /**
+   * Google Drive credentials for product image sync / proxy.
+   * Settings first, then env (`GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_APPLICATION_CREDENTIALS`).
+   */
+  async resolveGoogleDriveConfig(): Promise<{
+    folderId: string;
+    serviceAccount: Record<string, unknown>;
+  }> {
+    const secrets = await this.getGoogleSheetSecrets();
+    const folderId =
+      (secrets.driveFolderId ?? "").trim() ||
+      (process.env.GOOGLE_DRIVE_FOLDER_ID ?? "").trim();
+    if (!folderId) {
+      throw new BadRequestException(
+        "Google Drive folder ID is missing: set it in Settings → Google-таблиця or GOOGLE_DRIVE_FOLDER_ID in the environment.",
+      );
+    }
+
+    const jsonFromDb = (secrets.serviceAccountJson ?? "").trim();
+    if (jsonFromDb) {
+      return { folderId, serviceAccount: parseServiceAccountJson(jsonFromDb) };
+    }
+
+    const envJson = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "").trim();
+    if (envJson) {
+      return { folderId, serviceAccount: parseServiceAccountJson(envJson) };
+    }
+
+    const credPath = (process.env.GOOGLE_APPLICATION_CREDENTIALS ?? "").trim();
+    if (credPath) {
+      const raw = await readFile(credPath, "utf8");
+      return { folderId, serviceAccount: parseServiceAccountJson(raw) };
+    }
+
+    throw new BadRequestException(
+      "Google Drive service account is missing: paste JSON in Settings → Google-таблиця or set GOOGLE_SERVICE_ACCOUNT_JSON in the environment.",
+    );
   }
 
   async getTelegramConfig(): Promise<

@@ -1,6 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import { listFilesInFolder, getDriveFileViewUrl, type DriveFile } from "./drive/google-drive.client";
+import {
+  createDriveAuth,
+  listFilesInFolder,
+  getDriveFileViewUrl,
+  type DriveFile,
+} from "./drive/google-drive.client";
 import { extractArticleFromFileName, resolveProductMatchForImageFile } from "./article-normalizer";
+import { SettingsService } from "../settings/settings.service";
 import { ProductStore } from "./product.store";
 import { ProductImageStore } from "./product-image.store";
 
@@ -52,6 +58,7 @@ export class ProductImagesSyncService {
   constructor(
     private readonly productStore: ProductStore,
     private readonly productImageStore: ProductImageStore,
+    private readonly settings: SettingsService,
   ) {}
 
   async syncFromGoogleDrive(
@@ -74,16 +81,20 @@ export class ProductImagesSyncService {
       errors: [],
     };
 
-    const effectiveFolderId =
-      folderId ?? (process.env.GOOGLE_DRIVE_FOLDER_ID ?? "").trim();
-    if (!effectiveFolderId) {
-      result.errors.push("GOOGLE_DRIVE_FOLDER_ID not set and no folderId passed");
+    let driveConfig: { folderId: string; serviceAccount: Record<string, unknown> };
+    try {
+      driveConfig = await this.settings.resolveGoogleDriveConfig();
+    } catch (err) {
+      result.errors.push(err instanceof Error ? err.message : "Google Drive not configured");
       return result;
     }
 
+    const effectiveFolderId = folderId?.trim() || driveConfig.folderId;
+    const auth = createDriveAuth(driveConfig.serviceAccount);
+
     let driveFiles: DriveFile[];
     try {
-      driveFiles = await listFilesInFolder(effectiveFolderId);
+      driveFiles = await listFilesInFolder(effectiveFolderId, auth);
     } catch (err) {
       result.errors.push(
         err instanceof Error ? err.message : "Failed to list Google Drive files",

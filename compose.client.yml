@@ -43,6 +43,11 @@ services:
       NP_DEFAULT_PAYER_TYPE: ${NP_DEFAULT_PAYER_TYPE:-Recipient}
       NP_DEFAULT_PAYMENT_METHOD: ${NP_DEFAULT_PAYMENT_METHOD:-Cash}
 
+      # Google Drive product images (catalog / store) — host .env alone does not inject into container.
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+
       # Cron jobs (NP TTN status, sync, etc.)
       CRON_ENABLED: ${CRON_ENABLED:-true}
 

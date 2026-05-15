@@ -19,7 +19,8 @@ import { Public } from "../auth/public.decorator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
 import { Prisma } from "@prisma/client";
-import { getFileStream } from "./drive/google-drive.client";
+import { createDriveAuth, getFileStream } from "./drive/google-drive.client";
+import { SettingsService } from "../settings/settings.service";
 import { normalizePagination } from "../common/pagination";
 import { ProductStore } from "./product.store";
 import { ProductImageStore } from "./product-image.store";
@@ -46,6 +47,7 @@ export class ProductsController {
     private readonly syncState: ProductImagesSyncState,
     private readonly stockUploadService: StockUploadService,
     private readonly warehousesService: WarehousesService,
+    private readonly settings: SettingsService,
   ) {}
 
   @Get()
@@ -177,14 +179,17 @@ export class ProductsController {
       return;
     }
     try {
-      const { stream, mimeType } = await getFileStream(image.fileId);
+      const driveConfig = await this.settings.resolveGoogleDriveConfig();
+      const auth = createDriveAuth(driveConfig.serviceAccount);
+      const { stream, mimeType } = await getFileStream(image.fileId, auth);
       if (mimeType) res.setHeader("Content-Type", mimeType);
       res.setHeader("Cache-Control", "public, max-age=86400");
       stream.pipe(res);
     } catch (err) {
-      res.status(502).json({
-        message: err instanceof Error ? err.message : "Failed to load image from Drive",
-      });
+      const message =
+        err instanceof Error ? err.message : "Failed to load image from Drive";
+      const status = /missing|not configured/i.test(message) ? 503 : 502;
+      res.status(status).json({ message });
     }
   }
 
