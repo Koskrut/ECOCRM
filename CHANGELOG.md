@@ -4,9 +4,21 @@
 
 ## Unreleased
 
+_(планируемые изменения после **0.2.61**.)_
+
+## [0.2.61] — 2026-05-15
+
+### Summary
+
+Патч **0.2.61**: документация и **`.env.base.example`** — при **NP sidecar** в манифесте на **`backend`** нужны **`NP_UPSTREAM_URL`** и обычно **`NP_WRITES_DISABLED`**; чистый монолит без воркера — **`composeFiles`** в Control Plane, не агент; phone-home / перезапуск **`backend`**. Код приложений совпадает с **0.2.6** (пересборка образов под новым тегом).
+
 ### Changed
 
-- Документация и **`.env.base.example`**: явно — при **NP sidecar** в манифесте нужны **`NP_UPSTREAM_URL`** / **`NP_WRITES_DISABLED`** на `backend`; монолит без воркера — политика **`composeFiles`** в CP; phone-home / перезапуск backend.
+- **`docs/np-module-prod.md`**, **`docs/cp-v0.2.3.md`**, **`.env.base.example`**: NP sidecar vs `.env`, CP manifest, phone-home.
+
+### Upgrade notes
+
+- Клиентам: **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** → **`0.2.61`**, манифест + **`client-pull-agent`** или **`pull` / `up -d`**. Если в манифесте **`backend-np`**, задайте **`NP_UPSTREAM_URL=http://backend-np:3001`** (см. **`docs/np-module-prod.md`**).
 
 ## [0.2.6] — 2026-05-17
 
@@ -95,7 +107,7 @@
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.6`**; иначе минимум **`0.2.5`** / **`0.2.4`** / **`0.2.3`** / **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый патч с полным манифестом (**`composeFileUrls`** + **`compose.modules.store.yml`**) — **`0.2.61`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
