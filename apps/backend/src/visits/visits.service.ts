@@ -11,10 +11,14 @@ import {
   VisitStatus as VisitStatusEnum,
   VisitOutcome as VisitOutcomeEnum,
   LocationSource as LocationSourceEnum,
+  VisitGpsEventKind,
+  VisitGpsVerification,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { ActivitiesService } from "../activities/activities.service";
 import { PrismaService } from "../prisma/prisma.service";
+import type { VisitGpsPayloadInput } from "./visit-gps.verification";
+import { verifyVisitAgainstPlannedLocation } from "./visit-gps.verification";
 
 type CreateVisitInput = {
   contactId?: string | null;
@@ -62,6 +66,43 @@ export class VisitsService {
     if (actor.role === UserRole.MANAGER && visit.ownerId && visit.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access your own visits");
     }
+  }
+
+  private normalizeClientRecordedAt(v: VisitGpsPayloadInput["clientRecordedAt"]): Date | null {
+    if (v == null) return null;
+    const d = typeof v === "string" ? new Date(v) : v;
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+    return d;
+  }
+
+  private async persistVisitGpsLine(
+    tx: Prisma.TransactionClient,
+    input: {
+      visitId: string;
+      kind: VisitGpsEventKind;
+      verification: VisitGpsVerification;
+      distanceToPlannedM: number | null;
+      payload: VisitGpsPayloadInput | null;
+    },
+  ) {
+    const p = input.payload;
+    await tx.visitGpsEvent.create({
+      data: {
+        visitId: input.visitId,
+        kind: input.kind,
+        verification: input.verification,
+        distanceToPlannedM:
+          typeof input.distanceToPlannedM === "number" && Number.isFinite(input.distanceToPlannedM)
+            ? input.distanceToPlannedM
+            : undefined,
+        lat: typeof p?.lat === "number" && Number.isFinite(p.lat) ? p.lat : undefined,
+        lng: typeof p?.lng === "number" && Number.isFinite(p.lng) ? p.lng : undefined,
+        accuracyM: typeof p?.accuracyM === "number" && Number.isFinite(p.accuracyM) ? p.accuracyM : undefined,
+        clientRecordedAt: this.normalizeClientRecordedAt(p?.clientRecordedAt) ?? undefined,
+        permissionState: typeof p?.permissionState === "string" ? p.permissionState : undefined,
+        locationProvider: typeof p?.locationProvider === "string" ? p.locationProvider : undefined,
+      },
+    });
   }
 
   private async createVisitPlanActivity(
@@ -276,6 +317,34 @@ export class VisitsService {
     });
   }
 
+  async getById(id: string, actor: AuthUser | undefined) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const visit = await this.prisma.visit.findUnique({
+      where: { id },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            middleName: true,
+            phone: true,
+          },
+        },
+        company: {
+          select: { id: true, name: true, phone: true },
+        },
+      },
+    });
+    if (!visit) {
+      throw new NotFoundException("Visit not found");
+    }
+    this.assertVisitAccess(visit, actor);
+    return visit;
+  }
+
   async getDay(dateStr: string, actor: AuthUser | undefined) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -425,7 +494,7 @@ export class VisitsService {
     return updated;
   }
 
-  async startVisit(id: string, actor: AuthUser | undefined) {
+  async startVisit(id: string, actor: AuthUser | undefined, gpsPayload?: VisitGpsPayloadInput) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
@@ -440,16 +509,51 @@ export class VisitsService {
       throw new BadRequestException("Cannot start a completed or canceled visit");
     }
     const now = new Date();
-    return this.prisma.visit.update({
-      where: { id },
-      data: {
-        status: VisitStatusEnum.IN_PROGRESS,
-        startedAt: existing.startedAt ?? now,
-      },
+
+    /** No geo payload → keep legacy web behaviour (no VisitGpsEvent / no verification fields). */
+    if (gpsPayload === undefined) {
+      return this.prisma.visit.update({
+        where: { id },
+        data: {
+          status: VisitStatusEnum.IN_PROGRESS,
+          startedAt: existing.startedAt ?? now,
+        },
+      });
+    }
+
+    const { verification, distanceToPlannedM } = verifyVisitAgainstPlannedLocation({
+      visitLat: existing.lat,
+      visitLng: existing.lng,
+      radiusM: existing.radiusM,
+      payload: gpsPayload,
     });
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.persistVisitGpsLine(tx, {
+        visitId: id,
+        kind: VisitGpsEventKind.START,
+        verification,
+        distanceToPlannedM,
+        payload: gpsPayload ?? null,
+      });
+      return tx.visit.update({
+        where: { id },
+        data: {
+          status: VisitStatusEnum.IN_PROGRESS,
+          startedAt: existing.startedAt ?? now,
+          startGpsVerification: verification,
+        },
+      });
+    });
+    return updated;
   }
 
-  async completeVisit(id: string, body: CompleteVisitInput, actor: AuthUser | undefined) {
+  async completeVisit(
+    id: string,
+    body: CompleteVisitInput,
+    actor: AuthUser | undefined,
+    gpsPayload?: VisitGpsPayloadInput,
+  ) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
@@ -469,18 +573,47 @@ export class VisitsService {
     }
     const outcomeValue = body.outcome as (typeof VisitOutcomeEnum)[keyof typeof VisitOutcomeEnum];
     const now = new Date();
-    const updated = await this.prisma.visit.update({
-      where: { id },
-      data: {
-        status: VisitStatusEnum.DONE,
-        completedAt: now,
-        startedAt: existing.startedAt ?? now,
-        outcome: outcomeValue,
-        resultNote: body.resultNote.trim(),
-        nextActionAt: body.nextActionAt ?? undefined,
-        nextActionNote: body.nextActionNote?.trim() ?? undefined,
-      },
-    });
+
+    const completeDataBase = {
+      status: VisitStatusEnum.DONE,
+      completedAt: now,
+      startedAt: existing.startedAt ?? now,
+      outcome: outcomeValue,
+      resultNote: body.resultNote.trim(),
+      nextActionAt: body.nextActionAt ?? undefined,
+      nextActionNote: body.nextActionNote?.trim() ?? undefined,
+    } satisfies Prisma.VisitUpdateInput;
+
+    const updated =
+      gpsPayload === undefined
+        ? await this.prisma.visit.update({
+            where: { id },
+            data: completeDataBase,
+          })
+        : await (async () => {
+            const { verification, distanceToPlannedM } = verifyVisitAgainstPlannedLocation({
+              visitLat: existing.lat,
+              visitLng: existing.lng,
+              radiusM: existing.radiusM,
+              payload: gpsPayload,
+            });
+            return this.prisma.$transaction(async (tx) => {
+              await this.persistVisitGpsLine(tx, {
+                visitId: id,
+                kind: VisitGpsEventKind.COMPLETE,
+                verification,
+                distanceToPlannedM,
+                payload: gpsPayload,
+              });
+              return tx.visit.update({
+                where: { id },
+                data: {
+                  ...completeDataBase,
+                  completeGpsVerification: verification,
+                },
+              });
+            });
+          })();
 
     if (existing.contactId || existing.companyId) {
       try {

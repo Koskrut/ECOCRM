@@ -46,6 +46,7 @@ async function proxy(
   headers.delete("content-length");
   headers.delete("transfer-encoding");
   headers.delete("connection");
+  headers.delete("upgrade");
   if (storeToken) headers.set("Authorization", `Bearer ${storeToken}`);
 
   let body: ArrayBuffer | string | undefined;

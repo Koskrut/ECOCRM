@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getCart, getMe } from "@/lib/api";
-import { getCartSessionId } from "@/lib/cart-session";
+import { getMe } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 
 const DEFAULT_COMPANY = "SUPREX";
@@ -64,7 +64,7 @@ export function Header() {
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   const { config } = useStoreConfig();
   const companyName = config.contact?.companyName || DEFAULT_COMPANY;
-  const [cartSummary, setCartSummary] = useState<{ count: number; sumUah: number } | null>(null);
+  const { count: cartCount, sumUah: cartSumUah } = useCart();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
 
@@ -72,12 +72,6 @@ export function Header() {
     getMe()
       .then(() => setLoggedIn(true))
       .catch(() => setLoggedIn(false));
-  }, []);
-
-  useEffect(() => {
-    getCart(getCartSessionId())
-      .then((c) => setCartSummary({ count: c.items.length, sumUah: Math.round(c.subtotal * (c.uahPerUsd || 41)) }))
-      .catch(() => setCartSummary(null));
   }, []);
 
   useEffect(() => {
@@ -109,8 +103,6 @@ export function Header() {
   };
 
   const initialSearch = searchParams.get("search") ?? "";
-  const cartCount = cartSummary?.count ?? 0;
-  const cartSumUah = cartSummary?.sumUah ?? 0;
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-white shadow-sm safe-area-top">

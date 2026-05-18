@@ -37,3 +37,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     headers: { "Content-Type": "application/json" },
   });
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const token = (await cookies()).get("token")?.value;
+
+  const r = await fetch(`${API_URL}/companies/${id}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: "no-store",
+  });
+
+  const text = await r.text();
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { "Content-Type": "application/json" },
+  });
+}

@@ -96,9 +96,7 @@ export async function getProduct(id: string) {
 
 export async function getCart(sessionId?: string): Promise<Cart> {
   const q = sessionId ? "?sessionId=" + encodeURIComponent(sessionId) : "";
-  const res = await fetch(API + "/cart" + q, { credentials: "include" });
-  if (!res.ok) return { id: null, uahPerUsd: 41, items: [], subtotal: 0 };
-  return res.json();
+  return api<Cart>("/cart" + q);
 }
 
 export async function addToCart(productId: string, qty: number, sessionId?: string) {

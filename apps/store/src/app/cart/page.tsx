@@ -1,50 +1,41 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import type { Cart } from "@/lib/api";
-import { getCart, removeCartItem, updateCartItem } from "@/lib/api";
+import { useState } from "react";
+import { removeCartItem, updateCartItem } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
+import { useCart } from "@/context/CartContext";
 import { ButtonLink } from "@/components/Button";
 
 export default function CartPage() {
-  const [cart, setCart] = useState<Cart | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = () => {
-    const sessionId = getCartSessionId();
-    getCart(sessionId)
-      .then(setCart)
-      .catch(() => setCart({ id: null, uahPerUsd: 41, items: [], subtotal: 0 }))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
+  const { cart, loading, refresh, applyCart } = useCart();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const updateQty = async (itemId: string, qty: number) => {
     const sessionId = getCartSessionId();
+    setActionError(null);
     try {
       const next = await updateCartItem(itemId, qty, sessionId);
-      setCart(next);
-    } catch {
-      load();
+      applyCart(next);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Помилка оновлення кошика");
+      await refresh().catch(() => {});
     }
   };
 
   const remove = async (itemId: string) => {
     const sessionId = getCartSessionId();
+    setActionError(null);
     try {
       const next = await removeCartItem(itemId, sessionId);
-      setCart(next);
-    } catch {
-      load();
+      applyCart(next);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Помилка оновлення кошика");
+      await refresh().catch(() => {});
     }
   };
 
-  const uah = cart?.uahPerUsd ?? 41;
-  const subtotalUah = cart ? Math.round(cart.subtotal * uah) : 0;
+  const uah = cart.uahPerUsd ?? 41;
+  const subtotalUah = Math.round(cart.subtotal * uah);
 
   if (loading) {
     return (
@@ -65,7 +56,12 @@ export default function CartPage() {
         <h1 className="font-heading text-xl font-semibold text-zinc-900 sm:text-2xl">
           Кошик
         </h1>
-        {cart?.items.length ? (
+        {actionError ? (
+          <p className="mt-4 text-sm text-red-600" role="alert">
+            {actionError}
+          </p>
+        ) : null}
+        {cart.items.length ? (
           <>
             <ul className="mt-6 space-y-4">
               {cart.items.map((i) => {

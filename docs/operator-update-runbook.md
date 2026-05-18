@@ -48,6 +48,7 @@ Configure these in `.env` used by Compose or inject via CI when building images.
 3. Pull or build new images with the desired tag; ensure the same env vars above are set so **`GET /system/release`** reflects the deployment after upgrade.
 4. Run **`npx prisma migrate deploy`** as part of backend startup (already in the backend `Dockerfile` `CMD`) or run it explicitly before switching traffic if your process requires it.
 5. Recreate containers with **`./scripts/operator/apply.sh --yes`** (or `--i-understand`), or run `docker compose -f docker-compose.prod.yml --env-file .env up -d --build` manually — same idea.
+6. If the host uses nginx in front of web/store, sync **`deploy/nginx/suprex.dental.conf`** and reload nginx — do not keep `Connection 'upgrade'` on every `location /` (see **`deploy/nginx/README.md`** §3 and §9).
 
 ## Rollback-first
 

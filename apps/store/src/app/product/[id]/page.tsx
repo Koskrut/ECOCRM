@@ -139,7 +139,7 @@ export default async function ProductPage({ params }: PageProps) {
               </div>
             ) : null}
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <ProductPageClient productId={id} />
+              <ProductPageClient productId={id} inStock={product.inStock} />
               <Link
                 href="/"
                 className="inline-flex min-h-[48px] items-center justify-center rounded-lg border border-[var(--border)] bg-white px-4 py-3 font-medium text-zinc-700 hover:bg-[var(--surface)] transition sm:min-h-[44px] sm:py-2.5"

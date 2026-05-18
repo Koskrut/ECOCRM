@@ -45,6 +45,7 @@ import { AuditModule } from "./audit/audit.module";
 import { DataImportModule } from "./data-import/data-import.module";
 import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
 import { TimelineModule } from "./timeline/timeline.module";
+import { FieldModule } from "./field/field.module";
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { TimelineModule } from "./timeline/timeline.module";
     DashboardModule,
     ActivitiesModule,
     VisitsModule,
+    FieldModule,
     TasksModule,
     OrderReturnsModule,
     OrdersModule,

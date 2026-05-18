@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { addToCart } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
+import { useCart } from "@/context/CartContext";
 
 export type ProductCardProduct = {
   id: string;
@@ -27,27 +28,40 @@ export function ProductCard({
   product: ProductCardProduct;
   uahPerUsd: number;
 }) {
+  const { applyCart } = useCart();
   const price = priceUah(product.basePrice, uahPerUsd);
   const [qtyPickerOpen, setQtyPickerOpen] = useState(false);
   const [qty, setQty] = useState(1);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const decQty = () => setQty((v) => Math.max(1, v - 1));
   const incQty = () => setQty((v) => Math.min(999, v + 1));
 
   const handleAddToCart = async () => {
-    if (adding) return;
+    if (adding || !product.inStock) return;
     setAdding(true);
+    setError(null);
     try {
       const sessionId = getCartSessionId();
-      await addToCart(product.id, qty, sessionId);
+      const next = await addToCart(product.id, qty, sessionId);
+      applyCart(next);
       setQtyPickerOpen(false);
       setAdded(true);
       setTimeout(() => setAdded(false), 1600);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не вдалося додати в кошик");
     } finally {
       setAdding(false);
     }
+  };
+
+  const openQtyPicker = () => {
+    if (!product.inStock) return;
+    setAdded(false);
+    setError(null);
+    setQtyPickerOpen(true);
   };
 
   return (
@@ -88,13 +102,12 @@ export function ProductCard({
         </div>
       </Link>
       <div className="p-3 pt-0">
-        {!qtyPickerOpen ? (
+        {!product.inStock ? (
+          <p className="text-center text-xs text-zinc-500">Немає в наявності</p>
+        ) : !qtyPickerOpen ? (
           <button
             type="button"
-            onClick={() => {
-              setAdded(false);
-              setQtyPickerOpen(true);
-            }}
+            onClick={openQtyPicker}
             className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[var(--primary-hover)]"
           >
             {added ? "Додано" : "В кошик"}
@@ -137,8 +150,18 @@ export function ProductCard({
                 {adding ? "Додаю..." : `Додати ${qty}`}
               </button>
             </div>
+            {error ? (
+              <p className="text-center text-xs text-red-600" role="alert">
+                {error}
+              </p>
+            ) : null}
           </div>
         )}
+        {product.inStock && !qtyPickerOpen && error ? (
+          <p className="mt-2 text-center text-xs text-red-600" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     </li>
   );

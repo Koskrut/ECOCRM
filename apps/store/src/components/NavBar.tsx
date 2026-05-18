@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { getCart, getMe } from "@/lib/api";
-import { getCartSessionId } from "@/lib/cart-session";
+import { getMe } from "@/lib/api";
+import { useCart } from "@/context/CartContext";
 
 const navLinks = [
   { href: "/", label: "Головна" },
@@ -38,7 +38,7 @@ function ChevronDownIcon({ className }: { className?: string }) {
 }
 
 export function NavBar() {
-  const [cartSummary, setCartSummary] = useState<{ count: number; sumUah: number } | null>(null);
+  const { count: cartCount, sumUah: cartSumUah } = useCart();
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
@@ -47,12 +47,6 @@ export function NavBar() {
     getMe()
       .then(() => setLoggedIn(true))
       .catch(() => setLoggedIn(false));
-  }, []);
-
-  useEffect(() => {
-    getCart(getCartSessionId())
-      .then((c) => setCartSummary({ count: c.items.length, sumUah: Math.round(c.subtotal * (c.uahPerUsd || 41)) }))
-      .catch(() => setCartSummary(null));
   }, []);
 
   useEffect(() => {
@@ -65,9 +59,6 @@ export function NavBar() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [accountDropdownOpen]);
-
-  const cartCount = cartSummary?.count ?? 0;
-  const cartSumUah = cartSummary?.sumUah ?? 0;
 
   return (
     <nav

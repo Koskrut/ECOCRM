@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.63**.)_
+_(планируемые изменения после **0.2.64**.)_
+
+## [0.2.64] — 2026-05-15
+
+### Summary
+
+Полный релиз **0.2.x** (все module-образы + store в CI): **мобильное приложение менеджера** (Expo), **Field API** (смены, GPS-трек, топливо), **GPS-верификация визитов**, доработки **store** (корзина, UI), **web** proxy/companies, Prisma-миграция. Включает **0.2.61–0.2.63** (Google Drive, companies, NP docs).
+
+### Added
+
+- **`apps/mobile`**: Expo-клиент (визиты, смена, карта, клиенты) — см. **`docs/mobile-manager-app/`**.
+- **Backend `FieldModule`**: `/field/...` — смены, location samples, fuel day reports; **`VisitGpsEvent`**, верификация start/complete визита.
+- **Prisma**: миграция `20260515193000_mobile_field_gps_fuel`.
+- **Store**: `CartContext`, улучшения cart/product UI.
+- **Web**: `proxy-request-headers`, companies `[id]` API.
+
+### Changed
+
+- **Visits**: `GET /visits/:id`, GPS payload на start/complete.
+- **Nginx/docs**: suprex.dental, operator runbook.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.64`**, полный манифест + **`prisma migrate deploy`** (новые таблицы field/GPS).
+- Сайдкары: **`NP_UPSTREAM_URL`** и др. на `backend` — **`docs/modules-prod-matrix.md`**.
 
 ## [0.2.63] — 2026-05-15
 
@@ -142,7 +166,7 @@ _(планируемые изменения после **0.2.63**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.63`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, field/mobile, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.64`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

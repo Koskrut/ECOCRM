@@ -1,7 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ProductStore } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
+
+const cartInclude = {
+  items: { include: { product: true }, orderBy: { createdAt: "asc" as const } },
+};
+
+function isUniqueViolation(e: unknown): boolean {
+  return e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
+}
 
 type CartIdentity = { customerId?: string; sessionId?: string };
 
@@ -28,38 +37,33 @@ export class StoreCartService {
 
   private async getOrCreateCart(identity: CartIdentity) {
     if (identity.customerId) {
-      let cart = await this.prisma.cart.findFirst({
+      const existing = await this.prisma.cart.findFirst({
         where: { customerId: identity.customerId },
-        include: {
-          items: { include: { product: true }, orderBy: { createdAt: "asc" } },
-        },
+        include: cartInclude,
       });
-      if (!cart) {
-        cart = await this.prisma.cart.create({
+      if (existing) return existing;
+      try {
+        return await this.prisma.cart.create({
           data: { customerId: identity.customerId },
-          include: {
-            items: { include: { product: true }, orderBy: { createdAt: "asc" } },
-          },
+          include: cartInclude,
         });
+      } catch (e) {
+        if (!isUniqueViolation(e)) throw e;
+        const cart = await this.prisma.cart.findFirst({
+          where: { customerId: identity.customerId },
+          include: cartInclude,
+        });
+        if (!cart) throw e;
+        return cart;
       }
-      return cart;
     }
     if (identity.sessionId) {
-      let cart = await this.prisma.cart.findFirst({
+      return this.prisma.cart.upsert({
         where: { sessionId: identity.sessionId },
-        include: {
-          items: { include: { product: true }, orderBy: { createdAt: "asc" } },
-        },
+        create: { sessionId: identity.sessionId },
+        update: {},
+        include: cartInclude,
       });
-      if (!cart) {
-        cart = await this.prisma.cart.create({
-          data: { sessionId: identity.sessionId },
-          include: {
-            items: { include: { product: true }, orderBy: { createdAt: "asc" } },
-          },
-        });
-      }
-      return cart;
     }
     throw new BadRequestException("Either customerId or sessionId required");
   }

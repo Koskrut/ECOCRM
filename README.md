@@ -24,8 +24,9 @@ CRM для команды продаж и операций:
 ## Структура репозитория
 
 - `apps/backend` — API
+- `apps/mobile` — кроссплатформенное приложение для менеджеров (Expo / React Native)
 - `apps/web` — Web UI
-- `docs/` — документация проекта (в т.ч. [`docs/bio3ua-core-only.md`](docs/bio3ua-core-only.md), [`docs/module-internal-auth.md`](docs/module-internal-auth.md), [**релиз в Git**](docs/RELEASING.md), [workflow тегов и CI](docs/git-release-workflow.md))
+- `docs/` — документация проекта (в т.ч. [`docs/bio3ua-core-only.md`](docs/bio3ua-core-only.md), [`docs/module-internal-auth.md`](docs/module-internal-auth.md), [**мобильное приложение для менеджеров (визиты, GPS, топливо)**](docs/mobile-manager-app/README.md), [**релиз в Git**](docs/RELEASING.md), [workflow тегов и CI](docs/git-release-workflow.md))
 
 ## Требования
 
@@ -220,7 +221,7 @@ docker compose \
 
 ### Compatibility window
 
-Текущая линия поставки registry: **`0.2.x`**. Для продакшена рекомендуется актуальный patch (**`0.2.63`**; см. `CHANGELOG.md`). Линия **`0.1.x`** остаётся для уже развёрнутых клиентов до перехода на `0.2.x`.
+Текущая линия поставки registry: **`0.2.x`**. Для продакшена рекомендуется актуальный patch (**`0.2.64`**; см. `CHANGELOG.md`). Линия **`0.1.x`** остаётся для уже развёрнутых клиентов до перехода на `0.2.x`.
 
 | Component | Compatible versions |
 | --- | --- |
@@ -385,17 +386,18 @@ apt-get install -y nginx
 
 ```nginx
 # /etc/nginx/sites-available/crm
+# Do NOT set Connection 'upgrade' on every request — only for real WebSocket locations.
+# See deploy/nginx/suprex.dental.conf and deploy/nginx/README.md.
 server {
     listen 80;
     server_name crm.example.com;
     location / {
         proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 
@@ -405,10 +407,10 @@ server {
     location / {
         proxy_pass http://localhost:3002;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```

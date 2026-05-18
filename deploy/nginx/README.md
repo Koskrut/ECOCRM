@@ -29,6 +29,28 @@ sudo ln -sf /etc/nginx/sites-available/suprex.dental.conf /etc/nginx/sites-enabl
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+### Прокси без `Connection: upgrade` на каждый запрос
+
+В `location /` для CRM (порт **3000**) и store (**3002**) **не** задавайте:
+
+```nginx
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection 'upgrade';
+```
+
+Эти заголовки нужны только для отдельных WebSocket-локаций. Если nginx шлёт `Connection: upgrade` на обычные POST/GET, Next.js-прокси `/api/*` → backend может получать **пустое тело** запроса.
+
+Актуальный шаблон в репозитории (`suprex.dental.conf`) уже без этих строк. После обновления CRM пересоберите конфиг с сервера и перезагрузите nginx:
+
+```bash
+cd /opt/crm && git pull   # или client-pull-agent / ваш способ доставки bundle
+sudo cp deploy/nginx/suprex.dental.conf /etc/nginx/sites-available/suprex.dental.conf
+# если certbot правил файл вручную — смержите SEO/webhook-блоки, но уберите Connection 'upgrade' из location /
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Образ **web** с релиза, где в прокси вычищаются hop-by-hop заголовки (`connection`, `upgrade`, …), снижает риск даже при старом nginx, но **исправление nginx всё равно рекомендуется**.
+
 ## 4. Получить SSL-сертификаты
 
 ```bash
@@ -103,3 +125,17 @@ sudo nginx -t && sudo systemctl reload nginx
 - `curl -sI 'https://www.suprex.dental/any?utm_source=x&per_page=9'` → **301**, у `Location` лишається `utm_source`
 - `curl -sI 'https://www.suprex.dental/portfolio/'` → **410**
 - `curl -sI 'https://www.suprex.dental/about-us-3/'` → **301** на `/about`
+
+## 9. Обновление с устаревшего nginx-конфига (релиз web + шаблон)
+
+Если CRM когда-то ставили по примеру из README с `Connection 'upgrade'` на `location /`:
+
+1. Обновите образ **web** (в прокси `/api/*` больше не пересылаются `connection` / `upgrade` / `content-length` с клиента).
+2. Синхронизируйте `/etc/nginx/sites-available/suprex.dental.conf` с `deploy/nginx/suprex.dental.conf` и удалите `Upgrade` / `Connection 'upgrade'` из прокси на CRM и store, если они там есть.
+3. `sudo nginx -t && sudo systemctl reload nginx`.
+
+Проверка (на сервере, подставьте свой домен CRM):
+
+```bash
+grep -n "Connection.*upgrade\|Upgrade" /etc/nginx/sites-enabled/suprex.dental.conf || echo "OK: no forced upgrade in enabled config"
+```

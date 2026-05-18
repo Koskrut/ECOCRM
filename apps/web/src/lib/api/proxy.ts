@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "./config";
+import { stripProxyRequestHeaders } from "./proxy-request-headers";
 
 type ProxyOptions = {
   // если хочешь принудительно указать метод (обычно не нужно)
@@ -20,16 +21,7 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
   const token = cookieStore.get("token")?.value;
 
   const headers = new Headers(req.headers);
-
-  // обязательно: не тащим host/origin, чтобы не было CORS/прокси-артефактов
-  headers.delete("host");
-  headers.delete("origin");
-  headers.delete("referer");
-  // не пересылать условный GET — бэкенд иначе отдаёт 304 без тела, и прокси отдаёт пустой ответ
-  headers.delete("if-none-match");
-  headers.delete("if-modified-since");
-  // не пересылать Transfer-Encoding — при пересылке тела строкой бэкенд должен использовать Content-Length
-  headers.delete("transfer-encoding");
+  stripProxyRequestHeaders(headers);
 
   if (token) {
     headers.set("authorization", `Bearer ${token}`);

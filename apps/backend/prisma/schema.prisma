@@ -108,6 +108,33 @@ enum LocationSource {
   GPS_SET
 }
 
+/// Серверная оценка факта визита относительно плановой точки и точности GPS.
+enum VisitGpsVerification {
+  VERIFIED
+  NEARBY_WARNING
+  OUTSIDE_RADIUS
+  MANUAL_REVIEW
+  NO_FIX
+}
+
+enum VisitGpsEventKind {
+  START
+  COMPLETE
+}
+
+enum FieldShiftStatus {
+  ACTIVE
+  ENDED
+}
+
+enum FuelCompensationStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAID
+}
+
 enum LeadStatus {
   NEW
   IN_PROGRESS
@@ -472,6 +499,9 @@ model User {
   manualCallSessions         ManualCallSession[]
   rbacAssignments            RbacUserRoleAssignment[]
   dataImportJobsCreated      DataImportJob[]           @relation("DataImportJobCreatedBy")
+  fieldProfile               UserFieldProfile?
+  fieldShifts                FieldShift[]
+  fuelDayReports             FuelDayReport[]
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -777,17 +807,112 @@ model Visit {
   nextActionNote String?
   activityId     String?       @unique // timeline activity: "план" → updated to result when completed
 
+  /** Итог GPS-проверки при последнем START визита. */
+  startGpsVerification VisitGpsVerification?
+  /** Итог GPS-проверки при последнем COMPLETE визита. */
+  completeGpsVerification VisitGpsVerification?
+
   company                Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
   contact                Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
   owner                  User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   activity               Activity?      @relation(fields: [activityId], references: [id], onDelete: SetNull)
   routeStops             RouteStop[]
   routeSessionsAsCurrent RouteSession[]
+  visitGpsEvents         VisitGpsEvent[]
 
   @@index([ownerId, status])
   @@index([ownerId, startsAt])
   @@index([companyId])
   @@index([contactId])
+}
+
+model VisitGpsEvent {
+  id                 String               @id @default(cuid())
+  visitId            String
+  kind               VisitGpsEventKind
+  lat                Float?
+  lng                Float?
+  accuracyM          Float?
+  clientRecordedAt   DateTime?
+  permissionState    String?
+  locationProvider   String?
+  distanceToPlannedM Float?
+  verification       VisitGpsVerification
+  createdAt          DateTime             @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId, createdAt])
+}
+
+/// Профиль полевого менеджера: нормы для расчёта топлива.
+model UserFieldProfile {
+  userId              String    @id
+  fuelLitersPer100km  Float     @default(8)
+  fuelPricePerLiter   Decimal?  @db.Decimal(12, 2)
+  vehicleLabel        String?
+  usePersonalCar      Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Рабочая смена (политика GPS и группировка трековых точек).
+model FieldShift {
+  id                  String           @id @default(cuid())
+  ownerId             String
+  /// Календарный день (начало UTC 00:00 выбранного дня задаётся приложением/backend).
+  date                DateTime
+  status              FieldShiftStatus @default(ACTIVE)
+  startedAt           DateTime         @default(now())
+  endedAt             DateTime?
+  trackingEnabled     Boolean          @default(true)
+  plannedDistanceKm   Float?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  owner        User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  samples      FieldLocationSample[]
+  fuelReports  FuelDayReport[]
+
+  @@index([ownerId, date])
+  @@index([ownerId, status])
+}
+
+model FieldLocationSample {
+  id               String   @id @default(cuid())
+  shiftId          String
+  lat              Float
+  lng              Float
+  accuracyM        Float?
+  clientRecordedAt DateTime
+  createdAt        DateTime @default(now())
+
+  shift FieldShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId, clientRecordedAt])
+}
+
+/// Дневной отчёт по топливу/компенсации для менеджера.
+model FuelDayReport {
+  id                   String                  @id @default(cuid())
+  ownerId              String
+  date                 DateTime
+  shiftId              String?
+  plannedKm            Float?
+  actualKm             Float?
+  litersEstimated      Float?
+  amountEstimated      Decimal?                @db.Decimal(14, 2)
+  compensationStatus   FuelCompensationStatus  @default(DRAFT)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  owner User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  shift FieldShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerId, date])
+  @@index([shiftId])
 }
 
 model RoutePlan {

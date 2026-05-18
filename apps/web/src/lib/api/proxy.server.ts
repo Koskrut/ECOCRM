@@ -3,6 +3,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "./config";
+import { stripProxyRequestHeaders } from "./proxy-request-headers";
 
 function joinUrl(base: string, path: string) {
   const b = base.replace(/\/+$/, "");
@@ -25,11 +26,8 @@ export async function proxyToBackend(req: NextRequest, backendPath: string) {
 
   const auth = await getAuthHeaders();
 
-  // копируем headers, но не тащим hop-by-hop и не ломаем content-length
   const headers = new Headers(req.headers);
-  headers.delete("host");
-  headers.delete("connection");
-  headers.delete("content-length");
+  stripProxyRequestHeaders(headers);
 
   // подмешиваем авторизацию
   Object.entries(auth).forEach(([k, v]) => headers.set(k, v));

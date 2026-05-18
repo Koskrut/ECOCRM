@@ -14,6 +14,33 @@ import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 import { VisitsService } from "./visits.service";
 import type { LocationSource, VisitStatus } from "@prisma/client";
+import type { VisitGpsPayloadInput } from "./visit-gps.verification";
+
+function coerceNumber(v: unknown): number | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function extractVisitGpsFromBody(body: Record<string, unknown>): VisitGpsPayloadInput | undefined {
+  const has =
+    body.lat != null ||
+    body.lng != null ||
+    body.accuracyM != null ||
+    (typeof body.clientRecordedAt === "string" && body.clientRecordedAt.length > 0) ||
+    (typeof body.permissionState === "string" && body.permissionState.length > 0) ||
+    (typeof body.locationProvider === "string" && body.locationProvider.length > 0);
+  if (!has) return undefined;
+  return {
+    lat: coerceNumber(body.lat),
+    lng: coerceNumber(body.lng),
+    accuracyM: coerceNumber(body.accuracyM),
+    clientRecordedAt: typeof body.clientRecordedAt === "string" ? body.clientRecordedAt : undefined,
+    permissionState: typeof body.permissionState === "string" ? body.permissionState : undefined,
+    locationProvider: typeof body.locationProvider === "string" ? body.locationProvider : undefined,
+  };
+}
 
 @Controller("visits")
 @RequireModule(ModuleIds.Visits)
@@ -76,20 +103,39 @@ export class VisitsController {
     );
   }
 
+  @Get(":id")
+  async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.visits.getById(id, req.user);
+  }
+
   @Post(":id/start")
   async start(
     @Param("id") id: string,
     @Req() req: Request & { user?: AuthUser },
+    @Body() body: Record<string, unknown>,
   ) {
-    return this.visits.startVisit(id, req.user);
+    return this.visits.startVisit(id, req.user, extractVisitGpsFromBody(body ?? {}));
   }
 
   @Post(":id/complete")
   async complete(
     @Param("id") id: string,
-    @Body() body: { outcome: string; resultNote: string; nextActionAt?: string; nextActionNote?: string },
+    @Body()
+    body: {
+      outcome: string;
+      resultNote: string;
+      nextActionAt?: string;
+      nextActionNote?: string;
+      lat?: number;
+      lng?: number;
+      accuracyM?: number;
+      clientRecordedAt?: string;
+      permissionState?: string;
+      locationProvider?: string;
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
+    const bodyRecord = body as unknown as Record<string, unknown>;
     const nextActionAt =
       typeof body.nextActionAt === "string" && body.nextActionAt
         ? new Date(body.nextActionAt)
@@ -103,6 +149,7 @@ export class VisitsController {
         nextActionNote: body.nextActionNote ?? undefined,
       },
       req.user,
+      extractVisitGpsFromBody(bodyRecord),
     );
   }
 
