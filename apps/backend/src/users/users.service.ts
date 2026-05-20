@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { UserRole, type Prisma } from "@prisma/client";
+import { Prisma, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
@@ -16,18 +16,34 @@ export class UsersService {
     private readonly settings: SettingsService,
   ) {}
 
+  private userListInclude = {
+    fieldProfile: {
+      select: {
+        fuelLitersPer100km: true,
+        fuelPricePerLiter: true,
+        vehicleLabel: true,
+        usePersonalCar: true,
+      },
+    },
+  } as const;
+
   async listUsers(actor?: AuthUser) {
     const orderBy = { createdAt: "desc" as const };
     if (!actor || actor.role === UserRole.ADMIN) {
-      return this.prisma.user.findMany({ orderBy });
+      return this.prisma.user.findMany({ orderBy, include: this.userListInclude });
     }
     if (actor.role === UserRole.LEAD) {
       return this.prisma.user.findMany({
         where: { OR: [{ id: actor.id }, { leadId: actor.id }] },
         orderBy,
+        include: this.userListInclude,
       });
     }
-    return this.prisma.user.findMany({ where: { id: actor.id }, orderBy });
+    return this.prisma.user.findMany({
+      where: { id: actor.id },
+      orderBy,
+      include: this.userListInclude,
+    });
   }
 
   async createUser(payload: {
@@ -90,6 +106,9 @@ export class UsersService {
       routeStartLabel?: string | null;
       routeEndLabel?: string | null;
       leadId?: string | null;
+      fuelLitersPer100km?: number;
+      fuelPricePerLiter?: number | null;
+      vehicleLabel?: string | null;
     },
   ) {
     if (!id) throw new BadRequestException("id is required");
@@ -149,12 +168,57 @@ export class UsersService {
     const dataPruned = Object.fromEntries(
       Object.entries(data).filter(([, v]) => v !== undefined),
     ) as Prisma.UserUpdateInput;
+
+    const hasFuelPayload =
+      payload.fuelLitersPer100km !== undefined ||
+      payload.fuelPricePerLiter !== undefined ||
+      payload.vehicleLabel !== undefined;
+
+    if (hasFuelPayload) {
+      if (
+        payload.fuelLitersPer100km !== undefined &&
+        (!Number.isFinite(payload.fuelLitersPer100km) || payload.fuelLitersPer100km <= 0)
+      ) {
+        throw new BadRequestException("fuelLitersPer100km must be a positive number");
+      }
+      const profileData: Prisma.UserFieldProfileUpdateInput = {};
+      if (payload.fuelLitersPer100km !== undefined) {
+        profileData.fuelLitersPer100km = payload.fuelLitersPer100km;
+      }
+      if (payload.fuelPricePerLiter !== undefined) {
+        profileData.fuelPricePerLiter =
+          payload.fuelPricePerLiter == null
+            ? null
+            : new Prisma.Decimal(payload.fuelPricePerLiter);
+      }
+      if (payload.vehicleLabel !== undefined) {
+        profileData.vehicleLabel = payload.vehicleLabel;
+      }
+      await this.prisma.userFieldProfile.upsert({
+        where: { userId: id },
+        create: {
+          userId: id,
+          fuelLitersPer100km: payload.fuelLitersPer100km ?? 8,
+          fuelPricePerLiter:
+            payload.fuelPricePerLiter == null
+              ? undefined
+              : new Prisma.Decimal(payload.fuelPricePerLiter),
+          vehicleLabel: payload.vehicleLabel ?? undefined,
+        },
+        update: profileData,
+      });
+    }
+
     if (Object.keys(dataPruned).length === 0) {
-      return this.prisma.user.findUniqueOrThrow({ where: { id } });
+      return this.prisma.user.findUniqueOrThrow({
+        where: { id },
+        include: this.userListInclude,
+      });
     }
     return this.prisma.user.update({
       where: { id },
       data: dataPruned,
+      include: this.userListInclude,
     });
   }
 

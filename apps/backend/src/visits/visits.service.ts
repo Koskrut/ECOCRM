@@ -316,6 +316,9 @@ export class VisitsService {
         contact: {
           select: { firstName: true, lastName: true, middleName: true },
         },
+        company: {
+          select: { id: true, name: true },
+        },
       },
     });
   }
@@ -461,6 +464,20 @@ export class VisitsService {
         }
         if (body.locationSource === undefined && existing.locationSource === LocationSourceEnum.NONE) {
           data.locationSource = LocationSourceEnum.FROM_CONTACT;
+        }
+      }
+    }
+
+    if (isBecomingScheduled && !hasCoordsInPayload && !hasExistingCoords && existing.companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: existing.companyId },
+        select: { lat: true, lng: true, address: true },
+      });
+      if (company?.lat != null && company?.lng != null) {
+        data.lat = company.lat;
+        data.lng = company.lng;
+        if (data.addressText === undefined && existing.addressText == null && company.address) {
+          data.addressText = company.address;
         }
       }
     }
@@ -702,6 +719,7 @@ export class VisitsService {
         include: {
           owner: { select: { id: true, fullName: true, email: true } },
           contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          company: { select: { id: true, name: true, phone: true } },
         },
       }),
     ]);

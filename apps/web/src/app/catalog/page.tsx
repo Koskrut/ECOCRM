@@ -11,12 +11,9 @@ import {
   type StockUploadResult,
   type WarehouseItem,
 } from "../../lib/api";
-import {
-  formatSpecValue,
-  orderedSpecEntries,
-  PRODUCT_SPEC_LABELS_UK,
-} from "../../lib/product-spec-labels";
 import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
+import { CatalogProductCard } from "./CatalogProductCard";
+import { ProductCharacteristicsPanel } from "./ProductCharacteristicsPanel";
 
 /** Порядок складов для колонок каталога. */
 const WAREHOUSE_ORDER = ["Днепр", "Одесса", "Львов"];
@@ -28,48 +25,11 @@ function CatalogExpandedCharacteristics({
 }: {
   product: ProductCatalogItem;
 }) {
-  const raw = product.characteristics;
-  const entries =
-    raw && typeof raw === "object" && !Array.isArray(raw)
-      ? orderedSpecEntries(raw as Record<string, unknown>).filter(
-          ([, v]) => v !== null && v !== undefined && v !== "",
-        )
-      : [];
-
   return (
     <tr className="border-t border-zinc-200 bg-zinc-50/95">
       <td colSpan={TABLE_COLSPAN} className="p-0">
-        <div
-          className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none border-t border-zinc-200/80 px-4 py-3"
-          role="region"
-          aria-label={`Характеристики ${product.sku}`}
-        >
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Характеристики
-          </p>
-          {entries.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              Немає заповнених характеристик. Імпорт з Excel:{" "}
-              <code className="rounded bg-zinc-200/60 px-1 text-xs">
-                команду імпорту характеристик
-              </code>{" "}
-              у бекенд-сервісі.
-            </p>
-          ) : (
-            <dl className="grid grid-cols-1 gap-x-10 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-              {entries.map(([code, val]) => (
-                <div
-                  key={code}
-                  className="flex flex-col gap-0.5 border-b border-zinc-200/70 py-2 last:border-0 sm:flex-row sm:items-baseline sm:gap-3"
-                >
-                  <dt className="shrink-0 text-xs text-zinc-500 sm:w-[42%]">
-                    {PRODUCT_SPEC_LABELS_UK[code] ?? code}
-                  </dt>
-                  <dd className="text-sm font-medium text-zinc-900">{formatSpecValue(val)}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
+        <div className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none border-t border-zinc-200/80 px-4 py-3">
+          <ProductCharacteristicsPanel product={product} />
         </div>
       </td>
     </tr>
@@ -123,7 +83,7 @@ function CatalogRowDeleteButton({
       type="button"
       onClick={handleDelete}
       disabled={deleting}
-      className="rounded p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-1.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
       title="Удалить"
       aria-label={`Удалить ${productName}`}
     >
@@ -161,7 +121,7 @@ function CatalogRowEditButton({
         e.stopPropagation();
         onEdit();
       }}
-      className="rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
       title="Редактировать"
       aria-label={`Редактировать ${productName}`}
     >
@@ -1174,47 +1134,62 @@ function CatalogPageContent() {
     return () => clearTimeout(t);
   }, [search]);
 
+  const handleShowOnStoreChange = useCallback(
+    async (productId: string, next: boolean) => {
+      try {
+        await productsApi.updateShowOnStore(productId, next);
+        setItems((prev) =>
+          prev.map((it) => (it.id === productId ? { ...it, showOnStore: next } : it)),
+        );
+      } catch {
+        loadCatalog();
+      }
+    },
+    [loadCatalog],
+  );
+
+  const catalogActionBtn =
+    "rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50";
+  const catalogToolbarSecondary = (
+    <>
+      <button type="button" onClick={() => setSyncImagesModalOpen(true)} className={catalogActionBtn}>
+        Синхронизация фото
+      </button>
+      <button type="button" onClick={() => setUploadModalOpen(true)} className={catalogActionBtn}>
+        Остатки (общий)
+      </button>
+      <button
+        type="button"
+        onClick={() => setUploadByWarehousesModalOpen(true)}
+        className="btn-primary col-span-2 sm:col-span-1"
+      >
+        Остатки по складам
+      </button>
+    </>
+  );
+
   return (
-    <div className="p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-zinc-900">Каталог</h1>
-        <div className="flex items-center gap-2">
-          <input
-            type="search"
-            placeholder="Поиск по артикулу или названию…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-          />
+    <div className="min-w-0">
+      <div className="mb-4 flex flex-col gap-3">
+        <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl">Каталог</h1>
+        <input
+          type="search"
+          placeholder="Поиск по артикулу или названию…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full min-w-0 rounded-md border border-zinc-300 px-3 py-2.5 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+        />
+        <div className="hidden flex-wrap items-center gap-2 sm:flex">
           <button
             type="button"
             onClick={() => setAddProductModalOpen(true)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            className={catalogActionBtn}
           >
             Добавить позицию
           </button>
-          <button
-            type="button"
-            onClick={() => setSyncImagesModalOpen(true)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          >
-            Синхронизация фото
-          </button>
-          <button
-            type="button"
-            onClick={() => setUploadModalOpen(true)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          >
-            Остатки (общий)
-          </button>
-          <button
-            type="button"
-            onClick={() => setUploadByWarehousesModalOpen(true)}
-            className="btn-primary"
-          >
-            Остатки по складам
-          </button>
+          {catalogToolbarSecondary}
         </div>
+        <div className="grid grid-cols-2 gap-2 sm:hidden">{catalogToolbarSecondary}</div>
       </div>
 
       {loading && <div className="text-sm text-zinc-600">Загрузка…</div>}
@@ -1224,15 +1199,17 @@ function CatalogPageContent() {
         </div>
       )}
 
-      {!loading && !error && (
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-          {categoriesWithItems.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-zinc-500">
-              Нет товаров
-            </div>
-          ) : (
+      {!loading && !error && categoriesWithItems.length === 0 && (
+        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-8 text-center text-sm text-zinc-500 shadow-sm">
+          Нет товаров
+        </div>
+      )}
+
+      {!loading && !error && categoriesWithItems.length > 0 && (
+        <>
+        <div className="hidden overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:block">
             <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
                   <th className="w-16 px-2 py-3">Фото</th>
@@ -1341,19 +1318,7 @@ function CatalogPageContent() {
                               <input
                                 type="checkbox"
                                 checked={p.showOnStore ?? true}
-                                onChange={async (e) => {
-                                  const next = e.target.checked;
-                                  try {
-                                    await productsApi.updateShowOnStore(p.id, next);
-                                    setItems((prev) =>
-                                      prev.map((it) =>
-                                        it.id === p.id ? { ...it, showOnStore: next } : it,
-                                      ),
-                                    );
-                                  } catch {
-                                    loadCatalog();
-                                  }
-                                }}
+                                onChange={(e) => void handleShowOnStoreChange(p.id, e.target.checked)}
                                 className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
                                 title={p.showOnStore ?? true ? "Скрыть с сайта" : "Показать на сайте"}
                               />
@@ -1384,9 +1349,90 @@ function CatalogPageContent() {
               })}
             </table>
             </div>
-          )}
         </div>
+
+        <div className="sm:hidden space-y-4">
+          {categoriesWithItems.map(({ category, items: categoryItems }) => {
+            const isCollapsed = collapsedCategories.has(category);
+            return (
+              <section key={category} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(category)}
+                  className="flex w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left font-medium text-zinc-800 shadow-sm hover:bg-zinc-50"
+                >
+                  <svg
+                    className={`h-4 w-4 shrink-0 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                  <span className="min-w-0 flex-1 truncate">{categoryLabel(category)}</span>
+                  <span className="shrink-0 text-xs font-normal text-zinc-500">
+                    ({categoryItems.length})
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <div className="mt-2 space-y-2">
+                    {categoryItems.map((p) => (
+                      <CatalogProductCard
+                        key={p.id}
+                        product={p}
+                        expanded={expandedSpecsProductId === p.id}
+                        onToggleExpand={() =>
+                          setExpandedSpecsProductId((id) => (id === p.id ? null : p.id))
+                        }
+                        onOpenImages={() => setImagesModalProduct({ id: p.id, name: p.name })}
+                        onShowOnStoreChange={(checked) => handleShowOnStoreChange(p.id, checked)}
+                        warehouseNames={WAREHOUSE_ORDER}
+                        qtyAtWarehouse={qtyAtWarehouse}
+                        editButton={
+                          <CatalogRowEditButton
+                            productName={p.name}
+                            onEdit={() => setEditModalProduct(p)}
+                          />
+                        }
+                        deleteButton={
+                          <CatalogRowDeleteButton
+                            productId={p.id}
+                            productName={p.name}
+                            onDeleted={loadCatalog}
+                          />
+                        }
+                        activateButton={
+                          <ActivateProductButton
+                            productId={p.id}
+                            productName={p.name}
+                            onActivated={loadCatalog}
+                          />
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+        </>
       )}
+
+      <button
+        type="button"
+        onClick={() => setAddProductModalOpen(true)}
+        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 sm:hidden"
+        aria-label="Добавить позицию"
+      >
+        <span className="text-2xl leading-none">+</span>
+      </button>
 
       <AddProductModal
         open={addProductModalOpen}

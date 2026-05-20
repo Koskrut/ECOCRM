@@ -78,6 +78,17 @@ export class UsersController {
           : body.leadId === null || body.leadId === ""
             ? null
             : String(body.leadId),
+      fuelLitersPer100km:
+        body.fuelLitersPer100km === undefined || body.fuelLitersPer100km === ""
+          ? undefined
+          : (numOrNull(body.fuelLitersPer100km) ?? undefined),
+      fuelPricePerLiter:
+        body.fuelPricePerLiter === undefined
+          ? undefined
+          : body.fuelPricePerLiter === null || body.fuelPricePerLiter === ""
+            ? null
+            : (numOrNull(body.fuelPricePerLiter) as number | null),
+      vehicleLabel: strOrNull(body.vehicleLabel),
     });
 
     return { user };

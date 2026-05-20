@@ -23,6 +23,11 @@ export type Employee = {
   routeStartLabel?: string | null;
   routeEndLabel?: string | null;
   leadId?: string | null;
+  fieldProfile?: {
+    fuelLitersPer100km?: number;
+    fuelPricePerLiter?: string | number | null;
+    vehicleLabel?: string | null;
+  } | null;
 };
 
 type GoogleMapsPublicConfig = {
@@ -75,6 +80,8 @@ export function EmployeeModal({
   const [routeStartLabel, setRouteStartLabel] = useState("");
   const [routeEndLabel, setRouteEndLabel] = useState("");
   const [leadId, setLeadId] = useState<string>("");
+  const [fuelLitersPer100km, setFuelLitersPer100km] = useState("8");
+  const [fuelPricePerLiter, setFuelPricePerLiter] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +125,13 @@ export function EmployeeModal({
       setRouteStartLabel(initial.routeStartLabel ?? "");
       setRouteEndLabel(initial.routeEndLabel ?? "");
       setLeadId(initial.leadId ?? "");
+      const fp = initial.fieldProfile;
+      setFuelLitersPer100km(
+        fp?.fuelLitersPer100km != null ? String(fp.fuelLitersPer100km) : "8",
+      );
+      setFuelPricePerLiter(
+        fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "",
+      );
     } else {
       setEmail("");
       setFullName("");
@@ -130,6 +144,8 @@ export function EmployeeModal({
       setRouteStartLabel("");
       setRouteEndLabel("");
       setLeadId("");
+      setFuelLitersPer100km("8");
+      setFuelPricePerLiter("");
     }
   }, [open, mode, initial]);
 
@@ -382,6 +398,17 @@ export function EmployeeModal({
         return "Password must be at least 6 characters";
       }
     }
+    const liters = Number(fuelLitersPer100km.replace(",", "."));
+    if (!Number.isFinite(liters) || liters <= 0) {
+      return "Расход топлива: укажите положительное число (л/100 км)";
+    }
+    const priceT = fuelPricePerLiter.trim();
+    if (priceT !== "") {
+      const price = Number(priceT.replace(",", "."));
+      if (!Number.isFinite(price) || price < 0) {
+        return "Цена топлива: неверное число (грн/л)";
+      }
+    }
     return null;
   };
 
@@ -420,6 +447,8 @@ export function EmployeeModal({
 
         if (password.trim().length > 0) payload.password = password.trim();
 
+        const liters = Number(fuelLitersPer100km.replace(",", "."));
+        const priceTrim = fuelPricePerLiter.trim();
         await apiHttp.patch(`/users/${initial.id}`, {
           ...payload,
           routeStartLat: parseCoord(routeStartLat),
@@ -429,6 +458,8 @@ export function EmployeeModal({
           routeStartLabel: routeStartLabel.trim() || null,
           routeEndLabel: routeEndLabel.trim() || null,
           leadId: leadId || null,
+          fuelLitersPer100km: liters,
+          fuelPricePerLiter: priceTrim ? Number(priceTrim.replace(",", ".")) : null,
         });
 
         // 2) role via dedicated endpoint
@@ -706,6 +737,39 @@ export function EmployeeModal({
                 Зміна тут оновлює org-chart (слот m1-* / m2-* під lead1/lead2). Збереження структури на
                 вкладці «Структура» також перезаписує це поле.
               </p>
+
+              <div className="mt-4 border-t border-zinc-200 pt-3">
+                <div className="text-sm font-semibold text-zinc-900">Топливо</div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Расход и цена для расчёта компенсации на странице «Визиты → Топливо».
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700">Расход, л/100 км</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={fuelLitersPer100km}
+                      onChange={(e) => setFuelLitersPer100km(e.target.value)}
+                      disabled={saving}
+                      placeholder="8"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-700">Цена, грн/л</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                      value={fuelPricePerLiter}
+                      onChange={(e) => setFuelPricePerLiter(e.target.value)}
+                      disabled={saving}
+                      placeholder="не задана"
+                    />
+                  </div>
+                </div>
+              </div>
             </>
           ) : null}
 

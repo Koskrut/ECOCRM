@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
 import { resolveRouteGeometry, type RouteAnchorConfig } from "./route-geometry";
+import { effectiveVisitLatLng } from "./visit-coordinates";
 
 @Injectable()
 export class RoutePlansService {
@@ -140,19 +141,31 @@ export class RoutePlansService {
     const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId: actor.id, date } },
       include: {
-        stops: { orderBy: { position: "asc" }, include: { visit: true } },
+        stops: {
+          orderBy: { position: "asc" },
+          include: {
+            visit: {
+              include: {
+                contact: { select: { lat: true, lng: true } },
+                company: { select: { lat: true, lng: true } },
+              },
+            },
+          },
+        },
       },
     });
     if (!plan?.stops?.length) {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
-    const points = plan.stops.map((s) => s.visit).filter((v) => v.lat != null && v.lng != null);
-    if (points.length !== plan.stops.length || points.length === 0) {
+    const stopsWithCoords = plan.stops
+      .map((s) => ({ stop: s, coords: effectiveVisitLatLng(s.visit) }))
+      .filter((x): x is { stop: (typeof plan.stops)[0]; coords: { lat: number; lng: number } } => x.coords != null);
+    if (stopsWithCoords.length !== plan.stops.length || stopsWithCoords.length === 0) {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const visitPoints = points.map((p) => ({ lat: p.lat as number, lng: p.lng as number }));
+    const visitPoints = stopsWithCoords.map((x) => x.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
@@ -226,21 +239,27 @@ export class RoutePlansService {
     // Load visits in bulk; preserve requested order
     const visits = await this.prisma.visit.findMany({
       where: { ownerId: actor.id, id: { in: unique } },
-      select: { id: true, lat: true, lng: true },
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        contact: { select: { lat: true, lng: true } },
+        company: { select: { lat: true, lng: true } },
+      },
     });
     const byId = new Map(visits.map((v) => [v.id, v]));
-    const ordered = unique.map((id) => byId.get(id)).filter(Boolean) as Array<{
-      id: string;
-      lat: number | null;
-      lng: number | null;
-    }>;
+    const ordered = unique
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((v) => ({ id: v!.id, coords: effectiveVisitLatLng(v!) }))
+      .filter((x): x is { id: string; coords: { lat: number; lng: number } } => x.coords != null);
     if (ordered.length === 0) return { distanceKm: null, durationMin: null, source: "none" };
-    if (ordered.some((v) => v.lat == null || v.lng == null)) {
+    if (ordered.length !== unique.length) {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const visitPoints = ordered.map((v) => v.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
@@ -278,20 +297,26 @@ export class RoutePlansService {
 
     const visits = await this.prisma.visit.findMany({
       where: { ownerId: actor.id, id: { in: unique } },
-      select: { id: true, lat: true, lng: true },
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        contact: { select: { lat: true, lng: true } },
+        company: { select: { lat: true, lng: true } },
+      },
     });
     const byId = new Map(visits.map((v) => [v.id, v]));
-    const ordered = unique.map((id) => byId.get(id)).filter(Boolean) as Array<{
-      id: string;
-      lat: number | null;
-      lng: number | null;
-    }>;
-    if (ordered.length < 2 || ordered.some((v) => v.lat == null || v.lng == null)) {
+    const ordered = unique
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((v) => ({ id: v!.id, coords: effectiveVisitLatLng(v!) }))
+      .filter((x): x is { id: string; coords: { lat: number; lng: number } } => x.coords != null);
+    if (ordered.length < 2 || ordered.length !== unique.length) {
       return { visitIds: unique, source: "fallback" };
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const visitPoints = ordered.map((v) => v.coords);
     const { origin, destination, usesSettingsAnchors } = resolveRouteGeometry(visitPoints, anchors);
 
     const intermediatesForOptimize = usesSettingsAnchors
@@ -302,10 +327,7 @@ export class RoutePlansService {
       const google = await this.computeRouteByGoogle({
         origin,
         destination,
-        intermediates: intermediatesForOptimize.map((v) => ({
-          lat: v.lat as number,
-          lng: v.lng as number,
-        })),
+        intermediates: intermediatesForOptimize.map((v) => v.coords),
         traffic: opts?.traffic === true,
         optimize: true,
       });
@@ -335,7 +357,13 @@ export class RoutePlansService {
       let best: typeof cur | null = null;
       let bestD = Infinity;
       for (const v of pool.values()) {
-        const d = this.haversineKm(cur.lat as number, cur.lng as number, [], v.lat as number, v.lng as number);
+        const d = this.haversineKm(
+          cur.coords.lat,
+          cur.coords.lng,
+          [],
+          v.coords.lat,
+          v.coords.lng,
+        );
         if (d < bestD) {
           bestD = d;
           best = v;
@@ -372,14 +400,25 @@ export class RoutePlansService {
         status: "DONE",
         startsAt: { gte: dayStart, lt: dayEnd },
       },
-      select: { id: true, lat: true, lng: true, completedAt: true, endsAt: true, startsAt: true },
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        completedAt: true,
+        endsAt: true,
+        startsAt: true,
+        contact: { select: { lat: true, lng: true } },
+        company: { select: { lat: true, lng: true } },
+      },
       orderBy: [{ completedAt: "asc" }, { endsAt: "asc" }, { startsAt: "asc" }],
     });
-    const ordered = done.filter((v) => v.lat != null && v.lng != null);
+    const ordered = done
+      .map((v) => ({ visit: v, coords: effectiveVisitLatLng(v) }))
+      .filter((x): x is { visit: (typeof done)[0]; coords: { lat: number; lng: number } } => x.coords != null);
     if (ordered.length < 2) return { distanceKm: null, durationMin: null, source: "none" };
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const visitPoints = ordered.map((x) => x.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
@@ -512,20 +551,25 @@ export class RoutePlansService {
       }
       const visit = await this.prisma.visit.findFirst({
         where: { id: visitId, ownerId: actor.id },
+        include: {
+          contact: { select: { lat: true, lng: true } },
+          company: { select: { lat: true, lng: true } },
+        },
       });
       if (!visit) {
         throw new BadRequestException("Visit not found");
       }
-      if (visit.lat == null || visit.lng == null) {
+      const coords = effectiveVisitLatLng(visit);
+      if (!coords) {
         throw new BadRequestException("Visit has no coordinates (lat/lng)");
       }
       const anchors = await this.getRouteAnchors(actor.id);
       if (anchors.hasExplicitStart && anchors.origin) {
         return {
-          url: `https://www.google.com/maps/dir/?api=1&origin=${anchors.origin.lat},${anchors.origin.lng}&destination=${visit.lat},${visit.lng}`,
+          url: `https://www.google.com/maps/dir/?api=1&origin=${anchors.origin.lat},${anchors.origin.lng}&destination=${coords.lat},${coords.lng}`,
         };
       }
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${visit.lat},${visit.lng}`;
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}`;
       return { url };
     }
 
@@ -536,7 +580,14 @@ export class RoutePlansService {
       include: {
         stops: {
           orderBy: { position: "asc" },
-          include: { visit: true },
+          include: {
+            visit: {
+              include: {
+                contact: { select: { lat: true, lng: true } },
+                company: { select: { lat: true, lng: true } },
+              },
+            },
+          },
         },
       },
     });
@@ -544,8 +595,8 @@ export class RoutePlansService {
       throw new BadRequestException("No route plan for this date");
     }
     const points = plan.stops
-      .map((s) => s.visit)
-      .filter((v) => v.lat != null && v.lng != null);
+      .map((s) => effectiveVisitLatLng(s.visit))
+      .filter((c): c is { lat: number; lng: number } => c != null);
     if (points.length !== plan.stops.length) {
       throw new BadRequestException(
         "Some visits in the route have no coordinates (lat/lng)",

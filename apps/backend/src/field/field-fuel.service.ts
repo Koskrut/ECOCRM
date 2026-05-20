@@ -10,6 +10,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
+import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -68,8 +69,8 @@ export class FieldFuelService {
         startsAt: { gte: dayStart, lt: dayEnd },
       },
       include: {
-        contact: { select: { firstName: true, lastName: true } },
-        company: { select: { name: true } },
+        contact: { select: { firstName: true, lastName: true, lat: true, lng: true } },
+        company: { select: { name: true, lat: true, lng: true } },
       },
       orderBy: [{ completedAt: "asc" }, { endsAt: "asc" }, { startsAt: "asc" }],
     });
@@ -87,17 +88,20 @@ export class FieldFuelService {
     visits: Awaited<ReturnType<FieldFuelService["loadDoneVisitsForDay"]>>,
     planVisitIds: Set<string>,
   ): FuelCalculationSnapshot {
-    const rows: FuelVisitSnapshotRow[] = visits.map((v) => ({
-      id: v.id,
-      title: this.visitDisplayTitle(v),
-      completedAt: v.completedAt?.toISOString() ?? null,
-      lat: v.lat,
-      lng: v.lng,
-      startGpsVerification: v.startGpsVerification ?? null,
-      completeGpsVerification: v.completeGpsVerification ?? null,
-      includedInRoute: planVisitIds.has(v.id),
-      hasCoordinates: v.lat != null && v.lng != null,
-    }));
+    const rows: FuelVisitSnapshotRow[] = visits.map((v) => {
+      const coords = effectiveVisitLatLng(v);
+      return {
+        id: v.id,
+        title: this.visitDisplayTitle(v),
+        completedAt: v.completedAt?.toISOString() ?? null,
+        lat: coords?.lat ?? v.lat,
+        lng: coords?.lng ?? v.lng,
+        startGpsVerification: v.startGpsVerification ?? null,
+        completeGpsVerification: v.completeGpsVerification ?? null,
+        includedInRoute: planVisitIds.has(v.id),
+        hasCoordinates: visitHasRoutableCoordinates(v),
+      };
+    });
     return { visits: rows, plannedMetricsSource: null, factMetricsSource: null };
   }
 
@@ -205,7 +209,7 @@ export class FieldFuelService {
     const compensationKm = factMetrics.distanceKm;
     const actualKm = factMetrics.distanceKm;
     const plannedKm = plannedMetrics.distanceKm;
-    const visitCount = doneVisits.filter((v) => v.lat != null && v.lng != null).length;
+    const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
     snapshot.plannedMetricsSource = plannedMetrics.source;

@@ -103,6 +103,11 @@ export type VisitHistoryItem = Visit & {
     lastName: string;
     phone: string;
   } | null;
+  company?: {
+    id: string;
+    name: string;
+    phone?: string | null;
+  } | null;
 };
 
 export type VisitHistoryResponse = {
