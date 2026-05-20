@@ -16,6 +16,7 @@ import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import { Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
+import { VisitsSubNav } from "./VisitsSubNav";
 
 function formatHmKyiv(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -848,15 +849,7 @@ export default function VisitsPage() {
       <div className="border-b border-zinc-200 bg-white px-4 py-2 sm:px-6 sm:py-3">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-baseline gap-2">
-              <h1 className="text-lg font-semibold text-zinc-900 sm:text-xl">Visits planning</h1>
-              <Link
-                href="/visits/history"
-                className="text-xs font-medium text-emerald-700 hover:underline"
-              >
-                История
-              </Link>
-            </div>
+            <h1 className="text-lg font-semibold text-zinc-900 sm:text-xl">Visits planning</h1>
             <p className="hidden text-sm text-zinc-500 sm:block">
               Plan field visits for the day, arrange them on a timeline, and save the route.
             </p>
@@ -916,6 +909,9 @@ export default function VisitsPage() {
               </button>
             ) : null}
           </div>
+        </div>
+        <div className="mx-auto max-w-7xl px-4 pb-2 sm:px-6">
+          <VisitsSubNav />
         </div>
       </div>
 

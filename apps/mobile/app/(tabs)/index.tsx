@@ -44,6 +44,7 @@ export default function TodayScreen() {
   const [items, setItems] = useState<VisitSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [shiftInfo, setShiftInfo] = useState<string | null>(null);
+  const [fuelBanner, setFuelBanner] = useState<string | null>(null);
 
   const dateKey = formatLocalDateKey();
 
@@ -51,19 +52,34 @@ export default function TodayScreen() {
     if (!token) return;
     setLoading(true);
     try {
-      const [day, active] = await Promise.all([
+      const [day, active, fuel] = await Promise.all([
         apiFetch<{ items: VisitSummary[] }>(`/visits/day?date=${encodeURIComponent(dateKey)}`, {
           token,
         }),
         apiFetch<{ shift: { id: string; status: string } | null }>("/field/shifts/active", { token }).catch(() => ({
           shift: null,
         })),
+        apiFetch<{
+          report: {
+            compensationKm: number | null;
+            amountEstimated: string | number | null;
+          };
+        }>(`/field/fuel/day?date=${encodeURIComponent(dateKey)}`, { token }).catch(() => null),
       ]);
       setItems(day.items ?? []);
       if (active.shift) {
         setShiftInfo(`Смена активна (${active.shift.status})`);
       } else {
         setShiftInfo(null);
+      }
+      const km = fuel?.report?.compensationKm;
+      const amt = fuel?.report?.amountEstimated;
+      if (km != null) {
+        const sum =
+          amt != null && Number.isFinite(Number(amt)) ? ` · ${Number(amt)} грн` : "";
+        setFuelBanner(`${km} км${sum}`);
+      } else {
+        setFuelBanner(null);
       }
     } finally {
       setLoading(false);
@@ -83,6 +99,16 @@ export default function TodayScreen() {
         {dateKey}
         {shiftInfo ? ` · ${shiftInfo}` : ""}
       </Text>
+
+      {fuelBanner ? (
+        <Pressable
+          onPress={() => router.push(`/fuel/${dateKey}`)}
+          style={styles.fuelBanner}
+          accessibilityRole="button">
+          <Text style={styles.fuelBannerText}>Топливо за день: {fuelBanner}</Text>
+          <Text style={styles.fuelBannerChev}>›</Text>
+        </Pressable>
+      ) : null}
 
       <FlatList
         data={items}
@@ -132,6 +158,24 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     opacity: 0.75,
     fontSize: 14,
+  },
+  fuelBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(37,99,235,0.1)",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  fuelBannerText: {
+    flex: 1,
+    fontWeight: "600",
+    color: "#1d4ed8",
+  },
+  fuelBannerChev: {
+    fontSize: 20,
+    color: "#1d4ed8",
+    opacity: 0.6,
   },
   row: {
     flexDirection: "row",

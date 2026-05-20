@@ -70,6 +70,9 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="visit/[id]" options={{ title: "Визит", headerShown: true }} />
+        <Stack.Screen name="fuel/index" options={{ title: "Топливо", headerShown: true }} />
+        <Stack.Screen name="fuel/[date]" options={{ title: "День", headerShown: true }} />
+        <Stack.Screen name="fuel/profile" options={{ title: "Профиль авто", headerShown: true }} />
       </Stack>
     </ThemeProvider>
   );

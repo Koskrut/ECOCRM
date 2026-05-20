@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { LocationSource, Prisma, VisitStatus } from "@prisma/client";
 import {
   UserRole,
@@ -17,6 +18,7 @@ import {
 import type { AuthUser } from "../auth/auth.types";
 import { ActivitiesService } from "../activities/activities.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { VISIT_COMPLETED_EVENT } from "../field/field.events";
 import type { VisitGpsPayloadInput } from "./visit-gps.verification";
 import { verifyVisitAgainstPlannedLocation } from "./visit-gps.verification";
 
@@ -60,6 +62,7 @@ export class VisitsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activitiesService: ActivitiesService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private assertVisitAccess(visit: { ownerId: string }, actor: AuthUser): void {
@@ -624,6 +627,13 @@ export class VisitsService {
         );
       }
     }
+
+    const dayRef = updated.startsAt ?? updated.completedAt ?? now;
+    const dateStr = new Date(dayRef).toISOString().slice(0, 10);
+    void this.eventEmitter.emitAsync(VISIT_COMPLETED_EVENT, {
+      ownerId: updated.ownerId,
+      dateStr,
+    });
 
     return updated;
   }

@@ -6,6 +6,7 @@ export * from "./manual-calling";
 export * from "./products";
 export * from "./tasks";
 export * from "./visits";
+export * from "./field-fuel";
 export * from "./warehouses";
 export * from "./calls";
 export * from "./bank";

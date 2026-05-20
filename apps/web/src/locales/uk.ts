@@ -25,6 +25,7 @@ export const uk = {
     catalog: "Каталог",
     visits: "Візити",
     visitsHistory: "Історія візитів",
+    visitsFuel: "Паливо",
     aiCalls: "AI-дзвінки",
     analytics: "Аналітика",
     settings: "Налаштування",

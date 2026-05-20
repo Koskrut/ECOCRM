@@ -1,11 +1,24 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  StreamableFile,
+} from "@nestjs/common";
+import { FuelCompensationStatus, Prisma, UserRole, VisitStatus } from "@prisma/client";
+import * as XLSX from "xlsx";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { RoutePlansService } from "../visits/route-plans.service";
+import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
+
+const MAX_EXPORT_DAYS = 31;
 
 @Injectable()
 export class FieldFuelService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly routePlans: RoutePlansService,
+  ) {}
 
   parseUtcDay(dateStr: string): Date {
     const date = new Date(`${dateStr}T00:00:00.000Z`);
@@ -15,55 +28,121 @@ export class FieldFuelService {
     return date;
   }
 
-  async getOrCreateDay(actor: AuthUser | undefined, dateStr: string) {
-    if (!actor) {
-      throw new BadRequestException("User is required");
+  private dayBounds(date: Date): { dayStart: Date; dayEnd: Date } {
+    const dayStart = new Date(date);
+    const dayEnd = new Date(date);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    return { dayStart, dayEnd };
+  }
+
+  resolveOwnerId(actor: AuthUser, requestedOwnerId?: string): string {
+    if (!requestedOwnerId || requestedOwnerId === actor.id) {
+      return actor.id;
     }
-    const ownerId = actor.id;
-    const date = this.parseUtcDay(dateStr);
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
+      throw new ForbiddenException("Cannot view fuel reports for another user");
+    }
+    return requestedOwnerId;
+  }
 
-    const dayShift = await this.prisma.fieldShift.findFirst({
-      where: { ownerId, date },
-      orderBy: { startedAt: "desc" },
+  private visitDisplayTitle(v: {
+    title: string | null;
+    contact: { firstName: string | null; lastName: string | null } | null;
+    company: { name: string | null } | null;
+  }): string | null {
+    if (v.title?.trim()) return v.title.trim();
+    if (v.contact) {
+      const name = [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ");
+      if (name) return name;
+    }
+    if (v.company?.name) return v.company.name;
+    return null;
+  }
+
+  private async loadDoneVisitsForDay(ownerId: string, date: Date) {
+    const { dayStart, dayEnd } = this.dayBounds(date);
+    return this.prisma.visit.findMany({
+      where: {
+        ownerId,
+        status: VisitStatus.DONE,
+        startsAt: { gte: dayStart, lt: dayEnd },
+      },
+      include: {
+        contact: { select: { firstName: true, lastName: true } },
+        company: { select: { name: true } },
+      },
+      orderBy: [{ completedAt: "asc" }, { endsAt: "asc" }, { startsAt: "asc" }],
     });
+  }
 
-    const plannedKm = dayShift?.plannedDistanceKm ?? null;
-
-    const profile =
-      (await this.prisma.userFieldProfile.findUnique({ where: { userId: ownerId } })) ??
-      (await this.prisma.userFieldProfile.create({
-        data: { userId: ownerId },
-      }));
-
-    let report = await this.prisma.fuelDayReport.findUnique({
+  private async planVisitIdSet(ownerId: string, date: Date): Promise<Set<string>> {
+    const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId, date } },
+      include: { stops: { select: { visitId: true } } },
     });
+    return new Set((plan?.stops ?? []).map((s) => s.visitId));
+  }
 
-    if (!report) {
-      const { litersEstimated, amountEstimated } = this.estimateFuel(plannedKm, profile);
-      report = await this.prisma.fuelDayReport.create({
-        data: {
-          ownerId,
-          date,
-          shiftId: dayShift?.id ?? undefined,
-          plannedKm: plannedKm ?? undefined,
-          litersEstimated,
-          amountEstimated: amountEstimated ?? undefined,
-        },
-      });
+  private buildSnapshot(
+    visits: Awaited<ReturnType<FieldFuelService["loadDoneVisitsForDay"]>>,
+    planVisitIds: Set<string>,
+  ): FuelCalculationSnapshot {
+    const rows: FuelVisitSnapshotRow[] = visits.map((v) => ({
+      id: v.id,
+      title: this.visitDisplayTitle(v),
+      completedAt: v.completedAt?.toISOString() ?? null,
+      lat: v.lat,
+      lng: v.lng,
+      startGpsVerification: v.startGpsVerification ?? null,
+      completeGpsVerification: v.completeGpsVerification ?? null,
+      includedInRoute: planVisitIds.has(v.id),
+      hasCoordinates: v.lat != null && v.lng != null,
+    }));
+    return { visits: rows, plannedMetricsSource: null, factMetricsSource: null };
+  }
+
+  private buildWarnings(
+    snapshot: FuelCalculationSnapshot,
+    compensationKm: number | null,
+    routeAnchors?: FuelCalculationSnapshot["routeAnchors"],
+  ): string[] {
+    const warnings: string[] = [];
+    const withCoords = snapshot.visits.filter((v) => v.hasCoordinates);
+    if (withCoords.length < 2) {
+      warnings.push(
+        "insufficient_completed_visits",
+      );
     }
-
-    return { report, profile };
+    if (routeAnchors && !routeAnchors.usesSettingsAnchors && withCoords.length >= 2) {
+      warnings.push("route_anchors_not_configured");
+    }
+    for (const v of snapshot.visits) {
+      if (!v.hasCoordinates) {
+        warnings.push(`visit_no_coordinates:${v.id}`);
+      }
+      if (
+        v.completeGpsVerification === "OUTSIDE_RADIUS" ||
+        v.completeGpsVerification === "NO_FIX" ||
+        v.startGpsVerification === "OUTSIDE_RADIUS" ||
+        v.startGpsVerification === "NO_FIX"
+      ) {
+        warnings.push(`visit_gps_review:${v.id}`);
+      }
+    }
+    if (compensationKm == null && withCoords.length >= 2) {
+      warnings.push("metrics_unavailable");
+    }
+    return warnings;
   }
 
   private estimateFuel(
-    plannedKm: number | null,
+    compensationKm: number | null,
     profile: { fuelLitersPer100km: number; fuelPricePerLiter: Prisma.Decimal | null },
   ): { litersEstimated: number | null; amountEstimated: Prisma.Decimal | null } {
-    if (plannedKm == null || !Number.isFinite(plannedKm)) {
+    if (compensationKm == null || !Number.isFinite(compensationKm)) {
       return { litersEstimated: null, amountEstimated: null };
     }
-    const liters = (plannedKm * profile.fuelLitersPer100km) / 100;
+    const liters = (compensationKm * profile.fuelLitersPer100km) / 100;
     if (!Number.isFinite(liters)) {
       return { litersEstimated: null, amountEstimated: null };
     }
@@ -75,6 +154,34 @@ export class FieldFuelService {
     return { litersEstimated: litersRounded, amountEstimated: amount };
   }
 
+  private async getOrCreateProfile(ownerId: string) {
+    return (
+      (await this.prisma.userFieldProfile.findUnique({ where: { userId: ownerId } })) ??
+      (await this.prisma.userFieldProfile.create({ data: { userId: ownerId } }))
+    );
+  }
+
+  private async actorForOwner(ownerId: string): Promise<AuthUser> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { id: true, email: true, role: true, fullName: true },
+    });
+    if (!user) {
+      throw new BadRequestException("User not found");
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      fullName: user.fullName,
+    };
+  }
+
+  async recalculateForOwner(ownerId: string, dateStr: string) {
+    const actor = await this.actorForOwner(ownerId);
+    return this.recalculate(actor, dateStr);
+  }
+
   async recalculate(actor: AuthUser | undefined, dateStr: string) {
     if (!actor) throw new BadRequestException("User is required");
     const ownerId = actor.id;
@@ -84,15 +191,34 @@ export class FieldFuelService {
       where: { ownerId, date },
       orderBy: { startedAt: "desc" },
     });
-    const plannedKm = dayShift?.plannedDistanceKm ?? null;
 
-    const profile =
-      (await this.prisma.userFieldProfile.findUnique({ where: { userId: ownerId } })) ??
-      (await this.prisma.userFieldProfile.create({
-        data: { userId: ownerId },
-      }));
+    const profile = await this.getOrCreateProfile(ownerId);
+    const doneVisits = await this.loadDoneVisitsForDay(ownerId, date);
+    const planVisitIds = await this.planVisitIdSet(ownerId, date);
 
-    const { litersEstimated, amountEstimated } = this.estimateFuel(plannedKm, profile);
+    const [plannedMetrics, factMetrics, routeAnchors] = await Promise.all([
+      this.routePlans.getRouteMetrics(dateStr, actor),
+      this.routePlans.getFactRouteMetrics(dateStr, actor),
+      this.routePlans.getRouteAnchors(ownerId),
+    ]);
+
+    const compensationKm = factMetrics.distanceKm;
+    const actualKm = factMetrics.distanceKm;
+    const plannedKm = plannedMetrics.distanceKm;
+    const visitCount = doneVisits.filter((v) => v.lat != null && v.lng != null).length;
+
+    const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
+    snapshot.plannedMetricsSource = plannedMetrics.source;
+    snapshot.factMetricsSource = factMetrics.source;
+    snapshot.routeAnchors = {
+      startLabel: routeAnchors.startLabel,
+      endLabel: routeAnchors.endLabel,
+      hasExplicitStart: routeAnchors.hasExplicitStart,
+      hasExplicitEnd: routeAnchors.hasExplicitEnd,
+      usesSettingsAnchors: routeAnchors.hasExplicitStart || routeAnchors.hasExplicitEnd,
+    };
+
+    const { litersEstimated, amountEstimated } = this.estimateFuel(compensationKm, profile);
 
     const report = await this.prisma.fuelDayReport.upsert({
       where: { ownerId_date: { ownerId, date } },
@@ -101,30 +227,317 @@ export class FieldFuelService {
         date,
         shiftId: dayShift?.id ?? undefined,
         plannedKm: plannedKm ?? undefined,
+        actualKm: actualKm ?? undefined,
+        compensationKm: compensationKm ?? undefined,
         litersEstimated: litersEstimated ?? undefined,
         amountEstimated: amountEstimated ?? undefined,
+        metricsSource: factMetrics.source,
+        visitCount,
+        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        compensationStatus: FuelCompensationStatus.DRAFT,
       },
       update: {
         shiftId: dayShift?.id ?? undefined,
         plannedKm: plannedKm ?? undefined,
+        actualKm: actualKm ?? undefined,
+        compensationKm: compensationKm ?? undefined,
         litersEstimated: litersEstimated ?? undefined,
         amountEstimated: amountEstimated ?? undefined,
+        metricsSource: factMetrics.source,
+        visitCount,
+        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
       },
     });
 
+    if (dayShift && plannedKm != null) {
+      await this.prisma.fieldShift.update({
+        where: { id: dayShift.id },
+        data: { plannedDistanceKm: plannedKm },
+      });
+    }
+
+    const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors);
+    return {
+      report,
+      profile,
+      breakdown: snapshot.visits,
+      warnings,
+      plannedMetrics,
+      factMetrics,
+      routeAnchors: snapshot.routeAnchors,
+    };
+  }
+
+  async getOrCreateDay(actor: AuthUser | undefined, dateStr: string, ownerIdOverride?: string) {
+    if (!actor) throw new BadRequestException("User is required");
+    const ownerId = this.resolveOwnerId(actor, ownerIdOverride);
+    const date = this.parseUtcDay(dateStr);
+
+    let report = await this.prisma.fuelDayReport.findUnique({
+      where: { ownerId_date: { ownerId, date } },
+    });
+
+    if (!report) {
+      const actorForRecalc =
+        ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+      return this.recalculate(actorForRecalc, dateStr);
+    }
+
+    const profile = await this.getOrCreateProfile(ownerId);
+    const snapshot = (report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
+    const breakdown = snapshot.visits ?? [];
+    const routeAnchors = await this.routePlans.getRouteAnchors(ownerId);
+    const routeAnchorsSnapshot = {
+      startLabel: routeAnchors.startLabel,
+      endLabel: routeAnchors.endLabel,
+      hasExplicitStart: routeAnchors.hasExplicitStart,
+      hasExplicitEnd: routeAnchors.hasExplicitEnd,
+      usesSettingsAnchors: routeAnchors.hasExplicitStart || routeAnchors.hasExplicitEnd,
+    };
+    const warnings = this.buildWarnings(
+      { visits: breakdown, plannedMetricsSource: null, factMetricsSource: null },
+      report.compensationKm,
+      routeAnchorsSnapshot,
+    );
+
+    const actorForMetrics =
+      ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+    const plannedMetrics = await this.routePlans.getRouteMetrics(dateStr, actorForMetrics);
+    const factMetrics = await this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics);
+
+    return {
+      report,
+      profile,
+      breakdown,
+      warnings,
+      plannedMetrics,
+      factMetrics,
+      routeAnchors: routeAnchorsSnapshot,
+    };
+  }
+
+  async patchDay(
+    actor: AuthUser | undefined,
+    dateStr: string,
+    body: { compensationStatus?: FuelCompensationStatus; managerNote?: string | null },
+  ) {
+    if (!actor) throw new BadRequestException("User is required");
+    const ownerId = actor.id;
+    const date = this.parseUtcDay(dateStr);
+
+    const existing = await this.prisma.fuelDayReport.findUnique({
+      where: { ownerId_date: { ownerId, date } },
+    });
+    if (!existing) {
+      throw new BadRequestException("Fuel report not found; recalculate first");
+    }
+
+    if (
+      existing.compensationStatus !== FuelCompensationStatus.DRAFT &&
+      body.compensationStatus === FuelCompensationStatus.SUBMITTED
+    ) {
+      throw new BadRequestException("Report already submitted");
+    }
+
+    const data: Prisma.FuelDayReportUpdateInput = {};
+    if (body.managerNote !== undefined) {
+      data.managerNote = body.managerNote;
+    }
+    if (body.compensationStatus === FuelCompensationStatus.SUBMITTED) {
+      if (existing.compensationKm == null) {
+        throw new BadRequestException("Cannot submit without calculated distance");
+      }
+      data.compensationStatus = FuelCompensationStatus.SUBMITTED;
+      data.submittedAt = new Date();
+    } else if (body.compensationStatus) {
+      data.compensationStatus = body.compensationStatus;
+    }
+
+    const report = await this.prisma.fuelDayReport.update({
+      where: { id: existing.id },
+      data,
+    });
+    const profile = await this.getOrCreateProfile(ownerId);
     return { report, profile };
+  }
+
+  private enumerateDateStrings(fromStr: string, toStr: string): string[] {
+    const from = this.parseUtcDay(fromStr);
+    const to = this.parseUtcDay(toStr);
+    if (to < from) {
+      throw new BadRequestException("from must be <= to");
+    }
+    const days: string[] = [];
+    const cur = new Date(from);
+    while (cur <= to) {
+      days.push(cur.toISOString().slice(0, 10));
+      cur.setUTCDate(cur.getUTCDate() + 1);
+      if (days.length > MAX_EXPORT_DAYS) {
+        throw new BadRequestException(`Range exceeds ${MAX_EXPORT_DAYS} days`);
+      }
+    }
+    return days;
+  }
+
+  async getRange(
+    actor: AuthUser | undefined,
+    fromStr: string,
+    toStr: string,
+    ownerIdOverride?: string,
+  ) {
+    if (!actor) throw new BadRequestException("User is required");
+    const ownerId = this.resolveOwnerId(actor, ownerIdOverride);
+    const days = this.enumerateDateStrings(fromStr, toStr);
+
+    const actorForRecalc = ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+
+    const items: Awaited<ReturnType<FieldFuelService["getOrCreateDay"]>>[] = [];
+    for (const dateStr of days) {
+      const date = this.parseUtcDay(dateStr);
+      const existing = await this.prisma.fuelDayReport.findUnique({
+        where: { ownerId_date: { ownerId, date } },
+      });
+      if (!existing) {
+        items.push(await this.recalculate(actorForRecalc, dateStr));
+      } else {
+        items.push(await this.getOrCreateDay(actor, dateStr, ownerId));
+      }
+    }
+
+    let totalKm = 0;
+    let totalLiters = 0;
+    let totalAmount = 0;
+    let daysWithReport = 0;
+    let daysDraft = 0;
+    let daysWithoutCalc = 0;
+
+    const dayRows = items.map((item) => {
+      const r = item.report;
+      if (r.compensationKm != null) {
+        totalKm += r.compensationKm;
+        daysWithReport += 1;
+      } else {
+        daysWithoutCalc += 1;
+      }
+      if (r.litersEstimated != null) totalLiters += r.litersEstimated;
+      if (r.amountEstimated != null) totalAmount += Number(r.amountEstimated);
+      if (r.compensationStatus === FuelCompensationStatus.DRAFT) daysDraft += 1;
+
+      return {
+        date: r.date.toISOString().slice(0, 10),
+        report: r,
+        breakdown: item.breakdown,
+        warnings: item.warnings,
+      };
+    });
+
+    const profile = await this.getOrCreateProfile(ownerId);
+    const owner = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { id: true, fullName: true, email: true },
+    });
+
+    return {
+      from: fromStr,
+      to: toStr,
+      owner,
+      profile,
+      totals: {
+        totalKm: Math.round(totalKm * 10) / 10,
+        totalLiters: Math.round(totalLiters * 1000) / 1000,
+        totalAmount: Math.round(totalAmount * 100) / 100,
+        daysWithReport,
+        daysDraft,
+        daysWithoutCalc,
+        dayCount: days.length,
+      },
+      days: dayRows,
+    };
+  }
+
+  async exportReport(
+    actor: AuthUser | undefined,
+    fromStr: string,
+    toStr: string,
+    format: "csv" | "xlsx",
+    ownerIdOverride?: string,
+  ): Promise<StreamableFile> {
+    const range = await this.getRange(actor, fromStr, toStr, ownerIdOverride);
+    const managerName = range.owner?.fullName || range.owner?.email || "—";
+    const vehicle = range.profile.vehicleLabel ?? "";
+
+    const summaryRows = range.days.map((d) => ({
+      Date: d.date,
+      Manager: managerName,
+      Visits: d.report.visitCount ?? 0,
+      "Plan km": d.report.plannedKm ?? "",
+      "Fact km": d.report.actualKm ?? "",
+      "Compensation km": d.report.compensationKm ?? "",
+      Liters: d.report.litersEstimated ?? "",
+      "Amount UAH": d.report.amountEstimated != null ? Number(d.report.amountEstimated) : "",
+      Status: d.report.compensationStatus,
+      Vehicle: vehicle,
+      Note: d.report.managerNote ?? "",
+    }));
+
+    const visitRows: Record<string, string | number>[] = [];
+    for (const d of range.days) {
+      const snapshot = (d.report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
+      for (let i = 0; i < (snapshot.visits ?? []).length; i++) {
+        const v = snapshot.visits[i]!;
+        visitRows.push({
+          Date: d.date,
+          "#": i + 1,
+          Visit: v.title ?? v.id,
+          "Completed at": v.completedAt ?? "",
+          Lat: v.lat ?? "",
+          Lng: v.lng ?? "",
+          "In route plan": v.includedInRoute ? "yes" : "no",
+          "GPS start": v.startGpsVerification ?? "",
+          "GPS complete": v.completeGpsVerification ?? "",
+        });
+      }
+    }
+
+    const baseName = `fuel-${fromStr}-${toStr}`;
+
+    if (format === "csv") {
+      const header = Object.keys(summaryRows[0] ?? { Date: "" }).join(",");
+      const lines = summaryRows.map((row) =>
+        Object.values(row)
+          .map((v) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+          })
+          .join(","),
+      );
+      const csv = [header, ...lines].join("\n");
+      const buffer = Buffer.from("\uFEFF" + csv, "utf-8");
+      return new StreamableFile(buffer, {
+        type: "text/csv; charset=utf-8",
+        disposition: `attachment; filename="${baseName}.csv"`,
+      });
+    }
+
+    const wb = XLSX.utils.book_new();
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    XLSX.utils.book_append_sheet(wb, wsSummary, "By day");
+    const wsVisits = XLSX.utils.json_to_sheet(
+      visitRows.length > 0 ? visitRows : [{ Date: "", Visit: "No visits" }],
+    );
+    XLSX.utils.book_append_sheet(wb, wsVisits, "Visits");
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    return new StreamableFile(buffer, {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      disposition: `attachment; filename="${baseName}.xlsx"`,
+    });
   }
 
   async getProfile(actor: AuthUser | undefined) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
-    return (
-      (await this.prisma.userFieldProfile.findUnique({ where: { userId: actor.id } })) ??
-      (await this.prisma.userFieldProfile.create({
-        data: { userId: actor.id },
-      }))
-    );
+    return this.getOrCreateProfile(actor.id);
   }
 
   async updateProfile(

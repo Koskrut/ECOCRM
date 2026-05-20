@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 import { apiHttp } from "@/lib/api/client";
 import { visitsApi, type VisitHistoryItem } from "@/lib/api/resources/visits";
+import { VisitsSubNav } from "../VisitsSubNav";
 
 type MeUser = { role?: string };
 
@@ -72,6 +73,7 @@ export default function VisitsHistoryPage() {
   return (
     <div className="min-h-screen bg-zinc-50 p-4">
       <div className="mx-auto max-w-5xl">
+        <VisitsSubNav />
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold text-zinc-900">{strings.nav.visitsHistory}</h1>

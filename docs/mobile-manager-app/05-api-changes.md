@@ -83,11 +83,25 @@
 
 ### `GET /field/fuel/day?date=YYYY-MM-DD`
 
-Возвращает `FuelDayReport` за день (создаётся при необходимости).
+Возвращает `report`, `profile`, `breakdown` (визиты из снимка), `warnings`, `plannedMetrics`, `factMetrics`. Создаёт отчёт при отсутствии.
+
+Опционально `ownerId` — для ADMIN/LEAD (чужой менеджер).
 
 ### `POST /field/fuel/day/recalculate?date=YYYY-MM-DD`
 
-Пересчитывает литры и сумму из `UserFieldProfile` и `plannedDistanceKm` активной или последней смены дня.
+Пересчёт: плановые км из `RoutePlan`, фактические из завершённых визитов (`getFactRouteMetrics`), компенсация = факт, литры/сумма из `UserFieldProfile`.
+
+### `PATCH /field/fuel/day?date=YYYY-MM-DD`
+
+Тело: `{ "compensationStatus": "SUBMITTED", "managerNote": "..." }` — отправка черновика.
+
+### `GET /field/fuel/range?from=&to=`
+
+Сводка за период (макс. 31 день): `totals`, `days[]`, `profile`, `owner`.
+
+### `GET /field/fuel/export?from=&to=&format=csv|xlsx`
+
+Файл выгрузки (CSV или XLSX с листами «По дням» и «Визиты»).
 
 ## Профиль авто менеджера
 

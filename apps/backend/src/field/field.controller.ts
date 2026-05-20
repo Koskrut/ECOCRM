@@ -1,5 +1,16 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from "@nestjs/common";
 import type { Request } from "express";
+import { FuelCompensationStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
@@ -55,19 +66,75 @@ export class FieldController {
   }
 
   @Get("fuel/day")
-  async fuelDay(@Query("date") date: string, @Req() req: Request & { user?: AuthUser }) {
+  async fuelDay(
+    @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     if (!date) {
       throw new BadRequestException("date is required");
     }
-    return this.fuel.getOrCreateDay(req.user, date);
+    return this.fuel.getOrCreateDay(req.user, date, ownerId);
   }
 
   @Post("fuel/day/recalculate")
-  async fuelRecalculate(@Query("date") date: string, @Req() req: Request & { user?: AuthUser }) {
+  async fuelRecalculate(
+    @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     if (!date) {
       throw new BadRequestException("date is required");
     }
-    return this.fuel.recalculate(req.user, date);
+    if (!req.user) throw new BadRequestException("User is required");
+    const targetId = ownerId
+      ? this.fuel.resolveOwnerId(req.user, ownerId)
+      : req.user.id;
+    if (targetId === req.user.id) {
+      return this.fuel.recalculate(req.user, date);
+    }
+    return this.fuel.recalculateForOwner(targetId, date);
+  }
+
+  @Patch("fuel/day")
+  async fuelPatchDay(
+    @Query("date") date: string,
+    @Body()
+    body: { compensationStatus?: FuelCompensationStatus; managerNote?: string | null },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!date) {
+      throw new BadRequestException("date is required");
+    }
+    return this.fuel.patchDay(req.user, date, body);
+  }
+
+  @Get("fuel/range")
+  async fuelRange(
+    @Query("from") from: string,
+    @Query("to") to: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!from || !to) {
+      throw new BadRequestException("from and to are required");
+    }
+    return this.fuel.getRange(req.user, from, to, ownerId);
+  }
+
+  @Get("fuel/export")
+  async fuelExport(
+    @Query("from") from: string,
+    @Query("to") to: string,
+    @Query("format") format: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!from || !to) {
+      throw new BadRequestException("from and to are required");
+    }
+    const fmt = format === "xlsx" ? "xlsx" : "csv";
+    return this.fuel.exportReport(req.user, from, to, fmt, ownerId);
   }
 
   @Get("profile")

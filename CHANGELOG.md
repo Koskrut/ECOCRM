@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.64**.)_
+_(планируемые изменения после **0.2.65**.)_
+
+## [0.2.65] — 2026-05-20
+
+### Summary
+
+Полный релиз **0.2.x** (все module-образы в CI): **топливные отчёты** (снимок визитов, пересчёт, export), **route geometry** для маршрутов, **Field API** (fuel day/range/profile, events/listener), **web** — раздел **Visits → Fuel**, BFF **`/api/field/fuel/*`**; **mobile** — экраны топлива и профиль авто. Миграция **`fuel_report_visit_snapshot`**.
+
+### Added
+
+- **Fuel**: `FuelDayReport` snapshot/metrics, `field-fuel.listener`, recalculate/submit; **web** `visits/fuel`, **mobile** `app/fuel/*`.
+- **Visits**: `route-geometry.ts`, тесты; доработка `route-plans.service`.
+- **Web API**: `field-fuel` resource, `VisitsSubNav`.
+
+### Changed
+
+- **Field fuel service** — расширенный расчёт и статусы компенсации.
+- **Mobile** tabs (index, more), docs **`05-api-changes`**.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.65`**, **`prisma migrate deploy`** (колонки `FuelDayReport`), полный манифест + `pull` / `up -d`.
+- Сайдкары: **`NP_UPSTREAM_URL`** и др. — **`docs/modules-prod-matrix.md`**.
 
 ## [0.2.64] — 2026-05-15
 
@@ -166,7 +188,7 @@ _(планируемые изменения после **0.2.64**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, field/mobile, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.64`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, field/mobile/fuel, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.65`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

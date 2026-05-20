@@ -902,9 +902,17 @@ model FuelDayReport {
   shiftId              String?
   plannedKm            Float?
   actualKm             Float?
+  /// Км для расчёта компенсации (= actualKm при политике «факт»).
+  compensationKm       Float?
   litersEstimated      Float?
   amountEstimated      Decimal?                @db.Decimal(14, 2)
+  /// Источник расчёта фактического маршрута: google | fallback | none.
+  metricsSource        String?
+  visitCount           Int?
+  calculationSnapshot  Json?
   compensationStatus   FuelCompensationStatus  @default(DRAFT)
+  submittedAt          DateTime?
+  managerNote          String?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
 
@@ -913,6 +921,7 @@ model FuelDayReport {
 
   @@unique([ownerId, date])
   @@index([shiftId])
+  @@index([ownerId, date, compensationStatus])
 }
 
 model RoutePlan {

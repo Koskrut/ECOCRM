@@ -24,6 +24,7 @@ export const en = {
     catalog: "Catalog",
     visits: "Visits",
     visitsHistory: "Visit history",
+    visitsFuel: "Fuel",
     aiCalls: "AI Calls",
     analytics: "Analytics",
     settings: "Settings",

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, TextInput, View as RNView } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, View as RNView } from "react-native";
+import { useRouter } from "expo-router";
 
 import { Text, View } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
@@ -8,8 +9,8 @@ import { getApiBaseUrl } from "@/lib/config";
 import { formatLocalDateKey } from "@/lib/date";
 
 export default function MoreScreen() {
+  const router = useRouter();
   const { user, token, logout } = useAuth();
-  const [plannedKm, setPlannedKm] = useState("60");
   const [trackingEnabled, setTrackingEnabled] = useState(true);
 
   async function copyBaseUrl() {
@@ -19,12 +20,24 @@ export default function MoreScreen() {
   const startShift = useCallback(async () => {
     if (!token) return;
     try {
-      const km = plannedKm.trim() ? Number(plannedKm.replace(",", ".")) : NaN;
+      let plannedDistanceKm: number | null = null;
+      const dateKey = formatLocalDateKey();
+      try {
+        const m = await apiFetch<{ distanceKm: number | null }>(
+          `/route-plans/metrics?date=${encodeURIComponent(dateKey)}`,
+          { token },
+        );
+        if (m.distanceKm != null && Number.isFinite(m.distanceKm)) {
+          plannedDistanceKm = m.distanceKm;
+        }
+      } catch {
+        // metrics optional
+      }
       await apiFetch("/field/shifts/start", {
         method: "POST",
         token,
         body: JSON.stringify({
-          plannedDistanceKm: Number.isFinite(km) ? km : null,
+          plannedDistanceKm,
           trackingEnabled,
         }),
       });
@@ -32,7 +45,7 @@ export default function MoreScreen() {
     } catch (e) {
       Alert.alert("Ошибка", String(e));
     }
-  }, [token, plannedKm, trackingEnabled]);
+  }, [token, trackingEnabled]);
 
   const endShift = useCallback(async () => {
     if (!token) return;
@@ -45,20 +58,6 @@ export default function MoreScreen() {
       }
       await apiFetch(`/field/shifts/${id}/end`, { method: "POST", token });
       Alert.alert("", "Смена завершена");
-    } catch (e) {
-      Alert.alert("Ошибка", String(e));
-    }
-  }, [token]);
-
-  const openFuelReport = useCallback(async () => {
-    if (!token) return;
-    try {
-      const d = formatLocalDateKey();
-      const r = await apiFetch<{ report: Record<string, unknown> }>(
-        `/field/fuel/day?date=${encodeURIComponent(d)}`,
-        { token },
-      );
-      Alert.alert("Топливо за день", JSON.stringify(r.report, null, 2).slice(0, 2800));
     } catch (e) {
       Alert.alert("Ошибка", String(e));
     }
@@ -87,29 +86,26 @@ export default function MoreScreen() {
       </Pressable>
 
       <Text style={styles.section}>Смена</Text>
-      <Text style={styles.labels}>Плановые км (для топлива)</Text>
-      <TextInput
-        keyboardType="decimal-pad"
-        value={plannedKm}
-        onChangeText={setPlannedKm}
-        placeholder="Например 87.5"
-        style={styles.input}
-      />
       <RNView style={{ flexDirection: "row", alignItems: "center", marginVertical: 8 }}>
         <Text>Сбор трека</Text>
         <Switch value={trackingEnabled} onValueChange={setTrackingEnabled} style={{ marginLeft: 12 }} />
       </RNView>
       <Pressable onPress={startShift} accessibilityRole="button" style={[styles.btn, { marginBottom: 8 }]}>
-        <Text style={styles.btnTxt}>Начать / обновить смену</Text>
+        <Text style={styles.btnTxt}>Начать смену</Text>
       </Pressable>
       <Pressable onPress={endShift} accessibilityRole="button" style={[styles.btn, { backgroundColor: "#475569" }]}>
         <Text style={styles.btnTxt}>Завершить смену</Text>
       </Pressable>
 
       <Text style={styles.section}>Топливо</Text>
-      <Pressable onPress={openFuelReport} accessibilityRole="button" style={styles.btnGhost}>
-        <Text style={{ fontWeight: "600" }}>Отчёт за сегодня</Text>
-        <Text style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>(в Alert, JSON из API)</Text>
+      <Pressable
+        onPress={() => router.push("/fuel")}
+        accessibilityRole="button"
+        style={styles.btnGhost}>
+        <Text style={{ fontWeight: "600" }}>Отчёты и компенсация</Text>
+        <Text style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>
+          Пробег по завершённым визитам, месяц, отправка
+        </Text>
       </Pressable>
 
       <Pressable
@@ -141,16 +137,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   section: { fontWeight: "700", fontSize: 16, marginTop: 12 },
-  labels: { fontSize: 14, opacity: 0.8 },
-  input: {
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: "#bbb",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 4,
-  },
   btn: {
     alignSelf: "flex-start",
     backgroundColor: "#2563eb",

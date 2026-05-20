@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
+import { resolveRouteGeometry, type RouteAnchorConfig } from "./route-geometry";
 
 @Injectable()
 export class RoutePlansService {
@@ -18,11 +19,8 @@ export class RoutePlansService {
     return key || null;
   }
 
-  /** Start/end anchors for driving directions; end defaults to start when only start is set. */
-  private async getRouteAnchors(actorId: string): Promise<{
-    origin: { lat: number; lng: number } | null;
-    destination: { lat: number; lng: number } | null;
-  }> {
+  /** Start/end anchors from user profile (Сотрудники → «Маршрут визитов»). */
+  async getRouteAnchors(actorId: string): Promise<RouteAnchorConfig> {
     const u = await this.prisma.user.findUnique({
       where: { id: actorId },
       select: {
@@ -30,10 +28,19 @@ export class RoutePlansService {
         routeStartLng: true,
         routeEndLat: true,
         routeEndLng: true,
+        routeStartLabel: true,
+        routeEndLabel: true,
       },
     });
     if (!u) {
-      return { origin: null, destination: null };
+      return {
+        origin: null,
+        destination: null,
+        hasExplicitStart: false,
+        hasExplicitEnd: false,
+        startLabel: null,
+        endLabel: null,
+      };
     }
     const origin =
       u.routeStartLat != null && u.routeStartLng != null
@@ -43,8 +50,17 @@ export class RoutePlansService {
       u.routeEndLat != null && u.routeEndLng != null
         ? { lat: u.routeEndLat, lng: u.routeEndLng }
         : null;
+    const hasExplicitStart = origin != null;
+    const hasExplicitEnd = endExplicit != null;
     const destination = endExplicit ?? origin;
-    return { origin, destination };
+    return {
+      origin,
+      destination,
+      hasExplicitStart,
+      hasExplicitEnd,
+      startLabel: u.routeStartLabel ?? null,
+      endLabel: u.routeEndLabel ?? null,
+    };
   }
 
   private buildRoutingPreference(traffic: boolean): "TRAFFIC_AWARE" | "TRAFFIC_UNAWARE" {
@@ -136,19 +152,14 @@ export class RoutePlansService {
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const origin = anchors.origin ?? { lat: points[0]!.lat as number, lng: points[0]!.lng as number };
-    const destination = anchors.destination ?? {
-      lat: points[points.length - 1]!.lat as number,
-      lng: points[points.length - 1]!.lng as number,
-    };
-    const intermediates =
-      anchors.origin && anchors.destination ? points : points.slice(1, -1); // if no anchors, first/last are origin/dest
+    const visitPoints = points.map((p) => ({ lat: p.lat as number, lng: p.lng as number }));
+    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
       const google = await this.computeRouteByGoogle({
         origin,
         destination,
-        intermediates: intermediates.map((p) => ({ lat: p.lat as number, lng: p.lng as number })),
+        intermediates,
         traffic: opts?.traffic === true,
       });
       if (google) {
@@ -229,15 +240,8 @@ export class RoutePlansService {
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const origin = anchors.origin ?? { lat: ordered[0]!.lat as number, lng: ordered[0]!.lng as number };
-    const destination = anchors.destination ?? {
-      lat: ordered[ordered.length - 1]!.lat as number,
-      lng: ordered[ordered.length - 1]!.lng as number,
-    };
-    const intermediates =
-      anchors.origin && anchors.destination
-        ? ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }))
-        : ordered.slice(1, -1).map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
       const google = await this.computeRouteByGoogle({
@@ -253,13 +257,7 @@ export class RoutePlansService {
       // fall through
     }
 
-    const km = this.haversineKm(
-      origin.lat,
-      origin.lng,
-      intermediates.map((p) => ({ lat: p.lat, lng: p.lng })),
-      destination.lat,
-      destination.lng,
-    );
+    const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
     return { distanceKm: Math.round(km * 10) / 10, durationMin: null, source: "fallback" };
   }
 
@@ -293,50 +291,41 @@ export class RoutePlansService {
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    // Optimization happens on "intermediates" only (Google returns permutation indexes of intermediates).
-    // For no-anchors mode, keep first/last fixed.
-    const intermediates =
-      anchors.origin && anchors.destination
-        ? ordered
-        : ordered.slice(1, -1);
+    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const { origin, destination, usesSettingsAnchors } = resolveRouteGeometry(visitPoints, anchors);
 
-    const origin = anchors.origin ?? { lat: ordered[0]!.lat as number, lng: ordered[0]!.lng as number };
-    const destination = anchors.destination ?? {
-      lat: ordered[ordered.length - 1]!.lat as number,
-      lng: ordered[ordered.length - 1]!.lng as number,
-    };
+    const intermediatesForOptimize = usesSettingsAnchors
+      ? ordered
+      : ordered.slice(1, -1);
 
     try {
       const google = await this.computeRouteByGoogle({
         origin,
         destination,
-        intermediates: intermediates.map((v) => ({ lat: v.lat as number, lng: v.lng as number })),
+        intermediates: intermediatesForOptimize.map((v) => ({
+          lat: v.lat as number,
+          lng: v.lng as number,
+        })),
         traffic: opts?.traffic === true,
         optimize: true,
       });
       if (google?.optimizedIntermediateIndexes) {
         const perm = google.optimizedIntermediateIndexes;
-        const reordered = perm.map((i) => intermediates[i]).filter(Boolean) as typeof intermediates;
-        const result =
-          anchors.origin && anchors.destination
-            ? reordered.map((v) => v.id)
-            : [ordered[0]!.id, ...reordered.map((v) => v.id), ordered[ordered.length - 1]!.id];
+        const reordered = perm.map((i) => intermediatesForOptimize[i]).filter(Boolean) as typeof ordered;
+        const result = usesSettingsAnchors
+          ? reordered.map((v) => v.id)
+          : [ordered[0]!.id, ...reordered.map((v) => v.id), ordered[ordered.length - 1]!.id];
         return { visitIds: result, source: "google" };
       }
     } catch {
       // fall back
     }
 
-    // Fallback: nearest-neighbor heuristic (keeps first/last fixed if no anchors)
-    const start = anchors.origin && anchors.destination ? intermediates[0]! : ordered[0]!;
-    const fixedLast = anchors.origin && anchors.destination ? null : ordered[ordered.length - 1]!;
-    const pool = new Map(intermediates.map((v) => [v.id, v]));
-    const path: typeof intermediates = [];
+    const start = usesSettingsAnchors ? intermediatesForOptimize[0]! : ordered[0]!;
+    const fixedLast = usesSettingsAnchors ? null : ordered[ordered.length - 1]!;
+    const pool = new Map(intermediatesForOptimize.map((v) => [v.id, v]));
+    const path: typeof ordered = [];
     let cur = start;
-    if (anchors.origin && anchors.destination) {
-      // In anchors mode we optimize all points; start from closest to origin (or first)
-      cur = intermediates[0]!;
-    }
     while (pool.size > 0) {
       if (pool.has(cur.id)) {
         path.push(cur);
@@ -354,10 +343,13 @@ export class RoutePlansService {
       }
       cur = best ?? Array.from(pool.values())[0]!;
     }
-    const ids =
-      anchors.origin && anchors.destination
-        ? path.map((v) => v.id)
-        : [ordered[0]!.id, ...path.map((v) => v.id).filter((id) => id !== ordered[0]!.id && id !== fixedLast!.id), fixedLast!.id];
+    const ids = usesSettingsAnchors
+      ? path.map((v) => v.id)
+      : [
+          ordered[0]!.id,
+          ...path.map((v) => v.id).filter((id) => id !== ordered[0]!.id && id !== fixedLast!.id),
+          fixedLast!.id,
+        ];
     return { visitIds: ids, source: "fallback" };
   }
 
@@ -387,15 +379,8 @@ export class RoutePlansService {
     if (ordered.length < 2) return { distanceKm: null, durationMin: null, source: "none" };
 
     const anchors = await this.getRouteAnchors(actor.id);
-    const origin = anchors.origin ?? { lat: ordered[0]!.lat as number, lng: ordered[0]!.lng as number };
-    const destination = anchors.destination ?? {
-      lat: ordered[ordered.length - 1]!.lat as number,
-      lng: ordered[ordered.length - 1]!.lng as number,
-    };
-    const intermediates =
-      anchors.origin && anchors.destination
-        ? ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }))
-        : ordered.slice(1, -1).map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const visitPoints = ordered.map((v) => ({ lat: v.lat as number, lng: v.lng as number }));
+    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
     try {
       const google = await this.computeRouteByGoogle({
@@ -409,13 +394,7 @@ export class RoutePlansService {
       // fall through
     }
 
-    const km = this.haversineKm(
-      origin.lat,
-      origin.lng,
-      intermediates.map((p) => ({ lat: p.lat, lng: p.lng })),
-      destination.lat,
-      destination.lng,
-    );
+    const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
     return { distanceKm: Math.round(km * 10) / 10, durationMin: null, source: "fallback" };
   }
 
@@ -541,7 +520,7 @@ export class RoutePlansService {
         throw new BadRequestException("Visit has no coordinates (lat/lng)");
       }
       const anchors = await this.getRouteAnchors(actor.id);
-      if (anchors.origin) {
+      if (anchors.hasExplicitStart && anchors.origin) {
         return {
           url: `https://www.google.com/maps/dir/?api=1&origin=${anchors.origin.lat},${anchors.origin.lng}&destination=${visit.lat},${visit.lng}`,
         };
@@ -577,7 +556,7 @@ export class RoutePlansService {
     }
 
     const anchors = await this.getRouteAnchors(actor.id);
-    if (anchors.origin && anchors.destination) {
+    if ((anchors.hasExplicitStart || anchors.hasExplicitEnd) && anchors.origin && anchors.destination) {
       const wp = points.map((v) => `${v.lat},${v.lng}`).join("|");
       const dest = anchors.destination;
       const orig = anchors.origin;
