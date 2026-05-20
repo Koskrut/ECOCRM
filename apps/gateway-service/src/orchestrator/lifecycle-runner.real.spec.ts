@@ -31,11 +31,13 @@ function baseConfig(): AppConfig {
     kyivstarHttpStatusPathTemplate: "/v1/calls/{callId}/status",
     kyivstarHttpHangupPathTemplate: "/v1/calls/{callId}/hangup",
     kyivstarHttpHangupMethod: "POST",
+    kyivstarHttpMediaPathTemplate: "/v1/calls/{callId}/media",
     kyivstarHttpAuthStyle: "bearer",
     kyivstarHttpAuthHeaderName: "X-Api-Key",
     canaryLiveCallsEnabled: false,
     canaryAllowedE164Normalized: [],
     rtpBindAddress: "0.0.0.0",
+    rtpAdvertiseAddress: "0.0.0.0",
     rtpPortStart: 30000,
     rtpPortEnd: 30999,
     openaiRealtimeWsUrl: "ws://localhost",
@@ -139,6 +141,9 @@ describe("LifecycleRunner real mode", () => {
       },
       async transferCall() {},
       async hangupCall() {},
+      async attachMediaEndpoint() {
+        return { symmetricRtp: true, codec: "alaw" as const };
+      },
       subscribe() {
         return () => undefined;
       },
@@ -149,8 +154,15 @@ describe("LifecycleRunner real mode", () => {
     >();
     const mediaBridge = {
       async connect() {
-        return { id: "media-1", externalSessionId: s.externalSessionId, providerCallId: "prov-1", aiSessionId: "openai-1" };
+        return {
+          id: "media-1",
+          externalSessionId: s.externalSessionId,
+          providerCallId: "prov-1",
+          aiSessionId: "openai-1",
+          rtpLocalPort: 30042,
+        };
       },
+      setRtpRemote() {},
       async pumpInboundAudio() {},
       async close() {},
       onLifecycleEvent(listener: (event: never) => void) {

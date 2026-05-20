@@ -14,40 +14,56 @@ export class RoutePlansController {
   async getMetrics(
     @Query("date") date: string,
     @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    return this.routePlans.getRouteMetrics(date, req.user, { traffic: traffic === "1" });
+    return this.routePlans.getRouteMetrics(date, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
   }
 
   @Post("metrics/preview")
   async previewMetrics(
     @Query("date") date: string,
     @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
     @Body() body: { visitIds?: string[] },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
-    return this.routePlans.previewRouteMetrics(date, visitIds, req.user, { traffic: traffic === "1" });
+    return this.routePlans.previewRouteMetrics(date, visitIds, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
   }
 
   @Post("optimize")
   async optimize(
     @Query("date") date: string,
     @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
     @Body() body: { visitIds?: string[] },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
-    return this.routePlans.optimizeRouteOrder(date, visitIds, req.user, { traffic: traffic === "1" });
+    return this.routePlans.optimizeRouteOrder(date, visitIds, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
   }
 
   @Get("metrics/fact")
   async getFactMetrics(
     @Query("date") date: string,
     @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    return this.routePlans.getFactRouteMetrics(date, req.user, { traffic: traffic === "1" });
+    return this.routePlans.getFactRouteMetrics(date, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
   }
 
   @Get("navigation")
@@ -55,29 +71,32 @@ export class RoutePlansController {
     @Query("date") date: string,
     @Query("mode") mode: string,
     @Query("visitId") visitId: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
     const m = mode === "multi" ? "multi" : "single";
-    return this.routePlans.getNavigationUrl(date, m, visitId, req.user);
+    return this.routePlans.getNavigationUrl(date, m, visitId, req.user, ownerId);
   }
 
   @Get()
   async getForDay(
     @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    const plan = await this.routePlans.getForDay(date, req.user);
+    const plan = await this.routePlans.getForDay(date, req.user, ownerId);
     return plan ? { plan } : { plan: null };
   }
 
   @Put()
   async upsertForDay(
     @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
     @Body() body: { visitIds: string[] },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
-    const plan = await this.routePlans.upsertForDay(date, visitIds, req.user);
+    const plan = await this.routePlans.upsertForDay(date, visitIds, req.user, ownerId);
     return { plan };
   }
 }

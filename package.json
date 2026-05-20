@@ -15,6 +15,7 @@
     "dev:store": "npm run dev --workspace=store",
     "dev:mobile": "npm run start --workspace=mobile",
     "dev:gateway": "npm run dev --workspace=gateway-service",
+    "dev:sip-adapter": "npm run dev --workspace=sip-adapter-service",
     "import:characteristics": "npm run import:characteristics --workspace=backend --",
     "import:characteristic": "npm run import:characteristic --workspace=backend --",
     "license:issue": "node scripts/issue-file-license.mjs"

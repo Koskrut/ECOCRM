@@ -489,16 +489,44 @@ export class LifecycleRunnerService {
         });
       }
 
-      await ai.startConversation(aiHandle);
-
+      const mediaCodec = "alaw" as const;
       const media = await this.realMediaBridge.connect({
         externalSessionId: s.externalSessionId,
         providerCallId: leg.providerCallId,
         aiSessionId: aiHandle.openaiSessionId,
         telephony,
         ai,
+        rtp: { codec: mediaCodec, symmetricRtp: true },
       });
       mediaSessionId = media.id;
+
+      if (telephony.attachMediaEndpoint && media.rtpLocalPort) {
+        const attachResult = await telephony.attachMediaEndpoint(leg.providerCallId, {
+          host: this.config.rtpAdvertiseAddress,
+          port: media.rtpLocalPort,
+          codec: mediaCodec,
+        });
+        if (
+          !attachResult.symmetricRtp &&
+          attachResult.remoteAddress &&
+          attachResult.remotePort &&
+          this.realMediaBridge.setRtpRemote
+        ) {
+          this.realMediaBridge.setRtpRemote(
+            media.id,
+            attachResult.remoteAddress,
+            attachResult.remotePort,
+          );
+        }
+        this.log.log("telephony_media_attached", {
+          externalSessionId: s.externalSessionId,
+          providerCallId: leg.providerCallId,
+          rtpLocalPort: media.rtpLocalPort,
+          symmetricRtp: attachResult.symmetricRtp ?? true,
+        });
+      }
+
+      await ai.startConversation(aiHandle);
       cleanupMediaLifecycle = this.realMediaBridge.onLifecycleEvent((event) => {
         if (event.sessionId !== media.id) return;
         if (event.type === "error") {

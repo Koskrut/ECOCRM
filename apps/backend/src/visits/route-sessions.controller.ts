@@ -13,9 +13,10 @@ export class RouteSessionsController {
   @Get()
   async get(
     @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    const state = await this.routeSessions.get(date, req.user);
+    const state = await this.routeSessions.get(date, req.user, ownerId);
     return state ?? { session: null, currentVisit: null, routePlan: null };
   }
 

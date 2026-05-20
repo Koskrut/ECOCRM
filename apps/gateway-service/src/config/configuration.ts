@@ -32,7 +32,11 @@ export interface AppConfig {
   /** Path template with `{callId}` placeholder, e.g. `/v1/calls/{callId}/hangup`. */
   kyivstarHttpHangupPathTemplate: string;
   kyivstarHttpHangupMethod: "POST" | "DELETE";
+  /** Path template with `{callId}` for POST media attach. */
+  kyivstarHttpMediaPathTemplate: string;
   rtpBindAddress: string;
+  /** Public IP/host advertised to sip-adapter for RTP (defaults to RTP_BIND_ADDRESS). */
+  rtpAdvertiseAddress: string;
   rtpPortStart: number;
   rtpPortEnd: number;
   openaiRealtimeWsUrl: string;
@@ -123,7 +127,12 @@ export function loadConfiguration(): AppConfig {
     kyivstarHttpStatusPathTemplate: opt("KYIVSTAR_HTTP_STATUS_PATH_TEMPLATE", "/v1/calls/{callId}/status"),
     kyivstarHttpHangupPathTemplate: opt("KYIVSTAR_HTTP_HANGUP_PATH_TEMPLATE", "/v1/calls/{callId}/hangup"),
     kyivstarHttpHangupMethod: opt("KYIVSTAR_HTTP_HANGUP_METHOD", "POST").toUpperCase() === "DELETE" ? "DELETE" : "POST",
+    kyivstarHttpMediaPathTemplate: opt(
+      "KYIVSTAR_HTTP_MEDIA_PATH_TEMPLATE",
+      "/v1/calls/{callId}/media",
+    ),
     rtpBindAddress: opt("RTP_BIND_ADDRESS", "0.0.0.0"),
+    rtpAdvertiseAddress: opt("RTP_ADVERTISE_ADDRESS", opt("RTP_BIND_ADDRESS", "0.0.0.0")),
     rtpPortStart: optInt("RTP_PORT_START", 30_000),
     rtpPortEnd: optInt("RTP_PORT_END", 30_999),
     callMaxDurationSec: optInt("CALL_MAX_DURATION_SEC", 180),

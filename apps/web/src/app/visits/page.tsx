@@ -314,7 +314,29 @@ export default function VisitsPage() {
   const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
 
+  const [role, setRole] = useState<string | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [users, setUsers] = useState<
+    {
+      id: string;
+      fullName: string;
+      email: string;
+      role: string;
+      routeStartLat?: number | null;
+      routeStartLng?: number | null;
+      routeEndLat?: number | null;
+      routeEndLng?: number | null;
+    }[]
+  >([]);
+  const [viewOwnerId, setViewOwnerId] = useState("");
+
   const dateParam = useMemo(() => jsDateToYmdKyiv(date), [date]);
+  const showOwnerFilter = role === "ADMIN" || role === "LEAD";
+  const planOwnerOpts = viewOwnerId ? { ownerId: viewOwnerId } : undefined;
+  const readOnlyPlan = Boolean(
+    planOwnerOpts && myUserId && planOwnerOpts.ownerId !== myUserId,
+  );
+  const showMultiOwnerDay = showOwnerFilter && !viewOwnerId;
   const slots = useMemo(() => getSlotsForDate(date), [date]);
 
   const scheduledVisits = dayVisits;
@@ -398,6 +420,7 @@ export default function VisitsPage() {
       autoSaveTimerRef.current = null;
     }
     if (!autoSaveRoutePlan) return;
+    if (!planOwnerOpts || readOnlyPlan) return;
     if (!routePlan?.stops?.length) return;
     if (!hasUnsavedPlanOrder) return;
     if (savingRoute || loading) return;
@@ -412,6 +435,8 @@ export default function VisitsPage() {
     hasScheduledWithoutCoords,
     hasUnsavedPlanOrder,
     loading,
+    planOwnerOpts,
+    readOnlyPlan,
     routePlan?.id,
     routePlan?.stops?.length,
     savingRoute,
@@ -439,11 +464,20 @@ export default function VisitsPage() {
     setLoading(true);
     setError(null);
     try {
+      const dayOpts = showOwnerFilter
+        ? viewOwnerId
+          ? { ownerId: viewOwnerId }
+          : {}
+        : undefined;
       const [backlogRes, dayRes, planRes, sessionRes] = await Promise.all([
         visitsApi.backlog(),
-        visitsApi.day(dateParam),
-        routePlansApi.getForDay(dateParam),
-        routeSessionsApi.get(dateParam),
+        visitsApi.day(dateParam, dayOpts),
+        planOwnerOpts
+          ? routePlansApi.getForDay(dateParam, planOwnerOpts)
+          : Promise.resolve({ plan: null }),
+        planOwnerOpts
+          ? routeSessionsApi.get(dateParam, planOwnerOpts)
+          : Promise.resolve(null),
       ]);
       setBacklog(backlogRes);
       setDayVisits(dayRes.items ?? []);
@@ -458,7 +492,7 @@ export default function VisitsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateParam]);
+  }, [dateParam, planOwnerOpts, showOwnerFilter, viewOwnerId]);
 
   useEffect(() => {
     void loadMapsConfig();
@@ -470,43 +504,92 @@ export default function VisitsPage() {
 
   useEffect(() => {
     setRouteMetrics(null);
-    if (!routePlan?.stops?.length) return;
+    if (!planOwnerOpts || !routePlan?.stops?.length) return;
     setRouteMetricsLoading(true);
     void routePlansApi
-      .metrics(dateParam, { traffic: useTrafficAware })
+      .metrics(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
       .then((m) => setRouteMetrics(m))
       .catch(() => setRouteMetrics(null))
       .finally(() => setRouteMetricsLoading(false));
-  }, [dateParam, routePlan?.id, routePlan?.stops?.length, useTrafficAware]);
+  }, [dateParam, planOwnerOpts, routePlan?.id, routePlan?.stops?.length, useTrafficAware]);
 
   useEffect(() => {
     // Preview metrics for current (unsaved) order to show instant km effect.
     setRouteMetricsPreview(null);
-    if (currentOrderVisitIds.length === 0) return;
+    if (!planOwnerOpts || currentOrderVisitIds.length === 0) return;
     if (hasScheduledWithoutCoords) return;
     setRouteMetricsPreviewLoading(true);
     const t = window.setTimeout(() => {
       void routePlansApi
-        .metricsPreview(dateParam, currentOrderVisitIds, { traffic: useTrafficAware })
+        .metricsPreview(dateParam, currentOrderVisitIds, {
+          traffic: useTrafficAware,
+          ...planOwnerOpts,
+        })
         .then((m) => setRouteMetricsPreview(m))
         .catch(() => setRouteMetricsPreview(null))
         .finally(() => setRouteMetricsPreviewLoading(false));
     }, 250);
     return () => window.clearTimeout(t);
-  }, [currentOrderVisitIds, dateParam, hasScheduledWithoutCoords, useTrafficAware]);
+  }, [currentOrderVisitIds, dateParam, hasScheduledWithoutCoords, planOwnerOpts, useTrafficAware]);
 
   useEffect(() => {
     // Fact metrics: order of completed visits for the day.
     setRouteFactMetrics(null);
+    if (!planOwnerOpts) return;
     setRouteFactMetricsLoading(true);
     void routePlansApi
-      .factMetrics(dateParam, { traffic: useTrafficAware })
+      .factMetrics(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
       .then((m) => setRouteFactMetrics(m))
       .catch(() => setRouteFactMetrics(null))
       .finally(() => setRouteFactMetricsLoading(false));
-  }, [dateParam, useTrafficAware]);
+  }, [dateParam, planOwnerOpts, useTrafficAware]);
 
   useEffect(() => {
+    apiHttp
+      .get<{ user?: { id?: string; role?: string } }>("/auth/me")
+      .then((res) => {
+        setRole(res.data?.user?.role ?? null);
+        setMyUserId(res.data?.user?.id ?? null);
+      })
+      .catch(() => {
+        setRole(null);
+        setMyUserId(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!showOwnerFilter) return;
+    apiHttp
+      .get<{ items?: typeof users }>("/users")
+      .then((r) => setUsers(r.data?.items ?? []))
+      .catch(() => setUsers([]));
+  }, [showOwnerFilter]);
+
+  useEffect(() => {
+    const applyAnchors = (u: {
+      routeStartLat?: number | null;
+      routeStartLng?: number | null;
+      routeEndLat?: number | null;
+      routeEndLng?: number | null;
+    }) => {
+      const start =
+        u.routeStartLat != null && u.routeStartLng != null
+          ? { lat: u.routeStartLat, lng: u.routeStartLng }
+          : undefined;
+      const endRaw =
+        u.routeEndLat != null && u.routeEndLng != null
+          ? { lat: u.routeEndLat, lng: u.routeEndLng }
+          : start;
+      setRouteAnchors({ start, end: endRaw });
+    };
+
+    if (viewOwnerId) {
+      const u = users.find((x) => x.id === viewOwnerId);
+      if (u) {
+        applyAnchors(u);
+        return;
+      }
+    }
     apiHttp
       .get<{
         user?: {
@@ -518,19 +601,10 @@ export default function VisitsPage() {
       }>("/auth/me")
       .then((res) => {
         const u = res.data?.user;
-        if (!u) return;
-        const start =
-          u.routeStartLat != null && u.routeStartLng != null
-            ? { lat: u.routeStartLat, lng: u.routeStartLng }
-            : undefined;
-        const endRaw =
-          u.routeEndLat != null && u.routeEndLng != null
-            ? { lat: u.routeEndLat, lng: u.routeEndLng }
-            : start;
-        setRouteAnchors({ start, end: endRaw });
+        if (u) applyAnchors(u);
       })
       .catch(() => {});
-  }, []);
+  }, [users, viewOwnerId]);
 
   useEffect(() => {
     const q = contactQuery.trim();
@@ -631,6 +705,7 @@ export default function VisitsPage() {
   };
 
   const handleSaveRoute = async () => {
+    if (!planOwnerOpts || readOnlyPlan) return;
     setSavingRoute(true);
     try {
       const sorted = [...dayVisits].sort((a, b) => {
@@ -639,13 +714,16 @@ export default function VisitsPage() {
         return aTime - bTime;
       });
       const ids = sorted.map((v) => v.id);
-      const res = await routePlansApi.saveForDay(dateParam, ids);
+      const res = await routePlansApi.saveForDay(dateParam, ids, planOwnerOpts);
       setRoutePlan(res.plan ?? null);
       // Refresh km immediately after saving a new plan order.
       if (res.plan?.stops?.length) {
         setRouteMetricsLoading(true);
         try {
-          const m = await routePlansApi.metrics(dateParam, { traffic: useTrafficAware });
+          const m = await routePlansApi.metrics(dateParam, {
+            traffic: useTrafficAware,
+            ...planOwnerOpts,
+          });
           setRouteMetrics(m);
         } catch {
           setRouteMetrics(null);
@@ -888,7 +966,7 @@ export default function VisitsPage() {
                 {dateParam}
               </div>
             </div>
-            {!routeSessionState?.session?.isActive ? (
+            {!routeSessionState?.session?.isActive && planOwnerOpts && !readOnlyPlan ? (
               <button
                 type="button"
                 disabled={routeSessionLoading || loading}
@@ -912,6 +990,36 @@ export default function VisitsPage() {
         </div>
         <div className="mx-auto max-w-7xl px-4 pb-2 sm:px-6">
           <VisitsSubNav />
+          {showOwnerFilter ? (
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-600">Менеджер</label>
+                <select
+                  value={viewOwnerId}
+                  onChange={(e) => setViewOwnerId(e.target.value)}
+                  className="mt-0.5 min-w-[220px] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
+                >
+                  <option value="">
+                    {role === "ADMIN" ? "Все менеджеры (день)" : "Вся команда (день)"}
+                  </option>
+                  {users
+                    .filter((u) => u.role === "MANAGER" || u.role === "USER" || u.role === "LEAD")
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName || u.email}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {showMultiOwnerDay ? (
+                <p className="text-xs text-amber-800">
+                  Маршрут и км — выберите конкретного менеджера. Сейчас показаны визиты всех.
+                </p>
+              ) : readOnlyPlan ? (
+                <p className="text-xs text-zinc-600">Режим просмотра чужого плана</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -967,6 +1075,7 @@ export default function VisitsPage() {
                       dateParam,
                       "single",
                       routeSessionState.currentVisit.id,
+                      planOwnerOpts,
                     );
                     window.open(url, "_blank");
                   } catch (e) {
@@ -985,7 +1094,7 @@ export default function VisitsPage() {
                       setRouteAnchorsPromptOpen(true);
                       return;
                     }
-                    const { url } = await routePlansApi.navigation(dateParam, "multi");
+                    const { url } = await routePlansApi.navigation(dateParam, "multi", undefined, planOwnerOpts);
                     window.open(url, "_blank");
                   } catch (e) {
                     pushToast(
@@ -1497,7 +1606,13 @@ export default function VisitsPage() {
             <button
               type="button"
               onClick={() => void handleSaveRoute()}
-              disabled={savingRoute || hasScheduledWithoutCoords || scheduledVisits.length === 0}
+              disabled={
+                !planOwnerOpts ||
+                readOnlyPlan ||
+                savingRoute ||
+                hasScheduledWithoutCoords ||
+                scheduledVisits.length === 0
+              }
               title={
                 hasScheduledWithoutCoords
                   ? "Укажите точки для всех"
@@ -1520,23 +1635,34 @@ export default function VisitsPage() {
               <button
                 type="button"
                 disabled={
-                  savingRoute || hasScheduledWithoutCoords || currentOrderVisitIds.length < 3
+                  !planOwnerOpts ||
+                  readOnlyPlan ||
+                  savingRoute ||
+                  hasScheduledWithoutCoords ||
+                  currentOrderVisitIds.length < 3
                 }
                 onClick={async () => {
+                  if (!planOwnerOpts) return;
                   try {
                     const optimized = await routePlansApi.optimize(
                       dateParam,
                       currentOrderVisitIds,
                       {
                         traffic: useTrafficAware,
+                        ...planOwnerOpts,
                       },
                     );
-                    const res = await routePlansApi.saveForDay(dateParam, optimized.visitIds);
+                    const res = await routePlansApi.saveForDay(
+                      dateParam,
+                      optimized.visitIds,
+                      planOwnerOpts,
+                    );
                     setRoutePlan(res.plan ?? null);
                     setRouteMetricsLoading(true);
                     try {
                       const m = await routePlansApi.metrics(dateParam, {
                         traffic: useTrafficAware,
+                        ...planOwnerOpts,
                       });
                       setRouteMetrics(m);
                     } finally {

@@ -88,7 +88,7 @@ export class FieldController {
     }
     if (!req.user) throw new BadRequestException("User is required");
     const targetId = ownerId
-      ? this.fuel.resolveOwnerId(req.user, ownerId)
+      ? await this.fuel.resolveOwnerId(req.user, ownerId)
       : req.user.id;
     if (targetId === req.user.id) {
       return this.fuel.recalculate(req.user, date);

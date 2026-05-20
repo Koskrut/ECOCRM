@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import type { TelephonyCallHandle, TelephonyEvent, TelephonyProvider } from "./telephony-provider.interface";
+import type {
+  AttachMediaResult,
+  TelephonyCallHandle,
+  TelephonyEvent,
+  TelephonyProvider,
+} from "./telephony-provider.interface";
 
 /**
  * Simulated telephony for mock mode — no real PSTN/SIP.
@@ -39,6 +44,15 @@ export class MockTelephonyProvider implements TelephonyProvider {
 
   async hangupCall(providerCallId: string): Promise<void> {
     void providerCallId;
+  }
+
+  async attachMediaEndpoint(
+    providerCallId: string,
+    input: { host: string; port: number; codec: "alaw" | "mulaw" },
+  ): Promise<AttachMediaResult> {
+    void providerCallId;
+    void input;
+    return { symmetricRtp: true, codec: input.codec };
   }
 
   subscribe(listener: (event: TelephonyEvent) => void): () => void {

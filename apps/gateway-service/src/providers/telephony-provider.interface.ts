@@ -14,6 +14,13 @@ export type TelephonyEvent = {
   occurredAt: string;
 };
 
+export type AttachMediaResult = {
+  symmetricRtp?: boolean;
+  remoteAddress?: string;
+  remotePort?: number;
+  codec?: "alaw" | "mulaw";
+};
+
 export interface TelephonyProvider {
   createOutboundLeg(input: {
     externalSessionId: string;
@@ -26,6 +33,11 @@ export interface TelephonyProvider {
   transferCall(providerCallId: string, target: string): Promise<void>;
 
   hangupCall(providerCallId: string): Promise<void>;
+
+  attachMediaEndpoint?(
+    providerCallId: string,
+    input: { host: string; port: number; codec: "alaw" | "mulaw" },
+  ): Promise<AttachMediaResult>;
 
   /**
    * Provider may emit asynchronous call state updates.

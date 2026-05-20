@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { LocationSource, Prisma, VisitStatus } from "@prisma/client";
+import { buildVisitOwnerFilter, assertCanAccessOwner } from "./visits-owner-scope";
 import {
   UserRole,
   VisitStatus as VisitStatusEnum,
@@ -65,10 +66,8 @@ export class VisitsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private assertVisitAccess(visit: { ownerId: string }, actor: AuthUser): void {
-    if (actor.role === UserRole.MANAGER && visit.ownerId && visit.ownerId !== actor.id) {
-      throw new ForbiddenException("You can only access your own visits");
-    }
+  private async assertVisitAccess(visit: { ownerId: string }, actor: AuthUser): Promise<void> {
+    await assertCanAccessOwner(this.prisma, actor, visit.ownerId);
   }
 
   private normalizeClientRecordedAt(v: VisitGpsPayloadInput["clientRecordedAt"]): Date | null {
@@ -347,11 +346,11 @@ export class VisitsService {
     if (!visit) {
       throw new NotFoundException("Visit not found");
     }
-    this.assertVisitAccess(visit, actor);
+    await this.assertVisitAccess(visit, actor);
     return visit;
   }
 
-  async getDay(dateStr: string, actor: AuthUser | undefined) {
+  async getDay(dateStr: string, actor: AuthUser | undefined, requestedOwnerId?: string) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
@@ -364,10 +363,11 @@ export class VisitsService {
     }
     const dayStart = date;
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const ownerFilter = await buildVisitOwnerFilter(this.prisma, actor, requestedOwnerId);
 
     return this.prisma.visit.findMany({
       where: {
-        ownerId: actor.id,
+        ...(ownerFilter !== undefined ? { ownerId: ownerFilter } : {}),
         status: { in: [VisitStatusEnum.SCHEDULED, VisitStatusEnum.IN_PROGRESS, VisitStatusEnum.DONE] },
         startsAt: {
           gte: dayStart,
@@ -375,6 +375,11 @@ export class VisitsService {
         },
       },
       orderBy: { startsAt: "asc" },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+        contact: { select: { firstName: true, lastName: true } },
+        company: { select: { id: true, name: true } },
+      },
     });
   }
 
@@ -389,7 +394,7 @@ export class VisitsService {
       throw new NotFoundException("Visit not found");
     }
 
-    this.assertVisitAccess(existing, actor);
+    await this.assertVisitAccess(existing, actor);
 
     const data: Prisma.VisitUpdateInput = {};
 
@@ -524,7 +529,7 @@ export class VisitsService {
     if (!existing) {
       throw new NotFoundException("Visit not found");
     }
-    this.assertVisitAccess(existing, actor);
+    await this.assertVisitAccess(existing, actor);
     if (existing.status === VisitStatusEnum.DONE || existing.status === VisitStatusEnum.CANCELED) {
       throw new BadRequestException("Cannot start a completed or canceled visit");
     }
@@ -583,7 +588,7 @@ export class VisitsService {
     if (!existing) {
       throw new NotFoundException("Visit not found");
     }
-    this.assertVisitAccess(existing, actor);
+    await this.assertVisitAccess(existing, actor);
     if (!body.resultNote || body.resultNote.trim() === "") {
       throw new BadRequestException("resultNote is required");
     }

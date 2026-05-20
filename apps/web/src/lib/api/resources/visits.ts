@@ -6,12 +6,20 @@ export type VisitContactSnippet = {
   middleName?: string | null;
 };
 
+export type VisitOwnerSnippet = {
+  id: string;
+  fullName: string;
+  email: string;
+};
+
 export type Visit = {
   id: string;
   companyId?: string | null;
   contactId?: string | null;
   ownerId: string;
+  owner?: VisitOwnerSnippet;
   contact?: VisitContactSnippet | null;
+  company?: { id: string; name: string } | null;
   title?: string | null;
   phone?: string | null;
   addressText?: string | null;
@@ -143,15 +151,15 @@ export const visitsApi = {
     return res.data;
   },
 
-  backlog: async (): Promise<VisitBacklogResponse> => {
-    const res = await apiHttp.get<VisitBacklogResponse>("/visits/backlog");
+  day: async (date: string, opts?: { ownerId?: string }): Promise<VisitDayResponse> => {
+    const res = await apiHttp.get<VisitDayResponse>("/visits/day", {
+      params: { date, ...(opts?.ownerId ? { ownerId: opts.ownerId } : {}) },
+    } as never);
     return res.data;
   },
 
-  day: async (date: string): Promise<VisitDayResponse> => {
-    const res = await apiHttp.get<VisitDayResponse>("/visits/day", {
-      params: { date },
-    } as never);
+  backlog: async (): Promise<VisitBacklogResponse> => {
+    const res = await apiHttp.get<VisitBacklogResponse>("/visits/backlog");
     return res.data;
   },
 
@@ -190,15 +198,26 @@ export const visitsApi = {
   },
 };
 
+type RouteOwnerOpts = { ownerId?: string; traffic?: boolean };
+
+function routePlanParams(date: string, opts?: RouteOwnerOpts): Record<string, string> {
+  const p: Record<string, string> = { date };
+  if (opts?.ownerId) p.ownerId = opts.ownerId;
+  if (opts?.traffic) p.traffic = "1";
+  return p;
+}
+
 export const routePlansApi = {
-  getForDay: async (date: string): Promise<RoutePlanResponse> => {
-    const res = await apiHttp.get<RoutePlanResponse>("/route-plans", { params: { date } } as never);
+  getForDay: async (date: string, opts?: { ownerId?: string }): Promise<RoutePlanResponse> => {
+    const res = await apiHttp.get<RoutePlanResponse>("/route-plans", {
+      params: routePlanParams(date, opts),
+    } as never);
     return res.data;
   },
 
-  metrics: async (date: string, opts?: { traffic?: boolean }): Promise<RouteMetricsResponse> => {
+  metrics: async (date: string, opts?: RouteOwnerOpts): Promise<RouteMetricsResponse> => {
     const res = await apiHttp.get<RouteMetricsResponse>("/route-plans/metrics", {
-      params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) },
+      params: routePlanParams(date, opts),
     } as never);
     return res.data;
   },
@@ -206,12 +225,12 @@ export const routePlansApi = {
   metricsPreview: async (
     date: string,
     visitIds: string[],
-    opts?: { traffic?: boolean },
+    opts?: RouteOwnerOpts,
   ): Promise<RouteMetricsResponse> => {
     const res = await apiHttp.post<RouteMetricsResponse>(
       "/route-plans/metrics/preview",
       { visitIds },
-      { params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) } } as never,
+      { params: routePlanParams(date, opts) } as never,
     );
     return res.data;
   },
@@ -219,27 +238,33 @@ export const routePlansApi = {
   optimize: async (
     date: string,
     visitIds: string[],
-    opts?: { traffic?: boolean },
+    opts?: RouteOwnerOpts,
   ): Promise<RouteOptimizeResponse> => {
     const res = await apiHttp.post<RouteOptimizeResponse>(
       "/route-plans/optimize",
       { visitIds },
-      { params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) } } as never,
+      { params: routePlanParams(date, opts) } as never,
     );
     return res.data;
   },
 
-  factMetrics: async (date: string, opts?: { traffic?: boolean }): Promise<RouteMetricsResponse> => {
+  factMetrics: async (date: string, opts?: RouteOwnerOpts): Promise<RouteMetricsResponse> => {
     const res = await apiHttp.get<RouteMetricsResponse>("/route-plans/metrics/fact", {
-      params: { date, ...(opts?.traffic ? { traffic: "1" } : {}) },
+      params: routePlanParams(date, opts),
     } as never);
     return res.data;
   },
 
-  saveForDay: async (date: string, visitIds: string[]): Promise<RoutePlanResponse> => {
-    const res = await apiHttp.put<RoutePlanResponse>("/route-plans", { visitIds }, {
-      params: { date },
-    } as never);
+  saveForDay: async (
+    date: string,
+    visitIds: string[],
+    opts?: { ownerId?: string },
+  ): Promise<RoutePlanResponse> => {
+    const res = await apiHttp.put<RoutePlanResponse>(
+      "/route-plans",
+      { visitIds },
+      { params: routePlanParams(date, opts) } as never,
+    );
     return res.data;
   },
 
@@ -247,8 +272,10 @@ export const routePlansApi = {
     date: string,
     mode: "single" | "multi",
     visitId?: string,
+    opts?: { ownerId?: string },
   ): Promise<NavigationUrlResponse> => {
-    const params: Record<string, string> = { date, mode };
+    const params = routePlanParams(date, opts);
+    params.mode = mode;
     if (visitId) params.visitId = visitId;
     const res = await apiHttp.get<NavigationUrlResponse>("/route-plans/navigation", {
       params,
@@ -258,10 +285,12 @@ export const routePlansApi = {
 };
 
 export const routeSessionsApi = {
-  get: async (date: string): Promise<RouteSessionState | null> => {
+  get: async (date: string, opts?: { ownerId?: string }): Promise<RouteSessionState | null> => {
+    const params: Record<string, string> = { date };
+    if (opts?.ownerId) params.ownerId = opts.ownerId;
     const res = await apiHttp.get<{ session: RouteSession | null; currentVisit: Visit | null; routePlan: RoutePlan | null }>(
       "/route-sessions",
-      { params: { date } } as never,
+      { params } as never,
     );
     const data = res.data;
     if (!data.session) return null;

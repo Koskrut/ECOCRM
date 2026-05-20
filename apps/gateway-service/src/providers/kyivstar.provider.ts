@@ -4,7 +4,13 @@ import type { AppConfig } from "../config/configuration";
 import { CONFIG } from "../config/config.module";
 import { StructuredLogger } from "../common/structured-logger";
 import { jsonTopLevelKeys, summarizeJsonShape } from "./kyivstar-contract-audit";
-import { expandCallPath, extractOutboundCallId, kyivstarHttpJson } from "./kyivstar-http";
+import {
+  expandCallPath,
+  extractAttachMediaResponse,
+  extractOutboundCallId,
+  kyivstarHttpJson,
+} from "./kyivstar-http";
+import type { AttachMediaResult } from "./telephony-provider.interface";
 import {
   extractFailureReason,
   extractStatusString,
@@ -202,6 +208,61 @@ export class KyivstarTelephonyProvider implements TelephonyProvider {
     }
 
     this.log.log("kyivstar_hangup_ok", { providerCallId });
+  }
+
+  async attachMediaEndpoint(
+    providerCallId: string,
+    input: { host: string; port: number; codec: "alaw" | "mulaw" },
+  ): Promise<AttachMediaResult> {
+    this.assertConfigured();
+
+    if (this.config.kyivstarControlPlaneMode === "synthetic") {
+      return { symmetricRtp: true, codec: input.codec };
+    }
+
+    const path = expandCallPath(this.config.kyivstarHttpMediaPathTemplate, providerCallId);
+    let res: Awaited<ReturnType<typeof kyivstarHttpJson>>;
+    try {
+      res = await kyivstarHttpJson(this.config, "POST", path, {
+        host: input.host,
+        port: input.port,
+        codec: input.codec,
+      });
+    } catch (err) {
+      this.log.error("kyivstar_media_attach_network_error", {
+        providerCallId,
+        error: String(err),
+      });
+      throw new Error("KYIVSTAR_MEDIA_ATTACH_FAILED");
+    }
+
+    if (!res.ok) {
+      this.log.error("kyivstar_media_attach_http_error", {
+        providerCallId,
+        status: res.status,
+        text: res.text?.slice(0, 300),
+      });
+      throw new Error("KYIVSTAR_MEDIA_ATTACH_FAILED");
+    }
+
+    const parsed = extractAttachMediaResponse(res.json);
+    if (!parsed) {
+      return { symmetricRtp: true, codec: input.codec };
+    }
+
+    this.log.log("kyivstar_media_attached", {
+      providerCallId,
+      symmetricRtp: parsed.symmetricRtp,
+      remoteAddress: parsed.remoteAddress,
+      remotePort: parsed.remotePort,
+    });
+
+    return {
+      symmetricRtp: parsed.symmetricRtp,
+      remoteAddress: parsed.remoteAddress,
+      remotePort: parsed.remotePort,
+      codec: parsed.codec ?? input.codec,
+    };
   }
 
   subscribe(listener: (event: TelephonyEvent) => void): () => void {

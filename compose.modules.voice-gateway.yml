@@ -1,0 +1,71 @@
+# Voice gateway stack: AI gateway + SIP adapter + FreeSWITCH (optional host networking for FS).
+# Usage:
+#   docker compose -f compose.base.yml -f compose.modules.outbound.yml -f compose.modules.voice-gateway.yml -f compose.client.yml --env-file .env up -d
+#
+# Required env (examples):
+#   GATEWAY_API_TOKEN, CRM_WEBHOOK_SECRET, OPENAI_API_KEY
+#   KYIVSTAR_API_TOKEN (same as SIP_ADAPTER_API_TOKEN)
+#   SIP_ADAPTER_API_TOKEN, SIP_PUBLIC_IP, SIP_PROVIDER_HOST, SIP_CLI_NUMBER
+
+services:
+  gateway-service:
+    build:
+      context: ./apps/gateway-service
+      dockerfile: Dockerfile
+    image: local/crm-gateway-service:${BACKEND_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      PORT: 3100
+      GATEWAY_PROVIDER_MODE: kyivstar_openai
+      REAL_MODE_ENABLED: ${REAL_MODE_ENABLED:-true}
+      REAL_MODE_PERCENT: ${REAL_MODE_PERCENT:-100}
+      GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:?Set GATEWAY_API_TOKEN}
+      CRM_WEBHOOK_SECRET: ${CRM_WEBHOOK_SECRET:?Set CRM_WEBHOOK_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      KYIVSTAR_API_BASE_URL: http://sip-adapter:8080
+      KYIVSTAR_API_TOKEN: ${KYIVSTAR_API_TOKEN:-${SIP_ADAPTER_API_TOKEN}}
+      KYIVSTAR_HTTP_MEDIA_PATH_TEMPLATE: /v1/calls/{callId}/media
+      RTP_ADVERTISE_ADDRESS: ${RTP_ADVERTISE_ADDRESS:-${SIP_PUBLIC_IP}}
+      RTP_BIND_ADDRESS: 0.0.0.0
+      RTP_PORT_START: ${RTP_PORT_START:-30000}
+      RTP_PORT_END: ${RTP_PORT_END:-30999}
+      CANARY_LIVE_CALLS_ENABLED: ${CANARY_LIVE_CALLS_ENABLED:-true}
+      CANARY_ALLOWED_E164: ${CANARY_ALLOWED_E164:-}
+    depends_on:
+      sip-adapter:
+        condition: service_started
+    expose:
+      - "3100"
+
+  sip-adapter:
+    build:
+      context: ./apps/sip-adapter-service
+      dockerfile: Dockerfile
+    image: local/crm-sip-adapter:${BACKEND_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      SIP_ADAPTER_API_TOKEN: ${SIP_ADAPTER_API_TOKEN:?Set SIP_ADAPTER_API_TOKEN}
+      FREESWITCH_MODE: ${FREESWITCH_MODE:-esl}
+      FREESWITCH_ESL_HOST: ${FREESWITCH_ESL_HOST:-freeswitch}
+      FREESWITCH_ESL_PORT: ${FREESWITCH_ESL_PORT:-8021}
+      FREESWITCH_ESL_PASSWORD: ${FREESWITCH_ESL_PASSWORD:-ClueCon}
+      SIP_PROVIDER_HOST: ${SIP_PROVIDER_HOST:-94.153.248.113}
+      SIP_PROVIDER_PORT: ${SIP_PROVIDER_PORT:-5060}
+      SIP_PUBLIC_IP: ${SIP_PUBLIC_IP:-159.195.31.153}
+      SIP_PUBLIC_PORT: ${SIP_PUBLIC_PORT:-5060}
+      SIP_CLI_NUMBER: ${SIP_CLI_NUMBER:-0897202582}
+      SIP_TRUNK_USER: ${SIP_TRUNK_USER:-}
+      SIP_TRUNK_PASSWORD: ${SIP_TRUNK_PASSWORD:-}
+    depends_on:
+      - freeswitch
+    expose:
+      - "8080"
+
+  freeswitch:
+    image: safarov/freeswitch:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./apps/sip-adapter-service/freeswitch/autoload_configs/event_socket.conf.xml:/etc/freeswitch/autoload_configs/event_socket.conf.xml:ro
+      - ./apps/sip-adapter-service/freeswitch/sip_profiles/provider.xml:/etc/freeswitch/sip_profiles/external/provider.xml:ro

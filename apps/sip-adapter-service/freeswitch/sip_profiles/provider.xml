@@ -1,0 +1,11 @@
+<include>
+  <gateway name="provider">
+    <param name="realm" value="${SIP_PROVIDER_HOST}"/>
+    <param name="proxy" value="${SIP_PROVIDER_HOST}:${SIP_PROVIDER_PORT}"/>
+    <param name="register" value="false"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="extension-in-contact" value="true"/>
+    <param name="username" value="${SIP_TRUNK_USER}"/>
+    <param name="password" value="${SIP_TRUNK_PASSWORD}"/>
+  </gateway>
+</include>

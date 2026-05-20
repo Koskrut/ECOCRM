@@ -16,6 +16,7 @@ import { decodeAlaw8k, decodeMulaw8k, encodeAlaw8k, encodeMulaw8k } from "./code
 import { pcm16FromBase64, pcm16ToBase64, resample16kTo8k, resample8kTo16k } from "./codecs/resample";
 import type { AppConfig } from "../config/configuration";
 import { CONFIG } from "../config/config.module";
+import { RtpPortAllocatorService } from "./rtp-port-allocator.service";
 
 /**
  * Real RTP/OpenAI media bridge:
@@ -31,6 +32,7 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
   constructor(
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly log: StructuredLogger,
+    private readonly rtpPorts: RtpPortAllocatorService,
   ) {}
 
   async connect(input: {
@@ -44,10 +46,12 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
       localPort?: number;
       remoteAddress?: string;
       remotePort?: number;
+      symmetricRtp?: boolean;
     };
   }): Promise<MediaBridgeSession> {
     void input.telephony;
     const codec = input.rtp?.codec ?? "mulaw";
+    const localPort = input.rtp?.localPort ?? this.rtpPorts.allocate();
     const socket = dgram.createSocket("udp4");
     const session: MediaBridgeSession = {
       id: `rtp-${randomUUID()}`,
@@ -58,13 +62,15 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
       rtpRemotePort: input.rtp?.remotePort,
     };
 
-    await bindSocket(socket, input.rtp?.localPort);
+    await bindSocket(socket, this.config.rtpBindAddress, localPort);
     const addr = socket.address();
-    const localPort = typeof addr === "string" ? 0 : addr.port;
-    session.rtpLocalPort = localPort;
+    const boundPort = typeof addr === "string" ? localPort : addr.port;
+    session.rtpLocalPort = boundPort;
 
     const runtime: SessionRuntime = {
       session,
+      allocatedPort: input.rtp?.localPort == null ? boundPort : null,
+      symmetricRtp: input.rtp?.symmetricRtp ?? false,
       ai: input.ai,
       aiHandle: { openaiSessionId: input.aiSessionId },
       codec,
@@ -98,10 +104,19 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
       mediaSessionId: session.id,
       providerCallId: session.providerCallId,
       codec,
-      rtpLocalPort: localPort,
+      rtpLocalPort: boundPort,
+      symmetricRtp: runtime.symmetricRtp,
     });
     this.emitLifecycle(runtime, "connected");
     return session;
+  }
+
+  setRtpRemote(sessionId: string, remoteAddress: string, remotePort: number): void {
+    const runtime = this.sessions.get(sessionId);
+    if (!runtime) return;
+    runtime.session.rtpRemoteAddress = remoteAddress;
+    runtime.session.rtpRemotePort = remotePort;
+    runtime.symmetricRtp = false;
   }
 
   async pumpInboundAudio(session: MediaBridgeSession, chunk: AiAudioChunk): Promise<void> {
@@ -126,8 +141,8 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
     runtime.socket.on("error", (e) => {
       this.emitLifecycle(runtime, "error", String(e));
     });
-    runtime.socket.on("message", (msg) => {
-      this.onRtpInbound(runtime, msg);
+    runtime.socket.on("message", (msg, rinfo) => {
+      this.onRtpInbound(runtime, msg, rinfo);
     });
   }
 
@@ -194,10 +209,23 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
     }, 1000);
   }
 
-  private onRtpInbound(runtime: SessionRuntime, msg: Buffer): void {
+  private onRtpInbound(runtime: SessionRuntime, msg: Buffer, rinfo?: dgram.RemoteInfo): void {
     if (runtime.closed) return;
     const parsed = parseRtpPacket(msg);
     if (!parsed) return;
+    if (
+      runtime.symmetricRtp &&
+      rinfo &&
+      (!runtime.session.rtpRemoteAddress || !runtime.session.rtpRemotePort)
+    ) {
+      runtime.session.rtpRemoteAddress = rinfo.address;
+      runtime.session.rtpRemotePort = rinfo.port;
+      this.log.debug("media_bridge_symmetric_rtp_learned", {
+        externalSessionId: runtime.session.externalSessionId,
+        remoteAddress: rinfo.address,
+        remotePort: rinfo.port,
+      });
+    }
     runtime.stats.packetIn++;
     runtime.jitter.push({
       sequence: parsed.sequence,
@@ -306,6 +334,9 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
     runtime.unsubAiLifecycle?.();
     runtime.socket.removeAllListeners();
     await new Promise<void>((resolve) => runtime.socket.close(() => resolve()));
+    if (runtime.allocatedPort != null) {
+      this.rtpPorts.release(runtime.allocatedPort);
+    }
     this.emitLifecycle(runtime, "disconnected", reason);
   }
 
@@ -328,6 +359,8 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
 
 type SessionRuntime = {
   session: MediaBridgeSession;
+  allocatedPort: number | null;
+  symmetricRtp: boolean;
   ai: AiVoiceProvider;
   aiHandle: AiSessionHandle;
   codec: RtpCodec;
@@ -361,10 +394,10 @@ const SILENCE_TIMEOUT_MS = 30_000;
 const MAX_OUTBOUND_AUDIO_QUEUE_FRAMES = 50;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-function bindSocket(socket: dgram.Socket, localPort?: number): Promise<void> {
+function bindSocket(socket: dgram.Socket, address: string, localPort: number): Promise<void> {
   return new Promise((resolve, reject) => {
     socket.once("error", reject);
-    socket.bind(localPort ?? 0, () => {
+    socket.bind({ port: localPort, address }, () => {
       socket.off("error", reject);
       resolve();
     });

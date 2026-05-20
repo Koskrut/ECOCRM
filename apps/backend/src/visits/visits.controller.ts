@@ -76,9 +76,10 @@ export class VisitsController {
   @Get("day")
   async getDay(
     @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
-    const items = await this.visits.getDay(date, req.user);
+    const items = await this.visits.getDay(date, req.user, ownerId);
     return { items };
   }
 

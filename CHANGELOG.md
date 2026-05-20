@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.66**.)_
+_(планируемые изменения после **0.2.67**.)_
+
+## [0.2.67] — 2026-05-20
+
+### Summary
+
+Полный релиз **0.2.x** (все module-образы в CI): **voice gateway** — `gateway-service` (Kyivstar, RTP allocator, media bridge), новый **`sip-adapter-service`**, **`compose.modules.voice-gateway.yml`**, док **`docs/voice-gateway-deploy.md`**; **visits** — owner scope, маршруты/сессии; **web** — каталог (поиск), план визитов; **field-fuel** — мелкие правки.
+
+### Added
+
+- **`apps/sip-adapter-service`**: HTTP API, FreeSWITCH ESL, outbound/media attach.
+- **`apps/gateway-service`**: Dockerfile, `rtp-port-allocator`, расширение Kyivstar provider.
+- **`compose.modules.voice-gateway.yml`**, **`visits-owner-scope.ts`**, **`catalog-search.ts`**.
+
+### Changed
+
+- **Route plans / sessions / visits** — scope по владельцу, API и UI.
+- **Gateway orchestrator** — lifecycle, canary, webhook client.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.67`**, полный манифест + `pull` / `up -d`.
+- **Voice gateway** (опционально): overlay **`compose.modules.voice-gateway.yml`**, env см. **`docs/voice-gateway-deploy.md`** (образы gateway/sip — local build в compose, не в стандартном GHCR module CSV).
+- Сайдкары: **`NP_UPSTREAM_URL`** и др. — **`docs/modules-prod-matrix.md`**.
 
 ## [0.2.66] — 2026-05-20
 
@@ -209,7 +232,7 @@ _(планируемые изменения после **0.2.66**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, field/mobile/fuel, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.66`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.67`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

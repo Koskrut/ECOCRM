@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { resolveSingleOwnerId } from "./visits-owner-scope";
 
 export type RouteSessionState = {
   session: {
@@ -177,17 +178,22 @@ export class RouteSessionsService {
     };
   }
 
-  async get(dateStr: string, actor: AuthUser | undefined): Promise<RouteSessionState | null> {
+  async get(
+    dateStr: string,
+    actor: AuthUser | undefined,
+    requestedOwnerId?: string,
+  ): Promise<RouteSessionState | null> {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
     if (!dateStr) {
       throw new BadRequestException("date is required");
     }
+    const ownerId = await resolveSingleOwnerId(this.prisma, actor, requestedOwnerId);
     const date = this.parseDate(dateStr);
     const session = await this.prisma.routeSession.findUnique({
       where: {
-        ownerId_date: { ownerId: actor.id, date },
+        ownerId_date: { ownerId, date },
       },
     });
     if (!session) return null;

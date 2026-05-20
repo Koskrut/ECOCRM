@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
+import { assertCanAccessOwner } from "../visits/visits-owner-scope";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -36,14 +37,10 @@ export class FieldFuelService {
     return { dayStart, dayEnd };
   }
 
-  resolveOwnerId(actor: AuthUser, requestedOwnerId?: string): string {
-    if (!requestedOwnerId || requestedOwnerId === actor.id) {
-      return actor.id;
-    }
-    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
-      throw new ForbiddenException("Cannot view fuel reports for another user");
-    }
-    return requestedOwnerId;
+  async resolveOwnerId(actor: AuthUser, requestedOwnerId?: string): Promise<string> {
+    const target = requestedOwnerId?.trim() || actor.id;
+    await assertCanAccessOwner(this.prisma, actor, target);
+    return target;
   }
 
   private visitDisplayTitle(v: {
@@ -274,7 +271,7 @@ export class FieldFuelService {
 
   async getOrCreateDay(actor: AuthUser | undefined, dateStr: string, ownerIdOverride?: string) {
     if (!actor) throw new BadRequestException("User is required");
-    const ownerId = this.resolveOwnerId(actor, ownerIdOverride);
+    const ownerId = await this.resolveOwnerId(actor, ownerIdOverride);
     const date = this.parseUtcDay(dateStr);
 
     let report = await this.prisma.fuelDayReport.findUnique({
@@ -390,7 +387,7 @@ export class FieldFuelService {
     ownerIdOverride?: string,
   ) {
     if (!actor) throw new BadRequestException("User is required");
-    const ownerId = this.resolveOwnerId(actor, ownerIdOverride);
+    const ownerId = await this.resolveOwnerId(actor, ownerIdOverride);
     const days = this.enumerateDateStrings(fromStr, toStr);
 
     const actorForRecalc = ownerId === actor.id ? actor : await this.actorForOwner(ownerId);

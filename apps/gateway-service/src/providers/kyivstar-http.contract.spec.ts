@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { extractOutboundCallId } from "./kyivstar-http";
+import { extractAttachMediaResponse, extractOutboundCallId } from "./kyivstar-http";
 import { extractStatusString, mapProviderStatusToTelephony } from "./kyivstar-status-map";
 
 describe("extractOutboundCallId contract variants", () => {
@@ -27,6 +27,21 @@ describe("extractStatusString nested", () => {
 
   it("reads phase at top level", () => {
     assert.strictEqual(extractStatusString({ phase: "answered" }), "answered");
+  });
+});
+
+describe("extractAttachMediaResponse", () => {
+  it("reads symmetricRtp and rtp block", () => {
+    const r = extractAttachMediaResponse({
+      ok: true,
+      symmetricRtp: true,
+      rtp: { remoteAddress: "10.0.0.1", remotePort: 30001, codec: "alaw" },
+    });
+    assert.ok(r);
+    assert.strictEqual(r.symmetricRtp, true);
+    assert.strictEqual(r.remoteAddress, "10.0.0.1");
+    assert.strictEqual(r.remotePort, 30001);
+    assert.strictEqual(r.codec, "alaw");
   });
 });
 

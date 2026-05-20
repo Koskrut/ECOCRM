@@ -21,6 +21,7 @@ Legend:
 | Status path template | Default `KYIVSTAR_HTTP_STATUS_PATH_TEMPLATE=/v1/calls/{callId}/status` — `{callId}` replaced with URL-encoded provider call id. | *Fill:* `________________` | Exact template (some APIs use different resource names). |
 | Hangup path template | Default `KYIVSTAR_HTTP_HANGUP_PATH_TEMPLATE=/v1/calls/{callId}/hangup` | *Fill:* `________________` | Method may differ (`DELETE` vs `POST`). |
 | Hangup HTTP method | `KYIVSTAR_HTTP_HANGUP_METHOD` = `POST` or `DELETE` | *Fill:* `________________` | |
+| Media attach path | `KYIVSTAR_HTTP_MEDIA_PATH_TEMPLATE=/v1/calls/{callId}/media` — POST body `{ host, port, codec }`. | **sip-adapter-service** [`HTTP_CONTRACT.md`](../../sip-adapter-service/docs/HTTP_CONTRACT.md) | Response may include `symmetricRtp` and `rtp.remoteAddress` / `rtp.remotePort`. |
 
 ---
 
@@ -41,6 +42,7 @@ Legend:
 | **POST outbound** | JSON body includes: `destination` (E.164), `externalSessionId`, `attemptId`, `correlation`, optional `sip` when SIP envs set. | *Fill:* required extra fields / different names | Vendor-required fields not in code. |
 | **GET status** | No body; path only. | *Fill:* query params if any | |
 | **Hangup** | Body only if non-GET; current client sends JSON body for `POST` only when applicable — hangup uses method from env, empty body for DELETE. | *Fill:* body schema if POST with payload | |
+| **POST media** | JSON: `host`, `port`, `codec` (`alaw` \| `mulaw`). Gateway uses after RTP bind. | sip-adapter: bridges FS socket leg to gateway UDP | |
 
 ---
 
@@ -52,6 +54,7 @@ Legend:
 | **Create — session id** | Optional: `sessionId`, `session_id`, `providerSessionId` on same or nested objects. | *Fill:* | |
 | **Status — state** | `extractStatusString` in `kyivstar-status-map.ts` walks known keys (`status`, `state`, `phase`, `callState`, …) and common nests. | *Fill:* sample GET response | |
 | **Terminal labels** | Mapped in `mapProviderStatusToTelephony` (dialing, ringing, answered, completed, failed, …). | *Fill:* labels your API returns | Unmapped labels log `kyivstar_status_unmapped` and hold last safe state. |
+| **Media attach** | Response: `ok`, `status`, optional `symmetricRtp`, `rtp: { remoteAddress, remotePort, codec }`. | sip-adapter default: `symmetricRtp: true` | |
 
 ---
 

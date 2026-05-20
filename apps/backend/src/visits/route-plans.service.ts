@@ -4,10 +4,17 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
 import { resolveRouteGeometry, type RouteAnchorConfig } from "./route-geometry";
 import { effectiveVisitLatLng } from "./visit-coordinates";
+import { resolveSingleOwnerId } from "./visits-owner-scope";
+
+export type RoutePlanScopeOpts = { traffic?: boolean; ownerId?: string };
 
 @Injectable()
 export class RoutePlansService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async resolveOwner(actor: AuthUser, requestedOwnerId?: string): Promise<string> {
+    return resolveSingleOwnerId(this.prisma, actor, requestedOwnerId);
+  }
 
   private async getGoogleMapsApiKey(): Promise<string | null> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -132,14 +139,15 @@ export class RoutePlansService {
   async getRouteMetrics(
     dateStr: string,
     actor: AuthUser | undefined,
-    opts?: { traffic?: boolean },
+    opts?: RoutePlanScopeOpts,
   ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const date = this.parseDate(dateStr);
 
     const plan = await this.prisma.routePlan.findUnique({
-      where: { ownerId_date: { ownerId: actor.id, date } },
+      where: { ownerId_date: { ownerId, date } },
       include: {
         stops: {
           orderBy: { position: "asc" },
@@ -164,7 +172,7 @@ export class RoutePlansService {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
 
-    const anchors = await this.getRouteAnchors(actor.id);
+    const anchors = await this.getRouteAnchors(ownerId);
     const visitPoints = stopsWithCoords.map((x) => x.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
@@ -225,10 +233,11 @@ export class RoutePlansService {
     dateStr: string,
     visitIds: string[],
     actor: AuthUser | undefined,
-    opts?: { traffic?: boolean },
+    opts?: RoutePlanScopeOpts,
   ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     if (!Array.isArray(visitIds) || visitIds.length === 0) {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
@@ -238,7 +247,7 @@ export class RoutePlansService {
 
     // Load visits in bulk; preserve requested order
     const visits = await this.prisma.visit.findMany({
-      where: { ownerId: actor.id, id: { in: unique } },
+      where: { ownerId, id: { in: unique } },
       select: {
         id: true,
         lat: true,
@@ -258,7 +267,7 @@ export class RoutePlansService {
       return { distanceKm: null, durationMin: null, source: "none" };
     }
 
-    const anchors = await this.getRouteAnchors(actor.id);
+    const anchors = await this.getRouteAnchors(ownerId);
     const visitPoints = ordered.map((v) => v.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
@@ -284,10 +293,11 @@ export class RoutePlansService {
     dateStr: string,
     visitIds: string[],
     actor: AuthUser | undefined,
-    opts?: { traffic?: boolean },
+    opts?: RoutePlanScopeOpts,
   ): Promise<{ visitIds: string[]; source: "google" | "fallback" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     if (!Array.isArray(visitIds) || visitIds.length < 2) {
       return { visitIds: Array.isArray(visitIds) ? visitIds.map(String) : [], source: "fallback" };
     }
@@ -296,7 +306,7 @@ export class RoutePlansService {
     if (unique.length < 2) return { visitIds: unique, source: "fallback" };
 
     const visits = await this.prisma.visit.findMany({
-      where: { ownerId: actor.id, id: { in: unique } },
+      where: { ownerId, id: { in: unique } },
       select: {
         id: true,
         lat: true,
@@ -315,7 +325,7 @@ export class RoutePlansService {
       return { visitIds: unique, source: "fallback" };
     }
 
-    const anchors = await this.getRouteAnchors(actor.id);
+    const anchors = await this.getRouteAnchors(ownerId);
     const visitPoints = ordered.map((v) => v.coords);
     const { origin, destination, usesSettingsAnchors } = resolveRouteGeometry(visitPoints, anchors);
 
@@ -384,10 +394,11 @@ export class RoutePlansService {
   async getFactRouteMetrics(
     dateStr: string,
     actor: AuthUser | undefined,
-    opts?: { traffic?: boolean },
+    opts?: RoutePlanScopeOpts,
   ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const date = this.parseDate(dateStr);
     const dayStart = new Date(date);
     const dayEnd = new Date(date);
@@ -396,7 +407,7 @@ export class RoutePlansService {
     // "Факт" = порядок завершения визитов за день (если completedAt нет — fallback на endsAt/startsAt).
     const done = await this.prisma.visit.findMany({
       where: {
-        ownerId: actor.id,
+        ownerId,
         status: "DONE",
         startsAt: { gte: dayStart, lt: dayEnd },
       },
@@ -417,7 +428,7 @@ export class RoutePlansService {
       .filter((x): x is { visit: (typeof done)[0]; coords: { lat: number; lng: number } } => x.coords != null);
     if (ordered.length < 2) return { distanceKm: null, durationMin: null, source: "none" };
 
-    const anchors = await this.getRouteAnchors(actor.id);
+    const anchors = await this.getRouteAnchors(ownerId);
     const visitPoints = ordered.map((x) => x.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
@@ -445,18 +456,19 @@ export class RoutePlansService {
     return date;
   }
 
-  async getForDay(dateStr: string, actor: AuthUser | undefined) {
+  async getForDay(dateStr: string, actor: AuthUser | undefined, requestedOwnerId?: string) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
     if (!dateStr) {
       throw new BadRequestException("date is required");
     }
+    const ownerId = await this.resolveOwner(actor, requestedOwnerId);
     const date = this.parseDate(dateStr);
     const plan = await this.prisma.routePlan.findUnique({
       where: {
         ownerId_date: {
-          ownerId: actor.id,
+          ownerId,
           date,
         },
       },
@@ -470,7 +482,12 @@ export class RoutePlansService {
     return plan ?? null;
   }
 
-  async upsertForDay(dateStr: string, visitIds: string[], actor: AuthUser | undefined) {
+  async upsertForDay(
+    dateStr: string,
+    visitIds: string[],
+    actor: AuthUser | undefined,
+    requestedOwnerId?: string,
+  ) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
@@ -480,6 +497,7 @@ export class RoutePlansService {
     if (!Array.isArray(visitIds)) {
       throw new BadRequestException("visitIds must be an array");
     }
+    const ownerId = await this.resolveOwner(actor, requestedOwnerId);
     const cleanedIds = visitIds.map((id) => String(id)).filter((id) => id.length > 0);
     const uniqueIds = Array.from(new Set(cleanedIds));
 
@@ -488,12 +506,12 @@ export class RoutePlansService {
     const plan = await this.prisma.routePlan.upsert({
       where: {
         ownerId_date: {
-          ownerId: actor.id,
+          ownerId,
           date,
         },
       },
       create: {
-        owner: { connect: { id: actor.id } },
+        owner: { connect: { id: ownerId } },
         date,
       },
       update: {},
@@ -533,6 +551,7 @@ export class RoutePlansService {
     mode: "single" | "multi",
     visitId: string | undefined,
     actor: AuthUser | undefined,
+    requestedOwnerId?: string,
   ): Promise<{ url: string }> {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -543,6 +562,7 @@ export class RoutePlansService {
     if (mode !== "single" && mode !== "multi") {
       throw new BadRequestException("mode must be single or multi");
     }
+    const ownerId = await this.resolveOwner(actor, requestedOwnerId);
     const date = this.parseDate(dateStr);
 
     if (mode === "single") {
@@ -550,7 +570,7 @@ export class RoutePlansService {
         throw new BadRequestException("visitId is required for single mode");
       }
       const visit = await this.prisma.visit.findFirst({
-        where: { id: visitId, ownerId: actor.id },
+        where: { id: visitId, ownerId },
         include: {
           contact: { select: { lat: true, lng: true } },
           company: { select: { lat: true, lng: true } },
@@ -563,7 +583,7 @@ export class RoutePlansService {
       if (!coords) {
         throw new BadRequestException("Visit has no coordinates (lat/lng)");
       }
-      const anchors = await this.getRouteAnchors(actor.id);
+      const anchors = await this.getRouteAnchors(ownerId);
       if (anchors.hasExplicitStart && anchors.origin) {
         return {
           url: `https://www.google.com/maps/dir/?api=1&origin=${anchors.origin.lat},${anchors.origin.lng}&destination=${coords.lat},${coords.lng}`,
@@ -575,7 +595,7 @@ export class RoutePlansService {
 
     const plan = await this.prisma.routePlan.findUnique({
       where: {
-        ownerId_date: { ownerId: actor.id, date },
+        ownerId_date: { ownerId, date },
       },
       include: {
         stops: {
@@ -606,7 +626,7 @@ export class RoutePlansService {
       throw new BadRequestException("No visits with coordinates in route");
     }
 
-    const anchors = await this.getRouteAnchors(actor.id);
+    const anchors = await this.getRouteAnchors(ownerId);
     if ((anchors.hasExplicitStart || anchors.hasExplicitEnd) && anchors.origin && anchors.destination) {
       const wp = points.map((v) => `${v.lat},${v.lng}`).join("|");
       const dest = anchors.destination;

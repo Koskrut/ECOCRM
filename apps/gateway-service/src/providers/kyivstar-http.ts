@@ -114,3 +114,28 @@ function extractSessionId(o: Record<string, unknown>): string | undefined {
   }
   return undefined;
 }
+
+export type ExtractedAttachMedia = {
+  symmetricRtp: boolean;
+  remoteAddress?: string;
+  remotePort?: number;
+  codec?: "alaw" | "mulaw";
+};
+
+/** Parse POST /media response from sip-adapter (or compatible B2B). */
+export function extractAttachMediaResponse(json: unknown): ExtractedAttachMedia | null {
+  if (!json || typeof json !== "object") return null;
+  const o = json as Record<string, unknown>;
+  const symmetricRtp = o.symmetricRtp === true;
+  const rtp = o.rtp;
+  if (rtp && typeof rtp === "object") {
+    const r = rtp as Record<string, unknown>;
+    const remoteAddress = typeof r.remoteAddress === "string" ? r.remoteAddress.trim() : undefined;
+    const remotePort =
+      typeof r.remotePort === "number" && Number.isFinite(r.remotePort) ? r.remotePort : undefined;
+    const codecRaw = typeof r.codec === "string" ? r.codec.trim().toLowerCase() : "";
+    const codec = codecRaw === "alaw" || codecRaw === "mulaw" ? codecRaw : undefined;
+    return { symmetricRtp, remoteAddress, remotePort, codec };
+  }
+  return { symmetricRtp };
+}

@@ -4,6 +4,7 @@ import type { AiAudioChunk, AiSessionHandle, AiVoiceProvider } from "../provider
 import type { AppConfig } from "../config/configuration";
 import { StructuredLogger } from "../common/structured-logger";
 import { RtpOpenAiMediaBridgeService } from "./rtp-openai-media-bridge.service";
+import { RtpPortAllocatorService } from "./rtp-port-allocator.service";
 import { encodeMulaw8k } from "./codecs/g711";
 import { pcm16ToBase64 } from "./codecs/resample";
 import { FakeRtpPeer } from "./rtp/fake-rtp-peer";
@@ -97,11 +98,13 @@ function testConfig(): AppConfig {
     kyivstarHttpStatusPathTemplate: "/v1/calls/{callId}/status",
     kyivstarHttpHangupPathTemplate: "/v1/calls/{callId}/hangup",
     kyivstarHttpHangupMethod: "POST",
+    kyivstarHttpMediaPathTemplate: "/v1/calls/{callId}/media",
     kyivstarHttpAuthStyle: "bearer",
     kyivstarHttpAuthHeaderName: "X-Api-Key",
     canaryLiveCallsEnabled: false,
     canaryAllowedE164Normalized: [],
     rtpBindAddress: "127.0.0.1",
+    rtpAdvertiseAddress: "127.0.0.1",
     rtpPortStart: 30000,
     rtpPortEnd: 30999,
     openaiRealtimeWsUrl: "ws://localhost",
@@ -118,7 +121,11 @@ describe("rtp-openai media bridge integration", () => {
     const ai = new FakeAiProvider();
     const peer = new FakeRtpPeer();
     const remotePort = await peer.bind();
-    const bridge = new RtpOpenAiMediaBridgeService(testConfig(), new StructuredLogger());
+    const bridge = new RtpOpenAiMediaBridgeService(
+      testConfig(),
+      new StructuredLogger(),
+      new RtpPortAllocatorService(testConfig()),
+    );
     const lifecycle: string[] = [];
     const un = bridge.onLifecycleEvent((ev) => lifecycle.push(ev.type));
 

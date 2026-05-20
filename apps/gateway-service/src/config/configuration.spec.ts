@@ -23,6 +23,8 @@ describe("loadConfiguration real-mode fields", () => {
     process.env.CANARY_LIVE_CALLS_ENABLED = "true";
     process.env.CANARY_ALLOWED_E164 = "+380501112233";
     process.env.KYIVSTAR_HTTP_AUTH_STYLE = "bearer";
+    process.env.KYIVSTAR_HTTP_MEDIA_PATH_TEMPLATE = "/v1/calls/{callId}/media";
+    process.env.RTP_ADVERTISE_ADDRESS = "159.195.31.153";
 
     const cfg = loadConfiguration();
     assert.strictEqual(cfg.gatewayProviderMode, "kyivstar_openai");
@@ -36,5 +38,7 @@ describe("loadConfiguration real-mode fields", () => {
     assert.strictEqual(cfg.canaryLiveCallsEnabled, true);
     assert.ok(cfg.canaryAllowedE164Normalized.includes("380501112233"));
     assert.strictEqual(cfg.kyivstarHttpAuthStyle, "bearer");
+    assert.strictEqual(cfg.kyivstarHttpMediaPathTemplate, "/v1/calls/{callId}/media");
+    assert.strictEqual(cfg.rtpAdvertiseAddress, "159.195.31.153");
   });
 });

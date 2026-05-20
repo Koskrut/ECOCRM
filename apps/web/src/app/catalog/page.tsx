@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import {
   listWarehouses,
   productsApi,
@@ -14,6 +14,7 @@ import {
 import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
 import { CatalogProductCard } from "./CatalogProductCard";
 import { ProductCharacteristicsPanel } from "./ProductCharacteristicsPanel";
+import { filterCatalogItems } from "./catalog-search";
 
 /** Порядок складов для колонок каталога. */
 const WAREHOUSE_ORDER = ["Днепр", "Одесса", "Львов"];
@@ -1055,14 +1056,18 @@ function AddProductModal({
   );
 }
 
+const SEARCH_SUPPLEMENT_MS = 400;
+
 function CatalogPageContent() {
-  const [items, setItems] = useState<ProductCatalogItem[]>([]);
+  const [allItems, setAllItems] = useState<ProductCatalogItem[]>([]);
+  /** Inactive / server-only matches merged after debounced API search. */
+  const [searchExtras, setSearchExtras] = useState<ProductCatalogItem[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [searchDebounced, setSearchDebounced] = useState("");
+  const searchSupplementGen = useRef(0);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadByWarehousesModalOpen, setUploadByWarehousesModalOpen] = useState(false);
@@ -1079,9 +1084,21 @@ function CatalogPageContent() {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [expandedSpecsProductId, setExpandedSpecsProductId] = useState<string | null>(null);
 
+  const filteredItems = useMemo(() => {
+    const q = search.trim();
+    if (!q) return allItems;
+    const byId = new Map<string, ProductCatalogItem>();
+    for (const p of filterCatalogItems(allItems, q)) byId.set(p.id, p);
+    for (const p of searchExtras) byId.set(p.id, p);
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allItems, search, searchExtras]);
+
+  const displayItems = useDeferredValue(filteredItems);
+  const isListStale = displayItems !== filteredItems;
+
   const categoriesWithItems = useMemo(() => {
     const map = new Map<string, ProductCatalogItem[]>();
-    for (const p of items) {
+    for (const p of displayItems) {
       const cat = categoryFromSku(p.sku);
       const list = map.get(cat) ?? [];
       list.push(p);
@@ -1090,7 +1107,7 @@ function CatalogPageContent() {
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([category, categoryItems]) => ({ category, items: categoryItems }));
-  }, [items]);
+  }, [displayItems]);
 
   const toggleCategory = useCallback((category: string) => {
     setCollapsedCategories((prev) => {
@@ -1101,26 +1118,27 @@ function CatalogPageContent() {
     });
   }, []);
 
-  const loadCatalog = useCallback(async () => {
+  const loadCatalog = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!opts?.silent) {
+        setLoading(true);
+        setError(null);
+      }
       const data = await productsApi.listCatalog({
-        search: searchDebounced || undefined,
         page: 1,
         pageSize: 500,
       });
-      setItems(data.items);
-      setTotal(data.total);
+      setAllItems(data.items);
+      setSearchExtras([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
-  }, [searchDebounced]);
+  }, []);
 
   useEffect(() => {
-    loadCatalog();
+    void loadCatalog();
   }, [loadCatalog]);
 
   useEffect(() => {
@@ -1130,19 +1148,49 @@ function CatalogPageContent() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => setSearchDebounced(search), 300);
+    const q = search.trim();
+    if (!q) {
+      setSearchExtras([]);
+      setSearching(false);
+      return;
+    }
+
+    const gen = ++searchSupplementGen.current;
+    const t = setTimeout(() => {
+      void (async () => {
+        setSearching(true);
+        try {
+          const data = await productsApi.listCatalog({
+            search: q,
+            page: 1,
+            pageSize: 500,
+          });
+          if (searchSupplementGen.current !== gen) return;
+          const localIds = new Set(filterCatalogItems(allItems, q).map((p) => p.id));
+          setSearchExtras(data.items.filter((p) => !localIds.has(p.id)));
+        } catch {
+          if (searchSupplementGen.current === gen) setSearchExtras([]);
+        } finally {
+          if (searchSupplementGen.current === gen) setSearching(false);
+        }
+      })();
+    }, SEARCH_SUPPLEMENT_MS);
+
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, allItems]);
 
   const handleShowOnStoreChange = useCallback(
     async (productId: string, next: boolean) => {
       try {
         await productsApi.updateShowOnStore(productId, next);
-        setItems((prev) =>
+        setAllItems((prev) =>
+          prev.map((it) => (it.id === productId ? { ...it, showOnStore: next } : it)),
+        );
+        setSearchExtras((prev) =>
           prev.map((it) => (it.id === productId ? { ...it, showOnStore: next } : it)),
         );
       } catch {
-        loadCatalog();
+        void loadCatalog({ silent: true });
       }
     },
     [loadCatalog],
@@ -1172,13 +1220,22 @@ function CatalogPageContent() {
     <div className="min-w-0">
       <div className="mb-4 flex flex-col gap-3">
         <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl">Каталог</h1>
-        <input
-          type="search"
-          placeholder="Поиск по артикулу или названию…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full min-w-0 rounded-md border border-zinc-300 px-3 py-2.5 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
-        />
+        <div className="relative">
+          <input
+            type="search"
+            placeholder="Поиск по артикулу или названию…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full min-w-0 rounded-md border border-zinc-300 px-3 py-2.5 pr-9 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
+            aria-busy={isListStale || searching}
+          />
+          {(isListStale || searching) && (
+            <span
+              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600"
+              aria-hidden
+            />
+          )}
+        </div>
         <div className="hidden flex-wrap items-center gap-2 sm:flex">
           <button
             type="button"

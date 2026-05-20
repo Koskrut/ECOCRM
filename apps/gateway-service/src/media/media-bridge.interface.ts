@@ -39,8 +39,11 @@ export interface MediaBridge {
       localPort?: number;
       remoteAddress?: string;
       remotePort?: number;
+      symmetricRtp?: boolean;
     };
   }): Promise<MediaBridgeSession>;
+
+  setRtpRemote?(sessionId: string, remoteAddress: string, remotePort: number): void;
 
   pumpInboundAudio(session: MediaBridgeSession, chunk: AiAudioChunk): Promise<void>;
 
