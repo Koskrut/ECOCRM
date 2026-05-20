@@ -332,7 +332,11 @@ export default function VisitsPage() {
 
   const dateParam = useMemo(() => jsDateToYmdKyiv(date), [date]);
   const showOwnerFilter = role === "ADMIN" || role === "LEAD";
-  const planOwnerOpts = viewOwnerId ? { ownerId: viewOwnerId } : undefined;
+  const planOwnerOpts = useMemo(() => {
+    if (viewOwnerId) return { ownerId: viewOwnerId };
+    if (!showOwnerFilter && myUserId) return { ownerId: myUserId };
+    return undefined;
+  }, [viewOwnerId, showOwnerFilter, myUserId]);
   const readOnlyPlan = Boolean(
     planOwnerOpts && myUserId && planOwnerOpts.ownerId !== myUserId,
   );
