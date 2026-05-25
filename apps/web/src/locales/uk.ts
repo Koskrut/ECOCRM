@@ -205,7 +205,14 @@ export const uk = {
       clearKey: "Прибрати ключ з CRM (лише NP_API_KEY у середовищі)",
       sectionSender: "Відправник",
       sectionSenderHint:
-        "Місто та відділення — з довідників CRM. Контрагент і контакт завантажуються з вашого кабінету Nova Poshta (потрібен API key).",
+        "Місто та відділення — з довідників CRM (спочатку синхронізуйте). Контрагент і контакт — з кабінету Nova Poshta (потрібен API key).",
+      syncCatalogTitle: "Довідники міст і відділень",
+      syncCatalogHint:
+        "Завантажує міста та відділення з API Nova Poshta в CRM. Потрібно для пошуку в полях нижче; може тривати 1–3 хв.",
+      syncCatalogButton: "Синхронізувати довідники",
+      syncCatalogRunning: "Синхронізація…",
+      syncCatalogSuccess: "Довідники оновлено. Можна шукати місто та відділення.",
+      syncCatalogError: "Не вдалося синхронізувати довідники.",
       senderCity: "Місто відправника",
       senderWarehouse: "Відділення відправника",
       senderCounterparty: "Контрагент (відправник)",

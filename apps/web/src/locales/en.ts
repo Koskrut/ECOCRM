@@ -204,7 +204,14 @@ export const en = {
       clearKey: "Remove key from CRM (use only NP_API_KEY in environment)",
       sectionSender: "Sender",
       sectionSenderHint:
-        "City and branch are chosen from synced CRM directories. Counterparty and contact are loaded from your Nova Poshta account (API key required).",
+        "City and branch come from CRM directories (sync first). Counterparty and contact are loaded from your Nova Poshta account (API key required).",
+      syncCatalogTitle: "City and branch directories",
+      syncCatalogHint:
+        "Downloads cities and branches from the Nova Poshta API into CRM. Required for search below; may take 1–3 minutes.",
+      syncCatalogButton: "Sync directories",
+      syncCatalogRunning: "Syncing…",
+      syncCatalogSuccess: "Directories updated. You can search for cities and branches.",
+      syncCatalogError: "Failed to sync directories.",
       senderCity: "Sender city",
       senderWarehouse: "Sender branch",
       senderCounterparty: "Sender counterparty",

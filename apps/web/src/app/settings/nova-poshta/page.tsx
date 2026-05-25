@@ -64,6 +64,7 @@ export default function NovaPoshtaSettingsPage() {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [clearStoredApiKey, setClearStoredApiKey] = useState(false);
   const [apiAdvancedOpen, setApiAdvancedOpen] = useState(false);
+  const [syncingCatalog, setSyncingCatalog] = useState(false);
 
   const setupStatus = useMemo(
     () => (config ? computeSetupStatus(config) : "partial"),
@@ -154,6 +155,21 @@ export default function NovaPoshtaSettingsPage() {
     };
     void load();
   }, [t.loadError]);
+
+  const handleSyncCatalog = async () => {
+    setSyncingCatalog(true);
+    setError(null);
+    try {
+      await apiHttp.post("/np/sync", {}, { timeout: 180_000 });
+      pushToast(t.syncCatalogSuccess, "success");
+    } catch (e) {
+      const msg = getUserFriendlyApiError(e, t.syncCatalogError);
+      pushToast(msg, "error");
+      setError(msg);
+    } finally {
+      setSyncingCatalog(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!config) return;
@@ -323,6 +339,21 @@ export default function NovaPoshtaSettingsPage() {
             <div>
               <h2 className="text-sm font-semibold text-zinc-900">{t.sectionSender}</h2>
               <p className="mt-0.5 text-xs text-zinc-500">{t.sectionSenderHint}</p>
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-lg border border-zinc-100 bg-zinc-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-800">{t.syncCatalogTitle}</p>
+                <p className="mt-0.5 text-xs text-zinc-500">{t.syncCatalogHint}</p>
+              </div>
+              <button
+                type="button"
+                disabled={syncingCatalog || saving}
+                onClick={() => void handleSyncCatalog()}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {syncingCatalog ? t.syncCatalogRunning : t.syncCatalogButton}
+              </button>
             </div>
 
             {setupStatus !== "ready" ? (
