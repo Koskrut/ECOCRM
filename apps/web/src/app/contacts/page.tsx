@@ -397,8 +397,25 @@ function ContactsPageContent() {
   const openCreate = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("contactId", "new");
+    if (filterCompanyId) params.set("prefillCompanyId", filterCompanyId);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
+
+  const contactCreateInitial = useMemo(() => {
+    if (contactId !== "new") return undefined;
+    const prefillCompanyId =
+      searchParams.get("prefillCompanyId") ?? searchParams.get("companyId");
+    const phone = searchParams.get("phone") ?? undefined;
+    const firstName = searchParams.get("firstName") ?? undefined;
+    const lastName = searchParams.get("lastName") ?? undefined;
+    if (!prefillCompanyId && !phone && !firstName && !lastName) return undefined;
+    return {
+      companyId: prefillCompanyId || null,
+      phone,
+      firstName,
+      lastName,
+    };
+  }, [contactId, searchParams]);
 
   const closeModal = () => {
     const params = new URLSearchParams(searchParams.toString());
@@ -1204,7 +1221,9 @@ function ContactsPageContent() {
         <ContactModal
           apiBaseUrl="/api"
           contactId={contactId}
+          initialCreate={contactCreateInitial}
           onClose={closeModal}
+          onCreated={openContact}
           onOpenCompany={openCompany}
           onUpdate={() => void reload({ keepPage: true })}
           userRole={userRole}

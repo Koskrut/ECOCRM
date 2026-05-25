@@ -443,6 +443,7 @@ export class ContactsService {
       throw new BadRequestException("firstName/lastName required");
     }
     if (!data.phone) throw new BadRequestException("phone required");
+    if (!data.region?.trim()) throw new BadRequestException("region required");
 
     const phoneNormalized = getPhoneNormalizedDigits(data.phone);
     if (!phoneNormalized) throw new BadRequestException("phone must contain digits");

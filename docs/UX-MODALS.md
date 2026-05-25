@@ -16,7 +16,8 @@ All entity modals (lead, contact, company, order) follow a single **entity modal
 
 File: `apps/web/src/components/modals/EntityModalShell.tsx`
 
-- **Props**: `title`, `subtitle?`, `headerActions?` (ReactNode), `left`, `right`, `footer?`, `canClose`, `onClose`, `onEscape?`.
+- **Props**: `title`, `subtitle?`, `headerActions?` (ReactNode), `left`, `right`, `footer?`, `canClose`, `onClose`, `onEscape?`, `size?` (`default` | `compact`), `tabsUnderHeader?`.
+- **`size`**: `default` uses `sm:max-w-5xl` (full entity card). `compact` uses `sm:max-w-xl` for short create flows.
 - **Overlay**: clicking the dimmed background calls `onClose` only when `canClose === true`.
 - **ESC**: if `onEscape` is provided, it is called first; if it returns `true`, the modal does not close. Otherwise, when `canClose`, `onClose` is called. This gives priority: nested state (e.g. open order inside contact) closes first, then the modal itself.
 - **Height**: `max-h-[90vh]`; scrolling only inside the left and right columns.
@@ -37,7 +38,8 @@ File: `apps/web/src/components/inputs/SearchableSelectLite.tsx`
 ## Usage by entity
 
 - **LeadModal**: left column — main fields + products; right — timeline. When status allows, header action “Convert” opens conversion wizard in the right column (no API changes).
-- **ContactModal**: left — contact card (form/details) + Orders block; right — feed (ContactTimeline). Company uses SearchableSelectLite; with `onOpenCompany`, “Open company” is available. Nested OrderModal: ESC/overlay close the order first.
+- **ContactModal (edit)**: tabs under header (Overview, Analytics, Timeline, Orders, …); left — contact card + blocks; optional right — feed. Company uses SearchableSelectLite; with `onOpenCompany`, “Open company” is available. Nested OrderModal: ESC/overlay close the order first.
+- **ContactModal (create, `contactId=new`)**: `size=compact`, no tabs; `ContactCreateForm` with Main + collapsed Additional sections; footer: Cancel, Save and close, Save (stays in modal → loads card). `onCreated(id)` syncs parent URL/state. Optional `initialCreate` prefill (`companyId`, `phone`, names). Debounced duplicate-phone hint via `GET /contacts?q=…`.
 - **CompanyModal**: left — details/edit + Contacts block (SearchableSelectLite to link + “Open contact” when `onOpenContact`) + Orders block; right — CompanyTimeline. Header “+ Order”.
 - **OrderModal**: two-column (details + items left, timeline right). Header: “Create TTN (NP)”, “Copy number”, “Print” (scaffold). Status stepper is clickable (PATCH `/orders/:id/status`). Row delete for items not added (no DELETE items API).
 

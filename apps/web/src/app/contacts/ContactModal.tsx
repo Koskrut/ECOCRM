@@ -17,8 +17,12 @@ import {
 } from "@/components/np/NpShippingProfileFormFields";
 import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
+import type { MeResponse } from "@/lib/api/resources/auth";
 import { contactsApi } from "@/lib/api/resources/contacts";
-import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { formatPhoneDisplay, formatPhoneInputMask } from "@/lib/formatPhone";
+import { ContactCreateForm, type ContactCreateFormValues } from "./ContactCreateForm";
+import { CONTACT_REGION_OPTIONS } from "./contact-region-options";
+import { useContactPhoneDuplicateCheck } from "./useContactPhoneDuplicateCheck";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
@@ -683,11 +687,21 @@ type Contact = {
   phones?: ContactPhone[];
 };
 
+export type ContactCreateInitial = {
+  companyId?: string | null;
+  phone?: string;
+  firstName?: string;
+  lastName?: string;
+};
+
 type Props = {
   apiBaseUrl: string;
-  contactId: string; // "new"
+  contactId: string; // "new" or uuid
   onClose: () => void;
   onUpdate: () => void;
+  /** After create (or opening duplicate), sync parent URL/state to the real contact id. */
+  onCreated?: (id: string) => void;
+  initialCreate?: ContactCreateInitial;
   onOpenCompany?: (id: string) => void;
   /** Role from parent (/auth/me); used for manual calling queue button. */
   userRole?: string | null;
@@ -698,10 +712,15 @@ export function ContactModal({
   contactId,
   onClose,
   onUpdate,
+  onCreated,
+  initialCreate,
   onOpenCompany,
   userRole: userRoleProp,
 }: Props) {
-  const isCreate = contactId === "new";
+  const [savedContactId, setSavedContactId] = useState<string | null>(null);
+  const [justSavedBanner, setJustSavedBanner] = useState(false);
+  const effectiveContactId = savedContactId ?? contactId;
+  const isCreate = effectiveContactId === "new";
   const isCardV2Enabled = process.env.NEXT_PUBLIC_CONTACT_CARD_V2 !== "0";
   const effectiveRole = userRoleProp ?? null;
 
@@ -793,11 +812,13 @@ export function ContactModal({
     | "change-history";
   const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
 
-  const cardSummary = useContactCardSummary(contactId, !isCreate && isCardV2Enabled);
-  const contactInsights = useContactInsights(contactId, !isCreate && leftTab === "overview");
+  const phoneDuplicate = useContactPhoneDuplicateCheck(phone, isCreate);
+
+  const cardSummary = useContactCardSummary(effectiveContactId, !isCreate && isCardV2Enabled);
+  const contactInsights = useContactInsights(effectiveContactId, !isCreate && leftTab === "overview");
   const [analyticsRange, setAnalyticsRange] = useState<ContactCardAnalyticsRange>("30d");
   const [analyticsScope, setAnalyticsScope] = useState<ContactCardAnalyticsScope>("contact");
-  const cardAnalytics = useContactCardAnalytics(contactId, {
+  const cardAnalytics = useContactCardAnalytics(effectiveContactId, {
     range: analyticsRange,
     scope: analyticsScope,
     enabled: !isCreate && isCardV2Enabled && leftTab === "analytics",
@@ -812,7 +833,15 @@ export function ContactModal({
 
   const canClose = !saving;
 
-  const title = useMemo(() => (isCreate ? "New contact" : "Contact"), [isCreate]);
+  const title = useMemo(() => {
+    if (isCreate) {
+      const name = `${lastName.trim()} ${firstName.trim()}`.trim();
+      return name || strings.contacts.create.title;
+    }
+    const a = (contact?.firstName ?? "").trim();
+    const b = (contact?.lastName ?? "").trim();
+    return `${a} ${b}`.trim() || "Contact";
+  }, [isCreate, firstName, lastName, contact?.firstName, contact?.lastName]);
 
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
@@ -868,12 +897,18 @@ export function ContactModal({
     }
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (isCreate) return;
+  useEffect(() => {
+    setSavedContactId(null);
+    setJustSavedBanner(false);
+  }, [contactId]);
+
+  const refresh = useCallback(async (overrideId?: string) => {
+    const targetId = overrideId ?? effectiveContactId;
+    if (targetId === "new") return;
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiHttp.get<Contact>(`/contacts/${contactId}`);
+      const res = await apiHttp.get<Contact>(`/contacts/${targetId}`);
       const data = res.data as Contact;
       setContact(data);
       setFirstName(data.firstName ?? "");
@@ -913,7 +948,7 @@ export function ContactModal({
     } finally {
       setLoading(false);
     }
-  }, [contactId, isCreate, fetchCompanies, fetchUsers]);
+  }, [effectiveContactId, fetchCompanies, fetchUsers]);
 
   useEffect(() => {
     void loadMapsConfig();
@@ -931,12 +966,14 @@ export function ContactModal({
     setContact(null);
     setOrderId(null);
     setLeftTab("overview");
-     setIsMapEnabled(false);
+    setIsMapEnabled(false);
     if (isCreate) {
       setLoading(false);
-      setFirstName("");
-      setLastName("");
-      setPhone("");
+      setFirstName(initialCreate?.firstName ?? "");
+      setLastName(initialCreate?.lastName ?? "");
+      setPhone(
+        initialCreate?.phone ? formatPhoneInputMask(initialCreate.phone) : "",
+      );
       setEmail("");
       setPosition("");
       setAddress("");
@@ -945,7 +982,14 @@ export function ContactModal({
       setGooglePlaceId(null);
       setAddressStatus(null);
       setOwnerId(null);
-      setCompanyId(null);
+      void apiHttp
+        .get<MeResponse>("/auth/me")
+        .then((res) => {
+          const uid = res.data?.user?.id;
+          if (uid) setOwnerId(String(uid));
+        })
+        .catch(() => {});
+      setCompanyId(initialCreate?.companyId ?? null);
       setExternalCode("");
       setRegion("");
       setAddressInfo("");
@@ -964,7 +1008,7 @@ export function ContactModal({
       return;
     }
     void refresh();
-  }, [isCreate, refresh, fetchCompanies, fetchUsers]);
+  }, [isCreate, refresh, fetchCompanies, fetchUsers, initialCreate]);
 
   const patchContact = useCallback(
     async (payload: Partial<{
@@ -987,7 +1031,7 @@ export function ContactModal({
       clientType: string | null;
       status: string | null;
     }>) => {
-      const res = await apiHttp.patch<Contact>(`/contacts/${contactId}`, payload);
+      const res = await apiHttp.patch<Contact>(`/contacts/${effectiveContactId}`, payload);
       const data = res.data as Contact;
       setContact((prev) => (prev ? { ...data, phones: (data as Contact).phones ?? prev.phones ?? [] } : data));
       if (payload.firstName !== undefined) setFirstName(payload.firstName);
@@ -1011,7 +1055,7 @@ export function ContactModal({
       onUpdate();
       void cardSummary.refetch();
     },
-    [cardSummary, contactId, onUpdate],
+    [cardSummary, effectiveContactId, onUpdate],
   );
 
   useEffect(
@@ -1213,7 +1257,8 @@ export function ContactModal({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, []);
 
-  const saveCreate = async () => {
+  const saveCreate = async (opts?: { closeAfter?: boolean }) => {
+    const closeAfter = opts?.closeAfter ?? false;
     setSaving(true);
     setErr(null);
     try {
@@ -1236,21 +1281,155 @@ export function ContactModal({
         ownerId: ownerId || null,
         companyId: companyId || null,
       };
-      if (!payload.firstName) throw new Error("First name is required");
-      if (!payload.lastName) throw new Error("Last name is required");
-      if (!payload.phone) throw new Error("Phone is required");
-      await apiHttp.post("/contacts", payload);
+      const requiredMsg = (label: string) =>
+        `${label} — ${strings.contacts.create.fieldRequired}`;
+      if (!payload.firstName) throw new Error(requiredMsg(strings.contacts.create.firstName));
+      if (!payload.lastName) throw new Error(requiredMsg(strings.contacts.create.lastName));
+      if (!payload.phone) throw new Error(requiredMsg(strings.contacts.create.phone));
+      if (!payload.region) throw new Error(requiredMsg(strings.contacts.create.region));
+      const res = await apiHttp.post<Contact>("/contacts", payload);
+      const id = res.data?.id;
+      if (!id) throw new Error("Failed to create contact");
+      setSavedContactId(id);
+      onCreated?.(id);
       onUpdate();
-      onClose();
+      if (closeAfter) {
+        onClose();
+        return;
+      }
+      setJustSavedBanner(true);
+      await refresh(id);
     } catch (e) {
+      const status = (e as { response?: { status?: number } })?.response?.status;
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Failed");
-      setErr(msg);
+      setErr(status === 409 ? strings.contacts.create.duplicateMessage : msg);
     } finally {
       setSaving(false);
     }
   };
+
+  const handleCreateFieldChange = useCallback(
+    <K extends keyof ContactCreateFormValues>(key: K, value: ContactCreateFormValues[K]) => {
+      switch (key) {
+        case "firstName":
+          setFirstName(value as string);
+          break;
+        case "lastName":
+          setLastName(value as string);
+          break;
+        case "phone":
+          setPhone(value as string);
+          break;
+        case "email":
+          setEmail(value as string);
+          break;
+        case "position":
+          setPosition(value as string);
+          break;
+        case "externalCode":
+          setExternalCode(value as string);
+          break;
+        case "region":
+          setRegion(value as string);
+          break;
+        case "addressInfo":
+          setAddressInfo(value as string);
+          break;
+        case "city":
+          setCity(value as string);
+          break;
+        case "clientType":
+          setClientType(value as string);
+          break;
+        case "status":
+          setStatus(value as string);
+          break;
+        case "companyId":
+          setCompanyId(value as string | null);
+          break;
+        case "ownerId":
+          setOwnerId(value as string | null);
+          break;
+        default:
+          break;
+      }
+    },
+    [],
+  );
+
+  const createFormValues: ContactCreateFormValues = useMemo(
+    () => ({
+      firstName,
+      lastName,
+      phone,
+      email,
+      position,
+      externalCode,
+      region,
+      addressInfo,
+      city,
+      clientType,
+      status,
+      companyId,
+      ownerId,
+    }),
+    [
+      firstName,
+      lastName,
+      phone,
+      email,
+      position,
+      externalCode,
+      region,
+      addressInfo,
+      city,
+      clientType,
+      status,
+      companyId,
+      ownerId,
+    ],
+  );
+
+  const createDirty = useMemo(() => {
+    if (!isCreate) return false;
+    return Boolean(
+      firstName.trim() ||
+        lastName.trim() ||
+        phone.trim() ||
+        email.trim() ||
+        position.trim() ||
+        externalCode.trim() ||
+        region.trim() ||
+        addressInfo.trim() ||
+        city.trim() ||
+        clientType.trim() ||
+        status.trim() ||
+        companyId ||
+        ownerId,
+    );
+  }, [
+    isCreate,
+    firstName,
+    lastName,
+    phone,
+    email,
+    position,
+    externalCode,
+    region,
+    addressInfo,
+    city,
+    clientType,
+    status,
+    companyId,
+    ownerId,
+  ]);
+
+  const handleCloseCreate = useCallback(() => {
+    if (createDirty && !window.confirm(strings.contacts.create.discardConfirm)) return;
+    onClose();
+  }, [createDirty, onClose]);
 
   const scheduleVisit = async () => {
     if (!contact) {
@@ -1292,8 +1471,8 @@ export function ContactModal({
     setErr(null);
     try {
       const payload = {
-        clientId: contactId,
-        contactId,
+        clientId: effectiveContactId,
+        contactId: effectiveContactId,
         companyId: contact?.companyId ?? null,
       };
       const res = await apiHttp.post<{ id: string; clientId?: string | null }>("/orders", payload);
@@ -1301,10 +1480,10 @@ export function ContactModal({
       if (!createdId) throw new Error("Order id is missing in response");
 
       // Safety: ensure client/contact linkage is persisted before opening the main Order modal.
-      if (res.data?.clientId !== contactId) {
+      if (res.data?.clientId !== effectiveContactId) {
         await apiHttp.patch(`/orders/${createdId}`, {
-          clientId: contactId,
-          contactId,
+          clientId: effectiveContactId,
+          contactId: effectiveContactId,
           ...(contact?.companyId ? { companyId: contact.companyId } : {}),
         });
       }
@@ -1319,13 +1498,13 @@ export function ContactModal({
     } finally {
       setCreatingOrder(false);
     }
-  }, [contact?.companyId, contactId, creatingOrder, isCreate]);
+  }, [contact?.companyId, effectiveContactId, creatingOrder, isCreate]);
 
   const enqueueDialer = useCallback(async () => {
     setQueueingDialer(true);
     setErr(null);
     try {
-      await manualCallingApi.enqueue({ contactId });
+      await manualCallingApi.enqueue({ contactId: effectiveContactId });
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -1334,7 +1513,7 @@ export function ContactModal({
     } finally {
       setQueueingDialer(false);
     }
-  }, [contactId]);
+  }, [effectiveContactId]);
 
   const resetStorePassword = useCallback(async () => {
     setResetPasswordError(null);
@@ -1345,7 +1524,7 @@ export function ContactModal({
       const res = await apiHttp.post<{
         tempPassword: string;
         setPasswordToken: string;
-      }>(`/contacts/${contactId}/reset-store-password`);
+      }>(`/contacts/${effectiveContactId}/reset-store-password`);
       let storeBase = "";
       try {
         const cfg = await apiHttp.get<{ publicStoreUrl?: string }>("/settings/store");
@@ -1365,7 +1544,7 @@ export function ContactModal({
     } finally {
       setResetPasswordLoading(false);
     }
-  }, [contactId]);
+  }, [effectiveContactId]);
 
   const saveNextAction = useCallback(async () => {
     if (isCreate || !contact) return;
@@ -1454,34 +1633,6 @@ export function ContactModal({
     return `${a} ${b}`.trim() || null;
   }, [contact]);
 
-  const REGION_OPTIONS: Array<{ value: string; label: string }> = [
-    { value: "", label: "—" },
-    { value: "Вінницька", label: "Вінницька" },
-    { value: "Волинська", label: "Волинська" },
-    { value: "Дніпропетровська", label: "Дніпропетровська" },
-    { value: "Донецька", label: "Донецька" },
-    { value: "Житомирська", label: "Житомирська" },
-    { value: "Закарпатська", label: "Закарпатська" },
-    { value: "Запорізька", label: "Запорізька" },
-    { value: "Івано-Франківська", label: "Івано-Франківська" },
-    { value: "Київська", label: "Київська" },
-    { value: "Кіровоградська", label: "Кіровоградська" },
-    { value: "Луганська", label: "Луганська" },
-    { value: "Львівська", label: "Львівська" },
-    { value: "Миколаївська", label: "Миколаївська" },
-    { value: "Одеська", label: "Одеська" },
-    { value: "Полтавська", label: "Полтавська" },
-    { value: "Рівненська", label: "Рівненська" },
-    { value: "Сумська", label: "Сумська" },
-    { value: "Тернопільська", label: "Тернопільська" },
-    { value: "Харківська", label: "Харківська" },
-    { value: "Херсонська", label: "Херсонська" },
-    { value: "Хмельницька", label: "Хмельницька" },
-    { value: "Черкаська", label: "Черкаська" },
-    { value: "Чернівецька", label: "Чернівецька" },
-    { value: "Чернігівська", label: "Чернігівська" },
-  ];
-
   const companyOptions = useMemo(
     () => companies.map((c) => ({ id: String(c.id), label: c.name })),
     [companies],
@@ -1510,262 +1661,6 @@ export function ContactModal({
         <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
           {err}
         </div>
-      );
-    }
-
-    if (isCreate) {
-      return (
-        <>
-          <label className="block text-sm font-medium text-zinc-700">First name</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-            placeholder="John"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Last name</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-            placeholder="Doe"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Phone</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+1…"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Email</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="john@example.com"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Position</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            placeholder="Manager"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">КОД 1С</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={externalCode}
-            onChange={(e) => setExternalCode(e.target.value)}
-            placeholder="Код 1С"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Область</label>
-          <select
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            disabled={saving}
-          >
-            {REGION_OPTIONS.map((o) => (
-              <option key={o.value || "empty"} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Адрес (инфо)</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={addressInfo}
-            onChange={(e) => setAddressInfo(e.target.value)}
-            placeholder="Адрес (инфо)"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Город</label>
-          <input
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            placeholder="Город"
-            disabled={saving}
-          />
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Тип клиента</label>
-          <select
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={clientType}
-            onChange={(e) => setClientType(e.target.value)}
-            disabled={saving}
-          >
-            <option value="">—</option>
-            <option value="Врач">Врач</option>
-            <option value="Техник">Техник</option>
-          </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Статус</label>
-          <select
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            disabled={saving}
-          >
-            <option value="">—</option>
-            <option value="Клієнт">Клієнт</option>
-            <option value="Зацікавленний">Зацікавленний</option>
-            <option value="Тимчасово не працює">Тимчасово не працює</option>
-            <option value="Відмова">Відмова</option>
-            <option value="Немає зв'язку">Немає зв'язку</option>
-            <option value="Видалити">Видалити</option>
-            <option value="Не працює з імплантами">Не працює з імплантами</option>
-          </select>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Address</label>
-          {addressRequiredForVisit ? (
-            <p className="mt-1 text-sm text-red-600">Заполните адрес для планирования встреч</p>
-          ) : null}
-          <div className="mt-1 space-y-2">
-            <div className="relative">
-              <input
-                ref={addressInputRef}
-                className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-zinc-400 ${
-                  addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
-                }`}
-                value={address}
-                onChange={(e) => {
-                  setAddress(e.target.value);
-                  lastGeocodedAddressRef.current = "";
-                  if (googlePlaceId) setGooglePlaceId(null);
-                  setAddressStatus(null);
-                  setAddressError(null);
-                }}
-                onFocus={() => setShowAddressSuggestions(true)}
-                onBlur={() => {
-                  addressBlurTimeoutRef.current = setTimeout(() => {
-                    setShowAddressSuggestions(false);
-                  }, 120);
-                  if (address.trim().length >= 3 && mapsApiKey) {
-                    void geocodeFromAddressText(address);
-                  }
-                }}
-                placeholder="Street, city, index"
-                disabled={saving}
-              />
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-                  {addressSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.placeId}
-                      type="button"
-                      className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        void handleSelectAddressSuggestion(suggestion);
-                      }}
-                    >
-                      {suggestion.description}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="text-xs text-zinc-500">
-              {isAddressLookupLoading && mapsApiKey ? "Searching addresses…" : null}
-              {!isAddressLookupLoading && isGeocodeLoading
-                ? "Searching coordinates from address…"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "google"
-                ? "Address selected from Google (Places API New)"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "geocoded"
-                ? "Address coordinates updated"
-                : null}
-              {!isAddressLookupLoading && addressStatus === "manual" ? "Pin adjusted manually" : null}
-              {!isAddressLookupLoading && addressError ? addressError : null}
-              {!isAddressLookupLoading && !addressError && !mapsApiKey ? mapsConfigError : null}
-              {!isAddressLookupLoading && !addressError && mapsApiKey && googleLoadError
-                ? "Google Maps script failed to load."
-                : null}
-            </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-zinc-500">
-              {lat != null && lng != null ? "Координаты установлены" : "Координаты не заданы"}
-            </span>
-            {mapsApiKey ? (
-              <button
-                type="button"
-                className="text-xs font-medium text-blue-600 hover:underline"
-                onClick={toggleMap}
-              >
-                {isMapEnabled ? "Скрыть карту" : "Показать карту"}
-              </button>
-            ) : null}
-          </div>
-          {lat != null && lng != null && isGoogleLoaded && mapsApiKey && isMapEnabled ? (
-              <div className="h-44 overflow-hidden rounded-md border border-zinc-200">
-                <GoogleMap
-                  mapContainerStyle={{ width: "100%", height: "100%" }}
-                  center={{ lat, lng }}
-                  zoom={15}
-                >
-                  <Marker position={{ lat, lng }} draggable onDragEnd={(e) => void handleMarkerDragEnd(e)} />
-                </GoogleMap>
-              </div>
-          ) : null}
-          </div>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Responsible manager</label>
-          <div className="mt-1">
-            <SearchableSelectLite
-              value={ownerId}
-              options={userOptions}
-              placeholder="— Not assigned"
-              disabled={saving || loadingUsers}
-              isLoading={loadingUsers}
-              onChange={(id) => setOwnerId(id)}
-            />
-          </div>
-          <label className="mt-3 block text-sm font-medium text-zinc-700">Company</label>
-          <div className="mt-1 flex gap-2">
-            <div className="min-w-0 flex-1">
-              <SearchableSelectLite
-                value={companyId ?? ""}
-                options={companyOptionsWithEmpty}
-                placeholder="— No company"
-                disabled={saving || loadingCompanies}
-                isLoading={loadingCompanies}
-                onChange={(id) => setCompanyId(id === "" ? null : id)}
-              />
-            </div>
-            {companyId && onOpenCompany ? (
-              <button
-                type="button"
-                onClick={() => onOpenCompany(companyId)}
-                className="shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-              >
-                Open company
-              </button>
-            ) : null}
-            {onOpenCompany ? (
-              <button
-                type="button"
-                onClick={() => onOpenCompany("new")}
-                className="shrink-0 rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-              >
-                Create company
-              </button>
-            ) : null}
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={() => void scheduleVisit()}
-              disabled={saving}
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-            >
-              Запланировать встречу
-            </button>
-          </div>
-        </>
       );
     }
 
@@ -1901,7 +1796,7 @@ export function ContactModal({
           value={contact.region ?? ""}
           placeholder="—"
           kind="select"
-          options={REGION_OPTIONS}
+          options={CONTACT_REGION_OPTIONS}
           disabled={saving}
           onSave={async (next) => patchContact({ region: next?.trim() || null })}
           onRegisterCancel={registerCancel}
@@ -2200,15 +2095,32 @@ export function ContactModal({
     <div className="min-h-0 overflow-auto">
         {leftTab === "overview" && (
           isCreate ? (
-            <div className="min-h-0 overflow-auto">
-              <EntitySection
-                title="About contact"
-              >
-                {aboutContactSection}
-              </EntitySection>
+            <div className="min-h-0 overflow-auto space-y-3">
+              {err ? (
+                <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                  {err}
+                </div>
+              ) : null}
+              <ContactCreateForm
+                values={createFormValues}
+                saving={saving}
+                companyOptions={companyOptions}
+                userOptions={userOptions}
+                loadingCompanies={loadingCompanies}
+                loadingUsers={loadingUsers}
+                duplicate={phoneDuplicate}
+                onChange={handleCreateFieldChange}
+                onOpenCompany={onOpenCompany}
+                onOpenExistingContact={(id) => onCreated?.(id)}
+              />
             </div>
           ) : (
             <div className="space-y-3">
+              {justSavedBanner ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  {strings.contacts.create.saved}
+                </div>
+              ) : null}
               {isCardV2Enabled ? (
                 cardSummary.loading ? (
                   <ContactCardSkeleton />
@@ -2387,13 +2299,13 @@ export function ContactModal({
                 </EntitySection>
               </div>
               <EntitySection title={strings.entityUi.contactCustomFieldsSection}>
-                <CustomFieldsPanel entityType="CONTACT" entityId={contactId} />
+                <CustomFieldsPanel entityType="CONTACT" entityId={effectiveContactId} />
               </EntitySection>
               <EntitySection title="Layout (runtime)">
-                <ContactCardLayoutPanel contactId={contactId} />
+                <ContactCardLayoutPanel contactId={effectiveContactId} />
               </EntitySection>
               <EntitySection title="Audit">
-                <ContactCardAuditPanel contactId={contactId} />
+                <ContactCardAuditPanel contactId={effectiveContactId} />
               </EntitySection>
             </div>
           )
@@ -2407,7 +2319,7 @@ export function ContactModal({
               <EntitySection title="Timeline">
                 <ContactTimeline
                   apiBaseUrl={apiBaseUrl}
-                  contactId={contactId}
+                  contactId={effectiveContactId}
                   showActivityButtons
                 />
               </EntitySection>
@@ -2446,7 +2358,7 @@ export function ContactModal({
                   <EntityOrdersList
                     key={ordersReloadKey}
                     apiBaseUrl={apiBaseUrl}
-                    query={`clientId=${contactId}&pageSize=50`}
+                    query={`clientId=${effectiveContactId}&pageSize=50`}
                     onOpenOrder={(id) => setOrderId(id)}
                   />
                 </div>
@@ -2461,7 +2373,7 @@ export function ContactModal({
               <p className="text-sm text-zinc-500">Save the contact first to manage tasks.</p>
             ) : (
               <EntitySection title="Tasks">
-                <EntityTasksList contactId={contactId} />
+                <EntityTasksList contactId={effectiveContactId} />
               </EntitySection>
             )}
           </>
@@ -2471,7 +2383,7 @@ export function ContactModal({
           <ContactDeliveryProfilesTab
             isCreate={isCreate}
             apiBaseUrl={apiBaseUrl}
-            contactId={contactId}
+            contactId={effectiveContactId}
             contactPerson={
               contact
                 ? {
@@ -2499,22 +2411,30 @@ export function ContactModal({
   );
 
   const footer = isCreate ? (
-    <div className="flex justify-end gap-2">
+    <div className="flex flex-wrap justify-end gap-2">
       <button
         type="button"
-        onClick={() => onClose()}
+        onClick={handleCloseCreate}
         disabled={saving}
         className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
       >
-        Cancel
+        {strings.common.cancel}
       </button>
       <button
         type="button"
-        onClick={() => void saveCreate()}
+        onClick={() => void saveCreate({ closeAfter: true })}
+        disabled={saving}
+        className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+      >
+        {saving ? strings.contacts.create.saving : strings.contacts.create.saveAndClose}
+      </button>
+      <button
+        type="button"
+        onClick={() => void saveCreate({ closeAfter: false })}
         disabled={saving}
         className="btn-primary"
       >
-        {saving ? "Saving…" : "Save"}
+        {saving ? strings.contacts.create.saving : strings.common.save}
       </button>
     </div>
   ) : null;
@@ -2671,12 +2591,13 @@ export function ContactModal({
         headerActions={
           null
         }
-        tabsUnderHeader={tabsUnderHeader}
+        tabsUnderHeader={isCreate ? undefined : tabsUnderHeader}
+        size={isCreate ? "compact" : "default"}
         left={leftContent}
         right={null}
         footer={footer}
         canClose={canClose}
-        onClose={onClose}
+        onClose={isCreate ? handleCloseCreate : onClose}
         onEscape={handleEscape}
       />
 
@@ -2685,7 +2606,7 @@ export function ContactModal({
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
           prefill={{
-            clientId: contactId,
+            clientId: effectiveContactId,
             companyId: contact?.companyId ?? null,
           }}
           onClose={() => setOrderId(null)}

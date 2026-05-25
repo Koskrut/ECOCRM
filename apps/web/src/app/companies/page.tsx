@@ -413,7 +413,13 @@ function CompaniesPageContent() {
         <ContactModal
           apiBaseUrl="/api"
           contactId={contactId}
+          initialCreate={
+            contactId === "new" && companyId && companyId !== "new"
+              ? { companyId }
+              : undefined
+          }
           onClose={() => setContactId(null)}
+          onCreated={setContactId}
           onUpdate={() => void reload({ keepPage: true })}
           onOpenCompany={(id) => {
             const params = new URLSearchParams(searchParams.toString());

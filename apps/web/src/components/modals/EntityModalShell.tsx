@@ -16,6 +16,13 @@ export type EntityModalShellProps = {
   onClose: () => void;
   /** If provided, ESC first calls this. Return true if a nested state was closed (then we do not call onClose). */
   onEscape?: () => boolean;
+  /** Modal width on sm+ viewports. `compact` for create flows; `default` for full entity cards. */
+  size?: "default" | "compact";
+};
+
+const SIZE_CLASS: Record<NonNullable<EntityModalShellProps["size"]>, string> = {
+  default: "sm:max-w-5xl",
+  compact: "sm:max-w-xl",
 };
 
 /**
@@ -35,6 +42,7 @@ export function EntityModalShell({
   canClose,
   onClose,
   onEscape,
+  size = "default",
 }: EntityModalShellProps) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -53,7 +61,7 @@ export function EntityModalShell({
       onClick={() => canClose && onClose()}
     >
       <div
-        className="flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:max-w-5xl sm:rounded-2xl"
+        className={`flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl ${SIZE_CLASS[size]}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal

@@ -15,7 +15,7 @@ export type CreateContactDto = {
   isPrimary?: boolean;
   /** Код 1С. */
   externalCode?: string | null;
-  region?: string | null;
+  region: string;
   addressInfo?: string | null;
   city?: string | null;
   clientType?: string | null;
@@ -29,6 +29,7 @@ export const validateCreateContactDto = (payload: CreateContactDto): ValidationE
   validateString(payload.firstName, "firstName", errors);
   validateString(payload.lastName, "lastName", errors);
   validateString(payload.phone, "phone", errors);
+  validateString(payload.region, "region", errors);
 
   // Опциональные поля (проверяем, если они переданы и не null)
   if (payload.companyId) {
@@ -55,8 +56,11 @@ export const validateCreateContactDto = (payload: CreateContactDto): ValidationE
     validateString(payload.externalCode, "externalCode", errors);
   }
 
-  if (payload.region !== undefined && payload.region !== null) {
-    validateString(payload.region, "region", errors);
+  if (payload.clientType !== undefined && payload.clientType !== null) {
+    validateString(payload.clientType, "clientType", errors);
+  }
+  if (payload.status !== undefined && payload.status !== null) {
+    validateString(payload.status, "status", errors);
   }
   if (payload.addressInfo !== undefined && payload.addressInfo !== null) {
     validateString(payload.addressInfo, "addressInfo", errors);
@@ -64,13 +68,6 @@ export const validateCreateContactDto = (payload: CreateContactDto): ValidationE
   if (payload.city !== undefined && payload.city !== null) {
     validateString(payload.city, "city", errors);
   }
-  if (payload.clientType !== undefined && payload.clientType !== null) {
-    validateString(payload.clientType, "clientType", errors);
-  }
-  if (payload.status !== undefined && payload.status !== null) {
-    validateString(payload.status, "status", errors);
-  }
-
   if (payload.lat !== undefined && payload.lat !== null && !Number.isFinite(payload.lat)) {
     errors.push({ field: "lat", message: "must be a number" });
   }

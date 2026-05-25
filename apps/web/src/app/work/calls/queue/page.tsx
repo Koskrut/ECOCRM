@@ -304,8 +304,16 @@ function ManagerQueuePageContent() {
         <ContactModal
           apiBaseUrl="/api"
           contactId={contactId}
+          initialCreate={
+            contactId === "new"
+              ? {
+                  phone: searchParams.get("phone") ?? undefined,
+                }
+              : undefined
+          }
           userRole={userRole}
           onClose={closeModal}
+          onCreated={openContact}
           onUpdate={() => void load()}
         />
       ) : null}
