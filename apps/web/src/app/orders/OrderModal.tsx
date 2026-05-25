@@ -1063,8 +1063,11 @@ export function OrderModal({
         if (isCreate && Array.isArray(whRes) && whRes.length > 0) {
           setWarehouseId((prev) => {
             if (prev != null) return prev;
-            const defaultWh = whRes.find((w: { name: string }) => w.name === "Днепр") ?? whRes[0];
-            return defaultWh.id;
+            const sorted = [...whRes].sort(
+              (a: { sortOrder?: number }, b: { sortOrder?: number }) =>
+                (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+            );
+            return sorted[0]!.id;
           });
         }
       } catch {

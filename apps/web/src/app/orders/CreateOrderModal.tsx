@@ -137,8 +137,8 @@ export function CreateOrderModal({
           setWarehouses(whRes);
           setFopAccounts(fopRes);
           if (whRes.length > 0 && warehouseId === null) {
-            const defaultWh = whRes.find((w) => w.name === "Днепр") ?? whRes[0];
-            setWarehouseId(defaultWh.id);
+            const sorted = [...whRes].sort((a, b) => a.sortOrder - b.sortOrder);
+            setWarehouseId(sorted[0]!.id);
           }
         }
       } catch (e) {

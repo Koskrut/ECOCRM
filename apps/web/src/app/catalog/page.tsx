@@ -15,20 +15,18 @@ import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
 import { CatalogProductCard } from "./CatalogProductCard";
 import { ProductCharacteristicsPanel } from "./ProductCharacteristicsPanel";
 import { filterCatalogItems } from "./catalog-search";
-
-/** Порядок складов для колонок каталога. */
-const WAREHOUSE_ORDER = ["Днепр", "Одесса", "Львов"];
-
-const TABLE_COLSPAN = 8 + WAREHOUSE_ORDER.length;
+import { WarehousesModal } from "./WarehousesModal";
 
 function CatalogExpandedCharacteristics({
   product,
+  tableColspan,
 }: {
   product: ProductCatalogItem;
+  tableColspan: number;
 }) {
   return (
     <tr className="border-t border-zinc-200 bg-zinc-50/95">
-      <td colSpan={TABLE_COLSPAN} className="p-0">
+      <td colSpan={tableColspan} className="p-0">
         <div className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none border-t border-zinc-200/80 px-4 py-3">
           <ProductCharacteristicsPanel product={product} />
         </div>
@@ -791,10 +789,12 @@ function StockUploadByWarehousesModal({
   open,
   onClose,
   onSuccess,
+  warehouses,
 }: {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  warehouses: WarehouseItem[];
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -842,7 +842,23 @@ function StockUploadByWarehousesModal({
           Остатки по складам (Excel)
         </h2>
         <p className="mb-4 text-sm text-zinc-600">
-          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku) и колонки по складам: <b>Днепр</b>, <b>Одесса</b>, <b>Львов</b> (или «Остаток Днепр» и т.д.).
+          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku) и колонки по складам
+          {warehouses.length > 0 ? (
+            <>
+              :{" "}
+              {warehouses
+                .slice()
+                .sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((w) => (
+                  <b key={w.id} className="mx-0.5">
+                    {w.name}
+                  </b>
+                ))}
+            </>
+          ) : (
+            " (добавьте склады в настройках каталога)"
+          )}{" "}
+          (допускаются заголовки вида «Остаток Днепр»).
         </p>
         <form onSubmit={handleSubmit}>
           <input
@@ -868,6 +884,12 @@ function StockUploadByWarehousesModal({
                   {result.notFound.length > 10
                     ? ` и ещё ${result.notFound.length - 10}`
                     : ""}
+                </p>
+              )}
+              {result.unmatchedWarehouseNames && result.unmatchedWarehouseNames.length > 0 && (
+                <p className="mt-2 text-amber-800">
+                  В файле нет колонок для складов:{" "}
+                  {result.unmatchedWarehouseNames.join(", ")}
                 </p>
               )}
             </div>
@@ -1071,6 +1093,7 @@ function CatalogPageContent() {
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadByWarehousesModalOpen, setUploadByWarehousesModalOpen] = useState(false);
+  const [warehousesModalOpen, setWarehousesModalOpen] = useState(false);
   const [syncImagesModalOpen, setSyncImagesModalOpen] = useState(false);
   const [imagesModalProduct, setImagesModalProduct] = useState<{
     id: string;
@@ -1141,11 +1164,28 @@ function CatalogPageContent() {
     void loadCatalog();
   }, [loadCatalog]);
 
-  useEffect(() => {
-    listWarehouses()
-      .then((rows) => setWarehouses(rows))
-      .catch(() => setWarehouses([]));
+  const reloadWarehouses = useCallback(async () => {
+    try {
+      const rows = await listWarehouses();
+      setWarehouses(rows);
+    } catch {
+      setWarehouses([]);
+    }
   }, []);
+
+  useEffect(() => {
+    void reloadWarehouses();
+  }, [reloadWarehouses]);
+
+  const sortedWarehouses = useMemo(
+    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder),
+    [warehouses],
+  );
+  const sortedWarehouseNames = useMemo(
+    () => sortedWarehouses.map((w) => w.name),
+    [sortedWarehouses],
+  );
+  const tableColspan = 8 + sortedWarehouses.length;
 
   useEffect(() => {
     const q = search.trim();
@@ -1200,6 +1240,13 @@ function CatalogPageContent() {
     "rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50";
   const catalogToolbarSecondary = (
     <>
+      <button
+        type="button"
+        onClick={() => setWarehousesModalOpen(true)}
+        className={catalogActionBtn}
+      >
+        Склады
+      </button>
       <button type="button" onClick={() => setSyncImagesModalOpen(true)} className={catalogActionBtn}>
         Синхронизация фото
       </button>
@@ -1274,9 +1321,9 @@ function CatalogPageContent() {
                   <th className="px-4 py-3">Название</th>
                   <th className="px-4 py-3">Ед.</th>
                   <th className="px-4 py-3">Цена</th>
-                  {WAREHOUSE_ORDER.map((wh) => (
-                    <th key={wh} className="px-4 py-3">
-                      {wh}
+                  {sortedWarehouses.map((wh) => (
+                    <th key={wh.id} className="px-4 py-3">
+                      {wh.name}
                     </th>
                   ))}
                   <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
@@ -1291,7 +1338,7 @@ function CatalogPageContent() {
                 return (
                   <tbody key={category} className="border-t border-zinc-200">
                     <tr>
-                      <td colSpan={TABLE_COLSPAN} className="p-0">
+                      <td colSpan={tableColspan} className="p-0">
                         <button
                           type="button"
                           onClick={() => toggleCategory(category)}
@@ -1365,7 +1412,7 @@ function CatalogPageContent() {
                           <td className="px-4 py-3 text-zinc-900">{p.name}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.unit}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.basePrice}</td>
-                          {WAREHOUSE_ORDER.map((wh) => (
+                          {sortedWarehouseNames.map((wh) => (
                             <td key={wh} className="px-4 py-3 text-right tabular-nums text-zinc-700">
                               {qtyAtWarehouse(p, wh)}
                             </td>
@@ -1397,7 +1444,10 @@ function CatalogPageContent() {
                           </td>
                         </tr>
                         {expandedSpecsProductId === p.id ? (
-                          <CatalogExpandedCharacteristics product={p} />
+                          <CatalogExpandedCharacteristics
+                            product={p}
+                            tableColspan={tableColspan}
+                          />
                         ) : null}
                         </Fragment>
                       ))}
@@ -1449,7 +1499,7 @@ function CatalogPageContent() {
                         }
                         onOpenImages={() => setImagesModalProduct({ id: p.id, name: p.name })}
                         onShowOnStoreChange={(checked) => handleShowOnStoreChange(p.id, checked)}
-                        warehouseNames={WAREHOUSE_ORDER}
+                        warehouseNames={sortedWarehouseNames}
                         qtyAtWarehouse={qtyAtWarehouse}
                         editButton={
                           <CatalogRowEditButton
@@ -1505,6 +1555,15 @@ function CatalogPageContent() {
         open={uploadByWarehousesModalOpen}
         onClose={() => setUploadByWarehousesModalOpen(false)}
         onSuccess={loadCatalog}
+        warehouses={warehouses}
+      />
+      <WarehousesModal
+        open={warehousesModalOpen}
+        onClose={() => setWarehousesModalOpen(false)}
+        onChanged={() => {
+          void reloadWarehouses();
+          void loadCatalog({ silent: true });
+        }}
       />
       <SyncImagesModal
         open={syncImagesModalOpen}

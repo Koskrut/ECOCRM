@@ -4,7 +4,27 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.68**.)_
+_(планируемые изменения после **0.2.69**.)_
+
+## [0.2.69] — 2026-05-25
+
+### Summary
+
+Полный релиз **0.2.x**: **склады** (CRUD API, DTO, модалка в каталоге), доработки **остатков** и заказов; **Nova Poshta** — выбор отправителя из справочников (counterparties/contacts), обновлённый UI настроек и локали.
+
+### Added
+
+- **Warehouses**: `create`/`update`/`delete`, уникальность name/externalCode; **web** `WarehousesModal`, BFF warehouses API.
+- **NP settings**: `NpDirectorySelects`, API sender-counterparties/contacts, `np-sync` helpers.
+
+### Changed
+
+- **Catalog**, **stock-upload**, **products** — привязка к складам.
+- **Orders** modals — выбор склада.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.69`**, полный манифест; миграций Prisma нет — `pull` / `up -d`.
 
 ## [0.2.68] — 2026-05-20
 
@@ -246,7 +266,7 @@ _(планируемые изменения после **0.2.68**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.68`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.69`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

@@ -22,6 +22,14 @@ function findColumnIndex(headers: string[], aliases: string[]): number {
   return -1;
 }
 
+function findWarehouseColumnIndex(headerRow: string[], warehouseName: string): number {
+  const nameLower = warehouseName.trim().toLowerCase();
+  return headerRow.findIndex((h) => {
+    const hNorm = normalizeHeader(h);
+    return hNorm.includes(nameLower) || nameLower.includes(hNorm) || hNorm === nameLower;
+  });
+}
+
 function parseNumber(v: unknown): number {
   if (typeof v === "number" && !Number.isNaN(v)) return v;
   if (typeof v === "string") {
@@ -103,11 +111,7 @@ export class StockUploadService {
 
     const warehouseColIndices: { warehouseId: string; colIndex: number }[] = [];
     for (const wh of warehouses) {
-      const nameLower = wh.name.trim().toLowerCase();
-      const idx = headerRow.findIndex((h) => {
-        const hNorm = normalizeHeader(h);
-        return hNorm.includes(nameLower) || nameLower.includes(hNorm) || hNorm === nameLower;
-      });
+      const idx = findWarehouseColumnIndex(headerRow, wh.name);
       if (idx >= 0) warehouseColIndices.push({ warehouseId: wh.id, colIndex: idx });
     }
 
@@ -123,5 +127,28 @@ export class StockUploadService {
       }
     }
     return entries;
+  }
+
+  /** Warehouse names from DB with no matching column in the Excel header row. */
+  public getUnmatchedWarehouseNames(
+    buffer: Buffer,
+    warehouses: WarehouseForUpload[],
+  ): string[] {
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName || warehouses.length === 0) return warehouses.map((w) => w.name);
+
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+    }) as unknown[][];
+    if (rows.length < 1) return warehouses.map((w) => w.name);
+
+    const headerRow = rows[0].map((c) => String(c ?? "").trim());
+    return warehouses
+      .filter((wh) => findWarehouseColumnIndex(headerRow, wh.name) < 0)
+      .map((wh) => wh.name);
   }
 }

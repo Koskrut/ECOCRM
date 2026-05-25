@@ -74,6 +74,7 @@ export type StockUploadResult = {
   updated: number;
   created: number;
   notFound: string[];
+  unmatchedWarehouseNames?: string[];
 };
 
 export type CreateProductPayload = {

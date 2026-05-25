@@ -144,23 +144,34 @@ export class ProductsController {
   @UseInterceptors(FileInterceptor("file"))
   public async uploadStockByWarehouses(
     @UploadedFile() file: { buffer?: Buffer } | undefined,
-  ): Promise<{ updated: number; created: number; notFound: string[] }> {
+  ): Promise<{
+    updated: number;
+    created: number;
+    notFound: string[];
+    unmatchedWarehouseNames: string[];
+  }> {
     const buffer = file?.buffer;
     if (!buffer) throw new BadRequestException("File is required");
     const warehouses = await this.warehousesService.list();
     if (warehouses.length === 0) {
       throw new BadRequestException("No warehouses configured. Add warehouses first.");
     }
+    const unmatchedWarehouseNames = this.stockUploadService.getUnmatchedWarehouseNames(
+      buffer,
+      warehouses,
+    );
     const entries = this.stockUploadService.parseExcelBufferByWarehouses(buffer, warehouses);
     if (entries.length === 0) {
+      const namesHint = warehouses.map((w) => w.name).join(", ");
       throw new BadRequestException(
-        "No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (Днепр, Одесса, Львов).",
+        `No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (${namesHint}).`,
       );
     }
     const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
     const warehouseIds = Array.from(new Set(entries.map((e) => e.warehouseId).filter(Boolean)));
     await this.productStore.resetWarehouseStocksExceptSkus(warehouseIds, skuSet);
-    return this.productStore.bulkSetStocksByWarehouses(entries);
+    const result = await this.productStore.bulkSetStocksByWarehouses(entries);
+    return { ...result, unmatchedWarehouseNames };
   }
 
   @Public()

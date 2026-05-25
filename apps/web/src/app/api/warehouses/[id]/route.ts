@@ -8,3 +8,11 @@ export async function PATCH(
   const { id } = await params;
   return proxyToBackend(req, `warehouses/${id}`);
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  return proxyToBackend(req, `warehouses/${id}`);
+}
