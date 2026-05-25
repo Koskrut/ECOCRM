@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { strings } from "@/locales";
+
+function npSelect() {
+  return strings.np.directorySelect;
+}
 
 type NpCityItem = {
   ref: string;
@@ -94,7 +99,7 @@ export function NpCitySelect({
   valueLabel,
   onChange,
   disabled,
-  placeholder = "Search city…",
+  placeholder,
 }: {
   valueRef: string;
   valueLabel: string;
@@ -102,6 +107,8 @@ export function NpCitySelect({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const t = npSelect();
+  const inputPlaceholder = placeholder ?? t.cityPlaceholder;
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -210,15 +217,15 @@ export function NpCitySelect({
         }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
-        placeholder={placeholder}
+        placeholder={inputPlaceholder}
         disabled={disabled}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       {open && (
         <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>}
+          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
           {!loading && options.length === 0 && q.trim().length >= 2 && (
-            <div className="px-3 py-2 text-sm text-zinc-500">No results</div>
+            <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
           )}
           {!loading &&
             options.map((opt) => (
@@ -248,7 +255,7 @@ export function NpWarehouseSelect({
   valueLabel,
   onChange,
   disabled,
-  placeholder = "Search warehouse…",
+  placeholder,
 }: {
   cityRef: string;
   type: "WAREHOUSE" | "POSTOMAT";
@@ -258,6 +265,8 @@ export function NpWarehouseSelect({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const t = npSelect();
+  const inputPlaceholder = placeholder ?? t.warehousePlaceholder;
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<{ id: string; label: string; number?: string | null }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -310,15 +319,15 @@ export function NpWarehouseSelect({
         }}
         onFocus={() => cityRef && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
-        placeholder={!cityRef ? "Select city first" : placeholder}
+        placeholder={!cityRef ? t.selectCityFirst : inputPlaceholder}
         disabled={disabled || !cityRef}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       {open && cityRef && (
         <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>}
+          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
           {!loading && options.length === 0 && (
-            <div className="px-3 py-2 text-sm text-zinc-500">No results</div>
+            <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
           )}
           {!loading &&
             options.map((opt) => (
@@ -341,13 +350,206 @@ export function NpWarehouseSelect({
   );
 }
 
+type NpSenderCounterpartyItem = {
+  ref: string;
+  label: string;
+};
+
+type NpSenderContactItem = {
+  ref: string;
+  label: string;
+};
+
+export function NpSenderCounterpartySelect({
+  valueRef,
+  valueLabel,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  valueRef: string;
+  valueLabel: string;
+  onChange: (ref: string, label: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const t = npSelect();
+  const inputPlaceholder = placeholder ?? t.senderCounterpartyPlaceholder;
+  const [options, setOptions] = useState<NpSenderCounterpartyItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || options.length > 0) return;
+    setLoading(true);
+    setError(null);
+    apiHttp
+      .get<{ status: string; items?: NpSenderCounterpartyItem[] }>("/np/sender-counterparties")
+      .then((res) => {
+        setOptions(res.data?.items ?? []);
+      })
+      .catch(() => {
+        setOptions([]);
+        setError(t.senderCounterpartiesError);
+      })
+      .finally(() => setLoading(false));
+  }, [open, options.length, t.senderCounterpartiesError]);
+
+  const displayValue = valueLabel || valueRef || "";
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className="mt-1 flex w-full items-center justify-between rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-sm focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+      >
+        <span className={displayValue ? "text-zinc-900" : "text-zinc-400"}>
+          {displayValue || inputPlaceholder}
+        </span>
+        <span className="text-zinc-400">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
+          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+          {error && !loading ? (
+            <div className="px-3 py-2 text-sm text-red-600">{error}</div>
+          ) : null}
+          {!loading &&
+            options.map((opt) => (
+              <button
+                key={opt.ref}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                onMouseDown={() => {
+                  onChange(opt.ref, opt.label);
+                  setOpen(false);
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          {!loading && !error && options.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderCounterparties}</div>
+          ) : null}
+        </div>
+      )}
+      {valueRef ? (
+        <p className="mt-1 font-mono text-[10px] text-zinc-400" title={valueRef}>
+          {valueRef.slice(0, 12)}…
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function NpSenderContactSelect({
+  counterpartyRef,
+  valueRef,
+  valueLabel,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  counterpartyRef: string;
+  valueRef: string;
+  valueLabel: string;
+  onChange: (ref: string, label: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const t = npSelect();
+  const inputPlaceholder = placeholder ?? t.senderContactPlaceholder;
+  const [options, setOptions] = useState<NpSenderContactItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setOptions([]);
+  }, [counterpartyRef]);
+
+  useEffect(() => {
+    if (!counterpartyRef) {
+      return;
+    }
+    if (!open) return;
+    setLoading(true);
+    setError(null);
+    apiHttp
+      .get<{ status: string; items?: NpSenderContactItem[] }>(
+        `/np/sender-contacts?counterpartyRef=${encodeURIComponent(counterpartyRef)}`,
+      )
+      .then((res) => {
+        setOptions(res.data?.items ?? []);
+      })
+      .catch(() => {
+        setOptions([]);
+        setError(t.senderContactsError);
+      })
+      .finally(() => setLoading(false));
+  }, [counterpartyRef, open, t.senderContactsError]);
+
+  const displayValue = valueLabel || valueRef || "";
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        disabled={disabled || !counterpartyRef}
+        onClick={() => setOpen((v) => !v)}
+        className="mt-1 flex w-full items-center justify-between rounded-md border border-zinc-300 bg-white px-3 py-2 text-left text-sm focus:border-zinc-500 focus:outline-none disabled:opacity-50"
+      >
+        <span className={displayValue ? "text-zinc-900" : "text-zinc-400"}>
+          {!counterpartyRef
+            ? t.selectCounterpartyFirst
+            : displayValue || inputPlaceholder}
+        </span>
+        <span className="text-zinc-400">▾</span>
+      </button>
+      {open && counterpartyRef && (
+        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
+          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+          {error && !loading ? (
+            <div className="px-3 py-2 text-sm text-red-600">{error}</div>
+          ) : null}
+          {!loading &&
+            options.map((opt) => (
+              <button
+                key={opt.ref}
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                onMouseDown={() => {
+                  onChange(opt.ref, opt.label);
+                  setOpen(false);
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          {!loading && !error && options.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderContacts}</div>
+          ) : null}
+        </div>
+      )}
+      {valueRef ? (
+        <p className="mt-1 font-mono text-[10px] text-zinc-400" title={valueRef}>
+          {valueRef.slice(0, 12)}…
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function NpStreetSelect({
   cityRef,
   valueRef,
   valueLabel,
   onChange,
   disabled,
-  placeholder = "Min 3 chars…",
+  placeholder,
 }: {
   cityRef: string;
   valueRef: string;
@@ -356,6 +558,8 @@ export function NpStreetSelect({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const t = npSelect();
+  const inputPlaceholder = placeholder ?? t.streetPlaceholder;
   const [q, setQ] = useState("");
   const [options, setOptions] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -425,13 +629,13 @@ export function NpStreetSelect({
         }}
         onFocus={() => cityRef && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
-        placeholder={!cityRef ? "Select city first" : placeholder}
+        placeholder={!cityRef ? t.selectCityFirst : inputPlaceholder}
         disabled={disabled || !cityRef}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       
       {syncing && q.trim().length >= 3 && (
-        <p className="mt-1 text-xs text-zinc-500">Завантаження списку вулиць…</p>
+        <p className="mt-1 text-xs text-zinc-500">{t.streetsSyncing}</p>
       )}
       
       {emptyMessage && q.trim().length >= 3 && open && (
@@ -445,7 +649,7 @@ export function NpStreetSelect({
               fetchStreets("", true);
             }}
           >
-            Переглянути вулиці за абеткою
+            {t.browseStreets}
           </button>
         </div>
       )}

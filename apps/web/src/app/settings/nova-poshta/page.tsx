@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
-import { ErrorPanel } from "@/components/feedback";
+import { strings } from "@/locales";
+import { SettingsPageShell } from "@/components/SettingsPageShell";
+import { ErrorPanel, PageLoading, useToast } from "@/components/feedback";
+import {
+  NpCitySelect,
+  NpSenderContactSelect,
+  NpSenderCounterpartySelect,
+  NpWarehouseSelect,
+} from "@/components/inputs/NpDirectorySelects";
 
 type NovaPoshtaSettings = {
   isEnabled?: boolean;
@@ -17,16 +25,80 @@ type NovaPoshtaSettings = {
   defaultPayerType?: string;
   defaultPaymentMethod?: string;
   apiKeyMasked?: string;
+  senderCityLabel?: string;
+  senderWarehouseLabel?: string;
 };
 
+type SetupStatus = "ready" | "partial" | "needsKey";
+
+const inputClass =
+  "mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none";
+
+function computeSetupStatus(config: NovaPoshtaSettings): SetupStatus {
+  const senderComplete = [
+    config.senderCityRef?.trim(),
+    config.senderWarehouseRef?.trim(),
+    config.senderCounterpartyRef?.trim(),
+    config.senderContactRef?.trim(),
+    config.senderPhone?.trim(),
+  ].every(Boolean);
+
+  if (senderComplete) return "ready";
+  if (!config.apiKeyMasked) return "needsKey";
+  return "partial";
+}
+
 export default function NovaPoshtaSettingsPage() {
+  const t = strings.settings.novaPoshtaPage;
+  const card = strings.settings.cards.novaPoshta;
+  const { pushToast } = useToast();
+
   const [config, setConfig] = useState<NovaPoshtaSettings | null>(null);
+  const [senderCityLabel, setSenderCityLabel] = useState("");
+  const [senderWarehouseLabel, setSenderWarehouseLabel] = useState("");
+  const [senderCounterpartyLabel, setSenderCounterpartyLabel] = useState("");
+  const [senderContactLabel, setSenderContactLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [clearStoredApiKey, setClearStoredApiKey] = useState(false);
+  const [apiAdvancedOpen, setApiAdvancedOpen] = useState(false);
+
+  const setupStatus = useMemo(
+    () => (config ? computeSetupStatus(config) : "partial"),
+    [config],
+  );
+
+  const statusBadge = useMemo(() => {
+    if (setupStatus === "ready") {
+      return {
+        label: t.statusReady,
+        className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      };
+    }
+    if (setupStatus === "needsKey") {
+      return {
+        label: t.statusNeedsKey,
+        className: "border-amber-200 bg-amber-50 text-amber-900",
+      };
+    }
+    return {
+      label: t.statusPartial,
+      className: "border-zinc-200 bg-zinc-100 text-zinc-700",
+    };
+  }, [setupStatus, t]);
+
+  const senderChecklist = useMemo(() => {
+    if (!config) return [];
+    return [
+      { ok: !!config.senderCityRef?.trim(), label: t.senderCity },
+      { ok: !!config.senderWarehouseRef?.trim(), label: t.senderWarehouse },
+      { ok: !!config.senderCounterpartyRef?.trim(), label: t.senderCounterparty },
+      { ok: !!config.senderContactRef?.trim(), label: t.senderContact },
+      { ok: !!config.senderPhone?.trim(), label: t.senderPhone },
+    ];
+  }, [config, t]);
 
   useEffect(() => {
     const load = async () => {
@@ -34,22 +106,59 @@ export default function NovaPoshtaSettingsPage() {
       setError(null);
       try {
         const res = await apiHttp.get<NovaPoshtaSettings>("/settings/nova-poshta");
-        setConfig(res.data ?? {});
+        const data = res.data ?? {};
+        setConfig(data);
+        setSenderCityLabel(data.senderCityLabel ?? "");
+        setSenderWarehouseLabel(data.senderWarehouseLabel ?? "");
         setApiKeyInput("");
+        setApiAdvancedOpen(!!(data.apiUrl?.trim() || data.apiTimeoutMs));
+
+        if (data.senderCounterpartyRef) {
+          try {
+            const cpRes = await apiHttp.get<{
+              items?: { ref: string; label: string }[];
+            }>("/np/sender-counterparties");
+            const match = (cpRes.data?.items ?? []).find(
+              (i) => i.ref === data.senderCounterpartyRef,
+            );
+            setSenderCounterpartyLabel(match?.label ?? "");
+          } catch {
+            setSenderCounterpartyLabel("");
+          }
+        } else {
+          setSenderCounterpartyLabel("");
+        }
+
+        if (data.senderCounterpartyRef && data.senderContactRef) {
+          try {
+            const ctRes = await apiHttp.get<{
+              items?: { ref: string; label: string }[];
+            }>(
+              `/np/sender-contacts?counterpartyRef=${encodeURIComponent(data.senderCounterpartyRef)}`,
+            );
+            const match = (ctRes.data?.items ?? []).find(
+              (i) => i.ref === data.senderContactRef,
+            );
+            setSenderContactLabel(match?.label ?? "");
+          } catch {
+            setSenderContactLabel("");
+          }
+        } else {
+          setSenderContactLabel("");
+        }
       } catch (e) {
-        setError(getUserFriendlyApiError(e, "Не вдалося завантажити налаштування Nova Poshta."));
+        setError(getUserFriendlyApiError(e, t.loadError));
       } finally {
         setLoading(false);
       }
     };
     void load();
-  }, []);
+  }, [t.loadError]);
 
   const handleSave = async () => {
     if (!config) return;
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       const body: Record<string, unknown> = {
         isEnabled: config.isEnabled ?? false,
@@ -69,169 +178,291 @@ export default function NovaPoshtaSettingsPage() {
       if (clearStoredApiKey) body.apiKey = "";
       else if (apiKeyInput.trim()) body.apiKey = apiKeyInput.trim();
       const res = await apiHttp.patch<NovaPoshtaSettings>("/settings/nova-poshta", body);
-      setConfig(res.data ?? {});
+      const data = res.data ?? {};
+      setConfig(data);
+      setSenderCityLabel(data.senderCityLabel ?? senderCityLabel);
+      setSenderWarehouseLabel(data.senderWarehouseLabel ?? senderWarehouseLabel);
       setApiKeyInput("");
       setClearStoredApiKey(false);
-      setSuccess("Збережено.");
+      pushToast(t.saveSuccess, "success");
     } catch (e) {
-      setError(getUserFriendlyApiError(e, "Не вдалося зберегти."));
+      setError(getUserFriendlyApiError(e, t.saveError));
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading || !config) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <p className="text-sm text-zinc-500">{loading ? "Завантаження…" : "—"}</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
-      <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Nova Poshta</h1>
-        <p className="mt-1 text-sm text-zinc-600">
-          Ключ API, відправник і дефолти для ТТН. Якщо поле порожнє тут — використовується змінна оточення
-          (див. документацію деплою).
-        </p>
-      </div>
+    <SettingsPageShell
+      maxWidthClassName="max-w-2xl"
+      title={card.title}
+      subtitle={t.subtitle}
+      actions={
+        !loading && config ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${statusBadge.className}`}
+            >
+              {statusBadge.label}
+            </span>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleSave()}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {saving ? `${strings.common.save}…` : strings.common.save}
+            </button>
+          </div>
+        ) : null
+      }
+    >
+      {error ? <ErrorPanel variant="inline" message={error} className="mb-4" /> : null}
 
-      {error ? <ErrorPanel message={error} /> : null}
-      {success ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-          {success}
-        </div>
-      ) : null}
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={!!config.isEnabled}
-          onChange={(e) => setConfig({ ...config, isEnabled: e.target.checked })}
-        />
-        Увімкнути інтеграцію (позначка для обліку; доступ керується ліцензією модулів)
-      </label>
-
-      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-zinc-800">API</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-zinc-600">API key (приховано)</label>
-            <p className="text-xs text-zinc-500">
-              Збережено: {config.apiKeyMasked ? config.apiKeyMasked : "немає — потрібен NP_API_KEY або введіть ключ"}
-            </p>
-            <input
-              type="password"
-              autoComplete="off"
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              placeholder="Новий ключ (залиште порожнім, щоб не змінювати)"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-            />
-            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-600">
-              <input
-                type="checkbox"
-                checked={clearStoredApiKey}
-                onChange={(e) => setClearStoredApiKey(e.target.checked)}
+      {loading || !config ? (
+        <PageLoading inline />
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">{t.integrationTitle}</div>
+              <div className="mt-0.5 text-xs text-zinc-500">{t.integrationHint}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!config.isEnabled}
+              onClick={() => setConfig({ ...config, isEnabled: !config.isEnabled })}
+              className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
+                config.isEnabled
+                  ? "border-emerald-500 bg-emerald-500"
+                  : "border-zinc-300 bg-zinc-100"
+              }`}
+            >
+              <span
+                className={`ml-1 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  config.isEnabled ? "translate-x-4" : ""
+                }`}
               />
-              Прибрати збережений ключ з CRM (тоді використовується лише NP_API_KEY у середовищі)
-            </label>
+            </button>
           </div>
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-zinc-600">API URL (необов&apos;язково)</label>
-            <input
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              placeholder="https://api.novaposhta.ua/v2.0/json/"
-              value={config.apiUrl ?? ""}
-              onChange={(e) => setConfig({ ...config, apiUrl: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Таймаут (мс)</label>
-            <input
-              type="number"
-              min={1000}
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              value={config.apiTimeoutMs ?? ""}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  apiTimeoutMs: e.target.value ? Number(e.target.value) : undefined,
-                })
-              }
-            />
-          </div>
-        </div>
-      </section>
 
-      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-zinc-800">Відправник (refs Нової Пошти)</h2>
-        <p className="text-xs text-zinc-500">
-          Після зміни збережіть і переконайтесь, що довідники синхронізовані (POST /np/sync у CRM).
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(
-            [
-              ["senderCityRef", "CityRef"],
-              ["senderWarehouseRef", "WarehouseRef"],
-              ["senderCounterpartyRef", "CounterpartyRef"],
-              ["senderContactRef", "ContactRef"],
-            ] as const
-          ).map(([key, label]) => (
-            <div key={key} className="sm:col-span-1">
-              <label className="block text-xs font-medium text-zinc-600">{label}</label>
+          <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">{t.sectionApi}</h2>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">{t.apiKeyLabel}</label>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                {config.apiKeyMasked
+                  ? t.apiKeySaved.replace("{masked}", config.apiKeyMasked)
+                  : t.apiKeyEnv}
+              </p>
               <input
-                className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm font-mono"
-                value={(config[key] as string) ?? ""}
-                onChange={(e) => setConfig({ ...config, [key]: e.target.value })}
+                type="password"
+                autoComplete="off"
+                className={inputClass}
+                placeholder={t.apiKeyPlaceholder}
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
               />
             </div>
-          ))}
-          <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-zinc-600">Телефон відправника</label>
-            <input
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              value={config.senderPhone ?? ""}
-              onChange={(e) => setConfig({ ...config, senderPhone: e.target.value })}
-            />
+
+            <details
+              open={apiAdvancedOpen}
+              onToggle={(e) => setApiAdvancedOpen((e.target as HTMLDetailsElement).open)}
+              className="rounded-lg border border-zinc-100 bg-zinc-50/80"
+            >
+              <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium text-zinc-700 hover:text-zinc-900">
+                {t.apiAdvanced}
+              </summary>
+              <div className="space-y-3 border-t border-zinc-100 px-3 py-3">
+                <p className="text-xs text-zinc-500">{t.apiAdvancedHint}</p>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">{t.apiUrlLabel}</label>
+                  <input
+                    className={inputClass}
+                    placeholder="https://api.novaposhta.ua/v2.0/json/"
+                    value={config.apiUrl ?? ""}
+                    onChange={(e) => setConfig({ ...config, apiUrl: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600">
+                    {t.apiTimeoutLabel}
+                  </label>
+                  <input
+                    type="number"
+                    min={1000}
+                    className={`${inputClass} max-w-xs`}
+                    placeholder="30000"
+                    value={config.apiTimeoutMs ?? ""}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        apiTimeoutMs: e.target.value ? Number(e.target.value) : undefined,
+                      })
+                    }
+                  />
+                </div>
+                {config.apiKeyMasked ? (
+                  <label className="flex items-center gap-2 text-xs text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={clearStoredApiKey}
+                      onChange={(e) => setClearStoredApiKey(e.target.checked)}
+                    />
+                    {t.clearKey}
+                  </label>
+                ) : null}
+              </div>
+            </details>
+          </section>
+
+          <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">{t.sectionSender}</h2>
+              <p className="mt-0.5 text-xs text-zinc-500">{t.sectionSenderHint}</p>
+            </div>
+
+            {setupStatus !== "ready" ? (
+              <ul className="flex flex-wrap gap-2">
+                {senderChecklist.map((item) => (
+                  <li
+                    key={item.label}
+                    className={`rounded-full px-2.5 py-0.5 text-xs ${
+                      item.ok
+                        ? "bg-emerald-50 text-emerald-800"
+                        : "bg-zinc-100 text-zinc-600"
+                    }`}
+                  >
+                    {item.ok ? "✓ " : ""}
+                    {item.label}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-zinc-700">{t.senderCity}</label>
+                <NpCitySelect
+                  valueRef={config.senderCityRef ?? ""}
+                  valueLabel={senderCityLabel}
+                  onChange={(ref, label) => {
+                    setConfig({
+                      ...config,
+                      senderCityRef: ref,
+                      senderWarehouseRef: "",
+                    });
+                    setSenderCityLabel(label);
+                    setSenderWarehouseLabel("");
+                  }}
+                  placeholder={t.cityPlaceholder}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-zinc-700">
+                  {t.senderWarehouse}
+                </label>
+                <NpWarehouseSelect
+                  cityRef={config.senderCityRef ?? ""}
+                  type="WAREHOUSE"
+                  valueRef={config.senderWarehouseRef ?? ""}
+                  valueLabel={senderWarehouseLabel}
+                  onChange={(ref, label) => {
+                    setConfig({ ...config, senderWarehouseRef: ref });
+                    setSenderWarehouseLabel(label);
+                  }}
+                  placeholder={t.warehousePlaceholder}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">
+                  {t.senderCounterparty}
+                </label>
+                <NpSenderCounterpartySelect
+                  valueRef={config.senderCounterpartyRef ?? ""}
+                  valueLabel={senderCounterpartyLabel}
+                  onChange={(ref, label) => {
+                    setConfig({
+                      ...config,
+                      senderCounterpartyRef: ref,
+                      senderContactRef: "",
+                    });
+                    setSenderCounterpartyLabel(label);
+                    setSenderContactLabel("");
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t.senderContact}</label>
+                <NpSenderContactSelect
+                  counterpartyRef={config.senderCounterpartyRef ?? ""}
+                  valueRef={config.senderContactRef ?? ""}
+                  valueLabel={senderContactLabel}
+                  onChange={(ref, label) => {
+                    setConfig({ ...config, senderContactRef: ref });
+                    setSenderContactLabel(label);
+                  }}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-zinc-700">{t.senderPhone}</label>
+                <input
+                  type="tel"
+                  className={inputClass}
+                  placeholder={t.senderPhonePlaceholder}
+                  value={config.senderPhone ?? ""}
+                  onChange={(e) => setConfig({ ...config, senderPhone: e.target.value })}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-900">{t.sectionTtnDefaults}</h2>
+              <p className="mt-0.5 text-xs text-zinc-500">{t.sectionTtnDefaultsHint}</p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t.payerLabel}</label>
+                <select
+                  className={inputClass}
+                  value={config.defaultPayerType ?? "Recipient"}
+                  onChange={(e) => setConfig({ ...config, defaultPayerType: e.target.value })}
+                >
+                  <option value="Recipient">{t.payerRecipient}</option>
+                  <option value="Sender">{t.payerSender}</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">{t.paymentLabel}</label>
+                <select
+                  className={inputClass}
+                  value={config.defaultPaymentMethod ?? "Cash"}
+                  onChange={(e) => setConfig({ ...config, defaultPaymentMethod: e.target.value })}
+                >
+                  <option value="Cash">{t.paymentCash}</option>
+                  <option value="NonCash">{t.paymentNonCash}</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <div className="flex justify-end border-t border-zinc-200 pt-4 sm:hidden">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleSave()}
+              className="w-full rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+            >
+              {saving ? `${strings.common.save}…` : strings.common.save}
+            </button>
           </div>
         </div>
-      </section>
-
-      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-medium text-zinc-800">За замовчуванням для ТТН</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Платник (Recipient / Sender)</label>
-            <input
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              value={config.defaultPayerType ?? ""}
-              onChange={(e) => setConfig({ ...config, defaultPayerType: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-zinc-600">Оплата (Cash / …)</label>
-            <input
-              className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              value={config.defaultPaymentMethod ?? ""}
-              onChange={(e) => setConfig({ ...config, defaultPaymentMethod: e.target.value })}
-            />
-          </div>
-        </div>
-      </section>
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => void handleSave()}
-          className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50"
-        >
-          {saving ? "Збереження…" : "Зберегти"}
-        </button>
-      </div>
-    </div>
+      )}
+    </SettingsPageShell>
   );
 }

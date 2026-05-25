@@ -934,24 +934,62 @@ export class SettingsService {
     NovaPoshtaIntegrationConfig & {
       isEnabled: boolean;
       apiKeyMasked: string;
+      senderCityLabel?: string;
+      senderWarehouseLabel?: string;
     }
   > {
     const row = await this.prisma.integrationSetting.findFirst({
       where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
     });
     const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    let senderCityRef =
+      typeof cfg.senderCityRef === "string" ? cfg.senderCityRef : undefined;
+    const senderWarehouseRef =
+      typeof cfg.senderWarehouseRef === "string" ? cfg.senderWarehouseRef : undefined;
+
+    let senderCityLabel: string | undefined;
+    let senderWarehouseLabel: string | undefined;
+
+    if (senderWarehouseRef) {
+      const wh = await this.prisma.npWarehouse.findUnique({
+        where: { ref: senderWarehouseRef },
+        select: {
+          cityRef: true,
+          description: true,
+          shortAddress: true,
+          number: true,
+        },
+      });
+      if (wh) {
+        if (!senderCityRef) senderCityRef = wh.cityRef;
+        senderWarehouseLabel =
+          [wh.number, wh.shortAddress ?? wh.description].filter(Boolean).join(" — ") ||
+          wh.description;
+      }
+    }
+
+    if (senderCityRef) {
+      const city = await this.prisma.npCity.findUnique({
+        where: { ref: senderCityRef },
+        select: { description: true },
+      });
+      senderCityLabel = city?.description ?? undefined;
+    }
+
     return {
       isEnabled: row?.isEnabled ?? false,
       apiUrl: typeof cfg.apiUrl === "string" ? cfg.apiUrl : undefined,
       apiTimeoutMs: typeof cfg.apiTimeoutMs === "number" ? cfg.apiTimeoutMs : undefined,
-      senderCityRef: typeof cfg.senderCityRef === "string" ? cfg.senderCityRef : undefined,
-      senderWarehouseRef: typeof cfg.senderWarehouseRef === "string" ? cfg.senderWarehouseRef : undefined,
+      senderCityRef,
+      senderWarehouseRef,
       senderCounterpartyRef: typeof cfg.senderCounterpartyRef === "string" ? cfg.senderCounterpartyRef : undefined,
       senderContactRef: typeof cfg.senderContactRef === "string" ? cfg.senderContactRef : undefined,
       senderPhone: typeof cfg.senderPhone === "string" ? cfg.senderPhone : undefined,
       defaultPayerType: typeof cfg.defaultPayerType === "string" ? cfg.defaultPayerType : undefined,
       defaultPaymentMethod: typeof cfg.defaultPaymentMethod === "string" ? cfg.defaultPaymentMethod : undefined,
       apiKeyMasked: maskToken(row?.apiToken ?? undefined),
+      senderCityLabel,
+      senderWarehouseLabel,
     };
   }
 

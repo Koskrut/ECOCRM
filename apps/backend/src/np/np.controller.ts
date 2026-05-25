@@ -49,6 +49,16 @@ export class NpController {
     });
   }
 
+  @Get("sender-counterparties")
+  async senderCounterparties() {
+    return this.sync.listSenderCounterparties();
+  }
+
+  @Get("sender-contacts")
+  async senderContacts(@Query("counterpartyRef") counterpartyRef = "") {
+    return this.sync.listSenderContacts(counterpartyRef);
+  }
+
   // ручной sync (cities + warehouses)
   @Post("sync")
   async syncAll() {

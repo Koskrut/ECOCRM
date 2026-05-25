@@ -438,6 +438,73 @@ export class NpSyncService {
     };
   }
 
+  // ====== SENDER (контрагент / контакт з API НП) ======
+
+  private static formatCounterpartyLabel(row: Record<string, unknown>): string {
+    const desc = row.Description != null ? String(row.Description).trim() : "";
+    if (desc) return desc;
+    const parts = [row.LastName, row.FirstName, row.MiddleName]
+      .map((v) => (v != null ? String(v).trim() : ""))
+      .filter(Boolean);
+    const name = parts.join(" ");
+    const phones = row.Phones;
+    const phone =
+      typeof phones === "string"
+        ? phones.trim()
+        : Array.isArray(phones) && phones[0] != null
+          ? String(phones[0]).trim()
+          : "";
+    return [name, phone].filter(Boolean).join(" · ") || String(row.Ref ?? "");
+  }
+
+  private static formatContactLabel(row: Record<string, unknown>): string {
+    const parts = [row.LastName, row.FirstName, row.MiddleName]
+      .map((v) => (v != null ? String(v).trim() : ""))
+      .filter(Boolean);
+    const name = parts.join(" ");
+    const phones = row.Phones;
+    const phone =
+      typeof phones === "string"
+        ? phones.trim()
+        : Array.isArray(phones) && phones[0] != null
+          ? String(phones[0]).trim()
+          : "";
+    const desc = row.Description != null ? String(row.Description).trim() : "";
+    return [name || desc, phone].filter(Boolean).join(" · ") || String(row.Ref ?? "");
+  }
+
+  async listSenderCounterparties() {
+    const resp = await this.np.call<Record<string, unknown>>("Counterparty", "getCounterparties", {
+      CounterpartyProperty: "Sender",
+      Page: "1",
+    });
+    const items = (resp.data ?? []).map((row) => ({
+      ref: String(row.Ref ?? ""),
+      label: NpSyncService.formatCounterpartyLabel(row),
+      counterpartyType:
+        row.CounterpartyType != null ? String(row.CounterpartyType) : undefined,
+    }));
+    return { status: "OK", items: items.filter((i) => i.ref) };
+  }
+
+  async listSenderContacts(counterpartyRef: string) {
+    const ref = (counterpartyRef ?? "").trim();
+    if (!ref) {
+      return { status: "BAD_REQUEST", items: [], message: "counterpartyRef is required" };
+    }
+    const resp = await this.np.call<Record<string, unknown>>(
+      "Counterparty",
+      "getCounterpartyContactPersons",
+      { Ref: ref, Page: "1" },
+    );
+    const items = (resp.data ?? []).map((row) => ({
+      ref: String(row.Ref ?? ""),
+      label: NpSyncService.formatContactLabel(row),
+      phones: row.Phones,
+    }));
+    return { status: "OK", items: items.filter((i) => i.ref) };
+  }
+
   // ====== HELPERS ======
 
   /** Для поиска улиц: і↔и, є↔е, ї↔й чтобы "джин" находил "Джінчарадзе" */
