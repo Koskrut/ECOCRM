@@ -604,8 +604,10 @@ export class NpTtnService {
     resolved: { data: unknown };
     npRefs: Record<string, unknown>;
     orderNumber: string;
+    documentRef?: string | null;
+    documentNumber?: string | null;
   }) {
-    const { dto, resolved, npRefs, orderNumber } = args;
+    const { dto, resolved, npRefs, orderNumber, documentRef, documentNumber } = args;
     const d = resolved.data as Record<string, unknown>;
     const sender = await this.getSenderRefsFromEnv();
     const isPerson = d.recipientType === NpRecipientType.PERSON;
@@ -672,6 +674,8 @@ export class NpTtnService {
     // NP InternetDocument.save uses different payload shapes:
     // ADDRESS requires NewAddress + RecipientAddressName, but WAREHOUSE/POSTOMAT must be sent as SaveReq without them.
     return {
+      ...(documentRef?.trim() ? { Ref: documentRef.trim() } : {}),
+      ...(documentNumber?.trim() ? { IntDocNumber: documentNumber.trim() } : {}),
       ...(isAddress ? { NewAddress: "1" } : {}),
 
       PayerType: payerType,
@@ -1184,6 +1188,210 @@ export class NpTtnService {
       alreadyLinked: false,
       documentNumber: created.documentNumber,
       sourceOrderId: source.shipment?.orderId ?? source.orderId ?? null,
+    };
+  }
+
+  // ======================
+  // PUBLIC: get TTN details for view/edit
+  // ======================
+  private isTtnEditable(statusCode: string | null | undefined): boolean {
+    const code = statusCode != null ? String(statusCode).trim() : "";
+    return !code || code === "1";
+  }
+
+  private async findTtnForOrder(
+    orderId: string,
+    opts?: { ttnId?: string; shipmentId?: string },
+  ) {
+    const where: Prisma.OrderTtnWhereInput = {
+      carrier: "NOVA_POSHTA" as Carrier,
+      OR: [{ orderId }, { shipment: { orderId } }],
+    };
+    if (opts?.ttnId?.trim()) where.id = opts.ttnId.trim();
+    if (opts?.shipmentId?.trim()) where.shipmentId = opts.shipmentId.trim();
+
+    const row = await this.prisma.orderTtn.findFirst({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        shipment: { select: { id: true, recipientSnapshot: true, orderId: true } },
+      },
+    });
+    if (!row) throw new NotFoundException("TTN not found for this order");
+    return row;
+  }
+
+  async getTtnDetailsByOrderId(
+    orderId: string,
+    opts?: { ttnId?: string; shipmentId?: string },
+  ) {
+    const row = await this.findTtnForOrder(orderId, opts);
+    const snap = (row.shipment?.recipientSnapshot ?? {}) as Record<string, unknown>;
+    const payloadSnap = (row.payloadSnapshot ?? {}) as Record<string, unknown>;
+    const request = (payloadSnap.request ?? {}) as Record<string, unknown>;
+
+    let recipient = snap;
+    if (!recipient || Object.keys(recipient).length === 0) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { deliveryData: true },
+      });
+      const np = ((order?.deliveryData as Record<string, unknown> | null)?.novaPoshta ??
+        {}) as Record<string, unknown>;
+      recipient = np;
+    }
+
+    return {
+      ok: true,
+      ttn: {
+        id: row.id,
+        documentNumber: row.documentNumber,
+        documentRef: row.documentRef,
+        statusCode: row.statusCode,
+        statusText: row.statusText,
+        cost: row.cost,
+        shipmentId: row.shipmentId,
+        editable: this.isTtnEditable(row.statusCode),
+        payerType:
+          request.PayerType != null ? String(request.PayerType) : ("Recipient" as const),
+        paymentMethod: request.PaymentMethod != null ? String(request.PaymentMethod) : null,
+        recipient,
+      },
+    };
+  }
+
+  // ======================
+  // PUBLIC: update TTN (NP InternetDocument.update)
+  // ======================
+  async updateTtnFromOrder(
+    orderId: string,
+    dto: CreateNpTtnDto,
+    opts?: { ttnId?: string; shipmentId?: string },
+  ) {
+    if (process.env.NP_WRITES_DISABLED === "true") {
+      throw new ServiceUnavailableException(
+        "NP writes are disabled on this instance (use crm-module-np or unset NP_WRITES_DISABLED).",
+      );
+    }
+
+    const existing = await this.findTtnForOrder(orderId, opts);
+    if (!this.isTtnEditable(existing.statusCode)) {
+      throw new BadRequestException(
+        "ТТН уже в дорозі або доставлена — редагування недоступне. Скасуйте ТТН і створіть нову, якщо потрібно змінити дані.",
+      );
+    }
+    if (!existing.documentRef?.trim()) {
+      throw new BadRequestException(
+        "У запису ТТН відсутній documentRef (посилання НП). Редагування неможливе.",
+      );
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { contact: true, client: true },
+    });
+    if (!order) throw new BadRequestException("order not found");
+
+    const contactId = order.contactId ?? order.clientId ?? null;
+    if (!contactId) {
+      throw new BadRequestException("order.contactId or order.clientId is required");
+    }
+
+    const resolved = await this.resolveRecipientData(contactId, dto);
+    const resolvedData = resolved.data as Record<string, unknown>;
+    const deliveryType = resolvedData.deliveryType as string | undefined;
+    if (
+      deliveryType === NpDeliveryType.WAREHOUSE ||
+      deliveryType === NpDeliveryType.POSTOMAT
+    ) {
+      await this.tryResolveMissingNpRefsFromCache(resolvedData);
+    }
+    const cityRefVal = resolvedData.cityRef;
+    const warehouseRefVal = resolvedData.warehouseRef;
+    const missingRefs =
+      (deliveryType === NpDeliveryType.WAREHOUSE || deliveryType === NpDeliveryType.POSTOMAT) &&
+      (!cityRefVal || !warehouseRefVal);
+    if (missingRefs) {
+      throw new BadRequestException(
+        "У профілі доставки відсутні CityRef або WarehouseRef. Оберіть адресу вручну.",
+      );
+    }
+    if (deliveryType === NpDeliveryType.WAREHOUSE || deliveryType === NpDeliveryType.POSTOMAT) {
+      await this.enrichWarehouseRecipientData(resolvedData);
+    }
+
+    const npRefs = await this.ensureNpRecipientRefs(resolved);
+    const payload = await this.buildInternetDocumentPayload({
+      dto,
+      resolved,
+      npRefs,
+      orderNumber: order.orderNumber,
+      documentRef: existing.documentRef,
+      documentNumber: existing.documentNumber,
+    });
+
+    let doc: unknown;
+    try {
+      doc = await this.np.call<Record<string, unknown>>("InternetDocument", "update", payload);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new BadRequestException(`NP update error: ${msg}`);
+    }
+
+    const docObj = doc as { data?: Array<Record<string, unknown>>; errors?: string[] };
+    const docData = docObj?.data?.[0];
+    const cost =
+      docData?.CostOnSite != null
+        ? Number(docData.CostOnSite)
+        : existing.cost != null
+          ? Number(existing.cost)
+          : null;
+
+    await this.prisma.orderTtn.update({
+      where: { id: existing.id },
+      data: {
+        cost,
+        payloadSnapshot: {
+          request: payload,
+          response: doc,
+          previous: existing.payloadSnapshot ?? null,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    if (existing.shipmentId) {
+      await this.prisma.shipment.update({
+        where: { id: existing.shipmentId },
+        data: {
+          recipientSnapshot: resolved.data as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    await this.persistOrderDeliveryDataWithTtn(
+      order,
+      resolved as { data: Record<string, unknown> },
+      {
+        documentNumber: existing.documentNumber,
+        documentRef: existing.documentRef,
+        cost,
+        createdAt: existing.createdAt,
+      },
+    );
+
+    await this.upsertShippingProfile(
+      contactId,
+      dto,
+      resolved as { data: Record<string, unknown> },
+      npRefs,
+    );
+
+    return {
+      ok: true,
+      ttnId: existing.id,
+      documentNumber: existing.documentNumber,
+      documentRef: existing.documentRef,
+      cost,
     };
   }
 

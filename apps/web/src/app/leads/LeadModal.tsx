@@ -15,7 +15,9 @@ import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { strings } from "@/locales";
 import {
+  addressHasHouseNumber,
   autocompleteAddress,
   geocodePlace,
   mergeFormattedAddressWithUserDetail,
@@ -144,6 +146,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [mapsConfigError, setMapsConfigError] = useState<string | null>(null);
   const [showLeadAddressSuggestions, setShowLeadAddressSuggestions] = useState(false);
   const [leadAddressSuggestions, setLeadAddressSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [leadAddressError, setLeadAddressError] = useState<string | null>(null);
   const [isLeadAddressLookupLoading, setIsLeadAddressLookupLoading] = useState(false);
   const leadAddressAbortRef = useRef<AbortController | null>(null);
 
@@ -518,6 +521,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       if (!geo) return;
       const merged = mergeFormattedAddressWithUserDetail(userTyped, geo.formattedAddress);
       setLeadAddress(merged);
+      if (!addressHasHouseNumber(merged)) {
+        setLeadAddressError(strings.common.houseNumberRequired);
+        setLeadLat(null);
+        setLeadLng(null);
+        setLeadGooglePlaceId(null);
+        await patchLead({
+          address: merged,
+          lat: null,
+          lng: null,
+          googlePlaceId: null,
+        });
+        return;
+      }
+      setLeadAddressError(null);
       setLeadLat(geo.lat);
       setLeadLng(geo.lng);
       setLeadGooglePlaceId(geo.placeId);
@@ -1249,6 +1266,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 value={leadAddress}
                 onChange={(e) => {
                   setLeadAddress(e.target.value);
+                  setLeadAddressError(null);
                   setShowLeadAddressSuggestions(true);
                 }}
                 onFocus={() => setShowLeadAddressSuggestions(true)}
@@ -1256,6 +1274,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   window.setTimeout(() => setShowLeadAddressSuggestions(false), 200);
                   const t = leadAddress.trim();
                   if (t === (lead.address ?? "").trim()) return;
+                  if (t && !addressHasHouseNumber(t)) {
+                    setLeadAddressError(strings.common.houseNumberRequired);
+                    setLeadLat(null);
+                    setLeadLng(null);
+                    setLeadGooglePlaceId(null);
+                    void patchLead({
+                      address: t,
+                      lat: null,
+                      lng: null,
+                      googlePlaceId: null,
+                    });
+                    return;
+                  }
+                  setLeadAddressError(null);
                   void patchLead({ address: t || null });
                 }}
                 placeholder="Введіть адресу…"
@@ -1287,6 +1319,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 </ul>
               ) : null}
             </div>
+            {leadAddressError ? (
+              <p className="text-xs text-red-600">{leadAddressError}</p>
+            ) : null}
             {leadLat != null && leadLng != null ? (
               <p className="text-xs text-zinc-500">
                 Координати: {leadLat.toFixed(5)}, {leadLng.toFixed(5)}

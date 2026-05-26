@@ -678,6 +678,23 @@ export function OrderModal({
 
   // TTN
   const [showTtnModal, setShowTtnModal] = useState(false);
+  const [ttnModalMode, setTtnModalMode] = useState<"create" | "edit">("create");
+  const [ttnModalShipmentId, setTtnModalShipmentId] = useState<string | undefined>();
+  const [ttnModalTtnId, setTtnModalTtnId] = useState<string | undefined>();
+
+  const openTtnCreate = useCallback(() => {
+    setTtnModalMode("create");
+    setTtnModalShipmentId(undefined);
+    setTtnModalTtnId(undefined);
+    setShowTtnModal(true);
+  }, []);
+
+  const openTtnEdit = useCallback((opts?: { shipmentId?: string; ttnId?: string }) => {
+    setTtnModalMode("edit");
+    setTtnModalShipmentId(opts?.shipmentId);
+    setTtnModalTtnId(opts?.ttnId);
+    setShowTtnModal(true);
+  }, []);
 
   // Phase 5: returns
   const [orderReturns, setOrderReturns] = useState<
@@ -1549,6 +1566,7 @@ export function OrderModal({
   const shipmentRowsAll = (order?.shipments ?? []).map((s) => ({
     shipmentId: s.id,
     shipmentStatus: s.status ?? null,
+    ttnId: s.ttns?.[0]?.id ?? null,
     ttnNumber: s.ttns?.[0]?.documentNumber ?? null,
     ttnStatus: s.ttns?.[0]?.statusText ?? null,
   }));
@@ -3186,14 +3204,56 @@ export function OrderModal({
                           {shipmentRows.length > 0 ? (
                             shipmentRows.map((row) => (
                               <div key={row.shipmentId} className="flex items-center gap-2">
-                                <span className="font-medium text-zinc-900">
-                                  {row.ttnNumber ? `№ ${row.ttnNumber}` : "Без ТТН"}
-                                </span>
+                                {row.ttnNumber ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openTtnEdit({
+                                        shipmentId: row.shipmentId,
+                                        ttnId: row.ttnId ?? undefined,
+                                      })
+                                    }
+                                    className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+                                    title="Переглянути / редагувати ТТН"
+                                  >
+                                    № {row.ttnNumber}
+                                  </button>
+                                ) : (
+                                  <span className="font-medium text-zinc-400">Без ТТН</span>
+                                )}
                                 <span className="text-xs text-zinc-500">
                                   {formatShipmentStatus(row.shipmentStatus ?? "DRAFT")}
                                 </span>
                                 {row.ttnStatus ? (
                                   <span className="text-xs text-zinc-500">· {row.ttnStatus}</span>
+                                ) : null}
+                                {row.ttnNumber ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openTtnEdit({
+                                        shipmentId: row.shipmentId,
+                                        ttnId: row.ttnId ?? undefined,
+                                      })
+                                    }
+                                    className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                                    title="Переглянути / редагувати ТТН"
+                                    aria-label="Переглянути / редагувати ТТН"
+                                  >
+                                    <svg
+                                      className="h-4 w-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                      />
+                                    </svg>
+                                  </button>
                                 ) : null}
                                 <button
                                   type="button"
@@ -3279,13 +3339,49 @@ export function OrderModal({
                             ))
                           ) : (
                             <div className="flex items-center gap-2">
-                              <span className="font-medium text-zinc-900">
-                                {ttnNumber ? (
-                                  `№ ${ttnNumber}`
-                                ) : (
-                                  <span className="font-normal text-zinc-400">Не указано</span>
-                                )}
-                              </span>
+                              {ttnNumber ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openTtnEdit({
+                                      ttnId: order?.ttns?.[0]?.id,
+                                    })
+                                  }
+                                  className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+                                  title="Переглянути / редагувати ТТН"
+                                >
+                                  № {ttnNumber}
+                                </button>
+                              ) : (
+                                <span className="font-normal text-zinc-400">Не указано</span>
+                              )}
+                              {ttnNumber ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openTtnEdit({
+                                      ttnId: order?.ttns?.[0]?.id,
+                                    })
+                                  }
+                                  className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                                  title="Переглянути / редагувати ТТН"
+                                  aria-label="Переглянути / редагувати ТТН"
+                                >
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                    />
+                                  </svg>
+                                </button>
+                              ) : null}
                               {ttnNumber && orderId ? (
                                 <button
                                   type="button"
@@ -3329,7 +3425,7 @@ export function OrderModal({
                           {canShowCreateTtnButton ? (
                             <button
                               type="button"
-                              onClick={() => setShowTtnModal(true)}
+                              onClick={openTtnCreate}
                               className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50"
                               title="Create TTN (NP)"
                               aria-label="Create TTN"
@@ -3484,6 +3580,9 @@ export function OrderModal({
           apiBaseUrl={apiBaseUrl}
           open={showTtnModal}
           onClose={() => setShowTtnModal(false)}
+          dialogMode={ttnModalMode}
+          shipmentId={ttnModalShipmentId}
+          ttnId={ttnModalTtnId}
           orderId={orderId}
           contactId={order.contactId ?? order.clientId ?? ""}
           defaultPerson={
@@ -3497,6 +3596,9 @@ export function OrderModal({
           }
           onCreated={async () => {
             setShowTtnModal(false);
+            setTtnModalMode("create");
+            setTtnModalShipmentId(undefined);
+            setTtnModalTtnId(undefined);
             await Promise.all([refreshOrder(), refreshTimeline()]);
             onSaved?.();
           }}

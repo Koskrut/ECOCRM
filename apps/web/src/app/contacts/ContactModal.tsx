@@ -44,6 +44,7 @@ import {
 } from "./card/useContactCardAnalytics";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
+  addressHasHouseNumber,
   autocompleteAddress,
   geocodePlace,
   geocodeText,
@@ -1070,16 +1071,28 @@ export function ContactModal({
   const persistAddressIfChanged = useCallback(async () => {
     if (isCreate || !contact) return;
     const nextAddress = address.trim() || null;
+    const coordsAllowed = !nextAddress || addressHasHouseNumber(nextAddress);
+    const nextLat = coordsAllowed ? (lat ?? null) : null;
+    const nextLng = coordsAllowed ? (lng ?? null) : null;
+    const nextPlaceId = coordsAllowed ? (googlePlaceId ?? null) : null;
+    if (!coordsAllowed && nextAddress) {
+      setAddressError(strings.common.houseNumberRequired);
+    }
     const sameAddress = (contact.address ?? null) === nextAddress;
-    const sameLat = (contact.lat ?? null) === (lat ?? null);
-    const sameLng = (contact.lng ?? null) === (lng ?? null);
-    const samePlaceId = (contact.googlePlaceId ?? null) === (googlePlaceId ?? null);
+    const sameLat = (contact.lat ?? null) === nextLat;
+    const sameLng = (contact.lng ?? null) === nextLng;
+    const samePlaceId = (contact.googlePlaceId ?? null) === nextPlaceId;
     if (sameAddress && sameLat && sameLng && samePlaceId) return;
+    if (!coordsAllowed) {
+      setLat(null);
+      setLng(null);
+      setGooglePlaceId(null);
+    }
     await patchContact({
       address: nextAddress,
-      lat: lat ?? null,
-      lng: lng ?? null,
-      googlePlaceId: googlePlaceId ?? null,
+      lat: nextLat,
+      lng: nextLng,
+      googlePlaceId: nextPlaceId,
     });
   }, [address, contact, googlePlaceId, isCreate, lat, lng, patchContact]);
 
@@ -1106,6 +1119,27 @@ export function ContactModal({
           userTypedBeforeSelect,
           result.formattedAddress || suggestion.description,
         );
+        setAddress(merged);
+        if (!addressHasHouseNumber(merged)) {
+          setLat(null);
+          setLng(null);
+          setGooglePlaceId(null);
+          setAddressStatus(null);
+          setAddressError(strings.common.houseNumberRequired);
+          if (!isCreate) {
+            try {
+              await patchContact({
+                address: merged,
+                lat: null,
+                lng: null,
+                googlePlaceId: null,
+              });
+            } catch {
+              // keep local values
+            }
+          }
+          return;
+        }
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);
@@ -1138,6 +1172,27 @@ export function ContactModal({
       const query = rawAddress.trim();
       if (!mapsApiKey || query.length < 3) return;
       if (lastGeocodedAddressRef.current === query) return;
+      if (!addressHasHouseNumber(query)) {
+        lastGeocodedAddressRef.current = "";
+        setLat(null);
+        setLng(null);
+        setGooglePlaceId(null);
+        setAddressStatus(null);
+        setAddressError(strings.common.houseNumberRequired);
+        if (!isCreate) {
+          try {
+            await patchContact({
+              address: query,
+              lat: null,
+              lng: null,
+              googlePlaceId: null,
+            });
+          } catch {
+            // noop
+          }
+        }
+        return;
+      }
       lastGeocodedAddressRef.current = query;
       setAddressError(null);
       setIsGeocodeLoading(true);
@@ -1148,6 +1203,28 @@ export function ContactModal({
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
+        if (!addressHasHouseNumber(merged)) {
+          lastGeocodedAddressRef.current = "";
+          setLat(null);
+          setLng(null);
+          setGooglePlaceId(null);
+          setAddress(merged);
+          setAddressStatus(null);
+          setAddressError(strings.common.houseNumberRequired);
+          if (!isCreate) {
+            try {
+              await patchContact({
+                address: merged,
+                lat: null,
+                lng: null,
+                googlePlaceId: null,
+              });
+            } catch {
+              // noop
+            }
+          }
+          return;
+        }
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);

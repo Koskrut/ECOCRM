@@ -39,17 +39,23 @@ type PlacesSearchTextResponse = {
 
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 
-/** Prefer full addresses / buildings; `route` keeps partial street matches while typing. */
+/** Prefer full addresses / buildings (no bare street/route without house number). */
 export const ADDRESS_AUTOCOMPLETE_PRIMARY_TYPES = [
   "street_address",
   "premise",
   "subpremise",
-  "route",
 ] as const;
 
 /** Building numbers from user input (UA/RU/Latin), e.g. 15, 15А, 15/2 */
 const HOUSE_NUMBER_RE =
   /\b\d{1,4}[а-яА-Яa-zA-ZёЁіІїЇєЄ]?(?:\/\d+[а-яА-Яa-zA-ZёЁіІїЇєЄ]?)?\b/gu;
+
+export function addressHasHouseNumber(address: string): boolean {
+  const trimmed = address.trim();
+  if (!trimmed) return false;
+  HOUSE_NUMBER_RE.lastIndex = 0;
+  return HOUSE_NUMBER_RE.test(trimmed);
+}
 
 function normalizeAddressCompare(s: string): string {
   return s

@@ -16,12 +16,14 @@ import { OrderModal } from "../orders/OrderModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import {
+  addressHasHouseNumber,
   autocompleteAddress,
   geocodePlace,
   geocodeText,
   mergeFormattedAddressWithUserDetail,
   type PlaceSuggestion,
 } from "@/lib/googlePlacesNew";
+import { strings } from "@/locales";
 
 type GoogleMapsPublicConfig = { mapsApiKey: string | null };
 
@@ -328,9 +330,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       taxId?: string;
       phone?: string;
       address?: string;
-      lat?: number;
-      lng?: number;
-      googlePlaceId?: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
       ownerId?: string | null;
     }) => {
       if (isCreate || !companyId) return;
@@ -489,6 +491,28 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           userTypedBeforeSelect,
           result.formattedAddress || suggestion.description,
         );
+        if (!addressHasHouseNumber(merged)) {
+          if (forCreate) {
+            setAddress(merged);
+            setLat(null);
+            setLng(null);
+            setGooglePlaceId(null);
+          } else {
+            setEditAddress(merged);
+            setEditLat(null);
+            setEditLng(null);
+            setEditGooglePlaceId(null);
+            void patchCompany({
+              address: merged,
+              lat: null,
+              lng: null,
+              googlePlaceId: null,
+            });
+          }
+          setAddressStatus(null);
+          setAddressError(strings.common.houseNumberRequired);
+          return;
+        }
         if (forCreate) {
           setLat(result.lat);
           setLng(result.lng);
@@ -521,6 +545,27 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       const query = rawAddress.trim();
       if (!mapsApiKey || query.length < 3) return;
       if (lastGeocodedAddressRef.current === query) return;
+      if (!addressHasHouseNumber(query)) {
+        lastGeocodedAddressRef.current = "";
+        setAddressError(strings.common.houseNumberRequired);
+        setAddressStatus(null);
+        if (forCreate) {
+          setLat(null);
+          setLng(null);
+          setGooglePlaceId(null);
+        } else {
+          setEditLat(null);
+          setEditLng(null);
+          setEditGooglePlaceId(null);
+          void patchCompany({
+            address: query,
+            lat: null,
+            lng: null,
+            googlePlaceId: null,
+          });
+        }
+        return;
+      }
       lastGeocodedAddressRef.current = query;
       setAddressError(null);
       setIsGeocodeLoading(true);
@@ -531,6 +576,29 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
+        if (!addressHasHouseNumber(merged)) {
+          lastGeocodedAddressRef.current = "";
+          setAddressError(strings.common.houseNumberRequired);
+          setAddressStatus(null);
+          if (forCreate) {
+            setAddress(merged);
+            setLat(null);
+            setLng(null);
+            setGooglePlaceId(null);
+          } else {
+            setEditAddress(merged);
+            setEditLat(null);
+            setEditLng(null);
+            setEditGooglePlaceId(null);
+            void patchCompany({
+              address: merged,
+              lat: null,
+              lng: null,
+              googlePlaceId: null,
+            });
+          }
+          return;
+        }
         lastGeocodedAddressRef.current = merged.trim();
         if (forCreate) {
           setLat(result.lat);
@@ -928,9 +996,22 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   onFocus={() => setShowAddressSuggestions(true)}
                   onBlur={() => {
                     addressBlurTimeoutRef.current = setTimeout(() => setShowAddressSuggestions(false), 120);
+                    if (editAddress.trim().length >= 3 && mapsApiKey) {
+                      void geocodeFromAddressText(editAddress, false);
+                      return;
+                    }
                     const v = editAddress.trim() || null;
-                    if (v !== (company!.address ?? null)) void patchCompany({ address: v ?? undefined });
-                    if (editAddress.trim().length >= 3 && mapsApiKey) void geocodeFromAddressText(editAddress, false);
+                    if (v !== (company!.address ?? null)) {
+                      if (v && !addressHasHouseNumber(v)) {
+                        setAddressError(strings.common.houseNumberRequired);
+                        setEditLat(null);
+                        setEditLng(null);
+                        setEditGooglePlaceId(null);
+                        void patchCompany({ address: v, lat: null, lng: null, googlePlaceId: null });
+                      } else {
+                        void patchCompany({ address: v ?? undefined });
+                      }
+                    }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") e.currentTarget.blur();

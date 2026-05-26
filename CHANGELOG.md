@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.71**.)_
+_(планируемые изменения после **0.2.72**.)_
+
+## [0.2.72] — 2026-05-25
+
+### Summary
+
+Патч **0.2.72**: **НП ТТН** — просмотр/редактирование, update с `Ref`/`IntDocNumber`; **TtnModal** и BFF; **сотрудники** — адрес маршрута (`RouteAddressInput`, Google Places); доработки модалок **company/contact/lead/order**; локали.
+
+### Added
+
+- **Backend NP**: `getTtnDetailsByOrderId`, редактирование черновика ТТН; контроллер endpoints.
+- **Web**: `RouteAddressInput`, `useRouteAddressField`; расширенный **TtnModal**.
+
+### Changed
+
+- **EmployeeModal** — рефакторинг, маршрут start/end через Places.
+- **OrderModal**, **CompanyModal**, **ContactModal**, **LeadModal** — адреса/Places.
+- **googlePlacesNew** — мелкие правки.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.72`**, полный манифест; миграций нет — `pull` / `up -d`.
 
 ## [0.2.71] — 2026-05-25
 
@@ -304,7 +325,7 @@ _(планируемые изменения после **0.2.71**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.71`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.72`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

@@ -1,5 +1,5 @@
 // src/np/np-ttn.controller.ts
-import { Body, Controller, Delete, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { Request } from "express";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
@@ -23,6 +23,38 @@ export class NpTtnController {
     return this.ttn.syncActiveTtns({
       limit: limit ? Number(limit) : 200,
     });
+  }
+
+  @Get("ttn/:orderId")
+  async getTtn(
+    @Param("orderId") orderId: string,
+    @Query("shipmentId") shipmentId?: string,
+    @Query("ttnId") ttnId?: string,
+  ) {
+    return this.ttn.getTtnDetailsByOrderId(orderId, { shipmentId, ttnId });
+  }
+
+  @Patch("ttn/:orderId")
+  async updateTtn(
+    @Param("orderId") orderId: string,
+    @Body() dto: CreateNpTtnDto,
+    @Req() req: Request,
+    @Query("shipmentId") shipmentId?: string,
+    @Query("ttnId") ttnId?: string,
+  ) {
+    const raw = req.body as Record<string, unknown>;
+    if (!dto.profileId && !dto.draft && raw?.draft && typeof raw.draft === "object") {
+      (dto as Record<string, unknown>).draft = raw.draft as CreateNpTtnDto["draft"];
+    }
+    const rawProfileId = raw?.profileId;
+    if (
+      (!dto.profileId || typeof dto.profileId !== "string" || !dto.profileId.trim()) &&
+      typeof rawProfileId === "string" &&
+      rawProfileId.trim()
+    ) {
+      (dto as Record<string, unknown>).profileId = rawProfileId.trim();
+    }
+    return this.ttn.updateTtnFromOrder(orderId, dto, { shipmentId, ttnId });
   }
 
   // ✅ создать ТТН из заказа

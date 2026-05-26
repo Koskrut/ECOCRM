@@ -47,6 +47,23 @@ export type NpShippingProfile = {
 
 type ProfilesResponse = { items: NpShippingProfile[] } | NpShippingProfile[];
 
+type TtnDetailsResponse = {
+  ok?: boolean;
+  ttn?: {
+    id: string;
+    documentNumber: string;
+    documentRef?: string | null;
+    statusCode?: string | null;
+    statusText?: string | null;
+    cost?: number | null;
+    shipmentId?: string | null;
+    editable?: boolean;
+    payerType?: string | null;
+    paymentMethod?: string | null;
+    recipient?: Record<string, unknown>;
+  };
+};
+
 type Props = {
   apiBaseUrl: string; // usually "/api"
   open: boolean;
@@ -56,6 +73,13 @@ type Props = {
 
   // IMPORTANT: should be order.contactId (contact used for TTN)
   contactId: string;
+
+  /** create (default) or edit existing TTN */
+  dialogMode?: "create" | "edit";
+
+  /** Target TTN when mode=edit (optional if only one TTN on order) */
+  ttnId?: string;
+  shipmentId?: string;
 
   /** When no profiles exist, pre-fill NEW form with these values */
   defaultPerson?: { firstName?: string; lastName?: string; phone?: string } | null;
@@ -69,12 +93,23 @@ export function TtnModal({
   onClose,
   orderId,
   contactId,
+  dialogMode = "create",
+  ttnId,
+  shipmentId,
   defaultPerson,
   onCreated,
 }: Props) {
+  const isEdit = dialogMode === "edit";
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ttnMeta, setTtnMeta] = useState<{
+    id: string;
+    documentNumber: string;
+    statusText?: string | null;
+    statusCode?: string | null;
+    editable: boolean;
+  } | null>(null);
   const [duplicateChoice, setDuplicateChoice] = useState<{
     documentNumber: string;
     orderId: string;
@@ -157,7 +192,70 @@ export function TtnModal({
     setStreetName("");
     setBuilding("");
     setFlat("");
+    setPayerType("Recipient");
   }, []);
+
+  const applyRecipientToForm = useCallback((recipient: Record<string, unknown>) => {
+    const rt = recipient.recipientType === "COMPANY" ? "COMPANY" : "PERSON";
+    const dt =
+      recipient.deliveryType === "ADDRESS"
+        ? "ADDRESS"
+        : recipient.deliveryType === "POSTOMAT"
+          ? "POSTOMAT"
+          : "WAREHOUSE";
+    setRecipientType(rt);
+    setDeliveryType(dt);
+    setLabel(String(recipient.label ?? ""));
+    setNpRecipientFirstName(String(recipient.firstName ?? ""));
+    setNpRecipientLastName(String(recipient.lastName ?? ""));
+    setNpRecipientMiddleName(String(recipient.middleName ?? ""));
+    setNpRecipientPhone(String(recipient.phone ?? ""));
+    setNpCompanyName(String(recipient.companyName ?? ""));
+    setNpEdrpou(String(recipient.edrpou ?? ""));
+    setNpContactPersonFirstName(String(recipient.contactPersonFirstName ?? ""));
+    setNpContactPersonLastName(String(recipient.contactPersonLastName ?? ""));
+    setNpContactPersonMiddleName(String(recipient.contactPersonMiddleName ?? ""));
+    setNpContactPersonPhone(String(recipient.contactPersonPhone ?? ""));
+    setCityRef(String(recipient.cityRef ?? ""));
+    setCityName(String(recipient.cityName ?? ""));
+    setWarehouseRef(String(recipient.warehouseRef ?? ""));
+    setWarehouseNumber(String(recipient.warehouseNumber ?? ""));
+    const whNum = String(recipient.warehouseNumber ?? "").trim();
+    setWarehouseLabel(whNum ? `№${whNum}` : "");
+    setStreetRef(String(recipient.streetRef ?? ""));
+    setStreetName(String(recipient.streetName ?? ""));
+    setBuilding(String(recipient.building ?? ""));
+    setFlat(String(recipient.flat ?? ""));
+  }, []);
+
+  const loadTtnDetails = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (ttnId?.trim()) params.set("ttnId", ttnId.trim());
+    if (shipmentId?.trim()) params.set("shipmentId", shipmentId.trim());
+    const qs = params.toString();
+    const res = await apiHttp.get<TtnDetailsResponse>(
+      `/orders/${orderId}/np/ttn${qs ? `?${qs}` : ""}`,
+      { headers: { "Cache-Control": "no-store" } },
+    );
+    const data = res.data as TtnDetailsResponse & { data?: TtnDetailsResponse };
+    const ttn = data.ttn ?? data.data?.ttn;
+    if (!ttn) throw new Error("TTN details not found");
+    setTtnMeta({
+      id: ttn.id,
+      documentNumber: ttn.documentNumber,
+      statusText: ttn.statusText,
+      statusCode: ttn.statusCode,
+      editable: ttn.editable !== false,
+    });
+    const payer = String(ttn.payerType ?? "").trim();
+    if (payer === "Sender" || payer === "Recipient") setPayerType(payer);
+    if (ttn.recipient && typeof ttn.recipient === "object") {
+      applyRecipientToForm(ttn.recipient);
+      setMode("NEW");
+      setSelectedProfileId("");
+    }
+    return ttn;
+  }, [applyRecipientToForm, orderId, shipmentId, ttnId]);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -254,9 +352,27 @@ export function TtnModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setTtnMeta(null);
+    setDuplicateChoice(null);
     resetNewForm();
+
+    if (isEdit) {
+      setLoading(true);
+      void (async () => {
+        try {
+          await loadTtnDetails();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Failed to load TTN";
+          setError(msg);
+        } finally {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
+
     void loadProfiles();
-  }, [open, loadProfiles, resetNewForm]);
+  }, [open, isEdit, loadProfiles, loadTtnDetails, resetNewForm]);
 
   useEffect(() => {
     if (!open) return;
@@ -338,7 +454,48 @@ export function TtnModal({
     return validateNpShippingProfileForm(newFormValues, { requireLabel: !!saveToContact });
   };
 
-  const handleCreate = async () => {
+  const buildDraftPayload = () => ({
+    saveAsProfile: !!saveToContact,
+    profileLabel: newFormValues.label?.trim() || undefined,
+    payerType,
+    draft: {
+      recipientType: newFormValues.recipientType,
+      deliveryType: newFormValues.deliveryType,
+
+      ...(newFormValues.recipientType === "PERSON"
+        ? {
+            firstName: newFormValues.firstName.trim() || undefined,
+            lastName: newFormValues.lastName.trim() || undefined,
+            middleName: newFormValues.middleName.trim() || undefined,
+            phone: newFormValues.phone.trim() || undefined,
+          }
+        : {
+            companyName: newFormValues.companyName.trim() || undefined,
+            edrpou: newFormValues.edrpou.trim() || undefined,
+            contactPersonFirstName: newFormValues.contactPersonFirstName.trim() || undefined,
+            contactPersonLastName: newFormValues.contactPersonLastName.trim() || undefined,
+            contactPersonMiddleName: newFormValues.contactPersonMiddleName.trim() || undefined,
+            contactPersonPhone: newFormValues.contactPersonPhone.trim() || undefined,
+          }),
+
+      cityRef: newFormValues.cityRef.trim(),
+      cityName: newFormValues.cityName.trim() || undefined,
+
+      ...(newFormValues.deliveryType === "ADDRESS"
+        ? {
+            streetRef: newFormValues.streetRef.trim(),
+            streetName: newFormValues.streetName.trim() || undefined,
+            building: newFormValues.building.trim(),
+            flat: newFormValues.flat.trim() || undefined,
+          }
+        : {
+            warehouseRef: newFormValues.warehouseRef.trim(),
+            warehouseNumber: newFormValues.warehouseNumber.trim() || undefined,
+          }),
+    },
+  });
+
+  const handleSave = async () => {
     setError(null);
     setDuplicateChoice(null);
     const getBackendErrorData = (err: unknown): Record<string, unknown> => {
@@ -364,6 +521,36 @@ export function TtnModal({
     }
 
     const createPath = `/orders/${orderId}/np/ttn`;
+    const query = new URLSearchParams();
+    if (isEdit && ttnId?.trim()) query.set("ttnId", ttnId.trim());
+    if (isEdit && shipmentId?.trim()) query.set("shipmentId", shipmentId.trim());
+    const pathWithQuery = query.toString() ? `${createPath}?${query}` : createPath;
+
+    if (isEdit) {
+      if (ttnMeta && !ttnMeta.editable) {
+        setError("ТТН уже відправлена — редагування недоступне");
+        return;
+      }
+      const err = validateNew();
+      if (err) {
+        setError(err);
+        return;
+      }
+      setCreating(true);
+      try {
+        const res = await apiHttp.patch(pathWithQuery, buildDraftPayload());
+        onCreated?.(res.data);
+        onClose();
+      } catch (e) {
+        const data = getBackendErrorData(e);
+        const msg =
+          String(data?.message ?? "") || (e instanceof Error ? e.message : "Failed to update TTN");
+        setError(msg);
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
 
     if (mode === "EXISTING") {
       if (!selectedProfileId?.trim()) {
@@ -416,46 +603,7 @@ export function TtnModal({
     let draftPayloadForDuplicate: Record<string, unknown> | null = null;
     setCreating(true);
     try {
-      const payload = {
-        saveAsProfile: !!saveToContact,
-        profileLabel: newFormValues.label?.trim() || undefined,
-        payerType,
-        draft: {
-          recipientType: newFormValues.recipientType,
-          deliveryType: newFormValues.deliveryType,
-
-          ...(newFormValues.recipientType === "PERSON"
-            ? {
-                firstName: newFormValues.firstName.trim() || undefined,
-                lastName: newFormValues.lastName.trim() || undefined,
-                middleName: newFormValues.middleName.trim() || undefined,
-                phone: newFormValues.phone.trim() || undefined,
-              }
-            : {
-                companyName: newFormValues.companyName.trim() || undefined,
-                edrpou: newFormValues.edrpou.trim() || undefined,
-                contactPersonFirstName: newFormValues.contactPersonFirstName.trim() || undefined,
-                contactPersonLastName: newFormValues.contactPersonLastName.trim() || undefined,
-                contactPersonMiddleName: newFormValues.contactPersonMiddleName.trim() || undefined,
-                contactPersonPhone: newFormValues.contactPersonPhone.trim() || undefined,
-              }),
-
-          cityRef: newFormValues.cityRef.trim(),
-          cityName: newFormValues.cityName.trim() || undefined,
-
-          ...(newFormValues.deliveryType === "ADDRESS"
-            ? {
-                streetRef: newFormValues.streetRef.trim(),
-                streetName: newFormValues.streetName.trim() || undefined,
-                building: newFormValues.building.trim(),
-                flat: newFormValues.flat.trim() || undefined,
-              }
-            : {
-                warehouseRef: newFormValues.warehouseRef.trim(),
-                warehouseNumber: newFormValues.warehouseNumber.trim() || undefined,
-              }),
-        },
-      };
+      const payload = buildDraftPayload();
       draftPayloadForDuplicate = payload as Record<string, unknown>;
 
       const res = await apiHttp.post(createPath, payload);
@@ -528,6 +676,13 @@ export function TtnModal({
 
   if (!open) return null;
 
+  const readOnly = isEdit && ttnMeta != null && !ttnMeta.editable;
+  const modalTitle = isEdit
+    ? ttnMeta?.documentNumber
+      ? `ТТН №${ttnMeta.documentNumber}`
+      : "ТТН"
+    : "Створити ТТН";
+
   const profileLabelText =
     selectedProfile?.label?.trim() ||
     (selectedProfile
@@ -570,7 +725,13 @@ export function TtnModal({
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 flex-shrink-0">
           <div>
             <div className="text-sm text-zinc-500">Nova Poshta</div>
-            <div className="text-lg font-semibold text-zinc-900">Створити ТТН</div>
+            <div className="text-lg font-semibold text-zinc-900">{modalTitle}</div>
+            {isEdit && ttnMeta?.statusText ? (
+              <div className="mt-0.5 text-xs text-zinc-500">
+                Статус: {ttnMeta.statusText}
+                {ttnMeta.statusCode ? ` (код ${ttnMeta.statusCode})` : ""}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -586,7 +747,12 @@ export function TtnModal({
 
         <div className="px-6 py-4 overflow-auto flex-1">
           {error ? <div className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-          {duplicateChoice ? (
+          {readOnly ? (
+            <div className="mb-3 rounded-lg bg-zinc-100 p-3 text-sm text-zinc-700">
+              ТТН уже відправлена або доставлена — перегляд доступний, редагування вимкнено.
+            </div>
+          ) : null}
+          {!isEdit && duplicateChoice ? (
             <div
               className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
               tabIndex={-1}
@@ -631,6 +797,7 @@ export function TtnModal({
             </div>
           ) : null}
 
+          {!isEdit ? (
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="flex gap-4">
               <label className="flex cursor-pointer items-center gap-2" htmlFor="np-mode-profile">
@@ -660,6 +827,7 @@ export function TtnModal({
             </div>
             {loading && <div className="text-xs text-zinc-500">Завантаження…</div>}
           </div>
+          ) : null}
 
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <span className="text-sm font-medium text-zinc-700">Плательщик</span>
@@ -672,6 +840,7 @@ export function TtnModal({
                   checked={payerType === "Recipient"}
                   onChange={() => setPayerType("Recipient")}
                   className="h-4 w-4 flex-shrink-0"
+                  disabled={readOnly || loading}
                 />
                 <span className="text-sm">Отримувач</span>
               </label>
@@ -683,13 +852,14 @@ export function TtnModal({
                   checked={payerType === "Sender"}
                   onChange={() => setPayerType("Sender")}
                   className="h-4 w-4 flex-shrink-0"
+                  disabled={readOnly || loading}
                 />
                 <span className="text-sm">Відправник</span>
               </label>
             </div>
           </div>
 
-          {mode === "EXISTING" ? (
+          {!isEdit && mode === "EXISTING" ? (
             <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <h3 className="text-sm font-medium text-zinc-800">Адреса доставки Нова пошта</h3>
               {profiles.length === 0 ? (
@@ -754,7 +924,7 @@ export function TtnModal({
           ) : (
             <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <NpShippingProfileFormFields
-                disabled={creating}
+                disabled={creating || readOnly || loading}
                 requireLabel={false}
                 values={newFormValues}
                 onChange={setNewFormPatch}
@@ -776,19 +946,27 @@ export function TtnModal({
             Скасувати
           </button>
 
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={
-              creating ||
-              loading ||
-              !!duplicateChoice ||
-              (mode === "EXISTING" && (profiles.length === 0 || !selectedProfileId?.trim()))
-            }
-            className="btn-primary rounded-md px-3 py-2 text-sm"
-          >
-            {creating ? "Створення…" : "Створити ТТН"}
-          </button>
+          {!readOnly ? (
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={
+                creating ||
+                loading ||
+                (!isEdit && !!duplicateChoice) ||
+                (!isEdit && mode === "EXISTING" && (profiles.length === 0 || !selectedProfileId?.trim()))
+              }
+              className="btn-primary rounded-md px-3 py-2 text-sm"
+            >
+              {creating
+                ? isEdit
+                  ? "Збереження…"
+                  : "Створення…"
+                : isEdit
+                  ? "Зберегти зміни"
+                  : "Створити ТТН"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
