@@ -152,7 +152,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
   const canClose = !saving && !creatingOrder;
 
-  const title = useMemo(() => (isCreate ? "New company" : "Company"), [isCreate]);
+  const title = useMemo(() => (isCreate ? "Нова компанія" : "Компанія"), [isCreate]);
 
   useEffect(() => {
     if (companyId) {
@@ -220,7 +220,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
     } catch (e) {
       setCompany(null);
-      setErr(e instanceof Error ? e.message : "Failed to load company");
+      setErr(e instanceof Error ? e.message : "Не вдалося завантажити компанію");
     } finally {
       setLoading(false);
     }
@@ -270,14 +270,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setMapsApiKey(key);
       if (!key) {
         setMapsConfigError(
-          "Google Maps API key is not configured. Address autocomplete works only as plain text.",
+          "Ключ Google Maps API не налаштовано. Автодоповнення адреси працює лише як простий текст.",
         );
       } else {
         setMapsConfigError(null);
       }
     } catch {
       setMapsApiKey(null);
-      setMapsConfigError("Failed to load Google Maps configuration.");
+      setMapsConfigError("Не вдалося завантажити конфігурацію Google Maps.");
     }
   }, []);
 
@@ -304,7 +304,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       const items = await companiesApi.getChangeHistory(companyId);
       setChangeHistory(items);
     } catch (e) {
-      setChangeHistoryError(e instanceof Error ? e.message : "Failed to load history");
+      setChangeHistoryError(e instanceof Error ? e.message : "Не вдалося завантажити історію");
       setChangeHistory([]);
     } finally {
       setLoadingChangeHistory(false);
@@ -345,7 +345,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
         onUpdate();
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Save failed");
+        setErr(e instanceof Error ? e.message : "Не вдалося зберегти");
       } finally {
         setSaving(false);
       }
@@ -373,13 +373,13 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         ...(googlePlaceId ? { googlePlaceId } : {}),
         ownerId: createOwnerId,
       };
-      if (!payload.name) throw new Error("Name is required");
+      if (!payload.name) throw new Error("Назва обов'язкова");
 
       await apiHttp.post<Company>("/companies", payload);
       onUpdate();
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Save failed");
+      setErr(e instanceof Error ? e.message : "Не вдалося зберегти");
     } finally {
       setSaving(false);
     }
@@ -433,7 +433,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setVisitPlanSuccess(null);
       const visit = await visitsApi.create({
         companyId: company.id,
-        title: company.name || "Visit",
+        title: company.name || "Візит",
         addressText: company.address ?? undefined,
         lat: effectiveLat,
         lng: effectiveLng,
@@ -449,9 +449,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           durationMin,
           purpose: visitPurpose.trim(),
         });
-        setVisitPlanSuccess("Встреча запланирована и добавлена в активность компании.");
+        setVisitPlanSuccess("Зустріч заплановано та додано в активність компанії.");
       } else {
-        setVisitPlanSuccess("Встреча добавлена в backlog. Укажите время позже на странице визитов.");
+        setVisitPlanSuccess("Зустріч додано в backlog. Вкажіть час пізніше на сторінці візитів.");
       }
       setVisitPurpose("");
       setVisitStartsAt("");
@@ -460,7 +460,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to schedule visit");
+        (e instanceof Error ? e.message : "Не вдалося запланувати візит");
       setVisitPlanError(msg);
       setVisitPlanSuccess(null);
     } finally {
@@ -484,7 +484,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError("Сервіс адрес тимчасово недоступний.");
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(
@@ -532,7 +532,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         }
         setAddressStatus("google");
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
       } finally {
         setIsGeocodeLoading(false);
       }
@@ -572,7 +572,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       try {
         const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError("Сервіс адрес тимчасово недоступний.");
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
@@ -619,7 +619,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         }
         setAddressStatus("geocoded");
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
       } finally {
         setIsGeocodeLoading(false);
       }
@@ -672,7 +672,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       } catch {
         if (autocompleteAbortRef.current !== controller) return;
         setAddressSuggestions([]);
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
       } finally {
         if (autocompleteAbortRef.current === controller) {
           setIsAddressLookupLoading(false);
@@ -687,7 +687,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   }, [isCreate, address, editAddress, showAddressSuggestions, mapsApiKey]);
 
   const unlinkContactFromCompany = async (contactId: string) => {
-    if (!confirm("Remove this contact from the company?")) return;
+    if (!confirm("Видалити цей контакт з компанії?")) return;
     try {
       await apiHttp.patch(`/contacts/${contactId}`, { companyId: null });
       await loadCompanyContacts();
@@ -712,7 +712,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setOrdersReloadKey((x) => x + 1);
       setOrderId(created.id);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to create order");
+      setErr(e instanceof Error ? e.message : "Не вдалося створити замовлення");
     } finally {
       setCreatingOrder(false);
     }
@@ -723,27 +723,27 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const labelClass = "text-xs font-medium text-zinc-500";
 
   const aboutCompanySection = useMemo(() => {
-    if (loading) return <div className="text-sm text-zinc-500">Loading…</div>;
+    if (loading) return <div className="text-sm text-zinc-500">Завантаження…</div>;
     if (err)
       return (
         <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
           {err}
         </div>
       );
-    if (!company && !isCreate) return <div className="text-sm text-zinc-500">Not found</div>;
+    if (!company && !isCreate) return <div className="text-sm text-zinc-500">Не знайдено</div>;
     if (isCreate) {
       return (
         <div className="space-y-4">
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">О компании</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Про компанію</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1">
-                <label className={labelClass}>Название</label>
+                <label className={labelClass}>Назва</label>
                 <input
                   className={inputClass}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Введите название компании..."
+                  placeholder="Введіть назву компанії..."
                   disabled={saving}
                 />
               </div>
@@ -753,7 +753,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   className={inputClass}
                   value={edrpou}
                   onChange={(e) => setEdrpou(e.target.value)}
-                  placeholder="Введите ЄДРПОУ..."
+                  placeholder="Введіть ЄДРПОУ..."
                   disabled={saving}
                 />
               </div>
@@ -763,7 +763,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   className={inputClass}
                   value={taxId}
                   onChange={(e) => setTaxId(e.target.value)}
-                  placeholder="Введите ІПН..."
+                  placeholder="Введіть ІПН..."
                   disabled={saving}
                 />
               </div>
@@ -773,12 +773,12 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   className={inputClass}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Введите телефон..."
+                  placeholder="Введіть телефон..."
                   disabled={saving}
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className={labelClass}>Ответственный</label>
+                <label className={labelClass}>Відповідальний</label>
                 <SearchableSelectLite
                   value={createOwnerId ?? ""}
                   options={userOptions}
@@ -827,11 +827,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   ) : null}
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {isAddressLookupLoading && mapsApiKey ? "Поиск адресов…" : null}
-                  {!isAddressLookupLoading && isGeocodeLoading ? "Поиск координат…" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адрес из Google" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координаты обновлены" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точка задана вручную" : null}
+                  {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
+                  {!isAddressLookupLoading && isGeocodeLoading ? "Пошук координат…" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адреса з Google" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координати оновлено" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точку задано вручну" : null}
                   {!isAddressLookupLoading && !isGeocodeLoading && addressError ? addressError : null}
                   {!mapsApiKey ? mapsConfigError : null}
                 </div>
@@ -869,7 +869,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           </section>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={() => void save()} disabled={saving} className="btn-primary">
-              {saving ? "Сохранение…" : "Сохранить"}
+              {saving ? "Збереження…" : "Зберегти"}
             </button>
             <button
               type="button"
@@ -877,7 +877,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               disabled={saving}
               className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
-              Отмена
+              Скасувати
             </button>
           </div>
         </div>
@@ -886,13 +886,13 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     return (
       <div className="space-y-6">
         <section className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">О компании</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Про компанію</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
-              <label className={labelClass}>Название</label>
+              <label className={labelClass}>Назва</label>
               <input
                 className={inputClass}
-                placeholder="Введите название..."
+                placeholder="Введіть назву..."
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={() => {
@@ -909,7 +909,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               <label className={labelClass}>ЄДРПОУ</label>
               <input
                 className={inputClass}
-                placeholder="Введите ЄДРПОУ..."
+                placeholder="Введіть ЄДРПОУ..."
                 value={editEdrpou}
                 onChange={(e) => setEditEdrpou(e.target.value)}
                 onBlur={() => {
@@ -926,7 +926,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               <label className={labelClass}>ІПН</label>
               <input
                 className={inputClass}
-                placeholder="Введите ІПН..."
+                placeholder="Введіть ІПН..."
                 value={editTaxId}
                 onChange={(e) => setEditTaxId(e.target.value)}
                 onBlur={() => {
@@ -943,7 +943,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               <label className={labelClass}>Телефон</label>
               <input
                 className={inputClass}
-                placeholder="Введите телефон..."
+                placeholder="Введіть телефон..."
                 value={editPhone}
                 onChange={(e) => setEditPhone(e.target.value)}
                 onBlur={() => {
@@ -957,7 +957,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className={labelClass}>Ответственный</label>
+              <label className={labelClass}>Відповідальний</label>
               <SearchableSelectLite
                 variant="inline"
                 value={ownerId ?? ""}
@@ -975,7 +975,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <div className="flex flex-col gap-1 sm:col-span-2">
               <label className={labelClass}>Адрес</label>
               {addressRequiredForVisit ? (
-                <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
+                <p className="text-sm text-red-600">Заповніть адресу для планування зустрічей</p>
               ) : null}
               <div className="relative">
                 <input
@@ -1037,11 +1037,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                 ) : null}
               </div>
               <div className="text-xs text-zinc-500">
-                {isAddressLookupLoading && mapsApiKey ? "Поиск адресов…" : null}
-                {!isAddressLookupLoading && isGeocodeLoading ? "Поиск координат…" : null}
-                {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адрес из Google" : null}
-                {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координаты обновлены" : null}
-                {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точка задана вручную" : null}
+                  {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
+                  {!isAddressLookupLoading && isGeocodeLoading ? "Пошук координат…" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адреса з Google" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координати оновлено" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точку задано вручну" : null}
                 {!isAddressLookupLoading && !isGeocodeLoading && addressError ? addressError : null}
                 {!mapsApiKey ? mapsConfigError : null}
               </div>
@@ -1083,7 +1083,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <span className="text-zinc-900">
               {company!.lastVisitAt
                 ? formatDateTime(company!.lastVisitAt)
-                : <span className="font-normal text-zinc-400">Нет визитов</span>}
+                : <span className="font-normal text-zinc-400">Немає візитів</span>}
             </span>
             <button
               type="button"
@@ -1091,16 +1091,16 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               disabled={saving || planningVisit}
               className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              Запланировать встречу
+              Запланувати зустріч
             </button>
           </div>
         </div>
         <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Планирование встречи</div>
+              <div className="text-sm font-semibold text-zinc-900">Планування зустрічі</div>
               <p className="mt-1 text-xs text-zinc-500">
-                Планируйте встречу прямо по компании: цель обязательна, время можно задать сразу.
+                Плануйте зустріч прямо по компанії: мета обовʼязкова, час можна задати одразу.
               </p>
             </div>
             <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-600">
@@ -1131,7 +1131,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className={labelClass}>Длительность, мин</span>
+                <span className={labelClass}>Тривалість, хв</span>
                 <select
                   value={visitDurationMin}
                   onChange={(e) => setVisitDurationMin(e.target.value)}
@@ -1165,9 +1165,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               className="btn-primary"
             >
               {planningVisit
-                ? "Сохраняем…"
+                ? "Зберігаємо…"
                 : visitStartsAt
-                  ? "Запланировать на дату"
+                  ? "Запланувати на дату"
                   : "Добавить в backlog"}
             </button>
             <p className="text-xs text-zinc-500">
@@ -1176,11 +1176,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           </div>
         </div>
         <div className="border-t border-zinc-100 pt-3">
-          <div className="text-sm font-medium text-zinc-700 mb-2">Контакты</div>
+          <div className="text-sm font-medium text-zinc-700 mb-2">Контакти</div>
           {loadingContacts ? (
-            <p className="text-xs text-zinc-500">Загрузка…</p>
+            <p className="text-xs text-zinc-500">Завантаження…</p>
           ) : companyContacts.length === 0 ? (
-            <p className="text-xs text-zinc-500">Нет привязанных контактов</p>
+            <p className="text-xs text-zinc-500">Немає привʼязаних контактів</p>
           ) : (
             <ul className="space-y-2">
               {companyContacts.map((c) => (
@@ -1272,14 +1272,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           }`}
         >
           {tab === "main"
-            ? "Main"
+            ? "Основне"
             : tab === "orders"
-              ? "Orders"
+              ? "Замовлення"
               : tab === "contacts"
-                ? "Contacts"
+                ? "Контакти"
                 : tab === "tasks"
-                  ? "Tasks"
-                  : "Change history"}
+                  ? "Завдання"
+                  : "Історія змін"}
         </button>
       ))}
     </div>
@@ -1290,15 +1290,15 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       {leftTab === "main" && (
         isCreate ? (
           <div className="min-h-0 overflow-auto">
-            <EntitySection title="About company">{aboutCompanySection}</EntitySection>
+            <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
           </div>
         ) : (
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-2">
             <div className="min-h-0 overflow-auto border-zinc-200 lg:border-r lg:pr-4">
-              <EntitySection title="About company">{aboutCompanySection}</EntitySection>
+              <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
             </div>
             <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4">
-              <EntitySection title="Activity">
+              <EntitySection title="Активність">
                 <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
               </EntitySection>
             </div>
@@ -1309,9 +1309,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       {leftTab === "orders" && (
         <>
           {isCreate ? (
-            <p className="text-sm text-zinc-500">Save the company first to see orders.</p>
+            <p className="text-sm text-zinc-500">Спочатку збережіть компанію, щоб переглянути замовлення.</p>
           ) : (
-            <EntitySection title="Orders">
+            <EntitySection title="Замовлення">
               <div className="min-h-0 overflow-auto">
                 <EntityOrdersList
                   key={ordersReloadKey}
@@ -1328,10 +1328,10 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       {leftTab === "contacts" && (
         <>
           {isCreate ? (
-            <p className="text-sm text-zinc-500">Save the company first to link contacts.</p>
+            <p className="text-sm text-zinc-500">Спочатку збережіть компанію, щоб прив’язати контакти.</p>
           ) : (
             <EntitySection
-              title="Contacts"
+              title="Контакти"
               rightAction={
                 <button
                   type="button"
@@ -1347,14 +1347,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               {linkContactOpen ? (
                 <div className="mt-2">
                   {loadingAllContacts ? (
-                    <div className="text-xs text-zinc-500">Loading…</div>
+                    <div className="text-xs text-zinc-500">Завантаження…</div>
                   ) : allContactsOptions.length === 0 ? (
-                    <div className="text-xs text-zinc-500">No contacts</div>
+                    <div className="text-xs text-zinc-500">Немає контактів</div>
                   ) : (
                     <SearchableSelectLite
                       value={null}
                       options={allContactsOptions}
-                      placeholder="Select contact to link…"
+                      placeholder="Оберіть контакт для привʼязки…"
                       disabled={!!linkingContactId}
                       onChange={(id) => id != null && void linkContactToCompany(id)}
                     />
@@ -1363,9 +1363,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               ) : (
                 <div className="mt-2 max-h-48 overflow-auto rounded-md border border-zinc-200 bg-white">
                   {loadingContacts ? (
-                    <div className="p-2 text-xs text-zinc-500">Loading…</div>
+                    <div className="p-2 text-xs text-zinc-500">Завантаження…</div>
                   ) : companyContacts.length === 0 ? (
-                    <div className="p-2 text-xs text-zinc-500">No contacts linked</div>
+                    <div className="p-2 text-xs text-zinc-500">Немає привʼязаних контактів</div>
                   ) : (
                     <ul className="divide-y divide-zinc-100 text-sm">
                       {companyContacts.map((c) => (
@@ -1391,7 +1391,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                               type="button"
                               onClick={() => void unlinkContactFromCompany(c.id)}
                               className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                              title="Remove from company"
+                              title="Видалити з компанії"
                               aria-label="Remove from company"
                             >
                               <svg
@@ -1423,9 +1423,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       {leftTab === "tasks" && (
         <>
           {isCreate ? (
-            <p className="text-sm text-zinc-500">Save the company first to manage tasks.</p>
+            <p className="text-sm text-zinc-500">Спочатку збережіть компанію, щоб керувати завданнями.</p>
           ) : (
-            <EntitySection title="Tasks">
+            <EntitySection title="Завдання">
               <EntityTasksList companyId={companyId} />
             </EntitySection>
           )}
@@ -1435,17 +1435,17 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       {leftTab === "change-history" && (
         <>
           {isCreate ? (
-            <p className="text-sm text-zinc-500">Save the company first to see change history.</p>
+            <p className="text-sm text-zinc-500">Спочатку збережіть компанію, щоб переглянути історію змін.</p>
           ) : (
-            <EntitySection title="Change history">
+            <EntitySection title="Історія змін">
               {loadingChangeHistory ? (
-                <p className="text-sm text-zinc-500">Loading…</p>
+                <p className="text-sm text-zinc-500">Завантаження…</p>
               ) : changeHistoryError ? (
                 <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
                   {changeHistoryError}
                 </div>
               ) : changeHistory.length === 0 ? (
-                <p className="text-sm text-zinc-500">No change history yet.</p>
+                <p className="text-sm text-zinc-500">Історія змін поки відсутня.</p>
               ) : (
                 <div className="space-y-3">
                   {changeHistory.map((entry) => (
@@ -1465,7 +1465,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                           {entry.payload.map((p, i) => {
                             const label =
                               p.field === "name"
-                                ? "Название"
+                                ? "Назва"
                                 : p.field === "edrpou"
                                   ? "ЄДРПОУ"
                                   : p.field === "taxId"

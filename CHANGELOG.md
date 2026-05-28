@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.72**.)_
+_(планируемые изменения после **0.2.73**.)_
+
+## [0.2.73] — 2026-05-25
+
+### Summary
+
+Патч **0.2.73**: **остатки по SKU** — нормализация артикулов (кириллица/латиница) при загрузке Excel; **модалки** leads/orders/companies/contacts — выравнивание layout и UX.
+
+### Added
+
+- **`stock-sku-normalizer`** + тесты; **`prepareBulkWarehouseStock`** в `ProductStore`.
+
+### Changed
+
+- **Products controller** — bulk stock через новый резолвер SKU.
+- **Web modals**: Lead, Order, Company, Contact, CreateLead/Order.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.73`**, полный манифест; миграций нет — `pull` / `up -d`.
 
 ## [0.2.72] — 2026-05-25
 
@@ -325,7 +344,7 @@ _(планируемые изменения после **0.2.72**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.72`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.73`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

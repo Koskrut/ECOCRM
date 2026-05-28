@@ -21,6 +21,14 @@ import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 
+function leadPrimaryLabel(lead: Lead): string {
+  const personName = [lead.lastName, lead.firstName, lead.middleName]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .trim();
+  return personName || lead.companyName || lead.fullName || lead.name || "—";
+}
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All statuses" },
   { value: "NEW", label: "New" },
@@ -289,10 +297,10 @@ function LeadsPageContent() {
                   >
                     <td className="px-4 py-4">
                       <div className="font-medium text-zinc-900">
-                        {l.fullName || l.name || [l.lastName, l.firstName].filter(Boolean).join(" ") || l.companyName || "—"}
+                        {leadPrimaryLabel(l)}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        {l.phone || l.email || "—"}
+                        {l.phone || "—"}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-zinc-600">{l.city ?? "—"}</td>

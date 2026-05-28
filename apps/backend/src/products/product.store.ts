@@ -5,6 +5,11 @@ import type { Pagination } from "../common/pagination";
 import type { Product } from "./product.entity";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProductImageStore } from "./product-image.store";
+import {
+  buildStockSkuIndex,
+  resolveStockSkuToProduct,
+  type StockSkuIndex,
+} from "./stock-sku-normalizer";
 
 export type StockByWarehouseItem = {
   warehouseId: string;
@@ -379,20 +384,62 @@ export class ProductStore {
     });
   }
 
+  private async loadStockSkuIndex(): Promise<StockSkuIndex> {
+    const rows = await this.prisma.product.findMany({
+      select: { id: true, sku: true },
+    });
+    return buildStockSkuIndex(rows);
+  }
+
   /**
-   * Variant A (stock-by-warehouses upload overwrite):
-   * For given warehouses, set qty=0 for all products whose SKU is NOT in the provided set.
-   * Also recalculates Product.stock for affected products.
+   * Resolve upload rows to product IDs (exact SKU, then homoglyph-normalized exact match).
    */
-  public async resetWarehouseStocksExceptSkus(
+  public async prepareBulkWarehouseStock(entries: StockByWarehouseEntry[]): Promise<{
+    updates: Array<{ productId: string; warehouseId: string; qty: number }>;
+    productIds: Set<string>;
+    notFound: string[];
+  }> {
+    const index = await this.loadStockSkuIndex();
+    const notFoundSet = new Set<string>();
+    const updateMap = new Map<string, { productId: string; warehouseId: string; qty: number }>();
+
+    for (const { sku, warehouseId, qty } of entries) {
+      const skuTrim = sku.trim();
+      const whId = warehouseId?.trim();
+      if (!skuTrim || !whId) continue;
+
+      const ref = resolveStockSkuToProduct(skuTrim, index);
+      if (!ref) {
+        notFoundSet.add(skuTrim);
+        continue;
+      }
+
+      const key = `${ref.id}:${whId}`;
+      updateMap.set(key, {
+        productId: ref.id,
+        warehouseId: whId,
+        qty: Math.max(0, Math.floor(qty)),
+      });
+    }
+
+    const updates = Array.from(updateMap.values());
+    const productIds = new Set(updates.map((u) => u.productId));
+    return { updates, productIds, notFound: Array.from(notFoundSet) };
+  }
+
+  /**
+   * For warehouse stock upload overwrite: zero rows in given warehouses for products
+   * not present in the upload file (by resolved product id, not raw SKU string).
+   */
+  public async resetWarehouseStocksExceptProductIds(
     warehouseIds: string[],
-    skus: Set<string>,
+    productIds: Set<string>,
   ): Promise<{ affectedProducts: number; affectedRows: number }> {
     const whIds = Array.from(new Set(warehouseIds.map((s) => s.trim()).filter(Boolean)));
-    const skuList = Array.from(new Set(Array.from(skus).map((s) => s.trim()).filter(Boolean)));
+    const keepIds = Array.from(productIds).filter(Boolean);
     if (whIds.length === 0) return { affectedProducts: 0, affectedRows: 0 };
-    if (skuList.length === 0) {
-      // If file has no SKUs (should be prevented earlier), treat as "reset all" for those warehouses.
+
+    if (keepIds.length === 0) {
       const productIdsAll = await this.prisma.productWarehouseStock.findMany({
         where: { warehouseId: { in: whIds } },
         select: { productId: true },
@@ -409,7 +456,7 @@ export class ProductStore {
     const affected = await this.prisma.productWarehouseStock.findMany({
       where: {
         warehouseId: { in: whIds },
-        product: { sku: { notIn: skuList } },
+        productId: { notIn: keepIds },
       },
       select: { productId: true },
     });
@@ -417,7 +464,7 @@ export class ProductStore {
     const result = await this.prisma.productWarehouseStock.updateMany({
       where: {
         warehouseId: { in: whIds },
-        product: { sku: { notIn: skuList } },
+        productId: { notIn: keepIds },
       },
       data: { qty: 0 },
     });
@@ -427,58 +474,89 @@ export class ProductStore {
     return { affectedProducts: affectedProductIds.length, affectedRows: result.count };
   }
 
-  /** Bulk set stocks by warehouse from upload; creates product if missing by sku (with 0 stock elsewhere). */
-  public async bulkSetStocksByWarehouses(
-    entries: StockByWarehouseEntry[],
-  ): Promise<BulkStockUpdateResult> {
-    const notFound: string[] = [];
+  public async applyBulkWarehouseStock(
+    updates: Array<{ productId: string; warehouseId: string; qty: number }>,
+  ): Promise<{ updated: number; created: number }> {
+    const productIds = new Set<string>();
     let updated = 0;
-    let created = 0;
-    const skuToId = new Map<string, string>();
-    for (const { sku, warehouseId, qty } of entries) {
-      const skuTrim = sku.trim();
-      if (!skuTrim) continue;
-      let productId = skuToId.get(skuTrim);
-      if (!productId) {
-        const product = await this.prisma.product.findUnique({
-          where: { sku: skuTrim },
-          select: { id: true },
-        });
-        if (!product) {
-          notFound.push(skuTrim);
-          continue;
-        }
-        productId = product.id;
-        skuToId.set(skuTrim, productId);
-      }
-      const qtyVal = Math.max(0, Math.floor(qty));
+    for (const { productId, warehouseId, qty } of updates) {
       await this.prisma.productWarehouseStock.upsert({
         where: {
           productId_warehouseId: { productId, warehouseId },
         },
-        create: { productId, warehouseId, qty: qtyVal },
-        update: { qty: qtyVal },
+        create: { productId, warehouseId, qty },
+        update: { qty },
       });
+      productIds.add(productId);
       updated++;
     }
-    for (const productId of skuToId.values()) {
+    for (const productId of productIds) {
       await this.recalcProductTotalStock(productId);
     }
-    return { updated, created, notFound };
+    return { updated, created: 0 };
   }
 
-  /** Set stock to 0 for all products whose SKU is not in the given set (full overwrite on upload). */
-  public async resetStockExceptSkus(skus: Set<string>): Promise<number> {
-    if (skus.size === 0) return 0;
-    const list = Array.from(skus);
+  /** @deprecated Use prepareBulkWarehouseStock + resetWarehouseStocksExceptProductIds */
+  public async resetWarehouseStocksExceptSkus(
+    warehouseIds: string[],
+    skus: Set<string>,
+  ): Promise<{ affectedProducts: number; affectedRows: number }> {
+    const index = await this.loadStockSkuIndex();
+    const productIds = new Set<string>();
+    for (const sku of skus) {
+      const ref = resolveStockSkuToProduct(sku, index);
+      if (ref) productIds.add(ref.id);
+    }
+    return this.resetWarehouseStocksExceptProductIds(warehouseIds, productIds);
+  }
+
+  public async bulkSetStocksByWarehouses(
+    entries: StockByWarehouseEntry[],
+  ): Promise<BulkStockUpdateResult> {
+    const prepared = await this.prepareBulkWarehouseStock(entries);
+    const applied = await this.applyBulkWarehouseStock(prepared.updates);
+    return {
+      updated: applied.updated,
+      created: applied.created,
+      notFound: prepared.notFound,
+    };
+  }
+
+  /** Product IDs that appear in the upload file (resolved), for overwrite reset. */
+  public async resolveStockUploadProductIds(skus: Iterable<string>): Promise<Set<string>> {
+    const index = await this.loadStockSkuIndex();
+    const productIds = new Set<string>();
+    for (const sku of skus) {
+      const ref = resolveStockSkuToProduct(sku, index);
+      if (ref) productIds.add(ref.id);
+    }
+    return productIds;
+  }
+
+  /** Set stock to 0 for all products not in the upload file (by resolved product id). */
+  public async resetStockExceptProductIds(productIds: Set<string>): Promise<number> {
+    const keepIds = Array.from(productIds).filter(Boolean);
+    if (keepIds.length === 0) {
+      const result = await this.prisma.product.updateMany({
+        data: { stock: 0 },
+      });
+      return result.count;
+    }
     const result = await this.prisma.product.updateMany({
-      where: { sku: { notIn: list } },
+      where: { id: { notIn: keepIds } },
       data: { stock: 0 },
     });
     return result.count;
   }
 
+  /** @deprecated Use resetStockExceptProductIds */
+  public async resetStockExceptSkus(skus: Set<string>): Promise<number> {
+    const productIds = await this.resolveStockUploadProductIds(skus);
+    return this.resetStockExceptProductIds(productIds);
+  }
+
   public async bulkUpdateStocks(entries: StockUpdateEntry[]): Promise<BulkStockUpdateResult> {
+    const index = await this.loadStockSkuIndex();
     const notFound: string[] = [];
     let updated = 0;
     let created = 0;
@@ -491,31 +569,35 @@ export class ProductStore {
       if (entryPrice !== undefined && entryPrice !== null && !Number.isNaN(entryPrice)) {
         updateData.basePrice = Math.max(0, Number(entryPrice));
       }
-      const result = await this.prisma.product.updateMany({
-        where: { sku: skuTrim },
-        data: updateData,
-      });
-      if (result.count > 0) {
+
+      const ref = resolveStockSkuToProduct(skuTrim, index);
+      if (ref) {
+        await this.prisma.product.update({
+          where: { id: ref.id },
+          data: updateData,
+        });
         updated++;
-      } else {
-        try {
-          const name = entryName?.trim() || skuTrim;
-          const basePrice = entryPrice !== undefined && entryPrice !== null && !Number.isNaN(entryPrice)
+        continue;
+      }
+
+      try {
+        const name = entryName?.trim() || skuTrim;
+        const basePrice =
+          entryPrice !== undefined && entryPrice !== null && !Number.isNaN(entryPrice)
             ? Math.max(0, Number(entryPrice))
             : 0;
-          await this.prisma.product.create({
-            data: {
-              sku: skuTrim,
-              name,
-              unit: "pcs",
-              basePrice,
-              stock: stockVal(stock),
-            },
-          });
-          created++;
-        } catch {
-          notFound.push(skuTrim);
-        }
+        await this.prisma.product.create({
+          data: {
+            sku: skuTrim,
+            name,
+            unit: "pcs",
+            basePrice,
+            stock: stockVal(stock),
+          },
+        });
+        created++;
+      } catch {
+        notFound.push(skuTrim);
       }
     }
     return { updated, created, notFound };

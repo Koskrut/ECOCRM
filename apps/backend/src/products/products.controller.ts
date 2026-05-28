@@ -135,8 +135,10 @@ export class ProductsController {
         "No rows with valid артикул column. Expected headers: Артикул (or sku), Остаток (or qty/quantity/stock)",
       );
     }
-    const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
-    await this.productStore.resetStockExceptSkus(skuSet);
+    const productIds = await this.productStore.resolveStockUploadProductIds(
+      entries.map((e) => e.sku),
+    );
+    await this.productStore.resetStockExceptProductIds(productIds);
     return this.productStore.bulkUpdateStocks(entries);
   }
 
@@ -167,11 +169,19 @@ export class ProductsController {
         `No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (${namesHint}).`,
       );
     }
-    const skuSet = new Set(entries.map((e) => e.sku.trim()).filter(Boolean));
     const warehouseIds = Array.from(new Set(entries.map((e) => e.warehouseId).filter(Boolean)));
-    await this.productStore.resetWarehouseStocksExceptSkus(warehouseIds, skuSet);
-    const result = await this.productStore.bulkSetStocksByWarehouses(entries);
-    return { ...result, unmatchedWarehouseNames };
+    const prepared = await this.productStore.prepareBulkWarehouseStock(entries);
+    await this.productStore.resetWarehouseStocksExceptProductIds(
+      warehouseIds,
+      prepared.productIds,
+    );
+    const applied = await this.productStore.applyBulkWarehouseStock(prepared.updates);
+    return {
+      updated: applied.updated,
+      created: applied.created,
+      notFound: prepared.notFound,
+      unmatchedWarehouseNames,
+    };
   }
 
   @Public()

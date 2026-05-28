@@ -7,17 +7,21 @@ import { formatRelativeTime } from "@/lib/formatRelativeTime";
 import { isTextSelected } from "@/lib/dom";
 
 function leadDisplayName(lead: Lead): string {
+  const personName = [lead.lastName, lead.firstName, lead.middleName]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .trim();
   return (
+    personName ||
+    lead.companyName ||
     lead.fullName ||
     lead.name ||
-    [lead.lastName, lead.firstName].filter(Boolean).join(" ") ||
-    lead.companyName ||
     "—"
   );
 }
 
 function leadClientLine(lead: Lead): string {
-  return lead.phone || lead.email || "—";
+  return lead.phone || "—";
 }
 
 export function LeadCard({

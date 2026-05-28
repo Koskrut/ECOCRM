@@ -174,7 +174,7 @@ export function CreateOrderModal({
       onOrderCreated(newOrder.id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create");
+      setError(err instanceof Error ? err.message : "Не вдалося створити");
       setSubmitting(false);
     }
   };
@@ -189,7 +189,7 @@ export function CreateOrderModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-zinc-900">New Order</h2>
+          <h2 className="text-lg font-semibold text-zinc-900">Нове замовлення</h2>
           <button
             onClick={onClose}
             disabled={submitting}
@@ -203,7 +203,7 @@ export function CreateOrderModal({
           {/* Section: Customer */}
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Company</label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Компанія</label>
               <SearchableSelect
                 options={companies.map((c) => ({ id: c.id, label: c.name }))}
                 value={companyId}
@@ -212,17 +212,17 @@ export function CreateOrderModal({
                   setClientId(null);
                 }}
                 isLoading={loadingCompanies}
-                placeholder="Select company..."
+                placeholder="Оберіть компанію..."
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Client</label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Клієнт</label>
               <SearchableSelect
                 options={contacts.map((c) => ({ id: c.id, label: `${c.lastName} ${c.firstName}` }))}
                 value={clientId}
                 onChange={(val) => setClientId(val)}
                 isLoading={loadingContacts}
-                placeholder="Select client..."
+                placeholder="Оберіть клієнта..."
               />
             </div>
           </div>
@@ -230,7 +230,7 @@ export function CreateOrderModal({
           {/* Section: Delivery & Payment */}
           <div className="grid grid-cols-2 gap-4 border-t pt-4 border-zinc-100">
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Payment Type</label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Тип оплати</label>
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={paymentType ?? ""}
@@ -238,30 +238,26 @@ export function CreateOrderModal({
                   setPaymentType((e.target.value || null) as PaymentType | null)
                 }
               >
-                <option value="">Выберите...</option>
-                <option value={PaymentType.PREPAYMENT}>Предоплата</option>
-                <option value={PaymentType.DEFERRED}>Отсрочка</option>
+                <option value="">Оберіть...</option>
+                <option value={PaymentType.PREPAYMENT}>Передоплата</option>
+                <option value={PaymentType.DEFERRED}>Відтермінування</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">
-                Delivery Method
-              </label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Спосіб доставки</label>
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={deliveryMethod}
                 onChange={(e) => setDeliveryMethod(e.target.value as DeliveryMethod)}
               >
-                <option value={DeliveryMethod.PICKUP}>Pickup</option>
+                <option value={DeliveryMethod.PICKUP}>Самовивіз</option>
                 {npModuleEffective ? (
-                  <option value={DeliveryMethod.NOVA_POSHTA}>Nova Poshta</option>
+                  <option value={DeliveryMethod.NOVA_POSHTA}>Нова Пошта</option>
                 ) : null}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">
-                Payment Method
-              </label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Метод оплати</label>
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={paymentMethod}
@@ -270,8 +266,8 @@ export function CreateOrderModal({
                   if (e.target.value !== PaymentMethod.FOP) setBankAccountId(null);
                 }}
               >
-                <option value={PaymentMethod.CASH}>Cash</option>
-                <option value={PaymentMethod.FOP}>FOP (Bank)</option>
+                <option value={PaymentMethod.CASH}>Готівка</option>
+                <option value={PaymentMethod.FOP}>ФОП (банк)</option>
               </select>
             </div>
             {paymentMethod === PaymentMethod.FOP && (
@@ -282,7 +278,7 @@ export function CreateOrderModal({
                   value={bankAccountId ?? ""}
                   onChange={(e) => setBankAccountId(e.target.value || null)}
                 >
-                  <option value="">Выберите счёт...</option>
+                  <option value="">Оберіть рахунок...</option>
                   {fopAccounts.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
@@ -292,7 +288,7 @@ export function CreateOrderModal({
               </div>
             )}
             <div>
-              <label className="block text-xs font-medium text-zinc-600 mb-1">Склад отгрузки</label>
+              <label className="block text-xs font-medium text-zinc-600 mb-1">Склад відвантаження</label>
               <select
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:outline-none"
                 value={warehouseId ?? ""}
@@ -311,21 +307,21 @@ export function CreateOrderModal({
           {npModuleEffective && deliveryMethod === DeliveryMethod.NOVA_POSHTA && (
             <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
               <div>
-                <label className="block text-xs font-medium text-zinc-600 mb-1">City</label>
+                <label className="block text-xs font-medium text-zinc-600 mb-1">Місто</label>
                 <input
                   type="text"
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  placeholder="Kyiv"
+                  placeholder="Київ"
                   value={deliveryData.city}
                   onChange={(e) => setDeliveryData({ ...deliveryData, city: e.target.value })}
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-zinc-600 mb-1">Warehouse</label>
+                <label className="block text-xs font-medium text-zinc-600 mb-1">Відділення</label>
                 <input
                   type="text"
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
-                  placeholder="Branch #1"
+                  placeholder="Відділення №1"
                   value={deliveryData.warehouse}
                   onChange={(e) => setDeliveryData({ ...deliveryData, warehouse: e.target.value })}
                 />
@@ -335,11 +331,11 @@ export function CreateOrderModal({
 
           {/* Comment */}
           <div className="border-t pt-4 border-zinc-100">
-            <label className="block text-xs font-medium text-zinc-600 mb-1">Comment</label>
+            <label className="block text-xs font-medium text-zinc-600 mb-1">Коментар</label>
             <textarea
               rows={2}
               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
-              placeholder="Optional notes..."
+              placeholder="Додаткові нотатки..."
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
@@ -353,14 +349,14 @@ export function CreateOrderModal({
               disabled={submitting}
               className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              Cancel
+              Скасувати
             </button>
             <button
               onClick={handleCreate}
               disabled={submitting}
               className="btn-primary"
             >
-              {submitting ? "Creating..." : "Create Order"}
+              {submitting ? "Створення..." : "Створити замовлення"}
             </button>
           </div>
         </div>

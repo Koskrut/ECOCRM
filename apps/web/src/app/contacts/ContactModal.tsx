@@ -292,7 +292,7 @@ function AddShippingProfileModal({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to create profile");
+        (e instanceof Error ? e.message : "Не вдалося створити профіль");
       setError(msg);
     } finally {
       setSaving(false);
@@ -314,7 +314,7 @@ function AddShippingProfileModal({
         <div className="shrink-0 border-b border-zinc-200 px-5 py-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-zinc-900">
-              {isEdit ? "Edit delivery profile" : "Add delivery profile"}
+              {isEdit ? "Редагувати профіль доставки" : "Додати профіль доставки"}
             </h3>
             <button
               type="button"
@@ -347,14 +347,14 @@ function AddShippingProfileModal({
               onClick={onClose}
               className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
             >
-              Cancel
+              Скасувати
             </button>
             <button
               type="submit"
               disabled={saving}
               className="btn-primary"
             >
-              {saving ? "Saving…" : isEdit ? "Save" : "Add profile"}
+              {saving ? "Збереження…" : isEdit ? "Зберегти" : "Додати профіль"}
             </button>
           </div>
         </form>
@@ -398,15 +398,15 @@ function ContactDeliveryProfilesTab({
   }, [loadProfiles]);
 
   if (isCreate) {
-    return <p className="text-sm text-zinc-500">Save the contact first to see delivery profiles.</p>;
+    return <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути профілі доставки.</p>;
   }
   if (loading && profiles.length === 0) {
-    return <p className="text-sm text-zinc-500">Loading…</p>;
+    return <p className="text-sm text-zinc-500">Завантаження…</p>;
   }
   return (
     <>
       <EntitySection
-        title="Delivery profiles"
+        title="Профілі доставки"
         rightAction={
           <button
             type="button"
@@ -416,12 +416,12 @@ function ContactDeliveryProfilesTab({
             }}
             className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Add profile
+            Додати профіль
           </button>
         }
       >
         {profiles.length === 0 ? (
-          <p className="text-sm text-zinc-500">No delivery profiles yet.</p>
+          <p className="text-sm text-zinc-500">Профілі доставки поки відсутні.</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {profiles.map((p) => (
@@ -430,9 +430,9 @@ function ContactDeliveryProfilesTab({
                 className="flex items-start justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="font-medium">{p.label || "Unnamed"}</span>
+                  <span className="font-medium">{p.label || "Без назви"}</span>
                   {p.isDefault && (
-                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs">Default</span>
+                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs">За замовчуванням</span>
                   )}
                   {(p.cityName || p.warehouseNumber) && (
                     <div className="mt-1 text-xs text-zinc-500">
@@ -448,8 +448,8 @@ function ContactDeliveryProfilesTab({
                       setEditingProfile(p);
                     }}
                     className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
-                    title="Edit"
-                    aria-label="Edit profile"
+                    title="Редагувати"
+                    aria-label="Редагувати профіль"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -463,15 +463,15 @@ function ContactDeliveryProfilesTab({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!confirm(`Delete profile "${p.label || "Unnamed"}"?`)) return;
+                      if (!confirm(`Видалити профіль "${p.label || "Без назви"}"?`)) return;
                       apiHttp
                         .delete(`/contacts/${contactId}/shipping-profiles/${p.id}`)
                         .then(() => loadProfiles())
                         .catch(() => {});
                     }}
                     className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                    title="Delete"
-                    aria-label="Delete profile"
+                    title="Видалити"
+                    aria-label="Видалити профіль"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -539,7 +539,7 @@ function ContactPhonesSection({
     e.preventDefault();
     const phone = addPhone.trim();
     if (!phone) {
-      setAddError("Введите номер");
+      setAddError("Введіть номер");
       return;
     }
     setAddSaving(true);
@@ -553,7 +553,7 @@ function ContactPhonesSection({
     } catch (err) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (err instanceof Error ? err.message : "Ошибка");
+        (err instanceof Error ? err.message : "Помилка");
       setAddError(msg);
     } finally {
       setAddSaving(false);
@@ -605,7 +605,7 @@ function ContactPhonesSection({
                 onClick={() => handleDelete(p.id)}
                 disabled={saving || mutatingId !== null}
               >
-                Удалить
+                Видалити
               </button>
             </span>
           </li>
@@ -618,7 +618,7 @@ function ContactPhonesSection({
           onClick={() => setAddOpen(true)}
           disabled={saving}
         >
-          + Добавить номер
+          + Додати номер
         </button>
       ) : (
         <form onSubmit={handleAdd} className="mt-2 space-y-2 rounded border border-zinc-200 bg-white p-2">
@@ -627,22 +627,22 @@ function ContactPhonesSection({
             type="text"
             value={addPhone}
             onChange={(e) => setAddPhone(e.target.value)}
-            placeholder="Номер телефона"
+            placeholder="Номер телефону"
             className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
           />
           <input
             type="text"
             value={addLabel}
             onChange={(e) => setAddLabel(e.target.value)}
-            placeholder="Метка (моб., рабочий…)"
+            placeholder="Мітка (моб., робочий…)"
             className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
           />
           <div className="flex gap-2">
             <button type="button" className="text-sm text-zinc-600 hover:underline" onClick={() => setAddOpen(false)}>
-              Отмена
+              Скасувати
             </button>
             <button type="submit" className="text-sm text-blue-600 hover:underline" disabled={addSaving}>
-              {addSaving ? "Сохранение…" : "Добавить"}
+              {addSaving ? "Збереження…" : "Додати"}
             </button>
           </div>
         </form>
@@ -887,14 +887,14 @@ export function ContactModal({
       setMapsApiKey(key);
       if (!key) {
         setMapsConfigError(
-          "Google Maps API key is not configured. Address autocomplete works only as plain text.",
+          "Ключ Google Maps API не налаштовано. Автодоповнення адреси працює лише як простий текст.",
         );
       } else {
         setMapsConfigError(null);
       }
     } catch {
       setMapsApiKey(null);
-      setMapsConfigError("Failed to load Google Maps configuration.");
+      setMapsConfigError("Не вдалося завантажити конфігурацію Google Maps.");
     }
   }, []);
 
@@ -943,7 +943,7 @@ export function ContactModal({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load contact");
+        (e instanceof Error ? e.message : "Не вдалося завантажити контакт");
       setContact(null);
       setErr(msg);
     } finally {
@@ -1112,7 +1112,7 @@ export function ContactModal({
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError("Сервіс адрес тимчасово недоступний.");
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(
@@ -1158,7 +1158,7 @@ export function ContactModal({
           }
         }
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
         console.warn("Places API (New): geocode place failed for", suggestion.placeId);
       } finally {
         setIsGeocodeLoading(false);
@@ -1199,7 +1199,7 @@ export function ContactModal({
       try {
         const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
         if (!result) {
-          setAddressError("Address service temporarily unavailable.");
+          setAddressError("Сервіс адрес тимчасово недоступний.");
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
@@ -1244,7 +1244,7 @@ export function ContactModal({
           }
         }
       } catch {
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
         console.warn("Places API (New): geocode text failed for", query);
       } finally {
         setIsGeocodeLoading(false);
@@ -1275,7 +1275,7 @@ export function ContactModal({
       } catch (e) {
         if (autocompleteAbortRef.current !== controller) return;
         setAddressSuggestions([]);
-        setAddressError("Address service temporarily unavailable.");
+        setAddressError("Сервіс адрес тимчасово недоступний.");
         console.warn("Places API (New): autocomplete failed for", query);
       } finally {
         if (autocompleteAbortRef.current === controller) {
@@ -1366,7 +1366,7 @@ export function ContactModal({
       if (!payload.region) throw new Error(requiredMsg(strings.contacts.create.region));
       const res = await apiHttp.post<Contact>("/contacts", payload);
       const id = res.data?.id;
-      if (!id) throw new Error("Failed to create contact");
+      if (!id) throw new Error("Не вдалося створити контакт");
       setSavedContactId(id);
       onCreated?.(id);
       onUpdate();
@@ -1537,7 +1537,7 @@ export function ContactModal({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to schedule visit");
+        (e instanceof Error ? e.message : "Не вдалося запланувати візит");
       alert(msg);
     }
   };
@@ -1570,7 +1570,7 @@ export function ContactModal({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to create order");
+        (e instanceof Error ? e.message : "Не вдалося створити замовлення");
       setErr(msg);
     } finally {
       setCreatingOrder(false);
@@ -1731,7 +1731,7 @@ export function ContactModal({
 
   const aboutContactSection = useMemo(() => {
     if (loading) {
-      return <div className="text-sm text-zinc-500">Loading…</div>;
+      return <div className="text-sm text-zinc-500">Завантаження…</div>;
     }
     if (err) {
       return (
@@ -1742,18 +1742,18 @@ export function ContactModal({
     }
 
     if (!contact) {
-      return <div className="text-sm text-zinc-500">Not found</div>;
+      return <div className="text-sm text-zinc-500">Не знайдено</div>;
     }
 
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Last visit</span>
+          <span className="text-sm text-zinc-500">Останній візит</span>
           <div className="flex items-center gap-3">
             <span className="text-sm text-zinc-900">
               {contact.lastVisitAt
                 ? formatDateTime(contact.lastVisitAt)
-                : <span className="font-normal text-zinc-400">Нет визитов</span>}
+                : <span className="font-normal text-zinc-400">Немає візитів</span>}
             </span>
             <button
               type="button"
@@ -1782,13 +1782,13 @@ export function ContactModal({
               )}
             </>
           ) : (
-            <span className="text-xs text-zinc-500">Telegram не подключен</span>
+            <span className="text-xs text-zinc-500">Telegram не підключено</span>
           )}
         </div>
         <InlineEditableField
           label="First name"
           value={contact.firstName}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           required
           disabled={saving}
@@ -1801,7 +1801,7 @@ export function ContactModal({
         <InlineEditableField
           label="Last name"
           value={contact.lastName}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           required
           disabled={saving}
@@ -1814,7 +1814,7 @@ export function ContactModal({
         <InlineEditableField
           label="Phone (основной)"
           value={formatPhoneDisplay(contact.phone ?? "")}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           required
           disabled={saving}
@@ -1835,7 +1835,7 @@ export function ContactModal({
         <InlineEditableField
           label="Email"
           value={contact.email ?? ""}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ email: next })}
@@ -1844,7 +1844,7 @@ export function ContactModal({
         <InlineEditableField
           label="Position"
           value={contact.position ?? ""}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ position: next })}
@@ -1853,7 +1853,7 @@ export function ContactModal({
         <InlineEditableField
           label="КОД 1С"
           value={contact.externalCode ?? ""}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ externalCode: next?.trim() || null })}
@@ -1881,7 +1881,7 @@ export function ContactModal({
         <InlineEditableField
           label="Адрес (инфо)"
           value={contact.addressInfo ?? ""}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ addressInfo: next?.trim() || null })}
@@ -1890,7 +1890,7 @@ export function ContactModal({
         <InlineEditableField
           label="Город"
           value={contact.city ?? ""}
-          placeholder="Click to add…"
+          placeholder="Натисніть, щоб додати…"
           kind="text"
           disabled={saving}
           onSave={async (next) => patchContact({ city: next?.trim() || null })}
@@ -1930,7 +1930,7 @@ export function ContactModal({
           onRegisterCancel={registerCancel}
         />
         <div className="space-y-1 py-1">
-          <label className="text-sm text-zinc-500">Address</label>
+          <label className="text-sm text-zinc-500">Адреса</label>
           {addressRequiredForVisit ? (
             <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
           ) : null}
@@ -1958,7 +1958,7 @@ export function ContactModal({
                 }
                 void persistAddressIfChanged();
               }}
-              placeholder="Click to add…"
+              placeholder="Натисніть, щоб додати…"
               disabled={saving}
             />
             {showAddressSuggestions && addressSuggestions.length > 0 && (
@@ -2024,12 +2024,12 @@ export function ContactModal({
           ) : null}
         </div>
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Responsible manager</span>
+          <span className="text-sm text-zinc-500">Відповідальний менеджер</span>
           <SearchableSelectLite
             variant="inline"
             value={ownerId}
             options={userOptions}
-            placeholder="Click to add…"
+            placeholder="Натисніть, щоб додати…"
             disabled={saving || loadingUsers}
             isLoading={loadingUsers}
             onChange={async (id) => {
@@ -2039,13 +2039,13 @@ export function ContactModal({
           />
         </div>
         <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Company</span>
+          <span className="text-sm text-zinc-500">Компанія</span>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
             <SearchableSelectLite
               variant="inline"
               value={companyId ?? ""}
               options={companyOptionsWithEmpty}
-              placeholder="Click to add…"
+              placeholder="Натисніть, щоб додати…"
               disabled={saving || loadingCompanies}
               isLoading={loadingCompanies}
               onChange={async (id) => {
@@ -2151,18 +2151,18 @@ export function ContactModal({
           }`}
         >
           {tab === "overview"
-            ? "Overview"
+            ? "Огляд"
             : tab === "analytics"
-              ? "Analytics"
+              ? "Аналітика"
             : tab === "timeline"
-              ? "Timeline"
+              ? "Таймлайн"
             : tab === "orders"
-              ? "Orders"
+              ? "Замовлення"
               : tab === "delivery-profiles"
-                ? "Delivery profiles"
+                ? "Профілі доставки"
                 : tab === "tasks"
-                  ? "Tasks"
-                  : "Change history"}
+                  ? "Завдання"
+                  : "Історія змін"}
         </button>
       ))}
     </div>
@@ -2203,7 +2203,7 @@ export function ContactModal({
                   <ContactCardSkeleton />
                 ) : cardSummary.error ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    Не удалось загрузить summary. Показан legacy режим карточки.
+                    Не вдалося завантажити summary. Показано legacy режим картки.
                   </div>
                 ) : cardSummary.data ? (
                   <>
@@ -2378,10 +2378,10 @@ export function ContactModal({
               <EntitySection title={strings.entityUi.contactCustomFieldsSection}>
                 <CustomFieldsPanel entityType="CONTACT" entityId={effectiveContactId} />
               </EntitySection>
-              <EntitySection title="Layout (runtime)">
+              <EntitySection title="Розмітка (runtime)">
                 <ContactCardLayoutPanel contactId={effectiveContactId} />
               </EntitySection>
-              <EntitySection title="Audit">
+              <EntitySection title="Аудит">
                 <ContactCardAuditPanel contactId={effectiveContactId} />
               </EntitySection>
             </div>
@@ -2391,9 +2391,9 @@ export function ContactModal({
         {leftTab === "timeline" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see timeline.</p>
+              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути таймлайн.</p>
             ) : (
-              <EntitySection title="Timeline">
+              <EntitySection title="Таймлайн">
                 <ContactTimeline
                   apiBaseUrl={apiBaseUrl}
                   contactId={effectiveContactId}
@@ -2407,9 +2407,9 @@ export function ContactModal({
         {leftTab === "analytics" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see analytics.</p>
+              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути аналітику.</p>
             ) : (
-              <EntitySection title="Analytics">
+              <EntitySection title="Аналітика">
                 <ContactAnalyticsTab
                   analytics={cardAnalytics.data}
                   loading={cardAnalytics.loading}
@@ -2428,9 +2428,9 @@ export function ContactModal({
         {leftTab === "orders" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see orders.</p>
+              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути замовлення.</p>
             ) : (
-              <EntitySection title="Orders">
+              <EntitySection title="Замовлення">
                 <div className="min-h-0 overflow-auto">
                   <EntityOrdersList
                     key={ordersReloadKey}
@@ -2447,9 +2447,9 @@ export function ContactModal({
         {leftTab === "tasks" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to manage tasks.</p>
+              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб керувати завданнями.</p>
             ) : (
-              <EntitySection title="Tasks">
+              <EntitySection title="Завдання">
                 <EntityTasksList contactId={effectiveContactId} />
               </EntitySection>
             )}
@@ -2476,10 +2476,10 @@ export function ContactModal({
         {leftTab === "change-history" && (
           <>
             {isCreate ? (
-              <p className="text-sm text-zinc-500">Save the contact first to see change history.</p>
+              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути історію змін.</p>
             ) : (
-              <EntitySection title="Change history">
-                <p className="text-sm text-zinc-500">No change history yet.</p>
+              <EntitySection title="Історія змін">
+                <p className="text-sm text-zinc-500">Історія змін поки відсутня.</p>
               </EntitySection>
             )}
           </>
@@ -2640,7 +2640,7 @@ export function ContactModal({
                           onClick={async () => {
                             setHeaderActionsOpen(false);
                             if (!contact) return;
-                            if (!confirm(`Удалить контакт "${fullName ?? contact.id}"?`)) return;
+                            if (!confirm(`Видалити контакт "${fullName ?? contact.id}"?`)) return;
                             try {
                               await contactsApi.delete(contact.id);
                               onUpdate();
@@ -2648,13 +2648,13 @@ export function ContactModal({
                             } catch (e) {
                               const msg =
                                 (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                                (e instanceof Error ? e.message : "Не удалось удалить контакт");
+                                (e instanceof Error ? e.message : "Не вдалося видалити контакт");
                               alert(msg);
                             }
                           }}
                           className="block w-full rounded px-2 py-2 text-left text-sm text-red-700 hover:bg-red-50"
                         >
-                          Удалить контакт
+                          Видалити контакт
                         </button>
                       </>
                     ) : null}

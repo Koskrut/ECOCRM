@@ -204,8 +204,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
 
   const title = useMemo(() => {
-    if (!lead) return "Lead";
-    return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Lead";
+    if (!lead) return "Лід";
+    return lead.fullName || lead.name || [lead.lastName, lead.firstName, lead.middleName].filter(Boolean).join(" ") || lead.companyName || "Лід";
   }, [lead]);
 
   const formatDt = (iso: string) => formatDateTime(iso);
@@ -303,7 +303,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const raw =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load lead");
+        (e instanceof Error ? e.message : "Не вдалося завантажити лід");
       const msg = raw;
       setErr(msg);
       setLead(null);
@@ -359,7 +359,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           `${apiBaseUrl}/products?search=${encodeURIComponent(productSearch)}&page=1&pageSize=10`,
           { cache: "no-store" },
         );
-        if (!r.ok) throw new Error("Failed to load products");
+        if (!r.ok) throw new Error("Не вдалося завантажити товари");
         const data = (await r.json()) as { items?: Array<{ id: string; name: string; sku: string; basePrice: number }> };
         if (alive) setProductResults(data.items ?? []);
       } catch {
@@ -387,7 +387,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to save items");
+        (e instanceof Error ? e.message : "Не вдалося зберегти товари");
       setErr(msg);
     } finally {
       setSavingItems(false);
@@ -428,7 +428,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       setTimeline([]);
       setTimelineError(
-        e instanceof Error ? e.message : "Failed to load lead activity",
+        e instanceof Error ? e.message : "Не вдалося завантажити активність ліда",
       );
     } finally {
       setTimelineLoading(false);
@@ -482,7 +482,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to save");
+        (e instanceof Error ? e.message : "Не вдалося зберегти");
       setErr(msg);
     } finally {
       setSaving(false);
@@ -501,7 +501,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to save");
+          (e instanceof Error ? e.message : "Не вдалося зберегти");
         setErr(msg);
         await loadLead(); // rollback on error
       } finally {
@@ -596,7 +596,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to update status");
+        (e instanceof Error ? e.message : "Не вдалося оновити статус");
       setErr(msg);
     } finally {
       setStatusUpdating(false);
@@ -606,7 +606,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const handleConvert = async () => {
     if (!lead) return;
     if (convertPreset === "company_contact_deal" && !newCompanyName.trim()) {
-      setConvertError("Enter company name");
+      setConvertError("Введіть назву компанії");
       return;
     }
     setConverting(true);
@@ -626,12 +626,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       if (mode === "link") {
         if (!selectedContactId) {
-          throw new Error("Select a contact or enable create contact");
+          throw new Error("Оберіть контакт або увімкніть створення контакту");
         }
         payload.contactId = selectedContactId;
       } else {
         payload.contact = {
-          firstName: newContactFirstName.trim() || lead.name || "Lead",
+          firstName: newContactFirstName.trim() || lead.name || "Лід",
           lastName: newContactLastName.trim() || "",
           middleName: newContactMiddleName.trim() || "",
           phone: normalizePhone(newContactPhone) ?? (newContactPhone.trim() || lead.phone),
@@ -662,7 +662,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Conversion failed");
+        (e instanceof Error ? e.message : "Конвертація не вдалася");
       setConvertError(msg);
     } finally {
       setConverting(false);
@@ -747,14 +747,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     try {
       await apiHttp.patch<Lead>(`/leads/${lead.id}/status`, {
         status: "NOT_TARGET",
-        reason: "Poor quality lead",
+        reason: "Нецільовий лід",
       });
       await loadLead();
       onUpdated();
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to update status");
+        (e instanceof Error ? e.message : "Не вдалося оновити статус");
       setErr(msg);
     } finally {
       setStatusUpdating(false);
@@ -773,7 +773,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to add note");
+        (e instanceof Error ? e.message : "Не вдалося додати нотатку");
       setErr(msg);
     } finally {
       setAddingNote(false);
@@ -821,34 +821,34 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   }, [users, lead?.owner]);
 
   const leftContent = loading ? (
-    <div className="text-sm text-zinc-500">Loading…</div>
+    <div className="text-sm text-zinc-500">Завантаження…</div>
   ) : err ? (
     <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
   ) : !lead ? (
-    <div className="text-sm text-zinc-500">Lead not found</div>
+    <div className="text-sm text-zinc-500">Лід не знайдено</div>
   ) : leadTab === "source" ? (
     <div className="space-y-6">
       {lead.attribution ? (
-        <EntitySection title="Attribution">
+        <EntitySection title="Атрибуція">
           <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-sm">
             <div className="grid gap-2 text-zinc-700">
-              <div><span className="text-zinc-500">Campaign:</span> {lead.attribution.campaignName} ({lead.attribution.campaignId})</div>
-              <div><span className="text-zinc-500">Ad set:</span> {lead.attribution.adsetName} ({lead.attribution.adsetId})</div>
-              <div><span className="text-zinc-500">Ad:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
-              <div><span className="text-zinc-500">Form:</span> {lead.attribution.formId}</div>
-              <div><span className="text-zinc-500">Created (Meta):</span> {formatDateTime(lead.attribution.createdTime)}</div>
+              <div><span className="text-zinc-500">Кампанія:</span> {lead.attribution.campaignName} ({lead.attribution.campaignId})</div>
+              <div><span className="text-zinc-500">Група оголошень:</span> {lead.attribution.adsetName} ({lead.attribution.adsetId})</div>
+              <div><span className="text-zinc-500">Оголошення:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
+              <div><span className="text-zinc-500">Форма:</span> {lead.attribution.formId}</div>
+              <div><span className="text-zinc-500">Створено (Meta):</span> {formatDateTime(lead.attribution.createdTime)}</div>
             </div>
           </div>
         </EntitySection>
       ) : null}
       {publicSourceMeta ? (
-        <EntitySection title="Public lead attribution">
+        <EntitySection title="Публічна атрибуція ліда">
           <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-sm">
             <div className="grid gap-2 text-zinc-700">
-              <div><span className="text-zinc-500">Intake/source:</span> {publicSourceMeta.intake ?? "—"}</div>
-              <div><span className="text-zinc-500">Form type:</span> {publicSourceMeta.formType ?? "—"}</div>
-              <div><span className="text-zinc-500">Role segment:</span> {publicSourceMeta.roleSegment ?? "—"}</div>
-              <div><span className="text-zinc-500">Captured at:</span> {publicSourceMeta.capturedAt ? formatDateTime(publicSourceMeta.capturedAt) : "—"}</div>
+              <div><span className="text-zinc-500">Джерело:</span> {publicSourceMeta.intake ?? "—"}</div>
+              <div><span className="text-zinc-500">Тип форми:</span> {publicSourceMeta.formType ?? "—"}</div>
+              <div><span className="text-zinc-500">Сегмент ролі:</span> {publicSourceMeta.roleSegment ?? "—"}</div>
+              <div><span className="text-zinc-500">Зафіксовано:</span> {publicSourceMeta.capturedAt ? formatDateTime(publicSourceMeta.capturedAt) : "—"}</div>
               <div><span className="text-zinc-500">utm_source:</span> {publicSourceMeta.utmSource ?? "—"}</div>
               <div><span className="text-zinc-500">utm_medium:</span> {publicSourceMeta.utmMedium ?? "—"}</div>
               <div><span className="text-zinc-500">utm_campaign:</span> {publicSourceMeta.utmCampaign ?? "—"}</div>
@@ -856,14 +856,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div><span className="text-zinc-500">utm_term:</span> {publicSourceMeta.utmTerm ?? "—"}</div>
               <div><span className="text-zinc-500">gclid:</span> {publicSourceMeta.gclid ?? "—"}</div>
               <div><span className="text-zinc-500">fbclid:</span> {publicSourceMeta.fbclid ?? "—"}</div>
-              <div className="break-all"><span className="text-zinc-500">Page URL:</span> {publicSourceMeta.pageUrl ?? "—"}</div>
-              <div className="break-all"><span className="text-zinc-500">Referrer:</span> {publicSourceMeta.referrer ?? "—"}</div>
+              <div className="break-all"><span className="text-zinc-500">URL сторінки:</span> {publicSourceMeta.pageUrl ?? "—"}</div>
+              <div className="break-all"><span className="text-zinc-500">Реферер:</span> {publicSourceMeta.referrer ?? "—"}</div>
             </div>
           </div>
         </EntitySection>
       ) : null}
       {lead.answers && lead.answers.length > 0 ? (
-        <EntitySection title="Form answers">
+        <EntitySection title="Відповіді форми">
           <div className="rounded-md border border-zinc-200 overflow-hidden">
             <table className="w-full text-sm">
               <tbody className="divide-y divide-zinc-100">
@@ -879,7 +879,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         </EntitySection>
       ) : null}
       {lead.events && lead.events.length > 0 ? (
-        <EntitySection title="Events">
+        <EntitySection title="Події">
           <div className="space-y-2">
             {lead.events.map((e) => (
               <div key={e.id} className="rounded-md border border-zinc-200 p-3 text-sm">
@@ -894,25 +894,25 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         </EntitySection>
       ) : null}
       {!lead.attribution && !publicSourceMeta && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
-        <div className="text-sm text-zinc-500">No source data</div>
+        <div className="text-sm text-zinc-500">Немає даних про джерело</div>
       ) : null}
     </div>
   ) : leadTab === "activity" ? (
-    <EntitySection title="Activity">
+    <EntitySection title="Активність">
       <div className="h-[420px]">
         <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead?.contactId || lead.id} entityType={lead?.contactId ? "contact" : "lead"} showActivityButtons={true} />
       </div>
     </EntitySection>
   ) : leadTab === "products" ? (
-    <EntitySection title="Products">
+    <EntitySection title="Товари">
       <div className="rounded-md border border-zinc-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-zinc-50 border-b border-zinc-200">
-              <th className="px-3 py-2 text-left">Product</th>
-              <th className="px-3 py-2 text-right">Qty</th>
-              <th className="px-3 py-2 text-right">Price</th>
-              <th className="px-3 py-2 text-right">Total</th>
+              <th className="px-3 py-2 text-left">Товар</th>
+              <th className="px-3 py-2 text-right">К-сть</th>
+              <th className="px-3 py-2 text-right">Ціна</th>
+              <th className="px-3 py-2 text-right">Разом</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -920,7 +920,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             {editItems.length === 0 ? (
               <tr>
                 <td className="px-3 py-3 text-zinc-500" colSpan={5}>
-                  No products
+                  Немає товарів
                 </td>
               </tr>
             ) : (
@@ -937,7 +937,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       className="rounded border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100"
                       disabled={savingItems}
                     >
-                      Remove
+                      Видалити
                     </button>
                   </td>
                 </tr>
@@ -950,7 +950,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         <div className="min-w-[200px]">
           <input
             type="text"
-            placeholder="Search product…"
+            placeholder="Пошук товару…"
             className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
             value={productSearch}
             onChange={(e) => setProductSearch(e.target.value)}
@@ -979,7 +979,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           ) : null}
         </div>
         <div className="w-16">
-          <label className="block text-[10px] text-zinc-500">Qty</label>
+          <label className="block text-[10px] text-zinc-500">К-сть</label>
           <input
             type="number"
             min={1}
@@ -990,7 +990,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           />
         </div>
         <div className="w-24">
-          <label className="block text-[10px] text-zinc-500">Price</label>
+          <label className="block text-[10px] text-zinc-500">Ціна</label>
           <input
             type="number"
             min={0}
@@ -1007,7 +1007,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           disabled={!selectedProduct || savingItems}
           className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
         >
-          Add
+          Додати
         </button>
         <button
           type="button"
@@ -1015,7 +1015,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           disabled={savingItems || editItems.length === 0}
           className="btn-primary py-1.5"
         >
-          {savingItems ? "Saving…" : "Save items"}
+          {savingItems ? "Збереження…" : "Зберегти товари"}
         </button>
       </div>
     </EntitySection>
@@ -1023,17 +1023,17 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     <div className="space-y-6">
       {/* Contact */}
       <section className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Contact</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Контакт</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-first-name">
-              First name
+              Ім'я
             </label>
             <input
               id="lead-first-name"
               autoComplete="given-name"
               className={LEAD_FIELD_CLASS}
-              placeholder="Enter first name..."
+              placeholder="Введіть ім'я..."
               value={editFirstName}
               onChange={(e) => setEditFirstName(e.target.value)}
               onBlur={() => {
@@ -1046,13 +1046,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-last-name">
-              Last name
+              Прізвище
             </label>
             <input
               id="lead-last-name"
               autoComplete="family-name"
               className={LEAD_FIELD_CLASS}
-              placeholder="Enter last name..."
+              placeholder="Введіть прізвище..."
               value={editLastName}
               onChange={(e) => setEditLastName(e.target.value)}
               onBlur={() => {
@@ -1065,12 +1065,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-middle-name">
-              Middle name
+              По батькові
             </label>
             <input
               id="lead-middle-name"
               className={LEAD_FIELD_CLASS}
-              placeholder="Enter middle name..."
+              placeholder="Введіть по батькові..."
               value={editMiddleName}
               onChange={(e) => setEditMiddleName(e.target.value)}
               onBlur={() => {
@@ -1083,7 +1083,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-phone">
-              Phone
+              Телефон
             </label>
             <input
               id="lead-phone"
@@ -1118,7 +1118,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               type="email"
               autoComplete="email"
               className={LEAD_FIELD_CLASS}
-              placeholder="Enter email..."
+              placeholder="Введіть email..."
               value={editEmail}
               onChange={(e) => setEditEmail(e.target.value)}
               onBlur={() => {
@@ -1132,7 +1132,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         </div>
         {!lead.phone && !lead.email && (
           <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
-            Request contact from lead
+            Запросити контакт у ліда
           </p>
         )}
       </section>
@@ -1161,17 +1161,17 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       {/* Company & source */}
       <section className="space-y-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Company & source</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Компанія та джерело</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-company">
-              Company
+              Компанія
             </label>
             <input
               id="lead-company"
               autoComplete="organization"
               className={LEAD_FIELD_CLASS}
-              placeholder="Enter company..."
+              placeholder="Введіть компанію..."
               value={editCompanyName}
               onChange={(e) => setEditCompanyName(e.target.value)}
               onBlur={() => {
@@ -1331,7 +1331,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           {lead.score != null ? (
             <div className="flex flex-wrap gap-4 sm:col-span-2">
               <div className="flex items-baseline gap-2">
-                <span className="text-xs text-zinc-500">Score:</span>
+                <span className="text-xs text-zinc-500">Оцінка:</span>
                 <span className="text-sm font-medium text-zinc-900">{lead.score}</span>
               </div>
             </div>
@@ -1342,14 +1342,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       {/* Message */}
       <section className="space-y-3">
         <h3 id="lead-message-heading" className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Message
+          Повідомлення
         </h3>
         <textarea
           id="lead-message"
           aria-labelledby="lead-message-heading"
           rows={3}
           className={`${LEAD_FIELD_CLASS} min-h-[4.5rem] resize-none`}
-          placeholder="Message or comment from lead..."
+          placeholder="Повідомлення або коментар від ліда..."
           value={editMessage}
           onChange={(e) => {
             setEditMessage(e.target.value);
@@ -1367,18 +1367,18 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
       <div className="border-t border-zinc-100 pt-4">
         <span className="text-xs text-zinc-400">
-          Created: {formatDateTime(lead.createdAt)}
-          {lead.lastActivityAt && ` · Activity: ${formatDateTime(lead.lastActivityAt)}`}
+          Створено: {formatDateTime(lead.createdAt)}
+          {lead.lastActivityAt && ` · Активність: ${formatDateTime(lead.lastActivityAt)}`}
         </span>
       </div>
 
       {/* Add note */}
       <section className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Add note</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Додати нотатку</h3>
         <textarea
           rows={2}
           className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none transition-colors focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400/30 disabled:bg-zinc-50"
-          placeholder="Enter note text…"
+          placeholder="Введіть текст нотатки…"
           value={noteMessage}
           onChange={(e) => setNoteMessage(e.target.value)}
           disabled={addingNote}
@@ -1389,13 +1389,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           disabled={addingNote || !noteMessage.trim()}
           className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
         >
-          {addingNote ? "Sending…" : "Add note"}
+          {addingNote ? "Надсилання…" : "Додати нотатку"}
         </button>
       </section>
 
       {lead.statusReason ? (
         <p className="text-xs text-zinc-500">
-          <span className="font-medium text-zinc-600">Status reason:</span> {lead.statusReason}
+          <span className="font-medium text-zinc-600">Причина статусу:</span> {lead.statusReason}
         </p>
       ) : null}
     </div>
@@ -1405,13 +1405,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     <div className="space-y-6 rounded-lg border border-zinc-200 bg-zinc-50/50 p-4">
               {convertPreset === "company_contact_deal" && (
                 <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
-                  <div className="font-medium text-zinc-900">Step 1. Company</div>
-                  <p className="mt-1 text-xs text-zinc-500">Create a company first; contact and order will be linked to it.</p>
+                  <div className="font-medium text-zinc-900">Крок 1. Компанія</div>
+                  <p className="mt-1 text-xs text-zinc-500">Спочатку створіть компанію; контакт і замовлення будуть привʼязані до неї.</p>
                   <div className="mt-3">
-                    <label className="block text-xs font-medium text-zinc-600">Company name</label>
+                    <label className="block text-xs font-medium text-zinc-600">Назва компанії</label>
                     <input
                       className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm outline-none focus:border-zinc-400"
-                      placeholder="Company name"
+                      placeholder="Назва компанії"
                       value={newCompanyName}
                       onChange={(e) => setNewCompanyName(e.target.value)}
                     />
@@ -1421,27 +1421,27 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-zinc-900">
-                    {convertPreset === "company_contact_deal" ? "Step 2. Contact" : "Step 1. Contact"}
+                    {convertPreset === "company_contact_deal" ? "Крок 2. Контакт" : "Крок 1. Контакт"}
                   </div>
                   <button
                     type="button"
                     onClick={() => void loadSuggestions()}
                     className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
                   >
-                    Refresh search
+                    Оновити пошук
                   </button>
                 </div>
 
                 <div className="mt-3 space-y-2">
                   {suggestionsLoading ? (
-                    <div className="text-xs text-zinc-500">Searching for contacts…</div>
+                    <div className="text-xs text-zinc-500">Пошук контактів…</div>
                   ) : suggestions.length === 0 ? (
                     <div className="text-xs text-zinc-500">
-                      No contacts found by phone/email — you can create a new one.
+                      Контакти за телефоном/email не знайдено — можна створити новий.
                     </div>
                   ) : (
                     <>
-                      <div className="text-xs text-zinc-500">Possible matches:</div>
+                      <div className="text-xs text-zinc-500">Можливі збіги:</div>
                       <div className="space-y-1">
                         {suggestions.map((c) => {
                           const active = selectedContactId === c.id;
@@ -1485,7 +1485,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       }}
                     />
                     <label htmlFor="createContact" className="text-xs text-zinc-700">
-                      Create new contact instead of linking
+                      Створити новий контакт замість привʼязки
                     </label>
                   </div>
                 )}
@@ -1494,7 +1494,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        First name
+                        Ім'я
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -1504,7 +1504,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Last name
+                        Прізвище
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -1514,7 +1514,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Middle name
+                        По батькові
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -1524,7 +1524,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Phone
+                        Телефон
                       </label>
                       <input
                         type="tel"
@@ -1549,7 +1549,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     {convertPreset !== "company_contact_deal" && (
                       <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-zinc-600">
-                          Company (text)
+                          Компанія (текст)
                         </label>
                         <input
                           className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -1566,7 +1566,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-zinc-900">
-                    {convertPreset === "company_contact_deal" ? "Step 3. Deal" : "Step 2. Deal"}
+                    {convertPreset === "company_contact_deal" ? "Крок 3. Угода" : "Крок 2. Угода"}
                   </div>
                   <label className="flex items-center gap-2 text-xs text-zinc-700">
                     <input
@@ -1574,7 +1574,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       checked={createDeal}
                       onChange={(e) => setCreateDeal(e.target.checked)}
                     />
-                    Create order from this lead
+                    Створити замовлення з цього ліда
                   </label>
                 </div>
 
@@ -1582,7 +1582,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600">
-                        Deal title
+                        Назва угоди
                       </label>
                       <input
                         className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
@@ -1593,7 +1593,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">
-                        Amount
+                        Сума
                       </label>
                       <input
                         type="number"
@@ -1609,7 +1609,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600">
-                        Comment
+                        Коментар
                       </label>
                       <textarea
                         rows={3}
@@ -1620,7 +1620,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-zinc-600" htmlFor="lead-owner-convert">
-                        Responsible
+                        Відповідальний
                       </label>
                       <div className="mt-1" id="lead-owner-convert">
                         <SearchableSelectLite
@@ -1645,12 +1645,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
               {createdOrderId && (
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                  Conversion complete. Order created.{" "}
+                  Конвертацію завершено. Замовлення створено.{" "}
                   <a
                     href={`/orders?orderId=${createdOrderId}`}
                     className="font-medium underline hover:no-underline"
                   >
-                    Open order →
+                    Відкрити замовлення →
                   </a>
                 </div>
               )}
@@ -1668,7 +1668,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white"
                   disabled={converting}
                 >
-                  Close
+                  Закрити
                 </button>
                 <button
                   type="button"
@@ -1676,7 +1676,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   disabled={converting}
                   className="btn-primary"
                 >
-                  {converting ? "Converting…" : "Convert"}
+                  {converting ? "Конвертація…" : "Конвертувати"}
                 </button>
               </div>
     </div>
@@ -1718,28 +1718,28 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             onClick={() => setLeadTab("main")}
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "main" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
-            Main
+            Основне
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("products")}
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
-            Products
+            Товари
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("activity")}
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
-            Activity
+            Активність
           </button>
           <button
             type="button"
             onClick={() => setLeadTab("source")}
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "source" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
-            Source
+            Джерело
           </button>
         </div>
       </div>
@@ -1778,7 +1778,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     }}
                     className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50"
                   >
-                    Convert
+                    Конвертувати
                   </button>
                 ) : null}
                 {effectiveRole === "MANAGER" ||
@@ -1817,7 +1817,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       disabled={deleting}
                       onClick={async () => {
                         setLeadHeaderMenuOpen(false);
-                        if (!lead || !confirm("Удалить лид? Это действие нельзя отменить.")) return;
+                        if (!lead || !confirm("Видалити лід? Цю дію неможливо скасувати.")) return;
                         setDeleting(true);
                         setErr(null);
                         try {
@@ -1835,7 +1835,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       }}
                       className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-2 text-left text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
                     >
-                      {deleting ? "Удаление…" : "Удалить лид"}
+                      {deleting ? "Видалення…" : "Видалити лід"}
                     </button>
                   </div>
                 ) : (
@@ -1866,7 +1866,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="complete-outcome-title" className="text-base font-semibold text-zinc-900">
-              Choose outcome to complete the lead
+              Оберіть результат завершення ліда
             </h2>
             <div className="mt-4 space-y-3">
               <button
@@ -1874,7 +1874,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 onClick={() => openConvertWizard("company_contact_deal")}
                 className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
               >
-                <span>Company + contact + order</span>
+                <span>Компанія + контакт + замовлення</span>
                 <span className="text-emerald-600">→</span>
               </button>
               <button
@@ -1882,7 +1882,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 onClick={() => openConvertWizard("contact_deal")}
                 className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
               >
-                <span>Contact + order</span>
+                <span>Контакт + замовлення</span>
                 <span className="text-emerald-600">→</span>
               </button>
               <button
@@ -1890,7 +1890,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 onClick={() => openConvertWizard("contact")}
                 className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
               >
-                <span>Contact only</span>
+                <span>Лише контакт</span>
                 <span className="text-emerald-600">→</span>
               </button>
               <button
@@ -1899,7 +1899,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 disabled={statusUpdating}
                 className="flex w-full items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
               >
-                <span>Poor quality lead</span>
+                <span>Нецільовий лід</span>
                 <span className="text-red-600">→</span>
               </button>
             </div>
@@ -1909,7 +1909,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 onClick={() => setShowCompleteOutcomeDialog(false)}
                 className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Cancel
+                Скасувати
               </button>
             </div>
           </div>
