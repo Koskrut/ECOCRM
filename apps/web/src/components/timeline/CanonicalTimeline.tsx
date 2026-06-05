@@ -2,6 +2,7 @@
 
 import { Pencil, Phone, Pin, PinOff, Trash2 } from "lucide-react";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { localizeCallActivityText } from "@/lib/activityDisplay";
 import type { TimelineItem } from "./types";
 import { useState } from "react";
 
@@ -20,10 +21,10 @@ type Props = {
 
 function sourceBadge(item: TimelineItem): string {
   if (item.kind === "status_change") return "Статус";
-  if (item.kind === "shipment") return "TTN";
-  if (item.kind === "call" || item.kind === "manual_call") return "Звонок";
-  if (item.kind === "meeting") return "Встреча";
-  if (item.kind === "comment") return "Комментарий";
+  if (item.kind === "shipment") return "ТТН";
+  if (item.kind === "call" || item.kind === "manual_call") return "Дзвінок";
+  if (item.kind === "meeting") return "Зустріч";
+  if (item.kind === "comment") return "Коментар";
   return item.source;
 }
 
@@ -43,17 +44,20 @@ export function CanonicalTimeline({
   const [editBody, setEditBody] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  if (loading) return <div className="text-sm text-zinc-500">Loading timeline...</div>;
+  if (loading) return <div className="text-sm text-zinc-500">Завантаження таймлайну…</div>;
   if (error) {
     return (
       <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</div>
     );
   }
-  if (items.length === 0) return <div className="text-sm text-zinc-500">Пока нет событий</div>;
+  if (items.length === 0) return <div className="text-sm text-zinc-500">Подій поки немає</div>;
 
   return (
     <div className="space-y-3">
       {items.map((item) => {
+        const isCallLike = item.kind === "call" || item.kind === "manual_call";
+        const displayTitle = isCallLike ? localizeCallActivityText(item.title) : item.title;
+        const displayBody = isCallLike && item.body ? localizeCallActivityText(item.body) : item.body;
         const isActivity = item.source === "activity";
         const canMutate = isActivity && (item.canEdit || item.canDelete || item.canPin);
         const isEditing = editingId === item.id;
@@ -66,13 +70,13 @@ export function CanonicalTimeline({
                 {(item.kind === "call" || item.kind === "manual_call") && (
                   <Phone className="h-4 w-4 text-emerald-600" />
                 )}
-                <span>{item.title}</span>
+                <span>{displayTitle}</span>
                 <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 border border-zinc-200">
                   {sourceBadge(item)}
                 </span>
                 {item.pinnedAt ? (
                   <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
-                    pinned
+                    Закріплено
                   </span>
                 ) : null}
               </div>
@@ -108,8 +112,8 @@ export function CanonicalTimeline({
                     </button>
                   </div>
                 </div>
-              ) : item.body ? (
-                <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{item.body}</div>
+              ) : displayBody ? (
+                <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{displayBody}</div>
               ) : null}
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -178,7 +182,7 @@ export function CanonicalTimeline({
                 </button>
               </div>
             ) : null}
-            <div className="mt-2 text-xs text-zinc-500">by {item.actor.name}</div>
+            <div className="mt-2 text-xs text-zinc-500">від {item.actor.name}</div>
           </div>
         );
       })}

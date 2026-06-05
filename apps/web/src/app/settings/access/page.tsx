@@ -6,8 +6,8 @@ import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { apiHttp } from "../../../lib/api/client";
 import { formatDateTime } from "@/lib/crmDatetime";
 
-/** Same order as Employees modal: USER, LEAD, MANAGER, ADMIN */
-const ROLE_OPTIONS = ["USER", "LEAD", "MANAGER", "ADMIN"] as const;
+/** Same order as Employees modal: USER, WAREHOUSE, LEAD, MANAGER, ADMIN */
+const ROLE_OPTIONS = ["USER", "WAREHOUSE", "LEAD", "MANAGER", "ADMIN"] as const;
 type UserRole = (typeof ROLE_OPTIONS)[number];
 
 type User = {

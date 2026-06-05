@@ -10,9 +10,12 @@ import {
   routeSessionsApi,
   type RoutePlan,
   type RouteSessionState,
+  type RouteGeometryBundle,
+  type RouteGeometryResult,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
-import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
+import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
+import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
@@ -48,14 +51,6 @@ type VisitInterval = {
 type VisitLayout = {
   column: number;
   columns: number;
-};
-
-type VisitsMapContentProps = {
-  mapsApiKey: string;
-  centerLatLng: { lat: number; lng: number };
-  scheduledVisits: Visit[];
-  onMarkerDragEnd: (visit: Visit, e: google.maps.MapMouseEvent) => void;
-  routeAnchors?: { start?: { lat: number; lng: number }; end?: { lat: number; lng: number } };
 };
 
 function computeVisitLayout(visits: VisitInterval[]): Map<string, VisitLayout> {
@@ -176,66 +171,6 @@ function findNearestAvailableSlot(
   return null;
 }
 
-function VisitsMapContent({
-  mapsApiKey,
-  centerLatLng,
-  scheduledVisits,
-  onMarkerDragEnd,
-  routeAnchors,
-}: VisitsMapContentProps) {
-  const { isLoaded, loadError } = useLoadScript({
-    id: "google-map-script",
-    googleMapsApiKey: mapsApiKey,
-  });
-
-  if (loadError) {
-    return (
-      <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
-        Failed to load Google Maps script. Check API key restrictions and billing.
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-        Loading map…
-      </div>
-    );
-  }
-
-  return (
-    <GoogleMap
-      mapContainerStyle={{ width: "100%", height: "100%" }}
-      center={centerLatLng}
-      zoom={12}
-      options={{
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-      }}
-    >
-      {routeAnchors?.start ? <Marker position={routeAnchors.start} label="A" /> : null}
-      {routeAnchors?.end &&
-      (routeAnchors.end.lat !== routeAnchors.start?.lat ||
-        routeAnchors.end.lng !== routeAnchors.start?.lng) ? (
-        <Marker position={routeAnchors.end} label="B" />
-      ) : null}
-      {scheduledVisits
-        .filter((v) => v.lat != null && v.lng != null)
-        .map((v, idx) => (
-          <Marker
-            key={v.id}
-            position={{ lat: v.lat as number, lng: v.lng as number }}
-            label={String(idx + 1)}
-            draggable
-            onDragEnd={(e) => void onMarkerDragEnd(v, e)}
-          />
-        ))}
-    </GoogleMap>
-  );
-}
-
 export default function VisitsPage() {
   const { pushToast } = useToast();
   const { confirm } = useConfirm();
@@ -268,6 +203,15 @@ export default function VisitsPage() {
     source: "google" | "fallback" | "none";
   } | null>(null);
   const [routeFactMetricsLoading, setRouteFactMetricsLoading] = useState(false);
+  const [routeGeometryBundle, setRouteGeometryBundle] = useState<RouteGeometryBundle | null>(null);
+  const [plannedPreviewGeometry, setPlannedPreviewGeometry] =
+    useState<RouteGeometryResult | null>(null);
+  const [routeGeometryLoading, setRouteGeometryLoading] = useState(false);
+  const [routeLayers, setRouteLayers] = useState<Record<RouteLayerKey, boolean>>({
+    planned: true,
+    fact_visits: false,
+    fact_gps: false,
+  });
 
   const [useTrafficAware, setUseTrafficAware] = useState(false);
   const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);
@@ -547,6 +491,64 @@ export default function VisitsPage() {
       .catch(() => setRouteFactMetrics(null))
       .finally(() => setRouteFactMetricsLoading(false));
   }, [dateParam, planOwnerOpts, useTrafficAware]);
+
+  useEffect(() => {
+    setRouteGeometryBundle(null);
+    if (!planOwnerOpts) return;
+    setRouteGeometryLoading(true);
+    void routePlansApi
+      .geometryBundle(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
+      .then((b) => setRouteGeometryBundle(b))
+      .catch(() => setRouteGeometryBundle(null))
+      .finally(() => setRouteGeometryLoading(false));
+  }, [dateParam, planOwnerOpts, useTrafficAware, routePlan?.id]);
+
+  useEffect(() => {
+    setPlannedPreviewGeometry(null);
+    if (!planOwnerOpts || currentOrderVisitIds.length === 0 || hasScheduledWithoutCoords) return;
+    const t = window.setTimeout(() => {
+      void routePlansApi
+        .geometryPreview(dateParam, currentOrderVisitIds, {
+          traffic: useTrafficAware,
+          ...planOwnerOpts,
+        })
+        .then((g) => setPlannedPreviewGeometry(g))
+        .catch(() => setPlannedPreviewGeometry(null));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [
+    currentOrderVisitIds,
+    dateParam,
+    hasScheduledWithoutCoords,
+    planOwnerOpts,
+    useTrafficAware,
+  ]);
+
+  const mapGeometries = useMemo(
+    () => ({
+      planned: plannedPreviewGeometry ?? routeGeometryBundle?.planned ?? null,
+      fact_visits: routeGeometryBundle?.factVisits ?? null,
+      fact_gps: routeGeometryBundle?.factGps ?? null,
+    }),
+    [plannedPreviewGeometry, routeGeometryBundle],
+  );
+
+  const mapMarkers = useMemo(
+    () =>
+      scheduledVisits
+        .filter((v) => v.lat != null && v.lng != null)
+        .map((v, idx) => ({
+          lat: v.lat as number,
+          lng: v.lng as number,
+          label: String(idx + 1),
+          visitId: v.id,
+        })),
+    [scheduledVisits],
+  );
+
+  const toggleRouteLayer = (key: RouteLayerKey) => {
+    setRouteLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     apiHttp
@@ -1953,7 +1955,7 @@ export default function VisitsPage() {
           aria-label="Карта маршрута"
         >
           <div className="shrink-0 border-b border-zinc-200 px-3 py-2">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-2">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-zinc-900">Карта</div>
                 {routePlan && routePlan.stops?.length ? (
@@ -1978,6 +1980,17 @@ export default function VisitsPage() {
                   <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
                 )}
               </div>
+              <RouteLayerControls
+                layers={routeLayers}
+                onToggle={toggleRouteLayer}
+                disabled={routeGeometryLoading}
+              />
+              {routeGeometryBundle?.factGps.quality.degraded ? (
+                <p className="text-[10px] text-amber-700">
+                  GPS-трек слабый ({routeGeometryBundle.factGps.quality.sampleCount} точек) — для
+                  топлива используется факт по визитам.
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="relative min-h-[280px] flex-1 p-2">
@@ -1990,12 +2003,18 @@ export default function VisitsPage() {
                 Loading Google Maps configuration…
               </div>
             ) : (
-              <VisitsMapContent
+              <VisitsRouteMap
                 mapsApiKey={mapsApiKey}
-                centerLatLng={centerLatLng}
-                scheduledVisits={scheduledVisits}
-                onMarkerDragEnd={handleMarkerDragEnd}
+                center={centerLatLng}
+                layers={routeLayers}
+                geometries={mapGeometries}
+                markers={mapMarkers}
                 routeAnchors={routeAnchors}
+                draggableMarkers={!readOnlyPlan}
+                onMarkerDragEnd={(idx, e) => {
+                  const v = scheduledVisits.filter((x) => x.lat != null && x.lng != null)[idx];
+                  if (v) void handleMarkerDragEnd(v, e);
+                }}
               />
             )}
           </div>
@@ -2063,12 +2082,18 @@ export default function VisitsPage() {
                   Loading Google Maps configuration…
                 </div>
               ) : (
-                <VisitsMapContent
+                <VisitsRouteMap
                   mapsApiKey={mapsApiKey}
-                  centerLatLng={centerLatLng}
-                  scheduledVisits={scheduledVisits}
-                  onMarkerDragEnd={handleMarkerDragEnd}
+                  center={centerLatLng}
+                  layers={routeLayers}
+                  geometries={mapGeometries}
+                  markers={mapMarkers}
                   routeAnchors={routeAnchors}
+                  draggableMarkers={!readOnlyPlan}
+                  onMarkerDragEnd={(idx, e) => {
+                    const v = scheduledVisits.filter((x) => x.lat != null && x.lng != null)[idx];
+                    if (v) void handleMarkerDragEnd(v, e);
+                  }}
                 />
               )}
             </div>

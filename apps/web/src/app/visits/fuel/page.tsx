@@ -44,6 +44,12 @@ function warningText(code: string): string | null {
   if (code === "route_anchors_not_configured") {
     return "Старт/фініш не задані в профілі (Сотрудники → Маршрут визитов). Пробіг рахується між першим і останнім візитом.";
   }
+  if (code === "gps_track_degraded") {
+    return "GPS-трек слабкий — для виплати використано факт по завершених візитах.";
+  }
+  if (code === "gps_track_unavailable") {
+    return "GPS-трек відсутній — для виплати використано факт по завершених візитах.";
+  }
   return null;
 }
 
@@ -263,7 +269,11 @@ function DayDetailPanel({
       {data ? (
         <>
           <p className="mb-3 text-xs text-zinc-600">
-            План — ранковий маршрут; до виплати — за фактичними завершеними візитами.
+            План — збережений маршрут. До виплати —{" "}
+            {data.compensationFactKind === "fact_gps"
+              ? "фактичний GPS-трек (якщо якість достатня)"
+              : "факт по порядку завершених візитів"}
+            .
           </p>
 
           {data.routeAnchors?.usesSettingsAnchors ? (
@@ -288,17 +298,18 @@ function DayDetailPanel({
             </ul>
           ) : null}
 
-          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border border-zinc-200 bg-white p-3">
-              <div className="text-xs font-medium uppercase text-zinc-500">Факт</div>
+              <div className="text-xs font-medium uppercase text-zinc-500">Пробіг (виплата)</div>
               <div className="mt-1 text-xl font-semibold text-zinc-900">
-                {r?.actualKm != null ? `${r.actualKm} км` : "—"}
+                {r?.compensationKm != null ? `${r.compensationKm} км` : "—"}
               </div>
               <div className="text-sm text-zinc-600">
                 {r?.litersEstimated != null ? `${r.litersEstimated} л` : "—"}
               </div>
               <div className="text-xs text-zinc-400">
-                {data.factMetrics.source !== "none" ? data.factMetrics.source : ""}
+                {data.compensationFactKind === "fact_gps" ? "GPS-трек" : "порядок візитів"}
+                {r?.metricsSource ? ` · ${r.metricsSource}` : ""}
               </div>
             </div>
             <div className="rounded-lg border border-zinc-200 bg-white p-3">
@@ -306,7 +317,24 @@ function DayDetailPanel({
               <div className="mt-1 text-xl font-semibold text-zinc-700">
                 {r?.plannedKm != null ? `${r.plannedKm} км` : "—"}
               </div>
-              <div className="text-xs text-zinc-400">для порівняння</div>
+              <div className="text-xs text-zinc-400">
+                {data.plannedMetrics.source !== "none" ? data.plannedMetrics.source : "—"}
+              </div>
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white p-3">
+              <div className="text-xs font-medium uppercase text-zinc-500">Факт (деталізація)</div>
+              <div className="mt-1 flex flex-wrap gap-4 text-sm text-zinc-700">
+                <span>
+                  GPS: {data.factGpsMetrics?.distanceKm ?? "—"} км
+                  {data.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
+                    ? ` (${data.factGpsMetrics.source})`
+                    : ""}
+                </span>
+                <span>
+                  Візити: {data.factVisitsMetrics?.distanceKm ?? data.factMetrics.distanceKm ?? "—"}{" "}
+                  км
+                </span>
+              </div>
             </div>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
               <div className="text-xs font-medium uppercase text-emerald-800">До виплати</div>

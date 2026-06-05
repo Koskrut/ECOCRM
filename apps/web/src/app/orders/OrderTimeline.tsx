@@ -38,10 +38,10 @@ export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
 
   const placeholder =
     mode === "CALL"
-      ? "Коротко: о чём был звонок?"
+      ? "Коротко: про що був дзвінок?"
       : mode === "MEETING"
-        ? "Коротко: итоги встречи?"
-        : "Написать комментарий...";
+        ? "Коротко: результат зустрічі?"
+        : "Напишіть коментар…";
 
 
   const toActivityId = useCallback((canonicalId: string): string => {
@@ -93,17 +93,17 @@ export function OrderTimeline({ orderId, onItemsCountChange }: Props) {
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm max-lg:h-auto lg:h-full">
       <div className="border-b border-zinc-200 p-4">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setMode("CALL")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "CALL" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Звонок</button>
-          <button type="button" onClick={() => setMode("MEETING")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "MEETING" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Встреча</button>
-          <button type="button" onClick={() => setMode("COMMENT")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "COMMENT" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Комментарий</button>
+          <button type="button" onClick={() => setMode("CALL")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "CALL" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Дзвінок</button>
+          <button type="button" onClick={() => setMode("MEETING")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "MEETING" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Зустріч</button>
+          <button type="button" onClick={() => setMode("COMMENT")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "COMMENT" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Коментар</button>
         </div>
 
         <div className="mt-3">
           <textarea className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200" rows={3} placeholder={placeholder} value={text} onChange={(e) => setText(e.target.value)} />
 
           <div className="mt-2 flex items-center justify-between">
-            <button type="button" disabled={saving || !text.trim()} onClick={() => void addActivity()} className="btn-primary py-1.5">{saving ? "Сохраняю..." : "Добавить"}</button>
-            <button type="button" onClick={() => void timeline.refresh()} className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">Обновить</button>
+            <button type="button" disabled={saving || !text.trim()} onClick={() => void addActivity()} className="btn-primary py-1.5">{saving ? "Збереження…" : "Додати"}</button>
+            <button type="button" onClick={() => void timeline.refresh()} className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">Оновити</button>
           </div>
         </div>
       </div>

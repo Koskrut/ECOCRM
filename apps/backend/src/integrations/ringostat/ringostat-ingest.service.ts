@@ -1057,6 +1057,16 @@ export class RingostatIngestService {
     return config.defaultManagerId ?? null;
   }
 
+  private formatCallStatusLabel(status: string): string {
+    const s = status.trim().toUpperCase();
+    if (!s) return "Невідомо";
+    if (s.includes("MISSED") || s === "NOANSWER" || s.includes("NO_ANSWER")) return "Пропущено";
+    if (s.includes("ANSWER") || s === "ANSWERED" || s === "PROPER") return "Відповіли";
+    if (s === "BUSY") return "Зайнято";
+    if (s === "FAILED") return "Помилка";
+    return status;
+  }
+
   private buildActivityBody(params: {
     direction: NormalizedDirection;
     status: string;
@@ -1065,18 +1075,18 @@ export class RingostatIngestService {
     hasRecording?: boolean;
   }): string {
     const parts: string[] = [];
-    parts.push(`Статус: ${params.status}`);
+    parts.push(`Статус: ${this.formatCallStatusLabel(params.status)}`);
     if (params.direction !== "UNKNOWN") {
-      parts.push(`Направление: ${params.direction === "INBOUND" ? "входящий" : "исходящий"}`);
+      parts.push(`Напрямок: ${params.direction === "INBOUND" ? "вхідний" : "вихідний"}`);
     }
     if (params.durationSec != null) {
-      parts.push(`Длительность: ${params.durationSec} сек.`);
+      parts.push(`Тривалість: ${params.durationSec} сек.`);
     }
     if (params.customerPhoneNormalized) {
       parts.push(`Телефон: ${params.customerPhoneNormalized}`);
     }
     if (params.hasRecording) {
-      parts.push("Запись: доступна");
+      parts.push("Запис: доступний");
     }
     return parts.join(" · ");
   }
@@ -1096,9 +1106,9 @@ export class RingostatIngestService {
       managerUserId: string | null;
     },
   ): Promise<void> {
-    const titleParts: string[] = ["Звонок"];
-    if (params.direction === "INBOUND") titleParts.push("входящий");
-    else if (params.direction === "OUTBOUND") titleParts.push("исходящий");
+    const titleParts: string[] = ["Дзвінок"];
+    if (params.direction === "INBOUND") titleParts.push("вхідний");
+    else if (params.direction === "OUTBOUND") titleParts.push("вихідний");
 
     const title = titleParts.join(" ");
 

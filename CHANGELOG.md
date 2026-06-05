@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.73**.)_
+_(планируемые изменения после **0.2.74**.)_
+
+## [0.2.74] — 2026-06-03
+
+### Summary
+
+Полный релиз **0.2.x**: роль **WAREHOUSE**, очередь комплектации заказов, **route geometry** (polyline, карта web/mobile), доработки **visits/fuel**, **orders** kanban, **contacts/timeline**, **field-fuel**, **Ringostat** ingest, **stock SKU**; миграция **`add_warehouse_user_role`**.
+
+### Added
+
+- **RBAC**: роль **`WAREHOUSE`**, `order-warehouse-role`, fulfillment queue API/UI (`/work/warehouse`).
+- **Visits**: `polyline.util`, route geometry types, BFF **`/api/route-plans/geometry`**; mobile **`route-map.ts`**.
+- **Web**: visits map components, **`activityDisplay`**, **`contact-address.util`**, orders resource.
+- **Docs**: **`docs/commercial-proposal-uk.md`**.
+
+### Changed
+
+- **Route plans** — геометрия маршрута, controller/service.
+- **Orders** — фильтры/очередь для warehouse role; kanban/page.
+- **Field fuel**, **Ringostat ingest**, **stock-sku-normalizer**, **contacts** card/timeline.
+- **Visits** history/fuel/page, **catalog**, entity modals, locales.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.74`**, полный манифест.
+- **`prisma migrate deploy`** — enum **`UserRole.WAREHOUSE`** (`20260603120000_add_warehouse_user_role`).
+- Сайдкары: **`NP_UPSTREAM_URL`** и др. на `backend`.
 
 ## [0.2.73] — 2026-05-25
 
@@ -344,7 +370,7 @@ _(планируемые изменения после **0.2.73**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.73`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.74`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

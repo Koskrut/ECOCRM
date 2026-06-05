@@ -8,7 +8,7 @@ const inputClass =
 type Props = {
   label: string;
   placeholder: string;
-  hint?: string;
+  descriptionHint?: string;
   value: string;
   disabled?: boolean;
   mapsApiKey: string | null;
@@ -18,6 +18,7 @@ type Props = {
   lookupLoading: boolean;
   geocodeLoading: boolean;
   error: string | null;
+  addressHint: string | null;
   onChange: (value: string) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -29,7 +30,7 @@ type Props = {
 export function RouteAddressInput({
   label,
   placeholder,
-  hint,
+  descriptionHint,
   value,
   disabled,
   mapsApiKey,
@@ -39,6 +40,7 @@ export function RouteAddressInput({
   lookupLoading,
   geocodeLoading,
   error,
+  addressHint,
   onChange,
   onFocus,
   onBlur,
@@ -49,7 +51,7 @@ export function RouteAddressInput({
   return (
     <div>
       <label className="block text-sm font-medium text-zinc-700">{label}</label>
-      {hint ? <p className="mt-0.5 text-xs text-zinc-500">{hint}</p> : null}
+      {descriptionHint ? <p className="mt-0.5 text-xs text-zinc-500">{descriptionHint}</p> : null}
       <div className="relative mt-1">
         <input
           className={inputClass}
@@ -82,10 +84,13 @@ export function RouteAddressInput({
       <div className="mt-1 min-h-[1rem] text-xs text-zinc-500">
         {lookupLoading && mapsApiKey ? statusSearching : null}
         {!lookupLoading && geocodeLoading ? statusGeocoding : null}
+        {!lookupLoading && !geocodeLoading && addressHint ? (
+          <span className="text-amber-700">{addressHint}</span>
+        ) : null}
         {!lookupLoading && !geocodeLoading && error ? (
           <span className="text-red-600">{error}</span>
         ) : null}
-        {!lookupLoading && !geocodeLoading && !error && !mapsApiKey ? mapsConfigHint : null}
+        {!lookupLoading && !geocodeLoading && !error && !addressHint && !mapsApiKey ? mapsConfigHint : null}
       </div>
     </div>
   );

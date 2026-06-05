@@ -8,6 +8,7 @@ export type ContactCardSummaryResponse = {
     clientType: string | null;
     city: string | null;
     region: string | null;
+    address: string | null;
     email: string | null;
     phones: string[];
     isUnassigned: boolean;

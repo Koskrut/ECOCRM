@@ -114,6 +114,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [isAddressLookupLoading, setIsAddressLookupLoading] = useState(false);
   const [isGeocodeLoading, setIsGeocodeLoading] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressHint, setAddressHint] = useState<string | null>(null);
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
@@ -480,6 +481,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setAddressSuggestions([]);
       setShowAddressSuggestions(false);
       setAddressError(null);
+      setAddressHint(null);
       setIsGeocodeLoading(true);
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
@@ -510,9 +512,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             });
           }
           setAddressStatus(null);
-          setAddressError(strings.common.houseNumberRequired);
+          setAddressHint(strings.common.houseNumberHint);
+          setAddressError(null);
           return;
         }
+        setAddressHint(null);
         if (forCreate) {
           setLat(result.lat);
           setLng(result.lng);
@@ -547,7 +551,8 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       if (lastGeocodedAddressRef.current === query) return;
       if (!addressHasHouseNumber(query)) {
         lastGeocodedAddressRef.current = "";
-        setAddressError(strings.common.houseNumberRequired);
+        setAddressHint(strings.common.houseNumberHint);
+        setAddressError(null);
         setAddressStatus(null);
         if (forCreate) {
           setLat(null);
@@ -568,6 +573,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       }
       lastGeocodedAddressRef.current = query;
       setAddressError(null);
+      setAddressHint(null);
       setIsGeocodeLoading(true);
       try {
         const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
@@ -578,7 +584,8 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
         if (!addressHasHouseNumber(merged)) {
           lastGeocodedAddressRef.current = "";
-          setAddressError(strings.common.houseNumberRequired);
+          setAddressHint(strings.common.houseNumberHint);
+          setAddressError(null);
           setAddressStatus(null);
           if (forCreate) {
             setAddress(merged);
@@ -599,6 +606,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
           }
           return;
         }
+        setAddressHint(null);
         lastGeocodedAddressRef.current = merged.trim();
         if (forCreate) {
           setLat(result.lat);
@@ -799,6 +807,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                       lastGeocodedAddressRef.current = "";
                       setAddressStatus(null);
                       setAddressError(null);
+                      setAddressHint(null);
                     }}
                     onFocus={() => setShowAddressSuggestions(true)}
                     onBlur={() => {
@@ -832,6 +841,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адреса з Google" : null}
                   {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координати оновлено" : null}
                   {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точку задано вручну" : null}
+                  {!isAddressLookupLoading && !isGeocodeLoading && !addressError && addressHint ? (
+                    <span className="text-amber-700">{addressHint}</span>
+                  ) : null}
                   {!isAddressLookupLoading && !isGeocodeLoading && addressError ? addressError : null}
                   {!mapsApiKey ? mapsConfigError : null}
                 </div>
@@ -992,6 +1004,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                     lastGeocodedAddressRef.current = "";
                     setAddressStatus(null);
                     setAddressError(null);
+                    setAddressHint(null);
                   }}
                   onFocus={() => setShowAddressSuggestions(true)}
                   onBlur={() => {
@@ -1003,12 +1016,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                     const v = editAddress.trim() || null;
                     if (v !== (company!.address ?? null)) {
                       if (v && !addressHasHouseNumber(v)) {
-                        setAddressError(strings.common.houseNumberRequired);
+                        setAddressHint(strings.common.houseNumberHint);
+                        setAddressError(null);
                         setEditLat(null);
                         setEditLng(null);
                         setEditGooglePlaceId(null);
                         void patchCompany({ address: v, lat: null, lng: null, googlePlaceId: null });
                       } else {
+                        setAddressHint(null);
                         void patchCompany({ address: v ?? undefined });
                       }
                     }

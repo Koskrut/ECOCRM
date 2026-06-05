@@ -40,11 +40,11 @@ describe("RingostatIngestService", () => {
       hasRecording: true,
     });
 
-    assert.match(body, /Статус: MISSED/);
-    assert.match(body, /Направление: входящий/);
-    assert.match(body, /Длительность: 42 сек\./);
+    assert.match(body, /Статус: Пропущено/);
+    assert.match(body, /Напрямок: вхідний/);
+    assert.match(body, /Тривалість: 42 сек\./);
     assert.match(body, /Телефон: \+380501234567/);
-    assert.match(body, /Запись: доступна/);
+    assert.match(body, /Запис: доступний/);
   });
 
   it("resolveDirection: Ringostat KB type in/out; empty direction must not hide type", () => {

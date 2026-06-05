@@ -103,6 +103,35 @@ export type RouteOptimizeResponse = {
   source: "google" | "fallback";
 };
 
+export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps";
+
+export type RouteGeometrySource = "google" | "fallback" | "raw_gps" | "none";
+
+export type RouteGeometryResult = {
+  kind: RouteGeometryKind;
+  source: RouteGeometrySource;
+  distanceKm: number | null;
+  durationMin: number | null;
+  path: Array<{ lat: number; lng: number }>;
+  encodedPolyline: string | null;
+  waypoints: Array<{ lat: number; lng: number; label?: string | null; visitId?: string | null }>;
+  quality: {
+    sampleCount: number;
+    coverageRatio: number | null;
+    degraded: boolean;
+    degradedReason: string | null;
+  };
+};
+
+export type RouteGeometryBundle = {
+  date: string;
+  ownerId: string;
+  planned: RouteGeometryResult;
+  factVisits: RouteGeometryResult;
+  factGps: RouteGeometryResult;
+  compensationFactKind: "fact_gps" | "fact_visits";
+};
+
 export type VisitHistoryItem = Visit & {
   owner?: { id: string; fullName: string; email: string };
   contact?: {
@@ -280,6 +309,40 @@ export const routePlansApi = {
     const res = await apiHttp.get<NavigationUrlResponse>("/route-plans/navigation", {
       params,
     } as never);
+    return res.data;
+  },
+
+  geometry: async (
+    date: string,
+    kind: RouteGeometryKind,
+    opts?: RouteOwnerOpts,
+  ): Promise<RouteGeometryResult> => {
+    const res = await apiHttp.get<RouteGeometryResult>("/route-plans/geometry", {
+      params: { ...routePlanParams(date, opts), kind },
+    } as never);
+    return res.data;
+  },
+
+  geometryBundle: async (
+    date: string,
+    opts?: RouteOwnerOpts,
+  ): Promise<RouteGeometryBundle> => {
+    const res = await apiHttp.get<RouteGeometryBundle>("/route-plans/geometry/bundle", {
+      params: routePlanParams(date, opts),
+    } as never);
+    return res.data;
+  },
+
+  geometryPreview: async (
+    date: string,
+    visitIds: string[],
+    opts?: RouteOwnerOpts,
+  ): Promise<RouteGeometryResult> => {
+    const res = await apiHttp.post<RouteGeometryResult>(
+      "/route-plans/geometry/preview",
+      { visitIds },
+      { params: routePlanParams(date, opts) } as never,
+    );
     return res.data;
   },
 };

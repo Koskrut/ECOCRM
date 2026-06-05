@@ -391,9 +391,7 @@ export class ProductStore {
     return buildStockSkuIndex(rows);
   }
 
-  /**
-   * Resolve upload rows to product IDs (exact SKU, then homoglyph-normalized exact match).
-   */
+  /** Resolve upload rows to product IDs by exact trimmed SKU match. */
   public async prepareBulkWarehouseStock(entries: StockByWarehouseEntry[]): Promise<{
     updates: Array<{ productId: string; warehouseId: string; qty: number }>;
     productIds: Set<string>;

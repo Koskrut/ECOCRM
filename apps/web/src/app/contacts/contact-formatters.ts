@@ -76,3 +76,5 @@ export function formatContactClientStage(stage: ContactClientStage | null | unde
 export function formatContactExclusionReason(reason: ContactExclusionCode): string {
   return EXCLUSION_LABELS[reason] ?? reason;
 }
+
+export { formatContactAddressFromGoogle } from "@/lib/contact-address.util";

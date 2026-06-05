@@ -197,20 +197,35 @@ export class FieldFuelService {
     const doneVisits = await this.loadDoneVisitsForDay(ownerId, date);
     const planVisitIds = await this.planVisitIdSet(ownerId, date);
 
-    const [plannedMetrics, factMetrics, routeAnchors] = await Promise.all([
-      this.routePlans.getRouteMetrics(dateStr, actor),
-      this.routePlans.getFactRouteMetrics(dateStr, actor),
-      this.routePlans.getRouteAnchors(ownerId),
-    ]);
+    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, routeAnchors, geometryBundle] =
+      await Promise.all([
+        this.routePlans.getRouteMetrics(dateStr, actor),
+        this.routePlans.getFactRouteMetrics(dateStr, actor),
+        this.routePlans.getFactGpsRouteMetrics(dateStr, actor),
+        this.routePlans.getRouteAnchors(ownerId),
+        this.routePlans.getRouteGeometryBundle(dateStr, actor),
+      ]);
 
-    const compensationKm = factMetrics.distanceKm;
-    const actualKm = factMetrics.distanceKm;
+    const compensationFactKind = geometryBundle.compensationFactKind;
+    const compensationKm =
+      compensationFactKind === "fact_gps" && factGpsMetrics.distanceKm != null
+        ? factGpsMetrics.distanceKm
+        : factVisitsMetrics.distanceKm;
+    const actualKm = compensationKm;
     const plannedKm = plannedMetrics.distanceKm;
+    const factMetrics = factVisitsMetrics;
+    const metricsSource =
+      compensationFactKind === "fact_gps" && factGpsMetrics.source !== "none"
+        ? factGpsMetrics.source
+        : factVisitsMetrics.source;
     const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
     snapshot.plannedMetricsSource = plannedMetrics.source;
-    snapshot.factMetricsSource = factMetrics.source;
+    snapshot.factMetricsSource = factVisitsMetrics.source;
+    snapshot.factVisitsMetricsSource = factVisitsMetrics.source;
+    snapshot.factGpsMetricsSource = factGpsMetrics.source;
+    snapshot.compensationFactKind = compensationFactKind;
     snapshot.routeAnchors = {
       startLabel: routeAnchors.startLabel,
       endLabel: routeAnchors.endLabel,
@@ -232,7 +247,7 @@ export class FieldFuelService {
         compensationKm: compensationKm ?? undefined,
         litersEstimated: litersEstimated ?? undefined,
         amountEstimated: amountEstimated ?? undefined,
-        metricsSource: factMetrics.source,
+        metricsSource,
         visitCount,
         calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         compensationStatus: FuelCompensationStatus.DRAFT,
@@ -244,7 +259,7 @@ export class FieldFuelService {
         compensationKm: compensationKm ?? undefined,
         litersEstimated: litersEstimated ?? undefined,
         amountEstimated: amountEstimated ?? undefined,
-        metricsSource: factMetrics.source,
+        metricsSource,
         visitCount,
         calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
       },
@@ -258,6 +273,12 @@ export class FieldFuelService {
     }
 
     const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors);
+    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.quality.degraded) {
+      warnings.push("gps_track_degraded");
+    }
+    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source === "none") {
+      warnings.push("gps_track_unavailable");
+    }
     return {
       report,
       profile,
@@ -265,6 +286,9 @@ export class FieldFuelService {
       warnings,
       plannedMetrics,
       factMetrics,
+      factVisitsMetrics,
+      factGpsMetrics,
+      compensationFactKind,
       routeAnchors: snapshot.routeAnchors,
     };
   }
@@ -303,8 +327,12 @@ export class FieldFuelService {
 
     const actorForMetrics =
       ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
-    const plannedMetrics = await this.routePlans.getRouteMetrics(dateStr, actorForMetrics);
-    const factMetrics = await this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics);
+    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, geometryBundle] = await Promise.all([
+      this.routePlans.getRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getFactGpsRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getRouteGeometryBundle(dateStr, actorForMetrics),
+    ]);
 
     return {
       report,
@@ -312,7 +340,10 @@ export class FieldFuelService {
       breakdown,
       warnings,
       plannedMetrics,
-      factMetrics,
+      factMetrics: factVisitsMetrics,
+      factVisitsMetrics,
+      factGpsMetrics,
+      compensationFactKind: geometryBundle.compensationFactKind,
       routeAnchors: routeAnchorsSnapshot,
     };
   }

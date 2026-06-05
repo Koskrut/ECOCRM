@@ -25,6 +25,7 @@ import {
 } from "./ContactsFiltersPopover";
 import { formatDate } from "@/lib/crmDatetime";
 import {
+  formatContactAddressFromGoogle,
   formatContactClientStage,
   formatContactNextActionType,
   formatContactPriorityReasonCompact,
@@ -861,6 +862,11 @@ function ContactsPageContent() {
                     {c.email ? (
                       <div className="mt-0.5 truncate text-xs text-zinc-500">{c.email}</div>
                     ) : null}
+                    {c.address ? (
+                      <div className="mt-0.5 truncate text-xs text-zinc-500">
+                        {formatContactAddressFromGoogle(c.address)}
+                      </div>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap gap-1">
                       {c.hasCallToday && (
                         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
@@ -1039,6 +1045,7 @@ function ContactsPageContent() {
                   </th>
                   <th className="px-4 py-3">Телефон</th>
                   <th className="hidden px-4 py-3 md:table-cell">Email</th>
+                  <th className="hidden px-4 py-3 md:table-cell">Адрес</th>
                   <th className="hidden px-4 py-3 text-right lg:table-cell">
                     <button
                       type="button"
@@ -1077,13 +1084,13 @@ function ContactsPageContent() {
               <tbody className="divide-y divide-zinc-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
                       Загрузка…
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={7 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
                       Нет контактов
                     </td>
                   </tr>
@@ -1113,8 +1120,9 @@ function ContactsPageContent() {
                         )}
                       </td>
                       <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
-                      <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">
-                        {c.email || "—"}
+                      <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">{c.email || "—"}</td>
+                      <td className="hidden max-w-[220px] truncate px-4 py-4 text-zinc-600 md:table-cell">
+                        {formatContactAddressFromGoogle(c.address)}
                       </td>
                       <td className="hidden px-4 py-4 text-right lg:table-cell">
                         {c.hasMissedCall ? (

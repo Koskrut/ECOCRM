@@ -19,3 +19,10 @@ test("RbacService default mapping gives manager metadata read+write (operational
   assert.equal(permissions.has(PermissionKeys.MetadataWrite), true);
   assert.equal(permissions.has(PermissionKeys.LayoutsManage), false);
 });
+
+test("RbacService default mapping gives warehouse metadata read only", () => {
+  const svc = new RbacService({} as never);
+  const permissions = svc.getDefaultPermissionsForLegacyRole(UserRole.WAREHOUSE);
+  assert.equal(permissions.has(PermissionKeys.MetadataRead), true);
+  assert.equal(permissions.has(PermissionKeys.MetadataWrite), false);
+});

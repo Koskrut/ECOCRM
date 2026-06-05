@@ -295,6 +295,7 @@ function Stepper({
   disabled,
   hasPayment,
   isAdmin,
+  isWarehouse,
   paymentType,
 }: {
   stage: string;
@@ -303,6 +304,7 @@ function Stepper({
   /** When true, payment-related step is shown green (paid). */
   hasPayment?: boolean;
   isAdmin?: boolean;
+  isWarehouse?: boolean;
   paymentType?: "PREPAYMENT" | "DEFERRED" | string | null;
 }) {
   const showAwaitingPaymentStep = paymentType === "PREPAYMENT" || stage === "AWAITING_PAYMENT";
@@ -443,11 +445,18 @@ function Stepper({
   };
 
   const roleBasedTransitionOptions = useMemo(() => {
-    // Manager has restricted list; all other roles can pick any stage except current.
     if (isAdmin) return ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage);
+    if (isWarehouse) {
+      const warehouseChain = ["AWAITING_STOCK", "CONFIRMED", "READY_TO_SHIP", "SHIPPED"];
+      const fromIdx = warehouseChain.indexOf(stage);
+      if (fromIdx < 0) return [];
+      return ORDER_STAGE_STEPS_ALL.filter(
+        (s) => s.key !== stage && warehouseChain.indexOf(s.key) === fromIdx + 1,
+      );
+    }
     const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
     return steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));
-  }, [isAdmin, stage, activeIdx, steps]);
+  }, [isAdmin, isWarehouse, stage, activeIdx, steps]);
 
   useEffect(() => {
     if (!managerMenuOpen) return;
@@ -721,6 +730,8 @@ export function OrderModal({
 
   const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
+  const isWarehouse =
+    effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "WAREHOUSE";
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const npModuleEffective = modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
 
@@ -1817,6 +1828,7 @@ export function OrderModal({
           disabled={statusUpdating}
           hasPayment={Number(order.paidAmount ?? 0) > 0}
           isAdmin={isAdmin}
+          isWarehouse={isWarehouse}
           paymentType={order.paymentType ?? paymentType ?? null}
         />
         {order.parent || (order.children && order.children.length > 0) ? (

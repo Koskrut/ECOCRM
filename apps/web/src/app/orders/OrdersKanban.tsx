@@ -124,14 +124,29 @@ type PipelineStageRow = {
   allowedNext: OrderStage[];
 };
 
+const WAREHOUSE_KANBAN_STAGES: OrderStage[] = [
+  "AWAITING_STOCK",
+  "CONFIRMED",
+  "READY_TO_SHIP",
+  "SHIPPED",
+];
+
+const WAREHOUSE_TRANSITIONS: Partial<Record<OrderStage, OrderStage[]>> = {
+  AWAITING_STOCK: ["CONFIRMED"],
+  CONFIRMED: ["READY_TO_SHIP"],
+  READY_TO_SHIP: ["SHIPPED"],
+};
+
 export function OrdersKanban({
   onOpenOrder,
   filters,
   refreshKey = 0,
+  warehouseMode = false,
 }: {
   onOpenOrder: (id: string) => void;
   filters?: BoardFilters;
   refreshKey?: number;
+  warehouseMode?: boolean;
 }) {
   const [list, setList] = useState<OrdersListResponse | null>(null);
   const [pipeline, setPipeline] = useState<PipelineStageRow[] | null>(null);
@@ -159,6 +174,18 @@ export function OrdersKanban({
   }, [loadPipeline, refreshKey]);
 
   const mainBoardStages = useMemo((): PipelineStageRow[] => {
+    const build = (stages: OrderStage[]): PipelineStageRow[] =>
+      stages.map((stage, idx) => ({
+        stage,
+        sortOrder: idx,
+        label: STAGE_LABELS[stage],
+        color: null,
+        kanbanGroup: "MAIN" as const,
+        allowedNext: WAREHOUSE_TRANSITIONS[stage] ?? [],
+      }));
+
+    if (warehouseMode) return build(WAREHOUSE_KANBAN_STAGES);
+
     if (pipeline?.length) {
       const mains = pipeline
         .filter((s) => s.kanbanGroup === "MAIN")
@@ -173,7 +200,7 @@ export function OrdersKanban({
       kanbanGroup: "MAIN" as const,
       allowedNext: [],
     }));
-  }, [pipeline]);
+  }, [pipeline, warehouseMode]);
 
   const finalDropZones = useMemo(() => {
     if (pipeline?.length) {
@@ -240,6 +267,11 @@ export function OrdersKanban({
       if (filters?.dateTo) params.dateTo = filters.dateTo;
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
+      if (warehouseMode) {
+        params.orderStages = WAREHOUSE_KANBAN_STAGES.join(",");
+        params.sortBy = "createdAt";
+        params.sortDir = "asc";
+      }
 
       const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
       setList(res.data ?? { items: [] });
@@ -263,6 +295,7 @@ export function OrdersKanban({
     filters?.sortBy,
     filters?.sortDir,
     filters?.status,
+    warehouseMode,
   ]);
 
   useEffect(() => {
@@ -299,6 +332,14 @@ export function OrdersKanban({
         setDragging(null);
         return;
       }
+      if (warehouseMode && from) {
+        const allowed = WAREHOUSE_TRANSITIONS[from];
+        if (!allowed?.includes(to)) {
+          alert(`Недопустимий перехід: ${STAGE_LABELS[from]} → ${STAGE_LABELS[to]}`);
+          setDragging(null);
+          return;
+        }
+      }
       moveLocal(orderId, to);
       try {
         await patchStage(orderId, to, "Moved in board");
@@ -312,7 +353,7 @@ export function OrdersKanban({
         setDragging(null);
       }
     },
-    [dragging, load, patchStage],
+    [dragging, load, patchStage, warehouseMode],
   );
 
   if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
@@ -482,7 +523,7 @@ export function OrdersKanban({
         })}
       </div>
 
-      {dragging && (
+      {dragging && !warehouseMode && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex gap-4 bg-zinc-50/95 p-4 backdrop-blur-sm md:left-[var(--sidebar-px)]">
           {finalDropZones.map(({ id, label, className }) => {
             const isOver = dragOver === id;

@@ -18,17 +18,17 @@ type FeedTabsProps = {
 };
 
 const TAB_LABELS: Record<FeedTabId, string> = {
-  activity: "Activity",
-  comment: "Comment",
-  message: "Message",
-  tasks: "Tasks",
-  more: "More",
+  activity: "Активність",
+  comment: "Коментар",
+  message: "Повідомлення",
+  tasks: "Завдання",
+  more: "Ще",
 };
 
 function Placeholder({ label }: { label: string }) {
   return (
     <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50/50 p-4 text-sm text-zinc-500">
-      {label} — Coming soon
+      {label} — незабаром
     </div>
   );
 }
@@ -50,12 +50,12 @@ export function FeedTabs({
     tab === "activity"
       ? activityContent
       : tab === "comment"
-        ? commentContent ?? <Placeholder label="Comment" />
+        ? commentContent ?? <Placeholder label="Коментар" />
         : tab === "message"
-          ? messageContent ?? <Placeholder label="Message" />
+          ? messageContent ?? <Placeholder label="Повідомлення" />
           : tab === "tasks"
-            ? tasksContent ?? <Placeholder label="Tasks" />
-            : moreContent ?? <Placeholder label="More" />;
+            ? tasksContent ?? <Placeholder label="Завдання" />
+            : moreContent ?? <Placeholder label="Ще" />;
 
   return (
     <div className="flex h-full flex-col">

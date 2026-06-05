@@ -16,6 +16,7 @@ import { CatalogProductCard } from "./CatalogProductCard";
 import { ProductCharacteristicsPanel } from "./ProductCharacteristicsPanel";
 import { filterCatalogItems } from "./catalog-search";
 import { WarehousesModal } from "./WarehousesModal";
+import { apiHttp } from "@/lib/api/client";
 
 function CatalogExpandedCharacteristics({
   product,
@@ -1081,6 +1082,7 @@ function AddProductModal({
 const SEARCH_SUPPLEMENT_MS = 400;
 
 function CatalogPageContent() {
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [allItems, setAllItems] = useState<ProductCatalogItem[]>([]);
   /** Inactive / server-only matches merged after debounced API search. */
   const [searchExtras, setSearchExtras] = useState<ProductCatalogItem[]>([]);
@@ -1164,6 +1166,15 @@ function CatalogPageContent() {
     void loadCatalog();
   }, [loadCatalog]);
 
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((r) => setUserRole(r.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
+
+  const catalogReadOnly = userRole === "WAREHOUSE";
+
   const reloadWarehouses = useCallback(async () => {
     try {
       const rows = await listWarehouses();
@@ -1185,7 +1196,7 @@ function CatalogPageContent() {
     () => sortedWarehouses.map((w) => w.name),
     [sortedWarehouses],
   );
-  const tableColspan = 8 + sortedWarehouses.length;
+  const tableColspan = (catalogReadOnly ? 5 : 8) + sortedWarehouses.length;
 
   useEffect(() => {
     const q = search.trim();
@@ -1283,17 +1294,23 @@ function CatalogPageContent() {
             />
           )}
         </div>
-        <div className="hidden flex-wrap items-center gap-2 sm:flex">
-          <button
-            type="button"
-            onClick={() => setAddProductModalOpen(true)}
-            className={catalogActionBtn}
-          >
-            Добавить позицию
-          </button>
-          {catalogToolbarSecondary}
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:hidden">{catalogToolbarSecondary}</div>
+        {!catalogReadOnly ? (
+          <>
+            <div className="hidden flex-wrap items-center gap-2 sm:flex">
+              <button
+                type="button"
+                onClick={() => setAddProductModalOpen(true)}
+                className={catalogActionBtn}
+              >
+                Добавить позицию
+              </button>
+              {catalogToolbarSecondary}
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:hidden">{catalogToolbarSecondary}</div>
+          </>
+        ) : (
+          <p className="text-xs text-zinc-500">Перегляд залишків (без редагування)</p>
+        )}
       </div>
 
       {loading && <div className="text-sm text-zinc-600">Загрузка…</div>}
@@ -1326,11 +1343,15 @@ function CatalogPageContent() {
                       {wh.name}
                     </th>
                   ))}
-                  <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
-                    На сайте
-                  </th>
-                  <th className="w-10 px-2 py-3" aria-label="Редактировать" />
-                  <th className="w-10 px-2 py-3" aria-label="Удалить" />
+                  {!catalogReadOnly ? (
+                    <>
+                      <th className="w-24 px-2 py-3 text-center" title="Отображать на сайте">
+                        На сайте
+                      </th>
+                      <th className="w-10 px-2 py-3" aria-label="Редактировать" />
+                      <th className="w-10 px-2 py-3" aria-label="Удалить" />
+                    </>
+                  ) : null}
                 </tr>
               </thead>
               {categoriesWithItems.map(({ category, items: categoryItems }) => {
@@ -1417,31 +1438,37 @@ function CatalogPageContent() {
                               {qtyAtWarehouse(p, wh)}
                             </td>
                           ))}
-                          <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                            <label className="inline-flex cursor-pointer items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                checked={p.showOnStore ?? true}
-                                onChange={(e) => void handleShowOnStoreChange(p.id, e.target.checked)}
-                                className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
-                                title={p.showOnStore ?? true ? "Скрыть с сайта" : "Показать на сайте"}
+                          {!catalogReadOnly ? (
+                            <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <label className="inline-flex cursor-pointer items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={p.showOnStore ?? true}
+                                  onChange={(e) => void handleShowOnStoreChange(p.id, e.target.checked)}
+                                  className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                                  title={p.showOnStore ?? true ? "Скрыть с сайта" : "Показать на сайте"}
+                                />
+                                <span className="sr-only">Отображать на сайте</span>
+                              </label>
+                            </td>
+                          ) : null}
+                          {!catalogReadOnly ? (
+                            <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                              <CatalogRowEditButton
+                                productName={p.name}
+                                onEdit={() => setEditModalProduct(p)}
                               />
-                              <span className="sr-only">Отображать на сайте</span>
-                            </label>
-                          </td>
-                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                            <CatalogRowEditButton
-                              productName={p.name}
-                              onEdit={() => setEditModalProduct(p)}
-                            />
-                          </td>
-                          <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
-                            <CatalogRowDeleteButton
-                              productId={p.id}
-                              productName={p.name}
-                              onDeleted={loadCatalog}
-                            />
-                          </td>
+                            </td>
+                          ) : null}
+                          {!catalogReadOnly ? (
+                            <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                              <CatalogRowDeleteButton
+                                productId={p.id}
+                                productName={p.name}
+                                onDeleted={loadCatalog}
+                              />
+                            </td>
+                          ) : null}
                         </tr>
                         {expandedSpecsProductId === p.id ? (
                           <CatalogExpandedCharacteristics
@@ -1532,14 +1559,16 @@ function CatalogPageContent() {
         </>
       )}
 
-      <button
-        type="button"
-        onClick={() => setAddProductModalOpen(true)}
-        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 sm:hidden"
-        aria-label="Добавить позицию"
-      >
-        <span className="text-2xl leading-none">+</span>
-      </button>
+      {!catalogReadOnly ? (
+        <button
+          type="button"
+          onClick={() => setAddProductModalOpen(true)}
+          className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 sm:hidden"
+          aria-label="Добавить позицию"
+        >
+          <span className="text-2xl leading-none">+</span>
+        </button>
+      ) : null}
 
       <AddProductModal
         open={addProductModalOpen}

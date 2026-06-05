@@ -57,7 +57,7 @@ export function FeedTabsScaffold({
               : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
-          Activity
+          Активність
         </button>
         <button
           type="button"
@@ -68,7 +68,7 @@ export function FeedTabsScaffold({
               : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
-          Comment
+          Коментар
         </button>
         {showTasks && (
           <button
@@ -80,7 +80,7 @@ export function FeedTabsScaffold({
                 : "text-zinc-600 hover:bg-zinc-100"
             }`}
           >
-            Tasks
+            Завдання
           </button>
         )}
       </div>
@@ -94,7 +94,7 @@ export function FeedTabsScaffold({
 function TasksScaffold() {
   return (
     <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50/50 p-4 text-sm text-zinc-500">
-      Tasks not configured for this view.
+      Завдання для цього перегляду не налаштовані.
     </div>
   );
 }
@@ -102,7 +102,7 @@ function TasksScaffold() {
 function CommentScaffold() {
   return (
     <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50/50 p-4 text-sm text-zinc-500">
-      Comment feed not yet connected. Add a comment API to enable posting.
+      Стрічка коментарів ще не підключена.
     </div>
   );
 }

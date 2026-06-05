@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  extractCityStreetFromGoogleComponents,
+  type GoogleAddressComponent,
+  resolveCityFromGoogleAddress,
+} from "@/lib/contact-address.util";
+
 export type PlaceSuggestion = {
   placeId: string;
   description: string;
@@ -10,6 +16,8 @@ export type GeocodedPlace = {
   lng: number;
   formattedAddress: string;
   placeId: string;
+  city: string | null;
+  streetLine: string | null;
 };
 
 /** Places API (New) autocomplete: each suggestion has placePrediction or queryPrediction */
@@ -31,6 +39,13 @@ type PlacesSearchTextPlace = {
   id?: string;
   formattedAddress?: string;
   location?: { latitude?: number; longitude?: number };
+  addressComponents?: GoogleAddressComponent[];
+};
+
+type PlacesDetailsResponse = {
+  formattedAddress?: string;
+  location?: { latitude?: number; longitude?: number };
+  addressComponents?: GoogleAddressComponent[];
 };
 
 type PlacesSearchTextResponse = {
@@ -39,11 +54,12 @@ type PlacesSearchTextResponse = {
 
 const PLACES_BASE_URL = "https://places.googleapis.com/v1";
 
-/** Prefer full addresses / buildings (no bare street/route without house number). */
+/** Full addresses plus streets (`route`) so partial street names appear while typing. */
 export const ADDRESS_AUTOCOMPLETE_PRIMARY_TYPES = [
   "street_address",
   "premise",
   "subpremise",
+  "route",
 ] as const;
 
 /** Building numbers from user input (UA/RU/Latin), e.g. 15, 15А, 15/2 */
@@ -193,10 +209,7 @@ export async function geocodePlace(
 ): Promise<GeocodedPlace | null> {
   if (!placeId || !mapsApiKey) return null;
 
-  const fields = [
-    "formattedAddress",
-    "location",
-  ];
+  const fields = ["formattedAddress", "location", "addressComponents"];
 
   const res = await fetch(
     `${PLACES_BASE_URL}/places/${encodeURIComponent(
@@ -213,18 +226,22 @@ export async function geocodePlace(
     return null;
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as PlacesDetailsResponse;
   const formattedAddress: string | undefined = data.formattedAddress;
   const lat: number | undefined = data.location?.latitude;
   const lng: number | undefined = data.location?.longitude;
 
   if (lat == null || lng == null) return null;
 
+  const { city, streetLine } = extractCityStreetFromGoogleComponents(data.addressComponents);
+
   return {
     lat,
     lng,
     formattedAddress: formattedAddress ?? "",
     placeId,
+    city: city ?? resolveCityFromGoogleAddress(formattedAddress ?? ""),
+    streetLine,
   };
 }
 
@@ -247,7 +264,7 @@ export async function geocodeText(
     method: "POST",
     headers: buildPlacesHeaders(
       mapsApiKey,
-      "places.id,places.formattedAddress,places.location",
+      "places.id,places.formattedAddress,places.location,places.addressComponents",
     ),
     body: JSON.stringify(body),
   });
@@ -265,11 +282,16 @@ export async function geocodeText(
   const lng: number | undefined = place.location?.longitude;
   if (lat == null || lng == null) return null;
 
+  const formattedAddress = place.formattedAddress ?? query;
+  const { city, streetLine } = extractCityStreetFromGoogleComponents(place.addressComponents);
+
   return {
     lat,
     lng,
-    formattedAddress: place.formattedAddress ?? query,
+    formattedAddress,
     placeId: place.id ?? "",
+    city: city ?? resolveCityFromGoogleAddress(formattedAddress),
+    streetLine,
   };
 }
 

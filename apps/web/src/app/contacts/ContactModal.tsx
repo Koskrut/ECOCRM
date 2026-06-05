@@ -30,6 +30,7 @@ import { ContactCardHeader } from "./card/ContactCardHeader";
 import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
 import { formatContactClientStage } from "./contact-formatters";
+import { resolveCityFromGoogleAddress } from "@/lib/contact-address.util";
 import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
 import { ContactCrmHint } from "./card/ContactCrmHint";
@@ -748,6 +749,7 @@ export function ContactModal({
   const [isAddressLookupLoading, setIsAddressLookupLoading] = useState(false);
   const [isGeocodeLoading, setIsGeocodeLoading] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  const [addressHint, setAddressHint] = useState<string | null>(null);
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
 
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -759,8 +761,6 @@ export function ContactModal({
   const [externalCode, setExternalCode] = useState("");
   const [documentDisplayName, setDocumentDisplayName] = useState("");
   const [region, setRegion] = useState("");
-  const [addressInfo, setAddressInfo] = useState("");
-  const [city, setCity] = useState("");
   const [clientType, setClientType] = useState("");
   const [status, setStatus] = useState("");
   const [nextActionType, setNextActionType] = useState("");
@@ -927,8 +927,6 @@ export function ContactModal({
       setExternalCode((data.externalCode ?? "") as string);
       setDocumentDisplayName((data.documentDisplayName ?? "") as string);
       setRegion((data.region ?? "") as string);
-      setAddressInfo((data.addressInfo ?? "") as string);
-      setCity((data.city ?? "") as string);
       setClientType((data.clientType ?? "") as string);
       setStatus((data.status ?? "") as string);
       setNextActionType((data.nextActionType ?? "") as string);
@@ -993,8 +991,6 @@ export function ContactModal({
       setCompanyId(initialCreate?.companyId ?? null);
       setExternalCode("");
       setRegion("");
-      setAddressInfo("");
-      setCity("");
       setClientType("");
       setStatus("");
       setNextActionType("");
@@ -1027,7 +1023,6 @@ export function ContactModal({
       externalCode: string | null;
       documentDisplayName: string | null;
       region: string | null;
-      addressInfo: string | null;
       city: string | null;
       clientType: string | null;
       status: string | null;
@@ -1042,8 +1037,6 @@ export function ContactModal({
       if (payload.position !== undefined) setPosition(payload.position ?? "");
       if (payload.address !== undefined) setAddress(payload.address ?? "");
       if (payload.region !== undefined) setRegion(payload.region ?? "");
-      if (payload.addressInfo !== undefined) setAddressInfo(payload.addressInfo ?? "");
-      if (payload.city !== undefined) setCity(payload.city ?? "");
       if (payload.clientType !== undefined) setClientType(payload.clientType ?? "");
       if (payload.status !== undefined) setStatus(payload.status ?? "");
       if (payload.lat !== undefined) setLat(payload.lat ?? null);
@@ -1076,7 +1069,10 @@ export function ContactModal({
     const nextLng = coordsAllowed ? (lng ?? null) : null;
     const nextPlaceId = coordsAllowed ? (googlePlaceId ?? null) : null;
     if (!coordsAllowed && nextAddress) {
-      setAddressError(strings.common.houseNumberRequired);
+      setAddressHint(strings.common.houseNumberHint);
+      setAddressError(null);
+    } else if (coordsAllowed) {
+      setAddressHint(null);
     }
     const sameAddress = (contact.address ?? null) === nextAddress;
     const sameLat = (contact.lat ?? null) === nextLat;
@@ -1090,6 +1086,7 @@ export function ContactModal({
     }
     await patchContact({
       address: nextAddress,
+      city: nextAddress ? resolveCityFromGoogleAddress(nextAddress) : null,
       lat: nextLat,
       lng: nextLng,
       googlePlaceId: nextPlaceId,
@@ -1108,6 +1105,7 @@ export function ContactModal({
       setAddressSuggestions([]);
       setShowAddressSuggestions(false);
       setAddressError(null);
+      setAddressHint(null);
       setIsGeocodeLoading(true);
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
@@ -1125,11 +1123,13 @@ export function ContactModal({
           setLng(null);
           setGooglePlaceId(null);
           setAddressStatus(null);
-          setAddressError(strings.common.houseNumberRequired);
+          setAddressHint(strings.common.houseNumberHint);
+          setAddressError(null);
           if (!isCreate) {
             try {
               await patchContact({
                 address: merged,
+                city: result.city ?? resolveCityFromGoogleAddress(merged),
                 lat: null,
                 lng: null,
                 googlePlaceId: null,
@@ -1140,6 +1140,7 @@ export function ContactModal({
           }
           return;
         }
+        setAddressHint(null);
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);
@@ -1149,6 +1150,7 @@ export function ContactModal({
           try {
             await patchContact({
               address: merged,
+              city: result.city ?? resolveCityFromGoogleAddress(merged),
               lat: result.lat,
               lng: result.lng,
               googlePlaceId: result.placeId,
@@ -1178,23 +1180,13 @@ export function ContactModal({
         setLng(null);
         setGooglePlaceId(null);
         setAddressStatus(null);
-        setAddressError(strings.common.houseNumberRequired);
-        if (!isCreate) {
-          try {
-            await patchContact({
-              address: query,
-              lat: null,
-              lng: null,
-              googlePlaceId: null,
-            });
-          } catch {
-            // noop
-          }
-        }
+        setAddressHint(strings.common.houseNumberHint);
+        setAddressError(null);
         return;
       }
       lastGeocodedAddressRef.current = query;
       setAddressError(null);
+      setAddressHint(null);
       setIsGeocodeLoading(true);
       try {
         const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
@@ -1210,21 +1202,11 @@ export function ContactModal({
           setGooglePlaceId(null);
           setAddress(merged);
           setAddressStatus(null);
-          setAddressError(strings.common.houseNumberRequired);
-          if (!isCreate) {
-            try {
-              await patchContact({
-                address: merged,
-                lat: null,
-                lng: null,
-                googlePlaceId: null,
-              });
-            } catch {
-              // noop
-            }
-          }
+          setAddressHint(strings.common.houseNumberHint);
+          setAddressError(null);
           return;
         }
+        setAddressHint(null);
         setLat(result.lat);
         setLng(result.lng);
         setGooglePlaceId(result.placeId);
@@ -1235,6 +1217,7 @@ export function ContactModal({
           try {
             await patchContact({
               address: merged,
+              city: result.city ?? resolveCityFromGoogleAddress(merged),
               lat: result.lat,
               lng: result.lng,
               googlePlaceId: result.placeId,
@@ -1299,11 +1282,13 @@ export function ContactModal({
       setLng(nextLng);
       setAddressStatus("manual");
       if (!isCreate) {
+        const trimmed = address.trim() || null;
         await patchContact({
           lat: nextLat,
           lng: nextLng,
           googlePlaceId: googlePlaceId ?? null,
-          address: address.trim() || null,
+          address: trimmed,
+          city: trimmed ? resolveCityFromGoogleAddress(trimmed) : null,
         });
       }
     },
@@ -1339,6 +1324,7 @@ export function ContactModal({
     setSaving(true);
     setErr(null);
     try {
+      const trimmedAddress = address.trim() || null;
       const payload = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -1347,11 +1333,10 @@ export function ContactModal({
         position: position.trim() || null,
         externalCode: externalCode.trim() || null,
         region: region.trim() || null,
-        addressInfo: addressInfo.trim() || null,
-        city: city.trim() || null,
+        city: trimmedAddress ? resolveCityFromGoogleAddress(trimmedAddress) : null,
         clientType: clientType.trim() || null,
         status: status.trim() || null,
-        address: address.trim() || null,
+        address: trimmedAddress,
         lat,
         lng,
         googlePlaceId,
@@ -1411,12 +1396,6 @@ export function ContactModal({
         case "region":
           setRegion(value as string);
           break;
-        case "addressInfo":
-          setAddressInfo(value as string);
-          break;
-        case "city":
-          setCity(value as string);
-          break;
         case "clientType":
           setClientType(value as string);
           break;
@@ -1445,8 +1424,6 @@ export function ContactModal({
       position,
       externalCode,
       region,
-      addressInfo,
-      city,
       clientType,
       status,
       companyId,
@@ -1460,8 +1437,6 @@ export function ContactModal({
       position,
       externalCode,
       region,
-      addressInfo,
-      city,
       clientType,
       status,
       companyId,
@@ -1479,8 +1454,6 @@ export function ContactModal({
         position.trim() ||
         externalCode.trim() ||
         region.trim() ||
-        addressInfo.trim() ||
-        city.trim() ||
         clientType.trim() ||
         status.trim() ||
         companyId ||
@@ -1495,8 +1468,6 @@ export function ContactModal({
     position,
     externalCode,
     region,
-    addressInfo,
-    city,
     clientType,
     status,
     companyId,
@@ -1879,24 +1850,6 @@ export function ContactModal({
           onRegisterCancel={registerCancel}
         />
         <InlineEditableField
-          label="Адрес (инфо)"
-          value={contact.addressInfo ?? ""}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ addressInfo: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Город"
-          value={contact.city ?? ""}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ city: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
           label="Тип клиента"
           value={contact.clientType ?? ""}
           placeholder="—"
@@ -1947,6 +1900,7 @@ export function ContactModal({
                 if (googlePlaceId) setGooglePlaceId(null);
                 setAddressStatus(null);
                 setAddressError(null);
+                setAddressHint(null);
               }}
               onFocus={() => setShowAddressSuggestions(true)}
               onBlur={() => {
@@ -1991,6 +1945,9 @@ export function ContactModal({
               ? "Address coordinates updated"
               : null}
             {!isAddressLookupLoading && addressStatus === "manual" ? "Pin adjusted manually" : null}
+            {!isAddressLookupLoading && !addressError && addressHint ? (
+              <span className="text-amber-700">{addressHint}</span>
+            ) : null}
             {!isAddressLookupLoading && addressError ? addressError : null}
             {!isAddressLookupLoading && !addressError && !mapsApiKey ? mapsConfigError : null}
             {!isAddressLookupLoading && !addressError && mapsApiKey && googleLoadError
@@ -2112,8 +2069,6 @@ export function ContactModal({
     geocodeFromAddressText,
     registerCancel,
     region,
-    city,
-    addressInfo,
     externalCode,
     clientType,
     status,

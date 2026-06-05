@@ -53,6 +53,11 @@ export class ListOrdersQueryDto {
   @IsEnum(OrderStage)
   orderStage?: OrderStage;
 
+  /** Comma-separated OrderStage values (e.g. AWAITING_STOCK,CONFIRMED). */
+  @IsOptional()
+  @IsString()
+  orderStages?: string;
+
   @IsOptional()
   @IsString()
   /** Only orders split from this parent (child orders). */

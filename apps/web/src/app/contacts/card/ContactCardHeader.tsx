@@ -2,6 +2,7 @@
 
 import type { ContactCardSummary } from "./useContactCardSummary";
 import { formatDate } from "@/lib/crmDatetime";
+import { formatContactAddressFromGoogle } from "@/lib/contact-address.util";
 
 type Props = {
   summary: ContactCardSummary;
@@ -39,7 +40,9 @@ export function ContactCardHeader({
           <h2 className="text-lg font-semibold text-zinc-900">{c.fullName || "Unnamed contact"}</h2>
           {c.company?.name ? <div className="mt-1 text-sm text-zinc-600">{c.company.name}</div> : null}
           <div className="mt-1 text-xs text-zinc-500">
-            {[c.city, c.region].filter(Boolean).join(", ") || "Location not set"}
+            {c.address?.trim()
+              ? formatContactAddressFromGoogle(c.address)
+              : [c.city, c.region].filter(Boolean).join(", ") || "—"}
           </div>
         </div>
         <div className="flex max-w-[50%] flex-wrap justify-end gap-1.5">

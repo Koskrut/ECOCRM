@@ -20,6 +20,7 @@ import {
   addressHasHouseNumber,
   autocompleteAddress,
   geocodePlace,
+  geocodeText,
   mergeFormattedAddressWithUserDetail,
   type PlaceSuggestion,
 } from "@/lib/googlePlacesNew";
@@ -147,8 +148,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [showLeadAddressSuggestions, setShowLeadAddressSuggestions] = useState(false);
   const [leadAddressSuggestions, setLeadAddressSuggestions] = useState<PlaceSuggestion[]>([]);
   const [leadAddressError, setLeadAddressError] = useState<string | null>(null);
+  const [leadAddressHint, setLeadAddressHint] = useState<string | null>(null);
   const [isLeadAddressLookupLoading, setIsLeadAddressLookupLoading] = useState(false);
   const leadAddressAbortRef = useRef<AbortController | null>(null);
+  const lastGeocodedLeadAddressRef = useRef<string>("");
 
   const [timeline, setTimeline] = useState<ActivityItem[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -517,12 +520,15 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       const userTyped = leadAddress.trim();
       setShowLeadAddressSuggestions(false);
       setLeadAddressSuggestions([]);
+      setLeadAddressError(null);
+      setLeadAddressHint(null);
+      lastGeocodedLeadAddressRef.current = "";
       const geo = await geocodePlace(mapsApiKey, s.placeId);
       if (!geo) return;
       const merged = mergeFormattedAddressWithUserDetail(userTyped, geo.formattedAddress);
       setLeadAddress(merged);
       if (!addressHasHouseNumber(merged)) {
-        setLeadAddressError(strings.common.houseNumberRequired);
+        setLeadAddressHint(strings.common.houseNumberHint);
         setLeadLat(null);
         setLeadLng(null);
         setLeadGooglePlaceId(null);
@@ -534,10 +540,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         });
         return;
       }
-      setLeadAddressError(null);
       setLeadLat(geo.lat);
       setLeadLng(geo.lng);
       setLeadGooglePlaceId(geo.placeId);
+      lastGeocodedLeadAddressRef.current = merged.trim();
       await patchLead({
         address: merged,
         lat: geo.lat,
@@ -546,6 +552,68 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       });
     },
     [mapsApiKey, leadAddress, patchLead],
+  );
+
+  const geocodeLeadAddressFromText = useCallback(
+    async (rawAddress: string) => {
+      const query = rawAddress.trim();
+      if (!mapsApiKey || query.length < 3) return;
+      if (lastGeocodedLeadAddressRef.current === query) return;
+      if (!addressHasHouseNumber(query)) {
+        lastGeocodedLeadAddressRef.current = "";
+        setLeadAddressHint(strings.common.houseNumberHint);
+        setLeadAddressError(null);
+        setLeadLat(null);
+        setLeadLng(null);
+        setLeadGooglePlaceId(null);
+        if (query !== (lead?.address ?? "").trim()) {
+          await patchLead({
+            address: query,
+            lat: null,
+            lng: null,
+            googlePlaceId: null,
+          });
+        }
+        return;
+      }
+      lastGeocodedLeadAddressRef.current = query;
+      setLeadAddressHint(null);
+      setLeadAddressError(null);
+      try {
+        const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
+        if (!result) return;
+        const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
+        if (!addressHasHouseNumber(merged)) {
+          lastGeocodedLeadAddressRef.current = "";
+          setLeadAddress(merged);
+          setLeadAddressHint(strings.common.houseNumberHint);
+          setLeadLat(null);
+          setLeadLng(null);
+          setLeadGooglePlaceId(null);
+          await patchLead({
+            address: merged,
+            lat: null,
+            lng: null,
+            googlePlaceId: null,
+          });
+          return;
+        }
+        setLeadAddress(merged);
+        setLeadLat(result.lat);
+        setLeadLng(result.lng);
+        setLeadGooglePlaceId(result.placeId);
+        lastGeocodedLeadAddressRef.current = merged.trim();
+        await patchLead({
+          address: merged,
+          lat: result.lat,
+          lng: result.lng,
+          googlePlaceId: result.placeId,
+        });
+      } catch {
+        // keep typed address
+      }
+    },
+    [lead?.address, mapsApiKey, patchLead],
   );
 
   useEffect(() => {
@@ -1267,15 +1335,21 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 onChange={(e) => {
                   setLeadAddress(e.target.value);
                   setLeadAddressError(null);
+                  setLeadAddressHint(null);
+                  lastGeocodedLeadAddressRef.current = "";
                   setShowLeadAddressSuggestions(true);
                 }}
                 onFocus={() => setShowLeadAddressSuggestions(true)}
                 onBlur={() => {
                   window.setTimeout(() => setShowLeadAddressSuggestions(false), 200);
                   const t = leadAddress.trim();
-                  if (t === (lead.address ?? "").trim()) return;
+                  if (t === (lead.address ?? "").trim() && lastGeocodedLeadAddressRef.current === t) return;
+                  if (t.length >= 3 && mapsApiKey) {
+                    void geocodeLeadAddressFromText(t);
+                    return;
+                  }
                   if (t && !addressHasHouseNumber(t)) {
-                    setLeadAddressError(strings.common.houseNumberRequired);
+                    setLeadAddressHint(strings.common.houseNumberHint);
                     setLeadLat(null);
                     setLeadLng(null);
                     setLeadGooglePlaceId(null);
@@ -1287,7 +1361,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     });
                     return;
                   }
-                  setLeadAddressError(null);
+                  setLeadAddressHint(null);
                   void patchLead({ address: t || null });
                 }}
                 placeholder="Введіть адресу…"
@@ -1319,6 +1393,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                 </ul>
               ) : null}
             </div>
+            {leadAddressHint ? (
+              <p className="text-xs text-amber-700">{leadAddressHint}</p>
+            ) : null}
             {leadAddressError ? (
               <p className="text-xs text-red-600">{leadAddressError}</p>
             ) : null}

@@ -38,6 +38,7 @@ enum PaymentType {
 
 enum UserRole {
   USER
+  WAREHOUSE
   LEAD
   MANAGER
   ADMIN

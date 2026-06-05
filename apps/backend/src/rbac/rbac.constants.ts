@@ -34,6 +34,7 @@ export const DEFAULT_LEGACY_ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> 
   [UserRole.ADMIN]: DEFAULT_RBAC_PERMISSIONS.map((permission) => permission.key),
   [UserRole.LEAD]: [PermissionKeys.MetadataRead, PermissionKeys.MetadataWrite, PermissionKeys.FinanceRead],
   [UserRole.MANAGER]: [PermissionKeys.MetadataRead, PermissionKeys.MetadataWrite],
+  [UserRole.WAREHOUSE]: [PermissionKeys.MetadataRead],
   [UserRole.USER]: [PermissionKeys.MetadataRead],
 };
 
@@ -41,5 +42,6 @@ export const LEGACY_RBAC_ROLE_KEYS: Record<UserRole, string> = {
   [UserRole.ADMIN]: "legacy.admin",
   [UserRole.LEAD]: "legacy.lead",
   [UserRole.MANAGER]: "legacy.manager",
+  [UserRole.WAREHOUSE]: "legacy.warehouse",
   [UserRole.USER]: "legacy.user",
 };

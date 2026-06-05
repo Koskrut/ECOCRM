@@ -50,6 +50,11 @@ export class OrdersController {
     return this.orders.list(q, req.user);
   }
 
+  @Get("fulfillment-queue")
+  fulfillmentQueue(@Req() req: Request & { user?: AuthUser }) {
+    return this.orders.listFulfillmentQueue(req.user);
+  }
+
   @Get("pipeline")
   getPipeline(@Req() _req: Request & { user?: AuthUser }) {
     return this.ordersPipelineConfig.getPipelineForApi();

@@ -12,6 +12,7 @@ export const uk = {
     hideDetails: "Приховати деталі",
     backToSettings: "Повернутися до налаштувань",
     houseNumberRequired: "Вкажіть номер будинку",
+    houseNumberHint: "Додайте номер будинку для визначення координат",
   },
   nav: {
     dashboard: "Дашборд",
@@ -32,6 +33,7 @@ export const uk = {
     settings: "Налаштування",
     payments: "Оплати",
     planning: "Планування",
+    warehouseWork: "Склад",
   },
   modules: {
     unavailableTitle: "Модуль недоступний",
@@ -657,6 +659,7 @@ export const uk = {
       passwordOptionalHint: "Залиште порожнім, щоб не змінювати пароль",
       role: "Роль",
       roleUser: "Польовий представник",
+      roleWarehouse: "Кладовщик",
       roleLead: "Керівник команди",
       roleManager: "Менеджер",
       roleAdmin: "Адміністратор",

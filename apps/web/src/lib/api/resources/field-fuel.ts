@@ -57,13 +57,19 @@ export type FuelRouteAnchors = {
   usesSettingsAnchors: boolean;
 };
 
+export type CompensationFactKind = "fact_gps" | "fact_visits";
+
 export type FuelDayResponse = {
   report: FuelDayReport;
   profile: UserFieldProfile;
   breakdown: FuelVisitBreakdownRow[];
   warnings: string[];
   plannedMetrics: RouteMetrics;
+  /** Fact by completed visit order (legacy alias). */
   factMetrics: RouteMetrics;
+  factVisitsMetrics?: RouteMetrics;
+  factGpsMetrics?: RouteMetrics;
+  compensationFactKind?: CompensationFactKind;
   routeAnchors?: FuelRouteAnchors;
 };
 

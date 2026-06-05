@@ -13,6 +13,7 @@ import {
   Settings,
   Wallet,
   MapPin,
+  Boxes,
   MessageCircle,
   ListTodo,
   BarChart3,
@@ -62,6 +63,15 @@ function buildMenuItems() {
 
 const managerHiddenHrefs = new Set(["/planning", "/visits/history", "/outbound/campaigns"]);
 
+const warehouseMenuItems = (base: MenuItem[]): MenuItem[] => {
+  const t = strings.nav;
+  return [
+    { label: t.warehouseWork, icon: Boxes, href: "/work/warehouse", exact: true },
+    { label: t.orders, icon: Package, href: "/orders" },
+    { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
+  ];
+};
+
 function isHrefActive(pathname: string, item: MenuItem): boolean {
   if (item.exact) return pathname === item.href;
   if (item.href === "/") return pathname === "/";
@@ -98,6 +108,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
   const menuItems = useMemo(() => {
     if (role === "ADMIN") return [...base, analytics, payments, settingsItem];
+    if (role === "WAREHOUSE") return warehouseMenuItems(base);
     if (role === "MANAGER" || role === "LEAD") return managerMenuItems;
     return base;
   }, [role, base, analytics, payments, settingsItem, managerMenuItems]);

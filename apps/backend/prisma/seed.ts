@@ -83,6 +83,23 @@ async function main() {
     },
   });
 
+  const _warehouse = await prisma.user.upsert({
+    where: { email: "warehouse@ecocrm.local" },
+    update: {
+      fullName: "Warehouse Clerk",
+      role: UserRole.WAREHOUSE,
+      username: "warehouse",
+      passwordHash: makePlainHash("warehouse12345"),
+    },
+    create: {
+      email: "warehouse@ecocrm.local",
+      username: "warehouse",
+      fullName: "Warehouse Clerk",
+      role: UserRole.WAREHOUSE,
+      passwordHash: makePlainHash("warehouse12345"),
+    },
+  });
+
   const storeUser = await prisma.user.upsert({
     where: { email: "store@ecocrm.local" },
     update: {

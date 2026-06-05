@@ -19,6 +19,12 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import {
+  assertWarehouseOrderMutation,
+  assertWarehouseOrderUpdate,
+  assertWarehouseStageTransition,
+  WAREHOUSE_FULFILLMENT_QUEUE_STAGES,
+} from "./order-warehouse-role";
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
@@ -286,7 +292,17 @@ export class OrdersService {
       const stage = legacyStatusToOrderStage(q.status as OrderStatus);
       where.orderStage = stage;
     }
-    if (q?.orderStage) where.orderStage = q.orderStage as OrderStage;
+    if (q?.orderStages) {
+      const stages = q.orderStages
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) as OrderStage[];
+      if (stages.length > 0) {
+        where.orderStage = { in: stages };
+      }
+    } else if (q?.orderStage) {
+      where.orderStage = q.orderStage as OrderStage;
+    }
     if (q?.financialStatus) where.financialStatus = q.financialStatus as OrderFinancialStatus;
     if (q?.overdue === true) andWhere.push({ financialStatus: "OVERDUE" });
     if (q?.dueSoon === true) andWhere.push({ financialStatus: "DUE_SOON" });
@@ -625,7 +641,32 @@ export class OrdersService {
     };
   }
 
+  async listFulfillmentQueue(actor?: AuthUser) {
+    const result = await this.list(
+      {
+        orderStages: WAREHOUSE_FULFILLMENT_QUEUE_STAGES.join(","),
+        page: 1,
+        pageSize: 100,
+        sortBy: "createdAt",
+        sortDir: "asc",
+        withCompanyClient: true,
+      },
+      actor,
+    );
+    const counts: Record<string, number> = {
+      AWAITING_STOCK: 0,
+      CONFIRMED: 0,
+      READY_TO_SHIP: 0,
+    };
+    for (const item of result.items) {
+      const stage = item.orderStage;
+      if (stage && stage in counts) counts[stage] += 1;
+    }
+    return { items: result.items, total: result.total, counts };
+  }
+
   async create(dto: CreateOrderDto, actor?: AuthUser) {
+    assertWarehouseOrderMutation(actor, "create order");
     // When authenticated, use current user as owner; otherwise require body (e.g. API).
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
@@ -719,6 +760,7 @@ export class OrdersService {
     });
     if (!existing) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(existing, actor);
+    assertWarehouseOrderUpdate(actor, dto as unknown as Record<string, unknown>);
     const before = this.mapToEntity(existing as unknown as Record<string, unknown>);
 
     const data: Prisma.OrderUpdateInput = {};
@@ -849,6 +891,7 @@ export class OrdersService {
   }
 
   async addItem(orderId: string, dto: AddOrderItemDto, actor?: AuthUser) {
+    assertWarehouseOrderMutation(actor, "add order item");
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, ownerId: true, currency: true },
@@ -895,6 +938,7 @@ export class OrdersService {
     dto: { qty?: number; price?: number },
     actor?: AuthUser,
   ) {
+    assertWarehouseOrderMutation(actor, "update order item");
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, ownerId: true },
@@ -924,6 +968,7 @@ export class OrdersService {
   }
 
   async removeItem(orderId: string, itemId: string, actor?: AuthUser) {
+    assertWarehouseOrderMutation(actor, "remove order item");
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { id: true, ownerId: true },
@@ -1218,6 +1263,7 @@ export class OrdersService {
     });
     if (!current) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(current, actor);
+    assertWarehouseStageTransition(actor, current.orderStage, toStage);
 
     if (current.orderStage === "NEW" && toStage !== "NEW") {
       const contactCode = current.contact?.externalCode?.trim();

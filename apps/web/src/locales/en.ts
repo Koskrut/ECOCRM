@@ -11,6 +11,7 @@ export const en = {
     hideDetails: "Hide details",
     backToSettings: "Back to Settings",
     houseNumberRequired: "Enter building number.",
+    houseNumberHint: "Add building number to resolve coordinates.",
   },
   nav: {
     dashboard: "Dashboard",
@@ -31,6 +32,7 @@ export const en = {
     settings: "Settings",
     payments: "Payments",
     planning: "Planning",
+    warehouseWork: "Warehouse",
   },
   modules: {
     unavailableTitle: "Module unavailable",
@@ -656,6 +658,7 @@ export const en = {
       passwordOptionalHint: "Leave empty to keep the current password",
       role: "Role",
       roleUser: "Field rep",
+      roleWarehouse: "Warehouse clerk",
       roleLead: "Team lead",
       roleManager: "Manager",
       roleAdmin: "Administrator",

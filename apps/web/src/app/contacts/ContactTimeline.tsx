@@ -19,10 +19,10 @@ type Props = {
 
 const MEETING_OUTCOME_OPTIONS: { value: string; label: string }[] = [
   { value: "План", label: "План" },
-  { value: "SUCCESS", label: "Успех" },
-  { value: "FOLLOW_UP", label: "Дозвон" },
-  { value: "FAILED", label: "Неудача" },
-  { value: "NO_DECISION", label: "Без решения" },
+  { value: "SUCCESS", label: "Успіх" },
+  { value: "FOLLOW_UP", label: "Передзвонити" },
+  { value: "FAILED", label: "Невдача" },
+  { value: "NO_DECISION", label: "Без рішення" },
   { value: "NOT_RELEVANT", label: "Не релевантно" },
 ];
 
@@ -105,7 +105,7 @@ export function ContactTimeline({
         type: mode,
         body: text.trim(),
       };
-      if (mode === "MEETING" && meetingOutcome.trim()) payload.title = `Встреча (${meetingOutcome.trim()})`;
+      if (mode === "MEETING" && meetingOutcome.trim()) payload.title = `Зустріч (${meetingOutcome.trim()})`;
       await apiHttp.post(activitiesUrl, payload);
       setText("");
       setMeetingOutcome("");
@@ -166,16 +166,16 @@ export function ContactTimeline({
       {showActivityButtons && (
         <div className="border-b border-zinc-200 p-4">
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setMode("CALL")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "CALL" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Call</button>
-            <button type="button" onClick={() => setMode("MEETING")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "MEETING" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Meeting</button>
-            <button type="button" onClick={() => setMode("COMMENT")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "COMMENT" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Comment</button>
+            <button type="button" onClick={() => setMode("CALL")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "CALL" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Дзвінок</button>
+            <button type="button" onClick={() => setMode("MEETING")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "MEETING" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Зустріч</button>
+            <button type="button" onClick={() => setMode("COMMENT")} className={`rounded-md px-3 py-1.5 text-sm font-medium border ${mode === "COMMENT" ? "bg-accent-gradient text-white border-transparent" : "bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Коментар</button>
           </div>
 
           {mode === "MEETING" && (
             <div className="mt-3">
-              <label className="mb-1.5 block text-xs font-medium text-zinc-600">Результат встречи</label>
+              <label className="mb-1.5 block text-xs font-medium text-zinc-600">Результат зустрічі</label>
               <select value={meetingOutcome} onChange={(e) => setMeetingOutcome(e.target.value)} className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:ring-2 focus:ring-zinc-200">
-                <option value="">— обратити —</option>
+                <option value="">— обрати —</option>
                 {MEETING_OUTCOME_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
@@ -184,10 +184,10 @@ export function ContactTimeline({
           )}
 
           <div className="mt-3">
-            <textarea className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200" rows={3} placeholder={mode === "CALL" ? "Briefly: what was the call about?" : mode === "MEETING" ? "Briefly: meeting outcome?" : "Write a comment..."} value={text} onChange={(e) => setText(e.target.value)} />
+            <textarea className="w-full rounded-md border border-zinc-200 p-2 text-sm outline-none focus:ring-2 focus:ring-zinc-200" rows={3} placeholder={mode === "CALL" ? "Коротко: про що був дзвінок?" : mode === "MEETING" ? "Коротко: результат зустрічі?" : "Напишіть коментар…"} value={text} onChange={(e) => setText(e.target.value)} />
             <div className="mt-2 flex items-center justify-between">
-              <button type="button" disabled={saving || !text.trim()} onClick={() => void addActivity()} className="btn-primary py-1.5">{saving ? "Saving…" : "Add"}</button>
-              <button type="button" onClick={() => void timeline.refresh()} className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">Refresh</button>
+              <button type="button" disabled={saving || !text.trim()} onClick={() => void addActivity()} className="btn-primary py-1.5">{saving ? "Збереження…" : "Додати"}</button>
+              <button type="button" onClick={() => void timeline.refresh()} className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">Оновити</button>
             </div>
           </div>
         </div>
@@ -195,11 +195,11 @@ export function ContactTimeline({
 
       <div className="flex-1 overflow-auto p-4">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-zinc-500">Фильтр:</span>
-          <button type="button" onClick={() => setFilterAndUrl("all")} className={`rounded-full px-3 py-1 ${filter === "all" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Все</button>
-          <button type="button" onClick={() => setFilterAndUrl("calls")} className={`rounded-full px-3 py-1 ${filter === "calls" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Звонки</button>
-          <button type="button" onClick={() => setFilterAndUrl("missed")} className={`rounded-full px-3 py-1 ${filter === "missed" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Пропущенные</button>
-          <button type="button" onClick={() => setFilterAndUrl("withRecording")} className={`rounded-full px-3 py-1 ${filter === "withRecording" ? "bg-emerald-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>С записью</button>
+          <span className="text-zinc-500">Фільтр:</span>
+          <button type="button" onClick={() => setFilterAndUrl("all")} className={`rounded-full px-3 py-1 ${filter === "all" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Усі</button>
+          <button type="button" onClick={() => setFilterAndUrl("calls")} className={`rounded-full px-3 py-1 ${filter === "calls" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Дзвінки</button>
+          <button type="button" onClick={() => setFilterAndUrl("missed")} className={`rounded-full px-3 py-1 ${filter === "missed" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Пропущені</button>
+          <button type="button" onClick={() => setFilterAndUrl("withRecording")} className={`rounded-full px-3 py-1 ${filter === "withRecording" ? "bg-emerald-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>З записом</button>
         </div>
 
         <CanonicalTimeline

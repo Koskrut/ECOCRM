@@ -310,6 +310,12 @@ function OrdersPageContent() {
       .catch(() => setUserRole(null));
   }, []);
 
+  const isWarehouse = userRole === "WAREHOUSE";
+
+  useEffect(() => {
+    if (isWarehouse && view !== "kanban") setView("kanban");
+  }, [isWarehouse, view]);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -509,19 +515,25 @@ function OrdersPageContent() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-zinc-900">{strings.nav.orders}</h1>
-            <p className="text-sm text-zinc-500">Список замовлень по всіх менеджерах</p>
+            <p className="text-sm text-zinc-500">
+              {isWarehouse
+                ? "Збірка та відправка замовлень"
+                : "Список замовлень по всіх менеджерах"}
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => void openNewOrder()}
-              disabled={creating}
-              className="btn-primary hidden sm:inline-flex"
-            >
-              {creating ? "Створення…" : "+ Нове замовлення"}
-            </button>
-          </div>
+          {!isWarehouse ? (
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void openNewOrder()}
+                disabled={creating}
+                className="btn-primary hidden sm:inline-flex"
+              >
+                {creating ? "Створення…" : "+ Нове замовлення"}
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {error && (
@@ -560,28 +572,32 @@ function OrdersPageContent() {
                   >
                     Kanban
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setView("financial")}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                      view === "financial"
-                        ? "bg-accent-gradient text-white"
-                        : "text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    Фінанси
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setView("returns")}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
-                      view === "returns"
-                        ? "bg-accent-gradient text-white"
-                        : "text-zinc-700 hover:bg-zinc-50"
-                    }`}
-                  >
-                    Повернення
-                  </button>
+                  {!isWarehouse ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setView("financial")}
+                        className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                          view === "financial"
+                            ? "bg-accent-gradient text-white"
+                            : "text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                      >
+                        Фінанси
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setView("returns")}
+                        className={`shrink-0 rounded-md px-3 py-1.5 text-sm whitespace-nowrap ${
+                          view === "returns"
+                            ? "bg-accent-gradient text-white"
+                            : "text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                      >
+                        Повернення
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </div>
               <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
@@ -967,6 +983,7 @@ function OrdersPageContent() {
           <OrdersKanban
             onOpenOrder={(id) => openExistingOrder(id)}
             refreshKey={kanbanRefreshKey}
+            warehouseMode={isWarehouse}
             filters={{
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,
@@ -987,15 +1004,17 @@ function OrdersPageContent() {
       </div>
 
       {/* Mobile FAB */}
-      <button
-        type="button"
-        onClick={() => void openNewOrder()}
-        disabled={creating}
-        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 disabled:opacity-50 sm:hidden"
-        aria-label="Нове замовлення"
-      >
-        <span className="text-2xl leading-none">+</span>
-      </button>
+      {!isWarehouse ? (
+        <button
+          type="button"
+          onClick={() => void openNewOrder()}
+          disabled={creating}
+          className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 disabled:opacity-50 sm:hidden"
+          aria-label="Нове замовлення"
+        >
+          <span className="text-2xl leading-none">+</span>
+        </button>
+      ) : null}
 
       {orderModalOpen && activeOrderId && (
         <OrderModal

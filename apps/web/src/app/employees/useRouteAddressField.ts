@@ -21,6 +21,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [geocodeLoading, setGeocodeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
 
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autocompleteAbortRef = useRef<AbortController | null>(null);
@@ -35,6 +36,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
     setLookupLoading(false);
     setGeocodeLoading(false);
     setError(null);
+    setHint(null);
     lastGeocodedRef.current = "";
   }, []);
 
@@ -54,11 +56,13 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
         lastGeocodedRef.current = "";
         setLat("");
         setLng("");
-        setError(strings.common.houseNumberRequired);
+        setHint(strings.common.houseNumberHint);
+        setError(null);
         return;
       }
       lastGeocodedRef.current = q;
       setError(null);
+      setHint(null);
       setGeocodeLoading(true);
       try {
         const result = await geocodeText(mapsApiKey, q, { regionCode: "UA" });
@@ -72,9 +76,11 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
           setLabel(merged);
           setLat("");
           setLng("");
-          setError(strings.common.houseNumberRequired);
+          setHint(strings.common.houseNumberHint);
+          setError(null);
           return;
         }
+        setHint(null);
         setLabel(merged);
         setLat(String(result.lat));
         setLng(String(result.lng));
@@ -96,6 +102,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
       setSuggestions([]);
       setSuggestionsOpen(false);
       setError(null);
+      setHint(null);
       setGeocodeLoading(true);
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
@@ -112,9 +119,11 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
           setLat("");
           setLng("");
           lastGeocodedRef.current = "";
-          setError(strings.common.houseNumberRequired);
+          setHint(strings.common.houseNumberHint);
+          setError(null);
           return;
         }
+        setHint(null);
         setLabel(merged);
         setLat(String(result.lat));
         setLng(String(result.lng));
@@ -166,6 +175,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
     setLabel(value);
     lastGeocodedRef.current = "";
     setError(null);
+    setHint(null);
   };
 
   const onFocus = () => setSuggestionsOpen(true);
@@ -186,6 +196,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
     lookupLoading,
     geocodeLoading,
     error,
+    hint,
     reset,
     onLabelChange,
     onFocus,

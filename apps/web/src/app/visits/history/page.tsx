@@ -5,8 +5,15 @@ import { strings } from "@/locales";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { apiHttp } from "@/lib/api/client";
-import { visitsApi, type VisitHistoryItem } from "@/lib/api/resources/visits";
+import {
+  routePlansApi,
+  visitsApi,
+  type RouteGeometryBundle,
+  type VisitHistoryItem,
+} from "@/lib/api/resources/visits";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
+import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { VisitsSubNav } from "../VisitsSubNav";
 import {
   calendarCells,
@@ -201,12 +208,34 @@ export default function VisitsHistoryPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
+  const [routeGeometryBundle, setRouteGeometryBundle] = useState<RouteGeometryBundle | null>(null);
+  const [routeGeometryLoading, setRouteGeometryLoading] = useState(false);
+  const [routeLayers, setRouteLayers] = useState<Record<RouteLayerKey, boolean>>({
+    planned: true,
+    fact_visits: true,
+    fact_gps: true,
+  });
 
   useEffect(() => {
     apiHttp
-      .get<{ user?: MeUser }>("/auth/me")
-      .then((r) => setRole(r.data?.user?.role ?? null))
-      .catch(() => setRole(null));
+      .get<{ user?: { id?: string; role?: string } }>("/auth/me")
+      .then((r) => {
+        setRole(r.data?.user?.role ?? null);
+        setMyUserId(r.data?.user?.id ?? null);
+      })
+      .catch(() => {
+        setRole(null);
+        setMyUserId(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ mapsApiKey: string | null }>("/settings/google-maps/public")
+      .then((r) => setMapsApiKey(r.data?.mapsApiKey ?? null))
+      .catch(() => setMapsApiKey(null));
   }, []);
 
   useEffect(() => {
@@ -251,6 +280,43 @@ export default function VisitsHistoryPage() {
   const summary = useMemo(() => computeSummary(items), [items]);
   const dayBuckets = useMemo(() => groupVisitsByDay(items), [items]);
   const monthAnchor = from || format(new Date(), "yyyy-MM-dd");
+  const mapDateKey = from === to ? from : selectedDay;
+  const mapOwnerId = ownerId || myUserId || undefined;
+
+  useEffect(() => {
+    setRouteGeometryBundle(null);
+    if (!mapDateKey || !mapOwnerId) return;
+    setRouteGeometryLoading(true);
+    void routePlansApi
+      .geometryBundle(mapDateKey, { ownerId: mapOwnerId })
+      .then((b) => setRouteGeometryBundle(b))
+      .catch(() => setRouteGeometryBundle(null))
+      .finally(() => setRouteGeometryLoading(false));
+  }, [mapDateKey, mapOwnerId]);
+
+  const routeCompareKpi = useMemo(() => {
+    if (!routeGeometryBundle) return null;
+    const plan = routeGeometryBundle.planned.distanceKm;
+    const factGps = routeGeometryBundle.factGps.distanceKm;
+    const factVisits = routeGeometryBundle.factVisits.distanceKm;
+    const fact =
+      routeGeometryBundle.compensationFactKind === "fact_gps" && factGps != null
+        ? factGps
+        : factVisits;
+    const deviationPct =
+      plan != null && fact != null && plan > 0
+        ? Math.round(((fact - plan) / plan) * 100)
+        : null;
+    return { plan, factGps, factVisits, deviationPct };
+  }, [routeGeometryBundle]);
+
+  const mapCenter = useMemo(() => {
+    const g = routeGeometryBundle?.planned;
+    if (g?.path?.[0]) return { lat: g.path[0].lat, lng: g.path[0].lng };
+    const g2 = routeGeometryBundle?.factVisits;
+    if (g2?.path?.[0]) return { lat: g2.path[0].lat, lng: g2.path[0].lng };
+    return { lat: 50.4501, lng: 30.5234 };
+  }, [routeGeometryBundle]);
 
   const resetFilters = () => {
     const r = quickRange("30d");
@@ -441,6 +507,64 @@ export default function VisitsHistoryPage() {
         {err ? (
           <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {err}
+          </div>
+        ) : null}
+
+        {mapDateKey ? (
+          <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900">
+                  Маршрут за {mapDateKey}
+                </h2>
+                {showOwnerFilter && !ownerId ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Выберите менеджера, чтобы увидеть его маршрут.
+                  </p>
+                ) : routeCompareKpi ? (
+                  <p className="mt-1 text-xs text-zinc-600">
+                    План: {routeCompareKpi.plan ?? "—"} км · Факт GPS:{" "}
+                    {routeCompareKpi.factGps ?? "—"} км · Факт (визиты):{" "}
+                    {routeCompareKpi.factVisits ?? "—"} км
+                    {routeCompareKpi.deviationPct != null ? (
+                      <span className="ml-1 font-medium">
+                        · отклонение {routeCompareKpi.deviationPct > 0 ? "+" : ""}
+                        {routeCompareKpi.deviationPct}%
+                      </span>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
+              <RouteLayerControls
+                layers={routeLayers}
+                onToggle={(key) => setRouteLayers((p) => ({ ...p, [key]: !p[key] }))}
+                disabled={routeGeometryLoading}
+              />
+            </div>
+            {showOwnerFilter && !ownerId ? null : (
+              <div className="h-[320px] overflow-hidden rounded-md border border-zinc-100">
+                {!mapsApiKey ? (
+                  <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+                    Карта недоступна (нет Google Maps API key)
+                  </div>
+                ) : routeGeometryLoading ? (
+                  <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+                    Загрузка маршрута…
+                  </div>
+                ) : (
+                  <VisitsRouteMap
+                    mapsApiKey={mapsApiKey}
+                    center={mapCenter}
+                    layers={routeLayers}
+                    geometries={{
+                      planned: routeGeometryBundle?.planned ?? null,
+                      fact_visits: routeGeometryBundle?.factVisits ?? null,
+                      fact_gps: routeGeometryBundle?.factGps ?? null,
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </div>
         ) : null}
 

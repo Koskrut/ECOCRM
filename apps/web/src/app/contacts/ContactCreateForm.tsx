@@ -16,8 +16,6 @@ export type ContactCreateFormValues = {
   position: string;
   externalCode: string;
   region: string;
-  addressInfo: string;
-  city: string;
   clientType: string;
   status: string;
   companyId: string | null;
@@ -270,24 +268,6 @@ export function ContactCreateForm({
               className={optionalControlClass}
               value={values.externalCode}
               onChange={(e) => onChange("externalCode", e.target.value)}
-              disabled={saving}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>{t.addressInfo}</label>
-            <input
-              className={optionalControlClass}
-              value={values.addressInfo}
-              onChange={(e) => onChange("addressInfo", e.target.value)}
-              disabled={saving}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>{t.city}</label>
-            <input
-              className={optionalControlClass}
-              value={values.city}
-              onChange={(e) => onChange("city", e.target.value)}
               disabled={saving}
             />
           </div>

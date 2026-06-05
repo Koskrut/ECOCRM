@@ -166,6 +166,13 @@ export default function VisitDetailScreen() {
         {visit.addressText ? visit.addressText : "Адрес не указан"}
       </Text>
 
+      <Pressable
+        onPress={() => router.push("/(tabs)/map")}
+        style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
+        accessibilityRole="button">
+        <Text style={styles.btnOutlineText}>Маршрут дня на карте</Text>
+      </Pressable>
+
       {(visit.startGpsVerification ?? visit.completeGpsVerification) ? (
         <View style={styles.box}>
           {visit.startGpsVerification ? (
@@ -253,6 +260,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: "rgba(128,128,128,0.12)",
     gap: 6,
+  },
+  btnOutline: {
+    borderWidth: 1,
+    borderColor: "#059669",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "rgba(5,150,105,0.08)",
+  },
+  btnOutlineText: {
+    color: "#047857",
+    fontWeight: "600",
+    fontSize: 15,
   },
   btnPrimary: {
     backgroundColor: "#2563eb",

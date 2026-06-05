@@ -18,7 +18,7 @@ export type Employee = {
   id: string;
   email: string;
   fullName?: string | null;
-  role: "ADMIN" | "LEAD" | "MANAGER" | "USER";
+  role: "ADMIN" | "LEAD" | "MANAGER" | "WAREHOUSE" | "USER";
   routeStartLat?: number | null;
   routeStartLng?: number | null;
   routeEndLat?: number | null;
@@ -55,6 +55,7 @@ function pickMessage(e: unknown, fallback: string) {
 
 const ROLE_OPTIONS: Array<{ value: Employee["role"]; label: string }> = [
   { value: "USER", label: t.roleUser },
+  { value: "WAREHOUSE", label: t.roleWarehouse },
   { value: "LEAD", label: t.roleLead },
   { value: "MANAGER", label: t.roleManager },
   { value: "ADMIN", label: t.roleAdmin },
@@ -392,6 +393,7 @@ export function EmployeeModal({
                   lookupLoading={routeStart.lookupLoading}
                   geocodeLoading={routeStart.geocodeLoading}
                   error={routeStart.error}
+                  addressHint={routeStart.hint}
                   onChange={routeStart.onLabelChange}
                   onFocus={routeStart.onFocus}
                   onBlur={routeStart.onBlur}
@@ -401,7 +403,7 @@ export function EmployeeModal({
                 />
                 <RouteAddressInput
                   label={t.routeEnd}
-                  hint={t.routeEndHint}
+                  descriptionHint={t.routeEndHint}
                   placeholder={t.routeEndPlaceholder}
                   value={routeEnd.label}
                   disabled={saving}
@@ -412,6 +414,7 @@ export function EmployeeModal({
                   lookupLoading={routeEnd.lookupLoading}
                   geocodeLoading={routeEnd.geocodeLoading}
                   error={routeEnd.error}
+                  addressHint={routeEnd.hint}
                   onChange={routeEnd.onLabelChange}
                   onFocus={routeEnd.onFocus}
                   onBlur={routeEnd.onBlur}

@@ -2,7 +2,14 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
-import { resolveRouteGeometry, type RouteAnchorConfig } from "./route-geometry";
+import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./route-geometry";
+import { decodeEncodedPolyline, pathFromWaypoints } from "./polyline.util";
+import type {
+  RouteGeometryBundle,
+  RouteGeometryKind,
+  RouteGeometryResult,
+  RouteGeometryWaypoint,
+} from "./route-geometry.types";
 import { effectiveVisitLatLng } from "./visit-coordinates";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
 
@@ -81,10 +88,11 @@ export class RoutePlansService {
     intermediates: Array<{ lat: number; lng: number }>;
     traffic: boolean;
     optimize?: boolean;
-  }): Promise<
+  }  ): Promise<
     | {
         distanceKm: number | null;
         durationMin: number | null;
+        encodedPolyline?: string | null;
         optimizedIntermediateIndexes?: number[];
       }
     | null
@@ -96,7 +104,8 @@ export class RoutePlansService {
       headers: {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex",
+        "X-Goog-FieldMask":
+          "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex",
       },
       body: JSON.stringify({
         origin: { location: { latLng: { latitude: opts.origin.lat, longitude: opts.origin.lng } } },
@@ -117,6 +126,7 @@ export class RoutePlansService {
       routes?: Array<{
         distanceMeters?: number;
         duration?: string;
+        polyline?: { encodedPolyline?: string };
         optimizedIntermediateWaypointIndex?: number[];
       }>;
     };
@@ -124,6 +134,8 @@ export class RoutePlansService {
     const distM = typeof r?.distanceMeters === "number" ? r.distanceMeters : null;
     const dur = typeof r?.duration === "string" ? r.duration : null; // "1234s"
     const durationSec = dur && /^\d+s$/.test(dur) ? Number(dur.replace("s", "")) : null;
+    const encoded =
+      typeof r?.polyline?.encodedPolyline === "string" ? r.polyline.encodedPolyline : null;
     const optimized =
       Array.isArray(r?.optimizedIntermediateWaypointIndex) &&
       r!.optimizedIntermediateWaypointIndex!.every((x) => typeof x === "number")
@@ -132,6 +144,7 @@ export class RoutePlansService {
     return {
       distanceKm: distM != null ? Math.round((distM / 1000) * 10) / 10 : null,
       durationMin: durationSec != null ? Math.round(durationSec / 60) : null,
+      encodedPolyline: encoded,
       ...(optimized ? { optimizedIntermediateIndexes: optimized } : {}),
     };
   }
@@ -646,6 +659,452 @@ export class RoutePlansService {
     const last = points[points.length - 1]!;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${last.lat},${last.lng}&waypoints=${encodeURIComponent(waypoints)}`;
     return { url };
+  }
+
+  private emptyGeometry(kind: RouteGeometryKind, reason: string): RouteGeometryResult {
+    return {
+      kind,
+      source: "none",
+      distanceKm: null,
+      durationMin: null,
+      path: [],
+      encodedPolyline: null,
+      waypoints: [],
+      quality: {
+        sampleCount: 0,
+        coverageRatio: null,
+        degraded: true,
+        degradedReason: reason,
+      },
+    };
+  }
+
+  private downsamplePath(path: LatLng[], maxPoints = 400): LatLng[] {
+    if (path.length <= maxPoints) return path;
+    const step = Math.ceil(path.length / maxPoints);
+    const out: LatLng[] = [];
+    for (let i = 0; i < path.length; i += step) {
+      out.push(path[i]!);
+    }
+    const last = path[path.length - 1]!;
+    const tail = out[out.length - 1];
+    if (!tail || tail.lat !== last.lat || tail.lng !== last.lng) {
+      out.push(last);
+    }
+    return out;
+  }
+
+  private async buildRoutedGeometry(opts: {
+    kind: RouteGeometryKind;
+    visitPoints: LatLng[];
+    waypoints: RouteGeometryWaypoint[];
+    ownerId: string;
+    traffic: boolean;
+  }): Promise<RouteGeometryResult> {
+    const { kind, visitPoints, waypoints, ownerId, traffic } = opts;
+    if (visitPoints.length === 0) {
+      return this.emptyGeometry(kind, "no_points");
+    }
+
+    const anchors = await this.getRouteAnchors(ownerId);
+    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
+
+    try {
+      const google = await this.computeRouteByGoogle({
+        origin,
+        destination,
+        intermediates,
+        traffic,
+      });
+      if (google?.encodedPolyline) {
+        const path = decodeEncodedPolyline(google.encodedPolyline);
+        return {
+          kind,
+          source: "google",
+          distanceKm: google.distanceKm,
+          durationMin: google.durationMin,
+          path,
+          encodedPolyline: google.encodedPolyline,
+          waypoints,
+          quality: {
+            sampleCount: waypoints.length,
+            coverageRatio: null,
+            degraded: false,
+            degradedReason: null,
+          },
+        };
+      }
+      if (google) {
+        const path = pathFromWaypoints(origin, intermediates, destination);
+        return {
+          kind,
+          source: "google",
+          distanceKm: google.distanceKm,
+          durationMin: google.durationMin,
+          path,
+          encodedPolyline: null,
+          waypoints,
+          quality: {
+            sampleCount: waypoints.length,
+            coverageRatio: null,
+            degraded: false,
+            degradedReason: null,
+          },
+        };
+      }
+    } catch {
+      // fall through
+    }
+
+    const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
+    const path = pathFromWaypoints(origin, intermediates, destination);
+    return {
+      kind,
+      source: "fallback",
+      distanceKm: Math.round(km * 10) / 10,
+      durationMin: null,
+      path,
+      encodedPolyline: null,
+      waypoints,
+      quality: {
+        sampleCount: waypoints.length,
+        coverageRatio: null,
+        degraded: false,
+        degradedReason: null,
+      },
+    };
+  }
+
+  private async loadPlannedVisitPoints(
+    ownerId: string,
+    date: Date,
+    visitIdsOverride?: string[],
+  ): Promise<{ points: LatLng[]; waypoints: RouteGeometryWaypoint[] }> {
+    if (visitIdsOverride?.length) {
+      const visits = await this.prisma.visit.findMany({
+        where: { ownerId, id: { in: visitIdsOverride } },
+        select: {
+          id: true,
+          lat: true,
+          lng: true,
+          title: true,
+          contact: { select: { lat: true, lng: true, firstName: true, lastName: true } },
+          company: { select: { lat: true, lng: true, name: true } },
+        },
+      });
+      const byId = new Map(visits.map((v) => [v.id, v]));
+      const ordered = visitIdsOverride
+        .map((id) => byId.get(id))
+        .filter(Boolean)
+        .map((v) => {
+          const coords = effectiveVisitLatLng(v!);
+          const label =
+            v!.title?.trim() ||
+            (v!.contact
+              ? [v!.contact.firstName, v!.contact.lastName].filter(Boolean).join(" ")
+              : null) ||
+            v!.company?.name ||
+            null;
+          return coords
+            ? {
+                coords,
+                wp: {
+                  lat: coords.lat,
+                  lng: coords.lng,
+                  label,
+                  visitId: v!.id,
+                } satisfies RouteGeometryWaypoint,
+              }
+            : null;
+        })
+        .filter(Boolean) as { coords: LatLng; wp: RouteGeometryWaypoint }[];
+      return {
+        points: ordered.map((x) => x.coords),
+        waypoints: ordered.map((x) => x.wp),
+      };
+    }
+
+    const plan = await this.prisma.routePlan.findUnique({
+      where: { ownerId_date: { ownerId, date } },
+      include: {
+        stops: {
+          orderBy: { position: "asc" },
+          include: {
+            visit: {
+              include: {
+                contact: { select: { lat: true, lng: true, firstName: true, lastName: true } },
+                company: { select: { lat: true, lng: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (plan?.stops?.length) {
+      const rows = plan.stops
+        .map((s) => {
+          const coords = effectiveVisitLatLng(s.visit);
+          if (!coords) return null;
+          const v = s.visit;
+          const label =
+            v.title?.trim() ||
+            (v.contact
+              ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+              : null) ||
+            v.company?.name ||
+            null;
+          return {
+            coords,
+            wp: { lat: coords.lat, lng: coords.lng, label, visitId: v.id },
+          };
+        })
+        .filter(Boolean) as { coords: LatLng; wp: RouteGeometryWaypoint }[];
+      return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
+    }
+
+    const dayStart = date;
+    const dayEnd = new Date(date);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const scheduled = await this.prisma.visit.findMany({
+      where: {
+        ownerId,
+        status: { in: ["SCHEDULED", "IN_PROGRESS", "DONE"] },
+        startsAt: { gte: dayStart, lt: dayEnd },
+      },
+      orderBy: { startsAt: "asc" },
+      include: {
+        contact: { select: { lat: true, lng: true, firstName: true, lastName: true } },
+        company: { select: { lat: true, lng: true, name: true } },
+      },
+    });
+    const rows = scheduled
+      .map((v) => {
+        const coords = effectiveVisitLatLng(v);
+        if (!coords) return null;
+        const label =
+          v.title?.trim() ||
+          (v.contact
+            ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+            : null) ||
+          v.company?.name ||
+          null;
+        return { coords, wp: { lat: coords.lat, lng: coords.lng, label, visitId: v.id } };
+      })
+      .filter(Boolean) as { coords: LatLng; wp: RouteGeometryWaypoint }[];
+    return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
+  }
+
+  private async loadFactVisitPoints(ownerId: string, date: Date) {
+    const dayStart = date;
+    const dayEnd = new Date(date);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const done = await this.prisma.visit.findMany({
+      where: {
+        ownerId,
+        status: "DONE",
+        startsAt: { gte: dayStart, lt: dayEnd },
+      },
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        title: true,
+        completedAt: true,
+        endsAt: true,
+        startsAt: true,
+        contact: { select: { lat: true, lng: true, firstName: true, lastName: true } },
+        company: { select: { lat: true, lng: true, name: true } },
+      },
+      orderBy: [{ completedAt: "asc" }, { endsAt: "asc" }, { startsAt: "asc" }],
+    });
+    const rows = done
+      .map((v) => {
+        const coords = effectiveVisitLatLng(v);
+        if (!coords) return null;
+        const label =
+          v.title?.trim() ||
+          (v.contact
+            ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+            : null) ||
+          v.company?.name ||
+          null;
+        return { coords, wp: { lat: coords.lat, lng: coords.lng, label, visitId: v.id } };
+      })
+      .filter(Boolean) as { coords: LatLng; wp: RouteGeometryWaypoint }[];
+    return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
+  }
+
+  private async loadGpsTrack(ownerId: string, date: Date) {
+    const shifts = await this.prisma.fieldShift.findMany({
+      where: { ownerId, date },
+      orderBy: { startedAt: "asc" },
+      select: { id: true, startedAt: true, endedAt: true, trackingEnabled: true },
+    });
+
+    if (shifts.length === 0) {
+      return {
+        path: [] as LatLng[],
+        sampleCount: 0,
+        coverageRatio: null as number | null,
+        shiftDurationMin: null as number | null,
+      };
+    }
+
+    const shiftIds = shifts.map((s) => s.id);
+    const samples = await this.prisma.fieldLocationSample.findMany({
+      where: { shiftId: { in: shiftIds } },
+      orderBy: { clientRecordedAt: "asc" },
+      select: { lat: true, lng: true, clientRecordedAt: true },
+    });
+
+    const path: LatLng[] = samples.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const firstShift = shifts[0]!;
+    const lastShift = shifts[shifts.length - 1]!;
+    const spanStart = firstShift.startedAt.getTime();
+    const spanEnd = (lastShift.endedAt ?? new Date()).getTime();
+    const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
+
+    let sampledSpanMin = 0;
+    if (samples.length >= 2) {
+      const t0 = samples[0]!.clientRecordedAt.getTime();
+      const t1 = samples[samples.length - 1]!.clientRecordedAt.getTime();
+      sampledSpanMin = Math.max(0, (t1 - t0) / 60000);
+    }
+
+    const coverageRatio =
+      shiftDurationMin > 0
+        ? Math.min(1, Math.round((sampledSpanMin / shiftDurationMin) * 100) / 100)
+        : null;
+
+    return {
+      path: this.downsamplePath(path),
+      sampleCount: samples.length,
+      coverageRatio,
+      shiftDurationMin,
+    };
+  }
+
+  private pathDistanceKm(path: LatLng[]): number | null {
+    if (path.length < 2) return null;
+    let total = 0;
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i]!;
+      const b = path[i + 1]!;
+      total += this.haversineKm(a.lat, a.lng, [], b.lat, b.lng);
+    }
+    return Math.round(total * 10) / 10;
+  }
+
+  async getRouteGeometry(
+    dateStr: string,
+    kind: RouteGeometryKind,
+    actor: AuthUser | undefined,
+    opts?: RoutePlanScopeOpts & { visitIds?: string[] },
+  ): Promise<RouteGeometryResult> {
+    if (!actor) throw new BadRequestException("User is required");
+    if (!dateStr) throw new BadRequestException("date is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
+    const date = this.parseDate(dateStr);
+    const traffic = opts?.traffic === true;
+
+    if (kind === "planned") {
+      const { points, waypoints } = await this.loadPlannedVisitPoints(
+        ownerId,
+        date,
+        opts?.visitIds,
+      );
+      if (points.length === 0) return this.emptyGeometry(kind, "no_planned_stops");
+      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, traffic });
+    }
+
+    if (kind === "fact_visits") {
+      const { points, waypoints } = await this.loadFactVisitPoints(ownerId, date);
+      if (points.length < 2) return this.emptyGeometry(kind, "insufficient_completed_visits");
+      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, traffic });
+    }
+
+    const gps = await this.loadGpsTrack(ownerId, date);
+    if (gps.sampleCount < 2 || gps.path.length < 2) {
+      return this.emptyGeometry(kind, "insufficient_gps_samples");
+    }
+
+    const degraded =
+      gps.sampleCount < 10 || (gps.coverageRatio != null && gps.coverageRatio < 0.25);
+    const distanceKm = this.pathDistanceKm(gps.path);
+
+    return {
+      kind: "fact_gps",
+      source: "raw_gps",
+      distanceKm,
+      durationMin: null,
+      path: gps.path,
+      encodedPolyline: null,
+      waypoints: [],
+      quality: {
+        sampleCount: gps.sampleCount,
+        coverageRatio: gps.coverageRatio,
+        degraded,
+        degradedReason: degraded ? "low_gps_coverage" : null,
+      },
+    };
+  }
+
+  async getFactGpsRouteMetrics(
+    dateStr: string,
+    actor: AuthUser | undefined,
+    opts?: RoutePlanScopeOpts,
+  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "raw_gps" | "none" }> {
+    const geom = await this.getRouteGeometry(dateStr, "fact_gps", actor, opts);
+    if (geom.source === "none" || geom.path.length < 2) {
+      return { distanceKm: null, durationMin: null, source: "none" };
+    }
+    return {
+      distanceKm: geom.distanceKm,
+      durationMin: geom.durationMin,
+      source: "raw_gps",
+    };
+  }
+
+  async getRouteGeometryBundle(
+    dateStr: string,
+    actor: AuthUser | undefined,
+    opts?: RoutePlanScopeOpts & { visitIds?: string[] },
+  ): Promise<RouteGeometryBundle> {
+    if (!actor) throw new BadRequestException("User is required");
+    const ownerId = await this.resolveOwner(actor, opts?.ownerId);
+
+    const [planned, factVisits, factGps] = await Promise.all([
+      this.getRouteGeometry(dateStr, "planned", actor, opts),
+      this.getRouteGeometry(dateStr, "fact_visits", actor, opts),
+      this.getRouteGeometry(dateStr, "fact_gps", actor, opts),
+    ]);
+
+    const compensationFactKind: RouteGeometryBundle["compensationFactKind"] =
+      factGps.source !== "none" && !factGps.quality.degraded && factGps.path.length >= 2
+        ? "fact_gps"
+        : "fact_visits";
+
+    return {
+      date: dateStr,
+      ownerId,
+      planned,
+      factVisits,
+      factGps,
+      compensationFactKind,
+    };
+  }
+
+  async previewPlannedGeometry(
+    dateStr: string,
+    visitIds: string[],
+    actor: AuthUser | undefined,
+    opts?: RoutePlanScopeOpts,
+  ): Promise<RouteGeometryResult> {
+    return this.getRouteGeometry(dateStr, "planned", actor, {
+      ...opts,
+      visitIds,
+    });
   }
 }
 

@@ -66,6 +66,52 @@ export class RoutePlansController {
     });
   }
 
+  @Get("geometry")
+  async getGeometry(
+    @Query("date") date: string,
+    @Query("kind") kind: string,
+    @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const k =
+      kind === "fact_visits" || kind === "fact_gps" || kind === "planned"
+        ? kind
+        : "planned";
+    return this.routePlans.getRouteGeometry(date, k, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
+  }
+
+  @Get("geometry/bundle")
+  async getGeometryBundle(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.routePlans.getRouteGeometryBundle(date, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
+  }
+
+  @Post("geometry/preview")
+  async previewGeometry(
+    @Query("date") date: string,
+    @Query("traffic") traffic: string | undefined,
+    @Query("ownerId") ownerId: string | undefined,
+    @Body() body: { visitIds?: string[] },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const visitIds = Array.isArray(body?.visitIds) ? body.visitIds : [];
+    return this.routePlans.previewPlannedGeometry(date, visitIds, req.user, {
+      traffic: traffic === "1",
+      ownerId,
+    });
+  }
+
   @Get("navigation")
   async getNavigation(
     @Query("date") date: string,

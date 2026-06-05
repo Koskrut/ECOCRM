@@ -13,6 +13,7 @@ import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
+import type { RouteGeometryBundle } from "@/lib/route-map";
 import type { VisitSummary } from "@/types/crm";
 
 function visitLabel(v: VisitSummary): string {
@@ -45,6 +46,7 @@ export default function TodayScreen() {
   const [loading, setLoading] = useState(true);
   const [shiftInfo, setShiftInfo] = useState<string | null>(null);
   const [fuelBanner, setFuelBanner] = useState<string | null>(null);
+  const [routeBanner, setRouteBanner] = useState<string | null>(null);
 
   const dateKey = formatLocalDateKey();
 
@@ -52,7 +54,7 @@ export default function TodayScreen() {
     if (!token) return;
     setLoading(true);
     try {
-      const [day, active, fuel] = await Promise.all([
+      const [day, active, fuel, route] = await Promise.all([
         apiFetch<{ items: VisitSummary[] }>(`/visits/day?date=${encodeURIComponent(dateKey)}`, {
           token,
         }),
@@ -65,6 +67,10 @@ export default function TodayScreen() {
             amountEstimated: string | number | null;
           };
         }>(`/field/fuel/day?date=${encodeURIComponent(dateKey)}`, { token }).catch(() => null),
+        apiFetch<RouteGeometryBundle>(
+          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`,
+          { token },
+        ).catch(() => null),
       ]);
       setItems(day.items ?? []);
       if (active.shift) {
@@ -80,6 +86,21 @@ export default function TodayScreen() {
         setFuelBanner(`${km} км${sum}`);
       } else {
         setFuelBanner(null);
+      }
+      if (route?.planned.distanceKm != null) {
+        const plan = route.planned.distanceKm;
+        const gps = route.factGps.distanceKm;
+        const visits = route.factVisits.distanceKm;
+        const gpsNote =
+          route.factGps.quality.degraded && gps != null ? " · GPS слабый" : "";
+        setRouteBanner(
+          `План ${plan} км` +
+            (gps != null ? ` · GPS ${gps} км` : "") +
+            (visits != null ? ` · визиты ${visits} км` : "") +
+            gpsNote,
+        );
+      } else {
+        setRouteBanner(null);
       }
     } finally {
       setLoading(false);
@@ -99,6 +120,16 @@ export default function TodayScreen() {
         {dateKey}
         {shiftInfo ? ` · ${shiftInfo}` : ""}
       </Text>
+
+      {routeBanner ? (
+        <Pressable
+          onPress={() => router.push("/(tabs)/map")}
+          style={styles.routeBanner}
+          accessibilityRole="button">
+          <Text style={styles.routeBannerText}>Маршрут: {routeBanner}</Text>
+          <Text style={styles.routeBannerChev}>›</Text>
+        </Pressable>
+      ) : null}
 
       {fuelBanner ? (
         <Pressable
@@ -136,7 +167,7 @@ export default function TodayScreen() {
       />
 
       <Text style={styles.footerHint}>
-        Смену и топливо откройте во вкладке «Ещё».
+        Маршрут — вкладка «Карта». Смену и топливо — «Ещё».
       </Text>
     </View>
   );
@@ -158,6 +189,25 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     opacity: 0.75,
     fontSize: 14,
+  },
+  routeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(5,150,105,0.1)",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  routeBannerText: {
+    flex: 1,
+    fontWeight: "600",
+    color: "#047857",
+    fontSize: 13,
+  },
+  routeBannerChev: {
+    fontSize: 20,
+    color: "#047857",
+    opacity: 0.6,
   },
   fuelBanner: {
     flexDirection: "row",
