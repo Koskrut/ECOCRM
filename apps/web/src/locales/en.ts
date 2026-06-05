@@ -160,6 +160,18 @@ export const en = {
         title: "FOP (bank accounts)",
         desc: "Bank / payments configuration",
       },
+      bank: {
+        title: "Bank accounts",
+        desc: "FOP accounts, IBAN, manager visibility",
+      },
+      privat24: {
+        title: "Privat24",
+        desc: "Autoclient API, statements and CSV import",
+      },
+      upc: {
+        title: "UPC Open Banking",
+        desc: "Connect accounts via UPC (AIS)",
+      },
       googleSheet: {
         title: "Google Sheet (1C)",
         desc: "Webhook for sending orders to a Google Sheet and receiving document numbers from 1C",
@@ -184,6 +196,29 @@ export const en = {
         title: "Online store",
         desc: "Theme, banners, contacts, CRM URL for store-side payment",
       },
+    },
+    privat24: {
+      title: "Privat24 Autoclient",
+      desc: "Privat24 API statement sync for PRIVAT24 accounts.",
+      hintAutoclient: "App ID, Group client ID (if needed) and TOKEN are set per account.",
+      hintIban: "IBAN is required for statement sync.",
+      hintAccounts: "Accounts and requisites:",
+      bankLink: "Bank accounts",
+    },
+    upc: {
+      title: "UPC Open Banking",
+      desc: "Consent and statement sync via UPC (AIS).",
+      apiSection: "API and redirect",
+      accountsSection: "UPC accounts",
+      noAccounts: "No UPC provider accounts. Add one in",
+      bankLink: "bank accounts",
+      connect: "Connect",
+      save: "Save",
+      saving: "Saving…",
+      loading: "Loading…",
+      loadError: "Failed to load UPC settings",
+      saveError: "Failed to save",
+      connectError: "Failed to start consent",
     },
     novaPoshtaPage: {
       subtitle:
@@ -582,6 +617,7 @@ export const en = {
       load: "Failed to load",
       syncFailed: "Sync failed",
       importFailed: "Import failed",
+      importNotSupported: "CSV import is not available for this provider",
       selectOrder: "Select an order",
       positiveAmount: "Enter a positive amount",
       addPaymentFailed: "Failed to add payment",

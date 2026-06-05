@@ -48,7 +48,14 @@ export const MODULE_UPSTREAM_STATIC_MOUNTS: ModuleUpstreamMount[] = [
   {
     moduleId: "ext.finance" as ModuleId,
     envVar: "FINANCE_UPSTREAM_URL",
-    pathPrefixes: ["/public/payment-requests", "/payment-requests", "/payments", "/bank"],
+    pathPrefixes: [
+      "/public/payment-requests",
+      "/payment-requests",
+      "/payments",
+      "/bank",
+      "/integrations/privat24",
+      "/integrations/upc",
+    ],
   },
   {
     moduleId: "ext.production_planning" as ModuleId,

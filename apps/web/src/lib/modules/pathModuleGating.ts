@@ -16,7 +16,10 @@ export function sidebarHrefModuleId(href: string): ModuleId | null {
 }
 
 export function settingsHrefModuleId(href: string): ModuleId | null {
+  if (href.startsWith("/settings/bank")) return ModuleIds.Finance;
   if (href.startsWith("/settings/fop")) return ModuleIds.Finance;
+  if (href.startsWith("/settings/privat24")) return ModuleIds.Privat24;
+  if (href.startsWith("/settings/upc")) return ModuleIds.Upc;
   if (href.startsWith("/settings/google-sheet")) return ModuleIds.GoogleSheet;
   if (href.startsWith("/settings/ringostat")) return ModuleIds.Ringostat;
   if (href.startsWith("/settings/nova-poshta")) return ModuleIds.NovaPoshta;

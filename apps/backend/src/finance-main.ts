@@ -15,6 +15,8 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { FinanceIdempotencyModule } from "./finance-idempotency/finance-idempotency.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { BankModule } from "./bank/bank.module";
+import { Privat24Module } from "./integrations/privat24/privat24.module";
+import { UpcModule } from "./integrations/upc/upc.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { PaymentRequestsModule } from "./payment-requests/payment-requests.module";
 import { SystemModule } from "./system/system.module";
@@ -33,6 +35,8 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
     PaymentRequestsModule,
     PaymentsModule,
     BankModule,
+    Privat24Module,
+    UpcModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

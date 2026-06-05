@@ -6,5 +6,5 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  return proxyToBackend(req, `bank/accounts/${id}/import`);
+  return proxyToBackend(req, `integrations/privat24/accounts/${id}/import`);
 }

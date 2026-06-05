@@ -18,6 +18,11 @@ export type CreateBankAccountDto = {
     token?: string;
     /** Режим групи ПП: id клієнта в групі. */
     id?: string;
+    /** UPC Open Banking */
+    consentId?: string;
+    resourceId?: string;
+    accessToken?: string;
+    bankCode?: string;
   };
   isActive?: boolean;
 };

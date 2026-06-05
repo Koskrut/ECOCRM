@@ -1,4 +1,4 @@
-import { google, type Auth } from "googleapis";
+import { google } from "googleapis";
 
 export type DriveFile = {
   id: string;
@@ -7,13 +7,14 @@ export type DriveFile = {
   mimeType?: string;
 };
 
-export type DriveAuth = Auth.GoogleAuth;
+/** Auth type accepted by google.drive() — avoid cross-package GoogleAuth alias mismatch in CI. */
+export type DriveAuth = NonNullable<Parameters<typeof google.drive>[0]>["auth"];
 
 export function createDriveAuth(serviceAccount: Record<string, unknown>): DriveAuth {
   return new google.auth.GoogleAuth({
     credentials: serviceAccount,
     scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-  });
+  }) as DriveAuth;
 }
 
 /**

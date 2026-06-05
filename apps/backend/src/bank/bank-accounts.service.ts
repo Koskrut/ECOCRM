@@ -1,14 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { BankAccount, BankProvider } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import {
+  maskPrivat24Credentials,
+  mergePrivat24Credentials,
+} from "../integrations/privat24/privat24-credentials.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { BANK_PROVIDER_ORDER } from "./bank-provider-modules";
+import { BankProviderRegistry } from "./bank-provider.registry";
 import type { CreateBankAccountDto } from "./dto/create-bank-account.dto";
 import type { UpdateBankAccountDto } from "./dto/update-bank-account.dto";
-import type { Privat24Credentials } from "./privat24.client";
-import { Privat24Client } from "./privat24.client";
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function maskValue(value: string | undefined): string {
   if (!value || value.length < 4) return value ? "••••" : "";
@@ -42,34 +43,49 @@ function parseStoreDefaultBankFromSettingValue(value: unknown): string | null | 
   return undefined;
 }
 
-function maskCredentials(credentials: CredentialsPayload): {
-  clientIdMasked?: string;
-  tokenMasked?: string;
-  idMasked?: string;
-} {
+function maskCredentials(
+  provider: BankProvider,
+  credentials: CredentialsPayload,
+): Record<string, string | undefined> {
   if (!credentials || typeof credentials !== "object") return {};
   const c = credentials as Record<string, unknown>;
-  const clientId = typeof c.clientId === "string" ? c.clientId : undefined;
-  const token = typeof c.token === "string" ? c.token : undefined;
-  const groupId = typeof c.id === "string" ? c.id : undefined;
-  return {
-    ...(clientId !== undefined && { clientIdMasked: maskValue(clientId) }),
-    ...(token !== undefined && { tokenMasked: maskValue(token) }),
-    ...(groupId !== undefined && { idMasked: groupId ? maskValue(groupId) : "" }),
-  };
+  if (provider === "PRIVAT24") {
+    return maskPrivat24Credentials(c);
+  }
+  if (provider === "UPC") {
+    return {
+      ...(typeof c.consentId === "string" && { consentIdMasked: maskValue(c.consentId) }),
+      ...(typeof c.accessToken === "string" && { accessTokenMasked: maskValue(c.accessToken) }),
+      ...(typeof c.resourceId === "string" && { resourceIdMasked: c.resourceId }),
+    };
+  }
+  return {};
 }
 
-function toMasked(account: BankAccount): Omit<BankAccount, "credentials"> & { credentialsMasked?: { clientIdMasked?: string; tokenMasked?: string; idMasked?: string } } {
+function toMasked(
+  account: BankAccount,
+): Omit<BankAccount, "credentials"> & { credentialsMasked?: Record<string, string | undefined> } {
   const { credentials, ...rest } = account;
   return {
     ...rest,
-    credentialsMasked: maskCredentials(credentials as CredentialsPayload),
+    credentialsMasked: maskCredentials(account.provider, credentials as CredentialsPayload),
   };
 }
 
 @Injectable()
 export class BankAccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(BankProviderRegistry) private readonly providerRegistry: BankProviderRegistry,
+  ) {}
+
+  private async resolveDefaultProvider(): Promise<BankProvider> {
+    const licensed = await this.providerRegistry.listLicensedProviders();
+    for (const p of BANK_PROVIDER_ORDER) {
+      if (licensed.includes(p)) return p;
+    }
+    throw new BadRequestException("No bank statement provider is licensed");
+  }
 
   private async getVisibilityMap(): Promise<VisibilityMap> {
     const row = await this.prisma.systemSetting.findUnique({
@@ -104,9 +120,11 @@ export class BankAccountsService {
   }
 
   async create(dto: CreateBankAccountDto) {
+    const provider = (dto.provider as BankProvider) ?? (await this.resolveDefaultProvider());
+    await this.providerRegistry.assertProviderLicensed(provider);
     const created = await this.prisma.bankAccount.create({
       data: {
-        provider: (dto.provider as BankProvider) ?? "PRIVAT24",
+        provider,
         name: dto.name,
         currency: dto.currency,
         iban: dto.iban ?? null,
@@ -135,13 +153,14 @@ export class BankAccountsService {
   async listForOrder(
     userId?: string,
   ): Promise<{
-    accounts: Array<{ id: string; name: string; currency: string }>;
+    accounts: Array<{ id: string; name: string; currency: string; provider: BankProvider }>;
     defaultBankAccountId: string | null;
   }> {
+    const licensed = await this.providerRegistry.listLicensedProviders();
     const accounts = await this.prisma.bankAccount.findMany({
-      where: { isActive: true },
+      where: { isActive: true, provider: { in: licensed } },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, currency: true },
+      select: { id: true, name: true, currency: true, provider: true },
     });
     if (!userId) {
       return { accounts, defaultBankAccountId: null };
@@ -374,27 +393,20 @@ export class BankAccountsService {
 
     if (dto.credentials !== undefined) {
       const existing = (current.credentials as Record<string, unknown>) ?? {};
-      const next: Record<string, unknown> = { ...existing };
-      const dtoHasClientId = Object.prototype.hasOwnProperty.call(dto.credentials, "clientId");
-      const dtoHasId = Object.prototype.hasOwnProperty.call(dto.credentials, "id");
-      const existingClientId = typeof existing.clientId === "string" ? existing.clientId : undefined;
-      const existingId = typeof existing.id === "string" ? existing.id : undefined;
-      if (Object.prototype.hasOwnProperty.call(dto.credentials, "clientId")) {
-        next.clientId = dto.credentials.clientId === "" ? undefined : dto.credentials.clientId;
+      if (current.provider === "PRIVAT24") {
+        data.credentials = mergePrivat24Credentials(existing, dto.credentials) as object;
+      } else if (current.provider === "UPC") {
+        const next = { ...existing };
+        for (const key of ["consentId", "resourceId", "accessToken", "bankCode"] as const) {
+          if (Object.prototype.hasOwnProperty.call(dto.credentials, key)) {
+            const val = dto.credentials[key];
+            next[key] = val === "" ? undefined : val;
+          }
+        }
+        data.credentials = next as object;
+      } else {
+        data.credentials = { ...existing, ...dto.credentials } as object;
       }
-      if (Object.prototype.hasOwnProperty.call(dto.credentials, "token")) {
-        next.token = dto.credentials.token === "" ? undefined : dto.credentials.token;
-      }
-      if (Object.prototype.hasOwnProperty.call(dto.credentials, "id")) {
-        next.id = dto.credentials.id === "" ? undefined : dto.credentials.id;
-      }
-      // Legacy cleanup: older UI stored App ID UUID into `id`.
-      // If user updates App ID but does not touch `id`, clear stale UUID `id`.
-      const staleUuidId = dtoHasClientId && !dtoHasId && typeof next.id === "string" && UUID_RE.test(next.id);
-      if (staleUuidId || (dtoHasClientId && !dtoHasId && existingId && existingClientId && existingId === existingClientId)) {
-        next.id = undefined;
-      }
-      data.credentials = next as object;
     }
 
     const updated = await this.prisma.bankAccount.update({
@@ -411,79 +423,4 @@ export class BankAccountsService {
     return toMasked(deleted);
   }
 
-  /**
-   * Fetch account requisites (legalName, bankDetails) from Privat24 by IBAN.
-   * Uses stored credentials, or override from body when provided (e.g. token from form before save).
-   */
-  async getRequisitesFromBank(
-    id: string,
-    credentialsOverride?: { token?: string; clientId?: string; id?: string },
-  ): Promise<{
-    legalName?: string;
-    taxId?: string;
-    address?: string;
-    bankDetails?: string;
-    iban?: string;
-    mfo?: string;
-  }> {
-    const account = await this.prisma.bankAccount.findUnique({
-      where: { id },
-    });
-    if (!account) throw new NotFoundException("Bank account not found");
-    if (account.provider !== "PRIVAT24") {
-      throw new BadRequestException("Requisites from bank are only supported for PRIVAT24 accounts");
-    }
-    const credentials = account.credentials as Record<string, unknown> | null;
-    const token =
-      credentialsOverride?.token?.trim() ||
-      (credentials && typeof credentials.token === "string" ? credentials.token : null);
-    if (!token) {
-      throw new BadRequestException(
-        "API token is required. Enter TOKEN in the form below (and save), or pass it in the request.",
-      );
-    }
-    const iban = account.iban?.replace(/\s/g, "").toUpperCase();
-    if (!iban) {
-      throw new BadRequestException("Bank account has no IBAN. Set IBAN in account settings first.");
-    }
-
-    const creds: Privat24Credentials = {
-      token,
-      clientId:
-        credentialsOverride?.clientId?.trim() ||
-        (credentials && typeof credentials.clientId === "string" ? credentials.clientId : undefined),
-      id:
-        credentialsOverride?.id?.trim() ||
-        (credentials && typeof credentials.id === "string" ? credentials.id : undefined),
-    };
-    const client = new Privat24Client();
-    const to = new Date();
-    const from = new Date(to);
-    from.setDate(from.getDate() - 7);
-    let cursor: string | undefined;
-    const allBalances: Array<{ acc: string; nameACC?: string; currency?: string }> = [];
-    do {
-      const result = await client.getBalances(creds, from, to, cursor);
-      allBalances.push(...result.balances);
-      cursor = result.next_page_id;
-    } while (cursor);
-
-    const normalized = (s: string) => s.replace(/\s/g, "").toUpperCase();
-    const match = allBalances.find((b) => normalized(b.acc) === iban);
-    if (!match) {
-      throw new BadRequestException(
-        `Account with IBAN ${iban} not found in Privat24 response. Check IBAN and API access.`,
-      );
-    }
-
-    const legalName = match.nameACC?.trim() || undefined;
-    const bankDetails = "АТ КБ \"ПРИВАТБАНК\"";
-    return {
-      legalName,
-      bankDetails,
-      iban: account.iban ?? undefined,
-      mfo: "305299",
-      // taxId, address, edrpou, taxPayerStatus — користувач дописує вручну
-    };
-  }
 }

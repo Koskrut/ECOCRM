@@ -26,13 +26,16 @@ describe("BankSyncService sync cursor handling", () => {
       },
     };
     const matchEngine = { run: async () => ({ matched: 0 }) };
-    const service = new BankSyncService(prisma, matchEngine);
-    service.privat24 = {
-      fetchStatement: async (_accountId, _credentials, _iban, _from, _to, cursor) => {
-        capturedCursor = cursor;
-        return { transactions: [], nextCursor: undefined };
-      },
+    const providerRegistry = {
+      get: () => ({
+        fetchStatement: async (_accountId, _credentials, _iban, _from, _to, cursor) => {
+          capturedCursor = cursor;
+          return { transactions: [], nextCursor: undefined };
+        },
+      }),
+      isProviderLicensed: async () => true,
     };
+    const service = new BankSyncService(prisma, matchEngine, providerRegistry);
 
     await service.syncAccount("acc-1", {
       dateFrom: new Date("2024-01-01T00:00:00.000Z"),

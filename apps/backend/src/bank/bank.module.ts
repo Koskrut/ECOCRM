@@ -6,28 +6,35 @@ import { SystemModule } from "../system/system.module";
 import { BankIntegrationAdapter } from "./bank-integration.adapter";
 import { BankAccountsController } from "./bank-accounts.controller";
 import { BankAccountsService } from "./bank-accounts.service";
+import { BankProviderRegistry } from "./bank-provider.registry";
 import { BankSyncController } from "./bank-sync.controller";
 import { BankSyncCron } from "./bank-sync.cron";
 import { BankSyncService } from "./bank-sync.service";
 import { BankTransactionsController } from "./bank-transactions.controller";
 import { BankTransactionsService } from "./bank-transactions.service";
 import { MatchEngineService } from "./match-engine.service";
+import { PaymentMatchingService } from "./payment-matching.service";
 
 @Module({
   imports: [PrismaModule, SystemModule, IntegrationPortsModule, forwardRef(() => PaymentsModule)],
-  controllers: [
-    BankAccountsController,
-    BankSyncController,
-    BankTransactionsController,
-  ],
+  controllers: [BankAccountsController, BankSyncController, BankTransactionsController],
   providers: [
+    BankProviderRegistry,
     BankAccountsService,
     BankTransactionsService,
     BankSyncService,
+    PaymentMatchingService,
     MatchEngineService,
     BankSyncCron,
     BankIntegrationAdapter,
   ],
-  exports: [BankAccountsService, BankSyncService, MatchEngineService, BankTransactionsService],
+  exports: [
+    BankProviderRegistry,
+    BankAccountsService,
+    BankSyncService,
+    MatchEngineService,
+    PaymentMatchingService,
+    BankTransactionsService,
+  ],
 })
 export class BankModule {}

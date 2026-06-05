@@ -69,7 +69,8 @@ export const MODULE_REGISTRY: Registry = {
     kind: "extension" satisfies ModuleKind,
     version: 1,
     displayName: "Finance",
-    description: "Payments, bank accounts, bank statement sync, transaction matching, and finance processing.",
+    description:
+      "Payments, bank transactions, payment allocation, and finance processing (bank statement providers: int.privat24, int.upc).",
     dependsOn: [ModuleIds.CoreCrm],
     delivery: "in_process",
     controlPlane: {
@@ -174,6 +175,33 @@ export const MODULE_REGISTRY: Registry = {
     delivery: "in_process",
     controlPlane: {
       entitlementKey: ModuleIds.Ringostat,
+      bundleSelectable: true,
+    },
+  }),
+  [ModuleIds.Privat24]: defineModule({
+    id: ModuleIds.Privat24,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "Privat24",
+    description:
+      "Privat24 Autoclient: bank statement sync, CSV import, and requisites fetch for FOP accounts.",
+    dependsOn: [ModuleIds.Finance],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.Privat24,
+      bundleSelectable: true,
+    },
+  }),
+  [ModuleIds.Upc]: defineModule({
+    id: ModuleIds.Upc,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "UPC Open Banking",
+    description: "UPC Open Banking AIS: consent, account information, and statement sync.",
+    dependsOn: [ModuleIds.Finance],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.Upc,
       bundleSelectable: true,
     },
   }),

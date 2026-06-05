@@ -9,7 +9,7 @@ import { strings as t } from "@/locales";
 import { formatDate } from "@/lib/crmDatetime";
 import { useToast } from "@/components/feedback";
 
-type BankAccount = { id: string; name: string; currency: string };
+type BankAccount = { id: string; name: string; currency: string; provider?: string };
 
 type PaymentItem = {
   id: string;
@@ -405,7 +405,17 @@ function PaymentsContent() {
     try {
       const form = new FormData();
       form.append("file", importFile);
-      const r = await fetch(`/api/bank/accounts/${selectedAccountId}/import`, {
+      const acc = accounts.find((a) => a.id === selectedAccountId);
+      const importPath =
+        acc?.provider === "UPC"
+          ? null
+          : `/api/integrations/privat24/accounts/${selectedAccountId}/import`;
+      if (!importPath) {
+        pushToast(t.payments.errors.importNotSupported, "error");
+        setImporting(false);
+        return;
+      }
+      const r = await fetch(importPath, {
         method: "POST",
         credentials: "include",
         body: form,

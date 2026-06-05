@@ -1,7 +1,8 @@
 import { DateTime } from "luxon";
-import type { RawBankTransaction } from "./providers/types";
+import type { RawBankTransaction } from "../../bank/providers/types";
+import { BankStatementSkipError } from "../../bank/providers/types";
 import type { TransactionDirection } from "@prisma/client";
-import { CRM_TIME_ZONE } from "../crm-timezone";
+import { CRM_TIME_ZONE } from "../../crm-timezone";
 
 export type Privat24Credentials = {
   clientId?: string;
@@ -25,8 +26,7 @@ export type Privat24SettingsResult = {
   serviceCode?: string;
 };
 
-export class Privat24StatementSkipError extends Error {
-  readonly reason: string;
+export class Privat24StatementSkipError extends BankStatementSkipError {
   readonly statusCode?: number;
   readonly requestId?: string;
   readonly serviceCode?: string;
@@ -35,9 +35,8 @@ export class Privat24StatementSkipError extends Error {
     reason: string,
     meta?: { statusCode?: number; requestId?: string; serviceCode?: string },
   ) {
-    super(reason);
+    super(reason, meta);
     this.name = "Privat24StatementSkipError";
-    this.reason = reason;
     this.statusCode = meta?.statusCode;
     this.requestId = meta?.requestId;
     this.serviceCode = meta?.serviceCode;

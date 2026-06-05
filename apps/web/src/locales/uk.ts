@@ -161,6 +161,18 @@ export const uk = {
         title: "ФОП (банківські рахунки)",
         desc: "Налаштування банку та платежів",
       },
+      bank: {
+        title: "Банківські рахунки",
+        desc: "ФОП, IBAN, видимість для менеджерів",
+      },
+      privat24: {
+        title: "Privat24",
+        desc: "Autoclient API, виписка та імпорт CSV",
+      },
+      upc: {
+        title: "UPC Open Banking",
+        desc: "Підключення рахунків через UPC (AIS)",
+      },
       googleSheet: {
         title: "Google-таблиця (1С)",
         desc: "Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С",
@@ -185,6 +197,29 @@ export const uk = {
         title: "Інтернет-магазин",
         desc: "Тема, банери, контакти, URL CRM для оплати з магазину",
       },
+    },
+    privat24: {
+      title: "Privat24 Autoclient",
+      desc: "Підключення виписки через API Приват24 для рахунків з провайдером PRIVAT24.",
+      hintAutoclient: "App ID, Group client ID (за потреби) та TOKEN вводяться в картці рахунку.",
+      hintIban: "IBAN обовʼязковий для синхронізації виписки.",
+      hintAccounts: "Рахунки та реквізити:",
+      bankLink: "Банківські рахунки",
+    },
+    upc: {
+      title: "UPC Open Banking",
+      desc: "Consent та синхронізація виписки через UPC (AIS).",
+      apiSection: "API та redirect",
+      accountsSection: "Рахунки UPC",
+      noAccounts: "Немає рахунків з провайдером UPC. Додайте в",
+      bankLink: "банківських рахунках",
+      connect: "Підключити",
+      save: "Зберегти",
+      saving: "Збереження…",
+      loading: "Завантаження…",
+      loadError: "Не вдалося завантажити налаштування UPC",
+      saveError: "Не вдалося зберегти",
+      connectError: "Не вдалося розпочати consent",
     },
     novaPoshtaPage: {
       subtitle:
@@ -583,6 +618,7 @@ export const uk = {
       load: "Не вдалося завантажити",
       syncFailed: "Помилка синхронізації",
       importFailed: "Помилка імпорту",
+      importNotSupported: "Імпорт CSV недоступний для цього провайдера",
       selectOrder: "Оберіть замовлення",
       positiveAmount: "Введіть додатну суму",
       addPaymentFailed: "Не вдалося додати платіж",

@@ -27,7 +27,9 @@ import { SettingsModule } from "./settings/settings.module";
 import { VisitsModule } from "./visits/visits.module";
 import { TasksModule } from "./tasks/tasks.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
+import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
+import { UpcModule } from "./integrations/upc/upc.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
@@ -78,6 +80,8 @@ import { FieldModule } from "./field/field.module";
     LeadsModule,
     UsersModule,
     TelegramModule,
+    Privat24Module,
+    UpcModule,
     RingostatModule,
     BitrixSyncModule,
     BitrixWebhookModule,

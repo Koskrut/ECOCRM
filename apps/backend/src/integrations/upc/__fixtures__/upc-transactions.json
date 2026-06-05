@@ -1,0 +1,18 @@
+[
+  {
+    "transactionId": "fixture-tx-001",
+    "bookingDate": "2026-06-01",
+    "transactionAmount": { "amount": "2500.00", "currency": "UAH" },
+    "creditDebitIndicator": "CRDT",
+    "remittanceInformationUnstructured": "Оплата за замовлення ORD-55001",
+    "debtorName": "ПП Клієнт"
+  },
+  {
+    "transactionId": "fixture-tx-002",
+    "bookingDate": "2026-06-02",
+    "transactionAmount": { "amount": "800.00", "currency": "UAH" },
+    "creditDebitIndicator": "CRDT",
+    "remittanceInformationUnstructured": "Без призначення",
+    "debtorName": "ФОП Іванов"
+  }
+]

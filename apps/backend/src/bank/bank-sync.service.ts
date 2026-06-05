@@ -1,24 +1,12 @@
 import { createHash } from "node:crypto";
-import { appendFileSync } from "node:fs";
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, TransactionDirection } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { BankProviderRegistry } from "./bank-provider.registry";
+import { BankStatementSkipError } from "./providers/types";
 import type { RawBankTransaction } from "./providers/types";
-import { Privat24Provider } from "./providers/privat24.provider";
 import { MatchEngineService } from "./match-engine.service";
-import { Privat24StatementSkipError } from "./privat24.client";
 
-const DEBUG_LOG_PATH = "/Users/konstantin/CRM/.cursor/debug-f04031.log";
-function debugLog(msg: string, data: Record<string, unknown> = {}) {
-  try {
-    appendFileSync(
-      DEBUG_LOG_PATH,
-      JSON.stringify({ timestamp: Date.now(), location: "bank-sync.service", message: msg, data }) + "\n",
-    );
-  } catch (_) {}
-}
-
-const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 const CURSOR_MAX_AGE_MS = 15 * 60 * 1000;
 
 function computeTxHash(tx: RawBankTransaction): string {
@@ -33,53 +21,20 @@ function computeTxHash(tx: RawBankTransaction): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
-function toTrimmedString(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return null;
-}
-
-/**
- * Privat24 can return the same operation with different external IDs.
- * REF+REFN is stable enough for idempotent import across repeated sync windows.
- */
-function extractPrivat24StableDedupKey(tx: RawBankTransaction): string | null {
-  const payload = tx.rawPayload;
-  if (!payload || typeof payload !== "object") return null;
-  const row = payload as Record<string, unknown>;
-
-  const ref = toTrimmedString(row.REF ?? row.ref);
-  const refn = toTrimmedString(row.REFN ?? row.refn);
-  if (ref && refn) return `p24-ref:${ref}+${refn}`;
-
-  const technicalId = toTrimmedString(
-    row.TECHNICAL_TRANSACTION_ID ?? row.technicalTransactionId ?? row.technical_transaction_id,
-  );
-  if (technicalId) return `p24-tech:${technicalId}`;
-
-  return null;
-}
-
-function fingerprint(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) return "";
-  return createHash("sha256").update(value).digest("hex").slice(0, 10);
-}
-
 @Injectable()
 export class BankSyncService {
   private readonly logger = new Logger(BankSyncService.name);
-  private readonly privat24 = new Privat24Provider();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly matchEngine: MatchEngineService,
+    private readonly providerRegistry: BankProviderRegistry,
   ) {}
 
   async syncAll(
     bankAccountId?: string,
     dateFromStr?: string,
     dateToStr?: string,
-    /** When set (e.g. LEAD/MANAGER), only these account IDs may be synced. */
     restrictToAccountIds?: string[],
   ): Promise<{
     accounts: number;
@@ -98,21 +53,21 @@ export class BankSyncService {
       }
     }
 
-    const baseWhere: Prisma.BankAccountWhereInput = {
-      provider: "PRIVAT24",
-      isActive: true,
-    };
+    const baseWhere: Prisma.BankAccountWhereInput = { isActive: true };
     if (bankAccountId) {
       baseWhere.id = bankAccountId;
     } else if (restrictToAccountIds !== undefined) {
-      baseWhere.id =
-        restrictToAccountIds.length > 0 ? { in: restrictToAccountIds } : { in: [] };
+      baseWhere.id = restrictToAccountIds.length > 0 ? { in: restrictToAccountIds } : { in: [] };
     }
-    const accounts = await this.prisma.bankAccount.findMany({
-      where: baseWhere,
-    });
-    if (bankAccountId && accounts.length === 0) {
-      debugLog("syncAll invalid bankAccountId filter", { bankAccountId });
+
+    const accounts = await this.prisma.bankAccount.findMany({ where: baseWhere });
+    const licensedProviders = new Set(await this.providerRegistry.listLicensedProviders());
+    const syncable = accounts.filter(
+      (a) => licensedProviders.has(a.provider) && this.providerRegistry.get(a.provider),
+    );
+
+    if (bankAccountId && accounts.length > 0 && syncable.length === 0) {
+      const acc = accounts[0]!;
       return {
         accounts: 0,
         transactionsImported: 0,
@@ -120,15 +75,14 @@ export class BankSyncService {
         errors: [
           {
             bankAccountId,
-            message: "Выбранный счет не найден среди активных счетов PRIVAT24.",
+            message: `Счёт не синхронизируется: провайдер ${acc.provider} не подключён или не лицензирован.`,
           },
         ],
       };
     }
-    // Выписка только по счёту с указанным IBAN — счета без IBAN не синкаем
-    const accountsWithIban = accounts.filter((a) => a.iban && a.iban.trim());
-    if (bankAccountId && accounts.length > 0 && accountsWithIban.length === 0) {
-      debugLog("syncAll selected account without IBAN", { bankAccountId });
+
+    const accountsWithIban = syncable.filter((a) => a.iban && a.iban.trim());
+    if (bankAccountId && syncable.length > 0 && accountsWithIban.length === 0) {
       return {
         accounts: 0,
         transactionsImported: 0,
@@ -141,16 +95,10 @@ export class BankSyncService {
         ],
       };
     }
+
     let transactionsImported = 0;
     const errors: { bankAccountId: string; message: string }[] = [];
-
     const range = dateFrom && dateTo ? { dateFrom, dateTo } : undefined;
-    debugLog("syncAll start", {
-      bankAccountIdFilter: bankAccountId ?? null,
-      accountsFound: accountsWithIban.length,
-      dateFrom: dateFrom?.toISOString() ?? null,
-      dateTo: dateTo?.toISOString() ?? null,
-    });
 
     for (const acc of accountsWithIban) {
       try {
@@ -158,7 +106,6 @@ export class BankSyncService {
         transactionsImported += count;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        debugLog("syncAll account error", { bankAccountId: acc.id, message: msg });
         this.logger.warn(`Sync failed for account ${acc.id}: ${msg}`);
         errors.push({ bankAccountId: acc.id, message: msg });
       }
@@ -176,57 +123,38 @@ export class BankSyncService {
   async getSyncStatus(restrictToAccountIds?: string[]): Promise<{
     accounts: { id: string; name: string; lastSyncAt: Date | null; lastBookedAt: Date | null }[];
   }> {
-    const where: Prisma.BankAccountWhereInput = { provider: "PRIVAT24", isActive: true };
+    const where: Prisma.BankAccountWhereInput = { isActive: true };
     if (restrictToAccountIds !== undefined) {
-      if (restrictToAccountIds.length === 0) {
-        return { accounts: [] };
-      }
+      if (restrictToAccountIds.length === 0) return { accounts: [] };
       where.id = { in: restrictToAccountIds };
     }
+    const licensedProviders = await this.providerRegistry.listLicensedProviders();
+    where.provider = { in: licensedProviders };
+
     const accounts = await this.prisma.bankAccount.findMany({
       where,
       select: { id: true, name: true, lastSyncAt: true, lastBookedAt: true },
     });
-    return {
-      accounts: accounts.map((a) => ({
-        id: a.id,
-        name: a.name,
-        lastSyncAt: a.lastSyncAt,
-        lastBookedAt: a.lastBookedAt,
-      })),
-    };
+    return { accounts: accounts };
   }
 
   async syncAccount(
     bankAccountId: string,
     range?: { dateFrom: Date; dateTo: Date },
   ): Promise<number> {
-    const account = await this.prisma.bankAccount.findUnique({
-      where: { id: bankAccountId },
-    });
-    if (!account || account.provider !== "PRIVAT24") return 0;
+    const account = await this.prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
+    if (!account) return 0;
 
-    if (!account.iban || !account.iban.trim()) {
-      debugLog("syncAccount skip no IBAN", { bankAccountId });
+    const provider = this.providerRegistry.get(account.provider);
+    if (!provider) {
+      this.logger.debug(`No statement provider registered for ${account.provider}`);
       return 0;
     }
-
-    const creds = account.credentials as Record<string, unknown> | null;
-    const hasToken = !!creds?.token;
-    const hasId = !!(creds?.id ?? creds?.clientId);
-    debugLog("syncAccount start", {
-      bankAccountId,
-      hasToken,
-      hasId,
-      credentialsKeys: creds ? Object.keys(creds) : [],
-      tokenFp: fingerprint(creds?.token),
-      appIdFp: fingerprint(creds?.clientId),
-      groupIdFp: fingerprint(creds?.id),
-      appIdLen: typeof creds?.clientId === "string" ? creds.clientId.length : 0,
-      groupIdLen: typeof creds?.id === "string" ? creds.id.length : 0,
-      ibanLength: account.iban?.length ?? 0,
-      range: range ? `${range.dateFrom.toISOString()} — ${range.dateTo.toISOString()}` : null,
-    });
+    if (!(await this.providerRegistry.isProviderLicensed(account.provider))) {
+      this.logger.debug(`Provider ${account.provider} not licensed`);
+      return 0;
+    }
+    if (!account.iban?.trim()) return 0;
 
     let from: Date;
     let to: Date;
@@ -248,12 +176,12 @@ export class BankSyncService {
       !!account.syncCursor &&
       !!account.lastSyncAt &&
       Date.now() - account.lastSyncAt.getTime() <= CURSOR_MAX_AGE_MS;
-    const cursor = canReuseCursor ? account.syncCursor ?? undefined : undefined;
+    const cursor = canReuseCursor ? (account.syncCursor ?? undefined) : undefined;
 
     let transactions: RawBankTransaction[] = [];
     let nextCursor: string | undefined;
     try {
-      const result = await this.privat24.fetchStatement(
+      const result = await provider.fetchStatement(
         account.id,
         account.credentials,
         account.iban,
@@ -264,17 +192,8 @@ export class BankSyncService {
       transactions = result.transactions;
       nextCursor = result.nextCursor;
     } catch (e) {
-      if (e instanceof Privat24StatementSkipError) {
-        debugLog("syncAccount skip by Privat24 settings", {
-          bankAccountId,
-          reason: e.reason,
-          statusCode: e.statusCode ?? null,
-          requestId: e.requestId ?? null,
-          serviceCode: e.serviceCode ?? null,
-        });
-        this.logger.warn(
-          `Sync skipped for account ${bankAccountId}: ${e.reason} statusCode=${e.statusCode ?? "n/a"} requestId=${e.requestId ?? "n/a"} serviceCode=${e.serviceCode ?? "n/a"}`,
-        );
+      if (e instanceof BankStatementSkipError) {
+        this.logger.warn(`Sync skipped for account ${bankAccountId}: ${e.reason}`);
         await this.prisma.bankAccount.update({
           where: { id: bankAccountId },
           data: { lastSyncAt: new Date(), syncCursor: null },
@@ -284,18 +203,10 @@ export class BankSyncService {
       throw e;
     }
 
-    debugLog("syncAccount fetchStatement result", {
-      bankAccountId,
-      transactionsCount: transactions.length,
-      nextCursor: nextCursor ?? null,
-      cursorUsed: cursor ?? null,
-      cursorDropped: account.syncCursor && !cursor ? true : false,
-    });
-
     let upserted = 0;
     let maxBookedAt: Date | null = null;
     for (const tx of transactions) {
-      await this.upsertTransaction(bankAccountId, tx);
+      await this.upsertTransaction(bankAccountId, provider, tx);
       upserted++;
       if (tx.bookedAt && (!maxBookedAt || tx.bookedAt > maxBookedAt)) {
         maxBookedAt = tx.bookedAt instanceof Date ? tx.bookedAt : new Date(tx.bookedAt);
@@ -314,23 +225,29 @@ export class BankSyncService {
   }
 
   async importTransactions(bankAccountId: string, transactions: RawBankTransaction[]): Promise<number> {
+    const account = await this.prisma.bankAccount.findUnique({ where: { id: bankAccountId } });
+    if (!account) return 0;
+    const provider = this.providerRegistry.get(account.provider);
+
     let count = 0;
     for (const tx of transactions) {
-      await this.upsertTransaction(bankAccountId, tx);
+      await this.upsertTransaction(bankAccountId, provider, tx);
       count++;
     }
     await this.matchEngine.run();
     return count;
   }
 
-  private async upsertTransaction(bankAccountId: string, tx: RawBankTransaction) {
-    const stableProviderKey = extractPrivat24StableDedupKey(tx);
+  private async upsertTransaction(
+    bankAccountId: string,
+    provider: { resolveStableDedupKey?(tx: RawBankTransaction): string | null } | undefined,
+    tx: RawBankTransaction,
+  ) {
+    const stableProviderKey = provider?.resolveStableDedupKey?.(tx) ?? null;
     const dedupKey = stableProviderKey ?? tx.externalId ?? tx.hash ?? computeTxHash(tx);
     const hash = tx.hash ?? computeTxHash(tx);
     await this.prisma.bankTransaction.upsert({
-      where: {
-        bankAccountId_dedupKey: { bankAccountId, dedupKey },
-      },
+      where: { bankAccountId_dedupKey: { bankAccountId, dedupKey } },
       create: {
         bankAccountId,
         dedupKey,

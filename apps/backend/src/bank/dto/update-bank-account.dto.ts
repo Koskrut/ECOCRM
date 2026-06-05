@@ -14,5 +14,9 @@ export type UpdateBankAccountDto = {
     token?: string;
     /** Режим групи ПП: id клієнта в групі (обов'язковий для виписки в цьому режимі). */
     id?: string;
+    consentId?: string;
+    resourceId?: string;
+    accessToken?: string;
+    bankCode?: string;
   };
 };

@@ -15,6 +15,17 @@ export type RawBankTransaction = {
   rawPayload?: Record<string, unknown>;
 };
 
+/** Provider may throw this to skip sync without failing the whole cron run. */
+export class BankStatementSkipError extends Error {
+  constructor(
+    readonly reason: string,
+    readonly meta?: { statusCode?: number; requestId?: string; serviceCode?: string },
+  ) {
+    super(reason);
+    this.name = "BankStatementSkipError";
+  }
+}
+
 export type BankStatementProvider = {
   fetchStatement(
     accountId: string,
@@ -24,4 +35,5 @@ export type BankStatementProvider = {
     to: Date,
     cursor?: string,
   ): Promise<{ transactions: RawBankTransaction[]; nextCursor?: string }>;
+  resolveStableDedupKey?(tx: RawBankTransaction): string | null;
 };

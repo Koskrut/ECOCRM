@@ -6,7 +6,7 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  return proxyToBackend(req, `bank/accounts/${id}/requisites-from-bank`);
+  return proxyToBackend(req, `integrations/privat24/accounts/${id}/requisites-from-bank`);
 }
 
 export async function POST(
@@ -14,5 +14,5 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  return proxyToBackend(req, `bank/accounts/${id}/requisites-from-bank`);
+  return proxyToBackend(req, `integrations/privat24/accounts/${id}/requisites-from-bank`);
 }

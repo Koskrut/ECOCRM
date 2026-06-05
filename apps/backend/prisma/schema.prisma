@@ -189,6 +189,14 @@ enum LeadIdentityType {
 
 enum BankProvider {
   PRIVAT24
+  UPC
+}
+
+enum BankTransactionMatchStatus {
+  UNMATCHED
+  NEEDS_REVIEW
+  AUTO_MATCHED
+  MATCHED
 }
 
 enum TransactionDirection {
@@ -2352,8 +2360,25 @@ model BankAccount {
 
   transactions BankTransaction[]
   orders       Order[]
+  upcConsent   UpcConsent?
 
   @@index([provider, isActive])
+}
+
+model UpcConsent {
+  id            String    @id @default(cuid())
+  bankAccountId String    @unique
+  consentId     String
+  status        String
+  expiresAt     DateTime?
+  lastRefreshAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([consentId])
+  @@index([status])
 }
 
 model BankTransaction {
@@ -2373,10 +2398,15 @@ model BankTransaction {
   importedAt       DateTime             @default(now())
   createdAt        DateTime             @default(now())
 
+  matchStatus        BankTransactionMatchStatus @default(UNMATCHED)
+  matchScore         Int?
+  suggestedOrderId   String?
+
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   payments    Payment[]
 
   @@unique([bankAccountId, dedupKey])
+  @@index([matchStatus])
   @@index([bankAccountId, bookedAt])
   @@index([bankAccountId])
   @@index([bookedAt])

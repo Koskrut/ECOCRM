@@ -13,6 +13,8 @@ const ModuleIds = {
   GoogleSheet: "int.google_sheet",
   Bitrix: "int.bitrix",
   Ringostat: "int.ringostat",
+  Privat24: "int.privat24",
+  Upc: "int.upc",
 };
 
 module.exports = {

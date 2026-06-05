@@ -33,7 +33,7 @@ export const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
     ModuleIds.IntegrationsTelegram,
     ModuleIds.VoiceOutbound,
   ],
-  finance_worker: [ModuleIds.CoreCrm, ModuleIds.Finance],
+  finance_worker: [ModuleIds.CoreCrm, ModuleIds.Finance, ModuleIds.Privat24, ModuleIds.Upc],
   planning_worker: [ModuleIds.CoreCrm, ModuleIds.ProductionPlanning],
   np_worker: [ModuleIds.CoreCrm, ModuleIds.NovaPoshta],
   google_sheet_worker: [ModuleIds.CoreCrm, ModuleIds.GoogleSheet],

@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.74**.)_
+_(планируемые изменения после **0.2.75**.)_
+
+## [0.2.75] — 2026-06-05
+
+### Summary
+
+Патч **0.2.75**: **fix CI** — TypeScript в **`google-drive.client`** (0.2.74 не собрался); **банк** — Privat24/UPC как integrations, payment matching, settings UI; рефакторинг bank sync/providers. Включает **0.2.74** (WAREHOUSE, route geometry, fulfillment queue).
+
+### Fixed
+
+- **`google-drive.client.ts`**: тип `DriveAuth` — совместимость с `google.drive()` в Docker/CI (0.2.74 падал на `tsc`).
+
+### Added
+
+- **Integrations**: **`privat24`**, **`upc`** (consent, sync); **`payment-matching.service`**, **`bank-provider.registry`**.
+- **Web**: settings **bank / privat24 / upc**, API integrations.
+- **Prisma**: миграция **`bank_providers_upc_matching`** (UPC provider, match status на транзакциях).
+
+### Changed
+
+- Bank module — провайдеры вынесены из legacy `privat24.client`; FOP settings упрощены.
+- **Module registry** / contracts — Privat24 module id.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.75`**, полный манифест.
+- **`prisma migrate deploy`** — **`20260603120000_add_warehouse_user_role`** (если пропущена с 0.2.74) + **`20260603120000_bank_providers_upc_matching`**.
 
 ## [0.2.74] — 2026-06-03
 
@@ -370,7 +396,7 @@ _(планируемые изменения после **0.2.74**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.74`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.75`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

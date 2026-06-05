@@ -42,7 +42,9 @@ flowchart TB
 |----|----------------|------------|
 | `core.crm` | core | Базовый CRM, не отключается как «модуль» |
 | `ext.voice_outbound` | extension | В реестре: `delivery: external_service` (процесс пока в монолите) |
-| `ext.finance` | extension | Банк, платежи, синки |
+| `ext.finance` | extension | Платежи, транзакции, разнос |
+| `int.privat24` | integration | Выписка Privat24 Autoclient |
+| `int.upc` | integration | Open Banking UPC (AIS) |
 | `ext.production_planning` | extension | Планирование производства |
 | `int.integrations_telegram` | integration | Telegram inbox |
 | `int.nova_poshta` | integration | НП, TTN |
