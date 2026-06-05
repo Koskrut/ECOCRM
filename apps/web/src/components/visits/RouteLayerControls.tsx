@@ -58,10 +58,7 @@ export function RouteLayerControls({
   );
 }
 
-export const ROUTE_LAYER_STYLES: Record<
-  RouteLayerKey,
-  { strokeColor: string; strokeOpacity: number; strokeWeight: number; icons?: google.maps.Symbol[] }
-> = {
+export const ROUTE_LAYER_STYLES: Record<RouteLayerKey, google.maps.PolylineOptions> = {
   planned: { strokeColor: "#2563eb", strokeOpacity: 0.9, strokeWeight: 4 },
   fact_visits: { strokeColor: "#059669", strokeOpacity: 0.85, strokeWeight: 4 },
   fact_gps: { strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 3 },

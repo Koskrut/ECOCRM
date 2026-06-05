@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.75**.)_
+_(планируемые изменения после **0.2.76**.)_
+
+## [0.2.76] — 2026-06-05
+
+### Summary
+
+Патч **0.2.76**: **fix CI** — web **`fulfillment-queue`** route (`NextRequest`); повторная попытка после падений **0.2.74** (backend `google-drive`) и **0.2.75** (web build). Содержимое = **0.2.75** (bank Privat24/UPC + **0.2.74** features).
+
+### Fixed
+
+- **`apps/web/.../fulfillment-queue/route.ts`**: `Request` → `NextRequest` для `proxyToBackend`.
+- **`apps/web/.../route-plans/geometry/preview/route.ts`**: убран 3-й аргумент у `proxyToBackend` из `proxy.server` (2-arg API).
+- **`RouteLayerControls`**: тип `ROUTE_LAYER_STYLES` → `google.maps.PolylineOptions` (CI `tsc`).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.76`**, полный манифест, миграции как у **0.2.75**.
 
 ## [0.2.75] — 2026-06-05
 
@@ -396,7 +412,7 @@ _(планируемые изменения после **0.2.75**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.75`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.76`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
