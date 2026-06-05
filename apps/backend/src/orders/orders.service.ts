@@ -589,6 +589,7 @@ export class OrdersService {
           paymentType: o.paymentType,
           paymentMethod: o.paymentMethod ?? null,
           documentsRequested: o.documentsRequested ?? null,
+          comment: o.comment ?? null,
           hasTtn: (o._count?.ttns ?? 0) > 0,
           ttnSharedAcrossOrders: ttnSharedMeta.get(o.id)?.shared === true,
           ttnSharedWithOrders:

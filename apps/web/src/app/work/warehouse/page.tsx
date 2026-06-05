@@ -168,6 +168,25 @@ export default function WarehouseWorkPage() {
                 </p>
               ) : null}
 
+              <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Документи
+                  </div>
+                  <div className="mt-0.5 font-medium text-zinc-900">
+                    {pickOrder.documentsRequested === true ? "Так" : "Ні"}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Коментар
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap text-zinc-700">
+                    {pickOrder.comment?.trim() ? pickOrder.comment : "—"}
+                  </p>
+                </div>
+              </div>
+
               <h3 className="text-sm font-semibold text-zinc-800">Товари</h3>
               <ul className="mt-2 divide-y divide-zinc-100">
                 {(pickOrder.items ?? []).map((it) => (

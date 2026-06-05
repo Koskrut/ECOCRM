@@ -29,8 +29,8 @@ services:
       # Optional override; default is derived from CONTROL_PLANE_URL + installation id.
       CONTROL_PLANE_UPDATE_STATUS_URL: ${CONTROL_PLANE_UPDATE_STATUS_URL:-}
 
-      # Host-side updater agent (scripts/updater/agent.mjs). Backend must reach the host, not 127.0.0.1 inside the container.
-      UPDATER_AGENT_URL: ${UPDATER_AGENT_URL:-}
+      # In-product update button talks to the updater service below (no client configuration needed).
+      UPDATER_AGENT_URL: ${UPDATER_AGENT_URL:-http://updater:7788}
       UPDATER_AGENT_TOKEN: ${UPDATER_AGENT_TOKEN:-}
 
       # Release metadata surfaced to ADMIN via GET /system/release and /system/update-status.
@@ -88,6 +88,24 @@ services:
   web:
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+
+  # Runs docker compose pull/up for one-click updates from Settings → Health.
+  updater:
+    build:
+      context: .
+      dockerfile: scripts/updater/Dockerfile
+    restart: unless-stopped
+    environment:
+      UPDATER_AGENT_TOKEN: ${UPDATER_AGENT_TOKEN:-}
+      UPDATER_REPO_ROOT: /deploy
+      UPDATER_ENV_FILE: /deploy/.env
+      UPDATER_COMPOSE_FILES: ${UPDATER_COMPOSE_FILES:-compose.base.yml,compose.client.yml}
+      UPDATER_LOG_DIR: /deploy/.updater-logs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/deploy
+    expose:
+      - "7788"
 
 volumes:
   postgres_data:

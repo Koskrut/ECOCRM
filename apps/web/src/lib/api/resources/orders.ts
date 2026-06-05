@@ -9,6 +9,8 @@ export type FulfillmentQueueOrder = {
   currency: string;
   paymentType?: string | null;
   paidAmount?: number;
+  comment?: string | null;
+  documentsRequested?: boolean | null;
   warehouseId?: string | null;
   createdAt: string;
   stockReadiness?: OrderStockReadiness | null;

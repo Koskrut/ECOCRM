@@ -19,13 +19,6 @@ type UpdateStatus = {
   lastJobId: string | null;
 };
 
-type UpdatePreflight = {
-  ok: boolean;
-  message: string;
-  details: Record<string, unknown>;
-  suggestedVersion: string | null;
-};
-
 type UpdateJob = {
   id: string;
   status: string;
@@ -36,6 +29,37 @@ type UpdateJob = {
   toVersion: string | null;
 };
 
+function updateHeadline(status: UpdateStatus | null, job: UpdateJob | null): string {
+  if (job?.status === "running" || job?.status === "queued") return "Оновлення системи…";
+  if (job?.status === "succeeded") return "Оновлення завершено";
+  if (job?.status === "failed") return "Не вдалося оновити систему";
+  if (!status) return "Перевірка оновлень…";
+  if (status.state === "updating" || status.activeJobId) return "Оновлення системи…";
+  if (status.state === "update_available" && status.targetVersion) {
+    return `Доступне оновлення ${status.targetVersion}`;
+  }
+  if (status.state === "up_to_date" && status.currentVersion) {
+    return `Версія ${status.currentVersion} — актуальна`;
+  }
+  if (status.currentVersion) return `Версія ${status.currentVersion}`;
+  return "Стан оновлень";
+}
+
+function updateSubtitle(status: UpdateStatus | null, job: UpdateJob | null): string | null {
+  if (job?.message && (job.status === "running" || job.status === "queued")) return job.message;
+  if (job?.status === "succeeded" && job.toVersion) return `Встановлено версію ${job.toVersion}`;
+  if (job?.status === "failed") return "Зверніться до підтримки, якщо проблема повториться.";
+  if (!status) return null;
+  if (status.state === "update_available" && status.targetVersion && status.currentVersion) {
+    return `Поточна версія ${status.currentVersion}. Натисніть «Оновити» — система зробить решту сама.`;
+  }
+  if (status.state === "up_to_date") return "Нових оновлень немає.";
+  if (status.canUpdate && status.targetVersion) {
+    return "Натисніть «Оновити» — система зробить решту сама.";
+  }
+  return null;
+}
+
 export default function SettingsHealthPage() {
   const [role, setRole] = useState<string | null>(null);
   const [release, setRelease] = useState<unknown>(null);
@@ -44,19 +68,17 @@ export default function SettingsHealthPage() {
   const [modules, setModules] = useState<unknown>(null);
   const [controlPlane, setControlPlane] = useState<unknown>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [preflight, setPreflight] = useState<UpdatePreflight | null>(null);
   const [job, setJob] = useState<UpdateJob | null>(null);
-  const [isPreflighting, setIsPreflighting] = useState(false);
-  const [isApplying, setIsApplying] = useState(false);
-  const [manualTargetVersion, setManualTargetVersion] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const agentReady = updateStatus?.mode === "agent_available" && updateStatus.updaterReachable;
-  const effectiveTargetVersion = (manualTargetVersion.trim() || updateStatus?.targetVersion || "").trim();
-  const canRunApply =
-    agentReady &&
-    !updateStatus?.activeJobId &&
-    (updateStatus?.canUpdate || Boolean(manualTargetVersion.trim()));
+  const isBusy =
+    isUpdating ||
+    Boolean(updateStatus?.activeJobId) ||
+    job?.status === "running" ||
+    job?.status === "queued";
+  const canUpdateNow = Boolean(updateStatus?.canUpdate) && !isBusy;
 
   useEffect(() => {
     apiHttp
@@ -127,36 +149,27 @@ export default function SettingsHealthPage() {
       const res = await apiHttp.get<UpdateStatus>("/system/update-status");
       setUpdateStatus(res.data ?? null);
     } catch (e) {
-      setErr(getUserFriendlyApiError(e, "Не вдалося оновити статус оновлення."));
+      setErr(getUserFriendlyApiError(e, "Не вдалося перевірити оновлення."));
     }
   }
 
-  async function runPreflight() {
-    setIsPreflighting(true);
+  async function runUpdate() {
+    setIsUpdating(true);
     setErr(null);
+    setJob(null);
     try {
-      const res = await apiHttp.post<UpdatePreflight>("/system/update/preflight", {});
-      setPreflight(res.data ?? null);
-      await refreshUpdateStatus();
-    } catch (e) {
-      setErr(getUserFriendlyApiError(e, "Перевірка перед оновленням не вдалася."));
-    } finally {
-      setIsPreflighting(false);
-    }
-  }
-
-  async function runApply() {
-    setIsApplying(true);
-    setErr(null);
-    try {
-      const body = manualTargetVersion.trim() ? { targetVersion: manualTargetVersion.trim() } : {};
-      const res = await apiHttp.post<UpdateJob>("/system/update/apply", body);
+      const preflight = await apiHttp.post<{ ok: boolean }>("/system/update/preflight", {});
+      if (!preflight.data?.ok) {
+        setErr("Оновлення тимчасово недоступне. Зверніться до підтримки.");
+        return;
+      }
+      const res = await apiHttp.post<UpdateJob>("/system/update/apply", {});
       setJob(res.data ?? null);
       await refreshUpdateStatus();
     } catch (e) {
-      setErr(getUserFriendlyApiError(e, "Не вдалося запустити оновлення."));
+      setErr(getUserFriendlyApiError(e, "Не вдалося оновити систему. Зверніться до підтримки."));
     } finally {
-      setIsApplying(false);
+      setIsUpdating(false);
     }
   }
 
@@ -179,89 +192,44 @@ export default function SettingsHealthPage() {
         <div className="mt-4 space-y-4">
           <section className="rounded-lg border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">Оновлення системи</h2>
-            <p className="mt-2 text-xs text-zinc-600">
-              Режим:{" "}
-              <span className="font-medium text-zinc-900">
-                {updateStatus?.mode === "agent_available" ? "агент на хості" : "тільки оператор"}
-              </span>
-              {" · "}
-              Поточна: <span className="font-medium text-zinc-900">{updateStatus?.currentVersion ?? "unknown"}</span>
-              {" · "}
-              Цільова (CP): <span className="font-medium text-zinc-900">{updateStatus?.targetVersion ?? "none"}</span>
-              {" · "}
-              Стан: <span className="font-medium text-zinc-900">{updateStatus?.state ?? "idle"}</span>
-            </p>
-            <p className="mt-1 text-xs text-zinc-600">
-              Control Plane: {updateStatus?.cpReachable ? "online" : "offline"} · Агент:{" "}
-              {updateStatus?.updaterReachable ? "online" : "offline"}
-            </p>
-            <p className="mt-2 text-xs text-zinc-700">{updateStatus?.reason ?? "Статус недоступний"}</p>
-            {updateStatus?.mode !== "agent_available" ? (
-              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                Щоб кнопки працювали, задайте <code className="text-[11px]">UPDATER_AGENT_URL</code> у backend і
-                запустіть <code className="text-[11px]">npm run dev:updater</code> на хості.
-              </p>
+            <p className="mt-2 text-sm font-medium text-zinc-900">{updateHeadline(updateStatus, job)}</p>
+            {updateSubtitle(updateStatus, job) ? (
+              <p className="mt-1 text-xs text-zinc-600">{updateSubtitle(updateStatus, job)}</p>
             ) : null}
-            {updateStatus?.mode === "agent_available" && !updateStatus.cpReachable ? (
-              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                Control Plane недоступний. Можна вказати цільову версію вручну нижче або підняти CP (
-                <code className="text-[11px]">CONTROL_PLANE_URL</code>).
-              </p>
+            {canUpdateNow ? (
+              <button
+                type="button"
+                onClick={runUpdate}
+                className="mt-4 rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+              >
+                Оновити до {updateStatus?.targetVersion}
+              </button>
             ) : null}
-            <div className="mt-3 flex flex-wrap items-end gap-2">
-              <label className="flex min-w-[10rem] flex-col gap-1 text-xs text-zinc-600">
-                Цільова версія (опційно)
-                <input
-                  type="text"
-                  value={manualTargetVersion}
-                  onChange={(e) => setManualTargetVersion(e.target.value)}
-                  placeholder={updateStatus?.targetVersion ?? "0.2.77"}
-                  className="rounded border border-zinc-300 px-2 py-1.5 text-xs text-zinc-900"
-                />
-              </label>
-              {effectiveTargetVersion ? (
-                <p className="pb-1 text-xs text-zinc-500">Буде застосовано: {effectiveTargetVersion}</p>
-              ) : null}
-            </div>
-            <div className="mt-3 flex gap-2">
+            {isBusy ? (
+              <p className="mt-3 text-xs text-zinc-500">Зачекайте, не закривайте сторінку під час оновлення.</p>
+            ) : null}
+            {!canUpdateNow && !isBusy && updateStatus && updateStatus.state !== "up_to_date" ? (
               <button
                 type="button"
                 onClick={refreshUpdateStatus}
-                className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 hover:bg-zinc-50"
+                className="mt-3 text-xs text-zinc-500 underline hover:text-zinc-800"
               >
-                Оновити статус
+                Перевірити знову
               </button>
-              <button
-                type="button"
-                onClick={runPreflight}
-                disabled={isPreflighting || updateStatus?.mode !== "agent_available"}
-                className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-zinc-50"
-              >
-                {isPreflighting ? "Перевірка..." : "Перевірити"}
-              </button>
-              <button
-                type="button"
-                onClick={runApply}
-                disabled={isApplying || !canRunApply}
-                className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-zinc-700"
-              >
-                {isApplying ? "Оновлення..." : "Запустити оновлення"}
-              </button>
-            </div>
-            {preflight ? (
-              <pre className="mt-3 overflow-x-auto rounded border border-zinc-200 bg-zinc-50 p-2 text-[11px]">
-                {JSON.stringify(preflight, null, 2)}
-              </pre>
-            ) : null}
-            {job ? (
-              <pre className="mt-3 overflow-x-auto rounded border border-zinc-200 bg-zinc-50 p-2 text-[11px]">
-                {JSON.stringify(job, null, 2)}
-              </pre>
             ) : null}
           </section>
-          <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-white p-3 text-xs">
-            {JSON.stringify({ release, license, variant, controlPlane, modules, updateStatus, preflight, job }, null, 2)}
-          </pre>
+          <button
+            type="button"
+            onClick={() => setShowDiagnostics((v) => !v)}
+            className="text-xs text-zinc-500 underline hover:text-zinc-800"
+          >
+            {showDiagnostics ? "Сховати технічні деталі" : "Технічні деталі (для підтримки)"}
+          </button>
+          {showDiagnostics ? (
+            <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-white p-3 text-xs">
+              {JSON.stringify({ release, license, variant, controlPlane, modules, updateStatus, job }, null, 2)}
+            </pre>
+          ) : null}
         </div>
       </div>
     </div>

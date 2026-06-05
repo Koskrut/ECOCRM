@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.77**.)_
+_(планируемые изменения после **0.2.78**.)_
+
+## [0.2.78] — 2026-06-05
+
+### Summary
+
+Патч **0.2.78**: **one-click update** — сервіс `updater` у `compose.client.yml` (Docker socket + `agent.mjs`); спрощений UI **Settings → Health**; warehouse workspace показує **коментар** і **документи** замовлення.
+
+### Added
+
+- **`scripts/updater/Dockerfile`** + сервіс **`updater`** у compose (порт 7788, `UPDATER_AGENT_URL=http://updater:7788` за замовчуванням).
+- **Fulfillment queue**: поле **`comment`** у відповіді API; **`documentsRequested`** у типах web.
+
+### Changed
+
+- **Settings → Health**: одна кнопка «Оновити» (preflight + apply); діагностика прихована за toggle.
+- **Warehouse workspace**: блок «Документи» / «Коментар» у модалці збірки.
+- **`.env.client.example`**: updater тепер через compose, без ручного `UPDATER_AGENT_URL` на хості.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.78`**, повний манифест; міграцій немає.
+- Після `pull` / `up -d` з’явиться контейнер **`updater`**; потрібен доступ до **`/var/run/docker.sock`** на хості.
+- Опційно: **`UPDATER_AGENT_TOKEN`** — спільний секрет backend ↔ updater.
 
 ## [0.2.77] — 2026-06-05
 
@@ -439,7 +462,7 @@ _(планируемые изменения после **0.2.77**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.77`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.78`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13
