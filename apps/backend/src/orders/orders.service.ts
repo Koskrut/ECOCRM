@@ -36,10 +36,15 @@ import type { UpdateOrderDto } from "./dto/update-order.dto";
 import {
   computeFinancialStatusFromOrder,
   legacyStatusToOrderStage,
+  legacyStatusesForOrderStages,
   orderStageToDeliveryStatus,
   orderStageToLegacyStatus,
 } from "./order-status-sync.mapper";
 import { validateOrderStageTransition } from "./order-stage-transitions";
+import {
+  computeOrderStockReadiness,
+  type OrderStockReadiness,
+} from "./order-stock-readiness";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 
@@ -298,7 +303,15 @@ export class OrdersService {
         .map((s) => s.trim())
         .filter(Boolean) as OrderStage[];
       if (stages.length > 0) {
-        where.orderStage = { in: stages };
+        const legacyStatuses = legacyStatusesForOrderStages(stages);
+        andWhere.push({
+          OR: [
+            { orderStage: { in: stages } },
+            ...(legacyStatuses.length > 0
+              ? [{ orderStage: null, status: { in: legacyStatuses } }]
+              : []),
+          ],
+        });
       }
     } else if (q?.orderStage) {
       where.orderStage = q.orderStage as OrderStage;
@@ -538,6 +551,7 @@ export class OrdersService {
           })
         : [];
     const relatedOrderById = new Map(relatedOrders.map((o) => [o.id, o.orderNumber]));
+    const stockReadinessByOrderId = await this.buildStockReadinessByOrderId(items);
 
     return {
       items: items.map((o) => {
@@ -596,6 +610,7 @@ export class OrdersService {
                 : null,
           })),
           itemsCount: o.items.length,
+          stockReadiness: stockReadinessByOrderId.get(o.id) ?? null,
         };
         if (withRelations && "company" in o && "client" in o) {
           return {
@@ -653,15 +668,7 @@ export class OrdersService {
       },
       actor,
     );
-    const counts: Record<string, number> = {
-      AWAITING_STOCK: 0,
-      CONFIRMED: 0,
-      READY_TO_SHIP: 0,
-    };
-    for (const item of result.items) {
-      const stage = item.orderStage;
-      if (stage && stage in counts) counts[stage] += 1;
-    }
+    const counts: Record<string, number> = { CONFIRMED: result.total };
     return { items: result.items, total: result.total, counts };
   }
 
@@ -984,6 +991,62 @@ export class OrdersService {
     await this.prisma.orderItem.delete({ where: { id: itemId } });
     await this.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
+  }
+
+  private async buildStockReadinessByOrderId(
+    orders: Array<{
+      id: string;
+      orderStage: OrderStage | null;
+      warehouseId: string | null;
+      items: Array<{ productId: string | null; qty: number; qtyShipped: number }>;
+    }>,
+  ): Promise<Map<string, OrderStockReadiness>> {
+    const awaiting = orders.filter((o) => o.orderStage === "AWAITING_STOCK");
+    if (awaiting.length === 0) return new Map();
+
+    const productIds = Array.from(
+      new Set(
+        awaiting.flatMap((o) =>
+          o.items.map((item) => item.productId).filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    );
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, stock: true },
+          })
+        : [];
+    const productStockById = new Map(products.map((p) => [p.id, p.stock]));
+
+    const warehouseIds = Array.from(
+      new Set(awaiting.map((o) => o.warehouseId).filter((id): id is string => Boolean(id))),
+    );
+    const warehouseRows =
+      warehouseIds.length > 0 && productIds.length > 0
+        ? await this.prisma.productWarehouseStock.findMany({
+            where: {
+              warehouseId: { in: warehouseIds },
+              productId: { in: productIds },
+            },
+            select: { warehouseId: true, productId: true, qty: true },
+          })
+        : [];
+    const warehouseStockByKey = new Map(
+      warehouseRows.map((r) => [`${r.warehouseId}:${r.productId}`, r.qty]),
+    );
+
+    const result = new Map<string, OrderStockReadiness>();
+    for (const order of awaiting) {
+      const readiness = computeOrderStockReadiness(
+        order,
+        productStockById,
+        warehouseStockByKey,
+      );
+      if (readiness) result.set(order.id, readiness);
+    }
+    return result;
   }
 
   /**

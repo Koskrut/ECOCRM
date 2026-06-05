@@ -18,6 +18,7 @@ import {
 } from "./OrgChartFlow";
 import { apiHttp } from "../../lib/api/client";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
+import { formatUserRole } from "@/lib/roleLabels";
 
 type UsersResponse = {
   items?: Employee[];
@@ -262,7 +263,7 @@ export default function EmployeesPage() {
                   <td className="px-4 py-3 text-zinc-700">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700">
-                      {u.role}
+                      {formatUserRole(u.role)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-zinc-600">

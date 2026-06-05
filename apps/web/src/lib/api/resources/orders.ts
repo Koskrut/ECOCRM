@@ -1,4 +1,5 @@
 import { apiHttp } from "../client";
+import type { OrderStockReadiness } from "@/components/orders/StockReadinessBadge";
 
 export type FulfillmentQueueOrder = {
   id: string;
@@ -10,6 +11,7 @@ export type FulfillmentQueueOrder = {
   paidAmount?: number;
   warehouseId?: string | null;
   createdAt: string;
+  stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
   items?: Array<{

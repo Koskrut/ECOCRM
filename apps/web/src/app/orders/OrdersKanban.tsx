@@ -6,6 +6,10 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
+import {
+  StockReadinessBadge,
+  type OrderStockReadiness,
+} from "@/components/orders/StockReadinessBadge";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
 
 /** Phase 3: orderStage as main axis. */
@@ -37,6 +41,7 @@ type BoardOrder = {
   createdAt?: string;
   /** Same TTN number linked to another order */
   ttnSharedAcrossOrders?: boolean;
+  stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
 };
@@ -108,10 +113,27 @@ function isKnownStage(s: string): s is OrderStage {
   return Object.keys(STAGE_LABELS).includes(s);
 }
 
-/** Resolve display stage: backend may return null orderStage for legacy data → treat as NEW. */
+/** Legacy Order.status values → orderStage (mirrors backend order-status-sync.mapper). */
+const LEGACY_STATUS_TO_STAGE: Record<string, OrderStage> = {
+  NEW: "NEW",
+  IN_WORK: "CONFIRMED",
+  READY_TO_SHIP: "READY_TO_SHIP",
+  SHIPPED: "SHIPPED",
+  CONTROL_PAYMENT: "RECEIVED",
+  SUCCESS: "COMPLETED",
+  RETURNING: "RETURN_IN_PROGRESS",
+  CANCELED: "CANCELED",
+};
+
+/** Resolve display stage: prefer orderStage; fall back to legacy status mapping. */
 function resolveStage(o: BoardOrder): OrderStage {
-  const st = o.orderStage ?? o.status;
-  if (st && isKnownStage(st)) return st;
+  if (o.orderStage && isKnownStage(o.orderStage)) return o.orderStage;
+  const legacy = o.status?.trim();
+  if (legacy) {
+    const mapped = LEGACY_STATUS_TO_STAGE[legacy];
+    if (mapped) return mapped;
+    if (isKnownStage(legacy)) return legacy;
+  }
   return "NEW";
 }
 
@@ -268,13 +290,17 @@ export function OrdersKanban({
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
       if (warehouseMode) {
-        params.orderStages = WAREHOUSE_KANBAN_STAGES.join(",");
         params.sortBy = "createdAt";
         params.sortDir = "asc";
       }
 
       const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
-      setList(res.data ?? { items: [] });
+      const raw = res.data ?? { items: [] };
+      const items = warehouseMode
+        ? (raw.items ?? []).filter((o) => WAREHOUSE_KANBAN_STAGES.includes(resolveStage(o)))
+        : (raw.items ?? []);
+
+      setList({ ...raw, items });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load board");
       setList(null);
@@ -500,8 +526,11 @@ export function OrdersKanban({
                             {formatRelativeTime(o.createdAt)}
                           </div>
                         )}
-                        <div className="mt-2">
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
+                          {stage === "AWAITING_STOCK" ? (
+                            <StockReadinessBadge readiness={o.stockReadiness} size="xs" />
+                          ) : null}
                         </div>
                         <div className="mt-3 text-[10px] font-medium uppercase text-zinc-500">
                           Сума

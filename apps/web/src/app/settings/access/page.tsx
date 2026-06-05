@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { apiHttp } from "../../../lib/api/client";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { formatUserRole } from "@/lib/roleLabels";
 
 /** Same order as Employees modal: USER, WAREHOUSE, LEAD, MANAGER, ADMIN */
 const ROLE_OPTIONS = ["USER", "WAREHOUSE", "LEAD", "MANAGER", "ADMIN"] as const;
@@ -221,7 +222,7 @@ export default function AccessSettingsPage() {
                       >
                         {ROLE_OPTIONS.map((r) => (
                           <option key={r} value={r}>
-                            {r}
+                            {formatUserRole(r)}
                           </option>
                         ))}
                       </select>

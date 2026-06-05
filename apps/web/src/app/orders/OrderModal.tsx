@@ -447,12 +447,13 @@ function Stepper({
   const roleBasedTransitionOptions = useMemo(() => {
     if (isAdmin) return ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage);
     if (isWarehouse) {
-      const warehouseChain = ["AWAITING_STOCK", "CONFIRMED", "READY_TO_SHIP", "SHIPPED"];
-      const fromIdx = warehouseChain.indexOf(stage);
-      if (fromIdx < 0) return [];
-      return ORDER_STAGE_STEPS_ALL.filter(
-        (s) => s.key !== stage && warehouseChain.indexOf(s.key) === fromIdx + 1,
-      );
+      if (stage === "CONFIRMED") {
+        return ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "READY_TO_SHIP");
+      }
+      if (stage === "READY_TO_SHIP") {
+        return ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "CONFIRMED");
+      }
+      return [];
     }
     const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
     return steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));

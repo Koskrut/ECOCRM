@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { formatUserRole } from "@/lib/roleLabels";
 import { authApi, type MeResponse } from "@/lib/api/resources/auth";
 
 function getInitials(me: MeResponse | null): string {
@@ -87,7 +88,7 @@ export function UserMenu() {
             )}
             {role && (
               <div className="mt-1 inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-700">
-                {role}
+                {formatUserRole(role)}
               </div>
             )}
           </div>

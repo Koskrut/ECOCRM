@@ -4,7 +4,34 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.76**.)_
+_(планируемые изменения после **0.2.77**.)_
+
+## [0.2.77] — 2026-06-05
+
+### Summary
+
+Патч **0.2.77**: **склад** — workspace только для збірки (`CONFIRMED` → `READY_TO_SHIP`); **stock readiness** (NONE/PARTIAL/FULL) на замовленнях `AWAITING_STOCK`; legacy `Order.status` у фільтрах і kanban; **updater agent** env у compose; seed demo-замовлення для WAREHOUSE; роль **`formatUserRole`** у web.
+
+### Added
+
+- **`order-stock-readiness`**: обчислення наявності по складу / `Product.stock`; поле **`stockReadiness`** у списку замовлень.
+- **Web**: **`StockReadinessBadge`**, бейдж на kanban для `AWAITING_STOCK`; **`roleLabels`**.
+- **Backend**: **`legacyStatusesForOrderStage(s)`** — фільтр `orderStages` враховує legacy `status`.
+- **Seed**: demo WH-DEMO-STOCK / WH-DEMO-PICK / WH-DEMO-SHIP для ролі WAREHOUSE.
+- **Compose / env**: `UPDATER_AGENT_URL`, `UPDATER_AGENT_TOKEN`, `CRM_RELEASE_VERSION`, `GIT_SHA`, `BUILD_TIME`, `IMAGE_TAG`; `npm run dev:updater`.
+- **Settings → Health**: ручний target version для update flow.
+
+### Changed
+
+- **Warehouse workspace** (`/work/warehouse`): лише `CONFIRMED`, модалка збірки, без вкладок picking/shipping.
+- **WAREHOUSE role**: дозволені переходи `CONFIRMED` ↔ `READY_TO_SHIP`; fulfillment queue = тільки `CONFIRMED`.
+- **OrdersKanban**: legacy status → stage mapping; warehouse mode фільтрує на клієнті.
+- **OrderModal**: warehouse stepper спрощено під workspace.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.77`**, повний манифест; міграцій немає — `pull` / `up -d`.
+- Опційно: `UPDATER_AGENT_URL` + `UPDATER_AGENT_TOKEN` на хості для кнопки оновлення в Settings → Health.
 
 ## [0.2.76] — 2026-06-05
 
@@ -412,7 +439,7 @@ _(планируемые изменения после **0.2.76**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.76`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.77`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

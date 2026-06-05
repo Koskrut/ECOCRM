@@ -312,10 +312,6 @@ function OrdersPageContent() {
 
   const isWarehouse = userRole === "WAREHOUSE";
 
-  useEffect(() => {
-    if (isWarehouse && view !== "kanban") setView("kanban");
-  }, [isWarehouse, view]);
-
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -517,7 +513,7 @@ function OrdersPageContent() {
             <h1 className="text-2xl font-bold text-zinc-900">{strings.nav.orders}</h1>
             <p className="text-sm text-zinc-500">
               {isWarehouse
-                ? "Збірка та відправка замовлень"
+                ? "Перегляд усіх замовлень"
                 : "Список замовлень по всіх менеджерах"}
             </p>
           </div>
@@ -983,7 +979,7 @@ function OrdersPageContent() {
           <OrdersKanban
             onOpenOrder={(id) => openExistingOrder(id)}
             refreshKey={kanbanRefreshKey}
-            warehouseMode={isWarehouse}
+            warehouseMode={false}
             filters={{
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,

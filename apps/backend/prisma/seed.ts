@@ -9,6 +9,7 @@ import {
   LeadSource,
   LeadChannel,
   LeadEventType,
+  OrderStage,
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 /**
@@ -436,6 +437,129 @@ async function main() {
   });
 
   // =========================
+  // 4a) Warehouse fulfillment demo orders (visible to WAREHOUSE role)
+  // =========================
+  await prisma.product.update({
+    where: { id: products[0].id },
+    data: { stock: 3 },
+  });
+  await prisma.product.update({
+    where: { id: products[1].id },
+    data: { stock: 20 },
+  });
+
+  const warehouseOrderBase = {
+    companyId: company.id,
+    clientId: contact1.id,
+    contactId: contact1.id,
+    ownerId: manager.id,
+    warehouseId: "seed-wh-dnipro",
+    currency: "UAH" as const,
+    deliveryMethod: DeliveryMethod.NOVA_POSHTA,
+    paymentMethod: PaymentMethod.CASH,
+    paymentType: "PREPAYMENT" as const,
+    subtotalAmount: 500,
+    discountAmount: 0,
+    totalAmount: 500,
+    paidAmount: 500,
+    debtAmount: 0,
+  };
+
+  const whAwaitingStock = await prisma.order.upsert({
+    where: { orderNumber: "WH-DEMO-STOCK" },
+    update: {
+      ...warehouseOrderBase,
+      orderStage: OrderStage.AWAITING_STOCK,
+      status: "IN_WORK",
+      comment: "Seed: очікує склад (частково є на складі)",
+    },
+    create: {
+      orderNumber: "WH-DEMO-STOCK",
+      ...warehouseOrderBase,
+      orderStage: OrderStage.AWAITING_STOCK,
+      status: "IN_WORK",
+      comment: "Seed: очікує склад (частково є на складі)",
+    },
+  });
+  await prisma.orderItem.deleteMany({ where: { orderId: whAwaitingStock.id } });
+  await prisma.orderItem.createMany({
+    data: [
+      {
+        orderId: whAwaitingStock.id,
+        productId: products[0].id,
+        qty: 5,
+        price: products[0].basePrice,
+        lineTotal: 5 * products[0].basePrice,
+        productNameSnapshot: products[0].name,
+      },
+      {
+        orderId: whAwaitingStock.id,
+        productId: products[1].id,
+        qty: 2,
+        price: products[1].basePrice,
+        lineTotal: 2 * products[1].basePrice,
+        productNameSnapshot: products[1].name,
+      },
+    ],
+  });
+
+  const whConfirmed = await prisma.order.upsert({
+    where: { orderNumber: "WH-DEMO-PICK" },
+    update: {
+      ...warehouseOrderBase,
+      orderStage: OrderStage.CONFIRMED,
+      status: "IN_WORK",
+      comment: "Seed: підтверджено — збірка",
+    },
+    create: {
+      orderNumber: "WH-DEMO-PICK",
+      ...warehouseOrderBase,
+      orderStage: OrderStage.CONFIRMED,
+      status: "IN_WORK",
+      comment: "Seed: підтверджено — збірка",
+    },
+  });
+  await prisma.orderItem.deleteMany({ where: { orderId: whConfirmed.id } });
+  await prisma.orderItem.create({
+    data: {
+      orderId: whConfirmed.id,
+      productId: products[1].id,
+      qty: 1,
+      price: products[1].basePrice,
+      lineTotal: products[1].basePrice,
+      productNameSnapshot: products[1].name,
+    },
+  });
+
+  const whReadyToShip = await prisma.order.upsert({
+    where: { orderNumber: "WH-DEMO-SHIP" },
+    update: {
+      ...warehouseOrderBase,
+      orderStage: OrderStage.READY_TO_SHIP,
+      status: "READY_TO_SHIP",
+      comment: "Seed: готово до відправки",
+    },
+    create: {
+      orderNumber: "WH-DEMO-SHIP",
+      ...warehouseOrderBase,
+      orderStage: OrderStage.READY_TO_SHIP,
+      status: "READY_TO_SHIP",
+      comment: "Seed: готово до відправки",
+    },
+  });
+  await prisma.orderItem.deleteMany({ where: { orderId: whReadyToShip.id } });
+  await prisma.orderItem.create({
+    data: {
+      orderId: whReadyToShip.id,
+      productId: products[0].id,
+      qty: 1,
+      price: products[0].basePrice,
+      lineTotal: products[0].basePrice,
+      productNameSnapshot: products[0].name,
+    },
+  });
+
+  // =========================
   // 4b) Payment module demo: BankAccount, unmatched BankTransaction, one Cash Payment
   // =========================
   const bankAccount = await prisma.bankAccount.upsert({
@@ -657,6 +781,10 @@ async function main() {
   console.log("LEAD:", "lead@ecocrm.local", "password: lead12345");
   console.log("MANAGER:", "manager@ecocrm.local", "password: manager12345");
   console.log("DEMO ORDER:", "DEMO-0001");
+  console.log(
+    "WAREHOUSE DEMOS:",
+    "WH-DEMO-STOCK (AWAITING_STOCK), WH-DEMO-PICK (CONFIRMED), WH-DEMO-SHIP (READY_TO_SHIP)",
+  );
   console.log("TEST META LEAD: Лиды → откройте карточку «Марія Шевченко» → вкладка «Источник» (данные ФБ)");
   console.log(
     "DEMO CONTACTS:",

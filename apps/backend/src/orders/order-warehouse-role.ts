@@ -3,27 +3,17 @@ import type { OrderStage } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 
-/** Stages visible in warehouse fulfillment queue by default. */
-export const WAREHOUSE_FULFILLMENT_QUEUE_STAGES: OrderStage[] = [
-  "AWAITING_STOCK",
-  "CONFIRMED",
-  "READY_TO_SHIP",
-];
+/** Stages visible in warehouse workspace queue (picking only). */
+export const WAREHOUSE_FULFILLMENT_QUEUE_STAGES: OrderStage[] = ["CONFIRMED"];
 
-/** Forward transitions allowed for WAREHOUSE role (from → to). */
+/** Forward transitions allowed for WAREHOUSE role in workspace (from → to). */
 const WAREHOUSE_ALLOWED_TRANSITIONS: Partial<Record<OrderStage, OrderStage[]>> = {
-  AWAITING_STOCK: ["CONFIRMED"],
   CONFIRMED: ["READY_TO_SHIP"],
-  READY_TO_SHIP: ["SHIPPED"],
+  READY_TO_SHIP: ["CONFIRMED"],
 };
 
-/** Step keys shown in warehouse order stepper (fulfillment chain only). */
-export const WAREHOUSE_STEPPER_STAGES: OrderStage[] = [
-  "AWAITING_STOCK",
-  "CONFIRMED",
-  "READY_TO_SHIP",
-  "SHIPPED",
-];
+/** Step keys shown in warehouse order stepper. */
+export const WAREHOUSE_STEPPER_STAGES: OrderStage[] = ["CONFIRMED", "READY_TO_SHIP"];
 
 export function isWarehouseRole(actor: AuthUser | undefined): boolean {
   return actor?.role === UserRole.WAREHOUSE;

@@ -48,7 +48,15 @@ export default function SettingsHealthPage() {
   const [job, setJob] = useState<UpdateJob | null>(null);
   const [isPreflighting, setIsPreflighting] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [manualTargetVersion, setManualTargetVersion] = useState("");
   const [err, setErr] = useState<string | null>(null);
+
+  const agentReady = updateStatus?.mode === "agent_available" && updateStatus.updaterReachable;
+  const effectiveTargetVersion = (manualTargetVersion.trim() || updateStatus?.targetVersion || "").trim();
+  const canRunApply =
+    agentReady &&
+    !updateStatus?.activeJobId &&
+    (updateStatus?.canUpdate || Boolean(manualTargetVersion.trim()));
 
   useEffect(() => {
     apiHttp
@@ -141,7 +149,8 @@ export default function SettingsHealthPage() {
     setIsApplying(true);
     setErr(null);
     try {
-      const res = await apiHttp.post<UpdateJob>("/system/update/apply", {});
+      const body = manualTargetVersion.trim() ? { targetVersion: manualTargetVersion.trim() } : {};
+      const res = await apiHttp.post<UpdateJob>("/system/update/apply", body);
       setJob(res.data ?? null);
       await refreshUpdateStatus();
     } catch (e) {
@@ -171,9 +180,14 @@ export default function SettingsHealthPage() {
           <section className="rounded-lg border border-zinc-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-zinc-900">Оновлення системи</h2>
             <p className="mt-2 text-xs text-zinc-600">
+              Режим:{" "}
+              <span className="font-medium text-zinc-900">
+                {updateStatus?.mode === "agent_available" ? "агент на хості" : "тільки оператор"}
+              </span>
+              {" · "}
               Поточна: <span className="font-medium text-zinc-900">{updateStatus?.currentVersion ?? "unknown"}</span>
               {" · "}
-              Цільова: <span className="font-medium text-zinc-900">{updateStatus?.targetVersion ?? "none"}</span>
+              Цільова (CP): <span className="font-medium text-zinc-900">{updateStatus?.targetVersion ?? "none"}</span>
               {" · "}
               Стан: <span className="font-medium text-zinc-900">{updateStatus?.state ?? "idle"}</span>
             </p>
@@ -182,6 +196,33 @@ export default function SettingsHealthPage() {
               {updateStatus?.updaterReachable ? "online" : "offline"}
             </p>
             <p className="mt-2 text-xs text-zinc-700">{updateStatus?.reason ?? "Статус недоступний"}</p>
+            {updateStatus?.mode !== "agent_available" ? (
+              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                Щоб кнопки працювали, задайте <code className="text-[11px]">UPDATER_AGENT_URL</code> у backend і
+                запустіть <code className="text-[11px]">npm run dev:updater</code> на хості.
+              </p>
+            ) : null}
+            {updateStatus?.mode === "agent_available" && !updateStatus.cpReachable ? (
+              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                Control Plane недоступний. Можна вказати цільову версію вручну нижче або підняти CP (
+                <code className="text-[11px]">CONTROL_PLANE_URL</code>).
+              </p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="flex min-w-[10rem] flex-col gap-1 text-xs text-zinc-600">
+                Цільова версія (опційно)
+                <input
+                  type="text"
+                  value={manualTargetVersion}
+                  onChange={(e) => setManualTargetVersion(e.target.value)}
+                  placeholder={updateStatus?.targetVersion ?? "0.2.77"}
+                  className="rounded border border-zinc-300 px-2 py-1.5 text-xs text-zinc-900"
+                />
+              </label>
+              {effectiveTargetVersion ? (
+                <p className="pb-1 text-xs text-zinc-500">Буде застосовано: {effectiveTargetVersion}</p>
+              ) : null}
+            </div>
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
@@ -201,7 +242,7 @@ export default function SettingsHealthPage() {
               <button
                 type="button"
                 onClick={runApply}
-                disabled={isApplying || !updateStatus?.canUpdate}
+                disabled={isApplying || !canRunApply}
                 className="rounded bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-zinc-700"
               >
                 {isApplying ? "Оновлення..." : "Запустити оновлення"}

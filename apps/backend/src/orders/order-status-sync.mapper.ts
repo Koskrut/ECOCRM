@@ -41,6 +41,31 @@ export function legacyStatusToOrderStage(status: OrderStatus): OrderStage {
   return legacyStatusToStageAndDelivery(status).orderStage;
 }
 
+/** Legacy Order.status values that map to each orderStage (for list filters). */
+export function legacyStatusesForOrderStage(stage: OrderStage): OrderStatus[] {
+  const all: OrderStatus[] = [
+    "NEW",
+    "IN_WORK",
+    "READY_TO_SHIP",
+    "SHIPPED",
+    "CONTROL_PAYMENT",
+    "SUCCESS",
+    "RETURNING",
+    "CANCELED",
+  ];
+  return all.filter((status) => legacyStatusToOrderStage(status) === stage);
+}
+
+export function legacyStatusesForOrderStages(stages: OrderStage[]): OrderStatus[] {
+  const set = new Set<OrderStatus>();
+  for (const stage of stages) {
+    for (const status of legacyStatusesForOrderStage(stage)) {
+      set.add(status);
+    }
+  }
+  return Array.from(set);
+}
+
 /**
  * Maps legacy OrderStatus to orderStage and deliveryStatus.
  * Conservative: one-to-one where obvious; safe defaults otherwise.

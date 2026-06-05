@@ -26,6 +26,19 @@ services:
       CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN:-${CONTROL_PLANE_INSTALLATION_TOKEN:-}}
       CONTROL_PLANE_INSTALLATION_ID: ${CONTROL_PLANE_INSTALLATION_ID:-}
       CONTROL_PLANE_INSTALLATION_TOKEN: ${CONTROL_PLANE_INSTALLATION_TOKEN:-}
+      # Optional override; default is derived from CONTROL_PLANE_URL + installation id.
+      CONTROL_PLANE_UPDATE_STATUS_URL: ${CONTROL_PLANE_UPDATE_STATUS_URL:-}
+
+      # Host-side updater agent (scripts/updater/agent.mjs). Backend must reach the host, not 127.0.0.1 inside the container.
+      UPDATER_AGENT_URL: ${UPDATER_AGENT_URL:-}
+      UPDATER_AGENT_TOKEN: ${UPDATER_AGENT_TOKEN:-}
+
+      # Release metadata surfaced to ADMIN via GET /system/release and /system/update-status.
+      CRM_RELEASE_VERSION: ${CRM_RELEASE_VERSION:-}
+      GIT_SHA: ${GIT_SHA:-}
+      BUILD_TIME: ${BUILD_TIME:-}
+      IMAGE_TAG: ${IMAGE_TAG:-}
+
       LICENSE_CACHE_PATH: ${LICENSE_CACHE_PATH:-/data/license-cache.json}
       LICENSE_PUBLIC_KEY_PEM: ${LICENSE_PUBLIC_KEY_PEM:-}
 
