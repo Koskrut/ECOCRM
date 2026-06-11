@@ -27,6 +27,7 @@ export const en = {
     visits: "Visits",
     visitsHistory: "Visit history",
     visitsFuel: "Fuel",
+    visitsTeam: "Field team",
     aiCalls: "AI Calls",
     analytics: "Analytics",
     settings: "Settings",
@@ -183,6 +184,10 @@ export const en = {
       ringostat: {
         title: "Ringostat",
         desc: "Ringostat telephony: webhook secret, API token and internal line mapping",
+      },
+      kyivstarFmc: {
+        title: "Kyivstar FMC",
+        desc: "Direct Kyivstar Virtual Mobile PBX integration: FMC token, call history import",
       },
       outboundVoice: {
         title: "Outbound voice (AI Calls)",

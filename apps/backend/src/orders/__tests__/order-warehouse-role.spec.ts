@@ -3,8 +3,10 @@ import test from "node:test";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import {
+  assertWarehouseOrderItemQtyUpdate,
   assertWarehouseOrderMutation,
   assertWarehouseOrderUpdate,
+  assertWarehouseSplitByStock,
   assertWarehouseStageTransition,
   warehouseAllowedStageTargets,
 } from "../order-warehouse-role";
@@ -69,5 +71,33 @@ test("assertWarehouseOrderMutation blocks create order", () => {
   assert.throws(
     () => assertWarehouseOrderMutation(warehouseUser(), "create order"),
     /Кладовщик не може/,
+  );
+});
+
+test("assertWarehouseOrderItemQtyUpdate allows qty on CONFIRMED", () => {
+  const actor = warehouseUser();
+  assert.doesNotThrow(() =>
+    assertWarehouseOrderItemQtyUpdate(actor, "CONFIRMED", { qty: 2 }),
+  );
+});
+
+test("assertWarehouseOrderItemQtyUpdate blocks price and wrong stage", () => {
+  const actor = warehouseUser();
+  assert.throws(
+    () => assertWarehouseOrderItemQtyUpdate(actor, "CONFIRMED", { price: 100 }),
+    /ціну/,
+  );
+  assert.throws(
+    () => assertWarehouseOrderItemQtyUpdate(actor, "READY_TO_SHIP", { qty: 2 }),
+    /Підтверджено/,
+  );
+});
+
+test("assertWarehouseSplitByStock allows only CONFIRMED", () => {
+  const actor = warehouseUser();
+  assert.doesNotThrow(() => assertWarehouseSplitByStock(actor, "CONFIRMED"));
+  assert.throws(
+    () => assertWarehouseSplitByStock(actor, "AWAITING_STOCK"),
+    /Підтверджено/,
   );
 });

@@ -7,10 +7,12 @@ import {
   RefreshControl,
   StyleSheet,
   View,
+  View as RNView,
 } from "react-native";
 
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
+import { useShiftTracking } from "@/context/shift-tracking-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
 import type { RouteGeometryBundle } from "@/lib/route-map";
@@ -42,9 +44,9 @@ function timeRange(v: VisitSummary): string {
 export default function TodayScreen() {
   const router = useRouter();
   const { token } = useAuth();
+  const { activeShift, isTracking, startShift, endShift, loading: shiftLoading } = useShiftTracking();
   const [items, setItems] = useState<VisitSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [shiftInfo, setShiftInfo] = useState<string | null>(null);
   const [fuelBanner, setFuelBanner] = useState<string | null>(null);
   const [routeBanner, setRouteBanner] = useState<string | null>(null);
 
@@ -54,13 +56,10 @@ export default function TodayScreen() {
     if (!token) return;
     setLoading(true);
     try {
-      const [day, active, fuel, route] = await Promise.all([
+      const [day, fuel, route] = await Promise.all([
         apiFetch<{ items: VisitSummary[] }>(`/visits/day?date=${encodeURIComponent(dateKey)}`, {
           token,
         }),
-        apiFetch<{ shift: { id: string; status: string } | null }>("/field/shifts/active", { token }).catch(() => ({
-          shift: null,
-        })),
         apiFetch<{
           report: {
             compensationKm: number | null;
@@ -73,11 +72,6 @@ export default function TodayScreen() {
         ).catch(() => null),
       ]);
       setItems(day.items ?? []);
-      if (active.shift) {
-        setShiftInfo(`Смена активна (${active.shift.status})`);
-      } else {
-        setShiftInfo(null);
-      }
       const km = fuel?.report?.compensationKm;
       const amt = fuel?.report?.amountEstimated;
       if (km != null) {
@@ -116,10 +110,33 @@ export default function TodayScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.heading}>Сегодня</Text>
-      <Text style={styles.dateLine}>
-        {dateKey}
-        {shiftInfo ? ` · ${shiftInfo}` : ""}
-      </Text>
+      <Text style={styles.dateLine}>{dateKey}</Text>
+
+      {isTracking ? (
+        <RNView style={styles.trackingBanner}>
+          <Text style={styles.trackingBannerText}>Збір локацій активний</Text>
+        </RNView>
+      ) : null}
+
+      <RNView style={styles.shiftRow}>
+        {activeShift ? (
+          <Pressable
+            onPress={() => void endShift()}
+            disabled={shiftLoading}
+            accessibilityRole="button"
+            style={[styles.shiftBtn, styles.shiftBtnEnd]}>
+            <Text style={styles.shiftBtnTxt}>{shiftLoading ? "…" : "Завершити зміну"}</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={() => void startShift()}
+            disabled={shiftLoading}
+            accessibilityRole="button"
+            style={styles.shiftBtn}>
+            <Text style={styles.shiftBtnTxt}>{shiftLoading ? "…" : "Почати зміну"}</Text>
+          </Pressable>
+        )}
+      </RNView>
 
       {routeBanner ? (
         <Pressable
@@ -167,7 +184,7 @@ export default function TodayScreen() {
       />
 
       <Text style={styles.footerHint}>
-        Маршрут — вкладка «Карта». Смену и топливо — «Ещё».
+        Маршрут — вкладка «Карта». Паливо — «Ще».
       </Text>
     </View>
   );
@@ -186,10 +203,27 @@ const styles = StyleSheet.create({
   },
   dateLine: {
     marginTop: 4,
-    marginBottom: 12,
+    marginBottom: 8,
     opacity: 0.75,
     fontSize: 14,
   },
+  trackingBanner: {
+    backgroundColor: "rgba(37,99,235,0.12)",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
+  trackingBannerText: { color: "#1d4ed8", fontWeight: "600", fontSize: 13 },
+  shiftRow: { marginBottom: 12 },
+  shiftBtn: {
+    alignSelf: "flex-start",
+    backgroundColor: "#2563eb",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  shiftBtnEnd: { backgroundColor: "#475569" },
+  shiftBtnTxt: { color: "#fff", fontWeight: "600", fontSize: 14 },
   routeBanner: {
     flexDirection: "row",
     alignItems: "center",

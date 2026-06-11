@@ -23,6 +23,7 @@ const WORKER_EXPECT: Record<string, { mainFile: string; dockerStage: string }> =
   google_sheet_worker: { mainFile: "google-sheet-main.ts", dockerStage: "google-sheet-runner" },
   bitrix_worker: { mainFile: "bitrix-main.ts", dockerStage: "bitrix-runner" },
   ringostat_worker: { mainFile: "ringostat-main.ts", dockerStage: "ringostat-runner" },
+  kyivstar_fmc_worker: { mainFile: "kyivstar-fmc-main.ts", dockerStage: "kyivstar-fmc-runner" },
 };
 
 test("WORKER_VARIANT_INSTALLED ↔ *-main.ts ↔ Dockerfile stages", () => {

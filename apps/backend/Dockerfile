@@ -80,6 +80,11 @@ ENV BACKEND_VARIANT=ringostat_worker
 EXPOSE 3001
 CMD ["node", "dist/ringostat-main.js"]
 
+FROM runner AS kyivstar-fmc-runner
+ENV BACKEND_VARIANT=kyivstar_fmc_worker
+EXPOSE 3001
+CMD ["node", "dist/kyivstar-fmc-main.js"]
+
 FROM runner AS bitrix-runner
 ENV BACKEND_VARIANT=bitrix_worker
 EXPOSE 3001

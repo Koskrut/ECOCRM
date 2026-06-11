@@ -4,7 +4,37 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.78**.)_
+_(планируемые изменения после **0.2.79**.)_
+
+## [0.2.79] — 2026-06-11
+
+### Summary
+
+Патч **0.2.79**: **Kyivstar FMC** (`int.kyivstar_fmc`) — импорт звонков, webhooks, recordings, settings UI; **field shifts** + **/visits/team** (карта менеджеров, GPS-трек); **mobile** — фоновый GPS, EAS dev build; доработки **warehouse**, **orders** (legacy status mapping), **tasks**, **fuel**.
+
+### Added
+
+- **Integration `kyivstar-fmc`**: ingest, polling, backfill, workspace API; sidecar `crm-module-kyivstar-fmc`, `compose.modules.kyivstar-fmc-sidecar.yml`, proxy `KYIVSTAR_FMC_UPSTREAM_URL`.
+- **Web**: `/settings/kyivstar-fmc`, BFF integrations; **`/visits/team`** — TeamFieldMap/List, pending fuel.
+- **Field**: `FieldShiftsService` — start/stop shift, location samples batch, team view; API `/field/shifts/*`.
+- **Mobile**: фоновый location tracking (`location-tracking-task`, `shift-tracking-context`), `eas.json`, разрешения в `app.json`.
+- **Prisma**: миграция **`20260609120000_lead_source_kyivstar`** — `LeadSource.KYIVSTAR`.
+- **CI**: module image **`kyivstar-fmc`** в полном манифесте 0.2.x.
+
+### Changed
+
+- **Warehouse workspace**: расширенный UI збірки, переходы `READY_TO_SHIP` ↔ `CONFIRMED`.
+- **Orders**: legacy `Order.status` → `orderStage` mapping (фильтры, kanban); fulfillment queue fields.
+- **Tasks**: фильтры/отображение; **EntityTasksList** — доработки.
+- **Visits**: subnav (team), fuel/history pages; **Settings → Health** — мелкие правки.
+- **Leads/Contacts**: source Kyivstar в модалках.
+- **Store**: категории / PopularSystems.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.79`**, полный манифест (8 module images + store).
+- **`prisma migrate deploy`** — `20260609120000_lead_source_kyivstar`.
+- Kyivstar sidecar: **`KYIVSTAR_FMC_UPSTREAM_URL`** на `backend`, **`KYIVSTAR_FMC_CRON_DISABLED=true`** на core при worker.
 
 ## [0.2.78] — 2026-06-05
 
@@ -462,7 +492,7 @@ _(планируемые изменения после **0.2.78**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.78`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.79`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

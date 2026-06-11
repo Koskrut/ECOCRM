@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/resources/field-fuel";
 import { CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
+import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { VisitsSubNav } from "../VisitsSubNav";
 
 type MeUser = { role?: string };
@@ -159,11 +160,13 @@ function VisitBreakdownList({ rows }: { rows: FuelVisitBreakdownRow[] }) {
 function DayDetailPanel({
   date,
   ownerId,
+  reviewerRole,
   onClose,
   onRefreshMonth,
 }: {
   date: string;
   ownerId?: string;
+  reviewerRole?: string | null;
   onClose: () => void;
   onRefreshMonth: () => void;
 }) {
@@ -171,7 +174,9 @@ function DayDetailPanel({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [note, setNote] = useState("");
+  const canReview = reviewerRole === "ADMIN" || reviewerRole === "LEAD";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -217,6 +222,20 @@ function DayDetailPanel({
     }
   };
 
+  const review = async (status: "APPROVED" | "REJECTED") => {
+    if (!ownerId) return;
+    setReviewing(true);
+    try {
+      await fieldFuelApi.review(date, ownerId, status);
+      await load();
+      onRefreshMonth();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Помилка");
+    } finally {
+      setReviewing(false);
+    }
+  };
+
   const r = data?.report;
   const warnings = (data?.warnings ?? [])
     .map(warningText)
@@ -238,7 +257,7 @@ function DayDetailPanel({
             className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium disabled:opacity-50">
             Перерахувати
           </button>
-          {r?.compensationStatus === "DRAFT" && r.compensationKm != null ? (
+          {r?.compensationStatus === "DRAFT" && r.compensationKm != null && !ownerId ? (
             <button
               type="button"
               onClick={() => void submit()}
@@ -246,6 +265,24 @@ function DayDetailPanel({
               className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
               Надіслати
             </button>
+          ) : null}
+          {canReview && ownerId && r?.compensationStatus === "SUBMITTED" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void review("APPROVED")}
+                disabled={reviewing || loading}
+                className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+                Затвердити
+              </button>
+              <button
+                type="button"
+                onClick={() => void review("REJECTED")}
+                disabled={reviewing || loading}
+                className="rounded-md bg-zinc-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+                Відхилити
+              </button>
+            </>
           ) : null}
           <button
             type="button"
@@ -494,6 +531,11 @@ export default function VisitsFuelPage() {
       .catch(() => setUsers([]));
   }, [showOwnerFilter]);
 
+  useEffect(() => {
+    const owner = searchParams.get("owner");
+    if (owner) setOwnerId(owner);
+  }, [searchParams]);
+
   const loadRange = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -569,19 +611,13 @@ export default function VisitsFuelPage() {
           {showOwnerFilter ? (
             <div>
               <label className="block text-xs font-medium text-zinc-600">Менеджер</label>
-              <select
+              <ManagerSelect
+                users={users}
                 value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
-                className="mt-0.5 min-w-[200px] rounded border border-zinc-200 px-2 py-1.5 text-sm">
-                <option value="">Я / за замовчуванням</option>
-                {users
-                  .filter((u) => u.role === "MANAGER" || u.role === "USER" || u.role === "LEAD")
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.fullName || u.email}
-                    </option>
-                  ))}
-              </select>
+                onChange={setOwnerId}
+                allOptionLabel="Я / за замовчуванням"
+                className="mt-0.5 min-w-[200px]"
+              />
             </div>
           ) : null}
           <button
@@ -652,6 +688,7 @@ export default function VisitsFuelPage() {
             <DayDetailPanel
               date={selectedDate}
               ownerId={effectiveOwnerId}
+              reviewerRole={role}
               onClose={closeDay}
               onRefreshMonth={() => void loadRange()}
             />

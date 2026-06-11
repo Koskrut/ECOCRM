@@ -19,6 +19,7 @@ import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
+import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { VisitsSubNav } from "./VisitsSubNav";
 
 function formatHmKyiv(iso: string): string {
@@ -564,6 +565,12 @@ export default function VisitsPage() {
   }, []);
 
   useEffect(() => {
+    if (role === "ADMIN" || role === "LEAD") {
+      setRouteLayers((prev) => ({ ...prev, fact_gps: true }));
+    }
+  }, [role]);
+
+  useEffect(() => {
     if (!showOwnerFilter) return;
     apiHttp
       .get<{ items?: typeof users }>("/users")
@@ -1000,22 +1007,15 @@ export default function VisitsPage() {
             <div className="mt-3 flex flex-wrap items-end gap-3">
               <div>
                 <label className="block text-xs font-medium text-zinc-600">Менеджер</label>
-                <select
+                <ManagerSelect
+                  users={users}
                   value={viewOwnerId}
-                  onChange={(e) => setViewOwnerId(e.target.value)}
-                  className="mt-0.5 min-w-[220px] rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm"
-                >
-                  <option value="">
-                    {role === "ADMIN" ? "Все менеджеры (день)" : "Вся команда (день)"}
-                  </option>
-                  {users
-                    .filter((u) => u.role === "MANAGER" || u.role === "USER" || u.role === "LEAD")
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.fullName || u.email}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setViewOwnerId}
+                  allOptionLabel={
+                    role === "ADMIN" ? "Все менеджеры (день)" : "Вся команда (день)"
+                  }
+                  className="mt-0.5 min-w-[220px]"
+                />
               </div>
               {showMultiOwnerDay ? (
                 <p className="text-xs text-amber-800">

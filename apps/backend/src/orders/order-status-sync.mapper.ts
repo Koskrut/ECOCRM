@@ -8,6 +8,7 @@
  * - All reads use orderStage; list filter q.status is mapped to orderStage server-side.
  */
 
+import type { Prisma } from "@prisma/client";
 import type {
   DeliveryStatus,
   OrderFinancialStatus,
@@ -15,6 +16,8 @@ import type {
   OrderStatus,
   PaymentType,
 } from "@prisma/client";
+import { DateTime } from "luxon";
+import { CRM_TIME_ZONE } from "../crm-timezone";
 
 export type { OrderStage };
 
@@ -32,7 +35,31 @@ type FinancialContext = {
   paymentDueDate?: Date | null;
   /** When set: zero-total orders in early stages get INVOICE_PENDING instead of CLOSED. */
   orderStage?: OrderStage | null;
+  /** Override "now" for due-date rules (tests). */
+  asOf?: Date;
 };
+
+const TERMINAL_ORDER_STAGES: OrderStage[] = [
+  "COMPLETED",
+  "CANCELED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+];
+
+function kyivTodayYmd(now = new Date()): string {
+  return DateTime.fromJSDate(now).setZone(CRM_TIME_ZONE).toISODate()!;
+}
+
+function kyivDueYmd(due: Date): string {
+  return DateTime.fromJSDate(due).setZone(CRM_TIME_ZONE).toISODate()!;
+}
+
+/** Calendar days from today (Kyiv) until due date; negative = overdue. */
+function kyivDaysUntilDue(due: Date, now = new Date()): number {
+  const dueDt = DateTime.fromISO(kyivDueYmd(due), { zone: CRM_TIME_ZONE }).startOf("day");
+  const todayDt = DateTime.fromISO(kyivTodayYmd(now), { zone: CRM_TIME_ZONE }).startOf("day");
+  return Math.round(dueDt.diff(todayDt, "days").days);
+}
 
 /**
  * Maps legacy OrderStatus to orderStage (for setStatus -> setOrderStage delegation).
@@ -115,7 +142,7 @@ function computeFinancialStatus(
   const debt = Number(ctx.debtAmount ?? 0);
   const paymentType = ctx.paymentType;
   const due = ctx.paymentDueDate ? new Date(ctx.paymentDueDate) : null;
-  const now = new Date();
+  const now = ctx.asOf ?? new Date();
 
   // Terminal legacy: treat as closed
   if (legacyStatus === "CANCELED" || legacyStatus === "RETURNING") {
@@ -132,9 +159,19 @@ function computeFinancialStatus(
     return isEarly ? "INVOICE_PENDING" : "CLOSED";
   }
 
-  // No debt: either CLOSED (fully done) or PAID (paid but order still in progress)
+  // No debt: CLOSED when terminal / prepaid done; PAID when paid but order still in progress
   if (debt <= 0) {
-    return paid >= total ? "CLOSED" : "PAID";
+    const stage = ctx.orderStage ?? null;
+    if (stage && TERMINAL_ORDER_STAGES.includes(stage)) {
+      return "CLOSED";
+    }
+    if (paymentType === "PREPAYMENT" && paid >= total && total > 0) {
+      return "CLOSED";
+    }
+    if (paid >= total && total > 0) {
+      return "PAID";
+    }
+    return paid > 0 ? "PAID" : "CLOSED";
   }
 
   // Has debt
@@ -146,10 +183,61 @@ function computeFinancialStatus(
   if (!due) {
     return "INVOICE_PENDING"; // no due date set yet
   }
-  if (due < now) return "OVERDUE";
-  const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
-  if (due.getTime() - now.getTime() <= threeDaysMs) return "DUE_SOON";
+  const daysUntil = kyivDaysUntilDue(due, now);
+  if (daysUntil < 0) return "OVERDUE";
+  if (daysUntil <= 3) return "DUE_SOON";
   return "AWAITING_PAYMENT";
+}
+
+/** Active financial board: orders with debt or not in a terminal stage. */
+export function financialBoardDefaultWhere(): Prisma.OrderWhereInput {
+  return {
+    OR: [
+      { debtAmount: { gt: 0 } },
+      { orderStage: { notIn: TERMINAL_ORDER_STAGES } },
+      { orderStage: null },
+    ],
+  };
+}
+
+/** Orders with debt and payment due date before today (Kyiv calendar). */
+export function financialOverdueWhere(now = new Date()): Prisma.OrderWhereInput {
+  const startOfToday = DateTime.fromISO(kyivTodayYmd(now), { zone: CRM_TIME_ZONE })
+    .startOf("day")
+    .toJSDate();
+  return {
+    debtAmount: { gt: 0 },
+    paymentDueDate: { not: null, lt: startOfToday },
+  };
+}
+
+/** Orders with debt and payment due within the next 3 Kyiv calendar days (inclusive). */
+export function financialDueSoonWhere(now = new Date()): Prisma.OrderWhereInput {
+  const startOfToday = DateTime.fromISO(kyivTodayYmd(now), { zone: CRM_TIME_ZONE }).startOf("day");
+  const endOfWindow = startOfToday.plus({ days: 3 }).endOf("day");
+  return {
+    debtAmount: { gt: 0 },
+    paymentDueDate: {
+      not: null,
+      gte: startOfToday.toJSDate(),
+      lte: endOfWindow.toJSDate(),
+    },
+  };
+}
+
+/** List filter for financialStatus; date-sensitive statuses use paymentDueDate, not stored column. */
+export function financialStatusListWhere(
+  status: OrderFinancialStatus,
+  now = new Date(),
+): Prisma.OrderWhereInput {
+  switch (status) {
+    case "OVERDUE":
+      return financialOverdueWhere(now);
+    case "DUE_SOON":
+      return financialDueSoonWhere(now);
+    default:
+      return { financialStatus: status };
+  }
 }
 
 /**

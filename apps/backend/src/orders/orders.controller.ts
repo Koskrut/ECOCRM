@@ -51,8 +51,11 @@ export class OrdersController {
   }
 
   @Get("fulfillment-queue")
-  fulfillmentQueue(@Req() req: Request & { user?: AuthUser }) {
-    return this.orders.listFulfillmentQueue(req.user);
+  fulfillmentQueue(
+    @Query("warehouseIds") warehouseIds: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orders.listFulfillmentQueue(req.user, warehouseIds);
   }
 
   @Get("pipeline")

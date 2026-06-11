@@ -158,6 +158,7 @@ enum LeadSource {
   INSTAGRAM
   WEBSITE
   RINGOSTAT
+  KYIVSTAR
   OTHER
   META
 }

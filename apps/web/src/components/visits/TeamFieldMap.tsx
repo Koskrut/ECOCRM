@@ -1,0 +1,114 @@
+"use client";
+
+import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
+import { useMemo } from "react";
+import type { FieldShiftTeamItem } from "@/lib/api/resources/field-shifts";
+
+type TeamFieldMapProps = {
+  mapsApiKey: string;
+  items: FieldShiftTeamItem[];
+  selectedOwnerId: string | null;
+  trackPath: Array<{ lat: number; lng: number }>;
+};
+
+export function TeamFieldMap({
+  mapsApiKey,
+  items,
+  selectedOwnerId,
+  trackPath,
+}: TeamFieldMapProps) {
+  const { isLoaded, loadError } = useLoadScript({
+    id: "google-map-script-team-field",
+    googleMapsApiKey: mapsApiKey,
+  });
+
+  const markers = useMemo(
+    () =>
+      items
+        .filter((i) => i.lastSample)
+        .map((i) => ({
+          id: i.owner.id,
+          lat: i.lastSample!.lat,
+          lng: i.lastSample!.lng,
+          label: i.owner.fullName.charAt(0).toUpperCase(),
+          selected: i.owner.id === selectedOwnerId,
+        })),
+    [items, selectedOwnerId],
+  );
+
+  const center = useMemo(() => {
+    if (trackPath.length > 0) {
+      return trackPath[trackPath.length - 1]!;
+    }
+    if (markers.length > 0) {
+      return { lat: markers[0]!.lat, lng: markers[0]!.lng };
+    }
+    return { lat: 50.4501, lng: 30.5234 };
+  }, [trackPath, markers]);
+
+  const boundsPts = useMemo(() => {
+    const pts = [...trackPath, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))];
+    return pts;
+  }, [trackPath, markers]);
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
+        Не вдалося завантажити Google Maps
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+        Завантаження карти…
+      </div>
+    );
+  }
+
+  return (
+    <GoogleMap
+      mapContainerStyle={{ width: "100%", height: "100%" }}
+      center={center}
+      zoom={11}
+      onLoad={(map) => {
+        if (boundsPts.length > 1) {
+          const b = new google.maps.LatLngBounds();
+          for (const p of boundsPts) b.extend(p);
+          map.fitBounds(b, 48);
+        }
+      }}
+      options={{
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      }}>
+      {trackPath.length > 1 ? (
+        <Polyline
+          path={trackPath}
+          options={{ strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 4 }}
+        />
+      ) : null}
+      {markers.map((m) => (
+        <Marker
+          key={m.id}
+          position={{ lat: m.lat, lng: m.lng }}
+          label={m.label}
+          icon={
+            m.selected
+              ? {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 10,
+                  fillColor: "#2563eb",
+                  fillOpacity: 1,
+                  strokeColor: "#fff",
+                  strokeWeight: 2,
+                }
+              : undefined
+          }
+        />
+      ))}
+    </GoogleMap>
+  );
+}

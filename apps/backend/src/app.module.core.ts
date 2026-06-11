@@ -1,7 +1,8 @@
 /**
- * Core CRM API only: no extension/integration modules that ship as separate images or
- * heavy optional subsystems. Used by `core-main` / `crm-core-api` image target.
- * Full stack remains [`AppModule`](./app.module.ts).
+ * Core CRM API: platform modules plus in-process extensions/integrations that have no
+ * sidecar upstream proxy (see `MODULE_UPSTREAM_*` in module-upstream-proxy.setup.ts).
+ * Sidecar-backed modules stay in full [`AppModule`](./app.module.ts) only.
+ * Used by `core-main` / `crm-core-api` image target.
  */
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
@@ -25,6 +26,10 @@ import { PermissionsGuard } from "./rbac/permissions.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
+import { TelegramModule } from "./integrations/telegram/telegram.module";
+import { StoreModule } from "./store/store.module";
+import { VisitsModule } from "./visits/visits.module";
+import { FieldModule } from "./field/field.module";
 import { TasksModule } from "./tasks/tasks.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
@@ -52,6 +57,10 @@ import { AuditModule } from "./audit/audit.module";
     AnalyticsModule,
     DashboardModule,
     ActivitiesModule,
+    VisitsModule,
+    FieldModule,
+    StoreModule,
+    TelegramModule,
     TasksModule,
     OrderReturnsModule,
     OrdersModule,

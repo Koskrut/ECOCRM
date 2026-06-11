@@ -57,6 +57,7 @@ function allCards(): CardDescriptor[] {
     { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc, group: "integrations" },
     { href: "/settings/nova-poshta", title: t.novaPoshta.title, desc: t.novaPoshta.desc, group: "integrations" },
     { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc, group: "integrations" },
+    { href: "/settings/kyivstar-fmc", title: t.kyivstarFmc.title, desc: t.kyivstarFmc.desc, group: "integrations" },
     { href: "/settings/outbound-voice", title: t.outboundVoice.title, desc: t.outboundVoice.desc, group: "integrations" },
     { href: "/settings/telegram", title: t.telegram.title, desc: t.telegram.desc, group: "integrations" },
     { href: "/settings/store", title: t.store.title, desc: t.store.desc, group: "integrations" },

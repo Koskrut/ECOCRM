@@ -126,6 +126,31 @@ export const fieldFuelApi = {
     return res.data;
   },
 
+  review: async (
+    date: string,
+    ownerId: string,
+    compensationStatus: "APPROVED" | "REJECTED",
+  ): Promise<{ report: FuelDayReport; profile: UserFieldProfile }> => {
+    const res = await apiHttp.patch<{ report: FuelDayReport; profile: UserFieldProfile }>(
+      "/field/fuel/day",
+      { compensationStatus },
+      { params: { date, ownerId } } as never,
+    );
+    return res.data;
+  },
+
+  getPending: async (
+    from: string,
+    to: string,
+  ): Promise<{
+    from: string;
+    to: string;
+    items: Array<{ report: FuelDayReport; owner: { id: string; fullName: string; email: string } }>;
+  }> => {
+    const res = await apiHttp.get("/field/fuel/pending", { params: { from, to } } as never);
+    return res.data;
+  },
+
   getRange: async (from: string, to: string, ownerId?: string): Promise<FuelRangeResponse> => {
     const res = await apiHttp.get<FuelRangeResponse>("/field/fuel/range", {
       params: { from, to, ...(ownerId ? { ownerId } : {}) },

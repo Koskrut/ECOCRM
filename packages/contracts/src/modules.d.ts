@@ -11,6 +11,7 @@ export declare const ModuleIds: {
   readonly GoogleSheet: "int.google_sheet";
   readonly Bitrix: "int.bitrix";
   readonly Ringostat: "int.ringostat";
+  readonly KyivstarFmc: "int.kyivstar_fmc";
   readonly Privat24: "int.privat24";
   readonly Upc: "int.upc";
 };

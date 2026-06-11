@@ -39,6 +39,7 @@ export const WORKER_VARIANT_INSTALLED: Record<string, ModuleId[]> = {
   google_sheet_worker: [ModuleIds.CoreCrm, ModuleIds.GoogleSheet],
   bitrix_worker: [ModuleIds.CoreCrm, ModuleIds.Bitrix],
   ringostat_worker: [ModuleIds.CoreCrm, ModuleIds.Ringostat],
+  kyivstar_fmc_worker: [ModuleIds.CoreCrm, ModuleIds.KyivstarFmc],
 };
 
 /** Legacy `ext.voice_outbound` bundles implied Ringostat for telephony; manual calling is `ext.manual_calling` separately. */

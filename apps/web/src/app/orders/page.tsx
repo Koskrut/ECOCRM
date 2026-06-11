@@ -700,6 +700,7 @@ function OrdersPageContent() {
             </div>
             <FinancialKanban
               onOpenOrder={(id) => openExistingOrder(id)}
+              refreshKey={kanbanRefreshKey}
               filters={{
                 financialStatus: financialStatusFilter || undefined,
                 paymentType: paymentTypeFilter || undefined,

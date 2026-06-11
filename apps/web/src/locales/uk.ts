@@ -28,6 +28,7 @@ export const uk = {
     visits: "Візити",
     visitsHistory: "Історія візитів",
     visitsFuel: "Паливо",
+    visitsTeam: "Команда в полі",
     aiCalls: "AI-дзвінки",
     analytics: "Аналітика",
     settings: "Налаштування",
@@ -184,6 +185,10 @@ export const uk = {
       ringostat: {
         title: "Ringostat",
         desc: "Телефонія Ringostat: webhook secret, API token та маппінг внутрішніх ліній",
+      },
+      kyivstarFmc: {
+        title: "Kyivstar FMC",
+        desc: "Пряма інтеграція з віртуальною АТС Київстар: FMC token, integrator ID, імпорт дзвінків",
       },
       outboundVoice: {
         title: "Outbound voice (AI Calls)",

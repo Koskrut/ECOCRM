@@ -140,6 +140,7 @@ jobs:
               np) T=np-runner; I=local/crm-module-np:preflight ;;
               finance) T=finance-runner; I=local/crm-module-finance:preflight ;;
               planning) T=planning-runner; I=local/crm-module-planning:preflight ;;
+              kyivstar-fmc) T=kyivstar-fmc-runner; I=local/crm-module-kyivstar-fmc:preflight ;;
               *) echo "unknown slug $s" >&2; exit 1 ;;
             esac
             docker buildx build --target "$T" -f apps/backend/Dockerfile -t "$I" \

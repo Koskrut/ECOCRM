@@ -3,19 +3,27 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ListTodo } from "lucide-react";
-import { tasksApi, type Task, type TaskStatus, type TaskSortField } from "@/lib/api/resources/tasks";
+import {
+  tasksApi,
+  resolveTaskListStatus,
+  type Task,
+  type TaskStatus,
+  type TaskSortField,
+  type TaskStatusFilter,
+} from "@/lib/api/resources/tasks";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
 import { authApi } from "@/lib/api/resources/auth";
 
-const TASK_STATUS_OPTIONS: { value: TaskStatus | ""; label: string }[] = [
-  { value: "", label: "All" },
+const TASK_STATUS_OPTIONS: { value: TaskStatusFilter; label: string }[] = [
+  { value: "active", label: "Active" },
   { value: "OPEN", label: "Open" },
   { value: "IN_PROGRESS", label: "In progress" },
   { value: "DONE", label: "Done" },
   { value: "CANCELED", label: "Canceled" },
+  { value: "all", label: "All" },
 ];
 
 const PERIOD_OPTIONS: { value: "" | "week" | "overdue"; label: string }[] = [
@@ -100,7 +108,7 @@ export default function TasksPage() {
   const [items, setItems] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("active");
   const [periodFilter, setPeriodFilter] = useState<"" | "week" | "overdue">("");
   const [sortBy, setSortBy] = useState<TaskSortField>("dueAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -166,7 +174,7 @@ export default function TasksPage() {
     try {
       const period = getPeriodBounds(periodFilter);
       const res = await tasksApi.list({
-        status: period.status ?? (statusFilter || undefined),
+        status: resolveTaskListStatus(statusFilter, period.status),
         dueFrom: period.dueFrom,
         dueTo: period.dueTo,
         sortBy,
@@ -276,28 +284,42 @@ export default function TasksPage() {
     }
   }, [newTitle, newBody, newDueAt, newAssigneeId, linkType, selectedLinkId, load, myUserId]);
 
+  const closeTaskIfHidden = useCallback(
+    (id: string, nextStatus: TaskStatus) => {
+      const hidden =
+        statusFilter === "active" ||
+        (statusFilter !== "all" && statusFilter !== nextStatus);
+      if (hidden) {
+        setSelectedTaskId((prev) => (prev === id ? null : prev));
+      }
+    },
+    [statusFilter],
+  );
+
   const complete = useCallback(
     async (id: string) => {
       try {
         await tasksApi.complete(id);
+        closeTaskIfHidden(id, "DONE");
         await load();
       } catch {
         // ignore
       }
     },
-    [load],
+    [closeTaskIfHidden, load],
   );
 
   const cancel = useCallback(
     async (id: string) => {
       try {
         await tasksApi.cancel(id);
+        closeTaskIfHidden(id, "CANCELED");
         await load();
       } catch {
         // ignore
       }
     },
-    [load],
+    [closeTaskIfHidden, load],
   );
 
   const saveTaskEdit = useCallback(
@@ -312,6 +334,7 @@ export default function TasksPage() {
           status: editStatus,
           assigneeId: editAssigneeId || null,
         });
+        closeTaskIfHidden(id, editStatus);
         await load();
         setCardEditing(false);
       } catch (e) {
@@ -320,7 +343,7 @@ export default function TasksPage() {
         setCardSaving(false);
       }
     },
-    [editTitle, editBody, editDueAt, editStatus, editAssigneeId, load],
+    [closeTaskIfHidden, editTitle, editBody, editDueAt, editStatus, editAssigneeId, load],
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -350,13 +373,13 @@ export default function TasksPage() {
           <select
             value={statusFilter}
             onChange={(e) => {
-              setStatusFilter(e.target.value as TaskStatus | "");
+              setStatusFilter(e.target.value as TaskStatusFilter);
               setPage(1);
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
           >
             {TASK_STATUS_OPTIONS.map((o) => (
-              <option key={o.value || "all"} value={o.value}>
+              <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
@@ -617,7 +640,9 @@ export default function TasksPage() {
                         onChange={(e) => setEditStatus(e.target.value as TaskStatus)}
                         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
                       >
-                        {TASK_STATUS_OPTIONS.filter((o) => o.value !== "").map((o) => (
+                        {TASK_STATUS_OPTIONS.filter(
+                          (o) => o.value !== "active" && o.value !== "all",
+                        ).map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}
                           </option>
@@ -737,14 +762,14 @@ export default function TasksPage() {
                         <>
                           <button
                             type="button"
-                            onClick={() => void complete(selectedTask.id).then(() => setSelectedTaskId(null))}
+                            onClick={() => void complete(selectedTask.id)}
                             className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
                           >
                             Complete
                           </button>
                           <button
                             type="button"
-                            onClick={() => void cancel(selectedTask.id).then(() => setSelectedTaskId(null))}
+                            onClick={() => void cancel(selectedTask.id)}
                             className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                           >
                             Cancel task

@@ -60,6 +60,37 @@ export function assertWarehouseOrderMutation(
   throw new ForbiddenException(`Кладовщик не може виконувати дію: ${action}`);
 }
 
+export function assertWarehouseOrderItemQtyUpdate(
+  actor: AuthUser | undefined,
+  orderStage: OrderStage | null | undefined,
+  dto: { qty?: number; price?: number },
+): void {
+  if (!isWarehouseRole(actor)) return;
+  if (dto.price !== undefined) {
+    throw new ForbiddenException("Кладовщик не може змінювати ціну позиції");
+  }
+  if (dto.qty === undefined) return;
+  const stage = orderStage ?? "NEW";
+  if (stage !== "CONFIRMED") {
+    throw new ForbiddenException(
+      "Кладовщик може змінювати кількість лише на стадії Підтверджено",
+    );
+  }
+}
+
+export function assertWarehouseSplitByStock(
+  actor: AuthUser | undefined,
+  orderStage: OrderStage | null | undefined,
+): void {
+  if (!isWarehouseRole(actor)) return;
+  const stage = orderStage ?? "NEW";
+  if (stage !== "CONFIRMED") {
+    throw new ForbiddenException(
+      "Кладовщик може розділяти замовлення лише на стадії Підтверджено",
+    );
+  }
+}
+
 export function warehouseAllowedStageTargets(
   fromStage: OrderStage | null | undefined,
 ): OrderStage[] {

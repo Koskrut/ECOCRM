@@ -13,6 +13,8 @@ const ALIASES = {
   voice_outbound: "outbound",
   nova_poshta: "np",
   novaposhta: "np",
+  kyivstar_fmc: "kyivstar-fmc",
+  kyivstarfmc: "kyivstar-fmc",
 };
 
 function norm(s) {
@@ -30,6 +32,7 @@ const KNOWN = new Set([
   "np",
   "finance",
   "planning",
+  "kyivstar-fmc",
 ]);
 
 let parts = csv

@@ -1,71 +1,42 @@
-import React, { useCallback, useState } from "react";
+import React from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, View as RNView } from "react-native";
 import { useRouter } from "expo-router";
 
 import { Text, View } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
-import { apiFetch } from "@/lib/api";
+import { useShiftTracking } from "@/context/shift-tracking-context";
 import { getApiBaseUrl } from "@/lib/config";
-import { formatLocalDateKey } from "@/lib/date";
 
 export default function MoreScreen() {
   const router = useRouter();
-  const { user, token, logout } = useAuth();
-  const [trackingEnabled, setTrackingEnabled] = useState(true);
+  const { user, logout } = useAuth();
+  const {
+    activeShift,
+    loading,
+    trackingMode,
+    trackingEnabled,
+    setTrackingEnabled,
+    pendingSamples,
+    lastFlushAt,
+    startShift,
+    endShift,
+    isTracking,
+  } = useShiftTracking();
 
   async function copyBaseUrl() {
     Alert.alert("API backend", `${getApiBaseUrl()}\n\nДля Android‑эмулятора задайте EXPO_PUBLIC_API_URL=http://10.0.2.2:3001`);
   }
 
-  const startShift = useCallback(async () => {
-    if (!token) return;
-    try {
-      let plannedDistanceKm: number | null = null;
-      const dateKey = formatLocalDateKey();
-      try {
-        const m = await apiFetch<{ distanceKm: number | null }>(
-          `/route-plans/metrics?date=${encodeURIComponent(dateKey)}`,
-          { token },
-        );
-        if (m.distanceKm != null && Number.isFinite(m.distanceKm)) {
-          plannedDistanceKm = m.distanceKm;
-        }
-      } catch {
-        // metrics optional
-      }
-      await apiFetch("/field/shifts/start", {
-        method: "POST",
-        token,
-        body: JSON.stringify({
-          plannedDistanceKm,
-          trackingEnabled,
-        }),
-      });
-      Alert.alert("", "Смена запущена (или уже была активной).");
-    } catch (e) {
-      Alert.alert("Ошибка", String(e));
-    }
-  }, [token, trackingEnabled]);
-
-  const endShift = useCallback(async () => {
-    if (!token) return;
-    try {
-      const r = await apiFetch<{ shift: { id: string } | null }>("/field/shifts/active", { token });
-      const id = r.shift?.id;
-      if (!id) {
-        Alert.alert("", "Нет активной смены");
-        return;
-      }
-      await apiFetch(`/field/shifts/${id}/end`, { method: "POST", token });
-      Alert.alert("", "Смена завершена");
-    } catch (e) {
-      Alert.alert("Ошибка", String(e));
-    }
-  }, [token]);
+  const trackingLabel =
+    trackingMode === "background"
+      ? "Фоновий трек"
+      : trackingMode === "foreground"
+        ? "Трек (лише у застосунку)"
+        : "Трек вимкнено";
 
   return (
     <ScrollView contentContainerStyle={styles.scroll}>
-      <Text style={styles.h1}>Ещё</Text>
+      <Text style={styles.h1}>Ще</Text>
 
       {user ? (
         <Text style={styles.box}>
@@ -76,43 +47,68 @@ export default function MoreScreen() {
       ) : null}
 
       <Pressable accessibilityRole="button" onPress={copyBaseUrl} style={styles.btnGhost}>
-        <Text style={{ fontWeight: "600" }}>Базовый адрес API</Text>
+        <Text style={{ fontWeight: "600" }}>Базовий адрес API</Text>
         <Text style={{ fontSize: 13, opacity: 0.8, marginTop: 6 }}>
           {getApiBaseUrl()}
         </Text>
-        <Text style={{ fontSize: 12, opacity: 0.65, marginTop: 10 }}>
-          Android emulator: экспортируйте EXPO_PUBLIC_API_URL=http://10.0.2.2:3001
-        </Text>
       </Pressable>
 
-      <Text style={styles.section}>Смена</Text>
+      <Text style={styles.section}>Зміна</Text>
       <RNView style={{ flexDirection: "row", alignItems: "center", marginVertical: 8 }}>
-        <Text>Сбор трека</Text>
-        <Switch value={trackingEnabled} onValueChange={setTrackingEnabled} style={{ marginLeft: 12 }} />
+        <Text>Збір треку</Text>
+        <Switch
+          value={trackingEnabled}
+          onValueChange={setTrackingEnabled}
+          disabled={!!activeShift}
+          style={{ marginLeft: 12 }}
+        />
       </RNView>
-      <Pressable onPress={startShift} accessibilityRole="button" style={[styles.btn, { marginBottom: 8 }]}>
-        <Text style={styles.btnTxt}>Начать смену</Text>
-      </Pressable>
-      <Pressable onPress={endShift} accessibilityRole="button" style={[styles.btn, { backgroundColor: "#475569" }]}>
-        <Text style={styles.btnTxt}>Завершить смену</Text>
-      </Pressable>
 
-      <Text style={styles.section}>Топливо</Text>
+      {activeShift ? (
+        <Text style={styles.meta}>
+          Зміна активна · {trackingLabel}
+          {pendingSamples > 0 ? ` · в черзі ${pendingSamples}` : ""}
+          {lastFlushAt ? `\nОстання відправка: ${new Date(lastFlushAt).toLocaleTimeString()}` : ""}
+        </Text>
+      ) : null}
+
+      {isTracking ? (
+        <RNView style={styles.trackingBanner}>
+          <Text style={styles.trackingBannerText}>Збір локацій активний</Text>
+        </RNView>
+      ) : null}
+
+      {!activeShift ? (
+        <Pressable
+          onPress={() => void startShift()}
+          disabled={loading}
+          accessibilityRole="button"
+          style={[styles.btn, { marginBottom: 8 }]}>
+          <Text style={styles.btnTxt}>{loading ? "…" : "Почати зміну"}</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={() => void endShift()}
+          disabled={loading}
+          accessibilityRole="button"
+          style={[styles.btn, { backgroundColor: "#475569", marginBottom: 8 }]}>
+          <Text style={styles.btnTxt}>{loading ? "…" : "Завершити зміну"}</Text>
+        </Pressable>
+      )}
+
+      <Text style={styles.section}>Паливо</Text>
       <Pressable
         onPress={() => router.push("/fuel")}
         accessibilityRole="button"
         style={styles.btnGhost}>
-        <Text style={{ fontWeight: "600" }}>Отчёты и компенсация</Text>
-        <Text style={{ fontSize: 12, opacity: 0.65, marginTop: 8 }}>
-          Пробег по завершённым визитам, месяц, отправка
-        </Text>
+        <Text style={{ fontWeight: "600" }}>Звіти та компенсація</Text>
       </Pressable>
 
       <Pressable
         accessibilityRole="button"
         onPress={() => logout()}
         style={[styles.btn, { marginTop: 28, backgroundColor: "#991b1b" }]}>
-        <Text style={styles.btnTxt}>Выйти</Text>
+        <Text style={styles.btnTxt}>Вийти</Text>
       </Pressable>
     </ScrollView>
   );
@@ -137,6 +133,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   section: { fontWeight: "700", fontSize: 16, marginTop: 12 },
+  meta: { fontSize: 13, opacity: 0.75, marginBottom: 8, lineHeight: 20 },
+  trackingBanner: {
+    backgroundColor: "rgba(37,99,235,0.12)",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  trackingBannerText: { color: "#1d4ed8", fontWeight: "600", fontSize: 13 },
   btn: {
     alignSelf: "flex-start",
     backgroundColor: "#2563eb",

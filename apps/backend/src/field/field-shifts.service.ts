@@ -2,8 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { FieldShiftStatus, Prisma } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  assertCanAccessOwner,
+  getAllowedOwnerIds,
+} from "../visits/visits-owner-scope";
+import type { FieldShiftTeamItem } from "./field-shifts.types";
 
 const MAX_SAMPLES_BATCH = 250;
+const MAX_SAMPLES_READ = 500;
 
 @Injectable()
 export class FieldShiftsService {
@@ -133,5 +139,197 @@ export class FieldShiftsService {
 
     await this.prisma.fieldLocationSample.createMany({ data: rows });
     return { created: rows.length };
+  }
+
+  private visitTitle(v: {
+    title: string | null;
+    contact: { firstName: string | null; lastName: string | null } | null;
+    company: { name: string | null } | null;
+  }): string | null {
+    if (v.title?.trim()) return v.title.trim();
+    if (v.contact) {
+      const name = [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ");
+      if (name) return name;
+    }
+    if (v.company?.name) return v.company.name;
+    return null;
+  }
+
+  async getActiveTeam(actor: AuthUser | undefined): Promise<{ items: FieldShiftTeamItem[] }> {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const allowed = await getAllowedOwnerIds(this.prisma, actor);
+    const ownerFilter: Prisma.FieldShiftWhereInput["ownerId"] =
+      allowed === "all" ? undefined : { in: allowed };
+
+    const shifts = await this.prisma.fieldShift.findMany({
+      where: {
+        status: FieldShiftStatus.ACTIVE,
+        ...(ownerFilter != null ? { ownerId: ownerFilter } : {}),
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: [{ startedAt: "desc" }],
+    });
+
+    if (shifts.length === 0) {
+      return { items: [] };
+    }
+
+    const shiftIds = shifts.map((s) => s.id);
+    const ownerIds = [...new Set(shifts.map((s) => s.ownerId))];
+
+    const [samples, sampleCounts, sessions] = await Promise.all([
+      this.prisma.fieldLocationSample.findMany({
+        where: { shiftId: { in: shiftIds } },
+        orderBy: [{ clientRecordedAt: "desc" }],
+        select: {
+          shiftId: true,
+          lat: true,
+          lng: true,
+          accuracyM: true,
+          clientRecordedAt: true,
+        },
+      }),
+      this.prisma.fieldLocationSample.groupBy({
+        by: ["shiftId"],
+        where: { shiftId: { in: shiftIds } },
+        _count: { _all: true },
+      }),
+      this.prisma.routeSession.findMany({
+        where: { ownerId: { in: ownerIds }, isActive: true },
+        select: { ownerId: true, currentVisitId: true },
+      }),
+    ]);
+
+    const lastByShift = new Map<string, (typeof samples)[number]>();
+    for (const s of samples) {
+      if (!lastByShift.has(s.shiftId)) {
+        lastByShift.set(s.shiftId, s);
+      }
+    }
+
+    const countByShift = new Map(
+      sampleCounts.map((c) => [c.shiftId, c._count._all] as const),
+    );
+
+    const visitIds = sessions
+      .map((s) => s.currentVisitId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const visits =
+      visitIds.length > 0
+        ? await this.prisma.visit.findMany({
+            where: { id: { in: visitIds } },
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              contact: { select: { firstName: true, lastName: true } },
+              company: { select: { name: true } },
+            },
+          })
+        : [];
+    const visitById = new Map(visits.map((v) => [v.id, v] as const));
+    const sessionByOwner = new Map(sessions.map((s) => [s.ownerId, s] as const));
+
+    const items: FieldShiftTeamItem[] = shifts.map((shift) => {
+      const last = lastByShift.get(shift.id);
+      const session = sessionByOwner.get(shift.ownerId);
+      const visit = session?.currentVisitId ? visitById.get(session.currentVisitId) : undefined;
+      return {
+        shift: {
+          id: shift.id,
+          ownerId: shift.ownerId,
+          date: shift.date.toISOString(),
+          status: shift.status,
+          startedAt: shift.startedAt.toISOString(),
+          endedAt: shift.endedAt?.toISOString() ?? null,
+          trackingEnabled: shift.trackingEnabled,
+          plannedDistanceKm: shift.plannedDistanceKm,
+        },
+        owner: shift.owner,
+        lastSample: last
+          ? {
+              lat: last.lat,
+              lng: last.lng,
+              accuracyM: last.accuracyM,
+              clientRecordedAt: last.clientRecordedAt.toISOString(),
+            }
+          : null,
+        sampleCountToday: countByShift.get(shift.id) ?? 0,
+        currentVisit: visit
+          ? {
+              id: visit.id,
+              title: this.visitTitle(visit),
+              status: visit.status,
+            }
+          : null,
+      };
+    });
+
+    return { items };
+  }
+
+  async getSamples(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    opts?: { since?: string; limit?: number },
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const shift = await this.prisma.fieldShift.findUnique({
+      where: { id: shiftId },
+    });
+    if (!shift) {
+      throw new NotFoundException("Shift not found");
+    }
+    await assertCanAccessOwner(this.prisma, actor, shift.ownerId);
+
+    const limit = Math.min(
+      MAX_SAMPLES_READ,
+      opts?.limit != null && Number.isFinite(opts.limit) ? Math.max(1, opts.limit) : MAX_SAMPLES_READ,
+    );
+    const sinceDate =
+      opts?.since != null && opts.since.trim()
+        ? new Date(opts.since)
+        : null;
+    if (sinceDate && Number.isNaN(sinceDate.getTime())) {
+      throw new BadRequestException("Invalid since");
+    }
+
+    const rows = await this.prisma.fieldLocationSample.findMany({
+      where: {
+        shiftId,
+        ...(sinceDate ? { clientRecordedAt: { gt: sinceDate } } : {}),
+      },
+      orderBy: { clientRecordedAt: "asc" },
+      take: limit + 1,
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        accuracyM: true,
+        clientRecordedAt: true,
+        createdAt: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      items: items.map((r) => ({
+        id: r.id,
+        lat: r.lat,
+        lng: r.lng,
+        accuracyM: r.accuracyM,
+        clientRecordedAt: r.clientRecordedAt.toISOString(),
+        createdAt: r.createdAt.toISOString(),
+      })),
+      hasMore,
+    };
   }
 }

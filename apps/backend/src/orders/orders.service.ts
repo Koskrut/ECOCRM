@@ -20,8 +20,10 @@ import {
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import {
+  assertWarehouseOrderItemQtyUpdate,
   assertWarehouseOrderMutation,
   assertWarehouseOrderUpdate,
+  assertWarehouseSplitByStock,
   assertWarehouseStageTransition,
   WAREHOUSE_FULFILLMENT_QUEUE_STAGES,
 } from "./order-warehouse-role";
@@ -35,6 +37,10 @@ import type { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import type { UpdateOrderDto } from "./dto/update-order.dto";
 import {
   computeFinancialStatusFromOrder,
+  financialBoardDefaultWhere,
+  financialDueSoonWhere,
+  financialOverdueWhere,
+  financialStatusListWhere,
   legacyStatusToOrderStage,
   legacyStatusesForOrderStages,
   orderStageToDeliveryStatus,
@@ -316,12 +322,31 @@ export class OrdersService {
     } else if (q?.orderStage) {
       where.orderStage = q.orderStage as OrderStage;
     }
-    if (q?.financialStatus) where.financialStatus = q.financialStatus as OrderFinancialStatus;
-    if (q?.overdue === true) andWhere.push({ financialStatus: "OVERDUE" });
-    if (q?.dueSoon === true) andWhere.push({ financialStatus: "DUE_SOON" });
+    if (q?.financialStatus) {
+      andWhere.push(financialStatusListWhere(q.financialStatus as OrderFinancialStatus));
+    }
+    if (q?.overdue === true) andWhere.push(financialOverdueWhere());
+    if (q?.dueSoon === true) andWhere.push(financialDueSoonWhere());
+    if (
+      q?.financialBoard === true &&
+      !q?.financialStatus &&
+      q?.overdue !== true &&
+      q?.dueSoon !== true
+    ) {
+      andWhere.push(financialBoardDefaultWhere());
+    }
     if (q?.hasDebt === true) andWhere.push({ debtAmount: { gt: 0 } });
     if (q?.hasDueDate === true) andWhere.push({ paymentDueDate: { not: null } });
     if (q?.ownerId) where.ownerId = String(q.ownerId);
+    if (q?.warehouseIds) {
+      const warehouseIds = q.warehouseIds
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (warehouseIds.length > 0) {
+        where.warehouseId = { in: warehouseIds };
+      }
+    }
     if (actor?.role === UserRole.MANAGER) {
       where.OR = [{ ownerId: actor.id }, { orderSource: OrderSource.STORE }];
     }
@@ -492,6 +517,7 @@ export class OrdersService {
     const withRelations = q?.withCompanyClient === true;
     const include: Prisma.OrderInclude = {
       items: true,
+      warehouse: { select: { id: true, name: true } },
       _count: { select: { ttns: true, shipments: true } },
     };
     if (withRelations) {
@@ -531,10 +557,10 @@ export class OrdersService {
       productIds.length > 0
         ? await this.prisma.product.findMany({
             where: { id: { in: productIds } },
-            select: { id: true, sku: true },
+            select: { id: true, sku: true, name: true },
           })
         : [];
-    const productSkuById = new Map(products.map((product) => [product.id, product.sku]));
+    const productById = new Map(products.map((product) => [product.id, product]));
 
     const pageOrderIds = items.map((o) => o.id);
     const ttnSharedMeta = await this.computeTtnSharedAcrossOrdersMeta(pageOrderIds);
@@ -576,7 +602,14 @@ export class OrdersService {
           status: o.status,
           orderStage: o.orderStage ?? null,
           deliveryStatus: o.deliveryStatus ?? null,
-          financialStatus: o.financialStatus ?? null,
+          financialStatus: computeFinancialStatusFromOrder({
+            paymentType: o.paymentType,
+            paidAmount: o.paidAmount ?? 0,
+            totalAmount: o.totalAmount ?? 0,
+            debtAmount: o.debtAmount ?? 0,
+            paymentDueDate: o.paymentDueDate,
+            orderStage: o.orderStage,
+          }),
           paymentDueDate: o.paymentDueDate ?? null,
           totalAmount: o.totalAmount,
           returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
@@ -590,6 +623,12 @@ export class OrdersService {
           paymentMethod: o.paymentMethod ?? null,
           documentsRequested: o.documentsRequested ?? null,
           comment: o.comment ?? null,
+          warehouseId: o.warehouseId ?? null,
+          warehouse:
+            "warehouse" in o && o.warehouse
+              ? { id: o.warehouse.id, name: o.warehouse.name }
+              : null,
+          deliveryMethod: o.deliveryMethod ?? null,
           hasTtn: (o._count?.ttns ?? 0) > 0,
           ttnSharedAcrossOrders: ttnSharedMeta.get(o.id)?.shared === true,
           ttnSharedWithOrders:
@@ -605,10 +644,12 @@ export class OrdersService {
             productId: item.productId ?? null,
             productNameSnapshot: item.productNameSnapshot ?? null,
             qty: item.qty,
-            product:
-              item.productId && productSkuById.get(item.productId)
-                ? { sku: productSkuById.get(item.productId)! }
-                : null,
+            product: item.productId
+              ? (() => {
+                  const p = productById.get(item.productId!);
+                  return p ? { sku: p.sku, name: p.name } : null;
+                })()
+              : null,
           })),
           itemsCount: o.items.length,
           stockReadiness: stockReadinessByOrderId.get(o.id) ?? null,
@@ -657,10 +698,11 @@ export class OrdersService {
     };
   }
 
-  async listFulfillmentQueue(actor?: AuthUser) {
+  async listFulfillmentQueue(actor?: AuthUser, warehouseIds?: string) {
     const result = await this.list(
       {
         orderStages: WAREHOUSE_FULFILLMENT_QUEUE_STAGES.join(","),
+        warehouseIds: warehouseIds || undefined,
         page: 1,
         pageSize: 100,
         sortBy: "createdAt",
@@ -946,13 +988,13 @@ export class OrdersService {
     dto: { qty?: number; price?: number },
     actor?: AuthUser,
   ) {
-    assertWarehouseOrderMutation(actor, "update order item");
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, orderStage: true },
     });
     if (!order) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(order, actor);
+    assertWarehouseOrderItemQtyUpdate(actor, order.orderStage, dto);
 
     const item = await this.prisma.orderItem.findFirst({
       where: { id: itemId, orderId },
@@ -1061,6 +1103,7 @@ export class OrdersService {
     });
     if (!parent) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(parent, actor);
+    assertWarehouseSplitByStock(actor, parent.orderStage);
 
     const stage = parent.orderStage ?? "NEW";
     if (SPLIT_BLOCKED_ORDER_STAGES.includes(stage)) {

@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { UserMenu } from "@/components/UserMenu";
 import { ModulesProvider } from "@/lib/modules/useModules";
 import { ConfirmProvider, ToastProvider } from "@/components/feedback";
+import { KyivstarFmcShell } from "@/components/kyivstar/KyivstarIncomingCallDock";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -46,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <ModulesProvider>
       <ConfirmProvider>
         <ToastProvider>
+          <KyivstarFmcShell />
           <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
           {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}

@@ -39,3 +39,23 @@ export type LoginResponse = {
   token: string;
   user: AuthUserBrief;
 };
+
+export type FieldShiftStatus = "ACTIVE" | "ENDED";
+
+export type FieldShift = {
+  id: string;
+  ownerId: string;
+  date: string;
+  status: FieldShiftStatus;
+  startedAt: string;
+  endedAt: string | null;
+  trackingEnabled: boolean;
+  plannedDistanceKm: number | null;
+};
+
+export type LocationSampleInput = {
+  lat: number;
+  lng: number;
+  accuracyM?: number | null;
+  clientRecordedAt: string;
+};

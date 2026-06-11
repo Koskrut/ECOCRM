@@ -2,16 +2,33 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { apiHttp } from "@/lib/api/client";
 import { strings } from "@/locales";
 
-const links = [
-  { href: "/visits", label: strings.nav.visits, exact: true },
-  { href: "/visits/history", label: strings.nav.visitsHistory },
-  { href: "/visits/fuel", label: strings.nav.visitsFuel },
+const baseLinks = [
+  { href: "/visits", labelKey: "visits" as const, exact: true },
+  { href: "/visits/history", labelKey: "visitsHistory" as const },
+  { href: "/visits/fuel", labelKey: "visitsFuel" as const },
 ];
 
 export function VisitsSubNav() {
   const pathname = usePathname();
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((r) => setRole(r.data?.user?.role ?? null))
+      .catch(() => setRole(null));
+  }, []);
+
+  const links = [
+    ...baseLinks,
+    ...(role === "ADMIN" || role === "LEAD"
+      ? [{ href: "/visits/team", labelKey: "visitsTeam" as const, exact: false as const }]
+      : []),
+  ];
 
   return (
     <nav className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 pb-2">
@@ -29,7 +46,7 @@ export function VisitsSubNav() {
                 ? "bg-emerald-100 text-emerald-900"
                 : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
             }`}>
-            {link.label}
+            {strings.nav[link.labelKey]}
           </Link>
         );
       })}

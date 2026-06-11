@@ -11,7 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
-import { assertCanAccessOwner } from "../visits/visits-owner-scope";
+import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner-scope";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -352,9 +352,12 @@ export class FieldFuelService {
     actor: AuthUser | undefined,
     dateStr: string,
     body: { compensationStatus?: FuelCompensationStatus; managerNote?: string | null },
+    requestedOwnerId?: string,
   ) {
     if (!actor) throw new BadRequestException("User is required");
-    const ownerId = actor.id;
+    const ownerId = await this.resolveOwnerId(actor, requestedOwnerId);
+    const isSelf = ownerId === actor.id;
+    const isSupervisor = actor.role === UserRole.ADMIN || actor.role === UserRole.LEAD;
     const date = this.parseUtcDay(dateStr);
 
     const existing = await this.prisma.fuelDayReport.findUnique({
@@ -364,25 +367,51 @@ export class FieldFuelService {
       throw new BadRequestException("Fuel report not found; recalculate first");
     }
 
-    if (
-      existing.compensationStatus !== FuelCompensationStatus.DRAFT &&
-      body.compensationStatus === FuelCompensationStatus.SUBMITTED
+    const nextStatus = body.compensationStatus;
+    if (nextStatus === FuelCompensationStatus.SUBMITTED) {
+      if (!isSelf) {
+        throw new ForbiddenException("Only the report owner can submit");
+      }
+      if (
+        existing.compensationStatus !== FuelCompensationStatus.DRAFT &&
+        existing.compensationStatus !== FuelCompensationStatus.REJECTED
+      ) {
+        throw new BadRequestException("Report already submitted");
+      }
+    } else if (
+      nextStatus === FuelCompensationStatus.APPROVED ||
+      nextStatus === FuelCompensationStatus.REJECTED
     ) {
-      throw new BadRequestException("Report already submitted");
+      if (!isSupervisor) {
+        throw new ForbiddenException("Only a lead or admin can approve or reject");
+      }
+      if (existing.compensationStatus !== FuelCompensationStatus.SUBMITTED) {
+        throw new BadRequestException("Report must be submitted before approval");
+      }
+    } else if (nextStatus === FuelCompensationStatus.PAID) {
+      if (actor.role !== UserRole.ADMIN) {
+        throw new ForbiddenException("Only admin can mark as paid");
+      }
+      if (existing.compensationStatus !== FuelCompensationStatus.APPROVED) {
+        throw new BadRequestException("Report must be approved before paid");
+      }
     }
 
     const data: Prisma.FuelDayReportUpdateInput = {};
     if (body.managerNote !== undefined) {
+      if (!isSelf && !isSupervisor) {
+        throw new ForbiddenException("Cannot update note for this report");
+      }
       data.managerNote = body.managerNote;
     }
-    if (body.compensationStatus === FuelCompensationStatus.SUBMITTED) {
+    if (nextStatus === FuelCompensationStatus.SUBMITTED) {
       if (existing.compensationKm == null) {
         throw new BadRequestException("Cannot submit without calculated distance");
       }
       data.compensationStatus = FuelCompensationStatus.SUBMITTED;
       data.submittedAt = new Date();
-    } else if (body.compensationStatus) {
-      data.compensationStatus = body.compensationStatus;
+    } else if (nextStatus) {
+      data.compensationStatus = nextStatus;
     }
 
     const report = await this.prisma.fuelDayReport.update({
@@ -391,6 +420,46 @@ export class FieldFuelService {
     });
     const profile = await this.getOrCreateProfile(ownerId);
     return { report, profile };
+  }
+
+  async getPending(
+    actor: AuthUser | undefined,
+    fromStr: string,
+    toStr: string,
+  ) {
+    if (!actor) throw new BadRequestException("User is required");
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
+      throw new ForbiddenException("Only lead or admin can list pending fuel reports");
+    }
+    const from = this.parseUtcDay(fromStr);
+    const to = this.parseUtcDay(toStr);
+    if (to < from) {
+      throw new BadRequestException("from must be <= to");
+    }
+    const allowed = await getAllowedOwnerIds(this.prisma, actor);
+    const ownerFilter: Prisma.FuelDayReportWhereInput["ownerId"] =
+      allowed === "all" ? undefined : { in: allowed };
+
+    const reports = await this.prisma.fuelDayReport.findMany({
+      where: {
+        compensationStatus: FuelCompensationStatus.SUBMITTED,
+        date: { gte: from, lte: to },
+        ...(ownerFilter != null ? { ownerId: ownerFilter } : {}),
+      },
+      include: {
+        owner: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: [{ submittedAt: "desc" }, { date: "desc" }],
+    });
+
+    return {
+      from: fromStr,
+      to: toStr,
+      items: reports.map((r) => ({
+        report: r,
+        owner: r.owner,
+      })),
+    };
   }
 
   private enumerateDateStrings(fromStr: string, toStr: string): string[] {

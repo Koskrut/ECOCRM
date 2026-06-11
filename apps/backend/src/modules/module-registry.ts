@@ -178,6 +178,21 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  // RU: in_process; при KYIVSTAR_FMC_UPSTREAM_URL — kyivstar_fmc_worker и regex-прокси /integrations/kyivstar-fmc, /settings/kyivstar-fmc.
+  [ModuleIds.KyivstarFmc]: defineModule({
+    id: ModuleIds.KyivstarFmc,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "Kyivstar FMC",
+    description:
+      "Kyivstar Virtual Mobile PBX (Generic FMC API): call history import, callstate webhooks, recordings.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.KyivstarFmc,
+      bundleSelectable: true,
+    },
+  }),
   [ModuleIds.Privat24]: defineModule({
     id: ModuleIds.Privat24,
     kind: "integration" satisfies ModuleKind,

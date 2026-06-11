@@ -96,6 +96,16 @@ export const MODULE_UPSTREAM_REGEX_MOUNTS: Array<{
     test: (p) => /^\/settings\/ringostat(\/|$)/.test(p),
   },
   {
+    moduleId: "int.kyivstar_fmc" as ModuleId,
+    envVar: "KYIVSTAR_FMC_UPSTREAM_URL",
+    test: (p) => /^\/integrations\/kyivstar-fmc(\/|$)/.test(p),
+  },
+  {
+    moduleId: "int.kyivstar_fmc" as ModuleId,
+    envVar: "KYIVSTAR_FMC_UPSTREAM_URL",
+    test: (p) => /^\/settings\/kyivstar-fmc(\/|$)/.test(p),
+  },
+  {
     moduleId: "int.nova_poshta" as ModuleId,
     envVar: "NP_UPSTREAM_URL",
     test: (p) => /^\/orders\/[^/]+\/np\/ttn(\/|$)/.test(p),

@@ -96,6 +96,11 @@ export class ListOrdersQueryDto {
   @IsString()
   ownerId?: string;
 
+  /** Comma-separated warehouse ids (e.g. seed-wh-dnipro,seed-wh-odesa). */
+  @IsOptional()
+  @IsString()
+  warehouseIds?: string;
+
   @IsOptional()
   @IsString()
   q?: string;

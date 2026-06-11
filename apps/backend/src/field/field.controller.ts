@@ -26,7 +26,13 @@ export class FieldController {
   ) {}
 
   @Get("shifts/active")
-  async activeShift(@Req() req: Request & { user?: AuthUser }) {
+  async activeShift(
+    @Query("scope") scope: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (scope === "team") {
+      return this.shifts.getActiveTeam(req.user);
+    }
     const shift = await this.shifts.getActive(req.user);
     return { shift };
   }
@@ -50,6 +56,20 @@ export class FieldController {
   async endShift(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     const shift = await this.shifts.end(req.user, id);
     return { shift };
+  }
+
+  @Get("shifts/:id/samples")
+  async listSamples(
+    @Param("id") id: string,
+    @Query("since") since: string | undefined,
+    @Query("limit") limit: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const parsedLimit = limit != null ? Number(limit) : undefined;
+    return this.shifts.getSamples(req.user, id, {
+      since,
+      limit: parsedLimit,
+    });
   }
 
   @Post("shifts/:id/samples")
@@ -99,6 +119,7 @@ export class FieldController {
   @Patch("fuel/day")
   async fuelPatchDay(
     @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
     @Body()
     body: { compensationStatus?: FuelCompensationStatus; managerNote?: string | null },
     @Req() req: Request & { user?: AuthUser },
@@ -106,7 +127,19 @@ export class FieldController {
     if (!date) {
       throw new BadRequestException("date is required");
     }
-    return this.fuel.patchDay(req.user, date, body);
+    return this.fuel.patchDay(req.user, date, body, ownerId);
+  }
+
+  @Get("fuel/pending")
+  async fuelPending(
+    @Query("from") from: string,
+    @Query("to") to: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!from || !to) {
+      throw new BadRequestException("from and to are required");
+    }
+    return this.fuel.getPending(req.user, from, to);
   }
 
   @Get("fuel/range")

@@ -11,6 +11,7 @@ import {
   leadRootSlotForLeadUser,
 } from "./org-chart-region-resolver";
 import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
+import { KYIVSTAR_FMC_PROVIDER } from "../integrations/kyivstar-fmc/kyivstar-fmc-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 import { NOVA_POSHTA_INTEGRATION_PROVIDER } from "../np/np.constants";
 
@@ -242,6 +243,25 @@ export type RingostatConfig = {
   apiBaseUrl?: string;
   pollingEndpoint?: string;
   /** Public URL of backend for webhook (e.g. ngrok). Shown in UI. */
+  publicBaseUrl?: string;
+};
+
+/** Kyivstar Virtual Mobile PBX — Generic FMC API (IntegrationSetting row). */
+export type KyivstarFmcConfig = {
+  isEnabled?: boolean;
+  /** Remote token — Kyivstar sends it as Bearer on /callstate webhook. */
+  webhookSecret?: string;
+  /** FMC token from Kyivstar CRM Integration portal (Bearer for FMC API). */
+  apiToken?: string;
+  /** Integrator ID from Kyivstar (query param integrator_id). */
+  integratorId?: string;
+  useWebhook?: boolean;
+  usePolling?: boolean;
+  pollingLookbackMinutes?: number;
+  phonesToUserId?: Record<string, string>;
+  defaultManagerId?: string;
+  apiBaseUrl?: string;
+  /** Public base URL shown in UI; Kyivstar appends /callstate. */
   publicBaseUrl?: string;
 };
 
@@ -924,6 +944,125 @@ export class SettingsService {
       projectId: nextConfig.projectId,
       apiBaseUrl: nextConfig.apiBaseUrl,
       pollingEndpoint: nextConfig.pollingEndpoint,
+      publicBaseUrl: nextConfig.publicBaseUrl,
+      webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
+      apiTokenMasked: maskToken(row.apiToken ?? undefined),
+    };
+  }
+
+  async getKyivstarFmcConfig(): Promise<
+    KyivstarFmcConfig & { webhookSecretMasked?: string; apiTokenMasked?: string }
+  > {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: KYIVSTAR_FMC_PROVIDER },
+    });
+    if (!row) {
+      return {
+        isEnabled: false,
+        useWebhook: true,
+        usePolling: true,
+        pollingLookbackMinutes: 15,
+        phonesToUserId: {},
+        webhookSecretMasked: "",
+        apiTokenMasked: "",
+      };
+    }
+
+    const cfg = (row.config ?? {}) as KyivstarFmcConfig;
+    return {
+      isEnabled: row.isEnabled,
+      useWebhook: cfg.useWebhook ?? true,
+      usePolling: cfg.usePolling ?? true,
+      pollingLookbackMinutes: cfg.pollingLookbackMinutes ?? 15,
+      phonesToUserId: cfg.phonesToUserId ?? {},
+      defaultManagerId: cfg.defaultManagerId,
+      integratorId: cfg.integratorId,
+      apiBaseUrl: cfg.apiBaseUrl,
+      publicBaseUrl: cfg.publicBaseUrl,
+      webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
+      apiTokenMasked: maskToken(row.apiToken ?? undefined),
+    };
+  }
+
+  async setKyivstarFmcConfig(
+    body: Partial<KyivstarFmcConfig>,
+  ): Promise<KyivstarFmcConfig & { webhookSecretMasked?: string; apiTokenMasked?: string }> {
+    const existing = await this.prisma.integrationSetting.findFirst({
+      where: { provider: KYIVSTAR_FMC_PROVIDER },
+    });
+
+    const currentConfig = (existing?.config ?? {}) as KyivstarFmcConfig;
+    const nextConfig: KyivstarFmcConfig = {
+      useWebhook:
+        typeof body.useWebhook === "boolean" ? body.useWebhook : currentConfig.useWebhook ?? true,
+      usePolling:
+        typeof body.usePolling === "boolean" ? body.usePolling : currentConfig.usePolling ?? true,
+      pollingLookbackMinutes:
+        typeof body.pollingLookbackMinutes === "number"
+          ? body.pollingLookbackMinutes
+          : currentConfig.pollingLookbackMinutes ?? 15,
+      phonesToUserId:
+        typeof body.phonesToUserId === "object" && body.phonesToUserId
+          ? body.phonesToUserId
+          : currentConfig.phonesToUserId ?? {},
+      defaultManagerId:
+        body.defaultManagerId !== undefined
+          ? body.defaultManagerId || undefined
+          : currentConfig.defaultManagerId,
+      integratorId:
+        typeof body.integratorId === "string"
+          ? body.integratorId.trim() || undefined
+          : currentConfig.integratorId ?? undefined,
+      apiBaseUrl:
+        typeof body.apiBaseUrl === "string"
+          ? body.apiBaseUrl.trim() || undefined
+          : currentConfig.apiBaseUrl ?? undefined,
+      publicBaseUrl:
+        typeof body.publicBaseUrl === "string"
+          ? body.publicBaseUrl.trim() || undefined
+          : currentConfig.publicBaseUrl ?? undefined,
+    };
+
+    const isEnabled =
+      typeof body.isEnabled === "boolean" ? body.isEnabled : existing?.isEnabled ?? false;
+
+    let webhookSecret =
+      typeof body.webhookSecret === "string"
+        ? body.webhookSecret
+        : existing?.webhookSecret ?? null;
+    if (body.webhookSecret === "") webhookSecret = null;
+
+    let apiToken =
+      typeof body.apiToken === "string" ? body.apiToken : existing?.apiToken ?? null;
+    if (body.apiToken === "") apiToken = null;
+
+    const row = await this.prisma.integrationSetting.upsert({
+      where: existing ? { id: existing.id } : { id: "kyivstar_fmc_default" },
+      create: {
+        id: existing?.id ?? "kyivstar_fmc_default",
+        provider: KYIVSTAR_FMC_PROVIDER,
+        isEnabled,
+        webhookSecret,
+        apiToken,
+        config: nextConfig as Prisma.InputJsonValue,
+      },
+      update: {
+        isEnabled,
+        webhookSecret,
+        apiToken,
+        config: nextConfig as Prisma.InputJsonValue,
+      },
+    });
+
+    return {
+      isEnabled: row.isEnabled,
+      useWebhook: nextConfig.useWebhook,
+      usePolling: nextConfig.usePolling,
+      pollingLookbackMinutes: nextConfig.pollingLookbackMinutes,
+      phonesToUserId: nextConfig.phonesToUserId,
+      defaultManagerId: nextConfig.defaultManagerId,
+      integratorId: nextConfig.integratorId,
+      apiBaseUrl: nextConfig.apiBaseUrl,
       publicBaseUrl: nextConfig.publicBaseUrl,
       webhookSecretMasked: maskToken(row.webhookSecret ?? undefined),
       apiTokenMasked: maskToken(row.apiToken ?? undefined),

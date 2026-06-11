@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without leading v, for example 0.2.78"
+        description: "Release version without leading v, for example 0.2.79"
         required: true
         type: string
       channel:
@@ -25,7 +25,7 @@ on:
         type: boolean
         default: false
       modules:
-        description: "Comma-separated module slugs: outbound, google-sheet, ringostat, bitrix, np, finance, planning. Leave empty: no extra module images for 0.1.x; for 0.2.x (tag or dispatch) empty means build all."
+        description: "Comma-separated module slugs: outbound, google-sheet, ringostat, bitrix, np, finance, planning, kyivstar-fmc. Leave empty: no extra module images for 0.1.x; for 0.2.x (tag or dispatch) empty means build all."
         required: false
         default: ""
         type: string
@@ -181,7 +181,7 @@ jobs:
           RAW="${RAW_MODULES:-}"
           # Empty CSV: for 0.2.x line, build all optional module images (tag push has no inputs; dispatch may omit modules).
           if [ -z "$RAW" ] && echo "$VERSION" | grep -qE '^0\.2\.'; then
-            RAW="outbound,google-sheet,ringostat,bitrix,np,finance,planning"
+            RAW="outbound,google-sheet,ringostat,bitrix,np,finance,planning,kyivstar-fmc"
           fi
           RESOLVED=$(node scripts/resolve-modules-csv.mjs "$RAW" "${LEG}")
           echo "csv=${RESOLVED}" >> "$GITHUB_OUTPUT"

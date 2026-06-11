@@ -1,10 +1,7 @@
 import Link from "next/link";
-import { PRODUCT_GROUPS } from "@/lib/categories";
+import { IMPLANT_SYSTEM_GROUPS } from "@/lib/categories";
 
 export function PopularSystems() {
-  // Taking a selection of popular product systems to feature on the homepage
-  const topSystems = PRODUCT_GROUPS.slice(1, 7);
-
   return (
     <section id="catalog" className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
       <div className="flex items-center justify-between mb-8">
@@ -12,8 +9,8 @@ export function PopularSystems() {
           Популярні системи імплантатів
         </h2>
       </div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        {topSystems.map((sys) => (
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        {IMPLANT_SYSTEM_GROUPS.map((sys) => (
           <Link
             key={sys.id}
             href={`/?category=${sys.id}`}

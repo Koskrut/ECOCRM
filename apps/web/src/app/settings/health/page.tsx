@@ -57,7 +57,18 @@ function updateSubtitle(status: UpdateStatus | null, job: UpdateJob | null): str
   if (status.canUpdate && status.targetVersion) {
     return "Натисніть «Оновити» — система зробить решту сама.";
   }
+  if (status.state === "idle") return "Нових оновлень не знайдено.";
   return null;
+}
+
+function formatCheckedAt(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("uk-UA", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(
+      new Date(iso),
+    );
+  } catch {
+    return iso;
+  }
 }
 
 export default function SettingsHealthPage() {
@@ -70,6 +81,8 @@ export default function SettingsHealthPage() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [job, setJob] = useState<UpdateJob | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -107,6 +120,7 @@ export default function SettingsHealthPage() {
         setModules(d.data);
         setControlPlane(e.data);
         setUpdateStatus(f.data ?? null);
+        setLastCheckedAt(new Date().toISOString());
       })
       .catch(() => {
         if (!cancelled) setErr("Не вдалося завантажити системний стан.");
@@ -145,11 +159,22 @@ export default function SettingsHealthPage() {
   }, [updateStatus?.activeJobId]);
 
   async function refreshUpdateStatus() {
+    setIsRefreshing(true);
+    setErr(null);
     try {
-      const res = await apiHttp.get<UpdateStatus>("/system/update-status");
-      setUpdateStatus(res.data ?? null);
+      const [releaseRes, cpRes, statusRes] = await Promise.all([
+        apiHttp.get("/system/release"),
+        apiHttp.get("/system/control-plane"),
+        apiHttp.get<UpdateStatus>("/system/update-status"),
+      ]);
+      setRelease(releaseRes.data);
+      setControlPlane(cpRes.data);
+      setUpdateStatus(statusRes.data ?? null);
+      setLastCheckedAt(new Date().toISOString());
     } catch (e) {
       setErr(getUserFriendlyApiError(e, "Не вдалося перевірити оновлення."));
+    } finally {
+      setIsRefreshing(false);
     }
   }
 
@@ -208,14 +233,20 @@ export default function SettingsHealthPage() {
             {isBusy ? (
               <p className="mt-3 text-xs text-zinc-500">Зачекайте, не закривайте сторінку під час оновлення.</p>
             ) : null}
-            {!canUpdateNow && !isBusy && updateStatus && updateStatus.state !== "up_to_date" ? (
-              <button
-                type="button"
-                onClick={refreshUpdateStatus}
-                className="mt-3 text-xs text-zinc-500 underline hover:text-zinc-800"
-              >
-                Перевірити знову
-              </button>
+            {!canUpdateNow && !isBusy ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <button
+                  type="button"
+                  onClick={() => void refreshUpdateStatus()}
+                  disabled={isRefreshing}
+                  className="text-xs text-zinc-500 underline hover:text-zinc-800 disabled:cursor-wait disabled:no-underline disabled:opacity-60"
+                >
+                  {isRefreshing ? "Перевірка…" : "Перевірити знову"}
+                </button>
+                {lastCheckedAt ? (
+                  <span className="text-xs text-zinc-400">Остання перевірка: {formatCheckedAt(lastCheckedAt)}</span>
+                ) : null}
+              </div>
             ) : null}
           </section>
           <button

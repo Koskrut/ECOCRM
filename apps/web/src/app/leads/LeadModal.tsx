@@ -12,6 +12,7 @@ import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay, formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
+import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
 import { formatDateTime } from "@/lib/crmDatetime";
@@ -1153,29 +1154,32 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-phone">
               Телефон
             </label>
-            <input
-              id="lead-phone"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              className={LEAD_FIELD_CLASS}
-              placeholder="+38 (0__) ___-__-__"
-              value={editPhone}
-              onChange={(e) => setEditPhone(formatPhoneInputMask(e.target.value))}
-              onBlur={() => {
-                const prev = normalizePhone(lead.phone ?? "") ?? lead.phone ?? null;
-                const next = normalizePhone(editPhone);
-                const empty = editPhone.replace(/\D/g, "").length === 0;
-                if (empty) {
-                  if (prev) void patchLead({ phone: null });
-                  return;
-                }
-                if (next && next !== prev) {
-                  void patchLead({ phone: next });
-                }
-              }}
-              disabled={saving}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                id="lead-phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                className={`${LEAD_FIELD_CLASS} min-w-[12rem] flex-1`}
+                placeholder="+38 (0__) ___-__-__"
+                value={editPhone}
+                onChange={(e) => setEditPhone(formatPhoneInputMask(e.target.value))}
+                onBlur={() => {
+                  const prev = normalizePhone(lead.phone ?? "") ?? lead.phone ?? null;
+                  const next = normalizePhone(editPhone);
+                  const empty = editPhone.replace(/\D/g, "").length === 0;
+                  if (empty) {
+                    if (prev) void patchLead({ phone: null });
+                    return;
+                  }
+                  if (next && next !== prev) {
+                    void patchLead({ phone: next });
+                  }
+                }}
+                disabled={saving}
+              />
+              {lead.phone ? <KyivstarDialButton phone={lead.phone} size="md" /> : null}
+            </div>
           </div>
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-email">

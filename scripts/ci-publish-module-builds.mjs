@@ -72,6 +72,14 @@ const MAP = {
     serviceName: "backend-planning",
     compose: ["compose.modules.planning.yml", "compose.modules.planning-sidecar.yml"],
   },
+  "kyivstar-fmc": {
+    target: "kyivstar-fmc-runner",
+    imageName: "crm-module-kyivstar-fmc",
+    role: "module",
+    moduleCode: "int.kyivstar_fmc",
+    serviceName: "backend-kyivstar-fmc",
+    compose: ["compose.modules.kyivstar-fmc-sidecar.yml"],
+  },
 };
 
 function run(cmd, args, opts = {}) {

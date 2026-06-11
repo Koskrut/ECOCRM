@@ -13,6 +13,7 @@ const ModuleIds = {
   GoogleSheet: "int.google_sheet",
   Bitrix: "int.bitrix",
   Ringostat: "int.ringostat",
+  KyivstarFmc: "int.kyivstar_fmc",
   Privat24: "int.privat24",
   Upc: "int.upc",
 };

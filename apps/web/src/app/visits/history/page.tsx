@@ -14,6 +14,8 @@ import {
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
+import { ManagerSelect } from "@/components/visits/ManagerSelect";
+import { todayYmdInKyiv } from "@/lib/crmDatetime";
 import { VisitsSubNav } from "../VisitsSubNav";
 import {
   calendarCells,
@@ -461,23 +463,16 @@ export default function VisitsHistoryPage() {
             {showOwnerFilter ? (
               <div>
                 <label className="block text-xs font-medium text-zinc-600">Менеджер</label>
-                <select
+                <ManagerSelect
+                  users={users}
                   value={ownerId}
-                  onChange={(e) => {
+                  onChange={(id) => {
                     setPage(1);
-                    setOwnerId(e.target.value);
+                    setOwnerId(id);
                   }}
-                  className="mt-0.5 min-w-[200px] rounded border border-zinc-200 px-2 py-1.5 text-sm"
-                >
-                  <option value="">Все доступные</option>
-                  {users
-                    .filter((u) => u.role === "MANAGER" || u.role === "USER" || u.role === "LEAD")
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.fullName || u.email}
-                      </option>
-                    ))}
-                </select>
+                  allOptionLabel="Все доступные"
+                  className="mt-0.5 min-w-[200px]"
+                />
               </div>
             ) : null}
             <div>
@@ -517,6 +512,15 @@ export default function VisitsHistoryPage() {
                 <h2 className="text-sm font-semibold text-zinc-900">
                   Маршрут за {mapDateKey}
                 </h2>
+                {showOwnerFilter &&
+                mapOwnerId &&
+                mapDateKey === todayYmdInKyiv() ? (
+                  <Link
+                    href={`/visits/team?owner=${mapOwnerId}`}
+                    className="mt-1 inline-block text-xs font-medium text-blue-700 hover:underline">
+                    Відкрити live-карту команди
+                  </Link>
+                ) : null}
                 {showOwnerFilter && !ownerId ? (
                   <p className="mt-1 text-xs text-amber-700">
                     Выберите менеджера, чтобы увидеть его маршрут.

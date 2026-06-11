@@ -22,6 +22,7 @@ export function settingsHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/settings/upc")) return ModuleIds.Upc;
   if (href.startsWith("/settings/google-sheet")) return ModuleIds.GoogleSheet;
   if (href.startsWith("/settings/ringostat")) return ModuleIds.Ringostat;
+  if (href.startsWith("/settings/kyivstar-fmc")) return ModuleIds.KyivstarFmc;
   if (href.startsWith("/settings/nova-poshta")) return ModuleIds.NovaPoshta;
   if (href.startsWith("/settings/outbound-voice")) return ModuleIds.VoiceOutbound;
   if (href.startsWith("/settings/telegram")) return ModuleIds.IntegrationsTelegram;

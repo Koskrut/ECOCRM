@@ -28,6 +28,7 @@ import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { ContactCardHeader } from "./card/ContactCardHeader";
 import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
+import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
 import { formatContactClientStage } from "./contact-formatters";
 import { resolveCityFromGoogleAddress } from "@/lib/contact-address.util";
@@ -1795,6 +1796,17 @@ export function ContactModal({
           }}
           onRegisterCancel={registerCancel}
         />
+        {contact.phone ? (
+          <div className="flex flex-wrap items-center gap-2 pl-1">
+            <KyivstarDialButton phone={contact.phone} size="md" label="Click2Dial Kyivstar" />
+            <a
+              href={`tel:${contact.phone}`}
+              className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+            >
+              або звичайний tel:
+            </a>
+          </div>
+        ) : null}
         {!isCreate && (
           <ContactPhonesSection
             contactId={contact.id}
@@ -2535,8 +2547,13 @@ export function ContactModal({
                           : "pointer-events-none text-zinc-400"
                       }`}
                     >
-                      Позвонить
+                      Позвонить (tel)
                     </a>
+                    {contact?.phone ? (
+                      <div className="px-2 py-2">
+                        <KyivstarDialButton phone={contact.phone} size="md" className="w-full justify-center" />
+                      </div>
+                    ) : null}
                     <a
                       href={contact?.email ? `mailto:${contact.email}` : undefined}
                       className={`block rounded px-2 py-2 text-sm ${

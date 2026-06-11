@@ -84,9 +84,11 @@ function resolveFinancialStatus(o: FinancialOrder): FinancialStatus {
 export function FinancialKanban({
   onOpenOrder,
   filters,
+  refreshKey = 0,
 }: {
   onOpenOrder: (id: string) => void;
   filters?: FinancialFilters;
+  refreshKey?: number;
 }) {
   const [list, setList] = useState<FinancialListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -139,7 +141,7 @@ export function FinancialKanban({
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const columns = useMemo(() => {
     const items = list?.items ?? [];
@@ -154,6 +156,14 @@ export function FinancialKanban({
     for (const o of items) {
       const st = resolveFinancialStatus(o);
       map[st].push(o);
+    }
+    const dueSort = (a: FinancialOrder, b: FinancialOrder) => {
+      const aDue = a.paymentDueDate ? new Date(a.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = b.paymentDueDate ? new Date(b.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue;
+    };
+    for (const st of COLUMN_ORDER) {
+      map[st].sort(dueSort);
     }
     return COLUMN_ORDER.map((id) => ({
       id,

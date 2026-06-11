@@ -7,6 +7,8 @@ import "react-native-reanimated";
 
 import { useColorScheme } from "@/components/useColorScheme";
 import { AuthProvider, useAuth } from "@/context/auth-context";
+import { ShiftTrackingProvider } from "@/context/shift-tracking-context";
+import "@/lib/location-tracking-task";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -49,9 +51,11 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <RouteGuard>
-        <RootLayoutNav />
-      </RouteGuard>
+      <ShiftTrackingProvider>
+        <RouteGuard>
+          <RootLayoutNav />
+        </RouteGuard>
+      </ShiftTrackingProvider>
     </AuthProvider>
   );
 }

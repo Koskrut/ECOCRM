@@ -1,5 +1,6 @@
 /**
  * Product group IDs (SKU prefix) → display name. Aligned with store catalog.
+ * Keep in sync with apps/store/src/lib/categories.ts.
  */
 export const PRODUCT_GROUP_NAMES: Record<string, string> = {
   "00": "Викрутки SUPREX",

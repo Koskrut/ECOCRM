@@ -29,6 +29,7 @@ import { TasksModule } from "./tasks/tasks.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
+import { KyivstarFmcModule } from "./integrations/kyivstar-fmc/kyivstar-fmc.module";
 import { UpcModule } from "./integrations/upc/upc.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
@@ -83,6 +84,7 @@ import { FieldModule } from "./field/field.module";
     Privat24Module,
     UpcModule,
     RingostatModule,
+    KyivstarFmcModule,
     BitrixSyncModule,
     BitrixWebhookModule,
     GoogleSheetModule,

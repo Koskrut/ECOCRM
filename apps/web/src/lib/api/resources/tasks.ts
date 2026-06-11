@@ -2,6 +2,21 @@ import { apiHttp } from "../client";
 
 export type TaskStatus = "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELED";
 
+/** Statuses shown in default task inbox (open work queue). */
+export const ACTIVE_TASK_STATUSES: TaskStatus[] = ["OPEN", "IN_PROGRESS"];
+
+export type TaskStatusFilter = "active" | "all" | TaskStatus;
+
+export function resolveTaskListStatus(
+  statusFilter: TaskStatusFilter,
+  periodStatus?: TaskStatus[],
+): TaskStatus | TaskStatus[] | undefined {
+  if (periodStatus) return periodStatus;
+  if (statusFilter === "active") return ACTIVE_TASK_STATUSES;
+  if (statusFilter === "all") return undefined;
+  return statusFilter;
+}
+
 export type Task = {
   id: string;
   assigneeId: string;

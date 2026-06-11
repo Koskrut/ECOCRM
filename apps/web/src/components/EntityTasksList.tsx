@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { tasksApi, type Task, type TaskStatus } from "@/lib/api/resources/tasks";
+import { tasksApi, ACTIVE_TASK_STATUSES, type Task, type TaskStatus } from "@/lib/api/resources/tasks";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { apiHttp } from "@/lib/api/client";
 import { authApi } from "@/lib/api/resources/auth";
@@ -11,7 +11,7 @@ type Props = {
   companyId?: string | null;
   leadId?: string | null;
   orderId?: string | null;
-  /** Called after list loads or changes (total from API). */
+  /** Called after list loads or changes (active/open task count). */
   onCountChange?: (total: number) => void;
 };
 
@@ -38,6 +38,7 @@ export function EntityTasksList({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  const [showClosed, setShowClosed] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDueAt, setNewDueAt] = useState("");
   const [newBody, setNewBody] = useState("");
@@ -68,6 +69,16 @@ export function EntityTasksList({
     if (companyId) q.companyId = companyId;
     if (leadId) q.leadId = leadId;
     if (orderId) q.orderId = orderId;
+    if (!showClosed) q.status = ACTIVE_TASK_STATUSES;
+    return q;
+  }, [contactId, companyId, leadId, orderId, showClosed]);
+
+  const activeCountQuery = useCallback(() => {
+    const q: Parameters<typeof tasksApi.list>[0] = { pageSize: 1, status: ACTIVE_TASK_STATUSES };
+    if (contactId) q.contactId = contactId;
+    if (companyId) q.companyId = companyId;
+    if (leadId) q.leadId = leadId;
+    if (orderId) q.orderId = orderId;
     return q;
   }, [contactId, companyId, leadId, orderId]);
 
@@ -84,10 +95,13 @@ export function EntityTasksList({
     setLoading(true);
     setErr(null);
     try {
-      const res = await tasksApi.list(query());
+      const [res, activeRes] = await Promise.all([
+        tasksApi.list(query()),
+        tasksApi.list(activeCountQuery()),
+      ]);
       setItems(res.items);
       setTotal(res.total);
-      onCountChange?.(res.total);
+      onCountChange?.(activeRes.total);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load tasks");
       setItems([]);
@@ -96,7 +110,7 @@ export function EntityTasksList({
     } finally {
       setLoading(false);
     }
-  }, [hasEntity, query, onCountChange]);
+  }, [hasEntity, query, activeCountQuery, onCountChange]);
 
   useEffect(() => {
     void load();
@@ -218,10 +232,25 @@ export function EntityTasksList({
         </div>
       )}
 
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-zinc-700">
+          {showClosed ? "All tasks" : "Active tasks"}
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowClosed((v) => !v)}
+          className="text-sm text-zinc-600 underline hover:text-zinc-900"
+        >
+          {showClosed ? "Hide closed" : "Show closed"}
+        </button>
+      </div>
+
       {loading ? (
         <p className="text-sm text-zinc-500">Loading tasks…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-zinc-500">No tasks yet.</p>
+        <p className="text-sm text-zinc-500">
+          {showClosed ? "No tasks yet." : "No active tasks."}
+        </p>
       ) : (
         <ul className="space-y-2">
           {items.map((task) => (
