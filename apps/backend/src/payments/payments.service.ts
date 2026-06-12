@@ -12,6 +12,7 @@ import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
+import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AllocatePaymentDto } from "./dto/allocate-payment.dto";
 import type { AllocateSplitDto } from "./dto/allocate-split.dto";
@@ -613,10 +614,13 @@ export class PaymentsService {
       where: { id: orderId },
       select: {
         totalAmount: true,
+        subtotalAmount: true,
+        paidAmount: true,
         returnAdjustmentAmount: true,
         paymentType: true,
         paymentDueDate: true,
         orderStage: true,
+        debtAmount: true,
       },
     });
     if (!order) return;
@@ -634,7 +638,19 @@ export class PaymentsService {
     });
 
     const stage = order.orderStage ?? null;
-    const autoComplete = stage === "RECEIVED" && debtAmount <= 0.00001;
+    let autoComplete = stage === "RECEIVED" && debtAmount <= 0.00001;
+    if (autoComplete) {
+      const blockers = await getOrderCompletionBlockers(this.prisma, orderId, {
+        paymentType: order.paymentType,
+        paidAmount,
+        totalAmount: order.totalAmount,
+        subtotalAmount: order.subtotalAmount ?? 0,
+        debtAmount,
+        returnAdjustmentAmount: order.returnAdjustmentAmount,
+        paymentDueDate: order.paymentDueDate,
+      });
+      autoComplete = blockers.length === 0;
+    }
     const nextStage = autoComplete ? "COMPLETED" : stage;
     const deliveryStatus = nextStage
       ? orderStageToDeliveryStatus(nextStage as import("@prisma/client").OrderStage)

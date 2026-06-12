@@ -52,6 +52,7 @@ export const MODULE_UPSTREAM_STATIC_MOUNTS: ModuleUpstreamMount[] = [
       "/public/payment-requests",
       "/payment-requests",
       "/payments",
+      "/client-balances",
       "/bank",
       "/integrations/privat24",
       "/integrations/upc",

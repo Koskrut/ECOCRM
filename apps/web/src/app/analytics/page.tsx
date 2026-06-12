@@ -29,14 +29,16 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (role !== "ADMIN") {
+  const canAccess = role === "ADMIN" || role === "LEAD";
+
+  if (!canAccess) {
     return (
       <div className="min-h-screen bg-zinc-50 p-6">
         <div className="mx-auto max-w-6xl">
           <div className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">
             <h1 className="text-xl font-semibold text-zinc-900">Доступ заборонено</h1>
             <p className="mt-2 text-sm text-zinc-600">
-              Розділ «Аналітика» доступний лише для адміністратора.
+              Розділ «Аналітика» доступний лише для адміністратора та керівника команди.
             </p>
             <Link
               href="/"

@@ -103,4 +103,54 @@ describe("OrdersService.setOrderStage", () => {
       BadRequestException,
     );
   });
+
+  it("rejects COMPLETED when payment is not closed", async () => {
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C" },
+          orderStage: "RECEIVED",
+          status: "RECEIVED",
+          paymentType: "DEFERRED",
+          paidAmount: 200,
+          totalAmount: 1000,
+          debtAmount: 800,
+          returnAdjustmentAmount: 0,
+          subtotalAmount: 1000,
+          paymentDueDate: null,
+        }),
+      },
+      orderReturn: { count: async () => 0 },
+    } as unknown as PrismaSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      {} as SettingsSvc,
+      {} as GoogleSheetSvc,
+      {
+        getEffectiveTransitionGraph: async () => ({
+          NEW: [],
+          CONFIRMED: [],
+          AWAITING_PAYMENT: [],
+          AWAITING_STOCK: [],
+          READY_TO_SHIP: [],
+          SHIPPED: [],
+          AWAITING_RECEIPT: [],
+          RECEIVED: ["COMPLETED"],
+          COMPLETED: [],
+          CANCELED: [],
+          REFUSED: [],
+          RETURN_IN_PROGRESS: [],
+        }),
+      } as unknown as PipelineSvc,
+    );
+
+    await assert.rejects(
+      () => svc.setOrderStage("o1", "COMPLETED", undefined),
+      BadRequestException,
+    );
+  });
 });

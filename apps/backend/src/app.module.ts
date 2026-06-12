@@ -19,6 +19,7 @@ import { UsersModule } from "./users/users.module";
 import { BankModule } from "./bank/bank.module";
 import { NpModule } from "./np/np.module";
 import { PaymentsModule } from "./payments/payments.module";
+import { ClientBalancesModule } from "./client-balances/client-balances.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -65,6 +66,7 @@ import { FieldModule } from "./field/field.module";
     BankModule,
     NpModule,
     PaymentsModule,
+    ClientBalancesModule,
     RbacModule,
     AuthModule,
     AnalyticsModule,

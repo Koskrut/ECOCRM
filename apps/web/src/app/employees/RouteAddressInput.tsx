@@ -1,6 +1,8 @@
 "use client";
 
 import type { PlaceSuggestion } from "@/lib/googlePlacesNew";
+import { useRef } from "react";
+import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 
 const inputClass =
   "w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-zinc-400";
@@ -48,11 +50,13 @@ export function RouteAddressInput({
   statusSearching,
   statusGeocoding,
 }: Props) {
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <div>
       <label className="block text-sm font-medium text-zinc-700">{label}</label>
       {descriptionHint ? <p className="mt-0.5 text-xs text-zinc-500">{descriptionHint}</p> : null}
-      <div className="relative mt-1">
+      <div ref={anchorRef} className="relative mt-1">
         <input
           className={inputClass}
           value={value}
@@ -63,23 +67,12 @@ export function RouteAddressInput({
           disabled={disabled}
           autoComplete="off"
         />
-        {suggestionsOpen && suggestions.length > 0 ? (
-          <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-            {suggestions.map((s) => (
-              <button
-                key={s.placeId}
-                type="button"
-                className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  void onSelectSuggestion(s);
-                }}
-              >
-                {s.description}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        <AddressSuggestionsDropdown
+          open={suggestionsOpen}
+          anchorRef={anchorRef}
+          suggestions={suggestions}
+          onSelect={onSelectSuggestion}
+        />
       </div>
       <div className="mt-1 min-h-[1rem] text-xs text-zinc-500">
         {lookupLoading && mapsApiKey ? statusSearching : null}

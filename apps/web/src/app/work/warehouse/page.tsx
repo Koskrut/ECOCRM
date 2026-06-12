@@ -147,6 +147,7 @@ export default function WarehouseWorkPage() {
   const closePickModal = () => {
     if (advancing || splitting || savingItemId) return;
     setPickModalOrderId(null);
+    void loadQueue();
   };
 
   const advanceStage = async () => {
@@ -445,7 +446,10 @@ export default function WarehouseWorkPage() {
         <OrderModal
           apiBaseUrl="/api"
           orderId={pickOrder.id}
-          onClose={() => setOrderModalOpen(false)}
+          onClose={() => {
+            setOrderModalOpen(false);
+            void loadQueue();
+          }}
           onSaved={() => {
             void loadQueue();
             setOrderModalOpen(false);

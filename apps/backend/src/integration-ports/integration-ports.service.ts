@@ -50,11 +50,17 @@ export type MessengerPort = {
   sendMessageToChat(chatId: string, text: string): Promise<unknown>;
 };
 
+export type ClientBalancePort = {
+  getReturnSettlementPreview(returnId: string, actor?: AuthUser): Promise<unknown>;
+  settleReturn(returnId: string, dto: import("../client-balances/dto/settle-return.dto").SettleReturnDto, actor?: AuthUser): Promise<unknown>;
+};
+
 @Injectable()
 export class IntegrationPortsService {
   private orderPaymentsReader: OrderPaymentsReaderPort | null = null;
   private orderSheetExporter: OrderSheetExporterPort | null = null;
   private orderFinance: OrderFinancePort | null = null;
+  private clientBalance: ClientBalancePort | null = null;
   private storeBankAccount: StoreBankAccountPort | null = null;
   private storeNpDirectory: StoreNpDirectoryPort | null = null;
   private messenger: MessengerPort | null = null;
@@ -69,6 +75,10 @@ export class IntegrationPortsService {
 
   registerOrderFinance(port: OrderFinancePort): void {
     this.orderFinance = port;
+  }
+
+  registerClientBalance(port: ClientBalancePort): void {
+    this.clientBalance = port;
   }
 
   registerStoreBankAccount(port: StoreBankAccountPort): void {
@@ -97,6 +107,20 @@ export class IntegrationPortsService {
 
   async recalcOrderFinance(orderId: string): Promise<void> {
     await this.orderFinance?.recalcOrder(orderId);
+  }
+
+  getReturnSettlementPreview(returnId: string, actor?: AuthUser): Promise<unknown> {
+    if (!this.clientBalance) throw new NotFoundException("Client balance integration is not available");
+    return this.clientBalance.getReturnSettlementPreview(returnId, actor);
+  }
+
+  settleReturn(
+    returnId: string,
+    dto: import("../client-balances/dto/settle-return.dto").SettleReturnDto,
+    actor?: AuthUser,
+  ): Promise<unknown> {
+    if (!this.clientBalance) throw new NotFoundException("Client balance integration is not available");
+    return this.clientBalance.settleReturn(returnId, dto, actor);
   }
 
   resolveStoreDefaultBankAccountIdForCheckout(): Promise<string | null> {

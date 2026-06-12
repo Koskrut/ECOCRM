@@ -57,6 +57,8 @@ type OrderSummary = {
   }>;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
 };
 
 type OrdersListResponse = {
@@ -727,6 +729,7 @@ function OrdersPageContent() {
                     <th className="px-4 py-3">Заказ</th>
                     <th className="px-4 py-3 hidden xl:table-cell">Клиент/Компания</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Ответственный</th>
+                    <th className="px-4 py-3 hidden lg:table-cell">Склад</th>
                     <th className="px-4 py-3">Дата</th>
                     <th className="px-4 py-3 hidden md:table-cell">Оплата</th>
                     <th className="px-4 py-3">Статус</th>
@@ -742,13 +745,13 @@ function OrdersPageContent() {
                 <tbody className="divide-y divide-zinc-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         Загрузка заказов...
                       </td>
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         Замовлення не знайдено
                       </td>
                     </tr>
@@ -818,6 +821,9 @@ function OrdersPageContent() {
                         </td>
                         <td className="px-4 py-4 hidden lg:table-cell text-zinc-700">
                           {order.owner?.fullName || "—"}
+                        </td>
+                        <td className="px-4 py-4 hidden lg:table-cell text-zinc-700">
+                          {order.warehouse?.name || "—"}
                         </td>
                         <td className="px-4 py-4 text-zinc-500">{formatDate(order.createdAt)}</td>
                         <td className="px-4 py-4 hidden md:table-cell">

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { useModules } from "@/lib/modules/useModules";
@@ -166,6 +167,14 @@ export default function SettingsHomePage() {
           {release ? (
             <p className="mt-3 border-t border-zinc-100 pt-3 text-zinc-600">
               {release.update.message}
+              {release.update.mode === "agent_available" ? (
+                <>
+                  {" "}
+                  <Link href="/settings/health" className="font-medium text-zinc-900 underline hover:text-zinc-700">
+                    Стан системи →
+                  </Link>
+                </>
+              ) : null}
             </p>
           ) : null}
         </div>

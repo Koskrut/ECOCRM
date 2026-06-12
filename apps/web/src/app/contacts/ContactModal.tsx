@@ -5,6 +5,7 @@ import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { InlineEditableField } from "@/components/fields/InlineEditableField";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
+import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
 import { ContactTimeline } from "./ContactTimeline";
@@ -755,6 +756,7 @@ export function ContactModal({
 
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const addressAnchorRef = useRef<HTMLDivElement>(null);
   const lastGeocodedAddressRef = useRef<string>("");
   const autocompleteAbortRef = useRef<AbortController | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
@@ -1899,7 +1901,7 @@ export function ContactModal({
           {addressRequiredForVisit ? (
             <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
           ) : null}
-          <div className="relative">
+          <div ref={addressAnchorRef} className="relative">
             <input
               ref={addressInputRef}
               className={`w-full rounded-md border px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 ${
@@ -1927,23 +1929,12 @@ export function ContactModal({
               placeholder="Натисніть, щоб додати…"
               disabled={saving}
             />
-            {showAddressSuggestions && addressSuggestions.length > 0 && (
-              <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-                {addressSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.placeId}
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      void handleSelectAddressSuggestion(suggestion);
-                    }}
-                  >
-                    {suggestion.description}
-                  </button>
-                ))}
-              </div>
-            )}
+            <AddressSuggestionsDropdown
+              open={showAddressSuggestions}
+              anchorRef={addressAnchorRef}
+              suggestions={addressSuggestions}
+              onSelect={(suggestion) => void handleSelectAddressSuggestion(suggestion)}
+            />
           </div>
           <div className="text-xs text-zinc-500">
             {isAddressLookupLoading && mapsApiKey ? "Searching addresses…" : null}
@@ -2136,7 +2127,7 @@ export function ContactModal({
   );
 
   const leftContent = (
-    <div className="min-h-0 overflow-auto">
+    <div className="min-h-0">
         {leftTab === "overview" && (
           isCreate ? (
             <div className="min-h-0 overflow-auto space-y-3">

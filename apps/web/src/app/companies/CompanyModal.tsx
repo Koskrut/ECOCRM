@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
+import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
 import { companiesApi, type CompanyChangeHistoryItem } from "@/lib/api/resources/companies";
@@ -120,6 +121,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const addressAnchorRef = useRef<HTMLDivElement>(null);
   const lastGeocodedAddressRef = useRef<string>("");
   const autocompleteAbortRef = useRef<AbortController | null>(null);
 
@@ -798,7 +800,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
                 <label className={labelClass}>Адрес</label>
-                <div className="relative">
+                <div ref={addressAnchorRef} className="relative">
                   <input
                     className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                     value={address}
@@ -817,23 +819,12 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                     placeholder="Вулиця, місто, індекс"
                     disabled={saving}
                   />
-                  {showAddressSuggestions && addressSuggestions.length > 0 ? (
-                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-                      {addressSuggestions.map((s) => (
-                        <button
-                          key={s.placeId}
-                          type="button"
-                          className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            void handleSelectAddressSuggestion(s, true);
-                          }}
-                        >
-                          {s.description}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
+                  <AddressSuggestionsDropdown
+                    open={showAddressSuggestions}
+                    anchorRef={addressAnchorRef}
+                    suggestions={addressSuggestions}
+                    onSelect={(s) => void handleSelectAddressSuggestion(s, true)}
+                  />
                 </div>
                 <div className="text-xs text-zinc-500">
                   {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
@@ -989,7 +980,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               {addressRequiredForVisit ? (
                 <p className="text-sm text-red-600">Заповніть адресу для планування зустрічей</p>
               ) : null}
-              <div className="relative">
+              <div ref={addressAnchorRef} className="relative">
                 <input
                   ref={addressInputRef}
                   className={`w-full rounded-md border bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:bg-white hover:px-2 focus:bg-white focus:px-2 focus:outline-none ${
@@ -1033,23 +1024,12 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   }}
                   disabled={saving}
                 />
-                {showAddressSuggestions && addressSuggestions.length > 0 ? (
-                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-                    {addressSuggestions.map((s) => (
-                      <button
-                        key={s.placeId}
-                        type="button"
-                        className="block w-full px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          void handleSelectAddressSuggestion(s, false);
-                        }}
-                      >
-                        {s.description}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                <AddressSuggestionsDropdown
+                  open={showAddressSuggestions}
+                  anchorRef={addressAnchorRef}
+                  suggestions={addressSuggestions}
+                  onSelect={(s) => void handleSelectAddressSuggestion(s, false)}
+                />
               </div>
               <div className="text-xs text-zinc-500">
                   {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
@@ -1301,7 +1281,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   );
 
   const leftContent = (
-    <div className="min-h-0 overflow-auto">
+    <div className="min-h-0">
       {leftTab === "main" && (
         isCreate ? (
           <div className="min-h-0 overflow-auto">

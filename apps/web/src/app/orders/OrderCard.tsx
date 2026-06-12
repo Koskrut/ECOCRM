@@ -26,6 +26,8 @@ export type OrderCardOrder = {
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
   clientId?: string | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
 };
 
 export function OrderCard({
@@ -122,6 +124,9 @@ export function OrderCard({
           </span>
         )}
       </div>
+
+      <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Склад</div>
+      <div className="mt-1 text-sm text-zinc-900">{order.warehouse?.name ?? "—"}</div>
 
       <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Відповідальний</div>
       <div className="mt-1 text-sm text-zinc-900">{order.owner?.fullName ?? "—"}</div>

@@ -19,6 +19,7 @@ export type ContactCardSummaryResponse = {
     revenue: number;
     debt: number;
     overdue: number;
+    clientBalance: number;
     lastOrderAt: string | null;
     lastActivityAt: string | null;
     openTasksCount: number;

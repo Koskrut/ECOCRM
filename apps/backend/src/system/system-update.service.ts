@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type {
   SystemUpdateApplyRequestDto,
   SystemUpdateJobDto,
@@ -16,6 +16,7 @@ type CpUpdateStatusResponse = {
 
 type AgentStatusResponse = {
   ok?: boolean;
+  activeJobId?: string | null;
 };
 
 type AgentPreflightResponse = {
@@ -69,7 +70,12 @@ export class SystemUpdateService {
     const currentVersion = trimOrNull(process.env.CRM_RELEASE_VERSION);
     const mode: UpdateMode = this.updaterUrl ? "agent_available" : "operator_only";
 
-    const [cpStatus, updaterReachable] = await Promise.all([this.loadCpStatus(), this.pingUpdater()]);
+    const [cpStatus, updaterState] = await Promise.all([this.loadCpStatus(), this.loadUpdaterState()]);
+    const updaterReachable = updaterState.reachable;
+    if (updaterReachable) {
+      this.activeJobId = updaterState.activeJobId;
+      if (updaterState.activeJobId) this.lastJobId = updaterState.activeJobId;
+    }
     const latestVersion = cpStatus.latestVersion;
     const targetVersion = cpStatus.targetVersion;
 
@@ -78,13 +84,13 @@ export class SystemUpdateService {
     let reason = "Updates are performed manually by the server operator.";
     if (mode === "agent_available") {
       reason = "Updater agent is configured.";
-      if (!cpStatus.reachable) {
-        reason = "Control Plane is unavailable.";
-      } else if (!updaterReachable) {
+      if (!updaterReachable) {
         reason = "Updater agent is unavailable.";
       } else if (this.activeJobId) {
         state = "updating";
         reason = "Update is already running.";
+      } else if (!cpStatus.reachable) {
+        reason = "Control Plane is unavailable.";
       } else if (targetVersion && currentVersion && targetVersion !== currentVersion) {
         state = "update_available";
         canUpdate = true;
@@ -161,20 +167,21 @@ export class SystemUpdateService {
 
   async apply(requestedBy: string, request: SystemUpdateApplyRequestDto): Promise<SystemUpdateJobDto> {
     if (!this.updaterUrl) {
-      throw new Error("Updater agent is not configured.");
-    }
-    if (this.activeJobId) {
-      throw new Error("Update is already running.");
+      throw new ServiceUnavailableException("Updater agent is not configured.");
     }
 
     const status = await this.getStatus();
+    if (status.activeJobId) {
+      throw new ConflictException("Update is already running.");
+    }
+
     if (!status.canUpdate && !request.targetVersion) {
-      throw new Error(status.reason);
+      throw new BadRequestException(status.reason);
     }
 
     const targetVersion = request.targetVersion ?? status.targetVersion;
     if (!targetVersion) {
-      throw new Error("No target version available.");
+      throw new BadRequestException("No target version available.");
     }
 
     const response = await fetch(`${this.updaterUrl}/apply`, {
@@ -186,7 +193,7 @@ export class SystemUpdateService {
       body: JSON.stringify({ targetVersion }),
     });
     if (!response.ok) {
-      throw new Error(`Updater apply failed with HTTP ${response.status}.`);
+      throw new ServiceUnavailableException(`Updater apply failed with HTTP ${response.status}.`);
     }
     const data = (await response.json()) as AgentApplyResponse;
     const now = new Date().toISOString();
@@ -242,18 +249,21 @@ export class SystemUpdateService {
     }
   }
 
-  private async pingUpdater(): Promise<boolean> {
-    if (!this.updaterUrl) return false;
+  private async loadUpdaterState(): Promise<{ reachable: boolean; activeJobId: string | null }> {
+    if (!this.updaterUrl) return { reachable: false, activeJobId: null };
     try {
       const response = await fetch(`${this.updaterUrl}/status`, {
         method: "GET",
         headers: authHeaders(this.updaterToken),
       });
-      if (!response.ok) return false;
+      if (!response.ok) return { reachable: false, activeJobId: null };
       const data = (await response.json()) as AgentStatusResponse;
-      return data.ok !== false;
+      return {
+        reachable: data.ok !== false,
+        activeJobId: trimOrNull(data.activeJobId ?? undefined),
+      };
     } catch {
-      return false;
+      return { reachable: false, activeJobId: null };
     }
   }
 

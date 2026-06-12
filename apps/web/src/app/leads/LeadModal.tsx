@@ -8,6 +8,7 @@ import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
+import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay, formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
@@ -152,6 +153,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [leadAddressHint, setLeadAddressHint] = useState<string | null>(null);
   const [isLeadAddressLookupLoading, setIsLeadAddressLookupLoading] = useState(false);
   const leadAddressAbortRef = useRef<AbortController | null>(null);
+  const leadAddressAnchorRef = useRef<HTMLDivElement>(null);
   const lastGeocodedLeadAddressRef = useRef<string>("");
 
   const [timeline, setTimeline] = useState<ActivityItem[]>([]);
@@ -1332,7 +1334,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <span className="text-xs font-medium text-zinc-700">Адреса (Google Maps)</span>
             {mapsConfigError ? <p className="text-xs text-amber-800">{mapsConfigError}</p> : null}
-            <div className="relative">
+            <div ref={leadAddressAnchorRef} className="relative">
               <input
                 className={LEAD_FIELD_CLASS}
                 value={leadAddress}
@@ -1377,25 +1379,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   …
                 </span>
               ) : null}
-              {showLeadAddressSuggestions && leadAddressSuggestions.length > 0 ? (
-                <ul
-                  className="absolute z-30 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg"
-                  role="listbox"
-                >
-                  {leadAddressSuggestions.map((s) => (
-                    <li key={s.placeId}>
-                      <button
-                        type="button"
-                        className="w-full px-3 py-2 text-left text-sm text-zinc-800 hover:bg-zinc-50"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => void pickLeadAddressSuggestion(s)}
-                      >
-                        {s.description}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+              <AddressSuggestionsDropdown
+                open={showLeadAddressSuggestions}
+                anchorRef={leadAddressAnchorRef}
+                suggestions={leadAddressSuggestions}
+                onSelect={(s) => void pickLeadAddressSuggestion(s)}
+              />
             </div>
             {leadAddressHint ? (
               <p className="text-xs text-amber-700">{leadAddressHint}</p>

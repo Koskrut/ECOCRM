@@ -4,9 +4,20 @@
  * This module adds payment-type rules, cancel/refuse/return constraints, and prepayment payment gates.
  */
 
-import type { OrderStage, PaymentType } from "@prisma/client";
+import type { DeliveryMethod, OrderStage, PaymentType } from "@prisma/client";
 import { BadRequestException } from "@nestjs/common";
 import { DEFAULT_FINAL_STAGE_ORDER, DEFAULT_MAIN_STAGE_ORDER } from "./pipeline/order-pipeline.defaults";
+import {
+  assertFinanciallyClosedForCompletion,
+} from "./order-completion-guards";
+import {
+  assertPrepaymentSatisfiedForStage,
+  type OrderPaymentContext,
+} from "./order-payment-guards";
+import {
+  assertNovaPoshtaTtnBeforeConfirmed,
+  assertPaymentTypeForForwardTransition,
+} from "./order-stage-prerequisites";
 
 const STAGES: OrderStage[] = [...DEFAULT_MAIN_STAGE_ORDER, ...DEFAULT_FINAL_STAGE_ORDER];
 
@@ -34,12 +45,12 @@ const REQUIRES_PAYMENT_FOR_PREPAYMENT: Set<OrderStage> = new Set([
   "COMPLETED",
 ]);
 
-type OrderContext = {
+type OrderContext = OrderPaymentContext & {
   orderStage?: OrderStage | null;
   paymentType?: PaymentType | null;
-  paidAmount?: number;
-  totalAmount?: number;
-  debtAmount?: number;
+  paymentDueDate?: Date | null;
+  deliveryMethod?: DeliveryMethod | null;
+  hasTtn?: boolean;
 };
 
 function resolveCurrentStage(current: OrderStage | null | undefined, fallback: OrderStage): OrderStage {
@@ -65,6 +76,9 @@ export function validateOrderStageTransition(
   if (from === toStage) {
     return;
   }
+
+  assertPaymentTypeForForwardTransition(from, toStage, ctx.paymentType);
+  assertNovaPoshtaTtnBeforeConfirmed(toStage, ctx.deliveryMethod, ctx.hasTtn === true);
 
   const allowed = allowedTransitions[from];
   if (!allowed?.includes(toStage)) {
@@ -119,14 +133,13 @@ export function validateOrderStageTransition(
     return;
   }
 
+  if (toStage === "COMPLETED") {
+    assertFinanciallyClosedForCompletion(ctx);
+    return;
+  }
+
   if (ctx.paymentType === "PREPAYMENT" && REQUIRES_PAYMENT_FOR_PREPAYMENT.has(toStage)) {
-    const total = Number(ctx.totalAmount ?? 0);
-    const paid = Number(ctx.paidAmount ?? 0);
-    if (total > 0.00001 && paid < total - 0.00001) {
-      throw new BadRequestException(
-        "Prepayment order must be fully paid before moving to this stage. Pay the order first.",
-      );
-    }
+    assertPrepaymentSatisfiedForStage(ctx);
   }
 }
 

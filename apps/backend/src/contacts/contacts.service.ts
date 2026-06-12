@@ -161,7 +161,7 @@ export class ContactsService {
     }
 
     const now = new Date();
-    const [visibleOrders, totalCanonicalOrders, lastActivity, openTasksCount, overdueTasksCount, nextTask] =
+    const [visibleOrders, totalCanonicalOrders, lastActivity, openTasksCount, overdueTasksCount, nextTask, balanceRows] =
       await Promise.all([
         this.prisma.order.findMany({
           where: visibleOrdersWhere,
@@ -194,12 +194,17 @@ export class ContactsService {
           orderBy: [{ dueAt: "asc" }, { createdAt: "asc" }],
           select: { title: true, dueAt: true },
         }),
+        this.prisma.clientBalance.findMany({
+          where: { holderKind: "CONTACT", holderId: id },
+          select: { amount: true },
+        }),
       ]);
 
     let revenue = 0;
     let debt = 0;
     let overdue = 0;
     let lastOrderAt: Date | null = null;
+    const clientBalance = balanceRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     for (const order of visibleOrders) {
       revenue += Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0));
       debt += Math.max(0, Number(order.debtAmount ?? 0));
@@ -260,6 +265,7 @@ export class ContactsService {
         revenue,
         debt,
         overdue,
+        clientBalance,
         lastOrderAt: lastOrderAt ? lastOrderAt.toISOString() : null,
         lastActivityAt: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
         openTasksCount,

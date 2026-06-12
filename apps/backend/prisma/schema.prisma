@@ -208,6 +208,25 @@ enum TransactionDirection {
 enum PaymentSourceType {
   BANK
   CASH
+  CREDIT
+}
+
+enum BalanceHolderKind {
+  CONTACT
+  COMPANY
+}
+
+enum ClientBalanceTransactionType {
+  CREDIT_FROM_RETURN
+  APPLY_TO_ORDER
+  REFUND_OUT
+  MANUAL_ADJUST
+}
+
+enum ReturnSettlementType {
+  CREDIT
+  REFUND
+  SPLIT
 }
 
 enum PaymentStatus {
@@ -496,6 +515,8 @@ model User {
   orders                     Order[]
   payments                   Payment[]
   paymentRequestsCreated     PaymentRequest[]    @relation("PaymentRequestCreatedBy")
+  clientBalanceTransactions  ClientBalanceTransaction[] @relation("ClientBalanceTransactionCreatedBy")
+  settledOrderReturns        OrderReturn[]       @relation("OrderReturnSettledBy")
   visits                     Visit[]
   routePlans                 RoutePlan[]
   routeSessions              RouteSession[]
@@ -628,6 +649,8 @@ model Company {
   leads              Lead[]
   payments           Payment[]
   visits             Visit[]
+  clientBalances     ClientBalance[] @relation("CompanyClientBalance")
+  balanceTransactions ClientBalanceTransaction[] @relation("CompanyBalanceTransactions")
   tasks              Task[]
   changeHistory      CompanyChangeHistory[]
   callQueueItems     CallQueueItem[]
@@ -727,6 +750,8 @@ model Contact {
   leads                Lead[]
   payments             Payment[]
   visits               Visit[]
+  clientBalances       ClientBalance[] @relation("ContactClientBalance")
+  balanceTransactions  ClientBalanceTransaction[] @relation("ContactBalanceTransactions")
   telegramAccounts     TelegramAccount[]
   conversations        Conversation[]
   tasks                Task[]
@@ -1489,6 +1514,7 @@ model Order {
   payments          Payment[]
   paymentRequests   PaymentRequest[]
   returns           OrderReturn[]
+  balanceTransactions ClientBalanceTransaction[]
   productionBatches ProductionBatch[]
   reservations      MaterialReservation[]
   weeklyPlanItems   WeeklyPlanItem[]
@@ -1660,11 +1686,19 @@ model OrderReturn {
   status      ReturnStatus
   requestedAt DateTime     @default(now())
   closedAt    DateTime?
+  settlementType   ReturnSettlementType?
+  creditAmount     Float?
+  refundAmount     Float?
+  settledAt        DateTime?
+  settledByUserId  String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items OrderReturnItem[]
+  balanceTransactions ClientBalanceTransaction[]
+
+  settledBy User? @relation("OrderReturnSettledBy", fields: [settledByUserId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([status])
@@ -2428,6 +2462,60 @@ model FinanceIdempotencyRecord {
   @@index([createdAt])
 }
 
+/// Client prepayment balance (credit from returns, applied to future orders).
+model ClientBalance {
+  id         String            @id @default(cuid())
+  holderKind BalanceHolderKind
+  holderId   String
+  currency   String
+  amount     Decimal           @default(0) @db.Decimal(18, 2)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  contactId String?
+  companyId String?
+
+  contact      Contact?                   @relation("ContactClientBalance", fields: [contactId], references: [id], onDelete: Cascade)
+  company      Company?                   @relation("CompanyClientBalance", fields: [companyId], references: [id], onDelete: Cascade)
+  transactions ClientBalanceTransaction[]
+
+  @@unique([holderKind, holderId, currency])
+  @@index([contactId])
+  @@index([companyId])
+}
+
+model ClientBalanceTransaction {
+  id              String                       @id @default(cuid())
+  balanceId       String
+  type            ClientBalanceTransactionType
+  /// Signed delta: positive increases balance, negative decreases.
+  amount          Decimal                      @db.Decimal(18, 2)
+  currency        String
+  contactId       String?
+  companyId       String?
+  orderId         String?
+  orderReturnId   String?
+  paymentId       String?                      @unique
+  note            String?
+  createdByUserId String?
+  createdAt       DateTime                     @default(now())
+
+  balance     ClientBalance @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+  contact     Contact?      @relation("ContactBalanceTransactions", fields: [contactId], references: [id], onDelete: SetNull)
+  company     Company?      @relation("CompanyBalanceTransactions", fields: [companyId], references: [id], onDelete: SetNull)
+  order       Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderReturn OrderReturn?  @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
+  payment     Payment?      @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdBy   User?         @relation("ClientBalanceTransactionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([balanceId])
+  @@index([orderId])
+  @@index([orderReturnId])
+  @@index([contactId])
+  @@index([companyId])
+  @@index([createdAt])
+}
+
 model Payment {
   id                String            @id @default(cuid())
   orderId           String
@@ -2454,6 +2542,7 @@ model Payment {
   bankTransaction          BankTransaction? @relation(fields: [bankTransactionId], references: [id], onDelete: SetNull)
   createdBy                User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   linkedFromPaymentRequest PaymentRequest?
+  balanceTransaction       ClientBalanceTransaction?
 
   @@index([orderId])
   @@index([bankTransactionId])

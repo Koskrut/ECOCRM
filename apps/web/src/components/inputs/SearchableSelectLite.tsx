@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FixedDropdownPortal,
+  useDismissOnOutsidePointerDown,
+} from "@/components/overlays/FixedDropdownPortal";
 
 export type Option = { id: string; label: string; meta?: unknown };
 
@@ -44,6 +48,7 @@ export function SearchableSelectLite({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selected = useMemo(
@@ -74,15 +79,7 @@ export function SearchableSelectLite({
     [onSearchQueryChange],
   );
 
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      const el = rootRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), rootRef, panelRef);
 
   useEffect(() => {
     if (!open) {
@@ -129,28 +126,64 @@ export function SearchableSelectLite({
         {!isInline && <span className="ml-3 text-xs text-zinc-400">▾</span>}
       </button>
 
-      {open ? (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg">
-          <div className="p-2">
-            <input
-              autoFocus
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder={isLoading ? "Loading…" : "Search…"}
-              className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            />
-          </div>
+      <FixedDropdownPortal
+        open={open}
+        anchorRef={rootRef}
+        panelRef={panelRef}
+        className="fixed z-[100] overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg"
+      >
+        <div className="p-2">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={isLoading ? "Loading…" : "Search…"}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          />
+        </div>
 
-          <div className="max-h-56 overflow-auto">
-            {isLoading ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-zinc-500">
-                No results
-                {onCreate ? (
+        <div className="max-h-56 overflow-auto">
+          {isLoading ? (
+            <div className="px-3 py-2 text-sm text-zinc-500">Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-zinc-500">
+              No results
+              {onCreate ? (
+                <button
+                  type="button"
+                  className="ml-2 rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => {
+                    setOpen(false);
+                    onCreate(q.trim());
+                  }}
+                >
+                  {createLabel ?? "Create"}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {filtered.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(o.id);
+                    setOpen(false);
+                  }}
+                  className={cx(
+                    "flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50",
+                    String(o.id) === String(value) && "bg-zinc-50",
+                  )}
+                >
+                  <span className="flex-1 truncate text-zinc-900">{o.label}</span>
+                </button>
+              ))}
+              {onCreate ? (
+                <div className="border-t border-zinc-100 p-2">
                   <button
                     type="button"
-                    className="ml-2 rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
                     onClick={() => {
                       setOpen(false);
                       onCreate(q.trim());
@@ -158,45 +191,12 @@ export function SearchableSelectLite({
                   >
                     {createLabel ?? "Create"}
                   </button>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                {filtered.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => {
-                      onChange(o.id);
-                      setOpen(false);
-                    }}
-                    className={cx(
-                      "flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-50",
-                      String(o.id) === String(value) && "bg-zinc-50",
-                    )}
-                  >
-                    <span className="flex-1 truncate text-zinc-900">{o.label}</span>
-                  </button>
-                ))}
-                {onCreate ? (
-                  <div className="border-t border-zinc-100 p-2">
-                    <button
-                      type="button"
-                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-                      onClick={() => {
-                        setOpen(false);
-                        onCreate(q.trim());
-                      }}
-                    >
-                      {createLabel ?? "Create"}
-                    </button>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
-      ) : null}
+      </FixedDropdownPortal>
     </div>
   );
 }

@@ -23,6 +23,7 @@ function createService(overrides?: Partial<any>) {
     order: { findMany: mockFn(), count: mockFn() },
     activity: { findFirst: mockFn() },
     task: { count: mockFn(), findFirst: mockFn() },
+    clientBalance: { findMany: mockFn(async () => []) },
     ...overrides,
   };
   const service = new ContactsService(prisma as any);

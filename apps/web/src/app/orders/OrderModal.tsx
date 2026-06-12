@@ -4,10 +4,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
+import { FixedDropdownPortal } from "@/components/overlays/FixedDropdownPortal";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
+import { OrderClientBalancePanel, OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
@@ -137,6 +139,8 @@ type OrderDetails = {
   debtAmount?: number;
   /** Phase 5: sum of closed return amounts (reduces effective total/debt). */
   returnAdjustmentAmount?: number | null;
+  /** Reasons why order cannot move to COMPLETED (from API). */
+  completionBlockers?: string[];
   /** Phase 4: payment due date for deferred (ISO date string). */
   paymentDueDate?: string | null;
 
@@ -268,6 +272,46 @@ type StepDef = {
   color: "zinc" | "sky" | "amber" | "emerald" | "red";
 };
 
+const MAIN_STAGE_ORDER = [
+  "NEW",
+  "AWAITING_PAYMENT",
+  "AWAITING_STOCK",
+  "CONFIRMED",
+  "READY_TO_SHIP",
+  "SHIPPED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
+] as const;
+
+function isForwardStageTransition(from: string, to: string): boolean {
+  if (from === to) return false;
+  if (to === "CANCELED") return false;
+  const fromIdx = MAIN_STAGE_ORDER.indexOf(from as (typeof MAIN_STAGE_ORDER)[number]);
+  const toIdx = MAIN_STAGE_ORDER.indexOf(to as (typeof MAIN_STAGE_ORDER)[number]);
+  if (fromIdx >= 0 && toIdx >= 0) return toIdx > fromIdx;
+  return to === "COMPLETED";
+}
+
+function orderHasTtn(order: OrderDetails | null | undefined): boolean {
+  if (!order) return false;
+  const npLocal = (order as { deliveryData?: { novaPoshta?: { ttn?: { number?: string } } } })
+    ?.deliveryData?.novaPoshta;
+  const numFromData = npLocal?.ttn?.number;
+  if (numFromData && String(numFromData).trim()) return true;
+  if ((order.ttns?.length ?? 0) > 0) return true;
+  return (order.shipments ?? []).some((s) => (s.ttns?.length ?? 0) > 0);
+}
+
+function isStageTransitionBlocked(
+  from: string,
+  to: string,
+  opts: { paymentType?: string | null; deliveryMethod?: string | null; hasTtn: boolean },
+): boolean {
+  if (isForwardStageTransition(from, to) && !opts.paymentType) return true;
+  if (to === "CONFIRMED" && opts.deliveryMethod === "NOVA_POSHTA" && !opts.hasTtn) return true;
+  return false;
+}
+
 /** Full orderStage list (canonical order). AWAITING_PAYMENT is hidden in UI unless prepayment or order is already in that stage. */
 const ORDER_STAGE_STEPS_ALL: StepDef[] = [
   { key: "NEW", label: "Новий", color: "zinc" },
@@ -297,6 +341,10 @@ function Stepper({
   isAdmin,
   isWarehouse,
   paymentType,
+  deliveryMethod,
+  hasTtn = false,
+  debtAmount = 0,
+  completionBlockers = [],
 }: {
   stage: string;
   onStepClick?: (stepKey: string) => void;
@@ -306,6 +354,10 @@ function Stepper({
   isAdmin?: boolean;
   isWarehouse?: boolean;
   paymentType?: "PREPAYMENT" | "DEFERRED" | string | null;
+  deliveryMethod?: string | null;
+  hasTtn?: boolean;
+  debtAmount?: number;
+  completionBlockers?: string[];
 }) {
   const showAwaitingPaymentStep = paymentType === "PREPAYMENT" || stage === "AWAITING_PAYMENT";
 
@@ -445,19 +497,48 @@ function Stepper({
   };
 
   const roleBasedTransitionOptions = useMemo(() => {
-    if (isAdmin) return ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage);
+    const blocksCompletion = debtAmount > 0.009 || completionBlockers.length > 0;
+    const filterBlocked = (items: typeof ORDER_STAGE_STEPS_ALL) =>
+      items.filter(
+        (s) =>
+          !isStageTransitionBlocked(stage, s.key, {
+            paymentType,
+            deliveryMethod,
+            hasTtn,
+          }),
+      );
+    const filterCompletion = (items: typeof ORDER_STAGE_STEPS_ALL) =>
+      blocksCompletion ? items.filter((s) => s.key !== "COMPLETED") : items;
+
+    if (isAdmin)
+      return filterBlocked(filterCompletion(ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage)));
     if (isWarehouse) {
       if (stage === "CONFIRMED") {
-        return ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "READY_TO_SHIP");
+        return filterBlocked(ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "READY_TO_SHIP"));
       }
       if (stage === "READY_TO_SHIP") {
-        return ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "CONFIRMED");
+        return filterBlocked(ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "CONFIRMED"));
       }
       return [];
     }
     const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
-    return steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key)));
-  }, [isAdmin, isWarehouse, stage, activeIdx, steps]);
+    return filterBlocked(
+      filterCompletion(
+        steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key))),
+      ),
+    );
+  }, [
+    isAdmin,
+    isWarehouse,
+    stage,
+    activeIdx,
+    steps,
+    debtAmount,
+    completionBlockers,
+    paymentType,
+    deliveryMethod,
+    hasTtn,
+  ]);
 
   useEffect(() => {
     if (!managerMenuOpen) return;
@@ -712,6 +793,9 @@ export function OrderModal({
       id: string;
       status: ReturnStatus;
       requestedAt: string;
+      creditAmount?: number | null;
+      refundAmount?: number | null;
+      settledAt?: string | null;
       items?: { qtyReturned: number; orderItemId: string }[];
     }>
   >([]);
@@ -722,6 +806,10 @@ export function OrderModal({
   const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
   const [returnStatusUpdatingId, setReturnStatusUpdatingId] = useState<string | null>(null);
+  const [pendingReturnSettlement, setPendingReturnSettlement] = useState<{
+    returnId: string;
+    nextStatus: ReturnStatus;
+  } | null>(null);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [splittingByStock, setSplittingByStock] = useState(false);
@@ -923,13 +1011,21 @@ export function OrderModal({
   }, [apiBaseUrl, orderId]);
 
   const updateReturnStatus = useCallback(
-    async (returnId: string, status: ReturnStatus) => {
+    async (
+      returnId: string,
+      status: ReturnStatus,
+      settlement?: {
+        type: "CREDIT" | "REFUND" | "SPLIT";
+        creditAmount?: number;
+        refundAmount?: number;
+      },
+    ) => {
       setReturnStatusUpdatingId(returnId);
       try {
         const r = await fetch(`/api/order-returns/${returnId}/status`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify({ status, settlement }),
           credentials: "include",
         });
         if (!r.ok) {
@@ -945,6 +1041,34 @@ export function OrderModal({
       }
     },
     [refreshReturns, refreshOrder, onSaved],
+  );
+
+  const advanceReturnStatus = useCallback(
+    async (returnId: string, currentStatus: ReturnStatus) => {
+      const nextStatus = NEXT_RETURN_STATUS[currentStatus];
+      if (!nextStatus) return;
+
+      if (nextStatus === "CLOSED" && currentStatus === "REFUND_OR_ADJUSTMENT") {
+        try {
+          const previewRes = await fetch(`/api/order-returns/${returnId}/settlement-preview`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (previewRes.ok) {
+            const preview = (await previewRes.json()) as { requiresSettlement?: boolean };
+            if (preview.requiresSettlement) {
+              setPendingReturnSettlement({ returnId, nextStatus });
+              return;
+            }
+          }
+        } catch {
+          /* proceed without preview */
+        }
+      }
+
+      await updateReturnStatus(returnId, nextStatus);
+    },
+    [updateReturnStatus],
   );
 
   const splitOrderByStock = useCallback(async () => {
@@ -1040,7 +1164,27 @@ export function OrderModal({
   /** Phase 3: PATCH /orders/:id/stage with toStage */
   const setOrderStage = useCallback(
     async (toStage: string) => {
-      if (!orderId) return;
+      if (!orderId || !order) return;
+      const currentStage = order.orderStage ?? order.status;
+      const effectivePaymentType = order.paymentType ?? paymentType ?? null;
+      const effectiveDeliveryMethod = order.deliveryMethod ?? deliveryMethod ?? null;
+      const hasTtn = orderHasTtn(order);
+      if (
+        isStageTransitionBlocked(currentStage, toStage, {
+          paymentType: effectivePaymentType,
+          deliveryMethod: effectiveDeliveryMethod,
+          hasTtn,
+        })
+      ) {
+        if (isForwardStageTransition(currentStage, toStage) && !effectivePaymentType) {
+          pushToast("Оберіть умови оплати перед зміною етапу", "error");
+          return;
+        }
+        if (toStage === "CONFIRMED" && effectiveDeliveryMethod === "NOVA_POSHTA" && !hasTtn) {
+          pushToast("Створіть ТТН перед підтвердженням замовлення", "error");
+          return;
+        }
+      }
       setStatusUpdating(true);
       try {
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/stage`, {
@@ -1055,11 +1199,22 @@ export function OrderModal({
         }
         await refreshOrder();
         onSaved?.();
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : "Не вдалося оновити етап", "error");
       } finally {
         setStatusUpdating(false);
       }
     },
-    [apiBaseUrl, orderId, refreshOrder, onSaved],
+    [
+      apiBaseUrl,
+      deliveryMethod,
+      order,
+      orderId,
+      paymentType,
+      refreshOrder,
+      onSaved,
+      pushToast,
+    ],
   );
 
   useEffect(() => {
@@ -1759,9 +1914,8 @@ export function OrderModal({
                                 !NEXT_RETURN_STATUS[ret.status] || returnStatusUpdatingId === ret.id
                               }
                               onClick={() => {
-                                const nextStatus = NEXT_RETURN_STATUS[ret.status];
-                                if (!nextStatus) return;
-                                void updateReturnStatus(ret.id, nextStatus);
+                                if (!NEXT_RETURN_STATUS[ret.status] || returnStatusUpdatingId === ret.id) return;
+                                void advanceReturnStatus(ret.id, ret.status);
                               }}
                               className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                             >
@@ -1770,6 +1924,16 @@ export function OrderModal({
                                 : "Наступний статус"}
                             </button>
                           </div>
+                          {Number(ret.creditAmount ?? 0) > 0 && (
+                            <div className="mt-1 text-xs text-zinc-500">
+                              Залік: {Number(ret.creditAmount).toFixed(2)}
+                            </div>
+                          )}
+                          {Number(ret.refundAmount ?? 0) > 0 && (
+                            <div className="mt-0.5 text-xs text-zinc-500">
+                              Повернення коштів: {Number(ret.refundAmount).toFixed(2)}
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -1828,10 +1992,32 @@ export function OrderModal({
           onStepClick={setOrderStage}
           disabled={statusUpdating}
           hasPayment={Number(order.paidAmount ?? 0) > 0}
+          debtAmount={Math.max(0, Number(order.debtAmount ?? 0))}
+          completionBlockers={order.completionBlockers ?? []}
           isAdmin={isAdmin}
           isWarehouse={isWarehouse}
           paymentType={order.paymentType ?? paymentType ?? null}
+          deliveryMethod={order.deliveryMethod ?? deliveryMethod ?? null}
+          hasTtn={orderHasTtn(order)}
         />
+        {(order.completionBlockers?.length ?? 0) > 0 ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <div className="font-medium">Завершення замовлення заблоковано</div>
+            <ul className="mt-1 list-inside list-disc text-xs text-amber-900">
+              {(order.completionBlockers ?? []).map((b) => (
+                <li key={b}>
+                  {b.startsWith("open_debt:")
+                    ? `Є борг ${b.slice("open_debt:".length)}`
+                    : b.startsWith("financial_status:")
+                      ? `Фінансовий статус: ${b.slice("financial_status:".length)} (потрібно CLOSED)`
+                      : b.startsWith("unsettled_return:")
+                        ? "Є закритe повернення з неоформленою переплатою — проведіть залік або повернення коштів"
+                        : b}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {order.parent || (order.children && order.children.length > 0) ? (
           <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
             <div className="text-xs font-semibold text-zinc-600">Повʼязані замовлення</div>
@@ -2186,13 +2372,11 @@ export function OrderModal({
                         className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
-                        <div
-                          style={
-                            searchDropdownMaxWidth
-                              ? { maxWidth: `${searchDropdownMaxWidth}px` }
-                              : undefined
-                          }
-                          className="absolute top-full left-0 z-10 mt-0.5 w-full max-h-36 max-w-[min(90vw,56rem)] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg"
+                        <FixedDropdownPortal
+                          open
+                          anchorRef={searchWrapRef}
+                          maxHeight="9rem"
+                          minWidth={280}
                         >
                           {searchResults.map((p) => (
                             <button
@@ -2215,7 +2399,7 @@ export function OrderModal({
                               </span>
                             </button>
                           ))}
-                        </div>
+                        </FixedDropdownPortal>
                       ) : null}
                       {searchLoading ? (
                         <div className="mt-0.5 text-[10px] text-zinc-500">Пошук…</div>
@@ -3552,6 +3736,25 @@ export function OrderModal({
                 </div>
               </EntitySection>
               <EntitySection title="Оплата">
+                <OrderClientBalancePanel
+                  orderId={orderId!}
+                  currency={order.currency ?? "UAH"}
+                  debtAmount={(() => {
+                    const d = order.debtAmount;
+                    if (d != null && Number.isFinite(Number(d))) return Math.max(0, Number(d));
+                    return Math.max(
+                      0,
+                      Number(order.totalAmount ?? 0) -
+                        Number(order.returnAdjustmentAmount ?? 0) -
+                        Number(order.paidAmount ?? 0),
+                    );
+                  })()}
+                  exchangeRate={order.exchangeRate ?? null}
+                  onApplied={async () => {
+                    await refreshOrder();
+                    onSaved?.();
+                  }}
+                />
                 <OrderPaymentBlock
                   orderId={orderId!}
                   orderNumber={order.orderNumber}
@@ -3614,6 +3817,28 @@ export function OrderModal({
             setTtnModalTtnId(undefined);
             await Promise.all([refreshOrder(), refreshTimeline()]);
             onSaved?.();
+          }}
+        />
+      ) : null}
+      {pendingReturnSettlement ? (
+        <OrderReturnSettlementDialog
+          returnId={pendingReturnSettlement.returnId}
+          currency={order?.currency ?? "UAH"}
+          onCancel={() => setPendingReturnSettlement(null)}
+          onConfirm={async (settlement) => {
+            try {
+              await updateReturnStatus(
+                pendingReturnSettlement.returnId,
+                pendingReturnSettlement.nextStatus,
+                settlement,
+              );
+              setPendingReturnSettlement(null);
+            } catch (e) {
+              pushToast(
+                e instanceof Error ? e.message : "Не вдалося закрити повернення",
+                "error",
+              );
+            }
           }}
         />
       ) : null}

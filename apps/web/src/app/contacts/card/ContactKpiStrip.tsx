@@ -10,6 +10,9 @@ export function ContactKpiStrip({ kpi, scopeNote }: { kpi: ContactCardSummary["k
   const primaryCards = [
     { title: "Revenue $", value: fmtMoney(kpi.revenue) },
     { title: "Debt $", value: fmtMoney(kpi.debt) },
+    ...(kpi.clientBalance > 0
+      ? [{ title: "Credit balance", value: fmtMoney(kpi.clientBalance) }]
+      : []),
     { title: "Orders", value: String(kpi.ordersCount) },
     { title: "Open tasks", value: String(kpi.openTasksCount) },
   ];

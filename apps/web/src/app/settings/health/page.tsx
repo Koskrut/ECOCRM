@@ -83,6 +83,7 @@ export default function SettingsHealthPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [manualTargetVersion, setManualTargetVersion] = useState("");
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -91,7 +92,16 @@ export default function SettingsHealthPage() {
     Boolean(updateStatus?.activeJobId) ||
     job?.status === "running" ||
     job?.status === "queued";
-  const canUpdateNow = Boolean(updateStatus?.canUpdate) && !isBusy;
+  const manualTarget = manualTargetVersion.trim();
+  const canUpdateWithManual =
+    Boolean(updateStatus?.mode === "agent_available" && updateStatus.updaterReachable && manualTarget) &&
+    !isBusy;
+  const canUpdateNow =
+    (Boolean(updateStatus?.canUpdate) || canUpdateWithManual) && !isBusy;
+  const applyTargetVersion = manualTarget || updateStatus?.targetVersion || null;
+  const trackingJobId =
+    updateStatus?.activeJobId ??
+    (job?.status === "running" || job?.status === "queued" ? job.id : null);
 
   useEffect(() => {
     apiHttp
@@ -131,9 +141,9 @@ export default function SettingsHealthPage() {
   }, [role]);
 
   useEffect(() => {
-    if (!updateStatus?.activeJobId) return;
+    if (!trackingJobId) return;
     let stop = false;
-    const id = updateStatus.activeJobId;
+    const id = trackingJobId;
     const timer = setInterval(() => {
       if (stop) return;
       apiHttp
@@ -156,7 +166,7 @@ export default function SettingsHealthPage() {
       stop = true;
       clearInterval(timer);
     };
-  }, [updateStatus?.activeJobId]);
+  }, [trackingJobId]);
 
   async function refreshUpdateStatus() {
     setIsRefreshing(true);
@@ -179,17 +189,39 @@ export default function SettingsHealthPage() {
   }
 
   async function runUpdate() {
+    if (!applyTargetVersion) {
+      setErr("Цільова версія не вказана.");
+      return;
+    }
     setIsUpdating(true);
     setErr(null);
     setJob(null);
     try {
-      const preflight = await apiHttp.post<{ ok: boolean }>("/system/update/preflight", {});
+      const preflight = await apiHttp.post<{ ok: boolean; message?: string }>(
+        "/system/update/preflight",
+        {},
+        { timeout: 120_000 },
+      );
       if (!preflight.data?.ok) {
-        setErr("Оновлення тимчасово недоступне. Зверніться до підтримки.");
+        setErr(preflight.data?.message ?? "Оновлення тимчасово недоступне. Зверніться до підтримки.");
         return;
       }
-      const res = await apiHttp.post<UpdateJob>("/system/update/apply", {});
-      setJob(res.data ?? null);
+      const body = manualTarget ? { targetVersion: manualTarget } : {};
+      const res = await apiHttp.post<UpdateJob>("/system/update/apply", body, { timeout: 120_000 });
+      const startedJob = res.data ?? null;
+      setJob(startedJob);
+      if (startedJob?.id) {
+        setUpdateStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                activeJobId: startedJob.id,
+                state: "updating",
+                canUpdate: false,
+              }
+            : prev,
+        );
+      }
       await refreshUpdateStatus();
     } catch (e) {
       setErr(getUserFriendlyApiError(e, "Не вдалося оновити систему. Зверніться до підтримки."));
@@ -221,13 +253,37 @@ export default function SettingsHealthPage() {
             {updateSubtitle(updateStatus, job) ? (
               <p className="mt-1 text-xs text-zinc-600">{updateSubtitle(updateStatus, job)}</p>
             ) : null}
+            {!canUpdateNow && !isBusy && updateStatus?.reason ? (
+              <p className="mt-2 text-xs text-zinc-500">{updateStatus.reason}</p>
+            ) : null}
+            {updateStatus?.mode === "agent_available" && !updateStatus.cpReachable && !isBusy ? (
+              <div className="mt-3">
+                <label className="flex max-w-xs flex-col gap-1 text-xs text-zinc-600">
+                  Цільова версія (Control Plane недоступний)
+                  <input
+                    type="text"
+                    value={manualTargetVersion}
+                    onChange={(e) => setManualTargetVersion(e.target.value)}
+                    placeholder={updateStatus.targetVersion ?? "0.2.79"}
+                    className="rounded border border-zinc-300 px-2 py-1.5 text-sm text-zinc-900"
+                  />
+                </label>
+              </div>
+            ) : null}
+            {updateStatus?.mode !== "agent_available" && !isBusy ? (
+              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                Щоб оновлення працювало, задайте <code className="text-[11px]">UPDATER_AGENT_URL</code> у backend і
+                запустіть updater-агент на хості.
+              </p>
+            ) : null}
             {canUpdateNow ? (
               <button
                 type="button"
-                onClick={runUpdate}
-                className="mt-4 rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+                onClick={() => void runUpdate()}
+                disabled={isUpdating}
+                className="mt-4 rounded bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-wait disabled:opacity-60"
               >
-                Оновити до {updateStatus?.targetVersion}
+                {isUpdating ? "Запуск…" : `Оновити до ${applyTargetVersion}`}
               </button>
             ) : null}
             {isBusy ? (

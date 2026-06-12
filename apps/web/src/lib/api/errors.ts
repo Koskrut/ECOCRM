@@ -122,5 +122,7 @@ export function getUserFriendlyApiError(error: unknown, fallback?: string): stri
   if (mapped.code === "VALIDATION" && mapped.message) return mapped.message;
   if (mapped.code === "CONFLICT" && mapped.message) return mapped.message;
   if (mapped.code === "NOT_FOUND" && mapped.message) return mapped.message;
+  if (mapped.status === 400 && mapped.message) return mapped.message;
+  if (mapped.status === 503 && mapped.message) return mapped.message;
   return fallback ?? DEFAULT_MESSAGES[mapped.code] ?? DEFAULT_MESSAGES.UNKNOWN;
 }

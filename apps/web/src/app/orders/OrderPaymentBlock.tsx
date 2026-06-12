@@ -36,11 +36,12 @@ type PaymentItem = {
   createdBy?: { id: string; fullName: string } | null;
 };
 
-function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: number }): string {
+function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: number; sourceType?: string }): string {
   const usd = p.amountUsd ?? (p.currency === "USD" ? p.amount : 0);
   const sym = p.currency === "UAH" ? "₴" : p.currency === "EUR" ? "€" : "$";
-  if (p.currency === "USD") return `+${p.amount.toFixed(2)} $`;
-  return `+${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
+  const prefix = p.sourceType === "CREDIT" ? "залік " : "+";
+  if (p.currency === "USD") return `${prefix}${p.amount.toFixed(2)} $`;
+  return `${prefix}${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {

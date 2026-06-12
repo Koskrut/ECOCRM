@@ -4,7 +4,37 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.79**.)_
+_(планируемые изменения после **0.2.80**.)_
+
+## [0.2.80] — 2026-06-12
+
+### Summary
+
+Патч **0.2.80**: **баланс клієнта** (contact/company credit), **повернення** — settlement CREDIT/REFUND/SPLIT; **guards** переходів `orderStage` (оплата, ТТН НП); доработки **OrderModal**, **FinancialKanban**, **SearchableSelect** (portal dropdown); **updater** — sync active job з agent.
+
+### Added
+
+- **`client-balances`**: `ClientBalance`, транзакції, apply credit до замовлення; API `/client-balances/*`; proxy на finance sidecar.
+- **Returns**: `ReturnSettlementType`, settlement preview, credit/refund/split при закритті повернення; `PaymentSourceType.CREDIT`.
+- **Orders**: `order-stage-prerequisites`, `order-payment-guards`, `order-completion-guards` — валідація forward transitions.
+- **Web**: `OrderClientBalancePanel`, settlement modal у **OrderModal**; BFF `settlement-preview`.
+- **UI**: `FixedDropdownPortal`, `AddressSuggestionsDropdown`; рефактор **NpDirectorySelects** / **SearchableSelect**.
+
+### Changed
+
+- **OrderModal** / **FinancialKanban** / **OrdersKanban** — баланс, повернення, stage UX.
+- **Contacts** KPI — balance hint; modals (company/contact/lead) — select overlays.
+- **System update**: `loadUpdaterState`, HTTP exceptions; **Settings → Health** — polling job status.
+- **Settings home** — link на Health при `agent_available`.
+
+### Fixed
+
+- **`settlement-preview` BFF route** — param `id` (CI `tsc`).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.80`**, повний манифест (8 modules).
+- **`prisma migrate deploy`** — `20260612120000_client_balance`.
 
 ## [0.2.79] — 2026-06-11
 
@@ -492,7 +522,7 @@ _(планируемые изменения после **0.2.79**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.79`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.80`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

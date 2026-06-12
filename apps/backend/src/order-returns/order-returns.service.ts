@@ -8,9 +8,12 @@ import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
+import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateOrderReturnDto } from "./dto/create-order-return.dto";
 import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
+import type { SettleReturnDto } from "../client-balances/dto/settle-return.dto";
+import { computeReturnAdjustmentAmount } from "./order-return-adjustment.utils";
 
 const ALLOWED_TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
   REQUESTED: ["APPROVED"],
@@ -32,7 +35,7 @@ export class OrderReturnsService {
   ) {}
 
   private async syncOrderStateFromReturns(orderId: string) {
-    const [openCount, allClosedReturns] = await Promise.all([
+    const [openCount, allClosedReturns, orderTotals] = await Promise.all([
       this.prisma.orderReturn.count({
         where: { orderId, status: { not: CLOSED_RETURN_STATUS } },
       }),
@@ -40,11 +43,16 @@ export class OrderReturnsService {
         where: { orderId, status: CLOSED_RETURN_STATUS },
         include: { items: { include: { orderItem: true } } },
       }),
+      this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { subtotalAmount: true, totalAmount: true },
+      }),
     ]);
 
-    const totalAdjustment = allClosedReturns.reduce((sum, ret) => {
-      return sum + ret.items.reduce((s, ri) => s + Number(ri.orderItem.price) * ri.qtyReturned, 0);
-    }, 0);
+    const totalAdjustment = computeReturnAdjustmentAmount(allClosedReturns, {
+      subtotalAmount: orderTotals?.subtotalAmount ?? 0,
+      totalAmount: orderTotals?.totalAmount ?? 0,
+    });
 
     await this.prisma.order.update({
       where: { id: orderId },
@@ -61,14 +69,28 @@ export class OrderReturnsService {
         paidAmount: true,
         returnAdjustmentAmount: true,
         paymentDueDate: true,
+        subtotalAmount: true,
       },
     });
     if (!orderAfter) throw new NotFoundException("Order not found");
 
+    const completionBlockers =
+      openCount === 0
+        ? await getOrderCompletionBlockers(this.prisma, orderId, {
+            paymentType: orderAfter.paymentType,
+            paidAmount: orderAfter.paidAmount,
+            totalAmount: orderAfter.totalAmount,
+            subtotalAmount: orderAfter.subtotalAmount ?? 0,
+            debtAmount: orderAfter.debtAmount,
+            returnAdjustmentAmount: orderAfter.returnAdjustmentAmount,
+            paymentDueDate: orderAfter.paymentDueDate,
+          })
+        : ["open_return"];
+
     const nextStage: OrderStage =
       openCount > 0
         ? "RETURN_IN_PROGRESS"
-        : Number(orderAfter.debtAmount ?? 0) <= 0
+        : completionBlockers.length === 0
           ? "COMPLETED"
           : "RECEIVED";
 
@@ -266,7 +288,12 @@ export class OrderReturnsService {
     return r;
   }
 
-  async updateStatus(id: string, status: ReturnStatus, actor?: AuthUser) {
+  async updateStatus(
+    id: string,
+    status: ReturnStatus,
+    actor?: AuthUser,
+    settlement?: SettleReturnDto,
+  ) {
     const r = await this.prisma.orderReturn.findUnique({
       where: { id },
       include: {
@@ -298,6 +325,36 @@ export class OrderReturnsService {
 
     await this.syncOrderStateFromReturns(r.orderId);
 
-    return updated;
+    if (status === CLOSED_RETURN_STATUS) {
+      let preview: { requiresSettlement?: boolean; maxSettleAmount?: number; alreadySettled?: boolean };
+      try {
+        preview = (await this.integrations.getReturnSettlementPreview(id, actor)) as typeof preview;
+      } catch {
+        preview = { requiresSettlement: false };
+      }
+
+      if (preview.requiresSettlement && !preview.alreadySettled) {
+        if (!settlement) {
+          throw new BadRequestException(
+            `Return closure created overpayment (max ${preview.maxSettleAmount ?? 0}). Provide settlement (credit/refund).`,
+          );
+        }
+        await this.integrations.settleReturn(id, settlement, actor);
+      } else if (settlement) {
+        await this.integrations.settleReturn(id, settlement, actor);
+      }
+    }
+
+    return this.prisma.orderReturn.findUnique({
+      where: { id },
+      include: {
+        order: true,
+        items: { include: { orderItem: true } },
+      },
+    }) ?? updated;
+  }
+
+  getSettlementPreview(id: string, actor?: AuthUser) {
+    return this.integrations.getReturnSettlementPreview(id, actor);
   }
 }

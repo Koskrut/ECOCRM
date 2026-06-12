@@ -44,6 +44,8 @@ type BoardOrder = {
   stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
 };
 
 type OrdersListResponse = {
@@ -86,6 +88,15 @@ const FALLBACK_MAIN_STAGE_ORDER: OrderStage[] = [
   "AWAITING_RECEIPT",
   "RECEIVED",
 ];
+
+function isForwardStageTransition(from: OrderStage, to: OrderStage): boolean {
+  if (from === to) return false;
+  if (to === "CANCELED") return false;
+  const fromIdx = FALLBACK_MAIN_STAGE_ORDER.indexOf(from);
+  const toIdx = FALLBACK_MAIN_STAGE_ORDER.indexOf(to);
+  if (fromIdx >= 0 && toIdx >= 0) return toIdx > fromIdx;
+  return to === "COMPLETED";
+}
 
 const FALLBACK_FINAL_DROP_ZONES: { id: OrderStage; label: string; className: string }[] = [
   { id: "COMPLETED", label: "Завершено", className: "border-emerald-300 bg-emerald-50/80" },
@@ -358,6 +369,22 @@ export function OrdersKanban({
         setDragging(null);
         return;
       }
+      const order = list?.items?.find((x) => x.id === orderId);
+      if (from && isForwardStageTransition(from, to) && !order?.paymentType) {
+        alert("Оберіть умови оплати перед переведенням замовлення на наступний етап.");
+        setDragging(null);
+        return;
+      }
+      if (to === "COMPLETED") {
+        const debt = Number(order?.debtAmount ?? 0);
+        if (debt > 0.009) {
+          alert(
+            "Неможливо завершити замовлення: оплата не закрита. Спочатку оплатіть або застосуйте залік.",
+          );
+          setDragging(null);
+          return;
+        }
+      }
       if (warehouseMode && from) {
         const allowed = WAREHOUSE_TRANSITIONS[from];
         if (!allowed?.includes(to)) {
@@ -379,7 +406,7 @@ export function OrdersKanban({
         setDragging(null);
       }
     },
-    [dragging, load, patchStage, warehouseMode],
+    [dragging, list, load, patchStage, warehouseMode],
   );
 
   if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
@@ -542,6 +569,12 @@ export function OrdersKanban({
                           Клієнт
                         </div>
                         <div className="mt-0.5 truncate text-xs text-zinc-700">{clientName}</div>
+                        <div className="mt-2 text-[10px] font-medium uppercase text-zinc-500">
+                          Склад
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-zinc-700">
+                          {o.warehouse?.name ?? "—"}
+                        </div>
                       </button>
                     );
                   })

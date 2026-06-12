@@ -46,7 +46,9 @@ import {
   orderStageToDeliveryStatus,
   orderStageToLegacyStatus,
 } from "./order-status-sync.mapper";
+import { orderHasTtnRecord } from "./order-stage-prerequisites";
 import { validateOrderStageTransition } from "./order-stage-transitions";
+import { assertOrderReadyForCompletion, getOrderCompletionBlockers } from "./order-completion-guards";
 import {
   computeOrderStockReadiness,
   type OrderStockReadiness,
@@ -691,8 +693,18 @@ export class OrdersService {
             select: { id: true, orderNumber: true },
           })
         : [];
+    const completionBlockers = await getOrderCompletionBlockers(this.prisma, id, {
+      paymentType: o.paymentType,
+      paidAmount: o.paidAmount,
+      totalAmount: o.totalAmount,
+      subtotalAmount: o.subtotalAmount ?? 0,
+      debtAmount: o.debtAmount,
+      returnAdjustmentAmount: o.returnAdjustmentAmount,
+      paymentDueDate: o.paymentDueDate,
+    });
     return {
       ...this.mapToEntity(o),
+      completionBlockers,
       ttnSharedAcrossOrders: ttnSharedMeta.get(id)?.shared === true,
       ttnSharedWithOrders: relatedOrders,
     };
@@ -1364,8 +1376,19 @@ export class OrdersService {
         paymentType: true,
         paidAmount: true,
         totalAmount: true,
+        subtotalAmount: true,
         debtAmount: true,
+        returnAdjustmentAmount: true,
         paymentDueDate: true,
+        financialStatus: true,
+        deliveryMethod: true,
+        deliveryData: true,
+        ttns: { take: 1, select: { id: true } },
+        shipments: {
+          where: { ttns: { some: {} } },
+          take: 1,
+          select: { id: true },
+        },
       },
     });
     if (!current) throw new NotFoundException("Order not found");
@@ -1381,6 +1404,12 @@ export class OrdersService {
       }
     }
 
+    const hasTtn = orderHasTtnRecord({
+      deliveryData: current.deliveryData,
+      hasOrderTtn: (current.ttns?.length ?? 0) > 0,
+      hasShipmentTtn: (current.shipments?.length ?? 0) > 0,
+    });
+
     const transitionGraph = await this.ordersPipelineConfig.getEffectiveTransitionGraph();
     validateOrderStageTransition(current.orderStage, toStage, {
       orderStage: current.orderStage,
@@ -1388,7 +1417,31 @@ export class OrdersService {
       paidAmount: current.paidAmount,
       totalAmount: current.totalAmount,
       debtAmount: current.debtAmount,
+      returnAdjustmentAmount: current.returnAdjustmentAmount,
+      paymentDueDate: current.paymentDueDate,
+      deliveryMethod: current.deliveryMethod,
+      hasTtn,
     }, transitionGraph);
+
+    if (toStage === "COMPLETED") {
+      const openReturnsCount = await this.prisma.orderReturn.count({
+        where: { orderId: id, status: { not: "CLOSED" } },
+      });
+      if (openReturnsCount > 0) {
+        throw new BadRequestException(
+          "Cannot complete order while a return is in progress. Close the return first.",
+        );
+      }
+      await assertOrderReadyForCompletion(this.prisma, id, {
+        paymentType: current.paymentType,
+        paidAmount: current.paidAmount,
+        totalAmount: current.totalAmount,
+        subtotalAmount: current.subtotalAmount ?? 0,
+        debtAmount: current.debtAmount,
+        returnAdjustmentAmount: current.returnAdjustmentAmount,
+        paymentDueDate: current.paymentDueDate,
+      });
+    }
 
     if (toStage === "RETURN_IN_PROGRESS") {
       const openReturnsCount = await this.prisma.orderReturn.count({
@@ -1544,11 +1597,14 @@ export class OrdersService {
 
     const subtotal = order.items.reduce((sum, it) => sum + (it.lineTotal ?? 0), 0);
     const a = this.calc(subtotal, order.discountAmount, order.paidAmount);
+    const returnAdjustment = Math.max(0, Number(order.returnAdjustmentAmount ?? 0));
+    const effectiveTotal = Math.max(0, a.total - returnAdjustment);
+    const debtAmount = Math.max(0, effectiveTotal - a.paid);
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,
-      totalAmount: a.total,
+      totalAmount: effectiveTotal,
       paidAmount: order.paidAmount,
-      debtAmount: a.debt,
+      debtAmount,
       paymentDueDate: order.paymentDueDate,
       orderStage: order.orderStage ?? undefined,
     });
@@ -1558,7 +1614,7 @@ export class OrdersService {
       data: {
         subtotalAmount: a.subtotal,
         totalAmount: a.total,
-        debtAmount: a.debt,
+        debtAmount,
         financialStatus,
       },
       include: ORDER_INCLUDE,

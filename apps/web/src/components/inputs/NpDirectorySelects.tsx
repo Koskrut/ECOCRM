@@ -1,8 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { strings } from "@/locales";
+import {
+  FixedDropdownPortal,
+  useDismissOnOutsidePointerDown,
+} from "@/components/overlays/FixedDropdownPortal";
+
+function NpSelectDropdown({
+  open,
+  anchorRef,
+  panelRef,
+  children,
+}: {
+  open: boolean;
+  anchorRef: RefObject<HTMLDivElement | null>;
+  panelRef?: RefObject<HTMLDivElement | null>;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <FixedDropdownPortal open={open} anchorRef={anchorRef} panelRef={panelRef} maxHeight="12rem">
+      {children}
+    </FixedDropdownPortal>
+  );
+}
 
 function npSelect() {
   return strings.np.directorySelect;
@@ -114,6 +137,7 @@ export function NpCitySelect({
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
   const lastQueryRef = useRef<string>("");
 
   useEffect(() => {
@@ -207,7 +231,7 @@ export function NpCitySelect({
 
   const displayValue = open ? q : valueLabel || valueRef || "";
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <input
         type="text"
         value={displayValue}
@@ -221,29 +245,27 @@ export function NpCitySelect({
         disabled={disabled}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
-      {open && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
-          {!loading && options.length === 0 && q.trim().length >= 2 && (
-            <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
-          )}
-          {!loading &&
-            options.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                onMouseDown={() => {
-                  onChange(opt.id, opt.label);
-                  setQ("");
-                  setOpen(false);
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-        </div>
-      )}
+      <NpSelectDropdown open={open} anchorRef={anchorRef}>
+        {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+        {!loading && options.length === 0 && q.trim().length >= 2 && (
+          <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
+        )}
+        {!loading &&
+          options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onMouseDown={() => {
+                onChange(opt.id, opt.label);
+                setQ("");
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+      </NpSelectDropdown>
     </div>
   );
 }
@@ -272,6 +294,7 @@ export function NpWarehouseSelect({
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!cityRef) {
@@ -309,7 +332,7 @@ export function NpWarehouseSelect({
     ? (q.trim() ? q : valueLabel || valueRef || "")
     : valueLabel || valueRef || "";
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <input
         type="text"
         value={displayValue}
@@ -323,29 +346,27 @@ export function NpWarehouseSelect({
         disabled={disabled || !cityRef}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
-      {open && cityRef && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
-          {!loading && options.length === 0 && (
-            <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
-          )}
-          {!loading &&
-            options.map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                onMouseDown={() => {
-                  onChange(opt.id, opt.label, opt.number);
-                  setQ("");
-                  setOpen(false);
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-        </div>
-      )}
+      <NpSelectDropdown open={open && !!cityRef} anchorRef={anchorRef}>
+        {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+        {!loading && options.length === 0 && (
+          <div className="px-3 py-2 text-sm text-zinc-500">{t.noResults}</div>
+        )}
+        {!loading &&
+          options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onMouseDown={() => {
+                onChange(opt.id, opt.label, opt.number);
+                setQ("");
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+      </NpSelectDropdown>
     </div>
   );
 }
@@ -379,6 +400,8 @@ export function NpSenderCounterpartySelect({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || options.length > 0) return;
@@ -398,8 +421,10 @@ export function NpSenderCounterpartySelect({
 
   const displayValue = valueLabel || valueRef || "";
 
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), anchorRef, panelRef);
+
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <button
         type="button"
         disabled={disabled}
@@ -411,31 +436,29 @@ export function NpSenderCounterpartySelect({
         </span>
         <span className="text-zinc-400">▾</span>
       </button>
-      {open && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
-          {error && !loading ? (
-            <div className="px-3 py-2 text-sm text-red-600">{error}</div>
-          ) : null}
-          {!loading &&
-            options.map((opt) => (
-              <button
-                key={opt.ref}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                onMouseDown={() => {
-                  onChange(opt.ref, opt.label);
-                  setOpen(false);
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          {!loading && !error && options.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderCounterparties}</div>
-          ) : null}
-        </div>
-      )}
+      <NpSelectDropdown open={open} anchorRef={anchorRef} panelRef={panelRef}>
+        {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+        {error && !loading ? (
+          <div className="px-3 py-2 text-sm text-red-600">{error}</div>
+        ) : null}
+        {!loading &&
+          options.map((opt) => (
+            <button
+              key={opt.ref}
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onMouseDown={() => {
+                onChange(opt.ref, opt.label);
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        {!loading && !error && options.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderCounterparties}</div>
+        ) : null}
+      </NpSelectDropdown>
       {valueRef ? (
         <p className="mt-1 font-mono text-[10px] text-zinc-400" title={valueRef}>
           {valueRef.slice(0, 12)}…
@@ -466,6 +489,8 @@ export function NpSenderContactSelect({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setOptions([]);
@@ -494,8 +519,10 @@ export function NpSenderContactSelect({
 
   const displayValue = valueLabel || valueRef || "";
 
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), anchorRef, panelRef);
+
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <button
         type="button"
         disabled={disabled || !counterpartyRef}
@@ -509,31 +536,29 @@ export function NpSenderContactSelect({
         </span>
         <span className="text-zinc-400">▾</span>
       </button>
-      {open && counterpartyRef && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
-          {error && !loading ? (
-            <div className="px-3 py-2 text-sm text-red-600">{error}</div>
-          ) : null}
-          {!loading &&
-            options.map((opt) => (
-              <button
-                key={opt.ref}
-                type="button"
-                className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                onMouseDown={() => {
-                  onChange(opt.ref, opt.label);
-                  setOpen(false);
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          {!loading && !error && options.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderContacts}</div>
-          ) : null}
-        </div>
-      )}
+      <NpSelectDropdown open={open && !!counterpartyRef} anchorRef={anchorRef} panelRef={panelRef}>
+        {loading && <div className="px-3 py-2 text-sm text-zinc-500">{t.loading}</div>}
+        {error && !loading ? (
+          <div className="px-3 py-2 text-sm text-red-600">{error}</div>
+        ) : null}
+        {!loading &&
+          options.map((opt) => (
+            <button
+              key={opt.ref}
+              type="button"
+              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onMouseDown={() => {
+                onChange(opt.ref, opt.label);
+                setOpen(false);
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        {!loading && !error && options.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-zinc-500">{t.noSenderContacts}</div>
+        ) : null}
+      </NpSelectDropdown>
       {valueRef ? (
         <p className="mt-1 font-mono text-[10px] text-zinc-400" title={valueRef}>
           {valueRef.slice(0, 12)}…
@@ -567,6 +592,7 @@ export function NpStreetSelect({
   const [emptyMessage, setEmptyMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
 
   const fetchStreets = (query: string, browse = false) => {
     setLoading(true);
@@ -619,7 +645,7 @@ export function NpStreetSelect({
     : valueLabel || valueRef || "";
     
   return (
-    <div className="relative">
+    <div ref={anchorRef} className="relative">
       <input
         type="text"
         value={displayValue}
@@ -645,7 +671,7 @@ export function NpStreetSelect({
             type="button"
             className="text-xs text-blue-600 hover:underline"
             onMouseDown={(e) => {
-              e.preventDefault(); // prevent blur
+              e.preventDefault();
               fetchStreets("", true);
             }}
           >
@@ -654,24 +680,22 @@ export function NpStreetSelect({
         </div>
       )}
 
-      {open && cityRef && options.length > 0 && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg">
-          {options.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onMouseDown={() => {
-                onChange(opt.id, opt.label);
-                setQ("");
-                setOpen(false);
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <NpSelectDropdown open={open && !!cityRef && options.length > 0} anchorRef={anchorRef}>
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+            onMouseDown={() => {
+              onChange(opt.id, opt.label);
+              setQ("");
+              setOpen(false);
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </NpSelectDropdown>
     </div>
   );
 }

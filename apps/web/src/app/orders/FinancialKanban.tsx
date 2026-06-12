@@ -81,6 +81,99 @@ function resolveFinancialStatus(o: FinancialOrder): FinancialStatus {
   return "CLOSED";
 }
 
+const DEBT_COLUMN_STATUSES = new Set<FinancialStatus>([
+  "INVOICE_PENDING",
+  "AWAITING_PAYMENT",
+  "DUE_SOON",
+  "OVERDUE",
+]);
+
+type AmountByCurrency = Record<string, number>;
+
+function sumByCurrency(
+  items: FinancialOrder[],
+  pick: (o: FinancialOrder) => number,
+): AmountByCurrency {
+  const out: AmountByCurrency = {};
+  for (const o of items) {
+    const amount = pick(o);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    const currency = o.currency?.trim() || "USD";
+    out[currency] = (out[currency] ?? 0) + amount;
+  }
+  return out;
+}
+
+function formatAmountByCurrency(totals: AmountByCurrency): string | null {
+  const entries = Object.entries(totals).filter(([, value]) => value > 0.00001);
+  if (entries.length === 0) return null;
+  return entries
+    .map(([currency, amount]) => formatOrderAmount(amount, currency))
+    .join(" · ");
+}
+
+type ColumnTotals = {
+  count: number;
+  debtLabel: string | null;
+  amountLabel: string | null;
+  isDebt: boolean;
+};
+
+function columnTotals(status: FinancialStatus, items: FinancialOrder[]): ColumnTotals {
+  const debtByCurrency = sumByCurrency(items, (o) => Math.max(0, Number(o.debtAmount ?? 0)));
+  const debtLabel = formatAmountByCurrency(debtByCurrency);
+
+  if (DEBT_COLUMN_STATUSES.has(status)) {
+    return {
+      count: items.length,
+      debtLabel,
+      amountLabel: debtLabel,
+      isDebt: true,
+    };
+  }
+
+  if (status === "PAID") {
+    const paidByCurrency = sumByCurrency(items, (o) => Math.max(0, Number(o.paidAmount ?? 0)));
+    return {
+      count: items.length,
+      debtLabel,
+      amountLabel: formatAmountByCurrency(paidByCurrency),
+      isDebt: false,
+    };
+  }
+
+  const totalByCurrency = sumByCurrency(items, (o) => Math.max(0, Number(o.totalAmount ?? 0)));
+  return {
+    count: items.length,
+    debtLabel,
+    amountLabel: formatAmountByCurrency(totalByCurrency),
+    isDebt: false,
+  };
+}
+
+const FINANCIAL_PAGE_SIZE = 100;
+
+async function fetchAllFinancialOrders(
+  baseParams: Record<string, string>,
+): Promise<FinancialListResponse> {
+  const first = await apiHttp.get<FinancialListResponse>("/orders", {
+    params: { ...baseParams, page: "1", pageSize: String(FINANCIAL_PAGE_SIZE) },
+  });
+  const firstData = first.data ?? { items: [] };
+  const total = firstData.total ?? firstData.items.length;
+  const allItems = [...(firstData.items ?? [])];
+
+  const totalPages = Math.max(1, Math.ceil(total / FINANCIAL_PAGE_SIZE));
+  for (let page = 2; page <= totalPages; page++) {
+    const res = await apiHttp.get<FinancialListResponse>("/orders", {
+      params: { ...baseParams, page: String(page), pageSize: String(FINANCIAL_PAGE_SIZE) },
+    });
+    allItems.push(...(res.data?.items ?? []));
+  }
+
+  return { ...firstData, items: allItems, total };
+}
+
 export function FinancialKanban({
   onOpenOrder,
   filters,
@@ -101,7 +194,6 @@ export function FinancialKanban({
       const params: Record<string, string> = {
         financialBoard: "true",
         withCompanyClient: "true",
-        pageSize: "100",
       };
       if (filters?.financialStatus) params.financialStatus = filters.financialStatus;
       if (filters?.paymentType) params.paymentType = filters.paymentType;
@@ -116,8 +208,8 @@ export function FinancialKanban({
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
 
-      const res = await apiHttp.get<FinancialListResponse>("/orders", { params });
-      setList(res.data ?? { items: [] });
+      const data = await fetchAllFinancialOrders(params);
+      setList(data);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load financial board");
       setList(null);
@@ -169,6 +261,7 @@ export function FinancialKanban({
       id,
       title: FINANCIAL_LABELS[id],
       items: map[id],
+      totals: columnTotals(id, map[id]),
     }));
   }, [list]);
 
@@ -188,9 +281,25 @@ export function FinancialKanban({
             key={col.id}
             className="flex-shrink-0 w-[240px] min-w-[240px] rounded-lg border border-zinc-200 bg-zinc-50/80"
           >
-            <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
-              <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
-              <div className="text-xs text-zinc-500">{col.items.length}</div>
+            <div className="flex items-start justify-between gap-2 border-b border-zinc-200 px-3 py-2">
+              <div className="min-w-0 text-sm font-semibold leading-snug text-zinc-900">
+                {col.title}
+              </div>
+              <div className="shrink-0 text-right text-xs leading-snug">
+                <div className="text-zinc-500">{col.totals.count}</div>
+                {col.totals.amountLabel ? (
+                  <div
+                    className={
+                      col.totals.isDebt
+                        ? "mt-0.5 font-medium text-amber-700"
+                        : "mt-0.5 font-medium text-zinc-700"
+                    }
+                    title={col.totals.isDebt ? "Сумарний борг" : undefined}
+                  >
+                    {col.totals.isDebt ? `борг ${col.totals.amountLabel}` : col.totals.amountLabel}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="min-h-[180px] space-y-3 p-3">
               {col.items.length === 0 ? (

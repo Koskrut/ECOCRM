@@ -21,8 +21,8 @@ export type EntityModalShellProps = {
 };
 
 const SIZE_CLASS: Record<NonNullable<EntityModalShellProps["size"]>, string> = {
-  default: "sm:max-w-5xl",
-  compact: "sm:max-w-xl",
+  default: "w-full max-w-none shrink-0 sm:max-w-5xl",
+  compact: "w-full max-w-none shrink-0 sm:max-w-xl",
 };
 
 /**
@@ -61,7 +61,7 @@ export function EntityModalShell({
       onClick={() => canClose && onClose()}
     >
       <div
-        className={`flex h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl ${SIZE_CLASS[size]}`}
+        className={`flex h-[100dvh] flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl ${SIZE_CLASS[size]}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal

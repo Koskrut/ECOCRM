@@ -18,6 +18,7 @@ import { BankModule } from "./bank/bank.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { UpcModule } from "./integrations/upc/upc.module";
 import { PaymentsModule } from "./payments/payments.module";
+import { ClientBalancesModule } from "./client-balances/client-balances.module";
 import { PaymentRequestsModule } from "./payment-requests/payment-requests.module";
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
@@ -34,6 +35,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
     SystemModule,
     PaymentRequestsModule,
     PaymentsModule,
+    ClientBalancesModule,
     BankModule,
     Privat24Module,
     UpcModule,

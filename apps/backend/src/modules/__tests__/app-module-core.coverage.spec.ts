@@ -13,6 +13,7 @@ const SIDEcar_PROXY_ENV_BY_MODULE: Record<string, string> = {
   FinanceIdempotencyModule: "FINANCE_UPSTREAM_URL",
   BankModule: "FINANCE_UPSTREAM_URL",
   PaymentsModule: "FINANCE_UPSTREAM_URL",
+  ClientBalancesModule: "FINANCE_UPSTREAM_URL",
   Privat24Module: "FINANCE_UPSTREAM_URL",
   UpcModule: "FINANCE_UPSTREAM_URL",
   NpModule: "NP_UPSTREAM_URL",

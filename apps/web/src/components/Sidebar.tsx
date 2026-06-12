@@ -106,12 +106,18 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     [base, payments],
   );
 
+  const leadMenuItems = useMemo(
+    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(analytics, payments),
+    [base, analytics, payments],
+  );
+
   const menuItems = useMemo(() => {
     if (role === "ADMIN") return [...base, analytics, payments, settingsItem];
     if (role === "WAREHOUSE") return warehouseMenuItems(base);
-    if (role === "MANAGER" || role === "LEAD") return managerMenuItems;
+    if (role === "LEAD") return leadMenuItems;
+    if (role === "MANAGER") return managerMenuItems;
     return base;
-  }, [role, base, analytics, payments, settingsItem, managerMenuItems]);
+  }, [role, base, analytics, payments, settingsItem, leadMenuItems, managerMenuItems]);
 
   // Fail-closed gating: hide gated entries while loading and on API error;
   // show only when the module is explicitly effective. Non-gated entries always render.

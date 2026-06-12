@@ -4,7 +4,17 @@ import { BadRequestException } from "@nestjs/common";
 import { OrderReturnsService } from "../order-returns.service";
 
 type PrismaSvc = import("../../prisma/prisma.service").PrismaService;
-type PaymentsSvc = import("../../payments/payments.service").PaymentsService;
+type IntegrationPorts = import("../../integration-ports/integration-ports.service").IntegrationPortsService;
+
+function mockIntegrations(onRecalc?: (orderId: string) => void | Promise<void>) {
+  return {
+    recalcOrderFinance: async (orderId: string) => {
+      await onRecalc?.(orderId);
+    },
+    getReturnSettlementPreview: async () => ({ requiresSettlement: false }),
+    settleReturn: async () => ({}),
+  } as unknown as IntegrationPorts;
+}
 
 describe("OrderReturnsService", () => {
   it("create sets order stage to RETURN_IN_PROGRESS", async () => {
@@ -15,12 +25,13 @@ describe("OrderReturnsService", () => {
           id: "o1",
           ownerId: "u1",
           orderStage: "RECEIVED",
-          paymentType: "POSTPAYMENT",
+          subtotalAmount: 100,
           totalAmount: 100,
+          paymentType: "POSTPAYMENT",
           paidAmount: 0,
           debtAmount: 100,
           paymentDueDate: null,
-          items: [{ id: "i1", qty: 3 }],
+          items: [{ id: "i1", qty: 3, price: 100, lineTotal: 300 }],
           company: null,
           client: null,
         }),
@@ -48,18 +59,18 @@ describe("OrderReturnsService", () => {
         findMany: async () => [],
       },
     } as unknown as PrismaSvc;
-    const payments = {
-      recalcOrder: async () => {},
-    } as unknown as PaymentsSvc;
-    const svc = new OrderReturnsService(prisma, payments);
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
     assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
   });
 
-  it("closing last return sets stage by debt (RECEIVED/COMPLETED)", async () => {
-    const stageUpdates: string[] = [];
+  it("closing return updates returnAdjustmentAmount and recalculates finance", async () => {
+    const orderUpdates: Array<Record<string, unknown>> = [];
+    let recalcCalled = false;
+
     const prisma = {
       orderReturn: {
         findUnique: async () => ({
@@ -71,30 +82,48 @@ describe("OrderReturnsService", () => {
         }),
         update: async () => ({ id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} }),
         count: async () => 0,
-        findMany: async () => [],
+        findMany: async () => [
+          {
+            items: [
+              {
+                qtyReturned: 2,
+                orderItem: { qty: 4, lineTotal: 400, price: 100 },
+              },
+            ],
+          },
+        ],
       },
       order: {
-        update: async (args: { data: Record<string, unknown> }) => {
-          if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
-          return {};
-        },
         findUnique: async () => ({
-          debtAmount: 10,
+          subtotalAmount: 1000,
+          totalAmount: 900,
+          debtAmount: 500,
           paymentType: "POSTPAYMENT",
-          totalAmount: 100,
-          paidAmount: 90,
+          paidAmount: 400,
           returnAdjustmentAmount: 0,
           paymentDueDate: null,
         }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
       },
     } as unknown as PrismaSvc;
-    const payments = {
-      recalcOrder: async () => {},
-    } as unknown as PaymentsSvc;
-    const svc = new OrderReturnsService(prisma, payments);
+
+    const svc = new OrderReturnsService(
+      prisma,
+      mockIntegrations((orderId) => {
+        recalcCalled = true;
+        assert.equal(orderId, "o1");
+      }),
+    );
 
     await svc.updateStatus("r1", "CLOSED");
-    assert.ok(stageUpdates.includes("RECEIVED"));
+
+    assert.equal(recalcCalled, true);
+    // (400 / 4) * 2 * (900 / 1000) = 180
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 180));
+    assert.ok(orderUpdates.some((u) => u.orderStage === "RECEIVED"));
   });
 
   it("closing last return sets stage COMPLETED when debt is closed", async () => {
@@ -113,24 +142,23 @@ describe("OrderReturnsService", () => {
         findMany: async () => [],
       },
       order: {
-        update: async (args: { data: Record<string, unknown> }) => {
-          if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
-          return {};
-        },
         findUnique: async () => ({
+          subtotalAmount: 100,
+          totalAmount: 100,
           debtAmount: 0,
           paymentType: "POSTPAYMENT",
-          totalAmount: 100,
           paidAmount: 100,
           returnAdjustmentAmount: 0,
           paymentDueDate: null,
         }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
+          return {};
+        },
       },
     } as unknown as PrismaSvc;
-    const payments = {
-      recalcOrder: async () => {},
-    } as unknown as PaymentsSvc;
-    const svc = new OrderReturnsService(prisma, payments);
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
 
     await svc.updateStatus("r1", "CLOSED");
     assert.ok(stageUpdates.includes("COMPLETED"));
@@ -157,8 +185,8 @@ describe("OrderReturnsService", () => {
         return {};
       },
     } as unknown as PrismaSvc;
-    const payments = {} as PaymentsSvc;
-    const svc = new OrderReturnsService(prisma, payments);
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
 
     await assert.rejects(
       () => svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] }),
