@@ -6,7 +6,7 @@
 
 ## 0. Rollout после зелёного **Publish Registry Release** (CP → сервер)
 
-1. **Control Plane:** для установки выставлен целевой релиз **`0.2.80`**; **`rollouts/next`** (или выдача **`MANIFEST_URL`**) возвращает JSON с **`version`: `0.2.79`**, полным **`composeFiles`** (в т.ч. **`compose.modules.store.yml`**) и **`composeFileUrls`** на каждый путь.
+1. **Control Plane:** для установки выставлен целевой релиз **`0.2.80`**; **`rollouts/next`** (или выдача **`MANIFEST_URL`**) возвращает JSON с **`version`: `0.2.80`**, полным **`composeFiles`** (в т.ч. **`compose.modules.store.yml`**) и **`composeFileUrls`** на каждый путь.
 2. **Сервер:** в **`suprex/.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.79`** (и остальные секреты без изменений, если не требует релиз).
 3. **Синк compose + образы:**  
    `cd /opt/crm && ENV_FILE=suprex/.env MANIFEST_URL='…' ./suprex/client-pull-agent.sh`  
