@@ -56,6 +56,8 @@ export default function InboxTelegramPage() {
   );
 }
 
+type MobilePanel = "list" | "chat" | "card";
+
 function InboxTelegramContent() {
   const searchParams = useSearchParams();
   const conversationIdFromUrl = searchParams.get("conversationId");
@@ -64,6 +66,9 @@ function InboxTelegramContent() {
   const [conversationsTotal, setConversationsTotal] = useState(0);
   const [conversationsLoading, setConversationsLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(conversationIdFromUrl);
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>(
+    conversationIdFromUrl ? "chat" : "list",
+  );
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [messagesTotal, setMessagesTotal] = useState(0);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -126,8 +131,19 @@ function InboxTelegramContent() {
   useEffect(() => {
     if (conversationIdFromUrl && conversationIdFromUrl !== selectedId) {
       setSelectedId(conversationIdFromUrl);
+      setMobilePanel("chat");
     }
-  }, [conversationIdFromUrl]);
+  }, [conversationIdFromUrl, selectedId]);
+
+  const selectConversation = (id: string) => {
+    setSelectedId(id);
+    setMobilePanel("chat");
+  };
+
+  const backToList = () => {
+    setMobilePanel("list");
+    setSelectedId(null);
+  };
 
   useEffect(() => {
     if (selectedId) {
@@ -259,9 +275,13 @@ function InboxTelegramContent() {
   }, [linkModalOpen, linkSearchDebounced]);
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] gap-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+    <div className="flex h-[calc(100dvh-5rem)] max-w-full min-w-0 gap-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
       {/* Left: conversation list */}
-      <aside className="flex w-80 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/50">
+      <aside
+        className={`flex w-full flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/50 md:w-80 ${
+          mobilePanel === "list" ? "flex" : "hidden md:flex"
+        }`}
+      >
         <div className="border-b border-zinc-200 p-3">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
             <MessageCircle className="h-5 w-5" />
@@ -301,7 +321,7 @@ function InboxTelegramContent() {
                     type="button"
                     onClick={() => {
                       if (isTextSelected()) return;
-                      setSelectedId(c.id);
+                      selectConversation(c.id);
                     }}
                     className={`w-full px-3 py-3 text-left transition-colors ${
                       selectedId === c.id ? "bg-accent-gradient/10" : "hover:bg-zinc-100/80"
@@ -332,9 +352,13 @@ function InboxTelegramContent() {
       </aside>
 
       {/* Center: messages + input */}
-      <section className="flex min-w-0 flex-1 flex-col bg-white">
+      <section
+        className={`min-w-0 flex-1 flex-col bg-white ${
+          mobilePanel === "chat" ? "flex" : "hidden md:flex"
+        }`}
+      >
         {!selectedId ? (
-          <div className="flex flex-1 items-center justify-center text-zinc-500">
+          <div className="hidden flex-1 items-center justify-center text-zinc-500 md:flex">
             <div className="text-center">
               <MessageCircle className="mx-auto h-12 w-12 text-zinc-300" />
               <p className="mt-2">Оберіть діалог зі списку</p>
@@ -343,9 +367,27 @@ function InboxTelegramContent() {
         ) : (
           <>
             <div className="border-b border-zinc-200 px-4 py-2">
-              <h3 className="font-medium text-zinc-900">
-                {selected ? conversationTitle(selected) : "…"}
-              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={backToList}
+                  className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 md:hidden"
+                  aria-label="Назад до списку"
+                >
+                  ←
+                </button>
+                <h3 className="min-w-0 flex-1 truncate font-medium text-zinc-900">
+                  {selected ? conversationTitle(selected) : "…"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setMobilePanel("card")}
+                  className="rounded-md border border-zinc-200 p-1.5 text-zinc-600 hover:bg-zinc-50 md:hidden"
+                  aria-label="Картка контакту"
+                >
+                  <User className="h-4 w-4" />
+                </button>
+              </div>
               <div className="mt-1 flex gap-2">
                 {(["OPEN", "PENDING", "CLOSED"] as const).map((s) => (
                   <button
@@ -459,7 +501,20 @@ function InboxTelegramContent() {
       </section>
 
       {/* Right: contact/lead card */}
-      <aside className="flex w-72 flex-shrink-0 flex-col border-l border-zinc-200 bg-zinc-50/50 p-4">
+      <aside
+        className={`flex w-full flex-shrink-0 flex-col border-l border-zinc-200 bg-zinc-50/50 p-4 md:w-72 ${
+          mobilePanel === "card" ? "flex" : "hidden md:flex"
+        }`}
+      >
+        {mobilePanel === "card" ? (
+          <button
+            type="button"
+            onClick={() => setMobilePanel("chat")}
+            className="mb-3 self-start rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-100 md:hidden"
+          >
+            ← До чату
+          </button>
+        ) : null}
         {!selected ? (
           <div className="flex flex-1 items-center justify-center text-center text-sm text-zinc-500">
             <div>

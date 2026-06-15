@@ -534,7 +534,7 @@ export default function TasksPage() {
         </p>
       ) : (
         <>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50/80">

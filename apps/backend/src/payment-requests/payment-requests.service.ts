@@ -210,10 +210,10 @@ export class PaymentRequestsService {
       throw new BadRequestException("Invalid order currency");
     }
 
-    /** USD-замовлення: у CRM передають суму посилання вже в грн; UAH — без змін; інші валюти — сума та код валюти з поля. */
+    /** USD/EUR-замовлення: у CRM передають суму посилання вже в грн; UAH — без змін; інші валюти — сума та код валюти з поля. */
     let paymentAmount: number;
     let paymentCurrency: string;
-    if (orderCurrency === "USD") {
+    if (orderCurrency === "USD" || orderCurrency === "EUR") {
       paymentAmount = Math.round(dto.amount * 100) / 100;
       paymentCurrency = "UAH";
     } else {

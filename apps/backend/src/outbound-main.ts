@@ -13,6 +13,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { CallsModule } from "./calls/calls.module";
 import { ManualCallingModule } from "./manual-calling/manual-calling.module";
 import { OutboundModule } from "./outbound/outbound.module";
@@ -23,6 +24,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
 @Module({
   imports: [
     PrismaModule,
+    AuditContextModule,
     ScheduleModule.forRoot(),
     AuthModule,
     RbacModule,

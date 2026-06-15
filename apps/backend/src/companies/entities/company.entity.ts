@@ -1,3 +1,18 @@
+export type CompanyAddress = {
+  id: string;
+  label: string | null;
+  city: string | null;
+  addressText: string;
+  lat: number | null;
+  lng: number | null;
+  googlePlaceId: string | null;
+  isDefault: boolean;
+  displayLine: string;
+  hasCoordinates: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Company = {
   id: string;
   name: string;
@@ -13,4 +28,5 @@ export type Company = {
   createdAt: string;
   updatedAt: string;
   lastVisitAt?: string;
+  addresses?: CompanyAddress[];
 };

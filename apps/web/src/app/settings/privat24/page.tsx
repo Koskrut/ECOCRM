@@ -6,7 +6,7 @@ import { strings } from "@/locales";
 export default function Privat24SettingsPage() {
   const s = strings.settings.privat24;
   return (
-    <div className="mx-auto max-w-2xl space-y-4 p-6">
+    <div className="mx-auto max-w-2xl space-y-4">
       <Link href="/settings" className="text-sm text-zinc-500 hover:text-zinc-700">
         {strings.common.backToSettings}
       </Link>

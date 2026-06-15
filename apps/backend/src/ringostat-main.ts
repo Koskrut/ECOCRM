@@ -12,13 +12,14 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
 @Module({
-  imports: [PrismaModule, ScheduleModule.forRoot(), AuthModule, RbacModule, SystemModule, RingostatModule],
+  imports: [PrismaModule, AuditContextModule, ScheduleModule.forRoot(), AuthModule, RbacModule, SystemModule, RingostatModule],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

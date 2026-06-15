@@ -1,6 +1,6 @@
 # Выпуск релиза в Git (чеклист)
 
-Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.80`** / **`0.2.80`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.79`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.80]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
+Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.81`** / **`0.2.81`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.80`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.81]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
 
 ## Перед тегом
 
@@ -18,11 +18,11 @@ git fetch origin
 git checkout <ваша-ветка-релиза>   # например main
 git pull origin <ваша-ветка-релиза>
 
-git tag -a v0.2.80 -m "Release 0.2.80"
-git push origin v0.2.80
+git tag -a v0.2.81 -m "Release 0.2.81"
+git push origin v0.2.81
 ```
 
-После `git push origin v0.2.80` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** в dispatch собираются **все** module-образы и полный манифест compose.
+После `git push origin v0.2.81` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** в dispatch собираются **все** module-образы и полный манифест compose.
 
 Для **`v0.2.*`** при пустом поле **modules** в workflow собираются **все** опциональные module-образы (см. `publish-release.yml` и `CHANGELOG.md`).
 
@@ -32,7 +32,7 @@ git push origin v0.2.80
 
 ## После успешного CI
 
-- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.80`**, `docker compose pull` и перезапуск.
+- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.81`**, `docker compose pull` и перезапуск.
 - При наличии новых миграций в релизе: **`prisma migrate deploy`** на стороне клиента (или сервис `backend-migrate` в compose).
 
 ## Compose на сервере клиента (SUPREX / install bundle)

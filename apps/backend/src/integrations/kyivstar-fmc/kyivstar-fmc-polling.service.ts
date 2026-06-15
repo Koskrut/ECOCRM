@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../../audit/audit-context";
 import { ModuleIds } from "../../modules/module-ids";
 import { ModuleStateService } from "../../modules/module-state.service";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -34,6 +35,7 @@ export class KyivstarFmcPollingService {
       if (!ok) return;
     }
 
+    return withAuditSource("cron", "cron:kyivstar-fmc-polling", async () => {
     try {
       await withRetryOnConnectionClosed(async () => {
         const setting = await this.prisma.integrationSetting.findFirst({
@@ -88,5 +90,6 @@ export class KyivstarFmcPollingService {
         e instanceof Error ? e.stack : String(e),
       );
     }
+    }, { job: "kyivstar-fmc-polling" });
   }
 }

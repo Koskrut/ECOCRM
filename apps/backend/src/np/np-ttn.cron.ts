@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../audit/audit-context";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
@@ -24,6 +25,7 @@ export class NpTtnCron {
       const ok = await this.modules.isEffective(ModuleIds.NovaPoshta);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:np-ttn-sync", async () => {
     try {
       const res = await withRetryOnConnectionClosed(() => this.ttn.syncActiveTtns({ limit: 100 }), {
         onBeforeRetry: async () => {
@@ -38,5 +40,6 @@ export class NpTtnCron {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`NP TTN sync failed: ${msg}`);
     }
+    }, { job: "np-ttn-sync" });
   }
 }

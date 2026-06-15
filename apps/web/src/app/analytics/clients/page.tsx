@@ -5,13 +5,14 @@ import {
   AnalyticsState,
   KpiCard,
   SimpleTable,
-  formatMoneyUsd,
+  formatMoneyBase,
   formatNumber,
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
 
 type ClientsResponse = {
+  currency?: string;
   newClientsCount: number;
   repeatClientsCount: number;
   sleepingClientsCount: number;
@@ -34,6 +35,8 @@ export default function AnalyticsClientsPage() {
     "clients",
     filters.querySuffix,
   );
+
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
 
   return (
     <div className="space-y-4">
@@ -63,7 +66,7 @@ export default function AnalyticsClientsPage() {
             {
               key: "bookedRevenue",
               title: "Booked Revenue",
-              render: (row) => formatMoneyUsd(row.bookedRevenue),
+              render: (row) => formatMoneyBase(row.bookedRevenue, currency),
             },
             { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
           ]}
@@ -75,7 +78,7 @@ export default function AnalyticsClientsPage() {
             {
               key: "collectedPayments",
               title: "Collected Payments",
-              render: (row) => formatMoneyUsd(row.collectedPayments),
+              render: (row) => formatMoneyBase(row.collectedPayments, currency),
             },
           ]}
         />

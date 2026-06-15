@@ -3,6 +3,7 @@ import type { ActivityType, TaskStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { Pool } from "mysql2/promise";
 import { createPool } from "mysql2/promise";
+import { withAuditSource } from "../../audit/audit-context";
 import { PrismaService } from "../../prisma/prisma.service";
 import {
   mapBitrixUserToPrisma,
@@ -24,6 +25,7 @@ import {
   orderStageToDeliveryStatus,
 } from "../../orders/order-status-sync.mapper";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
+import { syncContactAddressesFromBitrixRow } from "./bitrix-address-sync.util";
 
 const LEGACY_SOURCE = "bitrix";
 /** Bitrix b_crm_act OWNER_TYPE_ID: 1=Lead, 2=Deal, 3=Contact, 4=Company */
@@ -245,6 +247,7 @@ export class BitrixInitialImportService {
     activities: ImportStats;
     tasks: ImportStats;
   }> {
+    return withAuditSource("import", "integration:bitrix-import", async () => {
     const pool = this.getPool();
     const stats = {
       users: { created: 0, updated: 0, skipped: 0, errors: 0 },
@@ -310,6 +313,7 @@ export class BitrixInitialImportService {
     }
 
     return stats;
+    }, { job: "runFullImport" });
   }
 
   /**
@@ -830,6 +834,29 @@ export class BitrixInitialImportService {
         cStats.errors += chunk.length;
       }
     }
+
+    const addressesByElement = this.groupFieldMultiByElement(multiRows, "ADDRESS");
+    for (const row of batch) {
+      const legacyId = Number(row["ID"]);
+      const ourContactId = contactIdByLegacyId.get(legacyId);
+      if (!ourContactId) continue;
+      const multiAddressRows = (addressesByElement.get(legacyId) ?? []).map((entry) => ({
+        ID: entry.rowId,
+        VALUE: entry.value,
+        VALUE_TYPE: entry.typeId,
+      }));
+      try {
+        await syncContactAddressesFromBitrixRow(
+          this.prisma,
+          ourContactId,
+          row as Record<string, unknown>,
+          multiAddressRows,
+        );
+      } catch (e) {
+        this.logger.warn(`ContactAddress sync error for legacy ${legacyId}: ${e}`);
+      }
+    }
+
     return { contacts: cStats, contactPhones: pStats };
   }
 

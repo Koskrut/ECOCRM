@@ -5,15 +5,21 @@ import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
+import { strings } from "@/locales";
+
+type BaseCurrency = "USD" | "EUR";
 
 type ExchangeRates = {
   UAH_TO_USD: number;
   EUR_TO_USD: number;
+  baseCurrency?: BaseCurrency;
 };
 
 export default function ExchangeRatesSettingsPage() {
+  const t = strings.settings.exchangeRatesPage;
   const [uahInput, setUahInput] = useState("");
   const [eurInput, setEurInput] = useState("");
+  const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>("USD");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,11 +29,12 @@ export default function ExchangeRatesSettingsPage() {
     setError(null);
     try {
       const res = await apiHttp.get<ExchangeRates>("/settings/exchange-rates");
-      const data = res.data ?? { UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 };
+      const data = res.data ?? { UAH_TO_USD: 0.024, EUR_TO_USD: 1.05, baseCurrency: "USD" };
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : "41.5");
       setEurInput(data.EUR_TO_USD.toString());
+      setBaseCurrency(data.baseCurrency === "EUR" ? "EUR" : "USD");
     } catch (e) {
-      setError(getUserFriendlyApiError(e, "Не вдалося завантажити курси валют."));
+      setError(getUserFriendlyApiError(e, t.loadError));
     } finally {
       setLoading(false);
     }
@@ -41,7 +48,7 @@ export default function ExchangeRatesSettingsPage() {
     const uahPerUsd = parseFloat(uahInput.replace(/,/g, "."));
     const eur = parseFloat(eurInput.replace(/,/g, "."));
     if (!Number.isFinite(uahPerUsd) || uahPerUsd <= 0 || !Number.isFinite(eur) || eur <= 0) {
-      setError("Enter positive numbers for both rates");
+      setError(t.invalidRates);
       return;
     }
     setSaving(true);
@@ -50,23 +57,21 @@ export default function ExchangeRatesSettingsPage() {
       const res = await apiHttp.patch<ExchangeRates>("/settings/exchange-rates", {
         UAH_TO_USD: 1 / uahPerUsd,
         EUR_TO_USD: eur,
+        baseCurrency,
       });
-      const data = res.data ?? { UAH_TO_USD: 1 / uahPerUsd, EUR_TO_USD: eur };
+      const data = res.data ?? { UAH_TO_USD: 1 / uahPerUsd, EUR_TO_USD: eur, baseCurrency };
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : uahInput);
       setEurInput(data.EUR_TO_USD.toString());
+      setBaseCurrency(data.baseCurrency === "EUR" ? "EUR" : "USD");
     } catch (e) {
-      setError(getUserFriendlyApiError(e, "Не вдалося зберегти курси валют."));
+      setError(getUserFriendlyApiError(e, t.saveError));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <SettingsPageShell
-      maxWidthClassName="max-w-xl"
-      title="Exchange rates"
-      subtitle="UAH: how many hryvnias per 1 USD. EUR: how many USD per 1 EUR. Used to convert payments to dollars."
-    >
+    <SettingsPageShell maxWidthClassName="max-w-xl" title={t.title} subtitle={t.subtitle}>
       {error ? <ErrorPanel variant="inline" message={error} /> : null}
       {loading ? (
         <PageLoading inline />
@@ -74,9 +79,26 @@ export default function ExchangeRatesSettingsPage() {
         <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-zinc-700">
-                1 USD ($) = … UAH (₴)
-              </label>
+              <label className="block text-sm font-medium text-zinc-700">{t.baseCurrency}</label>
+              <p className="mt-0.5 text-xs text-zinc-500">{t.baseCurrencyHint}</p>
+              <div className="mt-2 flex gap-4">
+                {(["USD", "EUR"] as const).map((code) => (
+                  <label key={code} className="flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
+                    <input
+                      type="radio"
+                      name="baseCurrency"
+                      value={code}
+                      checked={baseCurrency === code}
+                      onChange={() => setBaseCurrency(code)}
+                      className="text-zinc-900"
+                    />
+                    {code === "USD" ? "USD ($)" : "EUR (€)"}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">{t.uahPerUsd}</label>
               <input
                 type="text"
                 inputMode="decimal"
@@ -87,9 +109,7 @@ export default function ExchangeRatesSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700">
-                1 EUR (€) = … USD ($)
-              </label>
+              <label className="block text-sm font-medium text-zinc-700">{t.eurPerUsd}</label>
               <input
                 type="text"
                 inputMode="decimal"
@@ -107,7 +127,7 @@ export default function ExchangeRatesSettingsPage() {
               disabled={saving}
               className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? t.saving : t.save}
             </button>
           </div>
         </div>

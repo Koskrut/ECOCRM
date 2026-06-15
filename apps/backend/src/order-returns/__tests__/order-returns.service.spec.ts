@@ -56,7 +56,16 @@ describe("OrderReturnsService", () => {
         }),
       orderReturn: {
         count: async () => 1,
-        findMany: async () => [],
+        findMany: async () => [
+          {
+            items: [
+              {
+                qtyReturned: 2,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
       },
     } as unknown as PrismaSvc;
 
@@ -65,6 +74,8 @@ describe("OrderReturnsService", () => {
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
     assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    // (300 / 3) * 2 * (100 / 100) = 200 — applied while return is still open
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 200));
   });
 
   it("closing return updates returnAdjustmentAmount and recalculates finance", async () => {

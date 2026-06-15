@@ -12,6 +12,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { BaseCurrency } from "@/lib/base-currency";
+import { baseCurrencyLabel, baseCurrencySymbol } from "@/lib/base-currency";
 
 const CHART_MUTED = "#64748b";
 const DEBT_FILL = "#f97316";
@@ -53,9 +55,13 @@ const BUCKET_ORDER = ["0-7", "8-14", "15-30", "31-60", "60+"];
 
 export function DebtAgingBucketsChart({
   rows,
+  currency = "USD",
 }: {
   rows: { label: string; amount: number; ordersCount: number }[];
+  currency?: BaseCurrency | string;
 }) {
+  const sym = baseCurrencySymbol(currency);
+  const code = baseCurrencyLabel(currency);
   const data = useMemo(() => {
     const map = new Map(rows.map((r) => [r.label, r]));
     return BUCKET_ORDER.map((label) => map.get(label) ?? { label, amount: 0, ordersCount: 0 });
@@ -64,7 +70,7 @@ export function DebtAgingBucketsChart({
   return (
     <ChartCard
       title="Борг за віком прострочення"
-      subtitle="Операційний знімок: сума боргу замовлень з paymentDueDate у минулому, USD. Дні — від дати «оплата до» до сьогодні."
+      subtitle={`Операційний знімок: сума боргу замовлень з paymentDueDate у минулому, ${code}. Дні — від дати «оплата до» до сьогодні.`}
       empty={empty}
     >
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
@@ -79,8 +85,8 @@ export function DebtAgingBucketsChart({
           />
           <Tooltip
             formatter={(value: number, name: string) => [
-              name === "amount" ? `${Math.round(value).toLocaleString("en-US")} $` : value,
-              name === "amount" ? "Сума (USD)" : "Замовлень",
+              name === "amount" ? `${Math.round(value).toLocaleString("en-US")} ${sym}` : value,
+              name === "amount" ? `Сума (${code})` : "Замовлень",
             ]}
             contentStyle={tooltipBox}
           />
@@ -99,9 +105,13 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export function PaymentsBySourceTypeChart({
   rows,
+  currency = "USD",
 }: {
-  rows: { sourceType: string; count: number; usd: number }[];
+  rows: { sourceType: string; count: number; amount: number }[];
+  currency?: BaseCurrency | string;
 }) {
+  const sym = baseCurrencySymbol(currency);
+  const code = baseCurrencyLabel(currency);
   const data = useMemo(
     () =>
       rows.map((r) => ({
@@ -114,7 +124,7 @@ export function PaymentsBySourceTypeChart({
   return (
     <ChartCard
       title="Оплати за каналом (COMPLETED)"
-      subtitle="Поточний період лише. sourceType: BANK / CASH. Сума в USD."
+      subtitle={`Поточний період лише. sourceType: BANK / CASH. Сума в ${code}.`}
       empty={empty}
     >
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
@@ -126,7 +136,7 @@ export function PaymentsBySourceTypeChart({
             width={48}
             tickFormatter={(v) => `${v}`}
             label={{
-              value: "USD",
+              value: code,
               angle: -90,
               position: "insideLeft",
               fill: CHART_MUTED,
@@ -135,13 +145,13 @@ export function PaymentsBySourceTypeChart({
           />
           <Tooltip
             formatter={(value: number, name: string) => [
-              name === "usd" ? `${Math.round(value).toLocaleString("en-US")} $` : value,
-              name === "usd" ? "Сума" : "Кількість",
+              name === "amount" ? `${Math.round(value).toLocaleString("en-US")} ${sym}` : value,
+              name === "amount" ? "Сума" : "Кількість",
             ]}
             contentStyle={tooltipBox}
           />
           <Legend />
-          <Bar dataKey="usd" fill={SOURCE_BANK} name="usd" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="amount" fill={SOURCE_BANK} name="amount" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>

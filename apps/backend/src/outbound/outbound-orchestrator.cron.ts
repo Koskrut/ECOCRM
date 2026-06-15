@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../audit/audit-context";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
@@ -26,6 +27,7 @@ export class OutboundOrchestratorCron {
       const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:outbound-orchestrator", async () => {
     try {
       await withRetryOnConnectionClosed(async () => {
         const promoted = await this.queue.promotePendingToQueued(80);
@@ -37,6 +39,7 @@ export class OutboundOrchestratorCron {
     } catch (e) {
       this.logger.error(`Outbound cron failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+    }, { job: "outbound-orchestrator" });
   }
 
   /** Safe-mode delayed Call linking (no ambiguity, no overwrite). */
@@ -48,6 +51,7 @@ export class OutboundOrchestratorCron {
       const ok = await this.modules.isEffective(ModuleIds.VoiceOutbound);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:outbound-call-link-reconcile", async () => {
     try {
       await withRetryOnConnectionClosed(async () => {
         const linked = await this.callLinkReconcile.reconcileUnlinkedAttempts();
@@ -60,5 +64,6 @@ export class OutboundOrchestratorCron {
         `Outbound call-link reconcile failed: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
+    }, { job: "outbound-call-link-reconcile" });
   }
 }

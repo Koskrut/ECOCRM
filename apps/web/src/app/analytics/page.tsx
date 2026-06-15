@@ -21,10 +21,8 @@ export default function AnalyticsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-50 p-6">
-        <div className="mx-auto max-w-6xl">
-          <div className="animate-pulse rounded-lg bg-zinc-200 py-8" />
-        </div>
+      <div className="mx-auto max-w-6xl">
+        <div className="animate-pulse rounded-lg bg-zinc-200 py-8" />
       </div>
     );
   }
@@ -33,8 +31,7 @@ export default function AnalyticsPage() {
 
   if (!canAccess) {
     return (
-      <div className="min-h-screen bg-zinc-50 p-6">
-        <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-6xl">
           <div className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm">
             <h1 className="text-xl font-semibold text-zinc-900">Доступ заборонено</h1>
             <p className="mt-2 text-sm text-zinc-600">
@@ -47,14 +44,12 @@ export default function AnalyticsPage() {
               На головну
             </Link>
           </div>
-        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl">
         <h1 className="mb-2 flex items-center gap-2 text-2xl font-bold text-zinc-900">
           <BarChart3 className="h-7 w-7 text-zinc-600" />
           Аналітика
@@ -76,7 +71,6 @@ export default function AnalyticsPage() {
             </div>
           </Link>
         </div>
-      </div>
     </div>
   );
 }

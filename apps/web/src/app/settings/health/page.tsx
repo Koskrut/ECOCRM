@@ -232,15 +232,14 @@ export default function SettingsHealthPage() {
 
   if (role !== "ADMIN") {
     return (
-      <div className="p-6">
+      <div>
         <p className="text-sm text-zinc-600">Доступ тільки для ADMIN.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-4xl">
         <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
           ← Налаштування
         </Link>
@@ -318,7 +317,6 @@ export default function SettingsHealthPage() {
             </pre>
           ) : null}
         </div>
-      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../audit/audit-context";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
 import { NpSyncService } from "./np-sync.service";
@@ -22,6 +23,7 @@ export class NpSyncCron {
       const ok = await this.modules.isEffective(ModuleIds.NovaPoshta);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:np-sync", async () => {
     try {
       const r = await this.sync.syncAll();
       this.logger.log(`NP sync done: ${JSON.stringify(r)}`);
@@ -29,6 +31,7 @@ export class NpSyncCron {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`NP sync failed: ${msg}`);
     }
+    }, { job: "np-sync" });
   }
 
   // раз на тиждень (неділя 04:00) — вулиці по всіх містах
@@ -40,6 +43,7 @@ export class NpSyncCron {
       const ok = await this.modules.isEffective(ModuleIds.NovaPoshta);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:np-streets-sync", async () => {
     try {
       this.logger.log("NP streets sync starting (full)");
       await this.sync.syncStreetsForAllCities(undefined);
@@ -48,5 +52,6 @@ export class NpSyncCron {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`NP streets sync failed: ${msg}`);
     }
+    }, { job: "np-streets-sync" });
   }
 }

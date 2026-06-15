@@ -1,15 +1,12 @@
-import type { ExchangeRates } from "../../settings/settings.service";
-
-export function toUsd(amount: number, currency: string | null | undefined, rates: ExchangeRates): number {
-  const c = (currency || "USD").trim().toUpperCase();
-  if (c === "USD") return amount;
-  if (c === "UAH") return amount * (rates.UAH_TO_USD || 0);
-  if (c === "EUR") return amount * (rates.EUR_TO_USD || 0);
-  return amount;
-}
+export {
+  getBaseCurrency,
+  paymentToBase,
+  toBaseCurrency,
+  toUsd,
+  usdToBase,
+} from "../../common/currency.util";
 
 export function safeNum(v: unknown): number {
   const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 }
-

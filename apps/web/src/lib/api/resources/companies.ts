@@ -1,5 +1,7 @@
 import { apiHttp } from "../client";
 
+import type { EntityAddress } from "./entity-addresses";
+
 export type Company = {
   id: string;
   name: string;
@@ -14,6 +16,8 @@ export type Company = {
   owner?: { id: string; fullName: string } | null;
   createdAt: string;
   updatedAt: string;
+  lastVisitAt?: string | null;
+  addresses?: EntityAddress[];
 };
 
 export type CompaniesResponse = {

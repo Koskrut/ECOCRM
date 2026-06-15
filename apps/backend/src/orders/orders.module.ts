@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
@@ -21,6 +22,7 @@ import { OrderStatusService } from "./order-status.service";
     IntegrationPortsModule,
     OrderReturnsModule,
     WorkflowsModule,
+    NotificationsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, OrderStatusService, OrdersDocumentsService, OrdersPipelineConfigService],

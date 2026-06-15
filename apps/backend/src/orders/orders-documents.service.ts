@@ -224,8 +224,10 @@ export class OrdersDocumentsService {
   private formatDocumentTotal(
     order: { totalAmount: number; currency: string; exchangeRate?: number | null },
   ): string {
-    const main = `Разом: ${order.totalAmount.toFixed(2)} ${order.currency === "USD" ? "$" : order.currency}`;
-    if (order.currency === "USD" && order.exchangeRate != null && order.exchangeRate > 0) {
+    const cur = order.currency.toUpperCase();
+    const sym = cur === "USD" ? "$" : cur === "EUR" ? "€" : order.currency;
+    const main = `Разом: ${order.totalAmount.toFixed(2)} ${sym}`;
+    if ((cur === "USD" || cur === "EUR") && order.exchangeRate != null && order.exchangeRate > 0) {
       const uah = Math.round(order.totalAmount * order.exchangeRate);
       return `${main} (${uah} ₴)`;
     }

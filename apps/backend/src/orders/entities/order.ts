@@ -26,6 +26,7 @@ export type OrderItem = {
   productName: string;
   qty: number;
   price: number;
+  discountPercent: number;
   lineTotal: number;
 };
 

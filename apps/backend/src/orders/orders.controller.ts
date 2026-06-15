@@ -33,6 +33,7 @@ import { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import type { UpdateOrderStageDto } from "./dto/update-order-stage.dto";
 import type { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
+import { SplitByStockDto } from "./dto/split-by-stock.dto";
 
 @Controller("orders")
 export class OrdersController {
@@ -182,8 +183,12 @@ export class OrdersController {
   }
 
   @Post(":id/split-by-stock")
-  splitByStock(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.orders.splitByStock(id, req.user);
+  splitByStock(
+    @Param("id") id: string,
+    @Body() dto: SplitByStockDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orders.splitByStock(id, req.user, dto);
   }
 
   @Patch(":id/stage")
@@ -237,11 +242,16 @@ export class OrdersController {
     const productId = dto.productId ?? (raw.productId as string);
     const qty = dto.qty ?? (raw.qty as number);
     const price = dto.price ?? (raw.price as number);
+    const discountPercentRaw = dto.discountPercent ?? raw.discountPercent;
     if (!productId) throw new BadRequestException("productId is required");
     if (qty == null || price == null) throw new BadRequestException("qty and price are required");
+    const item: AddOrderItemDto = { productId, qty, price };
+    if (discountPercentRaw !== undefined && discountPercentRaw !== null && discountPercentRaw !== "") {
+      item.discountPercent = Number(discountPercentRaw);
+    }
     return this.orders.addItem(
       id,
-      { productId, qty, price },
+      item,
       req.user,
     );
   }
@@ -257,7 +267,8 @@ export class OrdersController {
     const raw = req.body ?? {};
     const qtyRaw = dto.qty ?? raw.qty;
     const priceRaw = dto.price ?? raw.price;
-    const merged: { qty?: number; price?: number } = {};
+    const discountRaw = dto.discountPercent ?? raw.discountPercent;
+    const merged: { qty?: number; price?: number; discountPercent?: number } = {};
     if (qtyRaw !== undefined && qtyRaw !== null && qtyRaw !== "") {
       const q = Number(qtyRaw);
       if (Number.isFinite(q)) merged.qty = q;
@@ -265,6 +276,10 @@ export class OrdersController {
     if (priceRaw !== undefined && priceRaw !== null && priceRaw !== "") {
       const p = Number(priceRaw);
       if (Number.isFinite(p)) merged.price = p;
+    }
+    if (discountRaw !== undefined && discountRaw !== null && discountRaw !== "") {
+      const d = Number(discountRaw);
+      if (Number.isFinite(d)) merged.discountPercent = d;
     }
     return this.orders.updateItem(id, itemId, merged, req.user);
   }

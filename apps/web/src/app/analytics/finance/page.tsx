@@ -9,8 +9,8 @@ import {
   AnalyticsOverviewSkeleton,
   KpiDeltaCard,
   SimpleTable,
-  formatMoneyUsd,
-  formatMoneyUsdFine,
+  formatMoneyBase,
+  formatMoneyBaseFine,
   formatNumber,
   useAnalyticsFetch,
   useAnalyticsFilters,
@@ -22,7 +22,7 @@ import { DebtAgingBucketsChart, PaymentsBySourceTypeChart } from "./finance-char
 type FinanceKpi = {
   collectedPayments: number;
   paymentsCount: number;
-  avgPaymentUsd: number;
+  avgPayment: number;
   debtTotal: number;
   overdueDebt: number;
   overdueOrdersCount: number;
@@ -33,9 +33,9 @@ type FinanceKpi = {
 type FinancePayload = {
   kpi: FinanceKpi;
   charts: {
-    collectedPaymentsByDay: { date: string; usd: number; paymentCount: number }[];
+    collectedPaymentsByDay: { date: string; amount: number; paymentCount: number }[];
     debtAgingBuckets: { label: string; amount: number; ordersCount: number }[];
-    paymentsBySourceType: { sourceType: string; count: number; usd: number }[];
+    paymentsBySourceType: { sourceType: string; count: number; amount: number }[];
   };
   tables: {
     topDebtors: Array<{
@@ -56,8 +56,9 @@ type FinancePayload = {
 };
 
 type FinanceApiResponse = {
+  currency?: string;
   data: FinancePayload;
-  compare?: { kpi: Pick<FinanceKpi, "collectedPayments" | "paymentsCount" | "avgPaymentUsd"> };
+  compare?: { kpi: Pick<FinanceKpi, "collectedPayments" | "paymentsCount" | "avgPayment"> };
 };
 
 type DebtorSortKey = "clientName" | "debtAmount" | "overdueAmount" | "orderCount";
@@ -79,6 +80,7 @@ export default function AnalyticsFinancePage() {
   );
 
   const kpi = data?.data.kpi;
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
   const charts = data?.data.charts;
   const tables = data?.data.tables;
   const cmp = data?.compare?.kpi;
@@ -161,9 +163,9 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="money"
             title="Collected payments"
-            subtitle="COMPLETED → USD, paidAt у періоді"
+            subtitle={`COMPLETED → ${currency}, paidAt у періоді`}
             tooltip="Та сама семантика, що Overview / Sales collected."
-            value={formatMoneyUsd(kpi?.collectedPayments)}
+            value={formatMoneyBase(kpi?.collectedPayments, currency)}
             deltaLabel={
               filters.comparePrev
                 ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments)
@@ -184,11 +186,11 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="money"
             title="Avg payment size"
-            subtitle="Collected / count (USD)"
-            value={formatMoneyUsdFine(kpi?.avgPaymentUsd)}
+            subtitle={`Collected / count (${currency})`}
+            value={formatMoneyBaseFine(kpi?.avgPayment, currency)}
             deltaLabel={
               filters.comparePrev
-                ? deltaMoneyLineFine(kpi?.avgPaymentUsd ?? 0, cmp?.avgPaymentUsd)
+                ? deltaMoneyLineFine(kpi?.avgPayment ?? 0, cmp?.avgPayment)
                 : null
             }
           />
@@ -197,14 +199,14 @@ export default function AnalyticsFinancePage() {
             title="Debt total"
             subtitle="Сума debtAmount, замовлення за період (createdAt)"
             tooltip="У межах обраного діапазону дат і scope."
-            value={formatMoneyUsd(kpi?.debtTotal)}
+            value={formatMoneyBase(kpi?.debtTotal, currency)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
             title="Overdue debt"
             subtitle="OVERDUE + debt за той самий когортний період"
-            value={formatMoneyUsd(kpi?.overdueDebt)}
+            value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}
             drillLabel="Attention: прострочені оплати →"
@@ -243,11 +245,12 @@ export default function AnalyticsFinancePage() {
         <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
           <CollectedPaymentsTrendChart
             rows={charts?.collectedPaymentsByDay ?? []}
+            currency={currency}
             subtitle="Поточний період finance. COMPLETED; paidAt (UTC). Окремо від booked revenue."
           />
-          <DebtAgingBucketsChart rows={charts?.debtAgingBuckets ?? []} />
+          <DebtAgingBucketsChart rows={charts?.debtAgingBuckets ?? []} currency={currency} />
           <div className="lg:col-span-2">
-            <PaymentsBySourceTypeChart rows={charts?.paymentsBySourceType ?? []} />
+            <PaymentsBySourceTypeChart rows={charts?.paymentsBySourceType ?? []} currency={currency} />
           </div>
         </div>
       </section>
@@ -300,7 +303,7 @@ export default function AnalyticsFinancePage() {
                     className="hover:text-zinc-800"
                     onClick={() => toggleDebtorSort("debtAmount")}
                   >
-                    Борг (USD){sortMark("debtAmount")}
+                    Борг ({currency}){sortMark("debtAmount")}
                   </button>
                 </th>
                 <th className="px-4 py-3 font-medium text-right">
@@ -335,10 +338,10 @@ export default function AnalyticsFinancePage() {
                   <tr key={row.clientId} className="border-t border-zinc-100">
                     <td className="px-4 py-3 text-zinc-900">{row.clientName ?? row.clientId}</td>
                     <td className="px-4 py-3 text-right text-zinc-800">
-                      {formatMoneyUsd(row.debtAmount)}
+                      {formatMoneyBase(row.debtAmount, currency)}
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-800">
-                      {formatMoneyUsd(row.overdueAmount)}
+                      {formatMoneyBase(row.overdueAmount, currency)}
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-800">
                       {formatNumber(row.orderCount)}
@@ -354,7 +357,7 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0 space-y-2">
         <h2 className="text-lg font-semibold text-zinc-900">Прострочені замовлення (приклад)</h2>
         <p className="text-sm text-zinc-500">
-          До 50 рядків, найближчі paymentDueDate спочатку. USD.
+          До 50 рядків, найближчі paymentDueDate спочатку. {currency}.
         </p>
         <div className="min-w-0 overflow-x-auto">
           <SimpleTable
@@ -364,8 +367,8 @@ export default function AnalyticsFinancePage() {
               { key: "clientName", title: "Клієнт", render: (row) => row.clientName ?? "—" },
               {
                 key: "debtAmount",
-                title: "Борг (USD)",
-                render: (row) => formatMoneyUsd(row.debtAmount),
+                title: `Борг (${currency})`,
+                render: (row) => formatMoneyBase(row.debtAmount, currency),
               },
               {
                 key: "paymentDueDate",

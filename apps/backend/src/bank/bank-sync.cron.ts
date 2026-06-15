@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../audit/audit-context";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
@@ -35,6 +36,7 @@ export class BankSyncCron {
       const ok = await this.modules.isEffective(ModuleIds.Finance);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:bank-sync", async () => {
     try {
       const r = await withRetryOnConnectionClosed(() => this.sync.syncAll(), {
         onBeforeRetry: async () => {
@@ -49,5 +51,6 @@ export class BankSyncCron {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Bank sync failed: ${msg}`);
     }
+    }, { job: "bank-sync" });
   }
 }

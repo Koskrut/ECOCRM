@@ -10,11 +10,11 @@ import {
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 export type OverviewCharts = {
-  bookedRevenueByDay: { date: string; usd: number; ordersCount: number }[];
-  collectedPaymentsByDay: { date: string; usd: number; paymentCount: number }[];
+  bookedRevenueByDay: { date: string; amount: number; ordersCount: number }[];
+  collectedPaymentsByDay: { date: string; amount: number; paymentCount: number }[];
   ordersByStage: { stage: string; count: number }[];
 };
 
@@ -56,22 +56,36 @@ export class AnalyticsOverviewService {
     period: ResolvedPeriod,
     scope: AnalyticsScope,
     opts?: { compare?: boolean },
-  ): Promise<{ period: ResolvedPeriod; data: OverviewPayload; compare?: { kpi: OverviewPayload["kpi"] } }> {
+  ): Promise<{
+    period: ResolvedPeriod;
+    currency: string;
+    data: OverviewPayload;
+    compare?: { kpi: OverviewPayload["kpi"] };
+  }> {
     if (scope.emptyTeam) {
+      const rates = await this.settings.getExchangeRates();
       const empty = this.emptyPayload();
-      return { period, data: empty, compare: opts?.compare ? { kpi: empty.kpi } : undefined };
+      return {
+        period,
+        currency: getBaseCurrency(rates),
+        data: empty,
+        compare: opts?.compare ? { kpi: empty.kpi } : undefined,
+      };
     }
-    const data = await this.computePayload(period, scope);
+    const rates = await this.settings.getExchangeRates();
+    const data = await this.computePayload(period, scope, rates);
     const result: {
       period: ResolvedPeriod;
+      currency: string;
       data: OverviewPayload;
       compare?: { kpi: OverviewPayload["kpi"] };
     } = {
       period,
+      currency: getBaseCurrency(rates),
       data,
     };
     if (opts?.compare) {
-      const prev = await this.computePayload(previousPeriodOfSameLength(period.from, period.to), scope);
+      const prev = await this.computePayload(previousPeriodOfSameLength(period.from, period.to), scope, rates);
       result.compare = { kpi: prev.kpi };
     }
     return result;
@@ -102,8 +116,11 @@ export class AnalyticsOverviewService {
     };
   }
 
-  private async computePayload(period: ResolvedPeriod, scope: AnalyticsScope): Promise<OverviewPayload> {
-    const rates = await this.settings.getExchangeRates();
+  private async computePayload(
+    period: ResolvedPeriod,
+    scope: AnalyticsScope,
+    rates: ExchangeRates,
+  ): Promise<OverviewPayload> {
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const periodDebtWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const overdueWhere: Prisma.OrderWhereInput = { ...periodDebtWhere, financialStatus: "OVERDUE" };
@@ -176,7 +193,7 @@ export class AnalyticsOverviewService {
     for (const o of ordersForRevenue) {
       const cur = (o.currency || "USD").trim().toUpperCase();
       byOrderCurrency[cur] = (byOrderCurrency[cur] ?? 0) + 1;
-      bookedRevenue += toUsd(
+      bookedRevenue += toBaseCurrency(
         Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
         cur,
         rates,
@@ -188,15 +205,17 @@ export class AnalyticsOverviewService {
     for (const p of paymentsRows) {
       const cur = (p.currency || "USD").trim().toUpperCase();
       byPaymentCurrency[cur] = (byPaymentCurrency[cur] ?? 0) + 1;
-      collectedPayments += p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), cur, rates);
+      collectedPayments += paymentToBase(p.amountUsd, p.amount, cur, rates);
     }
 
     let debtTotal = 0;
-    for (const o of debtOrders) debtTotal += toUsd(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of debtOrders) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     let overdueDebt = 0;
-    for (const o of overdueDebtOrders) overdueDebt += toUsd(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of overdueDebtOrders) overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     let overdueDebtAmount = 0;
-    for (const o of overdueDebtAmountOrders) overdueDebtAmount += toUsd(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of overdueDebtAmountOrders) {
+      overdueDebtAmount += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+    }
 
     const charts: OverviewCharts = {
       bookedRevenueByDay: this.buildBookedRevenueByDay(ordersForRevenue, rates),
@@ -244,22 +263,22 @@ export class AnalyticsOverviewService {
     }>,
     rates: ExchangeRates,
   ): OverviewCharts["bookedRevenueByDay"] {
-    const byDay = new Map<string, { usd: number; ordersCount: number }>();
+    const byDay = new Map<string, { amount: number; ordersCount: number }>();
     for (const o of orders) {
       const date = o.createdAt.toISOString().slice(0, 10);
       const cur = (o.currency || "USD").trim().toUpperCase();
-      const usd = toUsd(
+      const amount = toBaseCurrency(
         Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
         cur,
         rates,
       );
-      const prev = byDay.get(date) ?? { usd: 0, ordersCount: 0 };
-      prev.usd += usd;
+      const prev = byDay.get(date) ?? { amount: 0, ordersCount: 0 };
+      prev.amount += amount;
       prev.ordersCount += 1;
       byDay.set(date, prev);
     }
     return Array.from(byDay.entries())
-      .map(([date, v]) => ({ date, usd: v.usd, ordersCount: v.ordersCount }))
+      .map(([date, v]) => ({ date, amount: v.amount, ordersCount: v.ordersCount }))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 
@@ -272,22 +291,19 @@ export class AnalyticsOverviewService {
     }>,
     rates: ExchangeRates,
   ): OverviewCharts["collectedPaymentsByDay"] {
-    const byDay = new Map<string, { usd: number; paymentCount: number }>();
+    const byDay = new Map<string, { amount: number; paymentCount: number }>();
     for (const p of payments) {
       if (!p.paidAt) continue;
       const date = p.paidAt.toISOString().slice(0, 10);
       const cur = (p.currency || "USD").trim().toUpperCase();
-      const usd =
-        p.amountUsd != null && p.amountUsd !== undefined
-          ? safeNum(p.amountUsd)
-          : toUsd(safeNum(p.amount), cur, rates);
-      const prev = byDay.get(date) ?? { usd: 0, paymentCount: 0 };
-      prev.usd += usd;
+      const amount = paymentToBase(p.amountUsd, p.amount, cur, rates);
+      const prev = byDay.get(date) ?? { amount: 0, paymentCount: 0 };
+      prev.amount += amount;
       prev.paymentCount += 1;
       byDay.set(date, prev);
     }
     return Array.from(byDay.entries())
-      .map(([date, v]) => ({ date, usd: v.usd, paymentCount: v.paymentCount }))
+      .map(([date, v]) => ({ date, amount: v.amount, paymentCount: v.paymentCount }))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
 

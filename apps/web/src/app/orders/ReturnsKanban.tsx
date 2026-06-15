@@ -176,7 +176,7 @@ export function ReturnsKanban({
     r.items.reduce((s, i) => s + (i.qtyReturned ?? 0), 0);
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-full min-w-0 space-y-4">
       <p className="text-xs text-zinc-500">
         Канбан повернень. Перетягування змінює статус (переходи валідуються на сервері).
       </p>

@@ -9,7 +9,7 @@ import {
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { safeNum, getBaseCurrency, paymentToBase, toBaseCurrency } from "../utils/analytics-currency.util";
 
 export type SalesPayload = {
   kpi: {
@@ -39,7 +39,9 @@ export class AnalyticsSalesService {
     period: ResolvedPeriod,
     scope: AnalyticsScope,
     opts?: { compare?: boolean },
-  ): Promise<{ period: ResolvedPeriod; data: SalesPayload; compare?: SalesComparePayload }> {
+  ): Promise<{ period: ResolvedPeriod; currency: string; data: SalesPayload; compare?: SalesComparePayload }> {
+    const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     if (scope.emptyTeam) {
       const empty: SalesPayload = {
         kpi: { bookedRevenue: 0, collectedPayments: 0, ordersCount: 0, avgCheck: 0, overdueTasksCount: 0 },
@@ -52,15 +54,16 @@ export class AnalyticsSalesService {
         avgCheck: 0,
         overdueTasksCount: 0,
       };
-      return { period, data: empty, compare: opts?.compare ? { kpi: compareKpi } : undefined };
+      return { period, currency, data: empty, compare: opts?.compare ? { kpi: compareKpi } : undefined };
     }
-    const data = await this.compute(period, scope, { includeOverdueForPeriod: true, includeByStage: true });
-    const result: { period: ResolvedPeriod; data: SalesPayload; compare?: SalesComparePayload } = {
+    const data = await this.compute(period, scope, rates, { includeOverdueForPeriod: true, includeByStage: true });
+    const result: { period: ResolvedPeriod; currency: string; data: SalesPayload; compare?: SalesComparePayload } = {
       period,
+      currency,
       data,
     };
     if (opts?.compare) {
-      const prev = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, {
+      const prev = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, rates, {
         includeOverdueForPeriod: true,
         includeByStage: false,
       });
@@ -72,9 +75,9 @@ export class AnalyticsSalesService {
   private async compute(
     period: ResolvedPeriod,
     scope: AnalyticsScope,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
     flags: { includeOverdueForPeriod: boolean; includeByStage: boolean },
   ): Promise<SalesPayload> {
-    const rates = await this.settings.getExchangeRates();
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const orderOwnerPrismaWhere: Prisma.OrderWhereInput = {};
     if (scope.orderScope.managerId) orderOwnerPrismaWhere.ownerId = scope.orderScope.managerId;
@@ -109,7 +112,7 @@ export class AnalyticsSalesService {
     let bookedRevenue = 0;
     for (const o of ordersForRevenue) {
       const cur = (o.currency || "USD").trim().toUpperCase();
-      bookedRevenue += toUsd(
+      bookedRevenue += toBaseCurrency(
         Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
         cur,
         rates,
@@ -118,7 +121,7 @@ export class AnalyticsSalesService {
     let collectedPayments = 0;
     for (const p of paymentsRows) {
       const cur = (p.currency || "USD").trim().toUpperCase();
-      collectedPayments += p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), cur, rates);
+      collectedPayments += paymentToBase(p.amountUsd, p.amount, cur, rates);
     }
 
     return {

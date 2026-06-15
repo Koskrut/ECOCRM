@@ -5,15 +5,15 @@ import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 export type FinanceKpi = {
-  /** COMPLETED payments in period → USD (same semantics as Overview/Sales collected). */
+  /** COMPLETED payments in period → base currency (same semantics as Overview/Sales collected). */
   collectedPayments: number;
   /** Count of COMPLETED payments in period. */
   paymentsCount: number;
-  /** collectedPayments / paymentsCount (USD). */
-  avgPaymentUsd: number;
+  /** collectedPayments / paymentsCount (base currency). */
+  avgPayment: number;
   /** Sum of debtAmount for orders with createdAt in the selected period (scoped). */
   debtTotal: number;
   /** OVERDUE financial status debt in the same order cohort. */
@@ -27,11 +27,11 @@ export type FinanceKpi = {
 };
 
 export type FinanceCharts = {
-  collectedPaymentsByDay: { date: string; usd: number; paymentCount: number }[];
+  collectedPaymentsByDay: { date: string; amount: number; paymentCount: number }[];
   /** Debt aging vs paymentDueDate, days as of period end date. */
   debtAgingBuckets: { label: string; amount: number; ordersCount: number }[];
   /** COMPLETED payments in period by sourceType (BANK / CASH). */
-  paymentsBySourceType: { sourceType: string; count: number; usd: number }[];
+  paymentsBySourceType: { sourceType: string; count: number; amount: number }[];
 };
 
 export type FinanceTopDebtorRow = {
@@ -60,7 +60,7 @@ export type FinancePayload = {
 };
 
 export type FinanceComparePayload = {
-  kpi: Pick<FinanceKpi, "collectedPayments" | "paymentsCount" | "avgPaymentUsd">;
+  kpi: Pick<FinanceKpi, "collectedPayments" | "paymentsCount" | "avgPayment">;
 };
 
 @Injectable()
@@ -74,31 +74,35 @@ export class AnalyticsFinanceService {
     period: ResolvedPeriod,
     scope: AnalyticsScope,
     opts?: { compare?: boolean },
-  ): Promise<{ period: ResolvedPeriod; data: FinancePayload; compare?: FinanceComparePayload }> {
+  ): Promise<{ period: ResolvedPeriod; currency: string; data: FinancePayload; compare?: FinanceComparePayload }> {
+    const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     if (scope.emptyTeam) {
       const empty = this.emptyPayload();
       return {
         period,
+        currency,
         data: empty,
         compare: opts?.compare
           ? {
-              kpi: { collectedPayments: 0, paymentsCount: 0, avgPaymentUsd: 0 },
+              kpi: { collectedPayments: 0, paymentsCount: 0, avgPayment: 0 },
             }
           : undefined,
       };
     }
-    const data = await this.compute(period, scope);
-    const result: { period: ResolvedPeriod; data: FinancePayload; compare?: FinanceComparePayload } = {
+    const data = await this.compute(period, scope, rates);
+    const result: { period: ResolvedPeriod; currency: string; data: FinancePayload; compare?: FinanceComparePayload } = {
       period,
+      currency,
       data,
     };
     if (opts?.compare) {
-      const prev = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope);
+      const prev = await this.compute(previousPeriodOfSameLength(period.from, period.to), scope, rates);
       result.compare = {
         kpi: {
           collectedPayments: prev.kpi.collectedPayments,
           paymentsCount: prev.kpi.paymentsCount,
-          avgPaymentUsd: prev.kpi.avgPaymentUsd,
+          avgPayment: prev.kpi.avgPayment,
         },
       };
     }
@@ -109,7 +113,7 @@ export class AnalyticsFinanceService {
     const z: FinanceKpi = {
       collectedPayments: 0,
       paymentsCount: 0,
-      avgPaymentUsd: 0,
+      avgPayment: 0,
       debtTotal: 0,
       overdueDebt: 0,
       overdueOrdersCount: 0,
@@ -127,8 +131,11 @@ export class AnalyticsFinanceService {
     };
   }
 
-  private async compute(period: ResolvedPeriod, scope: AnalyticsScope): Promise<FinancePayload> {
-    const rates = await this.settings.getExchangeRates();
+  private async compute(
+    period: ResolvedPeriod,
+    scope: AnalyticsScope,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+  ): Promise<FinancePayload> {
     const periodOrderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const overdueWhere: Prisma.OrderWhereInput = { ...periodOrderWhere, financialStatus: "OVERDUE" };
     const orderOwnerFilter: Prisma.OrderWhereInput = {};
@@ -192,38 +199,38 @@ export class AnalyticsFinanceService {
     ]);
 
     let collectedPayments = 0;
-    const byDay = new Map<string, { usd: number; paymentCount: number }>();
-    const bySource = new Map<string, { usd: number; count: number }>();
+    const byDay = new Map<string, { amount: number; paymentCount: number }>();
+    const bySource = new Map<string, { amount: number; count: number }>();
 
     for (const p of paymentsRows) {
       const cur = (p.currency || "USD").trim().toUpperCase();
-      const usd = p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), cur, rates);
-      collectedPayments += usd;
+      const amount = paymentToBase(p.amountUsd, p.amount, cur, rates);
+      collectedPayments += amount;
       const date = p.paidAt.toISOString().slice(0, 10);
-      const prevD = byDay.get(date) ?? { usd: 0, paymentCount: 0 };
-      prevD.usd += usd;
+      const prevD = byDay.get(date) ?? { amount: 0, paymentCount: 0 };
+      prevD.amount += amount;
       prevD.paymentCount += 1;
       byDay.set(date, prevD);
       const st = p.sourceType;
-      const prevS = bySource.get(st) ?? { usd: 0, count: 0 };
-      prevS.usd += usd;
+      const prevS = bySource.get(st) ?? { amount: 0, count: 0 };
+      prevS.amount += amount;
       prevS.count += 1;
       bySource.set(st, prevS);
     }
 
     const paymentsCount = paymentsRows.length;
     const collectedPaymentsByDay = Array.from(byDay.entries())
-      .map(([date, v]) => ({ date, usd: v.usd, paymentCount: v.paymentCount }))
+      .map(([date, v]) => ({ date, amount: v.amount, paymentCount: v.paymentCount }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const paymentsBySourceType = Array.from(bySource.entries())
-      .map(([sourceType, v]) => ({ sourceType, count: v.count, usd: v.usd }))
-      .sort((a, b) => b.usd - a.usd);
+      .map(([sourceType, v]) => ({ sourceType, count: v.count, amount: v.amount }))
+      .sort((a, b) => b.amount - a.amount);
 
     let debtTotal = 0;
-    for (const o of debtOrdersAll) debtTotal += toUsd(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of debtOrdersAll) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     let overdueDebt = 0;
-    for (const o of overdueOrdersAll) overdueDebt += toUsd(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of overdueOrdersAll) overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
 
     const refDay = new Date(period.to);
     refDay.setHours(0, 0, 0, 0);
@@ -240,7 +247,7 @@ export class AnalyticsFinanceService {
       const due = new Date(o.paymentDueDate!);
       due.setHours(0, 0, 0, 0);
       const days = Math.floor((refDay.getTime() - due.getTime()) / 86400000);
-      const debt = toUsd(safeNum(o.debtAmount), o.currency, rates);
+      const debt = toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
       if (days >= 0) {
         let idx = 4;
         if (days <= 7) idx = 0;
@@ -279,7 +286,7 @@ export class AnalyticsFinanceService {
       id: o.id,
       orderNumber: o.orderNumber,
       clientName: o.client ? [o.client.firstName, o.client.lastName].filter(Boolean).join(" ") : null,
-      debtAmount: toUsd(safeNum(o.debtAmount), o.currency, rates),
+      debtAmount: toBaseCurrency(safeNum(o.debtAmount), o.currency, rates),
       paymentDueDate: o.paymentDueDate?.toISOString() ?? null,
     }));
 
@@ -288,7 +295,7 @@ export class AnalyticsFinanceService {
     const kpi: FinanceKpi = {
       collectedPayments,
       paymentsCount,
-      avgPaymentUsd: paymentsCount > 0 ? collectedPayments / paymentsCount : 0,
+      avgPayment: paymentsCount > 0 ? collectedPayments / paymentsCount : 0,
       debtTotal,
       overdueDebt,
       overdueOrdersCount,

@@ -81,10 +81,10 @@ export class RingostatLeadsRetrofitService {
       };
     }
 
-    const markedRingostat = await this.prisma.$executeRaw(
+    const markedIds = await this.prisma.$queryRaw<Array<{ id: string }>>(
       Prisma.sql`
-        UPDATE "Lead" l
-        SET "source" = 'RINGOSTAT'
+        SELECT l.id
+        FROM "Lead" l
         WHERE l."source" <> 'RINGOSTAT'
           ${dateWhere}
           AND EXISTS (
@@ -95,9 +95,16 @@ export class RingostatLeadsRetrofitService {
           )
       `,
     );
+    const markedRingostat = markedIds.length
+      ? (
+          await this.prisma.lead.updateMany({
+            where: { id: { in: markedIds.map((r) => r.id) } },
+            data: { source: "RINGOSTAT" },
+          })
+        ).count
+      : 0;
 
-    // Fill ownerId from the latest Ringostat call with managerUserId (best-effort).
-    const ownerFilled = await this.prisma.$executeRaw(
+    const ownerPairs = await this.prisma.$queryRaw<Array<{ lead_id: string; owner_id: string }>>(
       Prisma.sql`
         WITH latest_mgr AS (
           SELECT DISTINCT ON (c."leadId")
@@ -109,14 +116,22 @@ export class RingostatLeadsRetrofitService {
             AND c."managerUserId" IS NOT NULL
           ORDER BY c."leadId", c."startedAt" DESC
         )
-        UPDATE "Lead" l
-        SET "ownerId" = latest_mgr.owner_id
+        SELECT latest_mgr.lead_id, latest_mgr.owner_id
         FROM latest_mgr
-        WHERE l."id" = latest_mgr.lead_id
-          AND l."ownerId" IS NULL
+        JOIN "Lead" l ON l."id" = latest_mgr.lead_id
+        WHERE l."ownerId" IS NULL
           ${dateWhere}
       `,
     );
+
+    let ownerFilled = 0;
+    for (const pair of ownerPairs) {
+      const result = await this.prisma.lead.updateMany({
+        where: { id: pair.lead_id, ownerId: null },
+        data: { ownerId: pair.owner_id },
+      });
+      ownerFilled += result.count;
+    }
 
     const report: RingostatLeadsRetrofitReport = {
       dryRun,

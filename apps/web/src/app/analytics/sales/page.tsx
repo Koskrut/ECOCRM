@@ -7,8 +7,8 @@ import {
   AnalyticsFiltersBar,
   AnalyticsOverviewSkeleton,
   KpiDeltaCard,
-  formatMoneyUsd,
-  formatMoneyUsdFine,
+  formatMoneyBase,
+  formatMoneyBaseFine,
   formatNumber,
   useAnalyticsFetch,
   useAnalyticsFilters,
@@ -39,6 +39,7 @@ type SalesKpi = {
 type SalesCompareKpi = SalesKpi;
 
 type SalesResponse = {
+  currency?: string;
   data: {
     kpi: SalesKpi;
     byStage: { stage: string; count: number }[];
@@ -57,7 +58,7 @@ type ManagerRow = {
   overdueTasks: number;
 };
 
-type ManagersResponse = { managers: ManagerRow[] };
+type ManagersResponse = { currency?: string; managers: ManagerRow[] };
 
 type SortKey =
   | "name"
@@ -116,7 +117,7 @@ function previousPeriodOfSameLengthUTC(
   return { prevFrom: toYmdUTC(prevFrom), prevTo: toYmdUTC(prevTo) };
 }
 
-function ManagerBookedRevenueChart({ rows }: { rows: ManagerRow[] }) {
+function ManagerBookedRevenueChart({ rows, currency = "USD" }: { rows: ManagerRow[]; currency?: string }) {
   const data = rows
     .slice(0, 10)
     .sort((a, b) => b.bookedRevenue - a.bookedRevenue)
@@ -126,7 +127,7 @@ function ManagerBookedRevenueChart({ rows }: { rows: ManagerRow[] }) {
     return (
       <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold text-zinc-900">Booked revenue by manager</h3>
-        <p className="mt-0.5 text-xs text-zinc-500">Поточний період, USD.</p>
+        <p className="mt-0.5 text-xs text-zinc-500">Поточний період, {currency}.</p>
         <div className="mt-3 min-h-[240px] flex items-center justify-center rounded-lg border border-dashed border-zinc-200 bg-zinc-50/80 text-sm text-zinc-500">
           Немає даних
         </div>
@@ -138,7 +139,7 @@ function ManagerBookedRevenueChart({ rows }: { rows: ManagerRow[] }) {
     <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div>
         <h3 className="text-sm font-semibold text-zinc-900">Booked revenue by manager</h3>
-        <p className="mt-0.5 text-xs text-zinc-500">Поточний період (createdAt), USD.</p>
+        <p className="mt-0.5 text-xs text-zinc-500">Поточний період (createdAt), {currency}.</p>
       </div>
       <div className="mt-3 min-h-[260px] w-full min-w-0 flex-1 overflow-x-auto">
         <ResponsiveContainer width="100%" height={260} minWidth={320}>
@@ -228,6 +229,7 @@ export default function AnalyticsSalesPage() {
   } = useAnalyticsFetch<ManagersResponse>("managers", filters.querySuffix);
 
   const kpi = salesData?.data.kpi;
+  const currency = salesData?.currency === "EUR" ? "EUR" : "USD";
   const compareKpi = salesData?.compare?.kpi;
   const byStage = salesData?.data.byStage ?? [];
   const managers = useMemo(() => managersData?.managers ?? [], [managersData?.managers]);
@@ -415,9 +417,9 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Booked revenue"
-              subtitle="USD, createdAt (period-based)"
-              tooltip="Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → USD."
-              value={formatMoneyUsd(kpi?.bookedRevenue)}
+              subtitle={`${currency}, createdAt (period-based)`}
+              tooltip={`Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → ${currency}.`}
+              value={formatMoneyBase(kpi?.bookedRevenue, currency)}
               deltaLabel={
                 filters.comparePrev
                   ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, compareKpi?.bookedRevenue)
@@ -438,8 +440,8 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Avg check"
-              subtitle="Booked / orders (USD)"
-              value={formatMoneyUsdFine(kpi?.avgCheck)}
+              subtitle={`Booked / orders (${currency})`}
+              value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
               deltaLabel={
                 filters.comparePrev
                   ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, compareKpi?.avgCheck)
@@ -449,9 +451,9 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Collected payments"
-              subtitle="USD, COMPLETED + paidAt (period-based)"
+              subtitle={`${currency}, COMPLETED + paidAt (period-based)`}
               tooltip="Collected payments ≠ booked revenue."
-              value={formatMoneyUsd(kpi?.collectedPayments)}
+              value={formatMoneyBase(kpi?.collectedPayments, currency)}
               deltaLabel={
                 filters.comparePrev
                   ? deltaMoneyLine(kpi?.collectedPayments ?? 0, compareKpi?.collectedPayments)
@@ -539,12 +541,12 @@ export default function AnalyticsSalesPage() {
                   sortedManagers.map((m) => (
                     <tr key={m.id} className="hover:bg-zinc-50/60">
                       <td className="px-4 py-3 font-medium text-zinc-900">{m.name}</td>
-                      <td className="px-4 py-3 text-right">{formatMoneyUsd(m.bookedRevenue)}</td>
+                      <td className="px-4 py-3 text-right">{formatMoneyBase(m.bookedRevenue, currency)}</td>
                       <td className="px-4 py-3 text-right">
-                        {formatMoneyUsd(m.collectedPayments)}
+                        {formatMoneyBase(m.collectedPayments, currency)}
                       </td>
                       <td className="px-4 py-3 text-right">{formatNumber(m.ordersCount)}</td>
-                      <td className="px-4 py-3 text-right">{formatMoneyUsdFine(m.avgCheck)}</td>
+                      <td className="px-4 py-3 text-right">{formatMoneyBaseFine(m.avgCheck, currency)}</td>
                       <td className="px-4 py-3 text-right">{formatNumber(m.overdueTasks)}</td>
                     </tr>
                   ))
@@ -562,7 +564,7 @@ export default function AnalyticsSalesPage() {
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
-            <ManagerBookedRevenueChart rows={managers} />
+            <ManagerBookedRevenueChart rows={managers} currency={currency} />
             <OrdersByStageBarChart rows={byStage} />
           </div>
         </section>
@@ -611,13 +613,13 @@ export default function AnalyticsSalesPage() {
                         <tr key={r.id}>
                           <td className="px-3 py-2 font-medium text-zinc-900">{r.name}</td>
                           <td className="px-3 py-2 text-right">
-                            {formatMoneyUsd(r.currentBooked)}
+                            {formatMoneyBase(r.currentBooked, currency)}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            {formatMoneyUsd(r.previousBooked)}
+                            {formatMoneyBase(r.previousBooked, currency)}
                           </td>
                           <td className="px-3 py-2 text-right text-red-700">
-                            {formatMoneyUsd(r.deltaBooked)}
+                            {formatMoneyBase(r.deltaBooked, currency)}
                           </td>
                         </tr>
                       ))}

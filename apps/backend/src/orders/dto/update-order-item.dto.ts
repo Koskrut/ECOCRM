@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsNumber, IsOptional, Min } from "class-validator";
+import { IsInt, IsNumber, IsOptional, Max, Min } from "class-validator";
 
 export class UpdateOrderItemDto {
   @IsOptional()
@@ -13,4 +13,11 @@ export class UpdateOrderItemDto {
   @Min(0)
   @Type(() => Number)
   price?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  @Type(() => Number)
+  discountPercent?: number;
 }

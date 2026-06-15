@@ -77,6 +77,15 @@ enum ActivityType {
   MANUAL_CALL
 }
 
+enum NotificationType {
+  ORDER_QTY_CHANGED
+  ORDER_SPLIT
+  ORDER_STAGE_CHANGED
+  MISSED_CALL
+  NEW_LEAD
+  TASK_ASSIGNED
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -534,6 +543,13 @@ model User {
   fieldShifts                FieldShift[]
   fuelDayReports             FuelDayReport[]
 
+  /**
+   * LEAD: копія складських/замовлень сповіщень по команді (фаза 2).
+   */
+  teamNotificationsEnabled   Boolean @default(false)
+  notifications              UserNotification[]
+  notificationPreferences    UserNotificationPreference[]
+
   @@unique([legacySource, legacyId])
   @@index([leadId])
 }
@@ -655,9 +671,35 @@ model Company {
   changeHistory      CompanyChangeHistory[]
   callQueueItems     CallQueueItem[]
   manualCallSessions ManualCallSession[]
+  addresses          CompanyAddress[]
 
   @@unique([legacySource, legacyId])
   @@index([ownerId])
+}
+
+model CompanyAddress {
+  id            String    @id @default(cuid())
+  companyId     String
+  label         String?
+  city          String?
+  addressText   String
+  lat           Float?
+  lng           Float?
+  googlePlaceId String?
+  isDefault     Boolean   @default(false)
+  legacySource  String?
+  legacyId      Int?
+  legacyRaw     Json?
+  syncedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  visits  Visit[]
+
+  @@unique([legacySource, legacyId])
+  @@index([companyId])
+  @@index([companyId, isDefault])
 }
 
 model CompanyChangeHistory {
@@ -745,6 +787,7 @@ model Contact {
   // профили доставки НП (несколько на контакт)
   shippingProfiles ContactShippingProfile[]
   phones           ContactPhone[]
+  addresses        ContactAddress[]
 
   activities           Activity[]
   leads                Lead[]
@@ -780,6 +823,31 @@ model ContactChangeHistory {
 
   @@index([contactId])
   @@index([createdAt])
+}
+
+model ContactAddress {
+  id            String    @id @default(cuid())
+  contactId     String
+  label         String?
+  city          String?
+  addressText   String
+  lat           Float?
+  lng           Float?
+  googlePlaceId String?
+  isDefault     Boolean   @default(false)
+  legacySource  String?
+  legacyId      Int?
+  legacyRaw     Json?
+  syncedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  visits  Visit[]
+
+  @@unique([legacySource, legacyId])
+  @@index([contactId])
+  @@index([contactId, isDefault])
 }
 
 model Customer {
@@ -847,8 +915,13 @@ model Visit {
   /** Итог GPS-проверки при последнем COMPLETE визита. */
   completeGpsVerification VisitGpsVerification?
 
-  company                Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact                Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactAddressId String?
+  companyAddressId String?
+
+  company                Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact                Contact?        @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactAddress         ContactAddress? @relation(fields: [contactAddressId], references: [id], onDelete: SetNull)
+  companyAddress         CompanyAddress? @relation(fields: [companyAddressId], references: [id], onDelete: SetNull)
   owner                  User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   activity               Activity?      @relation(fields: [activityId], references: [id], onDelete: SetNull)
   routeStops             RouteStop[]
@@ -859,6 +932,8 @@ model Visit {
   @@index([ownerId, startsAt])
   @@index([companyId])
   @@index([contactId])
+  @@index([contactAddressId])
+  @@index([companyAddressId])
 }
 
 model VisitGpsEvent {
@@ -1541,6 +1616,7 @@ model OrderItem {
   productNameSnapshot String? // название из Bitrix при отсутствии Product в ECOCRM
   qty                 Int
   price               Float
+  discountPercent     Int     @default(0)
   lineTotal           Float
 
   // кеш для частичных отправок
@@ -1773,6 +1849,36 @@ model AuditLog {
   @@index([changedBy, createdAt])
   @@index([action, createdAt])
   @@index([createdAt])
+}
+
+model UserNotification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  meta       Json?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+}
+
+model UserNotificationPreference {
+  userId   String
+  type     NotificationType
+  inApp    Boolean @default(true)
+  browser  Boolean @default(false)
+  telegram Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, type])
 }
 
 model Task {

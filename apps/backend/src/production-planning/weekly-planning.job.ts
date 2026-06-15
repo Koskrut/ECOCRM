@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { PlanningItemType, ProductionStageCode } from "@prisma/client";
+import { withAuditSource } from "../audit/audit-context";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
 import { PrismaService } from "../prisma/prisma.service";
@@ -40,6 +41,7 @@ export class WeeklyPlanningJob {
       const ok = await this.modules.isEffective(ModuleIds.ProductionPlanning);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:weekly-planning", async () => {
     const weekStart = getWeekStart();
     await this.production.ensureDefaultStages();
     const [qcQueue, packQueue, launch] = await Promise.all([
@@ -95,6 +97,7 @@ export class WeeklyPlanningJob {
       `Weekly planning generated for ${weekStart.toISOString().slice(0, 10)}; qc=${qcQueue.length}, pack=${packQueue.length}, launch=${launch.recommendations.length}`,
     );
     return { weekStart, qcQueue: qcQueue.length, packQueue: packQueue.length, launch: launch.recommendations.length };
+    }, { job: "weekly-planning" });
   }
 }
 

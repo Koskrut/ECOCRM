@@ -36,9 +36,22 @@ function allCards(): CardDescriptor[] {
     { href: "/settings/access", title: t.access.title, desc: t.access.desc, group: "accessTeam" },
     { href: "/employees", title: t.employees.title, desc: t.employees.desc, group: "accessTeam" },
     {
+      href: "/settings/notifications",
+      title: "Сповіщення",
+      desc: "In-app, browser push та Telegram для подій CRM",
+      group: "accessTeam",
+    },
+    {
       href: "/settings/orders-pipeline",
       title: t.ordersPipeline.title,
       desc: t.ordersPipeline.desc,
+      group: "salesProcesses",
+      adminOnly: true,
+    },
+    {
+      href: "/settings/order-discounts",
+      title: t.orderDiscounts.title,
+      desc: t.orderDiscounts.desc,
       group: "salesProcesses",
       adminOnly: true,
     },

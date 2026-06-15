@@ -14,6 +14,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { BaseCurrency } from "@/lib/base-currency";
+import { baseCurrencyLabel, baseCurrencySymbol } from "@/lib/base-currency";
 
 const CHART_MUTED = "#64748b";
 const BOOKED_FILL = "#10b981";
@@ -77,11 +79,15 @@ const tooltipBox = { borderRadius: "8px", border: "1px solid #e4e4e7", fontSize:
 
 export function BookedRevenueTrendChart({
   rows,
+  currency = "USD",
 }: {
-  rows: { date: string; usd: number; ordersCount: number }[];
+  rows: { date: string; amount: number; ordersCount: number }[];
+  currency?: BaseCurrency | string;
 }) {
   const uid = useId().replace(/:/g, "");
   const gradId = `bookedFill-${uid}`;
+  const sym = baseCurrencySymbol(currency);
+  const code = baseCurrencyLabel(currency);
   const data = rows.map((r) => ({
     ...r,
     label: formatAxisDate(r.date),
@@ -89,8 +95,8 @@ export function BookedRevenueTrendChart({
   const empty = data.length === 0;
   return (
     <ChartCard
-      title="Booked revenue (USD)"
-      subtitle="Поточний період overview лише. Сума по днях: max(0, total − returns) → USD. Вісь X — день створення замовлення (UTC)."
+      title={`Booked revenue (${code})`}
+      subtitle={`Поточний період overview лише. Сума по днях: max(0, total − returns) → ${code}. Вісь X — день створення замовлення (UTC).`}
       empty={empty}
     >
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
@@ -116,7 +122,7 @@ export function BookedRevenueTrendChart({
             width={44}
             tickFormatter={(v) => `${v}`}
             label={{
-              value: "USD",
+              value: code,
               angle: -90,
               position: "insideLeft",
               fill: CHART_MUTED,
@@ -125,7 +131,7 @@ export function BookedRevenueTrendChart({
           />
           <Tooltip
             formatter={(value: number) => [
-              `${Math.round(value).toLocaleString("en-US")} $`,
+              `${Math.round(value).toLocaleString("en-US")} ${sym}`,
               "Booked",
             ]}
             labelFormatter={(_, payload) => {
@@ -144,11 +150,11 @@ export function BookedRevenueTrendChart({
           />
           <Area
             type="monotone"
-            dataKey="usd"
+            dataKey="amount"
             stroke={BOOKED_FILL}
             strokeWidth={2}
             fill={`url(#${gradId})`}
-            name="Booked (USD)"
+            name={`Booked (${code})`}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -158,18 +164,25 @@ export function BookedRevenueTrendChart({
 
 export function CollectedPaymentsTrendChart({
   rows,
-  subtitle = "Поточний період overview лише. Оплати COMPLETED; дата — paidAt (UTC). Окремо від booked revenue.",
+  currency = "USD",
+  subtitle,
 }: {
-  rows: { date: string; usd: number; paymentCount: number }[];
+  rows: { date: string; amount: number; paymentCount: number }[];
+  currency?: BaseCurrency | string;
   /** Override for Finance / other pages reusing this chart. */
   subtitle?: string;
 }) {
   const uid = useId().replace(/:/g, "");
   const gradId = `collectedFill-${uid}`;
+  const sym = baseCurrencySymbol(currency);
+  const code = baseCurrencyLabel(currency);
   const data = rows.map((r) => ({ ...r, label: formatAxisDate(r.date) }));
   const empty = data.length === 0;
+  const resolvedSubtitle =
+    subtitle ??
+    `Поточний період overview лише. Оплати COMPLETED; дата — paidAt (UTC). Сума в ${code}.`;
   return (
-    <ChartCard title="Collected payments (USD)" subtitle={subtitle} empty={empty}>
+    <ChartCard title={`Collected payments (${code})`} subtitle={resolvedSubtitle} empty={empty}>
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
         <AreaChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
           <defs>
@@ -192,7 +205,7 @@ export function CollectedPaymentsTrendChart({
             axisLine={false}
             width={44}
             label={{
-              value: "USD",
+              value: code,
               angle: -90,
               position: "insideLeft",
               fill: CHART_MUTED,
@@ -201,7 +214,7 @@ export function CollectedPaymentsTrendChart({
           />
           <Tooltip
             formatter={(value: number) => [
-              `${Math.round(value).toLocaleString("en-US")} $`,
+              `${Math.round(value).toLocaleString("en-US")} ${sym}`,
               "Collected",
             ]}
             labelFormatter={(_, payload) => {
@@ -220,11 +233,11 @@ export function CollectedPaymentsTrendChart({
           />
           <Area
             type="monotone"
-            dataKey="usd"
+            dataKey="amount"
             stroke={COLLECTED_FILL}
             strokeWidth={2}
             fill={`url(#${gradId})`}
-            name="Collected (USD)"
+            name={`Collected (${code})`}
           />
         </AreaChart>
       </ResponsiveContainer>

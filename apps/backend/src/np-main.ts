@@ -11,6 +11,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { NpModule } from "./np/np.module";
 import { SystemModule } from "./system/system.module";
@@ -18,7 +19,7 @@ import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
 @Module({
-  imports: [PrismaModule, IntegrationPortsModule, AuthModule, RbacModule, SystemModule, NpModule],
+  imports: [PrismaModule, AuditContextModule, IntegrationPortsModule, AuthModule, RbacModule, SystemModule, NpModule],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

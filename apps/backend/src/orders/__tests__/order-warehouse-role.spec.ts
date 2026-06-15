@@ -88,16 +88,24 @@ test("assertWarehouseOrderItemQtyUpdate blocks price and wrong stage", () => {
     /ціну/,
   );
   assert.throws(
+    () => assertWarehouseOrderItemQtyUpdate(actor, "CONFIRMED", { discountPercent: 10 }),
+    /знижку/,
+  );
+  assert.throws(
     () => assertWarehouseOrderItemQtyUpdate(actor, "READY_TO_SHIP", { qty: 2 }),
     /Підтверджено/,
   );
 });
 
-test("assertWarehouseSplitByStock allows only CONFIRMED", () => {
+test("assertWarehouseSplitByStock allows only CONFIRMED with picks", () => {
   const actor = warehouseUser();
-  assert.doesNotThrow(() => assertWarehouseSplitByStock(actor, "CONFIRMED"));
+  assert.doesNotThrow(() => assertWarehouseSplitByStock(actor, "CONFIRMED", true));
   assert.throws(
-    () => assertWarehouseSplitByStock(actor, "AWAITING_STOCK"),
+    () => assertWarehouseSplitByStock(actor, "CONFIRMED", false),
+    /збірки/,
+  );
+  assert.throws(
+    () => assertWarehouseSplitByStock(actor, "AWAITING_STOCK", true),
     /Підтверджено/,
   );
 });

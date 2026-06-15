@@ -33,6 +33,7 @@ import {
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
 import { DateTime } from "luxon";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
+import { baseCurrencySymbol } from "@/lib/base-currency";
 import {
   CRM_LOCALE,
   CRM_TIME_ZONE,
@@ -48,11 +49,12 @@ type DailyTeamActivityRow = {
   visits: number;
   ordersCount: number;
   ordersAmount: number;
-  paymentsUsd: number;
+  paymentsAmount: number;
 };
 
 type DailyTeamActivityPayload = {
   date: string;
+  currency?: string;
   rows: DailyTeamActivityRow[];
 };
 
@@ -385,7 +387,7 @@ export default function DashboardPage() {
         </div>
         <p className="mb-3 text-xs text-zinc-500">
           День за календарною датою (Київ). Дзвінки за менеджером у записі дзвінка; візити —{" "}
-          <span className="font-medium text-zinc-600">Visit</span>; замовлення та оплати USD — за власником
+          <span className="font-medium text-zinc-600">Visit</span>; замовлення та оплати ({activity?.currency ?? "USD"}) — за власником
           замовлення.
         </p>
         {activityLoading ? (
@@ -413,7 +415,7 @@ export default function DashboardPage() {
                   <th className="py-2 pr-2">Візити</th>
                   <th className="py-2 pr-2">Замовлення</th>
                   <th className="py-2 pr-2">Сума замовлень</th>
-                  <th className="py-2">Оплати USD</th>
+                  <th className="py-2">Оплати ({activity?.currency ?? "USD"})</th>
                 </tr>
               </thead>
               <tbody>
@@ -425,7 +427,9 @@ export default function DashboardPage() {
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.visits}</td>
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.ordersCount}</td>
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{formatMoney(row.ordersAmount)}</td>
-                    <td className="py-2 tabular-nums text-zinc-800">{formatMoney(row.paymentsUsd)} $</td>
+                    <td className="py-2 tabular-nums text-zinc-800">
+                      {formatMoney(row.paymentsAmount)} {baseCurrencySymbol(activity?.currency ?? "USD")}
+                    </td>
                   </tr>
                 ))}
               </tbody>

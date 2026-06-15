@@ -270,7 +270,7 @@ export function FinancialKanban({
   if (!list) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-full min-w-0 space-y-4">
       <p className="text-xs text-zinc-500">
         Фінансовий канбан — контрольний екран. Статус визначається з даних замовлення та оплат, без
         перетягування.

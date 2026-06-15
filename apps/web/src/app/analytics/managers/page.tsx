@@ -6,8 +6,8 @@ import {
   AnalyticsFiltersBar,
   AnalyticsOverviewSkeleton,
   SimpleTable,
-  formatMoneyUsd,
-  formatMoneyUsdFine,
+  formatMoneyBase,
+  formatMoneyBaseFine,
   formatNumber,
   useAnalyticsFetch,
   useAnalyticsFilters,
@@ -24,6 +24,7 @@ type ManagerRow = {
 };
 
 type ManagersResponse = {
+  currency?: string;
   managers: ManagerRow[];
 };
 
@@ -36,6 +37,7 @@ export default function AnalyticsManagersPage() {
     refreshKey,
   );
   const rows = data?.managers ?? [];
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
 
   const filtersBar = (
     <AnalyticsFiltersBar
@@ -88,12 +90,12 @@ export default function AnalyticsManagersPage() {
               {
                 key: "bookedRevenue",
                 title: "Booked revenue",
-                render: (row) => formatMoneyUsd(row.bookedRevenue),
+                render: (row) => formatMoneyBase(row.bookedRevenue, currency),
               },
               {
                 key: "collectedPayments",
                 title: "Collected payments",
-                render: (row) => formatMoneyUsd(row.collectedPayments),
+                render: (row) => formatMoneyBase(row.collectedPayments, currency),
               },
               {
                 key: "ordersCount",
@@ -103,7 +105,7 @@ export default function AnalyticsManagersPage() {
               {
                 key: "avgCheck",
                 title: "Avg check",
-                render: (row) => formatMoneyUsdFine(row.avgCheck),
+                render: (row) => formatMoneyBaseFine(row.avgCheck, currency),
               },
               {
                 key: "overdueTasks",

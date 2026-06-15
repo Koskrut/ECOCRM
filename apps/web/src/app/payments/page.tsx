@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
@@ -65,6 +65,38 @@ type OrderOption = {
 };
 
 type ContactOption = { id: string; firstName: string; lastName: string; phone: string };
+
+type BankPaymentGroup = {
+  key: string;
+  payments: PaymentItem[];
+  isSplit: boolean;
+  totalAmount: number;
+  totalAmountUsd: number;
+  primary: PaymentItem;
+};
+
+function getBankPaymentGroupSearchText(group: BankPaymentGroup): string {
+  return group.payments
+    .flatMap((p) => [
+      p.orderNumber,
+      p.contactLabel,
+      ...(p.sameTransactionOrderNumbers ?? []),
+      p.bankTransaction?.counterpartyName,
+      p.note,
+    ])
+    .filter(Boolean)
+    .join(" ");
+}
+
+function getGroupContactLabel(group: BankPaymentGroup): string {
+  const labels = group.payments
+    .map((p) => p.contactLabel?.trim())
+    .filter(Boolean) as string[];
+  if (labels.length === 0) return t.payments.dash;
+  const unique = [...new Set(labels)];
+  if (unique.length === 1) return unique[0]!;
+  return t.payments.multipleContacts;
+}
 
 function filterBySearch<T>(items: T[], search: string, getText: (t: T) => string): T[] {
   const q = search.trim().toLowerCase();
@@ -211,6 +243,7 @@ function PaymentsContent() {
   const [splitClientOrdersLoading, setSplitClientOrdersLoading] = useState(false);
   const defaultFopAppliedRef = useRef(false);
   const [defaultBankFromApi, setDefaultBankFromApi] = useState<string | null>(null);
+  const [expandedSplitKeys, setExpandedSplitKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     apiHttp
@@ -359,23 +392,40 @@ function PaymentsContent() {
     ),
     [payments, search],
   );
-  const bankPayments = useMemo(
-    () =>
-      filterBySearch(
-        payments.filter((p) => (String(p.sourceType ?? "").toUpperCase() === "BANK")),
-        search,
-        (p) =>
-          [
-            p.orderNumber,
-            p.contactLabel,
-            ...(p.sameTransactionOrderNumbers ?? []),
-            p.bankTransaction?.counterpartyName,
-            p.note,
-          ]
-            .filter(Boolean)
-            .join(" "),
-      ),
-    [payments, search],
+  const allBankPayments = useMemo(
+    () => payments.filter((p) => String(p.sourceType ?? "").toUpperCase() === "BANK"),
+    [payments],
+  );
+  const bankPaymentGroupsAll = useMemo(() => {
+    const map = new Map<string, PaymentItem[]>();
+    for (const p of allBankPayments) {
+      const key = p.bankTransaction?.id ?? p.id;
+      const list = map.get(key) ?? [];
+      list.push(p);
+      map.set(key, list);
+    }
+    return [...map.entries()]
+      .map(([key, groupPayments]) => {
+        const sorted = [...groupPayments].sort(
+          (a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime(),
+        );
+        const primary = sorted[0]!;
+        return {
+          key,
+          payments: sorted,
+          isSplit: groupPayments.length > 1,
+          totalAmount: groupPayments.reduce((s, p) => s + p.amount, 0),
+          totalAmountUsd: groupPayments.reduce((s, p) => s + (p.amountUsd ?? 0), 0),
+          primary,
+        } satisfies BankPaymentGroup;
+      })
+      .sort(
+        (a, b) => new Date(b.primary.paidAt).getTime() - new Date(a.primary.paidAt).getTime(),
+      );
+  }, [allBankPayments]);
+  const bankPaymentGroups = useMemo(
+    () => filterBySearch(bankPaymentGroupsAll, search, getBankPaymentGroupSearchText),
+    [bankPaymentGroupsAll, search],
   );
   const filteredPayments = useMemo(
     () =>
@@ -597,11 +647,16 @@ function PaymentsContent() {
     if (allocateContactId) void fetchUnpaidOrdersForAllocate(allocateContactId);
   }, [allocateContactId, fetchUnpaidOrdersForAllocate]);
 
-  const fetchEditContacts = useCallback(async () => {
+  const searchContactsForEdit = useCallback(async (q: string) => {
+    const term = q.trim();
+    if (term.length < 3) {
+      setEditContacts([]);
+      return;
+    }
     setEditContactsLoading(true);
     try {
       const r = await apiHttp.get<{ items: ContactOption[] }>(
-        "/contacts?page=1&pageSize=300",
+        `/contacts?page=1&pageSize=50&q=${encodeURIComponent(term)}`,
       );
       setEditContacts(r.data?.items ?? []);
     } catch {
@@ -611,14 +666,17 @@ function PaymentsContent() {
     }
   }, []);
 
-  const fetchUnpaidOrdersForEdit = useCallback(async (contactId: string) => {
+  const fetchOrdersForEdit = useCallback(async (contactId: string) => {
     setEditContactOrdersLoading(true);
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
         `/orders?contactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true`,
       );
-      const list = (r.data?.items ?? []) as (OrderOption & { debtAmount?: number })[];
-      setEditContactOrders(list.filter((o) => (Number(o.debtAmount ?? 0) > 0)));
+      const list = (r.data?.items ?? []) as OrderOption[];
+      list.sort(
+        (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+      );
+      setEditContactOrders(list);
     } catch {
       setEditContactOrders([]);
     } finally {
@@ -627,24 +685,24 @@ function PaymentsContent() {
   }, []);
 
   const editContactCandidates = useMemo(
-    () =>
-      editContactSearch.trim().length >= 3
-        ? filterBySearch(
-            editContacts,
-            editContactSearch,
-            (c) => [c.lastName, c.firstName, c.phone].filter(Boolean).join(" "),
-          ).slice(0, 15)
-        : [],
+    () => (editContactSearch.trim().length >= 3 ? editContacts.slice(0, 15) : []),
     [editContacts, editContactSearch],
   );
 
   useEffect(() => {
-    if (editPayment) void fetchEditContacts();
-  }, [editPayment, fetchEditContacts]);
+    if (!editPayment) return;
+    const q = editContactSearch.trim();
+    if (q.length < 3) {
+      setEditContacts([]);
+      return;
+    }
+    const timer = setTimeout(() => void searchContactsForEdit(editContactSearch), 300);
+    return () => clearTimeout(timer);
+  }, [editPayment, editContactSearch, searchContactsForEdit]);
 
   useEffect(() => {
-    if (editContactId) void fetchUnpaidOrdersForEdit(editContactId);
-  }, [editContactId, fetchUnpaidOrdersForEdit]);
+    if (editContactId) void fetchOrdersForEdit(editContactId);
+  }, [editContactId, fetchOrdersForEdit]);
 
   const submitAddCashPayment = async () => {
     if (!addCashOrderId) {
@@ -830,7 +888,17 @@ function PaymentsContent() {
     setEditContactId(null);
     setEditContactName("");
     setEditContactOrders([]);
+    setEditContacts([]);
   };
+
+  const toggleSplitExpanded = useCallback((key: string) => {
+    setExpandedSplitKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const submitEdit = async () => {
     if (!editPayment) return;
@@ -891,7 +959,7 @@ function PaymentsContent() {
         : paymentsLoading;
 
   return (
-    <div className="p-6">
+    <div className="space-y-4">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-4">
@@ -1070,7 +1138,7 @@ function PaymentsContent() {
         {!loading && mode === "fop" && view === "payments" && (
           <>
             <p className="px-4 py-2 text-sm text-zinc-600">
-              {t.payments.bankLinkedIntro(bankPayments.length)}
+              {t.payments.bankLinkedIntro(bankPaymentGroups.length)}
               {search.trim() ? t.payments.bankLinkedSearch(search.trim()) : ""}
             </p>
             <div className="overflow-x-auto">
@@ -1088,72 +1156,164 @@ function PaymentsContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {bankPayments.map((p, idx) => (
-                    <tr
-                      key={p.id ?? `bank-${idx}`}
-                      className="border-t border-zinc-100 hover:bg-zinc-50"
-                    >
-                      <td className="px-4 py-3 text-zinc-600">
-                        {p.paidAt ? formatDate(p.paidAt) : t.payments.dash}
-                      </td>
-                      <td className="px-4 py-3">
-                        {p.sameTransactionOrderNumbers?.length ? (
-                          <span className="text-zinc-700">
-                            {p.sameTransactionOrderNumbers.flatMap((num, i) => [
-                              i > 0 ? ", " : null,
-                              num === p.orderNumber ? (
-                                <Link
-                                  key={num}
-                                  href={`/orders?orderId=${p.orderId}`}
-                                  className="font-medium text-zinc-900 hover:underline"
-                                >
-                                  {num}
-                                </Link>
-                              ) : (
-                                <span key={num}>{num}</span>
-                              ),
-                            ])}
-                          </span>
-                        ) : p.orderNumber ? (
-                          <Link
-                            href={`/orders?orderId=${p.orderId}`}
-                            className="font-medium text-zinc-900 hover:underline"
-                          >
-                            {p.orderNumber}
-                          </Link>
-                        ) : (
-                          p.orderId
-                        )}
-                      </td>
-                      <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700" title={p.contactLabel ?? ""}>
-                        {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
-                      </td>
-                      <td className="px-4 py-3">{t.payments.bankKind}</td>
-                      <td className="px-4 py-3">
-                        {p.bankTransaction?.bankAccount?.name ?? t.payments.dash}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium">
-                        {formatPaymentAmount(p)}
-                      </td>
-                      <td className="px-4 py-3 max-w-xs truncate">
-                        {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(p)}
-                          className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                  {bankPaymentGroups.map((group) => {
+                    if (!group.isSplit) {
+                      const p = group.primary;
+                      return (
+                        <tr
+                          key={group.key}
+                          className="border-t border-zinc-100 hover:bg-zinc-50"
                         >
-                          {t.payments.edit}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {bankPayments.length === 0 && (
+                          <td className="px-4 py-3 text-zinc-600">
+                            {p.paidAt ? formatDate(p.paidAt) : t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3">
+                            {p.orderNumber ? (
+                              <Link
+                                href={`/orders?orderId=${p.orderId}`}
+                                className="font-medium text-zinc-900 hover:underline"
+                              >
+                                {p.orderNumber}
+                              </Link>
+                            ) : (
+                              p.orderId
+                            )}
+                          </td>
+                          <td
+                            className="px-4 py-3 max-w-[14rem] truncate text-zinc-700"
+                            title={p.contactLabel ?? ""}
+                          >
+                            {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3">{t.payments.bankKind}</td>
+                          <td className="px-4 py-3">
+                            {p.bankTransaction?.bankAccount?.name ?? t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            {formatPaymentAmount(p)}
+                          </td>
+                          <td className="px-4 py-3 max-w-xs truncate">
+                            {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(p)}
+                              className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                            >
+                              {t.payments.edit}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const p = group.primary;
+                    const expanded = expandedSplitKeys.has(group.key);
+                    return (
+                      <Fragment key={group.key}>
+                        <tr className="border-t border-zinc-100 hover:bg-zinc-50">
+                          <td className="px-4 py-3 text-zinc-600">
+                            {p.paidAt ? formatDate(p.paidAt) : t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleSplitExpanded(group.key)}
+                              className="inline-flex items-center gap-1.5 text-left text-zinc-700 hover:text-zinc-900"
+                              aria-expanded={expanded}
+                              aria-label={
+                                expanded ? t.payments.collapseOrders : t.payments.expandOrders
+                              }
+                            >
+                              <svg
+                                className={`h-4 w-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 9l-7 7-7-7"
+                                />
+                              </svg>
+                              <span>{t.payments.ordersCount(group.payments.length)}</span>
+                            </button>
+                          </td>
+                          <td
+                            className="px-4 py-3 max-w-[14rem] truncate text-zinc-700"
+                            title={getGroupContactLabel(group)}
+                          >
+                            {getGroupContactLabel(group)}
+                          </td>
+                          <td className="px-4 py-3">{t.payments.bankKind}</td>
+                          <td className="px-4 py-3">
+                            {p.bankTransaction?.bankAccount?.name ?? t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">
+                            {formatPaymentAmount({
+                              amount: group.totalAmount,
+                              currency: p.currency,
+                              amountUsd: group.totalAmountUsd,
+                            })}
+                          </td>
+                          <td className="px-4 py-3 max-w-xs truncate">
+                            {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => openEdit(p)}
+                              className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                            >
+                              {t.payments.edit}
+                            </button>
+                          </td>
+                        </tr>
+                        {expanded &&
+                          group.payments.map((child) => (
+                            <tr
+                              key={`${group.key}-${child.id}`}
+                              className="border-t border-zinc-50 bg-zinc-50/60"
+                            >
+                              <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
+                              <td className="px-4 py-2 pl-10">
+                                {child.orderNumber ? (
+                                  <Link
+                                    href={`/orders?orderId=${child.orderId}`}
+                                    className="font-medium text-zinc-800 hover:underline"
+                                  >
+                                    {child.orderNumber}
+                                  </Link>
+                                ) : (
+                                  child.orderId
+                                )}
+                              </td>
+                              <td
+                                className="px-4 py-2 max-w-[14rem] truncate text-zinc-600"
+                                title={child.contactLabel ?? ""}
+                              >
+                                {child.contactLabel?.trim() ? child.contactLabel : t.payments.dash}
+                              </td>
+                              <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
+                              <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
+                              <td className="px-4 py-2 text-right font-medium text-zinc-700">
+                                {formatPaymentAmount(child)}
+                              </td>
+                              <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
+                              <td className="px-4 py-2" />
+                            </tr>
+                          ))}
+                      </Fragment>
+                    );
+                  })}
+                  {bankPaymentGroups.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
-                        {search.trim() &&
-                        payments.filter((p) => p.sourceType === "BANK").length > 0
+                        {search.trim() && bankPaymentGroupsAll.length > 0
                           ? t.payments.noBankMatchSearch
                           : t.payments.noBankPayments}
                       </td>
@@ -1339,8 +1499,8 @@ function PaymentsContent() {
         {!loading && mode === "fop" && view === "payments" && (
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
             {t.payments.bankCount(
-              bankPayments.length,
-              payments.filter((p) => p.sourceType === "BANK").length,
+              bankPaymentGroups.length,
+              bankPaymentGroupsAll.length,
               !!search.trim(),
             )}
           </p>
@@ -1977,196 +2137,293 @@ function PaymentsContent() {
                 editPayment.sourceType === "CASH" ? t.payments.cashKind : t.payments.bankKind,
               )}
             </p>
-            {editPayment.sameTransactionOrderNumbers && editPayment.sameTransactionOrderNumbers.length > 0 && (
+            {editPayment.sameTransactionOrderNumbers &&
+              editPayment.sameTransactionOrderNumbers.length > 1 && (
               <p className="mt-1 text-sm text-zinc-600">
                 {t.payments.ordersColon} {editPayment.sameTransactionOrderNumbers.join(", ")}
               </p>
             )}
             <div className="mt-4 space-y-3">
-              <input
-                type="text"
-                value={editContactId ? editContactName : editContactSearch}
-                onChange={(e) => {
-                  if (editContactId) {
-                    setEditContactId(null);
-                    setEditContactName("");
-                    setEditContactOrders([]);
-                    setEditContactSearch(e.target.value);
-                  } else {
-                    setEditContactSearch(e.target.value);
-                  }
-                }}
-                onFocus={() => {
-                  if (editContactId) {
-                    setEditContactId(null);
-                    setEditContactName("");
-                    setEditContactOrders([]);
-                    setEditContactSearch(editContactName);
-                  }
-                }}
-                placeholder={t.payments.contactMinChars}
-                className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-              />
-              {editContactCandidates.length > 0 && (
-                <ul className="max-h-32 overflow-auto rounded-lg border border-zinc-200 py-1">
-                  {editContactCandidates.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditContactId(c.id);
-                          setEditContactName([c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone);
-                          setEditContactSearch("");
-                          setEditOrderId("");
-                          setEditOrderNumber("");
-                          void fetchUnpaidOrdersForEdit(c.id);
-                        }}
-                        className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100"
-                      >
-                        {[c.lastName, c.firstName].filter(Boolean).join(" ")} {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {editContactId && (
-                <div className="space-y-1">
-                  {editContactOrdersLoading ? (
-                    <div className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-500">
-                      {t.payments.loadingOrders}
-                    </div>
-                  ) : editContactOrders.length === 0 ? (
-                    <div className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-zinc-500">
-                      {t.payments.noUnpaidOrdersEdit}
-                    </div>
-                  ) : (
-                    <>
-                      {editPayment.sourceType === "BANK" && editContactOrders.length >= 2 && (
-                        <button
-                          type="button"
-                          disabled={savingPayment}
-                          onClick={async () => {
-                            const total = editPayment.amount;
-                            const orders = [...editContactOrders] as (OrderOption & { debtAmount?: number })[];
-                            const byDate = (a: { createdAt?: string }, b: { createdAt?: string }) =>
-                              new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
-                            orders.sort(byDate);
-                            const totalDebt = orders.reduce(
-                              (s, o) => s + (Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0),
-                              0,
-                            );
-                            let rows: { orderId: string; orderNumber: string; amount: string }[];
-                            if (totalDebt > 0) {
-                              let remaining = total;
-                              rows = orders.map((o) => {
-                                const debt = Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0;
-                                const amount = Math.min(remaining, debt);
-                                remaining -= amount;
-                                return {
-                                  orderId: o.id,
-                                  orderNumber: o.orderNumber ?? o.id,
-                                  amount: amount.toFixed(2),
-                                };
-                              });
-                              if (remaining > 0.01 && rows.length > 0) {
-                                rows[rows.length - 1]!.amount = (
-                                  parseFloat(rows[rows.length - 1]!.amount) + remaining
-                                ).toFixed(2);
-                              }
-                            } else {
-                              const perOrder = total / orders.length;
-                              rows = orders.map((o, i) => ({
-                                orderId: o.id,
-                                orderNumber: o.orderNumber ?? o.id,
-                                amount: (i === orders.length - 1 ? total - perOrder * (orders.length - 1) : perOrder).toFixed(2),
-                              }));
-                            }
-                            const valid = rows.filter((r) => parseFloat(r.amount) > 0);
-                            if (valid.length === 0) {
-                              pushToast(t.payments.errors.noAmountsSplit, "error");
-                              return;
-                            }
-                            setSavingPayment(true);
-                            try {
-                              await apiHttp.post(`/payments/${editPayment.id}/split`, {
-                                allocations: valid.map((r) => ({ orderId: r.orderId, amount: parseFloat(r.amount) })),
-                              });
-                              setEditPayment(null);
-                              setEditContactId(null);
-                              setEditContactName("");
-                              setEditContactOrders([]);
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-zinc-800">{t.payments.editReassignSection}</p>
+                  <p className="text-xs text-zinc-500">{t.payments.editReassignHint}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-zinc-500">{t.payments.editCurrentContact}</span>
+                    <p className="mt-0.5 font-medium text-zinc-800">
+                      {editPayment.contactLabel?.trim() ? editPayment.contactLabel : t.payments.dash}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">{t.payments.editCurrentOrder}</span>
+                    <p className="mt-0.5 font-medium text-zinc-800">
+                      {editPayment.orderNumber ?? editPayment.orderId}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-zinc-600">
+                    {t.payments.contact}
+                  </label>
+                  <input
+                    type="text"
+                    value={editContactId ? editContactName : editContactSearch}
+                    onChange={(e) => {
+                      if (editContactId) {
+                        setEditContactId(null);
+                        setEditContactName("");
+                        setEditContactOrders([]);
+                        setEditContactSearch(e.target.value);
+                      } else {
+                        setEditContactSearch(e.target.value);
+                      }
+                      setEditOrderSearch("");
+                      setEditOrderCandidates([]);
+                    }}
+                    onFocus={() => {
+                      if (editContactId) {
+                        setEditContactId(null);
+                        setEditContactName("");
+                        setEditContactOrders([]);
+                        setEditContactSearch(editContactName);
+                      }
+                    }}
+                    placeholder={t.payments.contactSearchPlaceholder}
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  />
+                  {editContactSearch.trim().length >= 3 && editContactsLoading && (
+                    <p className="mt-1 text-xs text-zinc-500">{t.payments.searching}</p>
+                  )}
+                  {editContactCandidates.length > 0 && !editContactId && (
+                    <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
+                      {editContactCandidates.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditContactId(c.id);
+                              setEditContactName(
+                                [c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone,
+                              );
+                              setEditContactSearch("");
                               setEditOrderId("");
                               setEditOrderNumber("");
-                              await fetchPayments();
-                            } catch (e) {
-                              pushToast(e instanceof Error ? e.message : t.payments.distributeFailed, "error");
-                            } finally {
-                              setSavingPayment(false);
-                            }
+                              setEditOrderSearch("");
+                              setEditOrderCandidates([]);
+                              void fetchOrdersForEdit(c.id);
+                            }}
+                            className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100"
+                          >
+                            {[c.lastName, c.firstName].filter(Boolean).join(" ")}{" "}
+                            {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {editContactId && (
+                  <div className="space-y-1">
+                    {editContactOrdersLoading ? (
+                      <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-500">
+                        {t.payments.loadingOrders}
+                      </div>
+                    ) : editContactOrders.length === 0 ? (
+                      <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-500">
+                        {t.payments.noOrdersForContactEdit}
+                      </div>
+                    ) : (
+                      <>
+                        {editPayment.sourceType === "BANK" && editContactOrders.length >= 2 && (
+                          <button
+                            type="button"
+                            disabled={savingPayment}
+                            onClick={async () => {
+                              const total = editPayment.amount;
+                              const orders = [...editContactOrders] as (OrderOption & {
+                                debtAmount?: number;
+                              })[];
+                              const byDate = (
+                                a: { createdAt?: string },
+                                b: { createdAt?: string },
+                              ) =>
+                                new Date(a.createdAt ?? 0).getTime() -
+                                new Date(b.createdAt ?? 0).getTime();
+                              orders.sort(byDate);
+                              const totalDebt = orders.reduce(
+                                (s, o) =>
+                                  s + (Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0),
+                                0,
+                              );
+                              let rows: { orderId: string; orderNumber: string; amount: string }[];
+                              if (totalDebt > 0) {
+                                let remaining = total;
+                                rows = orders.map((o) => {
+                                  const debt =
+                                    Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0;
+                                  const amount = Math.min(remaining, debt);
+                                  remaining -= amount;
+                                  return {
+                                    orderId: o.id,
+                                    orderNumber: o.orderNumber ?? o.id,
+                                    amount: amount.toFixed(2),
+                                  };
+                                });
+                                if (remaining > 0.01 && rows.length > 0) {
+                                  rows[rows.length - 1]!.amount = (
+                                    parseFloat(rows[rows.length - 1]!.amount) + remaining
+                                  ).toFixed(2);
+                                }
+                              } else {
+                                const perOrder = total / orders.length;
+                                rows = orders.map((o, i) => ({
+                                  orderId: o.id,
+                                  orderNumber: o.orderNumber ?? o.id,
+                                  amount: (
+                                    i === orders.length - 1
+                                      ? total - perOrder * (orders.length - 1)
+                                      : perOrder
+                                  ).toFixed(2),
+                                }));
+                              }
+                              const valid = rows.filter((r) => parseFloat(r.amount) > 0);
+                              if (valid.length === 0) {
+                                pushToast(t.payments.errors.noAmountsSplit, "error");
+                                return;
+                              }
+                              setSavingPayment(true);
+                              try {
+                                await apiHttp.post(`/payments/${editPayment.id}/split`, {
+                                  allocations: valid.map((r) => ({
+                                    orderId: r.orderId,
+                                    amount: parseFloat(r.amount),
+                                  })),
+                                });
+                                setEditPayment(null);
+                                setEditContactId(null);
+                                setEditContactName("");
+                                setEditContactOrders([]);
+                                setEditOrderId("");
+                                setEditOrderNumber("");
+                                await fetchPayments();
+                              } catch (e) {
+                                pushToast(
+                                  e instanceof Error ? e.message : t.payments.distributeFailed,
+                                  "error",
+                                );
+                              } finally {
+                                setSavingPayment(false);
+                              }
+                            }}
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                          >
+                            {savingPayment
+                              ? t.payments.distributing
+                              : t.payments.splitAcrossOrders(editContactOrders.length)}
+                          </button>
+                        )}
+                        <input
+                          type="text"
+                          readOnly
+                          value={editOrderId ? editOrderNumber : ""}
+                          onClick={() => {
+                            setEditOrderId("");
+                            setEditOrderNumber("");
                           }}
-                          className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                          placeholder={t.payments.selectOrderBelow}
+                          className="w-full cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 read-only:bg-zinc-50"
+                        />
+                        <ul className="max-h-32 overflow-auto rounded-lg border border-zinc-200 bg-white py-0.5">
+                          {editContactOrders.map((o) => (
+                            <li key={o.id}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditOrderId(o.id);
+                                  setEditOrderNumber(o.orderNumber ?? o.id);
+                                }}
+                                className={`w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 ${
+                                  editOrderId === o.id
+                                    ? "bg-zinc-100 font-medium text-zinc-900"
+                                    : "text-zinc-700"
+                                }`}
+                              >
+                                {o.orderNumber}
+                                {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
+                                {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
+                                  ? t.payments.debtSuffix(
+                                      (o as { debtAmount?: number }).debtAmount!,
+                                    )
+                                  : ""}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditContactId(null);
+                            setEditContactName("");
+                            setEditContactOrders([]);
+                            setEditOrderId(editPayment?.orderId ?? "");
+                            setEditOrderNumber(editPayment?.orderNumber ?? editPayment?.orderId ?? "");
+                          }}
+                          className="text-xs text-zinc-500 underline hover:text-zinc-700"
                         >
-                          {savingPayment ? t.payments.distributing : t.payments.splitAcrossOrders(editContactOrders.length)}
+                          {t.payments.changeContact}
                         </button>
-                      )}
-                      <input
-                        type="text"
-                        readOnly
-                        value={editOrderId ? editOrderNumber : ""}
-                        onClick={() => {
+                      </>
+                    )}
+                  </div>
+                )}
+                {!editContactId && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-zinc-600">
+                      {t.payments.editSearchOrderByNumber}
+                    </label>
+                    <input
+                      type="text"
+                      value={editOrderSearch}
+                      onChange={(e) => {
+                        setEditOrderSearch(e.target.value);
+                        if (editOrderId && e.target.value !== editOrderNumber) {
                           setEditOrderId("");
                           setEditOrderNumber("");
-                        }}
-                        placeholder={t.payments.selectOrderBelow}
-                        className="w-full cursor-pointer rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 read-only:bg-zinc-50"
-                      />
-                      <ul className="max-h-24 overflow-auto rounded-lg border border-zinc-200 py-0.5">
-                        {editContactOrders.map((o) => (
+                        }
+                      }}
+                      placeholder={t.payments.orderNumberPlaceholder}
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                    {editOrderCandidates.length > 0 && (
+                      <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
+                        {editOrderCandidates.map((o) => (
                           <li key={o.id}>
                             <button
                               type="button"
                               onClick={() => {
                                 setEditOrderId(o.id);
                                 setEditOrderNumber(o.orderNumber ?? o.id);
+                                setEditOrderSearch(o.orderNumber ?? o.id);
+                                setEditOrderCandidates([]);
                               }}
                               className={`w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 ${
-                                editOrderId === o.id ? "bg-zinc-100 font-medium text-zinc-900" : "text-zinc-700"
+                                editOrderId === o.id
+                                  ? "bg-zinc-100 font-medium text-zinc-900"
+                                  : "text-zinc-700"
                               }`}
                             >
                               {o.orderNumber}
-                              {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
-                                : ""}
+                              {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
                             </button>
                           </li>
                         ))}
                       </ul>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditContactId(null);
-                          setEditContactName("");
-                          setEditContactOrders([]);
-                          setEditOrderId(editPayment?.orderId ?? "");
-                          setEditOrderNumber(editPayment?.orderNumber ?? editPayment?.orderId ?? "");
-                        }}
-                        className="text-xs text-zinc-500 underline hover:text-zinc-700"
-                      >
-                        {t.payments.changeContact}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-              {!editContactId && (
-                <input
-                  type="text"
-                  readOnly
-                  value={editOrderNumber || editOrderId || ""}
-                  placeholder={t.payments.orderCurrent}
-                  className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600"
-                />
-              )}
+                    )}
+                  </div>
+                )}
+              </div>
               {editPayment.sourceType === "CASH" && (
                 <>
                   <input
@@ -2203,16 +2460,20 @@ function PaymentsContent() {
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>
-            <div className="mt-5 flex justify-end gap-2">
-              {editPayment.sourceType === "BANK" && userRole === "ADMIN" && (
-                <button
-                  type="button"
-                  onClick={() => void submitUnallocate()}
-                  disabled={savingPayment}
-                  className="mr-auto rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                >
-                  {savingPayment ? t.payments.unallocating : t.payments.unallocate}
-                </button>
+            <div className="mt-5 flex flex-wrap items-end justify-end gap-2">
+              {editPayment.sourceType === "BANK" &&
+                (userRole === "ADMIN" || userRole === "LEAD" || userRole === "MANAGER") && (
+                <div className="mr-auto max-w-[14rem]">
+                  <button
+                    type="button"
+                    onClick={() => void submitUnallocate()}
+                    disabled={savingPayment}
+                    className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {savingPayment ? t.payments.unallocating : t.payments.unallocate}
+                  </button>
+                  <p className="mt-1 text-xs text-zinc-500">{t.payments.unallocateHint}</p>
+                </div>
               )}
               <button
                 type="button"

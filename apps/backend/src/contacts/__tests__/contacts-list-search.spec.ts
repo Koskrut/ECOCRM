@@ -55,7 +55,7 @@ test("contacts.list: q includes address/addressInfo/region/city in OR", async ()
   const orPart = andParts.find((p) => Array.isArray(p.OR));
   assert.ok(orPart, "AND should contain an OR block for the search");
   const keys = flattenOrFields(orPart.OR);
-  for (const expected of ["address", "addressInfo", "region", "city"]) {
+  for (const expected of ["address", "addressInfo", "region", "city", "addresses"]) {
     assert.ok(keys.includes(expected), `OR should contain ${expected}, got: ${keys.join(", ")}`);
   }
 });

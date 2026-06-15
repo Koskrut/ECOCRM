@@ -112,6 +112,12 @@ HTTP-доступ к защищённым маршрутам: глобальны
 - `packages/contracts` — `ModuleIds` и типы для API модулей (в т.ч. ответ `/system/modules`).
 - `packages/module-sdk` — `defineModule`, манифест регистрации для реестра.
 
+## План доведения архитектуры
+
+Пошаговый план (фазы, матрица маршрутов, DoD, что не менять): **[`modular-architecture-completion-plan.md`](modular-architecture-completion-plan.md)**.
+
+Кратко: целевой prod = **`crm-core-api` + sidecar**; закрыть разрыв **HTTP proxy** vs **`IntegrationPorts`** (finance, google-sheet); расширить smoke; единый runbook.
+
 ## Куда движется первая волна (без нарезки UI)
 
 Кратко, в терминах плана «Core + module images»:

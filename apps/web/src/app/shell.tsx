@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { UserMenu } from "@/components/UserMenu";
+import { NotificationBell } from "@/components/NotificationBell";
 import { ModulesProvider } from "@/lib/modules/useModules";
 import { ConfirmProvider, ToastProvider } from "@/components/feedback";
 import { KyivstarFmcShell } from "@/components/kyivstar/KyivstarIncomingCallDock";
@@ -53,9 +54,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* content area: отступ только на md+ через CSS, без зависимости от isMobile */}
           <div
             style={{ ["--sidebar-px" as string]: `${sidebarPx}px` }}
-            className="min-h-screen md:ml-[var(--sidebar-px)]"
+            className="min-h-screen max-w-full min-w-0 overflow-x-clip md:ml-[var(--sidebar-px)]"
           >
-            <header className="sticky top-0 z-20 h-14 bg-white border-b flex items-center gap-3 px-3 md:px-4">
+            <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-white px-[max(0.75rem,env(safe-area-inset-left))] pt-[env(safe-area-inset-top)] md:px-4 md:pt-0">
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
@@ -65,12 +66,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ☰
               </button>
               <div className="font-semibold text-zinc-900">CRM</div>
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-2">
+                <NotificationBell />
                 <UserMenu />
               </div>
             </header>
-            <main className="min-h-screen bg-zinc-50">
-              <div className="p-4">{children}</div>
+            <main className="min-h-screen max-w-full min-w-0 overflow-x-clip bg-zinc-50">
+              <div className="w-full max-w-full p-4">{children}</div>
             </main>
           </div>
         </ToastProvider>

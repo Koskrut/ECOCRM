@@ -4,7 +4,7 @@ import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import { buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 @Injectable()
 export class AnalyticsProductsService {
@@ -14,8 +14,9 @@ export class AnalyticsProductsService {
   ) {}
 
   async getProducts(period: ResolvedPeriod, scope: AnalyticsScope) {
-    if (scope.emptyTeam) return { products: [] };
+    if (scope.emptyTeam) return { currency: "USD", products: [] };
     const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     const items = await this.prisma.orderItem.findMany({
       where: {
         order: buildPeriodOrderWhere(period.from, period.to, scope.orderScope),
@@ -43,7 +44,7 @@ export class AnalyticsProductsService {
           ordersCount: 0,
         };
         cur.quantity += safeNum(item.qty);
-        cur.revenue += toUsd(safeNum(item.price) * safeNum(item.qty), item.order.currency, rates);
+        cur.revenue += toBaseCurrency(safeNum(item.price) * safeNum(item.qty), item.order.currency, rates);
         const pairKey = `${key}:${item.orderId}`;
         if (!seenProductOrderPairs.has(pairKey)) {
           cur.ordersCount += 1;
@@ -53,6 +54,7 @@ export class AnalyticsProductsService {
     }
 
     return {
+      currency,
       products: [...byProduct.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 50),
     };
   }

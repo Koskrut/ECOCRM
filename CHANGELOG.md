@@ -4,7 +4,43 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.80**.)_
+_(планируемые изменения после **0.2.81**.)_
+
+## [0.2.81] — 2026-06-15
+
+### Summary
+
+Патч **0.2.81**: **уведомления** (in-app bell, preferences); **адреса** contact/company (множественные, backfill, visits); **скидки** по строкам заказа; **audit** (change history, prisma extension); **analytics/payments** в базовой валюте; доработки **OrderModal**, **payments** UI.
+
+### Added
+
+- **Notifications**: `UserNotification`, preferences, `NotificationBell`, `/settings/notifications`, `/notifications`.
+- **Entity addresses**: `ContactAddress`, `CompanyAddress`, API CRUD, `EntityAddressesSection`, Bitrix address sync; visit `contactAddressId` / `companyAddressId`.
+- **Orders**: `discountPercent` на `OrderItem`, settings `/settings/order-discounts`, `order-line-total.utils`.
+- **Audit**: `AuditAccessService`, `audit-prisma.extension`, `EntityChangeHistoryPanel`.
+- **Web**: `TtnStatusBadge`, `useBaseCurrency`, analytics в base currency; payments page refactor.
+
+### Changed
+
+- **ContactModal** / **CompanyModal** — адреса, change history, упрощение layout.
+- **OrderModal** — скидки по строкам, split-by-stock, returns settlement UX.
+- **Analytics** — суммы через `getBaseCurrency` / `paymentToBase`.
+- **Integrations** — audit context на ingest/cron (Bitrix, Ringostat, Kyivstar, NP).
+- **Leads convert** — traceability tests расширены.
+- **Warehouse** — мелкие правки.
+
+### Fixed
+
+- **ContactModal** — merge conflict (`NEXT_ACTION_OPTIONS`).
+- **CompanyModal** — duplicate `Company` type.
+- **EntityAddressesSection** — null-safe geocode.
+- **Dashboard** — `currency` в empty team activity.
+- **order-discounts** settings — `subtitle` prop.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.81`**, повний манифест (8 modules).
+- **`prisma migrate deploy`**: `20260612120000_add_user_notifications`, `20260615120000_add_order_item_discount_percent`, `20260615140000_add_entity_addresses`.
 
 ## [0.2.80] — 2026-06-12
 
@@ -522,7 +558,7 @@ _(планируемые изменения после **0.2.80**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.80`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.81`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

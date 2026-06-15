@@ -10,6 +10,7 @@ import type {
   GoogleSheetConfig,
   MetaLeadAdsConfig,
   NovaPoshtaIntegrationConfig,
+  OrderLineDiscountsConfig,
   StoreConfig,
   TelegramConfig,
 } from "./settings.service";
@@ -30,6 +31,22 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setExchangeRates(@Body() body: Partial<ExchangeRates>) {
     return this.settings.setExchangeRates(body);
+  }
+
+  @Get("currency-config")
+  getCurrencyConfig() {
+    return this.settings.getCurrencyConfig();
+  }
+
+  @Get("order-discounts")
+  getOrderLineDiscounts() {
+    return this.settings.getOrderLineDiscounts();
+  }
+
+  @Patch("order-discounts")
+  @Roles(UserRole.ADMIN)
+  setOrderLineDiscounts(@Body() body: Partial<OrderLineDiscountsConfig>) {
+    return this.settings.setOrderLineDiscounts(body);
   }
 
   @Get("meta-lead-ads")

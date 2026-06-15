@@ -9,7 +9,7 @@ import {
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 export type ManagerRow = {
   id: string;
@@ -28,9 +28,10 @@ export class AnalyticsManagersService {
     private readonly settings: SettingsService,
   ) {}
 
-  async getManagers(period: ResolvedPeriod, scope: AnalyticsScope): Promise<{ managers: ManagerRow[] }> {
-    if (scope.emptyTeam) return { managers: [] };
+  async getManagers(period: ResolvedPeriod, scope: AnalyticsScope): Promise<{ currency: string; managers: ManagerRow[] }> {
+    if (scope.emptyTeam) return { currency: "USD", managers: [] };
     const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const orders = await this.prisma.order.findMany({
       where: orderWhere,
@@ -52,7 +53,7 @@ export class AnalyticsManagersService {
         count: 0,
         payments: 0,
       };
-      cur.booked += toUsd(
+      cur.booked += toBaseCurrency(
         Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
         o.currency,
         rates,
@@ -79,7 +80,7 @@ export class AnalyticsManagersService {
         byOwner.set(oid, { name: "", booked: 0, count: 0, payments: 0 });
         needNames.add(oid);
       }
-      byOwner.get(oid)!.payments += p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), p.currency, rates);
+      byOwner.get(oid)!.payments += paymentToBase(p.amountUsd, p.amount, p.currency, rates);
     }
     if (needNames.size > 0) {
       const users = await this.prisma.user.findMany({
@@ -116,7 +117,7 @@ export class AnalyticsManagersService {
         overdueTasks: overdueMap.get(id) ?? 0,
       }))
       .sort((a, b) => b.bookedRevenue - a.bookedRevenue);
-    return { managers };
+    return { currency, managers };
   }
 }
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { OrderModal } from "@/app/orders/OrderModal";
 import { ordersApi, type FulfillmentQueueOrder } from "@/lib/api/resources/orders";
 import { listWarehouses, type WarehouseItem } from "@/lib/api/resources/warehouses";
@@ -28,6 +28,15 @@ function deliveryMethodLabel(method: string | null | undefined): string {
   return method ?? "—";
 }
 
+function ttnSharedLabel(order: FulfillmentQueueOrder): string | null {
+  if (!order.ttnSharedAcrossOrders) return null;
+  const linked = order.ttnSharedWithOrders ?? [];
+  if (linked.length > 0) {
+    return `Також у ТТН: ${linked.map((o) => `№${o.orderNumber}`).join(", ")}`;
+  }
+  return "Номер ТТН привʼязаний до іншого замовлення";
+}
+
 function loadStoredWarehouseIds(): string[] | null {
   if (typeof window === "undefined") return null;
   try {
@@ -44,6 +53,12 @@ function saveStoredWarehouseIds(ids: string[]) {
   localStorage.setItem(WAREHOUSE_FILTER_STORAGE_KEY, JSON.stringify(ids));
 }
 
+function parseFoundQty(raw: string | undefined, ordered: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return ordered;
+  return Math.max(0, Math.min(ordered, Math.trunc(n)));
+}
+
 export default function WarehouseWorkPage() {
   const [items, setItems] = useState<FulfillmentQueueOrder[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
@@ -54,8 +69,8 @@ export default function WarehouseWorkPage() {
   const [pickModalOrderId, setPickModalOrderId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [splitting, setSplitting] = useState(false);
-  const [savingItemId, setSavingItemId] = useState<string | null>(null);
-  const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+  const [foundQtyDrafts, setFoundQtyDrafts] = useState<Record<string, string>>({});
+  const [missingByItemId, setMissingByItemId] = useState<Record<string, boolean>>({});
   const [userRole, setUserRole] = useState<string | null>(null);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
 
@@ -126,15 +141,33 @@ export default function WarehouseWorkPage() {
 
   useEffect(() => {
     if (!pickOrder) {
-      setQtyDrafts({});
+      setFoundQtyDrafts({});
+      setMissingByItemId({});
       return;
     }
     const drafts: Record<string, string> = {};
+    const missing: Record<string, boolean> = {};
     for (const it of pickOrder.items ?? []) {
       drafts[it.id] = String(it.qty);
+      missing[it.id] = false;
     }
-    setQtyDrafts(drafts);
+    setFoundQtyDrafts(drafts);
+    setMissingByItemId(missing);
   }, [pickOrder]);
+
+  const pickShortage = useMemo(() => {
+    if (!pickOrder?.items?.length) return { hasShortage: false, canSplit: false };
+    let hasShortage = false;
+    let totalFound = 0;
+    for (const it of pickOrder.items) {
+      const found = missingByItemId[it.id]
+        ? 0
+        : parseFoundQty(foundQtyDrafts[it.id], it.qty);
+      if (found < it.qty) hasShortage = true;
+      totalFound += found;
+    }
+    return { hasShortage, canSplit: hasShortage && totalFound > 0 };
+  }, [pickOrder, foundQtyDrafts, missingByItemId]);
 
   const toggleWarehouse = (id: string) => {
     setSelectedWarehouseIds((prev) => {
@@ -145,7 +178,7 @@ export default function WarehouseWorkPage() {
   };
 
   const closePickModal = () => {
-    if (advancing || splitting || savingItemId) return;
+    if (advancing || splitting) return;
     setPickModalOrderId(null);
     void loadQueue();
   };
@@ -166,20 +199,36 @@ export default function WarehouseWorkPage() {
     }
   };
 
-  const splitByStock = async () => {
+  const splitMissing = async () => {
     if (!pickOrder) return;
+    if (!pickShortage.canSplit) {
+      setErr(
+        pickShortage.hasShortage
+          ? "Усі позиції відсутні — зверніться до менеджера"
+          : "Немає відсутніх позицій для розділення",
+      );
+      return;
+    }
+
+    const picks = (pickOrder.items ?? []).map((it) => ({
+      itemId: it.id,
+      foundQty: missingByItemId[it.id]
+        ? 0
+        : parseFoundQty(foundQtyDrafts[it.id], it.qty),
+    }));
+
     setSplitting(true);
     setErr(null);
     setInfo(null);
     try {
-      const result = await ordersApi.splitByStock(pickOrder.id);
+      const result = await ordersApi.splitByStock(pickOrder.id, { picks });
       const childNo = result?.child?.orderNumber;
       setPickModalOrderId(null);
       await loadQueue();
       setInfo(
         childNo
-          ? `Замовлення розділено. Дочірнє: ${childNo}`
-          : "Замовлення розділено по залишках",
+          ? `Відсутнє виділено. Дочірнє №${childNo} → Очікує на склад`
+          : "Замовлення розділено",
       );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Не вдалося розділити замовлення");
@@ -188,34 +237,10 @@ export default function WarehouseWorkPage() {
     }
   };
 
-  const saveItemQty = async (itemId: string) => {
-    if (!pickOrder) return;
-    const raw = qtyDrafts[itemId];
-    const qty = Number(raw);
-    if (!Number.isFinite(qty) || qty < 1) {
-      setErr("Кількість має бути не менше 1");
-      return;
-    }
-    const existing = pickOrder.items?.find((it) => it.id === itemId);
-    if (existing && existing.qty === qty) return;
-
-    setSavingItemId(itemId);
-    setErr(null);
-    try {
-      await ordersApi.updateItem(pickOrder.id, itemId, { qty });
-      await loadQueue();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Не вдалося зберегти кількість");
-    } finally {
-      setSavingItemId(null);
-    }
-  };
-
-  const busy = advancing || splitting || savingItemId != null;
+  const busy = advancing || splitting;
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-3 sm:p-6">
-      <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-2xl">
         <div className="mb-3">
           <Link href="/orders" className="text-sm text-zinc-600 hover:text-zinc-900">
             ← {strings.nav.orders}
@@ -271,7 +296,14 @@ export default function WarehouseWorkPage() {
                     onClick={() => setPickModalOrderId(o.id)}
                     className="w-full px-4 py-3 text-left transition hover:bg-zinc-50"
                   >
-                    <div className="font-medium text-zinc-900">{o.orderNumber}</div>
+                    <div className="flex items-center gap-1.5 font-medium text-zinc-900">
+                      <span>{o.orderNumber}</span>
+                      {o.ttnSharedAcrossOrders ? (
+                        <span title={ttnSharedLabel(o) ?? undefined} className="inline-flex text-amber-600">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-zinc-600">{clientLabel(o)}</div>
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap gap-1">
@@ -281,6 +313,14 @@ export default function WarehouseWorkPage() {
                         {o.warehouse?.name ? (
                           <span className="rounded bg-sky-50 px-1.5 py-0.5 text-sky-800">
                             {o.warehouse.name}
+                          </span>
+                        ) : null}
+                        {o.ttnSharedAcrossOrders ? (
+                          <span
+                            title={ttnSharedLabel(o) ?? undefined}
+                            className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800"
+                          >
+                            Разом по ТТН
                           </span>
                         ) : null}
                       </div>
@@ -294,7 +334,6 @@ export default function WarehouseWorkPage() {
             </ul>
           )}
         </div>
-      </div>
 
       {pickOrder ? (
         <div
@@ -306,7 +345,7 @@ export default function WarehouseWorkPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="warehouse-pick-title"
-            className="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-xl"
+            className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-4 py-3">
@@ -328,6 +367,13 @@ export default function WarehouseWorkPage() {
             </div>
 
             <div className="max-h-[50vh] overflow-y-auto px-4 py-3">
+              {pickOrder.ttnSharedAcrossOrders && ttnSharedLabel(pickOrder) ? (
+                <p className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{ttnSharedLabel(pickOrder)}</span>
+                </p>
+              ) : null}
+
               {pickOrder.paymentType === "PREPAYMENT" &&
               Number(pickOrder.paidAmount ?? 0) < Number(pickOrder.totalAmount ?? 0) ? (
                 <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -371,36 +417,84 @@ export default function WarehouseWorkPage() {
               </div>
 
               <h3 className="text-sm font-semibold text-zinc-800">Товари</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Вкажіть скільки знайшли (з замовленого) або відмітьте «Немає», потім «Відділити відсутнє».
+              </p>
               <ul className="mt-2 divide-y divide-zinc-100">
                 {(pickOrder.items ?? []).map((it) => {
                   const name = it.product?.name ?? it.productNameSnapshot ?? "—";
-                  const saving = savingItemId === it.id;
+                  const isMissing = missingByItemId[it.id] === true;
+                  const foundQty = isMissing
+                    ? 0
+                    : parseFoundQty(foundQtyDrafts[it.id], it.qty);
+                  const hasLineShortage = foundQty < it.qty;
                   return (
-                    <li key={it.id} className="flex items-center gap-3 py-2.5 text-sm">
-                      <span className="min-w-0 flex-1">
+                    <li key={it.id} className="py-2.5 text-sm">
+                      <div className="min-w-0">
                         {it.product?.sku ? (
                           <span className="font-medium text-zinc-800">{it.product.sku}</span>
                         ) : null}
                         {it.product?.sku ? " · " : ""}
                         <span className="text-zinc-700">{name}</span>
-                      </span>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={qtyDrafts[it.id] ?? String(it.qty)}
-                          disabled={busy}
-                          onChange={(e) =>
-                            setQtyDrafts((prev) => ({ ...prev, [it.id]: e.target.value }))
-                          }
-                          onBlur={() => void saveItemQty(it.id)}
-                          className="w-16 rounded border border-zinc-200 px-2 py-1 text-right tabular-nums"
-                        />
-                        {saving ? (
-                          <span className="text-xs text-zinc-400">…</span>
-                        ) : null}
                       </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <div
+                          className={[
+                            "inline-flex items-center rounded border text-sm tabular-nums",
+                            isMissing
+                              ? "border-zinc-200 bg-zinc-50 text-zinc-400"
+                              : hasLineShortage
+                                ? "border-red-200 bg-red-50"
+                                : "border-zinc-200 bg-white",
+                          ].join(" ")}
+                        >
+                          <input
+                            type="number"
+                            min={0}
+                            max={it.qty}
+                            step={1}
+                            aria-label={`Знайдено з ${it.qty}`}
+                            value={isMissing ? "0" : (foundQtyDrafts[it.id] ?? String(it.qty))}
+                            disabled={busy || isMissing}
+                            onChange={(e) => {
+                              const next = e.target.value;
+                              setFoundQtyDrafts((prev) => ({ ...prev, [it.id]: next }));
+                              if (Number(next) > 0) {
+                                setMissingByItemId((prev) => ({ ...prev, [it.id]: false }));
+                              }
+                            }}
+                            className="w-12 border-0 bg-transparent px-2 py-1 text-right focus:outline-none disabled:cursor-not-allowed"
+                          />
+                          <span className="border-l border-zinc-200 px-2 py-1 text-xs text-zinc-500">
+                            / {it.qty}
+                          </span>
+                        </div>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={isMissing}
+                            disabled={busy}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setMissingByItemId((prev) => ({ ...prev, [it.id]: checked }));
+                              if (checked) {
+                                setFoundQtyDrafts((prev) => ({ ...prev, [it.id]: "0" }));
+                              } else {
+                                setFoundQtyDrafts((prev) => ({ ...prev, [it.id]: String(it.qty) }));
+                              }
+                            }}
+                            className="rounded border-zinc-300"
+                          />
+                          Немає
+                        </label>
+                      </div>
+                      {hasLineShortage ? (
+                        <p className="mt-1 text-xs text-red-600">
+                          {foundQty === 0
+                            ? "Не знайдено на складі"
+                            : `Не вистачає ${it.qty - foundQty}`}
+                        </p>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -422,11 +516,18 @@ export default function WarehouseWorkPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => void splitByStock()}
-                  disabled={busy}
+                  onClick={() => void splitMissing()}
+                  disabled={busy || !pickShortage.canSplit}
+                  title={
+                    !pickShortage.hasShortage
+                      ? "Усі позиції знайдені повністю"
+                      : !pickShortage.canSplit
+                        ? "Усі позиції відсутні"
+                        : undefined
+                  }
                   className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
                 >
-                  {splitting ? "Розділення…" : "Розділити по залишках"}
+                  {splitting ? "Розділення…" : "Відділити відсутнє"}
                 </button>
                 <button
                   type="button"

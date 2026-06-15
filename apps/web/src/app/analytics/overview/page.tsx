@@ -8,8 +8,8 @@ import {
   AnalyticsFiltersBar,
   AnalyticsOverviewSkeleton,
   KpiDeltaCard,
-  formatMoneyUsd,
-  formatMoneyUsdFine,
+  formatMoneyBase,
+  formatMoneyBaseFine,
   formatNumber,
   formatPercent,
   useAnalyticsFetch,
@@ -40,8 +40,8 @@ type OverviewPayload = {
     leadsCreatedCount: number;
   };
   charts: {
-    bookedRevenueByDay: { date: string; usd: number; ordersCount: number }[];
-    collectedPaymentsByDay: { date: string; usd: number; paymentCount: number }[];
+    bookedRevenueByDay: { date: string; amount: number; ordersCount: number }[];
+    collectedPaymentsByDay: { date: string; amount: number; paymentCount: number }[];
     ordersByStage: { stage: string; count: number }[];
   };
   attention: {
@@ -55,6 +55,7 @@ type OverviewPayload = {
 };
 
 type OverviewResponse = {
+  currency?: string;
   data: OverviewPayload;
   /** KPI-only prior period; charts and attention are not returned here. */
   compare?: { kpi: OverviewPayload["kpi"] };
@@ -73,6 +74,7 @@ export default function AnalyticsOverviewPage() {
   );
 
   const kpi = data?.data.kpi;
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
   const charts = data?.data.charts;
   const attention = data?.data.attention;
   const cmp = data?.compare?.kpi;
@@ -132,7 +134,7 @@ export default function AnalyticsOverviewPage() {
             title="Booked revenue"
             subtitle="max(0, total − returns) → USD за період (createdAt)"
             tooltip="Не змішувати з collected payments."
-            value={formatMoneyUsd(kpi?.bookedRevenue)}
+            value={formatMoneyBase(kpi?.bookedRevenue, currency)}
             deltaLabel={
               filters.comparePrev
                 ? deltaMoneyLine(kpi?.bookedRevenue ?? 0, cmp?.bookedRevenue)
@@ -144,7 +146,7 @@ export default function AnalyticsOverviewPage() {
             title="Collected payments"
             subtitle="COMPLETED, дата paidAt → USD"
             tooltip="Окремо від booked revenue."
-            value={formatMoneyUsd(kpi?.collectedPayments)}
+            value={formatMoneyBase(kpi?.collectedPayments, currency)}
             deltaLabel={
               filters.comparePrev
                 ? deltaMoneyLine(kpi?.collectedPayments ?? 0, cmp?.collectedPayments)
@@ -166,7 +168,7 @@ export default function AnalyticsOverviewPage() {
             title="Avg check"
             subtitle="Booked / orders (USD)"
             tooltip="Те саме, що bookedRevenue / ordersCount для обраного періоду; порівняння — попередній період тієї ж довжини."
-            value={formatMoneyUsdFine(kpi?.avgCheck)}
+            value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
             deltaLabel={
               filters.comparePrev ? deltaMoneyLineFine(kpi?.avgCheck ?? 0, cmp?.avgCheck) : null
             }
@@ -176,7 +178,7 @@ export default function AnalyticsOverviewPage() {
             title="Debt total"
             subtitle="Сума debtAmount у замовленнях за вибраний період"
             tooltip="Розрахунок у межах обраного діапазону дат overview."
-            value={formatMoneyUsd(kpi?.debtTotal)}
+            value={formatMoneyBase(kpi?.debtTotal, currency)}
             deltaLabel={null}
           />
           <KpiDeltaCard
@@ -184,7 +186,7 @@ export default function AnalyticsOverviewPage() {
             title="Overdue debt"
             subtitle="OVERDUE + debtAmount за вибраний період"
             tooltip="Розрахунок у межах обраного діапазону дат overview."
-            value={formatMoneyUsd(kpi?.overdueDebt)}
+            value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}
             drillLabel="До списку замовлень →"
@@ -221,8 +223,8 @@ export default function AnalyticsOverviewPage() {
           Тренди — лише для обраного періоду на overview. Порівняння періодів дивіться у KPI вище.
         </p>
         <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
-          <BookedRevenueTrendChart rows={charts?.bookedRevenueByDay ?? []} />
-          <CollectedPaymentsTrendChart rows={charts?.collectedPaymentsByDay ?? []} />
+          <BookedRevenueTrendChart rows={charts?.bookedRevenueByDay ?? []} currency={currency} />
+          <CollectedPaymentsTrendChart rows={charts?.collectedPaymentsByDay ?? []} currency={currency} />
         </div>
         <div className="mt-4">
           <OrdersByStageBarChart rows={charts?.ordersByStage ?? []} />
@@ -278,7 +280,7 @@ export default function AnalyticsOverviewPage() {
           </Link>
           <span className="self-center text-xs text-zinc-500">
             Сума простроченого боргу (attention):{" "}
-            {formatMoneyUsd(attention?.finance.overdueDebtAmount)}
+            {formatMoneyBase(attention?.finance.overdueDebtAmount, currency)}
           </span>
         </div>
       </section>
@@ -287,7 +289,8 @@ export default function AnalyticsOverviewPage() {
         open={paymentsDrillOpen}
         onClose={() => setPaymentsDrillOpen(false)}
         querySuffix={filters.querySuffix}
-        kpiCollectedUsd={kpi?.collectedPayments}
+        kpiCollectedAmount={kpi?.collectedPayments}
+        currency={currency}
       />
     </div>
   );

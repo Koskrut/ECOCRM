@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { ErrorPanel } from "@/components/feedback";
+import {
+  SearchableSelectLite,
+  type Option,
+} from "@/components/inputs/SearchableSelectLite";
+
+type UserRow = { id: string; fullName: string; email: string };
 
 function initialBackfillDates(): { from: string; to: string } {
   const now = new Date();
@@ -39,6 +45,8 @@ export default function KyivstarFmcSettingsPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   const [phones, setPhones] = useState<Array<{ phone: string; userId: string }>>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [apiTokenValue, setApiTokenValue] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
@@ -50,22 +58,45 @@ export default function KyivstarFmcSettingsPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setLoadingUsers(true);
       setError(null);
       try {
-        const res = await apiHttp.get<KyivstarFmcConfig>("/settings/kyivstar-fmc");
-        const data = res.data ?? {};
+        const [configRes, usersRes] = await Promise.all([
+          apiHttp.get<KyivstarFmcConfig>("/settings/kyivstar-fmc"),
+          apiHttp.get<{ items: UserRow[] }>("/users"),
+        ]);
+        const data = configRes.data ?? {};
         setConfig(data);
         setPublicBaseUrl(data.publicBaseUrl ?? "");
         const p = data.phonesToUserId ?? {};
         setPhones(Object.entries(p).map(([phone, userId]) => ({ phone, userId })));
+        setUsers(Array.isArray(usersRes.data?.items) ? usersRes.data.items : []);
       } catch (e) {
         setError(getUserFriendlyApiError(e, "Не вдалося завантажити налаштування Kyivstar FMC."));
       } finally {
         setLoading(false);
+        setLoadingUsers(false);
       }
     };
     void load();
   }, []);
+
+  const userSelectOptions = useMemo<Option[]>(() => {
+    const base = users.map((u) => ({
+      id: u.id,
+      label: u.fullName?.trim() || u.email || u.id,
+    }));
+    const knownIds = new Set(base.map((o) => o.id));
+    const extras: Option[] = [];
+    const addExtra = (id: string | undefined) => {
+      if (!id || knownIds.has(id)) return;
+      extras.push({ id, label: id });
+      knownIds.add(id);
+    };
+    addExtra(config?.defaultManagerId);
+    for (const row of phones) addExtra(row.userId);
+    return [...extras, ...base];
+  }, [users, config?.defaultManagerId, phones]);
 
   const handleToggle = (key: "isEnabled" | "useWebhook" | "usePolling") => {
     setConfig((prev) => ({ ...(prev ?? {}), [key]: !prev?.[key] }));
@@ -146,8 +177,7 @@ export default function KyivstarFmcSettingsPage() {
     "/integrations/kyivstar-fmc";
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Інтеграція Kyivstar FMC</h1>
           <p className="text-sm text-zinc-500">
@@ -354,16 +384,18 @@ export default function KyivstarFmcSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-zinc-700">
-                    Default manager (user id)
+                    Менеджер за замовчуванням
                   </label>
-                  <input
-                    type="text"
-                    className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                  <SearchableSelectLite
                     value={config?.defaultManagerId ?? ""}
-                    onChange={(e) =>
+                    options={userSelectOptions}
+                    placeholder="Оберіть співробітника…"
+                    disabled={loadingUsers}
+                    isLoading={loadingUsers}
+                    onChange={(id) =>
                       setConfig((prev) => ({
                         ...(prev ?? {}),
-                        defaultManagerId: e.target.value || undefined,
+                        defaultManagerId: id || undefined,
                       }))
                     }
                   />
@@ -372,7 +404,7 @@ export default function KyivstarFmcSettingsPage() {
 
               <div className="space-y-2">
                 <div className="text-sm font-medium text-zinc-900">
-                  Маппінг номерів менеджерів → userId
+                  Маппінг номерів менеджерів → співробітник
                 </div>
                 {phones.map((row, index) => (
                   <div key={index} className="flex gap-2">
@@ -383,13 +415,16 @@ export default function KyivstarFmcSettingsPage() {
                       value={row.phone}
                       onChange={(e) => updatePhone(index, "phone", e.target.value)}
                     />
-                    <input
-                      type="text"
-                      className="flex-1 rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
-                      placeholder="userId"
-                      value={row.userId}
-                      onChange={(e) => updatePhone(index, "userId", e.target.value)}
-                    />
+                    <div className="flex-1">
+                      <SearchableSelectLite
+                        value={row.userId}
+                        options={userSelectOptions}
+                        placeholder="Оберіть співробітника…"
+                        disabled={loadingUsers}
+                        isLoading={loadingUsers}
+                        onChange={(id) => updatePhone(index, "userId", id ?? "")}
+                      />
+                    </div>
                   </div>
                 ))}
                 <button
@@ -439,6 +474,5 @@ export default function KyivstarFmcSettingsPage() {
           </>
         )}
       </div>
-    </div>
   );
 }

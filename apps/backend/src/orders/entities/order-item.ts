@@ -10,6 +10,7 @@ export type OrderItem = {
   };
   qty: number;
   price: number;
+  discountPercent: number;
   lineTotal: number;
   createdAt: string;
   updatedAt: string;

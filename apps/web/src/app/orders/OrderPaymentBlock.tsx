@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React, { useCallback, useEffect, useState } from "react";
+import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
 
@@ -395,7 +396,7 @@ function CreatePaymentLinkModal({
 }: CreatePaymentLinkModalProps) {
   const [amount, setAmount] = useState(() => {
     if (debtAmount <= 0) return "";
-    if (currency === "USD" && exchangeRate != null && exchangeRate > 0) {
+    if (isForeignOrderCurrency(currency) && exchangeRate != null && exchangeRate > 0) {
       return String((Math.round(debtAmount * exchangeRate * 100) / 100).toFixed(2));
     }
     return String(debtAmount.toFixed(2));
@@ -407,8 +408,8 @@ function CreatePaymentLinkModal({
   const [error, setError] = useState<string | null>(null);
 
   const parsedAmountForPreview = parseFloat(amount.replace(/,/g, "."));
-  const usdEquivalent =
-    currency === "USD" &&
+  const orderEquivalent =
+    isForeignOrderCurrency(currency) &&
     exchangeRate != null &&
     exchangeRate > 0 &&
     Number.isFinite(parsedAmountForPreview)
@@ -490,7 +491,7 @@ function CreatePaymentLinkModal({
           </div>
           <div>
             <label className="block text-xs font-medium text-zinc-600">
-              {currency === "USD" || currency === "UAH" ? "Сума платежу (грн)" : `Сума (${currency})`}
+              {isForeignOrderCurrency(currency) || currency === "UAH" ? "Сума платежу (грн)" : `Сума (${currency})`}
             </label>
             <input
               type="text"
@@ -499,20 +500,22 @@ function CreatePaymentLinkModal({
               onChange={(e) => setAmount(e.target.value)}
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
             />
-            {currency === "USD" ? (
+            {isForeignOrderCurrency(currency) ? (
               <p className="mt-1 text-[11px] text-zinc-500">
                 Сума в посиланні та QR НБУ — у гривнях (те саме, що ви вводите).
                 {exchangeRate != null && exchangeRate > 0 ? (
                   <span className="block">
-                    Курс замовлення для довідки: {exchangeRate} ₴ за 1&nbsp;$
-                    {usdEquivalent != null ? (
+                    Курс замовлення для довідки: {exchangeRate} ₴ за 1&nbsp;{orderCurrencySymbol(currency)}
+                    {orderEquivalent != null ? (
                       <span className="mt-0.5 block font-medium text-zinc-700">
-                        ≈ {usdEquivalent.toFixed(2)} $
+                        ≈ {orderEquivalent.toFixed(2)} {orderCurrencySymbol(currency)}
                       </span>
                     ) : null}
                   </span>
                 ) : (
-                  <span className="block">Додайте курс у замовленні — покажемо еквівалент у $.</span>
+                  <span className="block">
+                    Додайте курс у замовленні — покажемо еквівалент у {orderCurrencySymbol(currency)}.
+                  </span>
                 )}
               </p>
             ) : currency === "UAH" ? (

@@ -56,6 +56,8 @@ export class VisitsController {
       {
         contactId: (body.contactId as string) ?? null,
         companyId: (body.companyId as string) ?? null,
+        contactAddressId: (body.contactAddressId as string) ?? null,
+        companyAddressId: (body.companyAddressId as string) ?? null,
         title: (body.title as string) ?? null,
         phone: (body.phone as string) ?? null,
         addressText: body.addressText != null ? String(body.addressText) : null,
@@ -175,6 +177,8 @@ export class VisitsController {
     return this.visits.update(
       id,
       {
+        contactAddressId: body.contactAddressId !== undefined ? (body.contactAddressId as string | null) : undefined,
+        companyAddressId: body.companyAddressId !== undefined ? (body.companyAddressId as string | null) : undefined,
         title: (body.title as string) ?? undefined,
         phone: (body.phone as string) ?? undefined,
         addressText: body.addressText !== undefined ? (body.addressText as string | null) : undefined,

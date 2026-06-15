@@ -22,10 +22,13 @@ import { PrismaService } from "../prisma/prisma.service";
 import { VISIT_COMPLETED_EVENT } from "../field/field.events";
 import type { VisitGpsPayloadInput } from "./visit-gps.verification";
 import { verifyVisitAgainstPlannedLocation } from "./visit-gps.verification";
+import { formatEntityAddressLine } from "../common/entity-address.util";
 
 type CreateVisitInput = {
   contactId?: string | null;
   companyId?: string | null;
+  contactAddressId?: string | null;
+  companyAddressId?: string | null;
   title?: string | null;
   phone?: string | null;
   addressText?: string | null;
@@ -40,6 +43,8 @@ type UpdateVisitInput = {
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;
+  contactAddressId?: string | null;
+  companyAddressId?: string | null;
   locationSource?: LocationSource | null;
   status?: VisitStatus | null;
   startsAt?: Date | null;
@@ -215,19 +220,71 @@ export class VisitsService {
       }
     }
 
-    let company: { id: string; lat: number | null; lng: number | null } | null = null;
+    let company: { id: string; lat: number | null; lng: number | null; address: string | null } | null = null;
     if (companyId) {
       company = await this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, lat: true, lng: true },
+        select: { id: true, lat: true, lng: true, address: true },
       });
       if (!company) {
         throw new NotFoundException("Company not found");
       }
     }
 
-    const effectiveLat = body.lat ?? contact?.lat ?? company?.lat ?? null;
-    const effectiveLng = body.lng ?? contact?.lng ?? company?.lng ?? null;
+    let contactAddress: {
+      id: string;
+      contactId: string;
+      city: string | null;
+      addressText: string;
+      lat: number | null;
+      lng: number | null;
+    } | null = null;
+    if (body.contactAddressId) {
+      if (!contactId) {
+        throw new BadRequestException("contactAddressId requires contactId");
+      }
+      contactAddress = await this.prisma.contactAddress.findFirst({
+        where: { id: body.contactAddressId, contactId },
+      });
+      if (!contactAddress) {
+        throw new NotFoundException("Contact address not found");
+      }
+    }
+
+    let companyAddress: {
+      id: string;
+      companyId: string;
+      city: string | null;
+      addressText: string;
+      lat: number | null;
+      lng: number | null;
+    } | null = null;
+    if (body.companyAddressId) {
+      if (!companyId) {
+        throw new BadRequestException("companyAddressId requires companyId");
+      }
+      companyAddress = await this.prisma.companyAddress.findFirst({
+        where: { id: body.companyAddressId, companyId },
+      });
+      if (!companyAddress) {
+        throw new NotFoundException("Company address not found");
+      }
+    }
+
+    const effectiveLat =
+      body.lat ??
+      contactAddress?.lat ??
+      companyAddress?.lat ??
+      contact?.lat ??
+      company?.lat ??
+      null;
+    const effectiveLng =
+      body.lng ??
+      contactAddress?.lng ??
+      companyAddress?.lng ??
+      contact?.lng ??
+      company?.lng ??
+      null;
     if ((contactId ?? companyId) && (effectiveLat == null || effectiveLng == null)) {
       throw new BadRequestException(
         "Нельзя запланировать встречу: в карточке не заданы координаты (адрес/карта).",
@@ -254,8 +311,17 @@ export class VisitsService {
     let phone = body.phone ?? undefined;
     let locationSource: LocationSource | undefined;
 
-    if (!addressText && contact?.address) {
+    if (!addressText && contactAddress) {
+      addressText = formatEntityAddressLine(contactAddress.city, contactAddress.addressText);
+      locationSource = LocationSourceEnum.FROM_CONTACT;
+    } else if (!addressText && companyAddress) {
+      addressText = formatEntityAddressLine(companyAddress.city, companyAddress.addressText);
+      locationSource = LocationSourceEnum.FROM_CONTACT;
+    } else if (!addressText && contact?.address) {
       addressText = contact.address;
+      locationSource = LocationSourceEnum.FROM_CONTACT;
+    } else if (!addressText && company?.address) {
+      addressText = company.address;
       locationSource = LocationSourceEnum.FROM_CONTACT;
     }
 
@@ -280,6 +346,8 @@ export class VisitsService {
       owner: { connect: { id: ownerId } },
       contact: contactId ? { connect: { id: contactId } } : undefined,
       company: companyId ? { connect: { id: companyId } } : undefined,
+      contactAddress: contactAddress ? { connect: { id: contactAddress.id } } : undefined,
+      companyAddress: companyAddress ? { connect: { id: companyAddress.id } } : undefined,
       title: body.title ?? undefined,
       phone: phone ?? undefined,
       addressText: addressText ?? undefined,

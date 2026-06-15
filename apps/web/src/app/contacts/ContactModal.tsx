@@ -5,7 +5,6 @@ import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { InlineEditableField } from "@/components/fields/InlineEditableField";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
-import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
 import { ContactTimeline } from "./ContactTimeline";
@@ -32,32 +31,24 @@ import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
 import { formatContactClientStage } from "./contact-formatters";
-import { resolveCityFromGoogleAddress } from "@/lib/contact-address.util";
+import {
+  EntityAddressesSection,
+  formatAddressOptionLabel,
+  pickVisitReadyAddresses,
+} from "@/components/EntityAddressesSection";
+import type { EntityAddress } from "@/lib/api/resources/entity-addresses";
 import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
 import { ContactCrmHint } from "./card/ContactCrmHint";
 import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
 import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
 import { ContactCardLayoutPanel } from "@/components/metadata/ContactCardLayoutPanel";
-import { ContactCardAuditPanel } from "@/components/metadata/ContactCardAuditPanel";
+import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import {
   useContactCardAnalytics,
   type ContactCardAnalyticsRange,
   type ContactCardAnalyticsScope,
 } from "./card/useContactCardAnalytics";
-import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
-import {
-  addressHasHouseNumber,
-  autocompleteAddress,
-  geocodePlace,
-  geocodeText,
-  mergeFormattedAddressWithUserDetail,
-  type PlaceSuggestion,
-} from "@/lib/googlePlacesNew";
-
-type GoogleMapsPublicConfig = {
-  mapsApiKey: string | null;
-};
 
 function buildStoreThankYouSetPasswordUrl(publicStoreBase: string, setPasswordToken: string): string {
   const base = publicStoreBase.trim().replace(/\/+$/, "");
@@ -65,26 +56,6 @@ function buildStoreThankYouSetPasswordUrl(publicStoreBase: string, setPasswordTo
   const u = new URL("/thank-you", withScheme);
   u.searchParams.set("setPasswordToken", setPasswordToken);
   return u.href;
-}
-
-/** Loads Google Maps JS only for map + marker (no legacy Places). */
-function ContactGoogleScriptLoader({
-  mapsApiKey,
-  onState,
-}: {
-  mapsApiKey: string;
-  onState: (state: { isLoaded: boolean; loadError: Error | undefined }) => void;
-}) {
-  const { isLoaded, loadError } = useLoadScript({
-    id: "google-map-script",
-    googleMapsApiKey: mapsApiKey,
-  });
-
-  useEffect(() => {
-    onState({ isLoaded, loadError: loadError ?? undefined });
-  }, [isLoaded, loadError, onState]);
-
-  return null;
 }
 
 const NEXT_ACTION_OPTIONS = [
@@ -689,6 +660,7 @@ type Contact = {
   telegramLastMessageAt?: string | null;
   telegramConversationId?: string | null;
   phones?: ContactPhone[];
+  addresses?: EntityAddress[];
 };
 
 export type ContactCreateInitial = {
@@ -738,27 +710,8 @@ export function ContactModal({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [position, setPosition] = useState("");
-  const [address, setAddress] = useState("");
-  const [lat, setLat] = useState<number | null>(null);
-  const [lng, setLng] = useState<number | null>(null);
-  const [googlePlaceId, setGooglePlaceId] = useState<string | null>(null);
-  const [addressStatus, setAddressStatus] = useState<"google" | "geocoded" | "manual" | null>(null);
-  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
-  const [mapsConfigError, setMapsConfigError] = useState<string | null>(null);
-  const [isMapEnabled, setIsMapEnabled] = useState(false);
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false);
-  const [addressSuggestions, setAddressSuggestions] = useState<PlaceSuggestion[]>([]);
-  const [isAddressLookupLoading, setIsAddressLookupLoading] = useState(false);
-  const [isGeocodeLoading, setIsGeocodeLoading] = useState(false);
-  const [addressError, setAddressError] = useState<string | null>(null);
-  const [addressHint, setAddressHint] = useState<string | null>(null);
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
-
-  const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const addressInputRef = useRef<HTMLInputElement>(null);
-  const addressAnchorRef = useRef<HTMLDivElement>(null);
-  const lastGeocodedAddressRef = useRef<string>("");
-  const autocompleteAbortRef = useRef<AbortController | null>(null);
+  const [selectedVisitAddressId, setSelectedVisitAddressId] = useState<string>("");
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [externalCode, setExternalCode] = useState("");
@@ -847,17 +800,22 @@ export function ContactModal({
     return `${a} ${b}`.trim() || "Contact";
   }, [isCreate, firstName, lastName, contact?.firstName, contact?.lastName]);
 
-  const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
-  const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
-
-  const toggleMap = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-      setIsMapEnabled(!isMapEnabled);
-    },
-    [isMapEnabled],
+  const visitReadyAddresses = useMemo(
+    () => pickVisitReadyAddresses(contact?.addresses ?? []),
+    [contact?.addresses],
   );
+
+  useEffect(() => {
+    if (visitReadyAddresses.length === 0) {
+      setSelectedVisitAddressId("");
+      return;
+    }
+    setSelectedVisitAddressId((prev) => {
+      if (prev && visitReadyAddresses.some((a) => a.id === prev)) return prev;
+      const def = visitReadyAddresses.find((a) => a.isDefault) ?? visitReadyAddresses[0];
+      return def?.id ?? "";
+    });
+  }, [visitReadyAddresses]);
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -883,24 +841,6 @@ export function ContactModal({
     }
   }, []);
 
-  const loadMapsConfig = useCallback(async () => {
-    try {
-      const res = await apiHttp.get<GoogleMapsPublicConfig>("/settings/google-maps/public");
-      const key = res.data?.mapsApiKey ?? null;
-      setMapsApiKey(key);
-      if (!key) {
-        setMapsConfigError(
-          "Ключ Google Maps API не налаштовано. Автодоповнення адреси працює лише як простий текст.",
-        );
-      } else {
-        setMapsConfigError(null);
-      }
-    } catch {
-      setMapsApiKey(null);
-      setMapsConfigError("Не вдалося завантажити конфігурацію Google Maps.");
-    }
-  }, []);
-
   useEffect(() => {
     setSavedContactId(null);
     setJustSavedBanner(false);
@@ -920,11 +860,6 @@ export function ContactModal({
       setPhone(data.phone ?? "");
       setEmail((data.email ?? "") as string);
       setPosition((data.position ?? "") as string);
-      setAddress((data.address ?? "") as string);
-      setLat(data.lat ?? null);
-      setLng(data.lng ?? null);
-      setGooglePlaceId(data.googlePlaceId ?? null);
-      setAddressStatus(null);
       setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
       setCompanyId(data.companyId != null ? String(data.companyId) : null);
       setExternalCode((data.externalCode ?? "") as string);
@@ -953,22 +888,10 @@ export function ContactModal({
   }, [effectiveContactId, fetchCompanies, fetchUsers]);
 
   useEffect(() => {
-    void loadMapsConfig();
-  }, [loadMapsConfig]);
-
-  useEffect(() => {
-    if (!mapsApiKey) {
-      setIsGoogleLoaded(false);
-      setGoogleLoadError(undefined);
-    }
-  }, [mapsApiKey]);
-
-  useEffect(() => {
     setErr(null);
     setContact(null);
     setOrderId(null);
     setLeftTab("overview");
-    setIsMapEnabled(false);
     if (isCreate) {
       setLoading(false);
       setFirstName(initialCreate?.firstName ?? "");
@@ -978,11 +901,6 @@ export function ContactModal({
       );
       setEmail("");
       setPosition("");
-      setAddress("");
-      setLat(null);
-      setLng(null);
-      setGooglePlaceId(null);
-      setAddressStatus(null);
       setOwnerId(null);
       void apiHttp
         .get<MeResponse>("/auth/me")
@@ -1032,19 +950,23 @@ export function ContactModal({
     }>) => {
       const res = await apiHttp.patch<Contact>(`/contacts/${effectiveContactId}`, payload);
       const data = res.data as Contact;
-      setContact((prev) => (prev ? { ...data, phones: (data as Contact).phones ?? prev.phones ?? [] } : data));
+      setContact((prev) =>
+        prev
+          ? {
+              ...data,
+              phones: (data as Contact).phones ?? prev.phones ?? [],
+              addresses: (data as Contact).addresses ?? prev.addresses ?? [],
+            }
+          : data,
+      );
       if (payload.firstName !== undefined) setFirstName(payload.firstName);
       if (payload.lastName !== undefined) setLastName(payload.lastName);
       if (payload.phone !== undefined) setPhone(payload.phone);
       if (payload.email !== undefined) setEmail(payload.email ?? "");
       if (payload.position !== undefined) setPosition(payload.position ?? "");
-      if (payload.address !== undefined) setAddress(payload.address ?? "");
       if (payload.region !== undefined) setRegion(payload.region ?? "");
       if (payload.clientType !== undefined) setClientType(payload.clientType ?? "");
       if (payload.status !== undefined) setStatus(payload.status ?? "");
-      if (payload.lat !== undefined) setLat(payload.lat ?? null);
-      if (payload.lng !== undefined) setLng(payload.lng ?? null);
-      if (payload.googlePlaceId !== undefined) setGooglePlaceId(payload.googlePlaceId ?? null);
       if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
       if (payload.companyId !== undefined) setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
       if (payload.externalCode !== undefined) setExternalCode(payload.externalCode ?? "");
@@ -1053,249 +975,6 @@ export function ContactModal({
       void cardSummary.refetch();
     },
     [cardSummary, effectiveContactId, onUpdate],
-  );
-
-  useEffect(
-    () => () => {
-      if (addressBlurTimeoutRef.current) {
-        clearTimeout(addressBlurTimeoutRef.current);
-      }
-    },
-    [],
-  );
-
-  const persistAddressIfChanged = useCallback(async () => {
-    if (isCreate || !contact) return;
-    const nextAddress = address.trim() || null;
-    const coordsAllowed = !nextAddress || addressHasHouseNumber(nextAddress);
-    const nextLat = coordsAllowed ? (lat ?? null) : null;
-    const nextLng = coordsAllowed ? (lng ?? null) : null;
-    const nextPlaceId = coordsAllowed ? (googlePlaceId ?? null) : null;
-    if (!coordsAllowed && nextAddress) {
-      setAddressHint(strings.common.houseNumberHint);
-      setAddressError(null);
-    } else if (coordsAllowed) {
-      setAddressHint(null);
-    }
-    const sameAddress = (contact.address ?? null) === nextAddress;
-    const sameLat = (contact.lat ?? null) === nextLat;
-    const sameLng = (contact.lng ?? null) === nextLng;
-    const samePlaceId = (contact.googlePlaceId ?? null) === nextPlaceId;
-    if (sameAddress && sameLat && sameLng && samePlaceId) return;
-    if (!coordsAllowed) {
-      setLat(null);
-      setLng(null);
-      setGooglePlaceId(null);
-    }
-    await patchContact({
-      address: nextAddress,
-      city: nextAddress ? resolveCityFromGoogleAddress(nextAddress) : null,
-      lat: nextLat,
-      lng: nextLng,
-      googlePlaceId: nextPlaceId,
-    });
-  }, [address, contact, googlePlaceId, isCreate, lat, lng, patchContact]);
-
-  useEffect(() => {
-    if (lat != null && lng != null) setAddressRequiredForVisit(false);
-  }, [lat, lng]);
-
-  const handleSelectAddressSuggestion = useCallback(
-    async (suggestion: PlaceSuggestion) => {
-      if (!mapsApiKey) return;
-      const userTypedBeforeSelect = address.trim();
-      setAddress(suggestion.description);
-      setAddressSuggestions([]);
-      setShowAddressSuggestions(false);
-      setAddressError(null);
-      setAddressHint(null);
-      setIsGeocodeLoading(true);
-      try {
-        const result = await geocodePlace(mapsApiKey, suggestion.placeId);
-        if (!result) {
-          setAddressError("Сервіс адрес тимчасово недоступний.");
-          return;
-        }
-        const merged = mergeFormattedAddressWithUserDetail(
-          userTypedBeforeSelect,
-          result.formattedAddress || suggestion.description,
-        );
-        setAddress(merged);
-        if (!addressHasHouseNumber(merged)) {
-          setLat(null);
-          setLng(null);
-          setGooglePlaceId(null);
-          setAddressStatus(null);
-          setAddressHint(strings.common.houseNumberHint);
-          setAddressError(null);
-          if (!isCreate) {
-            try {
-              await patchContact({
-                address: merged,
-                city: result.city ?? resolveCityFromGoogleAddress(merged),
-                lat: null,
-                lng: null,
-                googlePlaceId: null,
-              });
-            } catch {
-              // keep local values
-            }
-          }
-          return;
-        }
-        setAddressHint(null);
-        setLat(result.lat);
-        setLng(result.lng);
-        setGooglePlaceId(result.placeId);
-        setAddress(merged);
-        setAddressStatus("google");
-        if (!isCreate) {
-          try {
-            await patchContact({
-              address: merged,
-              city: result.city ?? resolveCityFromGoogleAddress(merged),
-              lat: result.lat,
-              lng: result.lng,
-              googlePlaceId: result.placeId,
-            });
-          } catch {
-            // keep local values
-          }
-        }
-      } catch {
-        setAddressError("Сервіс адрес тимчасово недоступний.");
-        console.warn("Places API (New): geocode place failed for", suggestion.placeId);
-      } finally {
-        setIsGeocodeLoading(false);
-      }
-    },
-    [address, isCreate, mapsApiKey, patchContact],
-  );
-
-  const geocodeFromAddressText = useCallback(
-    async (rawAddress: string) => {
-      const query = rawAddress.trim();
-      if (!mapsApiKey || query.length < 3) return;
-      if (lastGeocodedAddressRef.current === query) return;
-      if (!addressHasHouseNumber(query)) {
-        lastGeocodedAddressRef.current = "";
-        setLat(null);
-        setLng(null);
-        setGooglePlaceId(null);
-        setAddressStatus(null);
-        setAddressHint(strings.common.houseNumberHint);
-        setAddressError(null);
-        return;
-      }
-      lastGeocodedAddressRef.current = query;
-      setAddressError(null);
-      setAddressHint(null);
-      setIsGeocodeLoading(true);
-      try {
-        const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
-        if (!result) {
-          setAddressError("Сервіс адрес тимчасово недоступний.");
-          return;
-        }
-        const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
-        if (!addressHasHouseNumber(merged)) {
-          lastGeocodedAddressRef.current = "";
-          setLat(null);
-          setLng(null);
-          setGooglePlaceId(null);
-          setAddress(merged);
-          setAddressStatus(null);
-          setAddressHint(strings.common.houseNumberHint);
-          setAddressError(null);
-          return;
-        }
-        setAddressHint(null);
-        setLat(result.lat);
-        setLng(result.lng);
-        setGooglePlaceId(result.placeId);
-        setAddress(merged);
-        setAddressStatus("geocoded");
-        lastGeocodedAddressRef.current = merged.trim();
-        if (!isCreate) {
-          try {
-            await patchContact({
-              address: merged,
-              city: result.city ?? resolveCityFromGoogleAddress(merged),
-              lat: result.lat,
-              lng: result.lng,
-              googlePlaceId: result.placeId,
-            });
-          } catch {
-            // noop
-          }
-        }
-      } catch {
-        setAddressError("Сервіс адрес тимчасово недоступний.");
-        console.warn("Places API (New): geocode text failed for", query);
-      } finally {
-        setIsGeocodeLoading(false);
-      }
-    },
-    [isCreate, mapsApiKey, patchContact],
-  );
-
-  useEffect(() => {
-    if (!showAddressSuggestions || !mapsApiKey) {
-      setAddressSuggestions([]);
-      return;
-    }
-    const query = address.trim();
-    if (query.length < 3) {
-      setAddressSuggestions([]);
-      return;
-    }
-    setIsAddressLookupLoading(true);
-    const controller = new AbortController();
-    autocompleteAbortRef.current = controller;
-    const timer = setTimeout(async () => {
-      try {
-        const suggestions = await autocompleteAddress(mapsApiKey, query, { limit: 6, regionCode: "UA" });
-        if (autocompleteAbortRef.current !== controller) return;
-        setAddressSuggestions(suggestions);
-        setAddressError(null);
-      } catch (e) {
-        if (autocompleteAbortRef.current !== controller) return;
-        setAddressSuggestions([]);
-        setAddressError("Сервіс адрес тимчасово недоступний.");
-        console.warn("Places API (New): autocomplete failed for", query);
-      } finally {
-        if (autocompleteAbortRef.current === controller) {
-          setIsAddressLookupLoading(false);
-        }
-      }
-    }, 150);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-      autocompleteAbortRef.current = null;
-    };
-  }, [address, showAddressSuggestions, mapsApiKey]);
-
-  const handleMarkerDragEnd = useCallback(
-    async (e: google.maps.MapMouseEvent) => {
-      const nextLat = e.latLng?.lat();
-      const nextLng = e.latLng?.lng();
-      if (nextLat == null || nextLng == null) return;
-      setLat(nextLat);
-      setLng(nextLng);
-      setAddressStatus("manual");
-      if (!isCreate) {
-        const trimmed = address.trim() || null;
-        await patchContact({
-          lat: nextLat,
-          lng: nextLng,
-          googlePlaceId: googlePlaceId ?? null,
-          address: trimmed,
-          city: trimmed ? resolveCityFromGoogleAddress(trimmed) : null,
-        });
-      }
-    },
-    [address, googlePlaceId, isCreate, patchContact],
   );
 
   const handleEscape = useCallback(() => {
@@ -1327,7 +1006,6 @@ export function ContactModal({
     setSaving(true);
     setErr(null);
     try {
-      const trimmedAddress = address.trim() || null;
       const payload = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -1336,13 +1014,8 @@ export function ContactModal({
         position: position.trim() || null,
         externalCode: externalCode.trim() || null,
         region: region.trim() || null,
-        city: trimmedAddress ? resolveCityFromGoogleAddress(trimmedAddress) : null,
         clientType: clientType.trim() || null,
         status: status.trim() || null,
-        address: trimmedAddress,
-        lat,
-        lng,
-        googlePlaceId,
         ownerId: ownerId || null,
         companyId: companyId || null,
       };
@@ -1484,28 +1157,29 @@ export function ContactModal({
 
   const scheduleVisit = async () => {
     if (!contact) {
-      alert("Сначала сохраните контакт и заполните адрес, чтобы запланировать встречу.");
+      alert("Спочатку збережіть контакт.");
       return;
     }
-    const effectiveLat = lat ?? contact.lat ?? null;
-    const effectiveLng = lng ?? contact.lng ?? null;
-    if (effectiveLat == null || effectiveLng == null) {
+    const selected =
+      visitReadyAddresses.find((a) => a.id === selectedVisitAddressId) ??
+      visitReadyAddresses[0] ??
+      null;
+    if (!selected || selected.lat == null || selected.lng == null) {
       setAddressRequiredForVisit(true);
-      setTimeout(() => {
-        addressInputRef.current?.focus();
-        addressInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 0);
+      alert("Оберіть адресу з координатами або привʼяжіть адрес на карті.");
       return;
     }
+    setAddressRequiredForVisit(false);
     try {
       await visitsApi.create({
         contactId: contact.id,
         companyId: contact.companyId ?? undefined,
+        contactAddressId: selected.id,
         title: `${contact.lastName} ${contact.firstName}`.trim() || "Visit",
         phone: contact.phone ?? undefined,
-        addressText: contact.address ?? undefined,
-        lat: effectiveLat,
-        lng: effectiveLng,
+        addressText: selected.displayLine,
+        lat: selected.lat,
+        lng: selected.lng,
       });
       alert("Visit added to planned backlog.");
     } catch (e) {
@@ -1721,6 +1395,30 @@ export function ContactModal({
 
     return (
       <div className="space-y-3">
+        {visitReadyAddresses.length > 0 ? (
+          <label className="block space-y-1 py-1">
+            <span className="text-sm text-zinc-500">Адреса для візиту</span>
+            <select
+              className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-zinc-400 ${
+                addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
+              }`}
+              value={selectedVisitAddressId}
+              onChange={(e) => {
+                setSelectedVisitAddressId(e.target.value);
+                setAddressRequiredForVisit(false);
+              }}
+              disabled={saving}
+            >
+              {visitReadyAddresses.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {formatAddressOptionLabel(a)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : addressRequiredForVisit ? (
+          <p className="text-sm text-red-600">Додайте адресу з координатами для планування візитів</p>
+        ) : null}
         <div className="flex items-center justify-between gap-4 py-1">
           <span className="text-sm text-zinc-500">Останній візит</span>
           <div className="flex items-center gap-3">
@@ -1896,93 +1594,15 @@ export function ContactModal({
           onSave={async (next) => patchContact({ status: next?.trim() || null })}
           onRegisterCancel={registerCancel}
         />
-        <div className="space-y-1 py-1">
-          <label className="text-sm text-zinc-500">Адреса</label>
-          {addressRequiredForVisit ? (
-            <p className="text-sm text-red-600">Заполните адрес для планирования встреч</p>
-          ) : null}
-          <div ref={addressAnchorRef} className="relative">
-            <input
-              ref={addressInputRef}
-              className={`w-full rounded-md border px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400 ${
-                addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
-              }`}
-              value={address}
-              onChange={(e) => {
-                setAddress(e.target.value);
-                lastGeocodedAddressRef.current = "";
-                if (googlePlaceId) setGooglePlaceId(null);
-                setAddressStatus(null);
-                setAddressError(null);
-                setAddressHint(null);
-              }}
-              onFocus={() => setShowAddressSuggestions(true)}
-              onBlur={() => {
-                addressBlurTimeoutRef.current = setTimeout(() => {
-                  setShowAddressSuggestions(false);
-                }, 120);
-                if (address.trim().length >= 3 && mapsApiKey) {
-                  void geocodeFromAddressText(address);
-                }
-                void persistAddressIfChanged();
-              }}
-              placeholder="Натисніть, щоб додати…"
-              disabled={saving}
-            />
-            <AddressSuggestionsDropdown
-              open={showAddressSuggestions}
-              anchorRef={addressAnchorRef}
-              suggestions={addressSuggestions}
-              onSelect={(suggestion) => void handleSelectAddressSuggestion(suggestion)}
-            />
-          </div>
-          <div className="text-xs text-zinc-500">
-            {isAddressLookupLoading && mapsApiKey ? "Searching addresses…" : null}
-            {!isAddressLookupLoading && isGeocodeLoading
-              ? "Searching coordinates from address…"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "google"
-              ? "Address selected from Google (Places API New)"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "geocoded"
-              ? "Address coordinates updated"
-              : null}
-            {!isAddressLookupLoading && addressStatus === "manual" ? "Pin adjusted manually" : null}
-            {!isAddressLookupLoading && !addressError && addressHint ? (
-              <span className="text-amber-700">{addressHint}</span>
-            ) : null}
-            {!isAddressLookupLoading && addressError ? addressError : null}
-            {!isAddressLookupLoading && !addressError && !mapsApiKey ? mapsConfigError : null}
-            {!isAddressLookupLoading && !addressError && mapsApiKey && googleLoadError
-              ? "Google Maps script failed to load."
-              : null}
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-xs text-zinc-500">
-              {lat != null && lng != null ? "Координаты установлены" : "Координаты не заданы"}
-            </span>
-            {mapsApiKey ? (
-              <button
-                type="button"
-                className="text-xs font-medium text-blue-600 hover:underline"
-                onClick={toggleMap}
-              >
-                {isMapEnabled ? "Скрыть карту" : "Показать карту"}
-              </button>
-            ) : null}
-          </div>
-          {lat != null && lng != null && isGoogleLoaded && mapsApiKey && isMapEnabled ? (
-            <div className="h-44 overflow-hidden rounded-md border border-zinc-200">
-              <GoogleMap
-                mapContainerStyle={{ width: "100%", height: "100%" }}
-                center={{ lat, lng }}
-                zoom={15}
-              >
-                <Marker position={{ lat, lng }} draggable onDragEnd={(e) => void handleMarkerDragEnd(e)} />
-              </GoogleMap>
-            </div>
-          ) : null}
-        </div>
+        {!isCreate ? (
+          <EntityAddressesSection
+            entityType="contact"
+            entityId={contact.id}
+            disabled={saving}
+            highlightMissingCoords={addressRequiredForVisit}
+            onUpdated={() => void refresh()}
+          />
+        ) : null}
         <div className="flex items-center justify-between gap-4 py-1">
           <span className="text-sm text-zinc-500">Відповідальний менеджер</span>
           <SearchableSelectLite
@@ -2044,32 +1664,16 @@ export function ContactModal({
     phone,
     email,
     position,
-    address,
-    lat,
-    lng,
-    googlePlaceId,
-    addressStatus,
-    mapsApiKey,
-    mapsConfigError,
-    isMapEnabled,
-    isGoogleLoaded,
-    googleLoadError,
-    showAddressSuggestions,
-    addressSuggestions,
-    isAddressLookupLoading,
-    isGeocodeLoading,
-    addressError,
     addressRequiredForVisit,
+    selectedVisitAddressId,
+    visitReadyAddresses,
     companyId,
     companyOptions,
     loadingCompanies,
     contact,
     onOpenCompany,
     patchContact,
-    persistAddressIfChanged,
-    handleSelectAddressSuggestion,
-    handleMarkerDragEnd,
-    geocodeFromAddressText,
+    refresh,
     registerCancel,
     region,
     externalCode,
@@ -2339,9 +1943,6 @@ export function ContactModal({
               <EntitySection title="Розмітка (runtime)">
                 <ContactCardLayoutPanel contactId={effectiveContactId} />
               </EntitySection>
-              <EntitySection title="Аудит">
-                <ContactCardAuditPanel contactId={effectiveContactId} />
-              </EntitySection>
             </div>
           )
         )}
@@ -2437,7 +2038,7 @@ export function ContactModal({
               <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути історію змін.</p>
             ) : (
               <EntitySection title="Історія змін">
-                <p className="text-sm text-zinc-500">Історія змін поки відсутня.</p>
+                <EntityChangeHistoryPanel entityType="Contact" entityId={effectiveContactId} />
               </EntitySection>
             )}
           </>
@@ -2476,15 +2077,6 @@ export function ContactModal({
 
   return (
     <>
-      {mapsApiKey && isMapEnabled ? (
-        <ContactGoogleScriptLoader
-          mapsApiKey={mapsApiKey}
-          onState={({ isLoaded, loadError }) => {
-            setIsGoogleLoaded(isLoaded);
-            setGoogleLoadError(loadError);
-          }}
-        />
-      ) : null}
       <EntityModalShell
         title={
           <div className="flex items-center gap-2" ref={headerActionsRef}>

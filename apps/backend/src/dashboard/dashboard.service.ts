@@ -5,6 +5,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
+import { getBaseCurrency, paymentToBase } from "../common/currency.util";
 import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
 
 export type DashboardPeriod = "week" | "month";
@@ -46,25 +47,6 @@ function calendarDayBoundsKyiv(dateYmd: string): { from: Date; to: Date } {
   }
 }
 
-function paymentAmountUsd(
-  amountUsd: Prisma.Decimal | null | undefined,
-  amount: Prisma.Decimal | null | undefined,
-  currency: string | null | undefined,
-  rates: ExchangeRates,
-): number {
-  if (amountUsd != null && amountUsd !== undefined) {
-    const n = Number(amountUsd);
-    if (Number.isFinite(n)) return Math.round(n * 100) / 100;
-  }
-  const amt = Number(amount ?? 0);
-  const cur = (currency || "USD").toUpperCase();
-  let usd = amt;
-  if (cur === "UAH") usd = amt * rates.UAH_TO_USD;
-  else if (cur === "EUR") usd = amt * rates.EUR_TO_USD;
-  else if (cur !== "USD") usd = amt;
-  return Math.round(usd * 100) / 100;
-}
-
 export type DailyTeamActivityRow = {
   userId: string;
   fullName: string;
@@ -73,12 +55,13 @@ export type DailyTeamActivityRow = {
   visits: number;
   ordersCount: number;
   ordersAmount: number;
-  paymentsUsd: number;
+  paymentsAmount: number;
 };
 
 export type DailyTeamActivityPayload = {
   /** Same YYYY-MM-DD as requested (Kyiv calendar day). */
   date: string;
+  currency: string;
   rows: DailyTeamActivityRow[];
 };
 
@@ -223,7 +206,8 @@ export class DashboardService {
 
     const visibleIds = await this.resolveVisibleUserIds(actor);
     if (visibleIds.length === 0) {
-      return { date: dateYmd, rows: [] };
+      const rates = await this.settings.getExchangeRates();
+      return { date: dateYmd, currency: getBaseCurrency(rates), rows: [] };
     }
 
     const users = await this.prisma.user.findMany({
@@ -240,7 +224,7 @@ export class DashboardService {
       visits: number;
       ordersCount: number;
       ordersAmount: number;
-      paymentsUsd: number;
+      paymentsAmount: number;
     };
 
     const byId = new Map<string, Acc>();
@@ -253,7 +237,7 @@ export class DashboardService {
         visits: 0,
         ordersCount: 0,
         ordersAmount: 0,
-        paymentsUsd: 0,
+        paymentsAmount: 0,
       });
     }
 
@@ -328,9 +312,10 @@ export class DashboardService {
       const oid = p.order.ownerId;
       const row = byId.get(oid);
       if (!row) continue;
-      row.paymentsUsd += paymentAmountUsd(p.amountUsd, p.amount, p.currency, rates);
+      row.paymentsAmount += paymentToBase(p.amountUsd, p.amount, p.currency, rates);
     }
 
+    const baseCurrency = getBaseCurrency(rates);
     const rows: DailyTeamActivityRow[] = users.map((u) => {
       const r = byId.get(u.id)!;
       return {
@@ -341,10 +326,10 @@ export class DashboardService {
         visits: r.visits,
         ordersCount: r.ordersCount,
         ordersAmount: Math.round(r.ordersAmount * 100) / 100,
-        paymentsUsd: Math.round(r.paymentsUsd * 100) / 100,
+        paymentsAmount: Math.round(r.paymentsAmount * 100) / 100,
       };
     });
 
-    return { date: dateYmd, rows };
+    return { date: dateYmd, currency: baseCurrency, rows };
   }
 }

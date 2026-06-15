@@ -21,17 +21,10 @@ import type { UpdatePaymentDto } from "./dto/update-payment.dto";
 import type { SplitPaymentDto } from "./dto/split-payment.dto";
 import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
-
-function getRateToUsd(currency: string, rates: ExchangeRates): number {
-  const c = (currency || "USD").toUpperCase();
-  if (c === "USD") return 1;
-  if (c === "UAH") return rates.UAH_TO_USD;
-  if (c === "EUR") return rates.EUR_TO_USD;
-  return 1;
-}
+import { toUsd } from "../common/currency.util";
 
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
-  return amount * getRateToUsd(currency, rates);
+  return toUsd(amount, currency, rates);
 }
 
 /** Prefer TTN contact, fallback to legacy client on order. */
@@ -574,8 +567,13 @@ export class PaymentsService {
   }
 
   async unallocateBankPayment(id: string, actor?: AuthUser) {
-    if (actor?.role !== UserRole.ADMIN) {
-      throw new ForbiddenException("Only ADMIN can unallocate bank payments");
+    if (
+      !actor ||
+      (actor.role !== UserRole.ADMIN &&
+        actor.role !== UserRole.LEAD &&
+        actor.role !== UserRole.MANAGER)
+    ) {
+      throw new ForbiddenException("You are not allowed to unallocate bank payments");
     }
     const payment = await this.prisma.payment.findUnique({
       where: { id },
@@ -584,14 +582,35 @@ export class PaymentsService {
         orderId: true,
         sourceType: true,
         bankTransactionId: true,
+        order: { select: { ownerId: true } },
       },
     });
     if (!payment) throw new NotFoundException("Payment not found");
     if (payment.sourceType !== PaymentSourceType.BANK || !payment.bankTransactionId) {
       throw new BadRequestException("Only allocated bank payments can be unallocated");
     }
-    await this.prisma.payment.delete({ where: { id: payment.id } });
-    await this.recalcOrder(payment.orderId);
+    const siblings = await this.prisma.payment.findMany({
+      where: { bankTransactionId: payment.bankTransactionId },
+      select: {
+        id: true,
+        orderId: true,
+        order: { select: { ownerId: true } },
+      },
+    });
+    if (actor.role === UserRole.MANAGER) {
+      for (const s of siblings) {
+        if (s.order?.ownerId !== actor.id) {
+          throw new ForbiddenException("You can only unallocate payments for orders assigned to you");
+        }
+      }
+    }
+    const orderIds = [...new Set(siblings.map((s) => s.orderId))];
+    await this.prisma.payment.deleteMany({
+      where: { bankTransactionId: payment.bankTransactionId },
+    });
+    for (const oid of orderIds) {
+      await this.recalcOrder(oid);
+    }
     return { ok: true };
   }
 

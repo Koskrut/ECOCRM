@@ -71,15 +71,35 @@ function urlSearchParamsEqual(a: URLSearchParams, b: URLSearchParams): boolean {
   return true;
 }
 
-export function formatMoneyUsd(value: number | null | undefined): string {
+import type { BaseCurrency } from "@/lib/base-currency";
+import { baseCurrencySymbol } from "@/lib/base-currency";
+
+export function formatMoneyBase(
+  value: number | null | undefined,
+  currency: BaseCurrency | string = "USD",
+): string {
   const amount = Number(value ?? 0);
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount)} $`;
+  const sym = baseCurrencySymbol(currency);
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount)} ${sym}`;
 }
 
-/** Avg check / other per-order USD where fractional cents matter. */
-export function formatMoneyUsdFine(value: number | null | undefined): string {
+export function formatMoneyBaseFine(
+  value: number | null | undefined,
+  currency: BaseCurrency | string = "USD",
+): string {
   const amount = Number(value ?? 0);
-  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount)} $`;
+  const sym = baseCurrencySymbol(currency);
+  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(amount)} ${sym}`;
+}
+
+/** @deprecated Prefer formatMoneyBase with currency from API. Kept for Payment.amountUsd (always USD). */
+export function formatMoneyUsd(value: number | null | undefined): string {
+  return formatMoneyBase(value, "USD");
+}
+
+/** @deprecated Prefer formatMoneyBaseFine with currency from API. */
+export function formatMoneyUsdFine(value: number | null | undefined): string {
+  return formatMoneyBaseFine(value, "USD");
 }
 
 export function formatNumber(value: number | null | undefined): string {

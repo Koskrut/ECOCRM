@@ -17,6 +17,6 @@ import { TimelineController } from "./timeline.controller";
     TtnTimelineAdapter,
     CanonicalTimelineService,
   ],
-  exports: [CanonicalTimelineService],
+  exports: [CanonicalTimelineService, TimelineAccessService],
 })
 export class TimelineModule {}

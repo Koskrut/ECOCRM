@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../../audit/audit-context";
 import { ModuleStateService } from "../../modules/module-state.service";
 import { ModuleIds } from "../../modules/module-ids";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -167,11 +168,13 @@ export class BitrixWebhookService {
       const ok = await this.modules.isEffective(ModuleIds.Bitrix);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:bitrix-webhook-retry", async () => {
     try {
       const processed = await this.processPendingEvents(50);
       if (processed > 0) this.logger.log(`Bitrix webhook retry: processed ${processed} events`);
     } catch (e) {
       this.logger.error("Bitrix webhook retry failed", e);
     }
+    }, { job: "bitrix-webhook-retry" });
   }
 }

@@ -5,7 +5,7 @@ import type { AnalyticsScope } from "../analytics-scope.service";
 import { canonicalizeRegionName } from "../../settings/org-chart-region-resolver";
 import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 @Injectable()
 export class AnalyticsDrilldownService {
@@ -21,6 +21,7 @@ export class AnalyticsDrilldownService {
     opts?: { region?: string },
   ) {
     const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     const normalizedType = type.trim().toLowerCase();
 
     if (normalizedType === "payments") {
@@ -49,9 +50,9 @@ export class AnalyticsDrilldownService {
         },
       });
 
-      let totalUsd = 0;
+      let totalAmount = 0;
       for (const p of allRows) {
-        totalUsd += p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), p.currency, rates);
+        totalAmount += paymentToBase(p.amountUsd, p.amount, p.currency, rates);
       }
       const displayRows = allRows.slice(0, 200);
 
@@ -79,13 +80,14 @@ export class AnalyticsDrilldownService {
 
       return {
         type: normalizedType,
+        currency,
         totalCount: allRows.length,
-        totalUsd,
+        totalAmount,
         items: displayRows.map((p) => ({
           id: p.id,
           paidAt: p.paidAt?.toISOString() ?? null,
-          amountUsd: p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), p.currency, rates),
-          currency: p.currency,
+          amount: paymentToBase(p.amountUsd, p.amount, p.currency, rates),
+          currency,
           orderId: p.order.id,
           orderNumber: p.order.orderNumber,
           managerName: p.order.owner?.fullName ?? p.order.ownerId ?? null,
@@ -128,6 +130,7 @@ export class AnalyticsDrilldownService {
       return {
         type: normalizedType,
         region: canonical,
+        currency,
         totalCount: filtered.length,
         items: filtered.slice(0, 200).map((o) => ({
           id: o.id,
@@ -135,8 +138,12 @@ export class AnalyticsDrilldownService {
           orderNumber: o.orderNumber,
           managerName: o.owner?.fullName ?? o.ownerId,
           clientName: o.client ? [o.client.firstName, o.client.lastName].filter(Boolean).join(" ") : null,
-          bookedRevenueUsd: toUsd(Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)), o.currency, rates),
-          debtAmountUsd: toUsd(safeNum(o.debtAmount), o.currency, rates),
+          bookedRevenue: toBaseCurrency(
+            Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
+            o.currency,
+            rates,
+          ),
+          debtAmount: toBaseCurrency(safeNum(o.debtAmount), o.currency, rates),
         })),
       };
     }
@@ -161,14 +168,19 @@ export class AnalyticsDrilldownService {
 
     return {
       type: normalizedType,
+      currency,
       items: orders.map((o) => ({
         id: o.id,
         createdAt: o.createdAt.toISOString(),
         orderNumber: o.orderNumber,
         managerName: o.owner?.fullName ?? o.ownerId,
         clientName: o.client ? [o.client.firstName, o.client.lastName].filter(Boolean).join(" ") : null,
-        bookedRevenueUsd: toUsd(Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)), o.currency, rates),
-        debtAmountUsd: toUsd(safeNum(o.debtAmount), o.currency, rates),
+        bookedRevenue: toBaseCurrency(
+          Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
+          o.currency,
+          rates,
+        ),
+        debtAmount: toBaseCurrency(safeNum(o.debtAmount), o.currency, rates),
       })),
     };
   }

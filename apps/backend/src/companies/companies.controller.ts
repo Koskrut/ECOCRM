@@ -80,6 +80,80 @@ export class CompaniesController {
     return this.companiesService.findOne(params.id, req.user);
   }
 
+  @Get("/:id/addresses")
+  public async listAddresses(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.companiesService.listAddresses(id, req.user);
+  }
+
+  @Post("/:id/addresses")
+  public async createAddress(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      label?: string;
+      city?: string;
+      addressText: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+      isDefault?: boolean;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.companiesService.createAddress(
+      id,
+      {
+        label: body.label ?? null,
+        city: body.city ?? null,
+        addressText: String(body.addressText ?? ""),
+        lat: body.lat ?? null,
+        lng: body.lng ?? null,
+        googlePlaceId: body.googlePlaceId ?? null,
+        isDefault: body.isDefault,
+      },
+      req.user,
+    );
+  }
+
+  @Patch("/:id/addresses/:addressId")
+  public async updateAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Body()
+    body: {
+      label?: string | null;
+      city?: string | null;
+      addressText?: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.companiesService.updateAddress(id, addressId, body, req.user);
+  }
+
+  @Delete("/:id/addresses/:addressId")
+  public async deleteAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.companiesService.deleteAddress(id, addressId, req.user);
+  }
+
+  @Post("/:id/addresses/:addressId/set-default")
+  public async setDefaultAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.companiesService.setDefaultAddress(id, addressId, req.user);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   @Delete(":id")
   async remove(@Param("id") id: string) {

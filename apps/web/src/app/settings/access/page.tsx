@@ -158,8 +158,7 @@ export default function AccessSettingsPage() {
   const customRoles = catalogRoles.filter((role) => !role.system);
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl">
         <div className="mb-6">
           <Link
             href="/settings"
@@ -184,36 +183,36 @@ export default function AccessSettingsPage() {
           </div>
         ) : null}
 
-        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
+          <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-zinc-50 text-xs font-medium uppercase text-zinc-500">
               <tr>
-                <th className="px-6 py-3">Ім'я</th>
-                <th className="px-6 py-3">Email</th>
-                <th className="px-6 py-3">Базова роль</th>
-                <th className="px-6 py-3">Створено</th>
+                <th className="px-3 py-3 sm:px-6">Ім'я</th>
+                <th className="px-3 py-3 sm:px-6">Email</th>
+                <th className="px-3 py-3 sm:px-6">Базова роль</th>
+                <th className="px-3 py-3 sm:px-6">Створено</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
+                  <td colSpan={4} className="px-3 py-8 text-center text-zinc-500 sm:px-6">
                     Завантаження...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-zinc-500">
+                  <td colSpan={4} className="px-3 py-8 text-center text-zinc-500 sm:px-6">
                     Користувачів не знайдено
                   </td>
                 </tr>
               ) : (
                 items.map((u) => (
                   <tr key={u.id} className="hover:bg-zinc-50">
-                    <td className="px-6 py-4 font-medium text-zinc-900">{u.fullName}</td>
-                    <td className="px-6 py-4 text-zinc-600">{u.email}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-4 font-medium text-zinc-900 sm:px-6">{u.fullName}</td>
+                    <td className="px-3 py-4 text-zinc-600 sm:px-6">{u.email}</td>
+                    <td className="px-3 py-4 sm:px-6">
                       <select
                         value={u.role}
                         disabled={savingId === u.id}
@@ -227,7 +226,7 @@ export default function AccessSettingsPage() {
                         ))}
                       </select>
                     </td>
-                    <td className="px-6 py-4 text-zinc-600">
+                    <td className="px-3 py-4 text-zinc-600 sm:px-6">
                       {u.createdAt ? formatDateTime(u.createdAt) : "—"}
                     </td>
                   </tr>
@@ -354,7 +353,6 @@ export default function AccessSettingsPage() {
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 }

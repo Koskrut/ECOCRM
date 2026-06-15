@@ -1,16 +1,16 @@
-import { Controller, Get, Param, Query } from "@nestjs/common";
+import { Controller, Get, Param, Query, Req } from "@nestjs/common";
 import type { AuditAction } from "@prisma/client";
-import { UserRole } from "@prisma/client";
-import { Roles } from "../auth/roles.decorator";
-import { RequirePermission } from "../rbac/permissions.decorator";
-import { PermissionKeys } from "../rbac/rbac.constants";
+import type { Request } from "express";
+import type { AuthUser } from "../auth/auth.types";
+import { AuditAccessService } from "./audit-access.service";
 import { AuditService } from "./audit.service";
 
 @Controller("audit")
-@Roles(UserRole.ADMIN, UserRole.MANAGER, UserRole.LEAD)
-@RequirePermission(PermissionKeys.MetadataRead)
 export class AuditController {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly auditAccess: AuditAccessService,
+  ) {}
 
   @Get(":entityType/:entityId")
   async listForEntity(
@@ -20,7 +20,9 @@ export class AuditController {
     @Query("pageSize") pageSize?: string,
     @Query("action") action?: AuditAction,
     @Query("changedBy") changedBy?: string,
+    @Req() req?: Request & { user?: AuthUser },
   ) {
+    await this.auditAccess.assertAccess(entityType, entityId, req?.user);
     return this.audit.listForEntity(entityType, entityId, {
       page: page ? Number(page) : 1,
       pageSize: pageSize ? Number(pageSize) : 50,

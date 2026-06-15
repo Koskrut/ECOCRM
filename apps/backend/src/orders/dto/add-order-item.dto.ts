@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsNumber, IsString, Min } from "class-validator";
+import { IsInt, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class AddOrderItemDto {
   @IsString()
@@ -14,4 +14,11 @@ export class AddOrderItemDto {
   @Min(0)
   @Type(() => Number)
   price!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  @Type(() => Number)
+  discountPercent?: number;
 }

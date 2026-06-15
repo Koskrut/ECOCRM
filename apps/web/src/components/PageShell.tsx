@@ -69,14 +69,14 @@ export function PageShell({
             {actions ? <div className="ml-3 shrink-0">{actions}</div> : null}
           </div>
           {tabs && tabs.length > 0 ? (
-            <nav className="mt-4 flex gap-1 border-b border-zinc-200">
+            <nav className="-mx-1 mt-4 flex flex-nowrap gap-1 overflow-x-auto border-b border-zinc-200">
               {tabs.map((tab) => {
                 const active = isTabActive(pathname, tab);
                 return (
                   <Link
                     key={tab.href}
                     href={tab.href}
-                    className={`px-4 py-2.5 text-sm font-medium transition-colors ${
+                    className={`whitespace-nowrap px-4 py-2.5 text-sm font-medium transition-colors ${
                       active
                         ? "-mb-px border-b-2 border-zinc-900 text-zinc-900"
                         : "text-zinc-500 hover:text-zinc-700"

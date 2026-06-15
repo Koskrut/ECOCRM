@@ -4,13 +4,14 @@ import {
   AnalyticsFiltersBar,
   AnalyticsState,
   SimpleTable,
-  formatMoneyUsd,
+  formatMoneyBase,
   formatNumber,
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
 
 type ProductsResponse = {
+  currency?: string;
   products: {
     productId: string;
     productName: string;
@@ -26,6 +27,8 @@ export default function AnalyticsProductsPage() {
     "products",
     filters.querySuffix,
   );
+
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
 
   return (
     <div className="space-y-4">
@@ -49,7 +52,7 @@ export default function AnalyticsProductsPage() {
             { key: "productName", title: "Product", render: (row) => row.productName },
             { key: "quantity", title: "Qty", render: (row) => formatNumber(row.quantity) },
             { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
-            { key: "revenue", title: "Revenue", render: (row) => formatMoneyUsd(row.revenue) },
+            { key: "revenue", title: "Revenue", render: (row) => formatMoneyBase(row.revenue, currency) },
           ]}
         />
       </AnalyticsState>

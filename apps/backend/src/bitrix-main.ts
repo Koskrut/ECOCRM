@@ -14,6 +14,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { SystemModule } from "./system/system.module";
@@ -23,6 +24,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
 @Module({
   imports: [
     PrismaModule,
+    AuditContextModule,
     ScheduleModule.forRoot(),
     AuthModule,
     RbacModule,

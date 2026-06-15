@@ -342,8 +342,7 @@ export default function BankSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
-      <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-2xl">
         <div className="mb-6">
           <Link
             href="/settings"
@@ -951,6 +950,5 @@ export default function BankSettingsPage() {
           </div>
         )}
       </div>
-    </div>
   );
 }

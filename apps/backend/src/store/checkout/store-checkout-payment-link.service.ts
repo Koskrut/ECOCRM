@@ -85,7 +85,7 @@ export class StoreCheckoutPaymentLinkService {
 
     const orderCurrency = (order.currency || "UAH").trim().toUpperCase();
     let amount: number;
-    if (orderCurrency === "USD") {
+    if (orderCurrency === "USD" || orderCurrency === "EUR") {
       const rate = order.exchangeRate != null && order.exchangeRate > 0 ? order.exchangeRate : null;
       if (!rate) {
         throw new BadRequestException("Для замовлення не задано курс гривні — зверніться до менеджера");

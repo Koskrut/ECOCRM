@@ -180,8 +180,7 @@ export function mapBitrixContactToPrisma(
   const lastName = String(row["LAST_NAME"] ?? "").trim();
   const secondName = String(row["SECOND_NAME"] ?? "").trim() || null;
   const post = row["POST"] != null ? String(row["POST"]).trim() : null;
-  const comments = row["COMMENTS"] != null ? String(row["COMMENTS"]).trim() : null;
-  const address = comments || null;
+  const address = null;
   // Bitrix REST may return ADDRESS or structured ADDRESS_*; build addressInfo from any available
   const addressParts = [
     row["ADDRESS"],

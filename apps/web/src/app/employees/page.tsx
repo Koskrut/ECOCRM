@@ -153,7 +153,7 @@ export default function EmployeesPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl p-4">
+    <div className="mx-auto max-w-6xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-zinc-900">Employees</h1>
 

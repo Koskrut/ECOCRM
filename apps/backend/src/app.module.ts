@@ -27,6 +27,7 @@ import { FinanceIdempotencyModule } from "./finance-idempotency/finance-idempote
 import { SettingsModule } from "./settings/settings.module";
 import { VisitsModule } from "./visits/visits.module";
 import { TasksModule } from "./tasks/tasks.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
@@ -75,6 +76,7 @@ import { FieldModule } from "./field/field.module";
     VisitsModule,
     FieldModule,
     TasksModule,
+    NotificationsModule,
     OrderReturnsModule,
     OrdersModule,
     ProductsModule,

@@ -98,11 +98,11 @@ export default function UpcSettingsPage() {
   }
 
   if (loading) {
-    return <p className="p-6 text-sm text-zinc-500">{s.loading}</p>;
+    return <p className="text-sm text-zinc-500">{s.loading}</p>;
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-2xl space-y-6">
       <Link href="/settings" className="text-sm text-zinc-500 hover:text-zinc-700">
         {strings.common.backToSettings}
       </Link>

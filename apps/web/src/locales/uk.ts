@@ -132,7 +132,11 @@ export const uk = {
       },
       exchangeRates: {
         title: "Курси валют",
-        desc: "UAH та EUR до USD — використовується для перерахунку платежів",
+        desc: "Основна валюта, курси UAH та EUR — для замовлень, платежів і аналітики",
+      },
+      orderDiscounts: {
+        title: "Знижки в замовленнях",
+        desc: "Доступні відсотки знижки для окремих позицій у замовленні",
       },
       googleMaps: {
         title: "Google Maps",
@@ -202,6 +206,29 @@ export const uk = {
         title: "Інтернет-магазин",
         desc: "Тема, банери, контакти, URL CRM для оплати з магазину",
       },
+    },
+    orderDiscounts: {
+      title: "Знижки в замовленнях",
+      desc: "Оберіть, які відсотки знижки доступні при редагуванні позицій замовлення.",
+      hint: "Увімкніть потрібні значення (5–30%). Мінімум одне значення має залишатися активним.",
+      save: "Зберегти",
+      saving: "Збереження…",
+      loadError: "Не вдалося завантажити налаштування знижок.",
+      saveError: "Не вдалося зберегти налаштування знижок.",
+      minOne: "Має бути увімкнено хоча б один відсоток знижки.",
+    },
+    exchangeRatesPage: {
+      title: "Курси валют",
+      subtitle: "Основна валюта, курси UAH та EUR. Використовується для нових замовлень, перерахунку платежів і аналітики.",
+      baseCurrency: "Основна валюта",
+      baseCurrencyHint: "Валюта нових замовлень і базова валюта в аналітиці та на дашборді.",
+      uahPerUsd: "1 USD ($) = … UAH (₴)",
+      eurPerUsd: "1 EUR (€) = … USD ($)",
+      loadError: "Не вдалося завантажити курси валют.",
+      saveError: "Не вдалося зберегти курси валют.",
+      invalidRates: "Введіть додатні числа для обох курсів",
+      save: "Зберегти",
+      saving: "Збереження…",
     },
     privat24: {
       title: "Privat24 Autoclient",
@@ -592,6 +619,13 @@ export const uk = {
     addCashContactPh: "Контакт (ім’я або телефон, мін. 3 символи)",
     addPaymentSubmit: "Додати платіж",
     editPaymentTitle: "Редагувати платіж",
+    editReassignSection: "Перенести на інше замовлення",
+    editReassignHint: "Знайдіть правильного клієнта або замовлення за номером",
+    editCurrentContact: "Поточний контакт",
+    editCurrentOrder: "Поточне замовлення",
+    editSearchOrderByNumber: "Або знайти замовлення за номером",
+    noOrdersForContactEdit: "Немає замовлень для цього контакту",
+    unallocateHint: "Повернути операцію в «Потрібно рознести»",
     cashKind: "Готівка",
     bankKind: "Банк",
     ordersLabel: "Замовлення",
@@ -607,12 +641,23 @@ export const uk = {
       "Завантажте CSV: дата, сума, опис, контрагент (або українські назви колонок)",
     noteOptional: "Примітка (необов’язково)",
     notePlaceholder: "Примітка",
+    ordersCount: (n: number) => {
+      const mod10 = n % 10;
+      const mod100 = n % 100;
+      if (mod10 === 1 && mod100 !== 11) return `${n} замовлення`;
+      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} замовлення`;
+      return `${n} замовлень`;
+    },
+    multipleContacts: "Кілька контактів",
+    expandOrders: "Показати замовлення",
+    collapseOrders: "Згорнути замовлення",
     ordersColon: "Замовлення:",
     noUnpaidOrdersEdit: "Немає неоплачених замовлень",
     orderCurrent: "Замовлення (поточне)",
     amountUsdFixed: "Сума (USD), фіксована",
     amountInCurrency: (cur: string) => `Сума (${cur})`,
-    editPaymentHint: (kind: string) => `${kind} · змінити замовлення — оберіть контакт нижче`,
+    editPaymentHint: (kind: string) =>
+      `${kind} · можна перенести на інше замовлення або скасувати прив’язку`,
     distributeFailed: "Не вдалося розподілити",
     distributing: "Розподіл…",
     splitAcrossOrders: (n: number) => `Розподілити по замовленнях (${n})`,

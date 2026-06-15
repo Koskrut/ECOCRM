@@ -30,6 +30,7 @@ import {
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
+import { computeOrderExchangeRate, getBaseCurrency } from "../common/currency.util";
 import { WarehousesService } from "../warehouses/warehouses.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
@@ -55,6 +56,8 @@ import {
 } from "./order-stock-readiness";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
+import { computeLineTotal } from "./order-line-total.utils";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -118,11 +121,22 @@ export class OrdersService {
     private readonly integrations: IntegrationPortsService,
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
+    private readonly warehouseNotifier: OrderWarehouseNotifierService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  private async assertAllowedDiscountPercent(discountPercent: number): Promise<void> {
+    if (discountPercent === 0) return;
+    const { percents } = await this.settings.getOrderLineDiscounts();
+    if (!percents.includes(discountPercent)) {
+      throw new BadRequestException(
+        `Discount ${discountPercent}% is not allowed. Allowed: ${percents.join(", ")}%`,
+      );
+    }
   }
 
   /** MANAGER может работать только с заказами, где ownerId === actor.id. ADMIN и LEAD — полный доступ. */
@@ -733,7 +747,7 @@ export class OrdersService {
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
     if (!ownerId) throw new BadRequestException("ownerId is required");
     const orderSource = dto.orderSource ?? OrderSource.CRM;
-    const currency = "USD";
+    let currency = "USD";
     const discountAmount = this.num(dto.discountAmount, 0);
     const paidAmount = 0;
     const a = this.calc(0, discountAmount, paidAmount);
@@ -743,7 +757,8 @@ export class OrdersService {
     let exchangeRate: number | null = null;
     try {
       const rates = await this.settings.getExchangeRates();
-      exchangeRate = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+      currency = getBaseCurrency(rates);
+      exchangeRate = computeOrderExchangeRate(currency, rates);
     } catch (e) {
       this.logger.warn(`getExchangeRates failed at order create, exchangeRate will be null: ${e}`);
     }
@@ -964,18 +979,23 @@ export class OrdersService {
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
     const price = dto.price;
+    const discountPercent = Math.max(0, Math.trunc(dto.discountPercent ?? 0));
+    await this.assertAllowedDiscountPercent(discountPercent);
 
     const existing = await this.prisma.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },
     });
 
     if (existing) {
+      const nextQty = existing.qty + qty;
+      const nextDiscount = dto.discountPercent != null ? discountPercent : existing.discountPercent;
       await this.prisma.orderItem.update({
         where: { id: existing.id },
         data: {
-          qty: existing.qty + qty,
+          qty: nextQty,
           price,
-          lineTotal: (existing.qty + qty) * price,
+          discountPercent: nextDiscount,
+          lineTotal: computeLineTotal(nextQty, price, nextDiscount),
         },
       });
     } else {
@@ -985,7 +1005,8 @@ export class OrdersService {
           productId,
           qty,
           price,
-          lineTotal: qty * price,
+          discountPercent,
+          lineTotal: computeLineTotal(qty, price, discountPercent),
         },
       });
     }
@@ -997,12 +1018,12 @@ export class OrdersService {
   async updateItem(
     orderId: string,
     itemId: string,
-    dto: { qty?: number; price?: number },
+    dto: { qty?: number; price?: number; discountPercent?: number },
     actor?: AuthUser,
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, ownerId: true, orderStage: true },
+      select: { id: true, ownerId: true, orderStage: true, totalAmount: true },
     });
     if (!order) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(order, actor);
@@ -1013,20 +1034,40 @@ export class OrdersService {
     });
     if (!item) throw new NotFoundException("Order item not found");
 
+    const prevQty = item.qty;
+    const prevTotalAmount = order.totalAmount ?? 0;
     const nextQty = dto.qty != null ? Math.max(1, Math.trunc(dto.qty)) : item.qty;
     const nextPrice = dto.price != null ? dto.price : item.price;
+    const nextDiscount =
+      dto.discountPercent != null
+        ? Math.max(0, Math.trunc(dto.discountPercent))
+        : item.discountPercent;
+    await this.assertAllowedDiscountPercent(nextDiscount);
 
     await this.prisma.orderItem.update({
       where: { id: itemId },
       data: {
         qty: nextQty,
         price: nextPrice,
-        lineTotal: nextQty * nextPrice,
+        discountPercent: nextDiscount,
+        lineTotal: computeLineTotal(nextQty, nextPrice, nextDiscount),
       },
     });
 
     await this.syncActiveReservationsForOrder(orderId);
-    return this.recalcAndReturn(orderId);
+    const updated = await this.recalcAndReturn(orderId);
+
+    void this.warehouseNotifier.notifyQtyChanged({
+      orderId,
+      itemId,
+      prevQty,
+      nextQty,
+      prevTotalAmount,
+      nextTotalAmount: Number(updated.totalAmount ?? 0),
+      actor,
+    });
+
+    return updated;
   }
 
   async removeItem(orderId: string, itemId: string, actor?: AuthUser) {
@@ -1106,16 +1147,24 @@ export class OrdersService {
 
   /**
    * Move shortage quantities to a new child order (parentOrderId). Payments stay on the parent (MVP).
-   * Stock: warehouse row if order.warehouseId and row exists, else Product.stock.
+   * Without picks: split by DB stock (warehouse row if present, else Product.stock).
+   * With picks: split by found quantities during picking; child goes to AWAITING_STOCK.
    */
-  async splitByStock(orderId: string, actor?: AuthUser) {
+  async splitByStock(
+    orderId: string,
+    actor?: AuthUser,
+    dto?: { picks?: Array<{ itemId: string; foundQty: number }> },
+  ) {
     const parent = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { items: true },
     });
     if (!parent) throw new NotFoundException("Order not found");
     if (actor) this.assertOrderAccess(parent, actor);
-    assertWarehouseSplitByStock(actor, parent.orderStage);
+
+    const picks = dto?.picks;
+    const hasPicks = picks != null && picks.length > 0;
+    assertWarehouseSplitByStock(actor, parent.orderStage, hasPicks);
 
     const stage = parent.orderStage ?? "NEW";
     if (SPLIT_BLOCKED_ORDER_STAGES.includes(stage)) {
@@ -1134,77 +1183,122 @@ export class OrdersService {
       }
     }
 
-    const productIds = parent.items
-      .map((i) => i.productId)
-      .filter((id): id is string => id != null);
-
-    const products =
-      productIds.length > 0
-        ? await this.prisma.product.findMany({
-            where: { id: { in: productIds } },
-            select: { id: true, stock: true },
-          })
-        : [];
-    const productStockById = new Map(products.map((p) => [p.id, p.stock]));
-
-    const warehouseStockByProductId = new Map<string, number>();
-    if (parent.warehouseId && productIds.length > 0) {
-      const whRows = await this.prisma.productWarehouseStock.findMany({
-        where: { warehouseId: parent.warehouseId, productId: { in: productIds } },
-      });
-      for (const r of whRows) {
-        warehouseStockByProductId.set(r.productId, r.qty);
-      }
-    }
-
     type Plan = {
       itemId: string;
       productId: string | null;
       keepQty: number;
       moveQty: number;
       price: number;
+      discountPercent: number;
       snapshot: string | null;
     };
 
-    const plans: Plan[] = [];
-    for (const it of parent.items) {
-      let available = 0;
-      if (it.productId) {
-        if (parent.warehouseId) {
-          if (warehouseStockByProductId.has(it.productId)) {
-            available = warehouseStockByProductId.get(it.productId) ?? 0;
-          } else {
-            available = productStockById.get(it.productId) ?? 0;
-          }
-        } else {
-          available = productStockById.get(it.productId) ?? 0;
+    let plans: Plan[];
+    if (hasPicks) {
+      const orderItemIds = new Set(parent.items.map((i) => i.id));
+      for (const p of picks!) {
+        if (!orderItemIds.has(p.itemId)) {
+          throw new BadRequestException(`Unknown order item: ${p.itemId}`);
+        }
+      }
+      const foundByItemId = new Map(
+        picks!.map((p) => [p.itemId, Math.max(0, Math.trunc(p.foundQty))]),
+      );
+      plans = [];
+      for (const it of parent.items) {
+        const rawFound = foundByItemId.get(it.id) ?? it.qty;
+        const keepQty = Math.min(it.qty, rawFound);
+        const moveQty = it.qty - keepQty;
+        if (moveQty > 0 && !it.productId) {
+          throw new BadRequestException(
+            "Cannot split: lines without a catalog product cannot be moved. Link a product first.",
+          );
+        }
+        plans.push({
+          itemId: it.id,
+          productId: it.productId,
+          keepQty,
+          moveQty,
+          price: it.price,
+          discountPercent: it.discountPercent ?? 0,
+          snapshot: it.productNameSnapshot,
+        });
+      }
+    } else {
+      const productIds = parent.items
+        .map((i) => i.productId)
+        .filter((id): id is string => id != null);
+
+      const products =
+        productIds.length > 0
+          ? await this.prisma.product.findMany({
+              where: { id: { in: productIds } },
+              select: { id: true, stock: true },
+            })
+          : [];
+      const productStockById = new Map(products.map((p) => [p.id, p.stock]));
+
+      const warehouseStockByProductId = new Map<string, number>();
+      if (parent.warehouseId && productIds.length > 0) {
+        const whRows = await this.prisma.productWarehouseStock.findMany({
+          where: { warehouseId: parent.warehouseId, productId: { in: productIds } },
+        });
+        for (const r of whRows) {
+          warehouseStockByProductId.set(r.productId, r.qty);
         }
       }
 
-      const keepQty = Math.min(it.qty, Math.max(0, available));
-      const moveQty = it.qty - keepQty;
+      plans = [];
+      for (const it of parent.items) {
+        let available = 0;
+        if (it.productId) {
+          if (parent.warehouseId) {
+            if (warehouseStockByProductId.has(it.productId)) {
+              available = warehouseStockByProductId.get(it.productId) ?? 0;
+            } else {
+              available = productStockById.get(it.productId) ?? 0;
+            }
+          } else {
+            available = productStockById.get(it.productId) ?? 0;
+          }
+        }
 
-      if (moveQty > 0 && !it.productId) {
-        throw new BadRequestException(
-          "Cannot split: lines without a catalog product cannot be moved. Link a product first.",
-        );
+        const keepQty = Math.min(it.qty, Math.max(0, available));
+        const moveQty = it.qty - keepQty;
+
+        if (moveQty > 0 && !it.productId) {
+          throw new BadRequestException(
+            "Cannot split: lines without a catalog product cannot be moved. Link a product first.",
+          );
+        }
+
+        plans.push({
+          itemId: it.id,
+          productId: it.productId,
+          keepQty,
+          moveQty,
+          price: it.price,
+          discountPercent: it.discountPercent ?? 0,
+          snapshot: it.productNameSnapshot,
+        });
       }
-
-      plans.push({
-        itemId: it.id,
-        productId: it.productId,
-        keepQty,
-        moveQty,
-        price: it.price,
-        snapshot: it.productNameSnapshot,
-      });
     }
 
     const totalMove = plans.reduce((s, p) => s + p.moveQty, 0);
     if (totalMove <= 0) {
-      throw new BadRequestException("Nothing to split: stock covers all lines");
+      throw new BadRequestException(
+        hasPicks
+          ? "Nothing to split: all lines were found in full"
+          : "Nothing to split: stock covers all lines",
+      );
     }
 
+    const totalKeep = plans.reduce((s, p) => s + p.keepQty, 0);
+    if (hasPicks && totalKeep <= 0) {
+      throw new BadRequestException("Nothing to ship: all lines are missing");
+    }
+
+    const childStage: OrderStage = hasPicks ? "AWAITING_STOCK" : "NEW";
     const changedBy = actor?.id ?? "system";
 
     const childId = await this.prisma.$transaction(async (tx) => {
@@ -1224,7 +1318,7 @@ export class OrdersService {
         paidAmount: a.paid,
         debtAmount: a.debt,
         paymentType: parent.paymentType,
-        orderStage: "NEW",
+        orderStage: childStage,
       });
 
       const child = await tx.order.create({
@@ -1242,7 +1336,9 @@ export class OrdersService {
           totalAmount: a.total,
           paidAmount: a.paid,
           debtAmount: a.debt,
-          comment: `Частина замовлення з №${parent.orderNumber}`,
+          comment: hasPicks
+            ? `Недостача при збірці з №${parent.orderNumber}`
+            : `Частина замовлення з №${parent.orderNumber}`,
           deliveryMethod: parent.deliveryMethod,
           paymentMethod: parent.paymentMethod,
           bankAccountId: parent.bankAccountId,
@@ -1251,7 +1347,7 @@ export class OrdersService {
           paymentType: parent.paymentType,
           paymentDueDate: parent.paymentDueDate,
           exchangeRate: parent.exchangeRate,
-          orderStage: "NEW",
+          orderStage: childStage,
           deliveryStatus: "NOT_SHIPPED",
           financialStatus,
           returnAdjustmentAmount: 0,
@@ -1268,11 +1364,13 @@ export class OrdersService {
         });
         if (existingChildLine) {
           const nq = existingChildLine.qty + p.moveQty;
+          const disc = existingChildLine.discountPercent ?? p.discountPercent;
           await tx.orderItem.update({
             where: { id: existingChildLine.id },
             data: {
               qty: nq,
-              lineTotal: nq * existingChildLine.price,
+              discountPercent: disc,
+              lineTotal: computeLineTotal(nq, existingChildLine.price, disc),
             },
           });
         } else {
@@ -1283,7 +1381,8 @@ export class OrdersService {
               productNameSnapshot: p.snapshot,
               qty: p.moveQty,
               price: p.price,
-              lineTotal: p.moveQty * p.price,
+              discountPercent: p.discountPercent,
+              lineTotal: computeLineTotal(p.moveQty, p.price, p.discountPercent),
             },
           });
         }
@@ -1295,17 +1394,25 @@ export class OrdersService {
             where: { id: p.itemId },
             data: {
               qty: p.keepQty,
-              lineTotal: p.keepQty * p.price,
+              lineTotal: computeLineTotal(p.keepQty, p.price, p.discountPercent),
             },
           });
         }
       }
 
+      const activityTitle = hasPicks ? "Розділення при збірці" : "Розділення по залишках";
+      const parentBody = hasPicks
+        ? `Створено дочірнє замовлення №${orderNumber} (недостача при збірці → Очікує на склад). Оплати залишились на цьому замовленні.`
+        : `Створено дочірнє замовлення №${orderNumber} (нестача на складі). Оплати залишились на цьому замовленні.`;
+      const childBody = hasPicks
+        ? `Виділено з батьківського замовлення №${parent.orderNumber} після збірки.`
+        : `Виділено з батьківського замовлення №${parent.orderNumber}.`;
+
       await tx.activity.create({
         data: {
           type: ActivityType.COMMENT,
-          title: "Розділення по залишках",
-          body: `Створено дочірнє замовлення №${orderNumber} (нестача на складі). Оплати залишились на цьому замовленні.`,
+          title: activityTitle,
+          body: parentBody,
           createdBy: changedBy,
           orderId: parent.id,
         },
@@ -1313,8 +1420,8 @@ export class OrdersService {
       await tx.activity.create({
         data: {
           type: ActivityType.COMMENT,
-          title: "Розділення по залишках",
-          body: `Виділено з батьківського замовлення №${parent.orderNumber}.`,
+          title: activityTitle,
+          body: childBody,
           createdBy: changedBy,
           orderId: child.id,
         },
@@ -1332,6 +1439,14 @@ export class OrdersService {
       this.getById(orderId, actor),
       this.getById(childId, actor),
     ]);
+
+    void this.warehouseNotifier.notifySplit({
+      parentOrderId: orderId,
+      childOrderId: childId,
+      childOrderNumber: String(childEntity.orderNumber),
+      actor,
+    });
+
     return { parent: parentEntity, child: childEntity };
   }
 
@@ -1511,6 +1626,13 @@ export class OrdersService {
         }
       });
     }
+
+    void this.warehouseNotifier.notifyStageChanged({
+      orderId: id,
+      fromStage: current.orderStage,
+      toStage,
+      actor,
+    });
 
     return this.mapToEntity(updated);
   }
@@ -1697,6 +1819,7 @@ export class OrdersService {
           "",
         qty: it.qty,
         price: it.price,
+        discountPercent: it.discountPercent ?? 0,
         lineTotal: it.lineTotal,
         product: it.product ?? null,
       })),

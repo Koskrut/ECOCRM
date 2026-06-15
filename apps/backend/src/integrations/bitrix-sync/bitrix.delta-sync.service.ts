@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../../audit/audit-context";
 import { ModuleStateService } from "../../modules/module-state.service";
 import { ModuleIds } from "../../modules/module-ids";
 import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
@@ -21,6 +22,10 @@ import {
   orderStageToDeliveryStatus,
 } from "../../orders/order-status-sync.mapper";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
+import {
+  syncCompanyAddressesFromBitrixRow,
+  syncContactAddressesFromBitrixRow,
+} from "./bitrix-address-sync.util";
 
 const LEGACY_SOURCE = "bitrix";
 const MAX_PAGES_PER_RUN = 10;
@@ -46,6 +51,7 @@ export class BitrixDeltaSyncService {
       const ok = await this.modules.isEffective(ModuleIds.Bitrix);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:bitrix-delta-sync", async () => {
     try {
       await withRetryOnConnectionClosed(
         async () => {
@@ -64,6 +70,7 @@ export class BitrixDeltaSyncService {
     } catch (e) {
       this.logger.error("Bitrix delta sync failed", e);
     }
+    }, { job: "bitrix-delta-sync" });
   }
 
   private async syncContacts(): Promise<void> {
@@ -109,9 +116,15 @@ export class BitrixDeltaSyncService {
         };
         if (existing) {
           await this.prisma.contact.update({ where: { id: existing.id }, data: payload });
+          await syncContactAddressesFromBitrixRow(this.prisma, existing.id, item as Record<string, unknown>);
           updated++;
         } else {
-          await this.prisma.contact.create({ data: payload });
+          const createdContact = await this.prisma.contact.create({ data: payload });
+          await syncContactAddressesFromBitrixRow(
+            this.prisma,
+            createdContact.id,
+            item as Record<string, unknown>,
+          );
           created++;
         }
       }
@@ -151,9 +164,15 @@ export class BitrixDeltaSyncService {
         };
         if (existing) {
           await this.prisma.company.update({ where: { id: existing.id }, data: payload });
+          await syncCompanyAddressesFromBitrixRow(this.prisma, existing.id, item as Record<string, unknown>);
           updated++;
         } else {
-          await this.prisma.company.create({ data: payload });
+          const createdCompany = await this.prisma.company.create({ data: payload });
+          await syncCompanyAddressesFromBitrixRow(
+            this.prisma,
+            createdCompany.id,
+            item as Record<string, unknown>,
+          );
           created++;
         }
       }
@@ -371,8 +390,14 @@ export class BitrixDeltaSyncService {
     };
     if (existing) {
       await this.prisma.contact.update({ where: { id: existing.id }, data: payload });
+      await syncContactAddressesFromBitrixRow(this.prisma, existing.id, item as Record<string, unknown>);
     } else {
-      await this.prisma.contact.create({ data: payload });
+      const createdContact = await this.prisma.contact.create({ data: payload });
+      await syncContactAddressesFromBitrixRow(
+        this.prisma,
+        createdContact.id,
+        item as Record<string, unknown>,
+      );
     }
     return true;
   }
@@ -397,8 +422,14 @@ export class BitrixDeltaSyncService {
     };
     if (existing) {
       await this.prisma.company.update({ where: { id: existing.id }, data: payload });
+      await syncCompanyAddressesFromBitrixRow(this.prisma, existing.id, item as Record<string, unknown>);
     } else {
-      await this.prisma.company.create({ data: payload });
+      const createdCompany = await this.prisma.company.create({ data: payload });
+      await syncCompanyAddressesFromBitrixRow(
+        this.prisma,
+        createdCompany.id,
+        item as Record<string, unknown>,
+      );
     }
     return true;
   }

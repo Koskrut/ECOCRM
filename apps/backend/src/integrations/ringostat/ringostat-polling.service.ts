@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { withAuditSource } from "../../audit/audit-context";
 import { ModuleStateService } from "../../modules/module-state.service";
 import { ModuleIds } from "../../modules/module-ids";
 import { withRetryOnConnectionClosed } from "../../prisma/db-retry";
@@ -36,6 +37,7 @@ export class RingostatPollingService {
       const ok = await this.modules.isEffective(ModuleIds.Ringostat);
       if (!ok) return;
     }
+    return withAuditSource("cron", "cron:ringostat-polling", async () => {
     try {
       await withRetryOnConnectionClosed(
         async () => {
@@ -113,6 +115,7 @@ export class RingostatPollingService {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Ringostat polling failed: ${msg}`);
     }
+    }, { job: "ringostat-polling" });
   }
 }
 

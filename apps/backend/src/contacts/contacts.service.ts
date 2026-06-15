@@ -15,6 +15,10 @@ import { hashPassword } from "../auth/password";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
 import {
+  contactDenormalizedFromDefault,
+  mapAddressRow,
+} from "../common/entity-address.util";
+import {
   getPhoneNormalizedDigits,
   normalizePhoneToE164,
 } from "../common/phone.utils";
@@ -556,6 +560,17 @@ export class ContactsService {
         { addressInfo: { contains: search, mode: "insensitive" } },
         { region: { contains: search, mode: "insensitive" } },
         { city: { contains: search, mode: "insensitive" } },
+        {
+          addresses: {
+            some: {
+              OR: [
+                { addressText: { contains: search, mode: "insensitive" } },
+                { city: { contains: search, mode: "insensitive" } },
+                { label: { contains: search, mode: "insensitive" } },
+              ],
+            },
+          },
+        },
       ];
       if (tokens.length === 2) {
         const [a, b] = [tokens[0]!, tokens[1]!];
@@ -734,7 +749,7 @@ export class ContactsService {
     const [contact, lastVisit, telegramAccount] = await Promise.all([
       this.prisma.contact.findUnique({
         where: { id },
-        include: { company: true, owner: true, phones: true },
+        include: { company: true, owner: true, phones: true, addresses: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] } },
       }),
       this.prisma.visit.findFirst({
         where: { contactId: id },
@@ -767,6 +782,7 @@ export class ContactsService {
       ...entity,
       phones: (contact as { phones?: { id: string; phone: string; phoneNormalized: string; label: string | null }[] })
         .phones ?? [],
+      addresses: (contact.addresses ?? []).map(mapAddressRow),
       lastVisitAt: lastVisit?.startsAt ?? null,
       telegramLinked: !!telegramAccount,
       telegramUsername: telegramAccount?.username ?? null,
@@ -1097,6 +1113,202 @@ export class ContactsService {
 
     await this.prisma.contact.delete({ where: { id } });
     return { ok: true };
+  }
+
+  // ==========================================================
+  // ADDRESSES
+  // ==========================================================
+
+  async syncDenormalizedAddress(contactId: string) {
+    const defaultAddress = await this.prisma.contactAddress.findFirst({
+      where: { contactId, isDefault: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    const cache = contactDenormalizedFromDefault(defaultAddress);
+    await this.prisma.contact.update({
+      where: { id: contactId },
+      data: cache,
+    });
+    return cache;
+  }
+
+  async listAddresses(contactId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const items = await this.prisma.contactAddress.findMany({
+      where: { contactId },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    });
+    return { items: items.map(mapAddressRow) };
+  }
+
+  async createAddress(
+    contactId: string,
+    data: {
+      label?: string | null;
+      city?: string | null;
+      addressText: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+      isDefault?: boolean;
+    },
+    actor?: AuthUser,
+  ) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const addressText = data.addressText?.trim();
+    if (!addressText) throw new BadRequestException("addressText is required");
+
+    const existingCount = await this.prisma.contactAddress.count({ where: { contactId } });
+    const isDefault = data.isDefault ?? existingCount === 0;
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (isDefault) {
+        await tx.contactAddress.updateMany({
+          where: { contactId, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+      return tx.contactAddress.create({
+        data: {
+          contactId,
+          label: data.label?.trim() || null,
+          city: data.city?.trim() || null,
+          addressText,
+          lat: data.lat ?? null,
+          lng: data.lng ?? null,
+          googlePlaceId: data.googlePlaceId ?? null,
+          isDefault,
+        },
+      });
+    });
+
+    if (isDefault) await this.syncDenormalizedAddress(contactId);
+    return mapAddressRow(created);
+  }
+
+  async updateAddress(
+    contactId: string,
+    addressId: string,
+    data: {
+      label?: string | null;
+      city?: string | null;
+      addressText?: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+    },
+    actor?: AuthUser,
+  ) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const existing = await this.prisma.contactAddress.findFirst({
+      where: { id: addressId, contactId },
+    });
+    if (!existing) throw new NotFoundException("address not found");
+
+    if (data.addressText !== undefined && !data.addressText.trim()) {
+      throw new BadRequestException("addressText cannot be empty");
+    }
+
+    const updated = await this.prisma.contactAddress.update({
+      where: { id: addressId },
+      data: {
+        ...(data.label !== undefined ? { label: data.label?.trim() || null } : {}),
+        ...(data.city !== undefined ? { city: data.city?.trim() || null } : {}),
+        ...(data.addressText !== undefined ? { addressText: data.addressText.trim() } : {}),
+        ...(data.lat !== undefined ? { lat: data.lat } : {}),
+        ...(data.lng !== undefined ? { lng: data.lng } : {}),
+        ...(data.googlePlaceId !== undefined ? { googlePlaceId: data.googlePlaceId } : {}),
+      },
+    });
+
+    if (existing.isDefault) await this.syncDenormalizedAddress(contactId);
+    return mapAddressRow(updated);
+  }
+
+  async deleteAddress(contactId: string, addressId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const existing = await this.prisma.contactAddress.findFirst({
+      where: { id: addressId, contactId },
+    });
+    if (!existing) throw new NotFoundException("address not found");
+
+    await this.prisma.contactAddress.delete({ where: { id: addressId } });
+
+    if (existing.isDefault) {
+      const nextDefault = await this.prisma.contactAddress.findFirst({
+        where: { contactId },
+        orderBy: { createdAt: "asc" },
+      });
+      if (nextDefault) {
+        await this.prisma.contactAddress.update({
+          where: { id: nextDefault.id },
+          data: { isDefault: true },
+        });
+      }
+      await this.syncDenormalizedAddress(contactId);
+    }
+
+    return { ok: true };
+  }
+
+  async setDefaultAddress(contactId: string, addressId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const target = await this.prisma.contactAddress.findFirst({
+      where: { id: addressId, contactId },
+    });
+    if (!target) throw new NotFoundException("address not found");
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.contactAddress.updateMany({
+        where: { contactId, isDefault: true },
+        data: { isDefault: false },
+      });
+      await tx.contactAddress.update({
+        where: { id: addressId },
+        data: { isDefault: true },
+      });
+    });
+
+    await this.syncDenormalizedAddress(contactId);
+    const updated = await this.prisma.contactAddress.findUniqueOrThrow({ where: { id: addressId } });
+    return mapAddressRow(updated);
+  }
+
+  async getDefaultAddress(contactId: string) {
+    return this.prisma.contactAddress.findFirst({
+      where: { contactId, isDefault: true },
+      orderBy: { updatedAt: "desc" },
+    });
   }
 
   // ==========================================================

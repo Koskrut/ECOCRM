@@ -1,7 +1,8 @@
-import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { Injectable, Logger, Optional, UnauthorizedException } from "@nestjs/common";
 import { ActivityType, LeadSource, LeadStatus } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
+import { NotificationsService } from "../../notifications/notifications.service";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export const KYIVSTAR_FMC_PROVIDER = "KYIVSTAR_FMC";
@@ -35,6 +36,7 @@ export class KyivstarFmcIngestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly phoneEntityLookup: PhoneEntityLookupService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   async handleCallStateWebhook(body: unknown, authHeader: string | undefined): Promise<void> {
@@ -416,6 +418,16 @@ export class KyivstarFmcIngestService {
           });
         }
       });
+
+      if (this.isMissed(status) && customerPhoneNormalized && direction === "INBOUND" && managerUserId) {
+        void this.notifications?.notifyMissedCall({
+          managerUserId,
+          customerPhone: customerPhoneNormalized,
+          contactId,
+          leadId,
+          companyId,
+        });
+      }
 
       metrics.processed = true;
       return metrics;

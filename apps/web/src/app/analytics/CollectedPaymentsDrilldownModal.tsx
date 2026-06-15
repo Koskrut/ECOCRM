@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
-import { formatMoneyUsd } from "./analytics-ui";
+import { formatMoneyBase } from "./analytics-ui";
 import { formatDateTime } from "@/lib/crmDatetime";
+import type { BaseCurrency } from "@/lib/base-currency";
 
 type PaymentRow = {
   id: string;
   paidAt: string | null;
-  amountUsd: number;
+  amount: number;
   currency: string;
   orderId: string;
   orderNumber: string;
@@ -18,8 +19,9 @@ type PaymentRow = {
 
 type DrilldownResponse = {
   type: string;
+  currency?: string;
   totalCount: number;
-  totalUsd: number;
+  totalAmount: number;
   items: PaymentRow[];
 };
 
@@ -40,12 +42,14 @@ export function CollectedPaymentsDrilldownModal({
   open,
   onClose,
   querySuffix,
-  kpiCollectedUsd,
+  kpiCollectedAmount,
+  currency: currencyProp = "USD",
 }: {
   open: boolean;
   onClose: () => void;
   querySuffix: string;
-  kpiCollectedUsd: number | undefined;
+  kpiCollectedAmount: number | undefined;
+  currency?: BaseCurrency | string;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,9 +86,10 @@ export function CollectedPaymentsDrilldownModal({
 
   if (!open) return null;
 
+  const currency = data?.currency === "EUR" ? "EUR" : currencyProp === "EUR" ? "EUR" : "USD";
   const diff =
-    kpiCollectedUsd != null && data != null
-      ? Math.round((data.totalUsd - kpiCollectedUsd) * 100) / 100
+    kpiCollectedAmount != null && data != null
+      ? Math.round((data.totalAmount - kpiCollectedAmount) * 100) / 100
       : null;
 
   return (
@@ -109,17 +114,17 @@ export function CollectedPaymentsDrilldownModal({
                   Платежів у періоді: <strong>{data.totalCount}</strong>
                 </span>
                 <span>
-                  Сума (USD) з drilldown: <strong>{formatMoneyUsd(data.totalUsd)}</strong>
+                  Сума ({currency}) з drilldown: <strong>{formatMoneyBase(data.totalAmount, currency)}</strong>
                 </span>
-                {kpiCollectedUsd != null && (
+                {kpiCollectedAmount != null && (
                   <span>
-                    KPI на Overview: <strong>{formatMoneyUsd(kpiCollectedUsd)}</strong>
+                    KPI на Overview: <strong>{formatMoneyBase(kpiCollectedAmount, currency)}</strong>
                   </span>
                 )}
                 {diff != null && Math.abs(diff) > 0.01 && (
                   <span className="text-amber-700">
                     Різниця: {diff > 0 ? "+" : ""}
-                    {formatMoneyUsd(diff)}
+                    {formatMoneyBase(diff, currency)}
                   </span>
                 )}
               </div>
@@ -151,8 +156,7 @@ export function CollectedPaymentsDrilldownModal({
                 <tr>
                   <th className="px-3 py-2 font-medium">Дата оплати</th>
                   <th className="px-3 py-2 font-medium">Замовлення</th>
-                  <th className="px-3 py-2 font-medium">USD</th>
-                  <th className="px-3 py-2 font-medium">Валюта</th>
+                  <th className="px-3 py-2 font-medium">Сума ({currency})</th>
                   <th className="px-3 py-2 font-medium">Менеджер</th>
                   <th className="px-3 py-2 font-medium">Клієнт</th>
                 </tr>
@@ -160,7 +164,7 @@ export function CollectedPaymentsDrilldownModal({
               <tbody>
                 {data.items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-6 text-center text-zinc-500">
+                    <td colSpan={5} className="px-3 py-6 text-center text-zinc-500">
                       Немає платежів за обраними фільтрами
                     </td>
                   </tr>
@@ -169,8 +173,7 @@ export function CollectedPaymentsDrilldownModal({
                     <tr key={row.id} className="border-t border-zinc-100">
                       <td className="px-3 py-2 whitespace-nowrap">{formatPaidAt(row.paidAt)}</td>
                       <td className="px-3 py-2">{row.orderNumber}</td>
-                      <td className="px-3 py-2 font-medium">{formatMoneyUsd(row.amountUsd)}</td>
-                      <td className="px-3 py-2">{row.currency}</td>
+                      <td className="px-3 py-2 font-medium">{formatMoneyBase(row.amount, currency)}</td>
                       <td className="px-3 py-2">{row.managerName ?? "—"}</td>
                       <td className="px-3 py-2">{row.clientName ?? "—"}</td>
                     </tr>

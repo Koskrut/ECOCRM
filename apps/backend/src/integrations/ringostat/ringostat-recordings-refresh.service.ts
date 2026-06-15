@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { fetchRingostatCallsList, type RingostatCallsListConfig } from "./ringostat-calls-list";
 import { RINGOSTAT_PROVIDER } from "./ringostat-ingest.service";
@@ -117,16 +116,21 @@ export class RingostatRecordingsRefreshService {
 
       // Do NOT rely on Call.externalId == uniqueid: after rekey merges externalId can remain ks1_*
       // while rawPayload.uniqueid is present. Update by rawPayload uniqueid instead.
-      const affected = await this.prisma.$executeRaw(
-        Prisma.sql`
-          UPDATE "Call"
-          SET "recordingUrl" = ${url}, "recordingStatus" = 'READY'
-          WHERE "provider" = ${RINGOSTAT_PROVIDER}
-            AND "recordingUrl" IS NULL
-            AND ("rawPayload"->>'uniqueid') = ${uniqueid}
-        `,
-      );
-      updated += Number(affected ?? 0);
+      const affected = await this.prisma.call.updateMany({
+        where: {
+          provider: RINGOSTAT_PROVIDER,
+          recordingUrl: null,
+          rawPayload: {
+            path: ["uniqueid"],
+            equals: uniqueid,
+          },
+        },
+        data: {
+          recordingUrl: url,
+          recordingStatus: "READY",
+        },
+      });
+      updated += affected.count;
     }
 
     const report: RingostatRecordingsRefreshReport = {

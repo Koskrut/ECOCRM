@@ -173,6 +173,77 @@ export class ContactsController {
     return this.contactsService.setPrimaryPhone(id, phoneId, req.user);
   }
 
+  @Get(":id/addresses")
+  async listAddresses(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.listAddresses(id, req.user);
+  }
+
+  @Post(":id/addresses")
+  async createAddress(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      label?: string;
+      city?: string;
+      addressText: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+      isDefault?: boolean;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.createAddress(
+      id,
+      {
+        label: body.label ?? null,
+        city: body.city ?? null,
+        addressText: String(body.addressText ?? ""),
+        lat: body.lat ?? null,
+        lng: body.lng ?? null,
+        googlePlaceId: body.googlePlaceId ?? null,
+        isDefault: body.isDefault,
+      },
+      req.user,
+    );
+  }
+
+  @Patch(":id/addresses/:addressId")
+  async updateAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Body()
+    body: {
+      label?: string | null;
+      city?: string | null;
+      addressText?: string;
+      lat?: number | null;
+      lng?: number | null;
+      googlePlaceId?: string | null;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.updateAddress(id, addressId, body, req.user);
+  }
+
+  @Delete(":id/addresses/:addressId")
+  async deleteAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.deleteAddress(id, addressId, req.user);
+  }
+
+  @Post(":id/addresses/:addressId/set-default")
+  async setDefaultAddress(
+    @Param("id") id: string,
+    @Param("addressId") addressId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.setDefaultAddress(id, addressId, req.user);
+  }
+
   @Get(":id/shipping-profiles")
   async listShippingProfiles(
     @Param("id") id: string,

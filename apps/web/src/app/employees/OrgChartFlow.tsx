@@ -575,7 +575,7 @@ export function OrgChartFlow({
       </div>
 
       {selectedSlotId && (
-        <div className="absolute right-0 top-0 z-10 w-72 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg">
+        <div className="absolute inset-x-4 bottom-4 z-10 max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-lg md:inset-x-auto md:bottom-auto md:right-0 md:top-0 md:w-72">
           <div className="mb-2 text-sm font-medium text-zinc-700">
             Назначить на позицию: {slotLabel(selectedSlotId)}
           </div>

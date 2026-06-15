@@ -83,7 +83,7 @@ export class PaymentsController {
   }
 
   @Delete(":id/allocation")
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   unallocate(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.service.unallocateBankPayment(id, req.user);
   }

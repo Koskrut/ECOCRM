@@ -8,6 +8,7 @@ import {
 import type { Prisma, TaskStatus } from "@prisma/client";
 import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateTaskDto } from "./dto/create-task.dto";
@@ -19,6 +20,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   private assertTaskAccess(task: { assigneeId: string; createdById?: string | null }, actor: AuthUser): void {
@@ -153,6 +155,17 @@ export class TasksService {
       task.id,
       taskRecordFromRow(task as unknown as TaskRowLike),
     );
+    if (assigneeId !== actor.id) {
+      void this.notifications?.notifyTaskAssigned({
+        assigneeId,
+        taskId: task.id,
+        title: `Нова задача: ${task.title}`,
+        body: task.body,
+        actorId: actor.id,
+        orderId: task.orderId,
+        leadId: task.leadId,
+      });
+    }
     return task;
   }
 

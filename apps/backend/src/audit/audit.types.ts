@@ -12,6 +12,13 @@ export type AuditRequestContext = {
   userAgent?: string;
   requestId?: string;
   source?: string;
+  job?: string;
+};
+
+export type AuditContext = {
+  actor: AuditActor;
+  request?: AuditRequestContext;
+  skipAudit?: boolean;
 };
 
 export type AuditLogPayload = {

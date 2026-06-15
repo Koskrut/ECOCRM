@@ -63,11 +63,14 @@ export function assertWarehouseOrderMutation(
 export function assertWarehouseOrderItemQtyUpdate(
   actor: AuthUser | undefined,
   orderStage: OrderStage | null | undefined,
-  dto: { qty?: number; price?: number },
+  dto: { qty?: number; price?: number; discountPercent?: number },
 ): void {
   if (!isWarehouseRole(actor)) return;
   if (dto.price !== undefined) {
     throw new ForbiddenException("Кладовщик не може змінювати ціну позиції");
+  }
+  if (dto.discountPercent !== undefined) {
+    throw new ForbiddenException("Кладовщик не може змінювати знижку позиції");
   }
   if (dto.qty === undefined) return;
   const stage = orderStage ?? "NEW";
@@ -81,12 +84,18 @@ export function assertWarehouseOrderItemQtyUpdate(
 export function assertWarehouseSplitByStock(
   actor: AuthUser | undefined,
   orderStage: OrderStage | null | undefined,
+  hasPicks: boolean,
 ): void {
   if (!isWarehouseRole(actor)) return;
   const stage = orderStage ?? "NEW";
   if (stage !== "CONFIRMED") {
     throw new ForbiddenException(
       "Кладовщик може розділяти замовлення лише на стадії Підтверджено",
+    );
+  }
+  if (!hasPicks) {
+    throw new ForbiddenException(
+      "Кладовщик може розділяти лише за результатами збірки",
     );
   }
 }

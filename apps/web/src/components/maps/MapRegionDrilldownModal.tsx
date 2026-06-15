@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
-import { formatMoneyUsd } from "@/app/analytics/analytics-ui";
+import { formatMoneyBase } from "@/app/analytics/analytics-ui";
 import { formatDate } from "@/lib/crmDatetime";
 
 type OrderRow = {
@@ -11,12 +11,13 @@ type OrderRow = {
   orderNumber: string;
   managerName: string | null;
   clientName: string | null;
-  bookedRevenueUsd: number;
-  debtAmountUsd: number;
+  bookedRevenue: number;
+  debtAmount: number;
 };
 
 type DrilldownResponse = {
   type: string;
+  currency?: string;
   region?: string;
   totalCount: number;
   items: OrderRow[];
@@ -79,6 +80,8 @@ export function MapRegionDrilldownModal({
 
   if (!open || !region) return null;
 
+  const currency = data?.currency === "EUR" ? "EUR" : "USD";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/40" aria-label="Закрити" onClick={onClose} />
@@ -123,7 +126,7 @@ export function MapRegionDrilldownModal({
                       </td>
                       <td className="py-2 pr-2">{row.managerName ?? "—"}</td>
                       <td className="py-2 pr-2">{row.clientName ?? "—"}</td>
-                      <td className="py-2 text-right">{formatMoneyUsd(row.bookedRevenueUsd)}</td>
+                      <td className="py-2 text-right">{formatMoneyBase(row.bookedRevenue, currency)}</td>
                     </tr>
                   ))}
                 </tbody>

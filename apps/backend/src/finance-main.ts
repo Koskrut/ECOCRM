@@ -12,6 +12,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { FinanceIdempotencyModule } from "./finance-idempotency/finance-idempotency.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { BankModule } from "./bank/bank.module";
@@ -27,6 +28,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
 @Module({
   imports: [
     PrismaModule,
+    AuditContextModule,
     FinanceIdempotencyModule,
     ScheduleModule.forRoot(),
     AuthModule,

@@ -17,20 +17,13 @@ import { computeReturnAdjustmentAmount } from "../order-returns/order-return-adj
 import { PaymentsService } from "../payments/payments.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService, type ExchangeRates } from "../settings/settings.service";
+import { toUsd } from "../common/currency.util";
 import { computeOrderOverpayment, resolveBalanceHolder } from "./balance-holder.utils";
 import type { ApplyCreditDto } from "./dto/apply-credit.dto";
 import type { SettleReturnDto } from "./dto/settle-return.dto";
 
-function getRateToUsd(currency: string, rates: ExchangeRates): number {
-  const c = (currency || "USD").toUpperCase();
-  if (c === "USD") return 1;
-  if (c === "UAH") return rates.UAH_TO_USD;
-  if (c === "EUR") return rates.EUR_TO_USD;
-  return 1;
-}
-
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
-  return amount * getRateToUsd(currency, rates);
+  return toUsd(amount, currency, rates);
 }
 
 function roundMoney(n: number): number {

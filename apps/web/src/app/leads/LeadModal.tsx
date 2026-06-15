@@ -15,6 +15,7 @@ import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
+import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
@@ -120,7 +121,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [showCompleteOutcomeDialog, setShowCompleteOutcomeDialog] = useState(false);
   /** Preset when opening from outcome dialog: company+contact+deal | contact+deal | contact only */
   const [convertPreset, setConvertPreset] = useState<"company_contact_deal" | "contact_deal" | "contact" | null>(null);
-  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity" | "source">("main");
+  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity" | "source" | "change-history">("main");
 
   const [noteMessage, setNoteMessage] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -680,12 +681,26 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setConvertError("Введіть назву компанії");
       return;
     }
+    const hasSelectedContact = !!selectedContactId;
+    const mode = hasSelectedContact || !createContact ? "link" : "create";
+    if (mode === "link" && !selectedContactId) {
+      setConvertError("Оберіть контакт або увімкніть створення контакту");
+      return;
+    }
+    if (mode === "create") {
+      const phone = normalizePhone(newContactPhone) ?? (newContactPhone.trim() || lead.phone);
+      if (!phone?.trim()) {
+        setConvertError("Телефон обовʼязковий для створення контакту");
+        return;
+      }
+      if (!lead.region?.trim()) {
+        setConvertError("Оберіть область у картці ліда перед конвертацією");
+        return;
+      }
+    }
     setConverting(true);
     setConvertError(null);
     try {
-      const hasSelectedContact = !!selectedContactId;
-      const mode = hasSelectedContact || !createContact ? "link" : "create";
-
       const payload: any = {
         contactMode: mode,
         createDeal,
@@ -696,18 +711,25 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       }
 
       if (mode === "link") {
-        if (!selectedContactId) {
-          throw new Error("Оберіть контакт або увімкніть створення контакту");
-        }
         payload.contactId = selectedContactId;
       } else {
         payload.contact = {
-          firstName: newContactFirstName.trim() || lead.name || "Лід",
-          lastName: newContactLastName.trim() || "",
+          firstName: newContactFirstName.trim() || lead.firstName?.trim() || lead.name?.trim() || "Лід",
+          lastName:
+            newContactLastName.trim() ||
+            lead.lastName?.trim() ||
+            lead.companyName?.trim() ||
+            undefined,
           middleName: newContactMiddleName.trim() || "",
           phone: normalizePhone(newContactPhone) ?? (newContactPhone.trim() || lead.phone),
           email: newContactEmail.trim() || lead.email,
           companyName: newContactCompanyName.trim() || lead.companyName,
+          region: lead.region ?? undefined,
+          city: lead.city ?? undefined,
+          address: lead.address ?? undefined,
+          lat: lead.lat ?? undefined,
+          lng: lead.lng ?? undefined,
+          googlePlaceId: lead.googlePlaceId ?? undefined,
         };
       }
 
@@ -968,6 +990,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         <div className="text-sm text-zinc-500">Немає даних про джерело</div>
       ) : null}
     </div>
+  ) : leadTab === "change-history" ? (
+    <EntitySection title="Історія змін">
+      <EntityChangeHistoryPanel entityType="Lead" entityId={lead.id} />
+    </EntitySection>
   ) : leadTab === "activity" ? (
     <EntitySection title="Активність">
       <div className="h-[420px]">
@@ -1803,6 +1829,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Активність
+          </button>
+          <button
+            type="button"
+            onClick={() => setLeadTab("change-history")}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "change-history" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Історія змін
           </button>
           <button
             type="button"

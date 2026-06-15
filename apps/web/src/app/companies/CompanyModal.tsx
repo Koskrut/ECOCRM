@@ -7,7 +7,13 @@ import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
-import { companiesApi, type CompanyChangeHistoryItem } from "@/lib/api/resources/companies";
+import { companiesApi, type Company } from "@/lib/api/resources/companies";
+import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
+import {
+  EntityAddressesSection,
+  formatAddressOptionLabel,
+  pickVisitReadyAddresses,
+} from "@/components/EntityAddressesSection";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
@@ -44,23 +50,6 @@ function CompanyGoogleScriptLoader({
   }, [isLoaded, loadError, onState]);
   return null;
 }
-
-type Company = {
-  id: string;
-  name: string;
-  edrpou?: string | null;
-  taxId?: string | null;
-  phone?: string | null;
-  address?: string | null;
-  lat?: number | null;
-  lng?: number | null;
-  googlePlaceId?: string | null;
-  ownerId?: string | null;
-  owner?: { id: string; fullName: string } | null;
-  createdAt: string;
-  updatedAt: string;
-  lastVisitAt?: string | null;
-};
 
 type Props = {
   apiBaseUrl: string;
@@ -117,6 +106,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [addressError, setAddressError] = useState<string | null>(null);
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
+  const [selectedVisitAddressId, setSelectedVisitAddressId] = useState("");
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,11 +138,6 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   type LeftTabId = "main" | "orders" | "contacts" | "tasks" | "change-history";
   const [leftTab, setLeftTab] = useState<LeftTabId>("main");
 
-  // Change history
-  const [changeHistory, setChangeHistory] = useState<CompanyChangeHistoryItem[]>([]);
-  const [loadingChangeHistory, setLoadingChangeHistory] = useState(false);
-  const [changeHistoryError, setChangeHistoryError] = useState<string | null>(null);
-
   const canClose = !saving && !creatingOrder;
 
   const title = useMemo(() => (isCreate ? "Нова компанія" : "Компанія"), [isCreate]);
@@ -175,6 +160,23 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       })),
     [allContactsForLink],
   );
+
+  const visitReadyAddresses = useMemo(
+    () => pickVisitReadyAddresses(company?.addresses ?? []),
+    [company?.addresses],
+  );
+
+  useEffect(() => {
+    if (visitReadyAddresses.length === 0) {
+      setSelectedVisitAddressId("");
+      return;
+    }
+    setSelectedVisitAddressId((prev) => {
+      if (prev && visitReadyAddresses.some((a) => a.id === prev)) return prev;
+      const def = visitReadyAddresses.find((a) => a.isDefault) ?? visitReadyAddresses[0];
+      return def?.id ?? "";
+    });
+  }, [visitReadyAddresses]);
 
   const refresh = useCallback(async () => {
     if (isCreate) {
@@ -299,25 +301,6 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     if (companyId && !isCreate) void loadCompanyContacts();
   }, [companyId, isCreate, loadCompanyContacts]);
 
-  const loadChangeHistory = useCallback(async () => {
-    if (isCreate || !companyId) return;
-    setLoadingChangeHistory(true);
-    setChangeHistoryError(null);
-    try {
-      const items = await companiesApi.getChangeHistory(companyId);
-      setChangeHistory(items);
-    } catch (e) {
-      setChangeHistoryError(e instanceof Error ? e.message : "Не вдалося завантажити історію");
-      setChangeHistory([]);
-    } finally {
-      setLoadingChangeHistory(false);
-    }
-  }, [companyId, isCreate]);
-
-  useEffect(() => {
-    if (leftTab === "change-history" && !isCreate && companyId) void loadChangeHistory();
-  }, [leftTab, isCreate, companyId, loadChangeHistory]);
-
   const handleEscape = useCallback(() => {
     if (orderId) {
       setOrderId(null);
@@ -344,7 +327,6 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       try {
         await apiHttp.patch(`/companies/${companyId}`, payload);
         await refresh();
-        if (leftTab === "change-history") void loadChangeHistory();
         if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
         onUpdate();
       } catch (e) {
@@ -353,7 +335,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         setSaving(false);
       }
     },
-    [companyId, isCreate, leftTab, refresh, onUpdate],
+    [companyId, isCreate, refresh, onUpdate],
   );
 
   const userOptions = useMemo(
@@ -370,10 +352,6 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         ...(edrpou.trim() ? { edrpou: edrpou.trim() } : {}),
         ...(taxId.trim() ? { taxId: taxId.trim() } : {}),
         ...(phone.trim() ? { phone: phone.trim() } : {}),
-        ...(address.trim() ? { address: address.trim() } : {}),
-        ...(lat != null ? { lat } : {}),
-        ...(lng != null ? { lng } : {}),
-        ...(googlePlaceId ? { googlePlaceId } : {}),
         ownerId: createOwnerId,
       };
       if (!payload.name) throw new Error("Назва обов'язкова");
@@ -414,14 +392,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
   const scheduleVisit = async () => {
     if (!company || isCreate) return;
-    const effectiveLat = editLat ?? company.lat ?? null;
-    const effectiveLng = editLng ?? company.lng ?? null;
-    if (effectiveLat == null || effectiveLng == null) {
+    const selected =
+      visitReadyAddresses.find((a) => a.id === selectedVisitAddressId) ??
+      visitReadyAddresses[0] ??
+      null;
+    if (!selected || selected.lat == null || selected.lng == null) {
       setAddressRequiredForVisit(true);
-      setTimeout(() => {
-        addressInputRef.current?.focus();
-        addressInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 0);
+      setVisitPlanError("Оберіть адресу з координатами або привʼяжіть адрес на карті.");
+      setVisitPlanSuccess(null);
       return;
     }
     if (!visitPurpose.trim()) {
@@ -434,12 +412,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setPlanningVisit(true);
       setVisitPlanError(null);
       setVisitPlanSuccess(null);
+      setAddressRequiredForVisit(false);
       const visit = await visitsApi.create({
         companyId: company.id,
+        companyAddressId: selected.id,
         title: company.name || "Візит",
-        addressText: company.address ?? undefined,
-        lat: effectiveLat,
-        lng: effectiveLng,
+        addressText: selected.displayLine,
+        lat: selected.lat,
+        lng: selected.lng,
         purpose: visitPurpose.trim(),
       });
       if (visitStartsAt) {
@@ -799,74 +779,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                 />
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2">
-                <label className={labelClass}>Адрес</label>
-                <div ref={addressAnchorRef} className="relative">
-                  <input
-                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    value={address}
-                    onChange={(e) => {
-                      setAddress(e.target.value);
-                      lastGeocodedAddressRef.current = "";
-                      setAddressStatus(null);
-                      setAddressError(null);
-                      setAddressHint(null);
-                    }}
-                    onFocus={() => setShowAddressSuggestions(true)}
-                    onBlur={() => {
-                      addressBlurTimeoutRef.current = setTimeout(() => setShowAddressSuggestions(false), 120);
-                      if (address.trim().length >= 3 && mapsApiKey) void geocodeFromAddressText(address, true);
-                    }}
-                    placeholder="Вулиця, місто, індекс"
-                    disabled={saving}
-                  />
-                  <AddressSuggestionsDropdown
-                    open={showAddressSuggestions}
-                    anchorRef={addressAnchorRef}
-                    suggestions={addressSuggestions}
-                    onSelect={(s) => void handleSelectAddressSuggestion(s, true)}
-                  />
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
-                  {!isAddressLookupLoading && isGeocodeLoading ? "Пошук координат…" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адреса з Google" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координати оновлено" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точку задано вручну" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && !addressError && addressHint ? (
-                    <span className="text-amber-700">{addressHint}</span>
-                  ) : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressError ? addressError : null}
-                  {!mapsApiKey ? mapsConfigError : null}
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-zinc-500">
-                    {lat != null && lng != null ? "Координаты заданы" : "Координаты не заданы"}
-                  </span>
-                  {mapsApiKey ? (
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-blue-600 hover:underline"
-                      onClick={() => setIsMapEnabled(!isMapEnabled)}
-                    >
-                      {isMapEnabled ? "Скрыть карту" : "Показать карту"}
-                    </button>
-                  ) : null}
-                </div>
-                {lat != null && lng != null && mapsApiKey && isMapEnabled && isGoogleLoaded ? (
-                  <div className="mt-2 h-44 overflow-hidden rounded-md border border-zinc-200">
-                    <GoogleMap
-                      mapContainerStyle={{ width: "100%", height: "100%" }}
-                      center={{ lat, lng }}
-                      zoom={15}
-                    >
-                      <Marker
-                        position={{ lat, lng }}
-                        draggable
-                        onDragEnd={(e) => void handleMarkerDragEnd(e, true)}
-                      />
-                    </GoogleMap>
-                  </div>
-                ) : null}
+                <p className="text-xs text-zinc-500">Адреси можна додати після створення компанії.</p>
               </div>
             </div>
           </section>
@@ -976,99 +889,17 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               />
             </div>
             <div className="flex flex-col gap-1 sm:col-span-2">
-              <label className={labelClass}>Адрес</label>
-              {addressRequiredForVisit ? (
-                <p className="text-sm text-red-600">Заповніть адресу для планування зустрічей</p>
-              ) : null}
-              <div ref={addressAnchorRef} className="relative">
-                <input
-                  ref={addressInputRef}
-                  className={`w-full rounded-md border bg-transparent px-0 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 transition-all hover:bg-white hover:px-2 focus:bg-white focus:px-2 focus:outline-none ${
-                    addressRequiredForVisit
-                      ? "border-red-500 ring-1 ring-red-500 px-2"
-                      : "border-transparent focus:border-blue-500 focus:ring-1 focus:ring-blue-500 hover:border-zinc-300"
-                  }`}
-                  placeholder="Вулиця, місто, індекс"
-                  value={editAddress}
-                  onChange={(e) => {
-                    setEditAddress(e.target.value);
-                    lastGeocodedAddressRef.current = "";
-                    setAddressStatus(null);
-                    setAddressError(null);
-                    setAddressHint(null);
-                  }}
-                  onFocus={() => setShowAddressSuggestions(true)}
-                  onBlur={() => {
-                    addressBlurTimeoutRef.current = setTimeout(() => setShowAddressSuggestions(false), 120);
-                    if (editAddress.trim().length >= 3 && mapsApiKey) {
-                      void geocodeFromAddressText(editAddress, false);
-                      return;
-                    }
-                    const v = editAddress.trim() || null;
-                    if (v !== (company!.address ?? null)) {
-                      if (v && !addressHasHouseNumber(v)) {
-                        setAddressHint(strings.common.houseNumberHint);
-                        setAddressError(null);
-                        setEditLat(null);
-                        setEditLng(null);
-                        setEditGooglePlaceId(null);
-                        void patchCompany({ address: v, lat: null, lng: null, googlePlaceId: null });
-                      } else {
-                        setAddressHint(null);
-                        void patchCompany({ address: v ?? undefined });
-                      }
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                  }}
+              {!isCreate && company ? (
+                <EntityAddressesSection
+                  entityType="company"
+                  entityId={company.id}
                   disabled={saving}
+                  highlightMissingCoords={addressRequiredForVisit}
+                  onUpdated={() => void refresh()}
                 />
-                <AddressSuggestionsDropdown
-                  open={showAddressSuggestions}
-                  anchorRef={addressAnchorRef}
-                  suggestions={addressSuggestions}
-                  onSelect={(s) => void handleSelectAddressSuggestion(s, false)}
-                />
-              </div>
-              <div className="text-xs text-zinc-500">
-                  {isAddressLookupLoading && mapsApiKey ? "Пошук адрес…" : null}
-                  {!isAddressLookupLoading && isGeocodeLoading ? "Пошук координат…" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "google" ? "Адреса з Google" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "geocoded" ? "Координати оновлено" : null}
-                  {!isAddressLookupLoading && !isGeocodeLoading && addressStatus === "manual" ? "Точку задано вручну" : null}
-                {!isAddressLookupLoading && !isGeocodeLoading && addressError ? addressError : null}
-                {!mapsApiKey ? mapsConfigError : null}
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-zinc-500">
-                  {editLat != null && editLng != null ? "Координаты заданы" : "Координаты не заданы"}
-                </span>
-                {mapsApiKey ? (
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-blue-600 hover:underline"
-                    onClick={() => setIsMapEnabled(!isMapEnabled)}
-                  >
-                    {isMapEnabled ? "Скрыть карту" : "Показать карту"}
-                  </button>
-                ) : null}
-              </div>
-              {editLat != null && editLng != null && mapsApiKey && isMapEnabled && isGoogleLoaded ? (
-                <div className="mt-2 h-44 overflow-hidden rounded-md border border-zinc-200">
-                  <GoogleMap
-                    mapContainerStyle={{ width: "100%", height: "100%" }}
-                    center={{ lat: editLat, lng: editLng }}
-                    zoom={15}
-                  >
-                    <Marker
-                      position={{ lat: editLat, lng: editLng }}
-                      draggable
-                      onDragEnd={(e) => void handleMarkerDragEnd(e, false)}
-                    />
-                  </GoogleMap>
-                </div>
-              ) : null}
+              ) : (
+                <p className="text-xs text-zinc-500">Адреси можна додати після створення компанії.</p>
+              )}
             </div>
           </div>
         </section>
@@ -1099,9 +930,31 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               </p>
             </div>
             <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-600">
-              {editLat != null && editLng != null ? "Координаты готовы" : "Нужно заполнить адрес"}
+              {visitReadyAddresses.length > 0 ? "Координаты готовы" : "Нужно добавить адрес"}
             </div>
           </div>
+          {visitReadyAddresses.length > 0 ? (
+            <label className="mt-4 flex flex-col gap-1">
+              <span className={labelClass}>Адреса для візиту</span>
+              <select
+                className={`w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
+                  addressRequiredForVisit ? "border-red-500" : "border-zinc-200"
+                }`}
+                value={selectedVisitAddressId}
+                onChange={(e) => {
+                  setSelectedVisitAddressId(e.target.value);
+                  setAddressRequiredForVisit(false);
+                }}
+                disabled={saving || planningVisit}
+              >
+                {visitReadyAddresses.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {formatAddressOptionLabel(a)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1">
               <span className={labelClass}>Цель встречи</span>
@@ -1433,63 +1286,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <p className="text-sm text-zinc-500">Спочатку збережіть компанію, щоб переглянути історію змін.</p>
           ) : (
             <EntitySection title="Історія змін">
-              {loadingChangeHistory ? (
-                <p className="text-sm text-zinc-500">Завантаження…</p>
-              ) : changeHistoryError ? (
-                <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-                  {changeHistoryError}
-                </div>
-              ) : changeHistory.length === 0 ? (
-                <p className="text-sm text-zinc-500">Історія змін поки відсутня.</p>
-              ) : (
-                <div className="space-y-3">
-                  {changeHistory.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="rounded-md border border-zinc-200 bg-white p-3 text-sm"
-                    >
-                      <div className="flex items-center justify-between gap-2 text-zinc-500">
-                        <span className="font-medium capitalize">{entry.action.toLowerCase()}</span>
-                        <span className="text-xs">
-                          {formatDateTime(entry.createdAt)}
-                          {entry.changedBy ? ` · User ${entry.changedBy}` : ""}
-                        </span>
-                      </div>
-                      {entry.payload.length > 0 && (
-                        <ul className="mt-2 space-y-1 text-zinc-700">
-                          {entry.payload.map((p, i) => {
-                            const label =
-                              p.field === "name"
-                                ? "Назва"
-                                : p.field === "edrpou"
-                                  ? "ЄДРПОУ"
-                                  : p.field === "taxId"
-                                    ? "ІПН"
-                                    : p.field === "phone"
-                                      ? "Телефон"
-                                      : p.field === "address"
-                                        ? "Адрес"
-                                        : p.field === "lat"
-                                          ? "Широта"
-                                          : p.field === "lng"
-                                            ? "Долгота"
-                                            : p.field === "googlePlaceId"
-                                              ? "Google Place"
-                                              : p.field;
-                            const oldV = p.oldValue ?? "—";
-                            const newV = p.newValue ?? "—";
-                            return (
-                              <li key={i}>
-                                {label}: {oldV} → {newV}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <EntityChangeHistoryPanel entityType="Company" entityId={companyId!} />
             </EntitySection>
           )}
         </>

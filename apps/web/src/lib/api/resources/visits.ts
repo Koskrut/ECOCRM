@@ -158,6 +158,8 @@ export const visitsApi = {
   create: async (body: {
     contactId?: string;
     companyId?: string;
+    contactAddressId?: string;
+    companyAddressId?: string;
     title?: string;
     phone?: string;
     addressText?: string;

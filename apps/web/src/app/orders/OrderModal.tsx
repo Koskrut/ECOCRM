@@ -7,16 +7,24 @@ import { SearchableSelectLite, type Option } from "@/components/inputs/Searchabl
 import { FixedDropdownPortal } from "@/components/overlays/FixedDropdownPortal";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderClientBalancePanel, OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
+import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import { tasksApi } from "@/lib/api/resources/tasks";
 import { ModuleIds } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
 import { useConfirm, useToast } from "@/components/feedback";
+import { TtnStatusBadge } from "@/components/TtnStatusBadge";
+import {
+  computeLineTotal,
+  computeOrderGrossSubtotal,
+  computeOrderLineDiscountSum,
+} from "@/lib/order-line-total";
 
 // =====================
 // Small local UI helpers
@@ -73,6 +81,7 @@ type OrderItem = {
   };
   qty: number;
   price: number;
+  discountPercent?: number;
   lineTotal: number;
 };
 
@@ -145,6 +154,7 @@ type OrderDetails = {
   paymentDueDate?: string | null;
 
   discountAmount: number;
+  subtotalAmount?: number;
   totalAmount: number;
   comment: string | null;
   createdAt: string;
@@ -707,6 +717,8 @@ export function OrderModal({
   const [documentsRequested, setDocumentsRequested] = useState<boolean>(false);
   const [paymentDueDate, setPaymentDueDate] = useState<string>("");
   const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [showDiscounts, setShowDiscounts] = useState(false);
+  const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
   const [comment, setComment] = useState<string>("");
 
   // Add Item
@@ -813,7 +825,7 @@ export function OrderModal({
 
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [splittingByStock, setSplittingByStock] = useState(false);
-  const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "tasks">("main");
+  const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "change-history" | "tasks">("main");
 
   const canClose = !saving && !submittingItem && !statusUpdating && !deleting && !splittingByStock;
 
@@ -821,6 +833,15 @@ export function OrderModal({
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
   const isWarehouse =
     effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "WAREHOUSE";
+  const canEditLineDiscounts = !isWarehouse;
+  const orderLineDiscountSum = useMemo(
+    () => (order?.items ? computeOrderLineDiscountSum(order.items) : 0),
+    [order?.items],
+  );
+  const orderGrossSubtotal = useMemo(
+    () => (order?.items ? computeOrderGrossSubtotal(order.items) : 0),
+    [order?.items],
+  );
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const npModuleEffective = modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
 
@@ -1344,6 +1365,21 @@ export function OrderModal({
       });
   }, [userRoleProp]);
 
+  useEffect(() => {
+    if (isCreate) return;
+    apiHttp
+      .get<{ percents: number[] }>("/settings/order-discounts")
+      .then((res) => {
+        const percents = res.data?.percents;
+        if (Array.isArray(percents) && percents.length > 0) {
+          setDiscountOptions(percents);
+        }
+      })
+      .catch(() => {
+        /* keep defaults */
+      });
+  }, [isCreate, orderId]);
+
   // ESC
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1363,7 +1399,7 @@ export function OrderModal({
   }, [editing, editingItem, canClose, onClose]);
 
   const patchOrderItem = useCallback(
-    async (itemId: string, payload: { qty?: number; price?: number }) => {
+    async (itemId: string, payload: { qty?: number; price?: number; discountPercent?: number }) => {
       if (!orderId) return;
       setEditingItem(null);
       setSaving(true);
@@ -1371,22 +1407,31 @@ export function OrderModal({
         if (!prev) return prev;
         return {
           ...prev,
-          items: prev.items.map((it) =>
-            it.id === itemId
-              ? {
-                  ...it,
-                  qty: payload.qty ?? it.qty,
-                  price: payload.price ?? it.price,
-                  lineTotal: (payload.qty ?? it.qty) * (payload.price ?? it.price),
-                }
-              : it,
-          ),
+          items: prev.items.map((it) => {
+            if (it.id !== itemId) return it;
+            const qty = payload.qty ?? it.qty;
+            const price = payload.price ?? it.price;
+            const discountPercent =
+              payload.discountPercent !== undefined
+                ? payload.discountPercent
+                : (it.discountPercent ?? 0);
+            return {
+              ...it,
+              qty,
+              price,
+              discountPercent,
+              lineTotal: computeLineTotal(qty, price, discountPercent),
+            };
+          }),
         };
       });
       try {
-        const body: { qty?: number; price?: number } = {};
+        const body: { qty?: number; price?: number; discountPercent?: number } = {};
         if (payload.qty !== undefined) body.qty = Number(payload.qty);
         if (payload.price !== undefined) body.price = Number(payload.price);
+        if (payload.discountPercent !== undefined) {
+          body.discountPercent = Number(payload.discountPercent);
+        }
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -1725,17 +1770,13 @@ export function OrderModal({
     np?.status?.Status ?? np?.status?.statusText ?? order?.ttns?.[0]?.statusText ?? null;
   const ttnStatusCode: string | null =
     np?.status?.StatusCode ?? np?.status?.statusCode ?? order?.ttns?.[0]?.statusCode ?? null;
-  const ttnStatusLabel = ttnStatusText
-    ? ttnStatusCode
-      ? `${ttnStatusText} (code ${ttnStatusCode})`
-      : ttnStatusText
-    : null;
   const shipmentRowsAll = (order?.shipments ?? []).map((s) => ({
     shipmentId: s.id,
     shipmentStatus: s.status ?? null,
     ttnId: s.ttns?.[0]?.id ?? null,
     ttnNumber: s.ttns?.[0]?.documentNumber ?? null,
-    ttnStatus: s.ttns?.[0]?.statusText ?? null,
+    ttnStatusText: s.ttns?.[0]?.statusText ?? null,
+    ttnStatusCode: s.ttns?.[0]?.statusCode ?? null,
   }));
   const formatShipmentStatus = (status: string | null) => {
     if (!status) return "Невідомо";
@@ -2088,6 +2129,13 @@ export function OrderModal({
           </button>
           <button
             type="button"
+            onClick={() => setLeftTab("change-history")}
+            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "change-history" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
+          >
+            Історія змін
+          </button>
+          <button
+            type="button"
             onClick={() => setLeftTab("tasks")}
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leftTab === "tasks" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
@@ -2257,6 +2305,10 @@ export function OrderModal({
             <p className="text-sm text-red-600">{error}</p>
           ) : !order ? (
             <p className="text-sm text-zinc-500">Замовлення не знайдено</p>
+          ) : leftTab === "change-history" ? (
+            <EntitySection title="Історія змін">
+              <EntityChangeHistoryPanel entityType="Order" entityId={orderId!} />
+            </EntitySection>
           ) : leftTab === "activity" ? (
             <EntitySection title="Активність">
               <OrderTimeline orderId={orderId!} onItemsCountChange={setActivityTabCount} />
@@ -2270,13 +2322,29 @@ export function OrderModal({
               <EntitySection
                 title="Товари"
                 rightAction={
-                  <button
-                    type="button"
-                    onClick={() => setShowAddForm((v) => !v)}
-                    className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                  >
-                    {showAddForm ? "Done" : "+ Add item"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {canEditLineDiscounts ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowDiscounts((v) => !v)}
+                        aria-pressed={showDiscounts}
+                        className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                          showDiscounts
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+                        }`}
+                      >
+                        Знижки
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setShowAddForm((v) => !v)}
+                      className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {showAddForm ? "Done" : "+ Add item"}
+                    </button>
+                  </div>
                 }
               >
                 <div className="mb-4 max-w-md">
@@ -2646,7 +2714,7 @@ export function OrderModal({
                               className="text-zinc-600 hover:underline"
                             >
                               {it.price.toFixed(2)}
-                              {order.currency === "USD" &&
+                              {isForeignOrderCurrency(order.currency) &&
                               order.exchangeRate != null &&
                               order.exchangeRate > 0 ? (
                                 <span className="ml-1 text-zinc-500 font-normal">
@@ -2655,10 +2723,35 @@ export function OrderModal({
                               ) : null}
                             </button>
                           )}
+                          {showDiscounts && canEditLineDiscounts ? (
+                            <select
+                              value={it.discountPercent ?? 0}
+                              disabled={saving}
+                              onChange={(e) =>
+                                void patchOrderItem(it.id, {
+                                  discountPercent: Number(e.target.value),
+                                })
+                              }
+                              className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700"
+                              aria-label="Знижка на позицію"
+                            >
+                              <option value={0}>—</option>
+                              {discountOptions.map((p) => (
+                                <option key={p} value={p}>
+                                  −{p}%
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
                           <span className="text-zinc-500">=</span>
                           <span className="w-14 text-right font-medium text-zinc-900">
                             {it.lineTotal.toFixed(2)}
-                            {order.currency === "USD" &&
+                            {(it.discountPercent ?? 0) > 0 ? (
+                              <span className="ml-1 text-[10px] font-normal text-zinc-400 line-through">
+                                {(it.qty * it.price).toFixed(2)}
+                              </span>
+                            ) : null}
+                            {isForeignOrderCurrency(order.currency) &&
                             order.exchangeRate != null &&
                             order.exchangeRate > 0 ? (
                               <span className="ml-1 text-zinc-500 font-normal">
@@ -2850,24 +2943,134 @@ export function OrderModal({
                       </div>
                     ) : null}
 
-                    <div className="min-w-0 xl:justify-self-end xl:pl-4 xl:text-right">
-                      <div className="text-xs text-zinc-500">Разом</div>
-                      {order.currency === "USD" ? (
-                        <div className="mt-1">
-                          <div className="text-2xl font-semibold tabular-nums tracking-tight text-zinc-900">
-                            {Number(order.totalAmount).toFixed(2)} $
-                          </div>
-                          {order.exchangeRate != null && Number(order.exchangeRate) > 0 ? (
-                            <div className="mt-1 text-sm tabular-nums text-zinc-500">
-                              {Math.round(Number(order.totalAmount) * Number(order.exchangeRate))} ₴
-                            </div>
+                    <div className="min-w-0 xl:col-span-2 xl:justify-self-end xl:pl-4 xl:text-right">
+                      {(orderLineDiscountSum > 0 || Number(order.discountAmount ?? 0) > 0) && (
+                        <div className="mb-2 space-y-0.5 text-xs tabular-nums text-zinc-500">
+                          {orderLineDiscountSum > 0 ? (
+                            <>
+                              <div>
+                                База: {orderGrossSubtotal.toFixed(2)}{" "}
+                                {orderCurrencySymbol(order.currency)}
+                              </div>
+                              <div>
+                                Знижка по рядках: −{orderLineDiscountSum.toFixed(2)}{" "}
+                                {orderCurrencySymbol(order.currency)}
+                              </div>
+                            </>
                           ) : null}
-                        </div>
-                      ) : (
-                        <div className="mt-1 font-semibold text-zinc-900">
-                          {formatOrderAmount(order.totalAmount, order.currency, order.exchangeRate)}
+                          <div className="flex items-center justify-end gap-2">
+                            <span>Знижка на замовленні:</span>
+                            {editing === "discount" ? (
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={discountAmount}
+                                autoFocus
+                                onChange={(e) =>
+                                  setDiscountAmount(Math.max(0, Number(e.target.value) || 0))
+                                }
+                                onBlur={() => {
+                                  void patchOrder({ discountAmount: Number(discountAmount) || 0 });
+                                  setEditing(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    void patchOrder({
+                                      discountAmount: Number(discountAmount) || 0,
+                                    });
+                                    setEditing(null);
+                                  }
+                                  if (e.key === "Escape") setEditing(null);
+                                }}
+                                className="w-20 rounded border border-zinc-300 px-1 py-0.5 text-right text-xs"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setEditing("discount")}
+                                className="text-zinc-700 hover:underline"
+                              >
+                                −{Number(order.discountAmount ?? 0).toFixed(2)}{" "}
+                                {orderCurrencySymbol(order.currency)}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
+                      {orderLineDiscountSum <= 0 && Number(order.discountAmount ?? 0) <= 0 ? (
+                        <div className="mb-1 flex items-center justify-end gap-2 text-xs text-zinc-500">
+                          <span>Знижка на замовленні:</span>
+                          {editing === "discount" ? (
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={discountAmount}
+                              autoFocus
+                              onChange={(e) =>
+                                setDiscountAmount(Math.max(0, Number(e.target.value) || 0))
+                              }
+                              onBlur={() => {
+                                void patchOrder({ discountAmount: Number(discountAmount) || 0 });
+                                setEditing(null);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void patchOrder({ discountAmount: Number(discountAmount) || 0 });
+                                  setEditing(null);
+                                }
+                                if (e.key === "Escape") setEditing(null);
+                              }}
+                              className="w-20 rounded border border-zinc-300 px-1 py-0.5 text-right text-xs"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setEditing("discount")}
+                              className="text-zinc-600 hover:underline"
+                            >
+                              додати
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+                      <div className="text-xs text-zinc-500">Разом</div>
+                      {(() => {
+                        const grossTotal = Number(order.totalAmount ?? 0);
+                        const returnAdj = Number(order.returnAdjustmentAmount ?? 0);
+                        const effectiveTotal = Math.max(0, grossTotal - returnAdj);
+                        return isForeignOrderCurrency(order.currency) ? (
+                          <div className="mt-1">
+                            <div className="text-2xl font-semibold tabular-nums tracking-tight text-zinc-900">
+                              {effectiveTotal.toFixed(2)} {orderCurrencySymbol(order.currency)}
+                            </div>
+                            {returnAdj > 0 ? (
+                              <div className="mt-0.5 text-xs tabular-nums text-zinc-500 line-through">
+                                {grossTotal.toFixed(2)} {orderCurrencySymbol(order.currency)}
+                              </div>
+                            ) : null}
+                            {order.exchangeRate != null && Number(order.exchangeRate) > 0 ? (
+                              <div className="mt-1 text-sm tabular-nums text-zinc-500">
+                                {Math.round(effectiveTotal * Number(order.exchangeRate))} ₴
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div className="mt-1">
+                            <div className="font-semibold text-zinc-900">
+                              {formatOrderAmount(effectiveTotal, order.currency, order.exchangeRate)}
+                            </div>
+                            {returnAdj > 0 ? (
+                              <div className="mt-0.5 text-xs text-zinc-500 line-through">
+                                {formatOrderAmount(grossTotal, order.currency, order.exchangeRate)}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="min-w-0">
@@ -3421,8 +3624,11 @@ export function OrderModal({
                                 <span className="text-xs text-zinc-500">
                                   {formatShipmentStatus(row.shipmentStatus ?? "DRAFT")}
                                 </span>
-                                {row.ttnStatus ? (
-                                  <span className="text-xs text-zinc-500">· {row.ttnStatus}</span>
+                                {row.ttnNumber ? (
+                                  <TtnStatusBadge
+                                    statusCode={row.ttnStatusCode}
+                                    statusText={row.ttnStatusText}
+                                  />
                                 ) : null}
                                 {row.ttnNumber ? (
                                   <button
@@ -3537,17 +3743,46 @@ export function OrderModal({
                           ) : (
                             <div className="flex items-center gap-2">
                               {ttnNumber ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openTtnEdit({
+                                        ttnId: order?.ttns?.[0]?.id,
+                                      })
+                                    }
+                                    className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+                                    title="Переглянути / редагувати ТТН"
+                                  >
+                                    № {ttnNumber}
+                                  </button>
+                                  <TtnStatusBadge
+                                    statusCode={ttnStatusCode}
+                                    statusText={ttnStatusText}
+                                  />
+                                </>
+                              ) : canShowCreateTtnButton ? (
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    openTtnEdit({
-                                      ttnId: order?.ttns?.[0]?.id,
-                                    })
-                                  }
-                                  className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-                                  title="Переглянути / редагувати ТТН"
+                                  onClick={openTtnCreate}
+                                  className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5"
+                                  title="Створити ТТН (НП)"
+                                  aria-label="Створити ТТН"
                                 >
-                                  № {ttnNumber}
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M12 4v16m8-8H4"
+                                    />
+                                  </svg>
+                                  Створити ТТН
                                 </button>
                               ) : (
                                 <span className="font-normal text-zinc-400">Не указано</span>
@@ -3619,11 +3854,11 @@ export function OrderModal({
                               ) : null}
                             </div>
                           )}
-                          {canShowCreateTtnButton ? (
+                          {canShowCreateTtnButton && shipmentRows.length > 0 ? (
                             <button
                               type="button"
                               onClick={openTtnCreate}
-                              className="rounded p-1.5 text-emerald-600 hover:bg-emerald-50"
+                              className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5"
                               title="Створити ТТН (НП)"
                               aria-label="Створити ТТН"
                             >
@@ -3640,22 +3875,13 @@ export function OrderModal({
                                   d="M12 4v16m8-8H4"
                                 />
                               </svg>
+                              Створити ТТН
                             </button>
                           ) : null}
                         </div>
                       </div>
                     ) : null}
 
-                    {npModuleEffective && order.deliveryMethod === "NOVA_POSHTA" ? (
-                      <div className="col-span-1 xl:col-span-2">
-                        <div className="text-xs text-zinc-500">Статус НП</div>
-                        <div className="mt-1 text-zinc-700">
-                          {ttnStatusLabel ?? (
-                            <span className="font-normal text-zinc-400">Немає даних</span>
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
 
                   <div className="mt-4">
@@ -3760,13 +3986,18 @@ export function OrderModal({
                   orderNumber={order.orderNumber}
                   apiBaseUrl={apiBaseUrl}
                   paidAmount={Number(order.paidAmount ?? 0)}
-                  totalAmount={Number(order.totalAmount ?? 0)}
+                  totalAmount={Math.max(
+                    0,
+                    Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0),
+                  )}
                   debtAmount={(() => {
                     const d = order.debtAmount;
                     if (d != null && Number.isFinite(Number(d))) return Math.max(0, Number(d));
                     return Math.max(
                       0,
-                      Number(order.totalAmount ?? 0) - Number(order.paidAmount ?? 0),
+                      Number(order.totalAmount ?? 0) -
+                        Number(order.returnAdjustmentAmount ?? 0) -
+                        Number(order.paidAmount ?? 0),
                     );
                   })()}
                   paymentStatus={(order as { paymentStatus?: string }).paymentStatus}

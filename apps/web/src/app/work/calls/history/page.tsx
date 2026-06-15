@@ -183,7 +183,7 @@ export default function CallsHistoryPage() {
   const showManagerCol = showUserFilter;
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-3">
+    <div className="mx-auto flex w-full max-w-[1600px] min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-zinc-900">Історія дзвінків</h1>
@@ -229,7 +229,7 @@ export default function CallsHistoryPage() {
               setPage(1);
               setDirection(e.target.value as "" | "INBOUND" | "OUTBOUND" | "UNKNOWN");
             }}
-            className="mt-0.5 min-w-[140px] rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm sm:min-w-[140px] sm:w-auto"
           >
             <option value="">Усі</option>
             <option value="INBOUND">Вхідний</option>
@@ -245,7 +245,7 @@ export default function CallsHistoryPage() {
               setPage(1);
               setProvider(e.target.value);
             }}
-            className="mt-0.5 min-w-[140px] rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm sm:min-w-[140px] sm:w-auto"
           >
             <option value="">Усі</option>
             <option value="RINGOSTAT">Ringostat</option>
@@ -259,7 +259,7 @@ export default function CallsHistoryPage() {
               setPage(1);
               setOutcome(e.target.value as "" | ManualCallOutcome);
             }}
-            className="mt-0.5 min-w-[180px] rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm sm:min-w-[180px] sm:w-auto"
           >
             <option value="">Усі</option>
             {OUTCOMES.map((o) => (
@@ -277,7 +277,7 @@ export default function CallsHistoryPage() {
               setPage(1);
               setRecording(e.target.value as "any" | "yes" | "no");
             }}
-            className="mt-0.5 min-w-[140px] rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm sm:min-w-[140px] sm:w-auto"
           >
             <option value="any">Неважливо</option>
             <option value="yes">Є запис</option>
@@ -296,7 +296,7 @@ export default function CallsHistoryPage() {
           />
           Лише з прозвону
         </label>
-        <div className="min-w-[200px] flex-1">
+        <div className="min-w-0 w-full flex-1 sm:min-w-[200px]">
           <label className="block text-xs font-medium text-zinc-600">Пошук (телефон / імʼя)</label>
           <input
             type="search"
@@ -315,7 +315,7 @@ export default function CallsHistoryPage() {
                 setPage(1);
                 setUserId(e.target.value);
               }}
-              className="mt-0.5 min-w-[200px] rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+              className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm sm:min-w-[200px] sm:w-auto"
             >
               <option value="">Усі</option>
               {users

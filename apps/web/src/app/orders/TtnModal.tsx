@@ -2,6 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import { apiHttp } from "../../lib/api/client";
 import {
   NpShippingProfileFormFields,
@@ -726,10 +727,13 @@ export function TtnModal({
           <div>
             <div className="text-sm text-zinc-500">Nova Poshta</div>
             <div className="text-lg font-semibold text-zinc-900">{modalTitle}</div>
-            {isEdit && ttnMeta?.statusText ? (
-              <div className="mt-0.5 text-xs text-zinc-500">
-                Статус: {ttnMeta.statusText}
-                {ttnMeta.statusCode ? ` (код ${ttnMeta.statusCode})` : ""}
+            {isEdit && (ttnMeta?.statusText || ttnMeta?.statusCode) ? (
+              <div className="mt-1">
+                <TtnStatusBadge
+                  statusCode={ttnMeta?.statusCode}
+                  statusText={ttnMeta?.statusText}
+                  size="md"
+                />
               </div>
             ) : null}
           </div>

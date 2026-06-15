@@ -17,7 +17,6 @@ export const metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  viewportFit: "cover",
 };
 
 const bodyBg = "#f4f4f5"; // zinc-50, чтобы не было белого мелькания до загрузки CSS

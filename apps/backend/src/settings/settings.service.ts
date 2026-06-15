@@ -14,16 +14,25 @@ import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.s
 import { KYIVSTAR_FMC_PROVIDER } from "../integrations/kyivstar-fmc/kyivstar-fmc-ingest.service";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 import { NOVA_POSHTA_INTEGRATION_PROVIDER } from "../np/np.constants";
+import { getBaseCurrency, normalizeBaseCurrency } from "../common/currency.util";
+
+export type BaseCurrency = "USD" | "EUR";
 
 export type ExchangeRates = {
   UAH_TO_USD: number;
   EUR_TO_USD: number;
+  baseCurrency?: BaseCurrency;
+};
+
+export type CurrencyConfig = {
+  baseCurrency: BaseCurrency;
 };
 
 const EXCHANGE_RATES_KEY = "exchange_rates";
 const DEFAULT_RATES: ExchangeRates = {
   UAH_TO_USD: 0.024,
   EUR_TO_USD: 1.05,
+  baseCurrency: "USD",
 };
 
 export type MetaLeadAdsConfig = {
@@ -114,6 +123,24 @@ export type StoreConfig = {
 
 const STORE_CONFIG_KEY = "store_config";
 const ORG_CHART_STRUCTURE_KEY = "org_chart_structure";
+const ORDER_LINE_DISCOUNTS_KEY = "order_line_discounts";
+
+export type OrderLineDiscountsConfig = {
+  percents: number[];
+};
+
+const DEFAULT_ORDER_LINE_DISCOUNTS: OrderLineDiscountsConfig = {
+  percents: [5, 10, 15, 20, 25, 30],
+};
+
+export function normalizeOrderLineDiscountPercents(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_ORDER_LINE_DISCOUNTS.percents];
+  const nums = raw
+    .map((v) => (typeof v === "number" ? Math.trunc(v) : Number(v)))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 100);
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  return unique.length > 0 ? unique : [...DEFAULT_ORDER_LINE_DISCOUNTS.percents];
+}
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
   theme: {
@@ -348,7 +375,13 @@ export class SettingsService {
     return {
       UAH_TO_USD: typeof v.UAH_TO_USD === "number" ? v.UAH_TO_USD : DEFAULT_RATES.UAH_TO_USD,
       EUR_TO_USD: typeof v.EUR_TO_USD === "number" ? v.EUR_TO_USD : DEFAULT_RATES.EUR_TO_USD,
+      baseCurrency: normalizeBaseCurrency(v.baseCurrency),
     };
+  }
+
+  async getCurrencyConfig(): Promise<CurrencyConfig> {
+    const rates = await this.getExchangeRates();
+    return { baseCurrency: getBaseCurrency(rates) };
   }
 
   async setExchangeRates(rates: Partial<ExchangeRates>): Promise<ExchangeRates> {
@@ -356,10 +389,41 @@ export class SettingsService {
     const next: ExchangeRates = {
       UAH_TO_USD: typeof rates.UAH_TO_USD === "number" ? rates.UAH_TO_USD : current.UAH_TO_USD,
       EUR_TO_USD: typeof rates.EUR_TO_USD === "number" ? rates.EUR_TO_USD : current.EUR_TO_USD,
+      baseCurrency:
+        rates.baseCurrency === "USD" || rates.baseCurrency === "EUR"
+          ? rates.baseCurrency
+          : current.baseCurrency ?? "USD",
     };
     await this.prisma.systemSetting.upsert({
       where: { id: EXCHANGE_RATES_KEY },
       create: { id: EXCHANGE_RATES_KEY, value: next },
+      update: { value: next },
+    });
+    return next;
+  }
+
+  async getOrderLineDiscounts(): Promise<OrderLineDiscountsConfig> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: ORDER_LINE_DISCOUNTS_KEY },
+    });
+    if (!row?.value || typeof row.value !== "object") {
+      return { percents: [...DEFAULT_ORDER_LINE_DISCOUNTS.percents] };
+    }
+    const v = row.value as Record<string, unknown>;
+    return { percents: normalizeOrderLineDiscountPercents(v.percents) };
+  }
+
+  async setOrderLineDiscounts(
+    body: Partial<OrderLineDiscountsConfig>,
+  ): Promise<OrderLineDiscountsConfig> {
+    const percents = normalizeOrderLineDiscountPercents(body.percents);
+    if (percents.length === 0) {
+      throw new BadRequestException("At least one discount percent must be enabled");
+    }
+    const next: OrderLineDiscountsConfig = { percents };
+    await this.prisma.systemSetting.upsert({
+      where: { id: ORDER_LINE_DISCOUNTS_KEY },
+      create: { id: ORDER_LINE_DISCOUNTS_KEY, value: next },
       update: { value: next },
     });
     return next;

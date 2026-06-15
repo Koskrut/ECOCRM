@@ -35,12 +35,12 @@ export class OrderReturnsService {
   ) {}
 
   private async syncOrderStateFromReturns(orderId: string) {
-    const [openCount, allClosedReturns, orderTotals] = await Promise.all([
+    const [openCount, allReturns, orderTotals] = await Promise.all([
       this.prisma.orderReturn.count({
         where: { orderId, status: { not: CLOSED_RETURN_STATUS } },
       }),
       this.prisma.orderReturn.findMany({
-        where: { orderId, status: CLOSED_RETURN_STATUS },
+        where: { orderId },
         include: { items: { include: { orderItem: true } } },
       }),
       this.prisma.order.findUnique({
@@ -49,7 +49,7 @@ export class OrderReturnsService {
       }),
     ]);
 
-    const totalAdjustment = computeReturnAdjustmentAmount(allClosedReturns, {
+    const totalAdjustment = computeReturnAdjustmentAmount(allReturns, {
       subtotalAmount: orderTotals?.subtotalAmount ?? 0,
       totalAmount: orderTotals?.totalAmount ?? 0,
     });

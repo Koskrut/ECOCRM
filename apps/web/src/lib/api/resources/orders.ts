@@ -14,6 +14,9 @@ export type FulfillmentQueueOrder = {
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   deliveryMethod?: string | null;
+  hasTtn?: boolean;
+  ttnSharedAcrossOrders?: boolean;
+  ttnSharedWithOrders?: Array<{ id: string; orderNumber: string }>;
   createdAt: string;
   stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
@@ -30,6 +33,11 @@ export type FulfillmentQueueResponse = {
   items: FulfillmentQueueOrder[];
   total: number;
   counts: Record<string, number>;
+};
+
+export type SplitByStockPick = {
+  itemId: string;
+  foundQty: number;
 };
 
 export type SplitByStockResponse = {
@@ -52,13 +60,13 @@ export const ordersApi = {
     return apiHttp.patch(`/orders/${orderId}/stage`, { toStage, reason });
   },
 
-  updateItem(orderId: string, itemId: string, payload: { qty: number }) {
+  updateItem(orderId: string, itemId: string, payload: { qty?: number; price?: number; discountPercent?: number }) {
     return apiHttp.patch(`/orders/${orderId}/items/${itemId}`, payload);
   },
 
-  splitByStock(orderId: string) {
+  splitByStock(orderId: string, payload?: { picks: SplitByStockPick[] }) {
     return apiHttp
-      .post<SplitByStockResponse>(`/orders/${orderId}/split-by-stock`)
+      .post<SplitByStockResponse>(`/orders/${orderId}/split-by-stock`, payload ?? {})
       .then((r) => r.data);
   },
 };

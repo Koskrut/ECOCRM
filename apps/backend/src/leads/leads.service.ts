@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { LeadChannel, LeadSource, LeadStatus, Prisma } from "@prisma/client";
@@ -39,6 +40,7 @@ import {
 import { normalizePhone, scoreLeadFromAnswers } from "./leads-meta.utils";
 import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 export type MetaIngestWebhookResult =
   | { ok: true; leadId: string; deduped: boolean }
@@ -80,6 +82,7 @@ export class LeadsService {
     private readonly ordersService: OrdersService,
     private readonly leadsPipelineConfig: LeadsPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   // ===== ACCESS HELPERS =====
@@ -374,6 +377,20 @@ export class LeadsService {
           } as Prisma.InputJsonValue,
         },
       });
+      if (dto.ownerId) {
+        const label =
+          existingFull.fullName?.trim() ||
+          existingFull.name?.trim() ||
+          [existingFull.firstName, existingFull.lastName].filter(Boolean).join(" ") ||
+          "Лід";
+        void this.notifications?.notifyNewLead({
+          ownerId: dto.ownerId,
+          leadId: id,
+          title: `Новий лід: ${label}`,
+          body: existingFull.phone ?? existingFull.message ?? undefined,
+          actorId: actor?.id,
+        });
+      }
     }
 
     await this.prisma.lead.update({ where: { id }, data });
@@ -516,6 +533,14 @@ export class LeadsService {
 
   // ===== CONVERT =====
 
+  private pickNonEmpty(...values: (string | null | undefined)[]): string | undefined {
+    for (const value of values) {
+      const trimmed = value?.trim();
+      if (trimmed) return trimmed;
+    }
+    return undefined;
+  }
+
   private parseName(fullName?: string | null): { firstName: string; lastName: string } {
     const safe = String(fullName ?? "").trim();
     if (!safe) {
@@ -587,15 +612,22 @@ export class LeadsService {
 
       contactId = contact.id;
     } else if (dto.contactMode === "create") {
-      const baseName = this.parseName(dto.contact?.firstName || lead.name);
-      const firstName = dto.contact?.firstName ?? baseName.firstName;
+      const nameSource = this.pickNonEmpty(dto.contact?.firstName, lead.firstName, lead.name);
+      const baseName = this.parseName(nameSource ?? null);
+      const firstName = this.pickNonEmpty(dto.contact?.firstName, lead.firstName, baseName.firstName) ?? "Лід";
       const lastName =
-        dto.contact?.lastName ?? (baseName.lastName || (lead.companyName ? lead.companyName : ""));
-      const middleName = dto.contact?.middleName ?? lead.middleName ?? null;
+        this.pickNonEmpty(dto.contact?.lastName, lead.lastName, baseName.lastName, lead.companyName) ??
+        "—";
+      const middleName = this.pickNonEmpty(dto.contact?.middleName, lead.middleName) ?? null;
 
-      const phone = dto.contact?.phone ?? lead.phone ?? "";
+      const phone = this.pickNonEmpty(dto.contact?.phone, lead.phone) ?? "";
       if (!phone) {
         throw new BadRequestException("phone is required to create contact from lead");
+      }
+
+      const region = this.pickNonEmpty(dto.contact?.region, lead.region);
+      if (!region) {
+        throw new BadRequestException("region is required to create contact from lead");
       }
 
       const created = await this.contactsService.create(
@@ -606,6 +638,12 @@ export class LeadsService {
           middleName,
           phone,
           email: dto.contact?.email ?? lead.email ?? null,
+          region,
+          city: dto.contact?.city ?? lead.city ?? null,
+          address: dto.contact?.address ?? lead.address ?? null,
+          lat: dto.contact?.lat ?? lead.lat ?? null,
+          lng: dto.contact?.lng ?? lead.lng ?? null,
+          googlePlaceId: dto.contact?.googlePlaceId ?? lead.googlePlaceId ?? null,
           position: null,
           isPrimary: false,
         },

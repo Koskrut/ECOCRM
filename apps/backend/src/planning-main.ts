@@ -12,6 +12,7 @@ import { RolesGuard } from "./auth/roles.guard";
 import { RbacModule } from "./rbac/rbac.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { PrismaModule } from "./prisma/prisma.module";
+import { AuditContextModule } from "./audit/audit.module";
 import { ProductionPlanningModule } from "./production-planning/production-planning.module";
 import { SystemModule } from "./system/system.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
@@ -20,6 +21,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
 @Module({
   imports: [
     PrismaModule,
+    AuditContextModule,
     ScheduleModule.forRoot(),
     AuthModule,
     RbacModule,

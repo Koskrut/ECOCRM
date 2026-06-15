@@ -508,8 +508,7 @@ function OrdersPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-3 sm:p-4 lg:p-8">
-      <div className="mx-auto max-w-7xl">
+    <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-zinc-900">{strings.nav.orders}</h1>
@@ -1004,8 +1003,6 @@ function OrdersPageContent() {
             }}
           />
         )}
-      </div>
-
       {/* Mobile FAB */}
       {!isWarehouse ? (
         <button

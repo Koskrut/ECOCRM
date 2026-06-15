@@ -4,7 +4,7 @@ import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import { buildPaymentPeriodWhere, buildPeriodOrderWhere } from "../utils/analytics-filter.builder";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
-import { safeNum, toUsd } from "../utils/analytics-currency.util";
+import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
 @Injectable()
 export class AnalyticsClientsService {
@@ -15,9 +15,17 @@ export class AnalyticsClientsService {
 
   async getClients(period: ResolvedPeriod, scope: AnalyticsScope) {
     if (scope.emptyTeam) {
-      return { newClientsCount: 0, repeatClientsCount: 0, sleepingClientsCount: 0, topByBookedRevenue: [], topByCollectedPayments: [] };
+      return {
+        currency: "USD",
+        newClientsCount: 0,
+        repeatClientsCount: 0,
+        sleepingClientsCount: 0,
+        topByBookedRevenue: [],
+        topByCollectedPayments: [],
+      };
     }
     const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const orders = await this.prisma.order.findMany({
       where: { ...orderWhere, clientId: { not: null } },
@@ -50,7 +58,7 @@ export class AnalyticsClientsService {
         bookedRevenue: 0,
         ordersCount: 0,
       };
-      cur.bookedRevenue += toUsd(
+      cur.bookedRevenue += toBaseCurrency(
         Math.max(0, safeNum(o.totalAmount) - safeNum(o.returnAdjustmentAmount)),
         o.currency,
         rates,
@@ -78,7 +86,7 @@ export class AnalyticsClientsService {
         clientName: p.order.client ? [p.order.client.firstName, p.order.client.lastName].filter(Boolean).join(" ") : null,
         collectedPayments: 0,
       };
-      cur.collectedPayments += p.amountUsd != null ? safeNum(p.amountUsd) : toUsd(safeNum(p.amount), p.currency, rates);
+      cur.collectedPayments += paymentToBase(p.amountUsd, p.amount, p.currency, rates);
       paidMap.set(clientId, cur);
     }
 
@@ -93,6 +101,7 @@ export class AnalyticsClientsService {
     }
 
     return {
+      currency,
       newClientsCount: [...bookedMap.keys()].filter((id) => {
         const f = firstSeen.get(id);
         return f != null && f >= period.from && f <= period.to;

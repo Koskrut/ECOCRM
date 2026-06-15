@@ -24,7 +24,19 @@ function formatUahInt(n: number): string {
   return Math.round(n).toLocaleString("uk-UA");
 }
 
-/** Сума для клієнта в гривнях (для USD множиться на exchangeRate, якщо він заданий). */
+function isForeignOrderCurrency(currency: string): boolean {
+  const c = currency.trim().toUpperCase();
+  return c === "USD" || c === "EUR";
+}
+
+function orderCurrencySymbol(currency: string): string {
+  const c = currency.trim().toUpperCase();
+  if (c === "USD") return "$";
+  if (c === "EUR") return "€";
+  return c;
+}
+
+/** Сума для клієнта в гривнях (для USD/EUR множиться на exchangeRate, якщо він заданий). */
 export function amountInUah(
   amount: number,
   currency: string,
@@ -32,14 +44,14 @@ export function amountInUah(
 ): number | null {
   const x = Number(amount);
   if (currency === "UAH") return Math.round(x);
-  if (currency === "USD" && exchangeRate != null && exchangeRate > 0) {
+  if (isForeignOrderCurrency(currency) && exchangeRate != null && exchangeRate > 0) {
     return Math.round(x * exchangeRate);
   }
   return null;
 }
 
 /**
- * Відображення суми: пріоритет гривня; для USD з курсом — грн і дужках долари.
+ * Відображення суми: пріоритет гривня; для USD/EUR з курсом — грн і дужках валюта замовлення.
  */
 export function formatCabinetMoney(
   amount: number,
@@ -48,13 +60,13 @@ export function formatCabinetMoney(
 ): string {
   const uah = amountInUah(amount, currency, exchangeRate);
   if (uah != null) {
-    if (currency === "USD" && exchangeRate != null && exchangeRate > 0) {
-      return `${uah.toLocaleString("uk-UA")} грн (${Number(amount).toFixed(2)} $)`;
+    if (isForeignOrderCurrency(currency) && exchangeRate != null && exchangeRate > 0) {
+      return `${uah.toLocaleString("uk-UA")} грн (${Number(amount).toFixed(2)} ${orderCurrencySymbol(currency)})`;
     }
     return `${uah.toLocaleString("uk-UA")} грн`;
   }
-  if (currency === "USD") {
-    return `${Number(amount).toFixed(2)} $`;
+  if (isForeignOrderCurrency(currency)) {
+    return `${Number(amount).toFixed(2)} ${orderCurrencySymbol(currency)}`;
   }
   return `${Number(amount).toFixed(2)} ${currency}`;
 }
@@ -68,8 +80,8 @@ export function formatCabinetLineMoney(
   if (uah != null) {
     return `${formatUahInt(uah)} грн`;
   }
-  if (currency === "USD") {
-    return `${Number(amount).toFixed(2)} $`;
+  if (isForeignOrderCurrency(currency)) {
+    return `${Number(amount).toFixed(2)} ${orderCurrencySymbol(currency)}`;
   }
   return `${Number(amount).toFixed(2)} ${currency}`;
 }
