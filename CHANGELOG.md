@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.81**.)_
+_(планируемые изменения после **0.2.82**.)_
+
+## [0.2.82] — 2026-06-15
+
+### Summary
+
+**Hotfix 0.2.82**: backend crash loop на **0.2.81** — `TelegramService` DI (`SettingsService` undefined). Причина — circular import через `settings.service` → `ringostat-ingest` → `notifications` → `telegram` → `settings`.
+
+### Fixed
+
+- **`ringostat.constants.ts`**, **`kyivstar-fmc.constants.ts`** — provider IDs вынесены из ingest services; `settings.service` больше не тянет notifications chain.
+- **`NotificationsModule`**: `forwardRef(() => TelegramModule)`.
+- **`NotificationsDeliveryService`**: `forwardRef(() => TelegramService)`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.82`**. Содержимое = **0.2.81** + hotfix; **новых миграций нет**.
+- Если откатились с **0.2.81** на **0.2.79** — после **0.2.82** снова нужны 3 миграции **0.2.81** (если ещё не применены).
 
 ## [0.2.81] — 2026-06-15
 
@@ -558,7 +575,7 @@ _(планируемые изменения после **0.2.81**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.81`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.82`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

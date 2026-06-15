@@ -4,8 +4,9 @@ import type { Prisma } from "@prisma/client";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { RINGOSTAT_PROVIDER } from "./ringostat.constants";
 
-export const RINGOSTAT_PROVIDER = "RINGOSTAT";
+export { RINGOSTAT_PROVIDER } from "./ringostat.constants";
 
 type RingostatRawPayload = Record<string, unknown>;
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import type { UserNotification } from "@prisma/client";
 import { TelegramService } from "../integrations/telegram/telegram.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -9,7 +9,7 @@ export class NotificationsDeliveryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly telegram: TelegramService,
+    @Inject(forwardRef(() => TelegramService)) private readonly telegram: TelegramService,
   ) {}
 
   async afterCreate(notification: UserNotification): Promise<void> {

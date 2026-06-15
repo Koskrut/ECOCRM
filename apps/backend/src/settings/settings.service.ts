@@ -10,8 +10,8 @@ import {
   desiredLeadUserIdForOrgSlot,
   leadRootSlotForLeadUser,
 } from "./org-chart-region-resolver";
-import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat-ingest.service";
-import { KYIVSTAR_FMC_PROVIDER } from "../integrations/kyivstar-fmc/kyivstar-fmc-ingest.service";
+import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat.constants";
+import { KYIVSTAR_FMC_PROVIDER } from "../integrations/kyivstar-fmc/kyivstar-fmc.constants";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 import { NOVA_POSHTA_INTEGRATION_PROVIDER } from "../np/np.constants";
 import { getBaseCurrency, normalizeBaseCurrency } from "../common/currency.util";

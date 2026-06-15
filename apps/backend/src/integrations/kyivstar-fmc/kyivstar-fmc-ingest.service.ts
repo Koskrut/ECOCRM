@@ -4,8 +4,9 @@ import type { Prisma } from "@prisma/client";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { KYIVSTAR_FMC_PROVIDER } from "./kyivstar-fmc.constants";
 
-export const KYIVSTAR_FMC_PROVIDER = "KYIVSTAR_FMC";
+export { KYIVSTAR_FMC_PROVIDER } from "./kyivstar-fmc.constants";
 
 type KyivstarRawPayload = Record<string, unknown>;
 type NormalizedDirection = "INBOUND" | "OUTBOUND" | "LOCAL" | "UNKNOWN";
