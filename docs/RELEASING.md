@@ -28,7 +28,7 @@ git push origin v0.2.81
 
 ## Альтернатива: без тега
 
-**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.79`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
+**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.81`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
 
 ## После успешного CI
 
