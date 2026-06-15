@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.82**.)_
+_(планируемые изменения после **0.2.83**.)_
+
+## [0.2.83] — 2026-06-15
+
+### Summary
+
+**Hotfix 0.2.83**: backend crash loop на **0.2.82** — `TypeError: target.$connect is not a function` в `PrismaService`. Extended Prisma client (`$extends`) не экспонирует `$connect`/`$disconnect`.
+
+### Fixed
+
+- **`prisma.service.ts`**: lifecycle (`$connect`, `$disconnect`, `onModuleInit`) маршрутизируется на **base** `PrismaClient`; query — через extended client с audit extension.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.83`**. Содержимое = **0.2.81** + hotfixes **0.2.82** + **0.2.83**; **новых миграций нет**.
+- **Не использовать 0.2.81 / 0.2.82** для prod.
+- С **0.2.79**: после успешного деплоя применить 3 миграции **0.2.81** (если ещё не были).
 
 ## [0.2.82] — 2026-06-15
 
@@ -575,7 +591,7 @@ _(планируемые изменения после **0.2.82**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.82`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.83`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

@@ -29,22 +29,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     super({ adapter });
 
-    const extended = this.$extends(auditExtension);
-    if (!extended) {
-      throw new Error("[PrismaService] Audit extension failed to attach — AuditLog will not be written");
-    }
+    // $extends() client does not expose $connect/$disconnect — keep base client for lifecycle.
+    const baseClient = this;
+    const extended = baseClient.$extends(auditExtension);
 
     return new Proxy(extended, {
       get(target, prop, receiver) {
-        if (prop === "onModuleInit") {
-          return async () => {
-            await (target as PrismaClient).$connect();
-          };
+        if (prop === "$connect") {
+          return baseClient.$connect.bind(baseClient);
         }
-        if (prop === "onModuleDestroy") {
-          return async () => {
-            await (target as PrismaClient).$disconnect();
-          };
+        if (prop === "$disconnect") {
+          return baseClient.$disconnect.bind(baseClient);
         }
         const value = Reflect.get(target, prop, receiver);
         return typeof value === "function" ? value.bind(target) : value;
