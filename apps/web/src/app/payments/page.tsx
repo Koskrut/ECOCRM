@@ -1540,7 +1540,9 @@ function PaymentsContent() {
                       row.totalAmount - (row.returnAdjustmentAmount ?? 0);
                     const stageKey = row.orderStage ?? "";
                     const stageLabel =
-                      (t.orders.stages as Record<string, string>)[stageKey] ?? stageKey;
+                      t.planning.orderStages[
+                        stageKey as keyof typeof t.planning.orderStages
+                      ] ?? stageKey;
                     return (
                       <tr key={row.id} className="border-t border-zinc-100 hover:bg-zinc-50">
                         <td className="px-4 py-3">

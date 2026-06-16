@@ -1,6 +1,6 @@
 # Выпуск релиза в Git (чеклист)
 
-Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.87`** / **`0.2.87`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.85`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.87]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
+Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.88`** / **`0.2.88`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.86`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.88]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
 
 ## Перед тегом
 
@@ -18,21 +18,21 @@ git fetch origin
 git checkout <ваша-ветка-релиза>   # например main
 git pull origin <ваша-ветка-релиза>
 
-git tag -a v0.2.87 -m "Release 0.2.87"
-git push origin v0.2.87
+git tag -a v0.2.88 -m "Release 0.2.88"
+git push origin v0.2.88
 ```
 
-После `git push origin v0.2.87` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** в dispatch собираются **все** module-образы и полный манифест compose.
+После `git push origin v0.2.88` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** в dispatch собираются **все** module-образы и полный манифест compose.
 
 Для **`v0.2.*`** при пустом поле **modules** в workflow собираются **все** опциональные module-образы (см. `publish-release.yml` и `CHANGELOG.md`).
 
 ## Альтернатива: без тега
 
-**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.87`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
+**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.88`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
 
 ## После успешного CI
 
-- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.87`**, `docker compose pull` и перезапуск.
+- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.88`**, `docker compose pull` и перезапуск.
 - При наличии новых миграций в релизе: **`prisma migrate deploy`** на стороне клиента (или сервис `backend-migrate` в compose).
 
 ## Compose на сервере клиента (SUPREX / install bundle)
