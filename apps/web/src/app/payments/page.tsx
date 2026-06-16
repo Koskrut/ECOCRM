@@ -8,6 +8,11 @@ import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { strings as t } from "@/locales";
 import { formatDate } from "@/lib/crmDatetime";
 import { useToast } from "@/components/feedback";
+import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
+import { FxWriteOffModal } from "./FxWriteOffModal";
+
+type PaymentsView = "payments" | "unmatched" | "fxVariance";
 
 type BankAccount = { id: string; name: string; currency: string; provider?: string };
 
@@ -152,9 +157,13 @@ function PaymentsContent() {
   const viewParam = searchParams.get("view");
   const bankAccountId = searchParams.get("bankAccountId") ?? "";
   const [mode, setMode] = useState<"cash" | "fop">("fop");
-  const [view, setView] = useState<"payments" | "unmatched">(
-    viewParam === "payments" ? "payments" : "unmatched",
-  );
+  const initialView: PaymentsView =
+    viewParam === "payments"
+      ? "payments"
+      : viewParam === "fxVariance"
+        ? "fxVariance"
+        : "unmatched";
+  const [view, setView] = useState<PaymentsView>(initialView);
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [search, setSearch] = useState("");
@@ -244,6 +253,23 @@ function PaymentsContent() {
   const defaultFopAppliedRef = useRef(false);
   const [defaultBankFromApi, setDefaultBankFromApi] = useState<string | null>(null);
   const [expandedSplitKeys, setExpandedSplitKeys] = useState<Set<string>>(new Set());
+  const [fxQueue, setFxQueue] = useState<FxVarianceQueueItem[]>([]);
+  const [fxQueueTotal, setFxQueueTotal] = useState(0);
+  const [fxSummaryCount, setFxSummaryCount] = useState(0);
+  const [fxQueueLoading, setFxQueueLoading] = useState(false);
+  const [fxWriteOffOrder, setFxWriteOffOrder] = useState<FxVarianceQueueItem | null>(null);
+
+  const setViewWithUrl = useCallback(
+    (next: PaymentsView) => {
+      setView(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "unmatched") params.delete("view");
+      else params.set("view", next);
+      const q = params.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   useEffect(() => {
     apiHttp
@@ -325,6 +351,26 @@ function PaymentsContent() {
     }
   }, [bankAccountId]);
 
+  const fetchFxVariance = useCallback(async () => {
+    setFxQueueLoading(true);
+    setError(null);
+    try {
+      const [queue, summary] = await Promise.all([
+        ordersApi.getFxVarianceQueue({ page: 1, pageSize: 500 }),
+        ordersApi.getFxVarianceSummary(),
+      ]);
+      setFxQueue(queue.items);
+      setFxQueueTotal(queue.total);
+      setFxSummaryCount(summary.count);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t.payments.fxVariance.errors.load);
+      setFxQueue([]);
+      setFxQueueTotal(0);
+    } finally {
+      setFxQueueLoading(false);
+    }
+  }, []);
+
   const runBankSync = useCallback(
     async (opts?: { forYesterday?: boolean }) => {
       setBankSyncLoading(true);
@@ -381,8 +427,20 @@ function PaymentsContent() {
   }, [mode, view, fetchPayments]);
 
   useEffect(() => {
-    if (mode === "fop") fetchUnmatched();
-  }, [mode, fetchUnmatched]);
+    if (mode === "fop" && view === "unmatched") fetchUnmatched();
+  }, [mode, view, fetchUnmatched]);
+
+  useEffect(() => {
+    if (mode === "fop" && view === "fxVariance") void fetchFxVariance();
+  }, [mode, view, fetchFxVariance]);
+
+  useEffect(() => {
+    if (mode !== "fop") return;
+    ordersApi
+      .getFxVarianceSummary()
+      .then((s) => setFxSummaryCount(s.count))
+      .catch(() => setFxSummaryCount(0));
+  }, [mode]);
 
   const cashPayments = useMemo(
     () => filterBySearch(
@@ -807,7 +865,7 @@ function PaymentsContent() {
       });
       closeAllocateModal();
       await fetchUnmatched();
-      setView("payments");
+      setViewWithUrl("payments");
       await fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
@@ -861,7 +919,7 @@ function PaymentsContent() {
         setSplitContactId(null);
         setSplitClientOrders([]);
         await fetchUnmatched();
-        setView("payments");
+        setViewWithUrl("payments");
       }
       setSplitRows([]);
       setSplitOrderForRowIndex(null);
@@ -956,7 +1014,26 @@ function PaymentsContent() {
       ? paymentsLoading
       : mode === "fop" && view === "unmatched"
         ? unmatchedLoading
-        : paymentsLoading;
+        : mode === "fop" && view === "fxVariance"
+          ? fxQueueLoading
+          : paymentsLoading;
+
+  const fxQueueFiltered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return fxQueue;
+    return fxQueue.filter((row) => {
+      const contact =
+        row.contact != null
+          ? `${row.contact.firstName} ${row.contact.lastName}`.trim()
+          : row.client != null
+            ? `${row.client.firstName} ${row.client.lastName}`.trim()
+            : row.company?.name ?? "";
+      return (
+        row.orderNumber.toLowerCase().includes(q) ||
+        contact.toLowerCase().includes(q)
+      );
+    });
+  }, [fxQueue, search]);
 
   return (
     <div className="space-y-4">
@@ -1019,7 +1096,7 @@ function PaymentsContent() {
                 <div className="flex rounded-lg border border-zinc-200 p-0.5">
                   <button
                     type="button"
-                    onClick={() => setView("payments")}
+                    onClick={() => setViewWithUrl("payments")}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                       view === "payments"
                         ? "bg-zinc-800 text-white"
@@ -1030,7 +1107,7 @@ function PaymentsContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView("unmatched")}
+                    onClick={() => setViewWithUrl("unmatched")}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                       view === "unmatched"
                         ? "bg-zinc-800 text-white"
@@ -1039,7 +1116,24 @@ function PaymentsContent() {
                   >
                     {t.payments.toAllocateTab}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewWithUrl("fxVariance")}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                      view === "fxVariance"
+                        ? "bg-zinc-800 text-white"
+                        : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                  >
+                    {t.payments.fxVariance.tab}
+                    {fxSummaryCount > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-white">
+                        {fxSummaryCount}
+                      </span>
+                    ) : null}
+                  </button>
                 </div>
+                {view !== "fxVariance" && (
                 <label className="flex items-center gap-2 text-sm text-zinc-600">
                   {t.payments.bankAccountLabel}
                   <select
@@ -1055,6 +1149,7 @@ function PaymentsContent() {
                     ))}
                   </select>
                 </label>
+                )}
               </>
             )}
             <input
@@ -1409,6 +1504,90 @@ function PaymentsContent() {
               </>
             )}
           </>
+        )}
+
+        {!loading && mode === "fop" && view === "fxVariance" && (
+          <div className="overflow-x-auto">
+            <p className="px-4 py-3 text-sm text-zinc-600">
+              {t.payments.fxVariance.intro(fxQueueTotal)}
+            </p>
+            {fxQueueFiltered.length === 0 ? (
+              <p className="px-4 pb-6 text-sm text-zinc-500">{t.payments.fxVariance.empty}</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
+                  <tr>
+                    <th className="px-4 py-3">{t.payments.order}</th>
+                    <th className="px-4 py-3">{t.payments.orderClient}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.fxVariance.total}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.fxVariance.paidUahCol}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.fxVariance.paidUsdCol}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.fxVariance.debtUsd}</th>
+                    <th className="px-4 py-3 text-right">{t.payments.fxVariance.residualUah}</th>
+                    <th className="px-4 py-3">{t.payments.fxVariance.stage}</th>
+                    <th className="px-4 py-3 w-28">{t.payments.action}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fxQueueFiltered.map((row) => {
+                    const contactLabel =
+                      row.contact != null
+                        ? `${row.contact.firstName} ${row.contact.lastName}`.trim()
+                        : row.client != null
+                          ? `${row.client.firstName} ${row.client.lastName}`.trim()
+                          : row.company?.name ?? "—";
+                    const effectiveTotal =
+                      row.totalAmount - (row.returnAdjustmentAmount ?? 0);
+                    const stageKey = row.orderStage ?? "";
+                    const stageLabel =
+                      (t.orders.stages as Record<string, string>)[stageKey] ?? stageKey;
+                    return (
+                      <tr key={row.id} className="border-t border-zinc-100 hover:bg-zinc-50">
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/orders?orderId=${row.id}`}
+                            className="font-medium text-zinc-900 hover:underline"
+                          >
+                            {row.orderNumber}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-600">{contactLabel}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatOrderAmount(
+                            effectiveTotal,
+                            row.currency,
+                            row.exchangeRate,
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Math.round(row.fxVariance.paidUah)} ₴
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {row.fxVariance.paidUsd.toFixed(2)} {row.currency}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium text-amber-800">
+                          {row.fxVariance.debtUsd.toFixed(2)} {row.currency}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-zinc-600">
+                          {Math.round(row.fxVariance.residualUah)} ₴
+                        </td>
+                        <td className="px-4 py-3 text-zinc-600">{stageLabel}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => setFxWriteOffOrder(row)}
+                            className="rounded-md bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-800"
+                          >
+                            {t.payments.fxVariance.writeOff}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         )}
 
         {!loading && mode === "fop" && view === "unmatched" && (
@@ -2493,6 +2672,17 @@ function PaymentsContent() {
             </div>
           </div>
         </div>
+      )}
+      {fxWriteOffOrder && (
+        <FxWriteOffModal
+          order={fxWriteOffOrder}
+          open={!!fxWriteOffOrder}
+          onClose={() => setFxWriteOffOrder(null)}
+          onSuccess={() => {
+            pushToast(t.payments.fxVariance.writeOffSuccess, "success");
+            void fetchFxVariance();
+          }}
+        />
       )}
     </div>
   );

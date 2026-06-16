@@ -50,6 +50,7 @@ import {
 import { orderHasTtnRecord } from "./order-stage-prerequisites";
 import { validateOrderStageTransition } from "./order-stage-transitions";
 import { assertOrderReadyForCompletion, getOrderCompletionBlockers } from "./order-completion-guards";
+import { computeFxVarianceSnapshot } from "./fx-variance.utils";
 import {
   computeOrderStockReadiness,
   type OrderStockReadiness,
@@ -714,11 +715,40 @@ export class OrdersService {
       subtotalAmount: o.subtotalAmount ?? 0,
       debtAmount: o.debtAmount,
       returnAdjustmentAmount: o.returnAdjustmentAmount,
+      fxWriteOffAmount: o.fxWriteOffAmount,
       paymentDueDate: o.paymentDueDate,
     });
+    const [payments, openReturnCount] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: { orderId: id },
+        select: { amount: true, currency: true, status: true, sourceType: true },
+      }),
+      this.prisma.orderReturn.count({ where: { orderId: id, status: { not: "CLOSED" } } }),
+    ]);
+    const fxVariance = computeFxVarianceSnapshot(
+      {
+        currency: o.currency,
+        exchangeRate: o.exchangeRate,
+        totalAmount: o.totalAmount,
+        returnAdjustmentAmount: o.returnAdjustmentAmount,
+        paidAmount: o.paidAmount,
+        debtAmount: o.debtAmount,
+        fxWriteOffAmount: o.fxWriteOffAmount,
+        orderStage: o.orderStage,
+        openReturnCount,
+      },
+      payments.map((p) => ({
+        amount: Number(p.amount),
+        currency: p.currency,
+        status: p.status,
+        sourceType: p.sourceType,
+      })),
+    );
     return {
       ...this.mapToEntity(o),
       completionBlockers,
+      fxVariance,
+      isFxVarianceCandidate: fxVariance.isCandidate,
       ttnSharedAcrossOrders: ttnSharedMeta.get(id)?.shared === true,
       ttnSharedWithOrders: relatedOrders,
     };
@@ -1494,6 +1524,7 @@ export class OrdersService {
         subtotalAmount: true,
         debtAmount: true,
         returnAdjustmentAmount: true,
+        fxWriteOffAmount: true,
         paymentDueDate: true,
         financialStatus: true,
         deliveryMethod: true,
@@ -1554,6 +1585,7 @@ export class OrdersService {
         subtotalAmount: current.subtotalAmount ?? 0,
         debtAmount: current.debtAmount,
         returnAdjustmentAmount: current.returnAdjustmentAmount,
+        fxWriteOffAmount: current.fxWriteOffAmount,
         paymentDueDate: current.paymentDueDate,
       });
     }
@@ -1720,8 +1752,9 @@ export class OrdersService {
     const subtotal = order.items.reduce((sum, it) => sum + (it.lineTotal ?? 0), 0);
     const a = this.calc(subtotal, order.discountAmount, order.paidAmount);
     const returnAdjustment = Math.max(0, Number(order.returnAdjustmentAmount ?? 0));
+    const fxWriteOff = Math.max(0, Number(order.fxWriteOffAmount ?? 0));
     const effectiveTotal = Math.max(0, a.total - returnAdjustment);
-    const debtAmount = Math.max(0, effectiveTotal - a.paid);
+    const debtAmount = Math.max(0, effectiveTotal - a.paid - fxWriteOff);
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,
       totalAmount: effectiveTotal,
@@ -1805,6 +1838,9 @@ export class OrdersService {
       financialStatus: o.financialStatus ?? null,
       paymentDueDate: o.paymentDueDate ?? null,
       returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
+      fxWriteOffAmount: o.fxWriteOffAmount ?? 0,
+      fxWriteOffNote: o.fxWriteOffNote ?? null,
+      fxWriteOffAt: o.fxWriteOffAt ?? null,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
       company: o.company ?? null,

@@ -6,6 +6,7 @@ export type OrderPaymentContext = {
   paidAmount?: number | null;
   debtAmount?: number | null;
   returnAdjustmentAmount?: number | null;
+  fxWriteOffAmount?: number | null;
 };
 
 const DEBT_EPSILON = 0.00001;
@@ -23,7 +24,8 @@ export function computeEffectiveDebt(ctx: OrderPaymentContext): number {
     return Math.max(0, Number(ctx.debtAmount));
   }
   const effectiveTotal = computeEffectiveTotal(ctx);
-  return Math.max(0, effectiveTotal - Number(ctx.paidAmount ?? 0));
+  const fxWriteOff = Number(ctx.fxWriteOffAmount ?? 0);
+  return Math.max(0, effectiveTotal - Number(ctx.paidAmount ?? 0) - fxWriteOff);
 }
 
 export function isPaymentClosed(ctx: OrderPaymentContext): boolean {

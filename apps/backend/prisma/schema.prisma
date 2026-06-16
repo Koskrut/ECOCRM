@@ -526,6 +526,7 @@ model User {
   paymentRequestsCreated     PaymentRequest[]    @relation("PaymentRequestCreatedBy")
   clientBalanceTransactions  ClientBalanceTransaction[] @relation("ClientBalanceTransactionCreatedBy")
   settledOrderReturns        OrderReturn[]       @relation("OrderReturnSettledBy")
+  fxWriteOffOrders           Order[]             @relation("OrderFxWriteOffBy")
   visits                     Visit[]
   routePlans                 RoutePlan[]
   routeSessions              RouteSession[]
@@ -1561,6 +1562,11 @@ model Order {
   paymentDueDate         DateTime?
   /// Phase 5: sum of amounts from closed returns (reduces effective total for debt calc).
   returnAdjustmentAmount Float                 @default(0)
+  /// FX variance written off (reduces debt without increasing paidAmount).
+  fxWriteOffAmount       Float                 @default(0)
+  fxWriteOffNote         String?
+  fxWriteOffAt           DateTime?
+  fxWriteOffByUserId     String?
 
   /// Backorder / stock split: child order points to the order it was split from.
   parentOrderId String?
@@ -1593,6 +1599,8 @@ model Order {
   productionBatches ProductionBatch[]
   reservations      MaterialReservation[]
   weeklyPlanItems   WeeklyPlanItem[]
+
+  fxWriteOffBy User? @relation("OrderFxWriteOffBy", fields: [fxWriteOffByUserId], references: [id], onDelete: SetNull)
 
   @@unique([legacySource, legacyId])
   @@index([companyId])

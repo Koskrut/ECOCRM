@@ -20,6 +20,18 @@ describe("order-payment-guards", () => {
     );
   });
 
+  it("computeEffectiveDebt subtracts fx write-off", () => {
+    assert.equal(
+      computeEffectiveDebt({
+        totalAmount: 100,
+        paidAmount: 99,
+        fxWriteOffAmount: 1,
+        debtAmount: null,
+      }),
+      0,
+    );
+  });
+
   it("prefers persisted debtAmount", () => {
     assert.equal(
       computeEffectiveDebt({

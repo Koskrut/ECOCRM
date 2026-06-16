@@ -636,6 +636,7 @@ export class PaymentsService {
         subtotalAmount: true,
         paidAmount: true,
         returnAdjustmentAmount: true,
+        fxWriteOffAmount: true,
         paymentType: true,
         paymentDueDate: true,
         orderStage: true,
@@ -645,8 +646,9 @@ export class PaymentsService {
     if (!order) return;
     const total = Number(order.totalAmount);
     const adjustment = Number(order.returnAdjustmentAmount ?? 0);
+    const fxWriteOff = Number(order.fxWriteOffAmount ?? 0);
     const effectiveTotal = Math.max(0, total - adjustment);
-    const debtAmount = Math.max(0, effectiveTotal - paidAmount);
+    const debtAmount = Math.max(0, effectiveTotal - paidAmount - fxWriteOff);
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,
       totalAmount: effectiveTotal,
@@ -666,6 +668,7 @@ export class PaymentsService {
         subtotalAmount: order.subtotalAmount ?? 0,
         debtAmount,
         returnAdjustmentAmount: order.returnAdjustmentAmount,
+        fxWriteOffAmount: order.fxWriteOffAmount,
         paymentDueDate: order.paymentDueDate,
       });
       autoComplete = blockers.length === 0;

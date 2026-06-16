@@ -25,6 +25,8 @@ import {
   computeOrderGrossSubtotal,
   computeOrderLineDiscountSum,
 } from "@/lib/order-line-total";
+import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
+import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
 
 // =====================
 // Small local UI helpers
@@ -148,6 +150,9 @@ type OrderDetails = {
   debtAmount?: number;
   /** Phase 5: sum of closed return amounts (reduces effective total/debt). */
   returnAdjustmentAmount?: number | null;
+  fxWriteOffAmount?: number;
+  isFxVarianceCandidate?: boolean;
+  fxVariance?: FxVarianceSnapshot;
   /** Reasons why order cannot move to COMPLETED (from API). */
   completionBlockers?: string[];
   /** Phase 4: payment due date for deferred (ISO date string). */
@@ -694,6 +699,7 @@ export function OrderModal({
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState<EditingField>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [showFxWriteOff, setShowFxWriteOff] = useState(false);
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [contacts, setContacts] = useState<ContactOption[]>([]);
@@ -3094,6 +3100,36 @@ export function OrderModal({
                           {Number(order.returnAdjustmentAmount).toFixed(2)}
                         </div>
                       )}
+                      {order.isFxVarianceCandidate && order.fxVariance && (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-800">
+                          <span>
+                            Ймовірна курсова різниця:{" "}
+                            {formatOrderAmount(
+                              order.fxVariance.suggestedWriteOffUsd,
+                              order.currency ?? "USD",
+                              order.exchangeRate,
+                            )}{" "}
+                            ({Math.round(order.fxVariance.residualUah)} ₴)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowFxWriteOff(true)}
+                            className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 font-medium hover:bg-amber-100"
+                          >
+                            Списати
+                          </button>
+                        </div>
+                      )}
+                      {Number(order.fxWriteOffAmount ?? 0) > 0 && (
+                        <div className="mt-0.5 text-xs text-zinc-500">
+                          Списано (курс):{" "}
+                          {formatOrderAmount(
+                            Number(order.fxWriteOffAmount),
+                            order.currency ?? "USD",
+                            order.exchangeRate,
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="min-w-0">
@@ -4073,6 +4109,23 @@ export function OrderModal({
           }}
         />
       ) : null}
+      {order?.isFxVarianceCandidate && order.fxVariance && (
+        <FxWriteOffModal
+          order={{
+            id: order.id,
+            orderNumber: order.orderNumber,
+            currency: order.currency,
+            exchangeRate: order.exchangeRate,
+            fxVariance: order.fxVariance,
+          }}
+          open={showFxWriteOff}
+          onClose={() => setShowFxWriteOff(false)}
+          onSuccess={() => {
+            setShowFxWriteOff(false);
+            void refreshOrder();
+          }}
+        />
+      )}
     </>
   );
 }

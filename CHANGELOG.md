@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.86**.)_
+_(планируемые изменения после **0.2.87**.)_
+
+## [0.2.87] — 2026-06-16
+
+### Summary
+
+Патч **0.2.87**: **списание курсовой разницы (FX variance)** по заказам в USD/EUR — очередь на странице платежей, API write-off, учёт в долге и автозавершение заказа.
+
+### Added
+
+- **Order FX write-off**: поля **`fxWriteOffAmount`**, **`fxWriteOffNote`**, **`fxWriteOffAt`**, **`fxWriteOffByUserId`**; миграция **`20260615120000_add_order_fx_write_off`**.
+- **Backend**: **`FxVarianceService`**, **`computeFxVarianceSnapshot`** (порог ≤ $2, остаток UAH ≤ 50), endpoints **`GET /orders/fx-variance-queue`**, **`GET /orders/fx-variance-queue/summary`**, **`POST /orders/:id/fx-write-off`**.
+- **Web**: очередь FX variance на **`/payments`**, **`FxWriteOffModal`**, блок в **`OrderModal`**, API proxy routes.
+- **i18n**: строки FX write-off (uk/en).
+
+### Changed
+
+- **`order-payment-guards`**: effective debt учитывает **`fxWriteOffAmount`**.
+- **`OrdersService`**: в карточке заказа — **`fxVariance`** snapshot и **`isFxVarianceCandidate`**.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.87`**.
+- **Миграция:** **`20260615120000_add_order_fx_write_off`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- С **0.2.79**: также 3 миграции **0.2.81** (если ещё не были).
 
 ## [0.2.86] — 2026-06-16
 
@@ -647,7 +671,7 @@ _(планируемые изменения после **0.2.86**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.86`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.87`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

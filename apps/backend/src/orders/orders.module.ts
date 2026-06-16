@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { AuditModule } from "../audit/audit.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
@@ -11,11 +12,13 @@ import { OrdersController } from "./orders.controller";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { OrdersService } from "./orders.service";
+import { FxVarianceService } from "./fx-variance.service";
 import { OrderStatusService } from "./order-status.service";
 
 @Module({
   imports: [
     PrismaModule,
+    AuditModule,
     PaymentRequestsModule,
     WarehousesModule,
     SettingsModule,
@@ -25,7 +28,7 @@ import { OrderStatusService } from "./order-status.service";
     NotificationsModule,
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, OrderStatusService, OrdersDocumentsService, OrdersPipelineConfigService],
+  providers: [OrdersService, FxVarianceService, OrderStatusService, OrdersDocumentsService, OrdersPipelineConfigService],
   exports: [OrdersService],
 })
 export class OrdersModule {}

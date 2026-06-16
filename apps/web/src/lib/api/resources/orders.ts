@@ -45,6 +45,47 @@ export type SplitByStockResponse = {
   child?: FulfillmentQueueOrder & { orderNumber?: string };
 };
 
+export type FxVarianceSnapshot = {
+  effectiveTotalUsd: number;
+  expectedUah: number;
+  paidUah: number;
+  paidUsd: number;
+  debtUsd: number;
+  residualUah: number;
+  isCandidate: boolean;
+  suggestedWriteOffUsd: number;
+  canAutoComplete: boolean;
+};
+
+export type FxVarianceQueueItem = {
+  id: string;
+  orderNumber: string;
+  orderStage: string | null;
+  currency: string;
+  exchangeRate: number | null;
+  totalAmount: number;
+  returnAdjustmentAmount: number;
+  paidAmount: number;
+  debtAmount: number;
+  fxWriteOffAmount: number;
+  company: { id: string; name: string } | null;
+  client: { id: string; firstName: string; lastName: string } | null;
+  contact: { id: string; firstName: string; lastName: string } | null;
+  fxVariance: FxVarianceSnapshot;
+};
+
+export type FxVarianceQueueResponse = {
+  items: FxVarianceQueueItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type FxVarianceSummaryResponse = {
+  count: number;
+  totalResidualUsd: number;
+};
+
 export const ordersApi = {
   getFulfillmentQueue(params?: { warehouseIds?: string[] }) {
     const query =
@@ -68,5 +109,24 @@ export const ordersApi = {
     return apiHttp
       .post<SplitByStockResponse>(`/orders/${orderId}/split-by-stock`, payload ?? {})
       .then((r) => r.data);
+  },
+
+  getFxVarianceQueue(params?: { page?: number; pageSize?: number }) {
+    return apiHttp
+      .get<FxVarianceQueueResponse>("/orders/fx-variance-queue", { params })
+      .then((r) => r.data ?? { items: [], total: 0, page: 1, pageSize: 50 });
+  },
+
+  getFxVarianceSummary() {
+    return apiHttp
+      .get<FxVarianceSummaryResponse>("/orders/fx-variance-queue/summary")
+      .then((r) => r.data ?? { count: 0, totalResidualUsd: 0 });
+  },
+
+  writeOffFxVariance(
+    orderId: string,
+    payload: { note: string; amount?: number; autoComplete?: boolean },
+  ) {
+    return apiHttp.post(`/orders/${orderId}/fx-write-off`, payload).then((r) => r.data);
   },
 };
