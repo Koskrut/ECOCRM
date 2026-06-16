@@ -56,7 +56,7 @@ function cityDisplayLabel(c: NpCityItem): string {
 }
 
 /** Extract city name only: no region, no parenthetical (місто/город/...). */
-function cityNameOnly(fullLabel: string): string {
+export function cityNameOnly(fullLabel: string): string {
   let s = fullLabel.trim();
   s = s.replace(/\s*\([^)]*\)\s*$/, "").trim();
   const comma = s.indexOf(",");

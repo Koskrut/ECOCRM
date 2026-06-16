@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
 import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
+import { NpCitySelect, cityNameOnly } from "@/components/inputs/NpDirectorySelects";
 import {
   addressHasHouseNumber,
   autocompleteAddress,
@@ -54,6 +55,39 @@ function formFromAddress(a: EntityAddress): FormState {
   };
 }
 
+function buildAddressLookupQuery(city: string, addressText: string): string {
+  const addr = addressText.trim();
+  const cityTrim = city.trim();
+  if (!addr) return "";
+  if (!cityTrim) return addr;
+  const addrLower = addr.toLowerCase();
+  const cityLower = cityTrim.toLowerCase();
+  if (addrLower.startsWith(cityLower) || addrLower.includes(`, ${cityLower}`)) {
+    return addr;
+  }
+  return `${cityTrim}, ${addr}`;
+}
+
+function EntityAddressGoogleScriptLoader({
+  mapsApiKey,
+  onState,
+}: {
+  mapsApiKey: string;
+  onState: (state: { isLoaded: boolean; loadError: Error | undefined }) => void;
+}) {
+  const { isLoaded, loadError } = useLoadScript({
+    id: "google-map-script-entity-address",
+    googleMapsApiKey: mapsApiKey,
+    preventGoogleFontsLoading: true,
+  });
+
+  useEffect(() => {
+    onState({ isLoaded, loadError: loadError ?? undefined });
+  }, [isLoaded, loadError, onState]);
+
+  return null;
+}
+
 export function EntityAddressesSection({
   entityType,
   entityId,
@@ -71,17 +105,23 @@ export function EntityAddressesSection({
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
+  const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
+  const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
   const googleQueryRef = useRef("");
+  const lastGeocodedAddressRef = useRef("");
 
-  const { isLoaded: isGoogleLoaded } = useLoadScript({
-    googleMapsApiKey: mapsApiKey ?? "",
-    preventGoogleFontsLoading: true,
-  });
+  const handleGoogleScriptState = useCallback(
+    (state: { isLoaded: boolean; loadError: Error | undefined }) => {
+      setIsGoogleLoaded(state.isLoaded);
+      setGoogleLoadError(state.loadError);
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,7 +152,7 @@ export function EntityAddressesSection({
       setSuggestions([]);
       return;
     }
-    const query = googleQueryRef.current.trim();
+    const query = buildAddressLookupQuery(form.city, googleQueryRef.current);
     if (query.length < 3) {
       setSuggestions([]);
       return;
@@ -125,7 +165,7 @@ export function EntityAddressesSection({
         .finally(() => setLookupLoading(false));
     }, 250);
     return () => clearTimeout(t);
-  }, [showSuggestions, mapsApiKey, form.addressText]);
+  }, [showSuggestions, mapsApiKey, form.addressText, form.city]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -133,14 +173,16 @@ export function EntityAddressesSection({
     setFormOpen(true);
     setMapOpen(false);
     setAddressHint(null);
+    lastGeocodedAddressRef.current = "";
   };
 
   const openEdit = (row: EntityAddress) => {
     setEditingId(row.id);
     setForm(formFromAddress(row));
     setFormOpen(true);
-    setMapOpen(false);
+    setMapOpen(Boolean(row.lat != null && row.lng != null));
     setAddressHint(null);
+    lastGeocodedAddressRef.current = row.addressText.trim();
   };
 
   const closeForm = () => {
@@ -150,58 +192,100 @@ export function EntityAddressesSection({
     setMapOpen(false);
     setShowSuggestions(false);
     setAddressHint(null);
+    lastGeocodedAddressRef.current = "";
+  };
+
+  const applyGeocodeResult = (
+    userTyped: string,
+    result: { lat: number; lng: number; formattedAddress: string; placeId: string; city: string | null },
+    placeId: string,
+  ): boolean => {
+    const merged = mergeFormattedAddressWithUserDetail(
+      userTyped,
+      result.formattedAddress || userTyped,
+    );
+    if (!addressHasHouseNumber(merged)) {
+      setForm((prev) => ({
+        ...prev,
+        addressText: merged,
+        city: prev.city.trim() || result.city || resolveCityFromGoogleAddress(merged) || prev.city,
+        lat: null,
+        lng: null,
+        googlePlaceId: null,
+      }));
+      setAddressHint(strings.common.houseNumberHint);
+      setMapOpen(false);
+      lastGeocodedAddressRef.current = "";
+      return false;
+    }
+    setForm((prev) => ({
+      ...prev,
+      addressText: merged,
+      city: prev.city.trim() || result.city || resolveCityFromGoogleAddress(merged) || prev.city,
+      lat: result.lat,
+      lng: result.lng,
+      googlePlaceId: placeId,
+    }));
+    setAddressHint(null);
+    setMapOpen(true);
+    lastGeocodedAddressRef.current = merged.trim();
+    return true;
   };
 
   const handleSelectSuggestion = async (suggestion: PlaceSuggestion) => {
     if (!mapsApiKey) return;
     setShowSuggestions(false);
     setLookupLoading(true);
+    setAddressHint(null);
+    lastGeocodedAddressRef.current = "";
     try {
       const result = await geocodePlace(mapsApiKey, suggestion.placeId);
       if (!result) return;
-      const merged = mergeFormattedAddressWithUserDetail(
-        googleQueryRef.current,
-        result.formattedAddress || suggestion.description,
-      );
-      setForm((prev) => ({
-        ...prev,
-        addressText: merged,
-        city: prev.city.trim() || result.city || resolveCityFromGoogleAddress(merged) || prev.city,
-        lat: result.lat,
-        lng: result.lng,
-        googlePlaceId: suggestion.placeId,
-      }));
-      setMapOpen(true);
-      setAddressHint(null);
+      applyGeocodeResult(googleQueryRef.current, result, suggestion.placeId);
     } finally {
       setLookupLoading(false);
     }
   };
 
-  const geocodeManual = async () => {
-    if (!mapsApiKey) return;
-    const query = form.addressText.trim();
-    if (query.length < 3 || !addressHasHouseNumber(query)) {
+  const geocodeManual = async (rawAddress?: string) => {
+    if (!mapsApiKey) return false;
+    const query = buildAddressLookupQuery(form.city, rawAddress ?? form.addressText);
+    if (query.length < 3) return false;
+    if (!addressHasHouseNumber(query)) {
       setAddressHint(strings.common.houseNumberHint);
-      return;
+      setForm((prev) => ({ ...prev, lat: null, lng: null, googlePlaceId: null }));
+      setMapOpen(false);
+      lastGeocodedAddressRef.current = "";
+      return false;
+    }
+    if (lastGeocodedAddressRef.current === query.trim()) {
+      setMapOpen(true);
+      return true;
     }
     setLookupLoading(true);
     setAddressHint(null);
     try {
       const result = await geocodeText(mapsApiKey, query, { regionCode: "UA" });
-      if (!result) return;
-      const merged = mergeFormattedAddressWithUserDetail(query, result.formattedAddress || query);
-      setForm((prev) => ({
-        ...prev,
-        addressText: merged,
-        city: prev.city.trim() || result.city || resolveCityFromGoogleAddress(merged) || prev.city,
-        lat: result.lat,
-        lng: result.lng,
-        googlePlaceId: result.placeId ?? prev.googlePlaceId,
-      }));
-      setMapOpen(true);
+      if (!result) return false;
+      return applyGeocodeResult(rawAddress ?? form.addressText, result, result.placeId ?? "");
     } finally {
       setLookupLoading(false);
+    }
+  };
+
+  const handleAddressBlur = () => {
+    window.setTimeout(() => setShowSuggestions(false), 120);
+    const query = buildAddressLookupQuery(form.city, form.addressText);
+    if (query === lastGeocodedAddressRef.current) return;
+    if (query.length >= 3 && mapsApiKey) {
+      void geocodeManual(form.addressText);
+      return;
+    }
+    if (query && !addressHasHouseNumber(query)) {
+      setAddressHint(strings.common.houseNumberHint);
+      setForm((prev) => ({ ...prev, lat: null, lng: null, googlePlaceId: null }));
+      setMapOpen(false);
+      lastGeocodedAddressRef.current = "";
     }
   };
 
@@ -265,216 +349,252 @@ export function EntityAddressesSection({
     }
   };
 
+  const toggleMap = () => {
+    if (form.lat != null && form.lng != null) {
+      setMapOpen((v) => !v);
+      return;
+    }
+    setMapOpen(true);
+    void geocodeManual();
+  };
+
   return (
-    <div className="space-y-2 py-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-zinc-500">Адреси</span>
-        {!formOpen ? (
-          <button
-            type="button"
-            className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50"
-            disabled={disabled}
-            onClick={openCreate}
-          >
-            + Додати адресу
-          </button>
-        ) : null}
-      </div>
-
-      {loading ? <p className="text-xs text-zinc-400">Завантаження…</p> : null}
-      {error ? <p className="text-xs text-red-600">{error}</p> : null}
-
-      {!loading && items.length === 0 && !formOpen ? (
-        <p className="text-xs text-zinc-400">Немає адрес. Додайте місто та адресу вручну або привʼяжіть на карті.</p>
+    <>
+      {mapsApiKey ? (
+        <EntityAddressGoogleScriptLoader mapsApiKey={mapsApiKey} onState={handleGoogleScriptState} />
       ) : null}
-
-      <ul className="space-y-2">
-        {items.map((row) => {
-          const missingCoords = !row.hasCoordinates;
-          const highlight = highlightMissingCoords && missingCoords;
-          return (
-            <li
-              key={row.id}
-              className={`rounded-md border px-3 py-2 text-sm ${
-                highlight ? "border-red-300 bg-red-50" : "border-zinc-200 bg-zinc-50/50"
-              }`}
+      <div className="space-y-2 py-1">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm text-zinc-500">Адреси</span>
+          {!formOpen ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-blue-600 hover:underline disabled:opacity-50"
+              disabled={disabled}
+              onClick={openCreate}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-medium text-zinc-900">{row.displayLine}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-zinc-500">
-                    {row.label ? <span>{row.label}</span> : null}
-                    {row.isDefault ? (
-                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700">Основний</span>
-                    ) : null}
-                    {row.hasCoordinates ? (
-                      <span className="text-emerald-700">Є координати</span>
-                    ) : (
-                      <span className={highlight ? "text-red-600" : "text-amber-700"}>Без координат</span>
-                    )}
+              + Додати адресу
+            </button>
+          ) : null}
+        </div>
+
+        {loading ? <p className="text-xs text-zinc-400">Завантаження…</p> : null}
+        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+
+        {!loading && items.length === 0 && !formOpen ? (
+          <p className="text-xs text-zinc-400">Немає адрес. Додайте місто та адресу вручну або привʼяжіть на карті.</p>
+        ) : null}
+
+        <ul className="space-y-2">
+          {items.map((row) => {
+            const missingCoords = !row.hasCoordinates;
+            const highlight = highlightMissingCoords && missingCoords;
+            return (
+              <li
+                key={row.id}
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  highlight ? "border-red-300 bg-red-50" : "border-zinc-200 bg-zinc-50/50"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium text-zinc-900">{row.displayLine}</div>
+                    <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-zinc-500">
+                      {row.label ? <span>{row.label}</span> : null}
+                      {row.isDefault ? (
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700">Основний</span>
+                      ) : null}
+                      {row.hasCoordinates ? (
+                        <span className="text-emerald-700">Є координати</span>
+                      ) : (
+                        <span className={highlight ? "text-red-600" : "text-amber-700"}>Без координат</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex shrink-0 flex-col gap-1">
-                  {!row.isDefault ? (
+                  <div className="flex shrink-0 flex-col gap-1">
+                    {!row.isDefault ? (
+                      <button
+                        type="button"
+                        className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                        disabled={disabled || mutatingId === row.id}
+                        onClick={() => void handleSetDefault(row.id)}
+                      >
+                        Зробити основним
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      className="text-xs text-blue-600 hover:underline disabled:opacity-50"
+                      className="text-xs text-zinc-600 hover:underline disabled:opacity-50"
                       disabled={disabled || mutatingId === row.id}
-                      onClick={() => void handleSetDefault(row.id)}
+                      onClick={() => openEdit(row)}
                     >
-                      Зробити основним
+                      Редагувати
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="text-xs text-zinc-600 hover:underline disabled:opacity-50"
-                    disabled={disabled || mutatingId === row.id}
-                    onClick={() => openEdit(row)}
-                  >
-                    Редагувати
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                    disabled={disabled || mutatingId === row.id}
-                    onClick={() => void handleDelete(row.id)}
-                  >
-                    Видалити
-                  </button>
+                    <button
+                      type="button"
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                      disabled={disabled || mutatingId === row.id}
+                      onClick={() => void handleDelete(row.id)}
+                    >
+                      Видалити
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
 
-      {formOpen ? (
-        <div className="space-y-3 rounded-md border border-zinc-200 bg-white p-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="block space-y-1">
-              <span className="text-xs text-zinc-500">Мітка</span>
-              <input
-                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                value={form.label}
-                onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
-                placeholder="Клиника, кабінет…"
-                disabled={saving || disabled}
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs text-zinc-500">Місто</span>
-              <input
-                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                value={form.city}
-                onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))}
-                placeholder="Київ"
-                disabled={saving || disabled}
-              />
-            </label>
-          </div>
-          <label className="block space-y-1">
-            <span className="text-xs text-zinc-500">Адреса</span>
-            <div ref={anchorRef} className="relative">
-              <input
-                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                value={form.addressText}
-                onChange={(e) => {
-                  googleQueryRef.current = e.target.value;
-                  setForm((p) => ({
-                    ...p,
-                    addressText: e.target.value,
-                    lat: null,
-                    lng: null,
-                    googlePlaceId: null,
-                  }));
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 120)}
-                placeholder="вул. …, буд. …"
-                disabled={saving || disabled}
-              />
-              <AddressSuggestionsDropdown
-                open={showSuggestions && !!mapsApiKey}
-                anchorRef={anchorRef}
-                suggestions={suggestions}
-                onSelect={(s) => void handleSelectSuggestion(s)}
-              />
-            </div>
-          </label>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            {lookupLoading ? <span>Пошук…</span> : null}
-            {addressHint ? <span className="text-amber-700">{addressHint}</span> : null}
-            {form.lat != null && form.lng != null ? (
-              <span className="text-emerald-700">Координати задано</span>
-            ) : (
-              <span>Координати не задано</span>
-            )}
-            {mapsApiKey ? (
-              <>
-                <button
-                  type="button"
-                  className="font-medium text-blue-600 hover:underline"
+        {formOpen ? (
+          <div className="space-y-3 rounded-md border border-zinc-200 bg-white p-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs text-zinc-500">Мітка</span>
+                <input
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  value={form.label}
+                  onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
+                  placeholder="Клиника, кабінет…"
                   disabled={saving || disabled}
-                  onClick={() => void geocodeManual()}
-                >
-                  Привʼязати на карті
-                </button>
-                <button
-                  type="button"
-                  className="font-medium text-blue-600 hover:underline"
-                  disabled={saving || disabled}
-                  onClick={() => setMapOpen((v) => !v)}
-                >
-                  {mapOpen ? "Сховати карту" : "Показати карту"}
-                </button>
-              </>
-            ) : null}
-          </div>
-
-          {mapOpen && form.lat != null && form.lng != null && isGoogleLoaded && mapsApiKey ? (
-            <div className="h-40 overflow-hidden rounded-md border border-zinc-200">
-              <GoogleMap
-                mapContainerStyle={{ width: "100%", height: "100%" }}
-                center={{ lat: form.lat, lng: form.lng }}
-                zoom={15}
-              >
-                <Marker
-                  position={{ lat: form.lat, lng: form.lng }}
-                  draggable
-                  onDragEnd={(e) => {
-                    const lat = e.latLng?.lat();
-                    const lng = e.latLng?.lng();
-                    if (lat != null && lng != null) {
-                      setForm((p) => ({ ...p, lat, lng }));
-                    }
-                  }}
                 />
-              </GoogleMap>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs text-zinc-500">Місто</span>
+                <NpCitySelect
+                  valueRef=""
+                  valueLabel={form.city}
+                  onChange={(_ref, label) => {
+                    const city = cityNameOnly(label);
+                    setForm((p) => ({
+                      ...p,
+                      city,
+                      lat: null,
+                      lng: null,
+                      googlePlaceId: null,
+                    }));
+                    lastGeocodedAddressRef.current = "";
+                    setAddressHint(null);
+                  }}
+                  disabled={saving || disabled}
+                  placeholder="Оберіть місто…"
+                />
+              </label>
             </div>
-          ) : null}
+            <label className="block space-y-1">
+              <span className="text-xs text-zinc-500">Адреса</span>
+              <div ref={anchorRef} className="relative">
+                <input
+                  className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                  value={form.addressText}
+                  onChange={(e) => {
+                    googleQueryRef.current = e.target.value;
+                    setForm((p) => ({
+                      ...p,
+                      addressText: e.target.value,
+                      lat: null,
+                      lng: null,
+                      googlePlaceId: null,
+                    }));
+                    setAddressHint(null);
+                    lastGeocodedAddressRef.current = "";
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={handleAddressBlur}
+                  placeholder={form.city.trim() ? "вул. …, буд. …" : "Спочатку оберіть місто"}
+                  disabled={saving || disabled || !form.city.trim()}
+                />
+                <AddressSuggestionsDropdown
+                  open={showSuggestions && !!mapsApiKey && !!form.city.trim()}
+                  anchorRef={anchorRef}
+                  suggestions={suggestions}
+                  onSelect={(s) => void handleSelectSuggestion(s)}
+                />
+              </div>
+            </label>
 
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-              disabled={saving || disabled}
-              onClick={() => void handleSave()}
-            >
-              {saving ? "Збереження…" : editingId ? "Зберегти" : "Додати"}
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700"
-              disabled={saving}
-              onClick={closeForm}
-            >
-              Скасувати
-            </button>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              {lookupLoading ? <span>Пошук…</span> : null}
+              {addressHint ? <span className="text-amber-700">{addressHint}</span> : null}
+              {!mapsApiKey ? (
+                <span className="text-amber-700">Google Maps не налаштовано — карта недоступна</span>
+              ) : null}
+              {form.lat != null && form.lng != null ? (
+                <span className="text-emerald-700">Координати задано</span>
+              ) : (
+                <span>Координати не задано</span>
+              )}
+              {mapsApiKey ? (
+                <>
+                  <button
+                    type="button"
+                    className="font-medium text-blue-600 hover:underline"
+                    disabled={saving || disabled || !form.city.trim()}
+                    onClick={() => void geocodeManual()}
+                  >
+                    Привʼязати на карті
+                  </button>
+                  <button
+                    type="button"
+                    className="font-medium text-blue-600 hover:underline"
+                    disabled={saving || disabled}
+                    onClick={toggleMap}
+                  >
+                    {mapOpen ? "Сховати карту" : "Показати карту"}
+                  </button>
+                </>
+              ) : null}
+            </div>
+
+            {mapOpen && form.lat != null && form.lng != null && mapsApiKey ? (
+              googleLoadError ? (
+                <p className="text-xs text-red-600">Не вдалося завантажити Google Maps</p>
+              ) : !isGoogleLoaded ? (
+                <p className="text-xs text-zinc-400">Завантаження карти…</p>
+              ) : (
+                <div className="h-40 overflow-hidden rounded-md border border-zinc-200">
+                  <GoogleMap
+                    mapContainerStyle={{ width: "100%", height: "100%" }}
+                    center={{ lat: form.lat, lng: form.lng }}
+                    zoom={15}
+                  >
+                    <Marker
+                      position={{ lat: form.lat, lng: form.lng }}
+                      draggable
+                      onDragEnd={(e) => {
+                        const lat = e.latLng?.lat();
+                        const lng = e.latLng?.lng();
+                        if (lat != null && lng != null) {
+                          setForm((p) => ({ ...p, lat, lng }));
+                        }
+                      }}
+                    />
+                  </GoogleMap>
+                </div>
+              )
+            ) : null}
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                disabled={saving || disabled}
+                onClick={() => void handleSave()}
+              >
+                {saving ? "Збереження…" : editingId ? "Зберегти" : "Додати"}
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700"
+                disabled={saving}
+                onClick={closeForm}
+              >
+                Скасувати
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 

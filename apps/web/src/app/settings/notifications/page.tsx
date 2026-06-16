@@ -42,17 +42,28 @@ function prefFor(
 export default function NotificationSettingsPage() {
   const [role, setRole] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<NotificationPreferencesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [me, p] = await Promise.all([authApi.me(), notificationsApi.getPreferences()]);
-    setRole(me.user?.role ?? null);
-    setPrefs(p);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const [me, p] = await Promise.all([authApi.me(), notificationsApi.getPreferences()]);
+      setRole(me.user?.role ?? null);
+      setPrefs(p);
+    } catch (e) {
+      setPrefs(null);
+      setLoadError(e instanceof Error ? e.message : "Не вдалося завантажити налаштування");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    void load().catch(() => setPrefs(null));
+    void load();
   }, [load]);
 
   const updateType = async (
@@ -96,10 +107,6 @@ export default function NotificationSettingsPage() {
     }
   };
 
-  if (!prefs) {
-    return <div className="text-sm text-zinc-500">Завантаження…</div>;
-  }
-
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -110,6 +117,23 @@ export default function NotificationSettingsPage() {
         <p className="text-sm text-zinc-500">Керуйте каналами доставки подій CRM</p>
       </div>
 
+      {loading ? (
+        <div className="text-sm text-zinc-500">Завантаження…</div>
+      ) : loadError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <p>{loadError}</p>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-2 text-red-900 underline hover:no-underline"
+          >
+            Спробувати знову
+          </button>
+        </div>
+      ) : !prefs ? (
+        <div className="text-sm text-zinc-500">Немає даних</div>
+      ) : (
+        <>
       {msg && <p className="text-sm text-zinc-600">{msg}</p>}
 
       {(role === "LEAD" || role === "ADMIN") && (
@@ -171,6 +195,8 @@ export default function NotificationSettingsPage() {
           })}
         </ul>
       </section>
+        </>
+      )}
     </div>
   );
 }
