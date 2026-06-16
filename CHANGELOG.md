@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.83**.)_
+_(планируемые изменения после **0.2.84**.)_
+
+## [0.2.84] — 2026-06-16
+
+### Summary
+
+**Hotfix 0.2.84**: backend на **0.2.83** проходил healthcheck, но все запросы к БД падали с 500 — `Cannot read properties of undefined (reading 'findUnique')` (`this.prisma.user` undefined). Причина — **callback-form** `Prisma.defineExtension((client) => …)` в Prisma 7 не экспонирует model delegates на extended client.
+
+### Fixed
+
+- **`audit-prisma.extension.ts`**: extension переведён на **object-form** `defineExtension({ query: … })`; base client для audit writes — через `setAuditPrismaClient()`.
+- **`prisma.service.ts`**: lifecycle через Proxy на object-form extended client (модели и `$connect` доступны).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.84`**. Содержимое = **0.2.81** + hotfixes **0.2.82** + **0.2.83** + **0.2.84**; **новых миграций нет**.
+- **Не использовать 0.2.81 / 0.2.82 / 0.2.83** для prod.
+- С **0.2.79**: после успешного деплоя применить 3 миграции **0.2.81** (если ещё не были).
 
 ## [0.2.83] — 2026-06-15
 

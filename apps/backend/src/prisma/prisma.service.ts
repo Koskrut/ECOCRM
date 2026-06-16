@@ -3,7 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
-import { auditExtension } from "../audit/audit-prisma.extension";
+import { auditExtension, setAuditPrismaClient } from "../audit/audit-prisma.extension";
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -29,20 +29,23 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     super({ adapter });
 
-    // $extends() client does not expose $connect/$disconnect — keep base client for lifecycle.
-    const baseClient = this;
-    const extended = baseClient.$extends(auditExtension);
+    setAuditPrismaClient(this);
+    const extended = this.$extends(auditExtension);
 
     return new Proxy(extended, {
-      get(target, prop, receiver) {
-        if (prop === "$connect") {
-          return baseClient.$connect.bind(baseClient);
+      get(target, prop) {
+        if (prop === "onModuleInit") {
+          return async () => {
+            await target.$connect();
+          };
         }
-        if (prop === "$disconnect") {
-          return baseClient.$disconnect.bind(baseClient);
+        if (prop === "onModuleDestroy") {
+          return async () => {
+            await target.$disconnect();
+          };
         }
-        const value = Reflect.get(target, prop, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(value) : value;
       },
     }) as unknown as PrismaService;
   }

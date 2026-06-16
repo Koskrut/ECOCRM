@@ -1,4 +1,4 @@
-import type { AuditAction, Prisma } from "@prisma/client";
+import type { AuditAction, Prisma, PrismaClient } from "@prisma/client";
 import { Prisma as PrismaNamespace } from "@prisma/client";
 import { computeAuditDiff } from "./audit-diff";
 import { getAuditContext } from "./audit-context";
@@ -16,6 +16,20 @@ const AUDITED_ACTIONS = new Set([
 ]);
 
 const BULK_ACTIONS = new Set(["createMany", "createManyAndReturn", "updateMany", "deleteMany"]);
+
+let auditPrismaClient: PrismaClient | null = null;
+
+/** Base PrismaClient (without audit extension) — set before `$extends(auditExtension)`. */
+export function setAuditPrismaClient(client: PrismaClient): void {
+  auditPrismaClient = client;
+}
+
+function getAuditPrismaClient(): PrismaClient {
+  if (!auditPrismaClient) {
+    throw new Error("[auditExtension] Prisma client not initialized — call setAuditPrismaClient before $extends");
+  }
+  return auditPrismaClient;
+}
 
 function toAuditAction(operation: string): AuditAction {
   if (operation.startsWith("create")) return "CREATE";
@@ -71,8 +85,8 @@ type QueryArgs = {
   query: (args: Record<string, unknown>) => Promise<unknown>;
 };
 
-export const auditExtension = PrismaNamespace.defineExtension(
-  ((client: any) => ({
+// Object-form defineExtension — callback form breaks model delegates in Prisma 7 (`.user` is undefined).
+export const auditExtension = PrismaNamespace.defineExtension({
   name: "crm-audit",
   query: {
     $allModels: {
@@ -86,6 +100,7 @@ export const auditExtension = PrismaNamespace.defineExtension(
           return query(args);
         }
 
+        const client = getAuditPrismaClient();
         const entityType = model;
         const argsObj = args as Record<string, unknown>;
         const where = argsObj?.where;
@@ -97,7 +112,7 @@ export const auditExtension = PrismaNamespace.defineExtension(
           !isBulk &&
           (operation === "update" || operation === "delete" || operation === "upsert")
         ) {
-          const delegate = (client as Record<string, unknown>)[modelDelegateName(model)] as
+          const delegate = (client as unknown as Record<string, unknown>)[modelDelegateName(model)] as
             | { findUnique?: (findArgs: unknown) => Promise<unknown> }
             | undefined;
           if (delegate?.findUnique && where) {
@@ -163,11 +178,11 @@ export const auditExtension = PrismaNamespace.defineExtension(
         };
 
         await client.auditLog.create({
-          data: payload,
+          data: payload as any,
         });
 
         return result;
       },
     },
   },
-})) as any) as any;
+});
