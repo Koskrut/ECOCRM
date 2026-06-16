@@ -30,24 +30,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({ adapter });
 
     setAuditPrismaClient(this);
-    const extended = this.$extends(auditExtension);
+    const extended = this.$extends(auditExtension) as unknown as PrismaClient &
+      OnModuleInit &
+      OnModuleDestroy;
 
-    return new Proxy(extended, {
-      get(target, prop) {
-        if (prop === "onModuleInit") {
-          return async () => {
-            await target.$connect();
-          };
-        }
-        if (prop === "onModuleDestroy") {
-          return async () => {
-            await target.$disconnect();
-          };
-        }
-        const value = Reflect.get(target, prop, target);
-        return typeof value === "function" ? value.bind(value) : value;
-      },
-    }) as unknown as PrismaService;
+    extended.onModuleInit = async () => {
+      await extended.$connect();
+    };
+    extended.onModuleDestroy = async () => {
+      await extended.$disconnect();
+    };
+
+    return extended as unknown as PrismaService;
   }
 
   async onModuleInit(): Promise<void> {
