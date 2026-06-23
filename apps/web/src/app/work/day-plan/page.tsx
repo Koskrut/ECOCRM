@@ -14,15 +14,19 @@ import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
 import { DayPlanPercentBadge } from "@/components/day-plan/DayPlanWidget";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { shiftYmdInKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
+import { strings } from "@/locales";
+
+const p = strings.dayPlan.workPage;
+const w = strings.dayPlan.widget;
 
 type MeResponse = { user?: { role?: string; id?: string } };
 
 function formatPlanFact(item: DayPlanPayload["items"][number]): string {
   if (item.kind === "zero_target") {
-    return item.fact === 0 ? "0 прострочених" : `${item.fact} прострочених`;
+    return item.fact === 0 ? w.overdueZero : w.overdueCount(item.fact);
   }
   if (item.key === "field_shift_started") {
-    return item.fact >= 1 ? "Так" : "Ні";
+    return item.fact >= 1 ? w.yes : w.no;
   }
   return `${item.fact} / ${item.plan}`;
 }
@@ -103,7 +107,7 @@ function DayPlanContent() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-zinc-900">
           <Target className="h-7 w-7 text-zinc-600" />
-          План на день
+          {p.title}
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -133,7 +137,7 @@ function DayPlanContent() {
             onClick={() => setDate(todayYmdInKyiv())}
             className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
           >
-            Сьогодні
+            {p.today}
           </button>
         </div>
       </div>
@@ -146,7 +150,7 @@ function DayPlanContent() {
                 <p className="text-sm font-medium text-zinc-900">{plan.fullName}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  {plan.date} · {plan.profile === "field" ? "Польовий" : "Офісний"} профіль
+                  {plan.date} · {plan.profile === "field" ? strings.dayPlan.settings.profileField : strings.dayPlan.settings.profileOffice} {p.profileSuffix}
                 </p>
               </div>
               <DayPlanPercentBadge percent={plan.overallPercent} status={plan.status} />
@@ -172,7 +176,7 @@ function DayPlanContent() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-zinc-900">{item.label}</p>
                     <p className="text-xs text-zinc-500">
-                      {formatPlanFact(item)} · вага {item.weight}%
+                      {formatPlanFact(item)} · {p.weightLabel} {item.weight}%
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -191,7 +195,7 @@ function DayPlanContent() {
                       href={item.actionHref}
                       className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                     >
-                      Перейти
+                      {p.goTo}
                     </Link>
                   </div>
                 </li>
@@ -201,8 +205,7 @@ function DayPlanContent() {
 
           {role === "LEAD" || role === "ADMIN" ? (
             <p className="text-xs text-zinc-500">
-              Для перегляду плану іншого менеджера відкрийте рядок у таблиці «Активність команди» на
-              Dashboard.
+              {p.teamHint}
             </p>
           ) : null}
         </>

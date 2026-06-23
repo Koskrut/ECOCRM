@@ -1,4 +1,4 @@
-import type { DayPlanItemKind, DayPlanStatus } from "./day-plan.types";
+import type { DayPlanItemKind, DayPlanStatus, DayPlanThresholds } from "./day-plan.types";
 import { DAY_PLAN_STATUS_THRESHOLDS } from "./day-plan.templates";
 
 export function scoreDayPlanItem(
@@ -31,8 +31,11 @@ export function scoreOverallPercent(
   return Math.round(weighted / totalWeight);
 }
 
-export function dayPlanStatusFromPercent(overallPercent: number): DayPlanStatus {
-  if (overallPercent >= DAY_PLAN_STATUS_THRESHOLDS.green) return "green";
-  if (overallPercent >= DAY_PLAN_STATUS_THRESHOLDS.yellow) return "yellow";
+export function dayPlanStatusFromPercent(
+  overallPercent: number,
+  thresholds: DayPlanThresholds = DAY_PLAN_STATUS_THRESHOLDS,
+): DayPlanStatus {
+  if (overallPercent >= thresholds.green) return "green";
+  if (overallPercent >= thresholds.yellow) return "yellow";
   return "red";
 }

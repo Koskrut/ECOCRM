@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, Target } from "lucide-react";
 import type { DayPlanItem, DayPlanPayload, DayPlanStatus } from "@/lib/api/resources/day-plan";
+import { strings } from "@/locales";
+
+const w = strings.dayPlan.widget;
 
 function statusBarClass(status: DayPlanStatus): string {
   if (status === "green") return "bg-emerald-500";
@@ -18,13 +21,13 @@ function statusTextClass(status: DayPlanStatus): string {
 
 function formatPlanFact(item: DayPlanItem): string {
   if (item.kind === "zero_target") {
-    return item.fact === 0 ? "0 прострочених" : `${item.fact} прострочених`;
+    return item.fact === 0 ? w.overdueZero : w.overdueCount(item.fact);
   }
   if (item.key === "leads_new_processed" || item.key === "tasks_due_today_done") {
     return `${item.fact} / ${item.plan}`;
   }
   if (item.key === "field_shift_started") {
-    return item.fact >= 1 ? "Так" : "Ні";
+    return item.fact >= 1 ? w.yes : w.no;
   }
   return `${item.fact} / ${item.plan}`;
 }
@@ -40,7 +43,7 @@ export function DayPlanWidget({ plan, loading, error, detailHref = "/work/day-pl
   if (loading) {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <p className="text-sm text-zinc-500">Завантаження плану дня…</p>
+        <p className="text-sm text-zinc-500">{w.loading}</p>
       </div>
     );
   }
@@ -63,17 +66,17 @@ export function DayPlanWidget({ plan, loading, error, detailHref = "/work/day-pl
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
             <Target className="h-4 w-4" />
-            План на день
+            {w.title}
           </h2>
           <p className="mt-1 text-xs text-zinc-500">
-            {plan.profile === "field" ? "Польовий профіль" : "Офісний профіль"} · {plan.date}
+            {plan.profile === "field" ? w.profileField : w.profileOffice} · {plan.date}
           </p>
         </div>
         <Link
           href={detailHref}
           className="inline-flex items-center gap-1 text-sm font-medium text-zinc-600 hover:text-zinc-900"
         >
-          Відкрити план
+          {w.openPlan}
           <ChevronRight className="h-4 w-4" />
         </Link>
       </div>
@@ -100,7 +103,7 @@ export function DayPlanWidget({ plan, loading, error, detailHref = "/work/day-pl
             />
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            Зелений ≥80%, жовтий 50–79%, червоний &lt;50%
+            {w.statusLegend}
           </p>
         </div>
       </div>
@@ -133,7 +136,7 @@ export function DayPlanWidget({ plan, loading, error, detailHref = "/work/day-pl
       {plan.overallPercent >= 80 && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-emerald-700">
           <CheckCircle2 className="h-3.5 w-3.5" />
-          Добрий прогрес на сьогодні
+          {w.progressGood}
         </p>
       )}
     </div>

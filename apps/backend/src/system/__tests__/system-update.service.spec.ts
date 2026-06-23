@@ -33,6 +33,7 @@ describe("SystemUpdateService", () => {
     const status = await svc.getStatus();
     assert.equal(status.mode, "operator_only");
     assert.equal(status.canUpdate, false);
+    assert.equal(status.autoUpdateEnabled, false);
   });
 
   it("reports update_available when CP target differs and agent is reachable", async () => {

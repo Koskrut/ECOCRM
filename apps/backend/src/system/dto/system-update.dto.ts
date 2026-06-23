@@ -20,6 +20,7 @@ export type SystemUpdateStatusDto = {
   reason: string;
   cpReachable: boolean;
   updaterReachable: boolean;
+  autoUpdateEnabled: boolean;
   activeJobId: string | null;
   lastJobId: string | null;
 };

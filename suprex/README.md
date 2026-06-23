@@ -2,6 +2,28 @@
 
 Файлы в этом каталоге предназначены для **install bundle** на сервере клиента (корень репозитория = родитель `suprex/`, например `/opt/crm`).
 
+## Автооновлення (Settings → Стан системи)
+
+Після релізу **0.2.78+** у `compose.client.yml` є сервіс **`updater`**. Backend за замовчуванням:
+
+- `UPDATER_AGENT_URL=http://updater:7788`
+- `AUTO_UPDATE_ENABLED=true` — перевірка Control Plane кожні 15 хв і автоматичний `pull`/`up`
+
+У **`suprex/.env`** додайте (якщо ще немає):
+
+```bash
+UPDATER_ENV_FILE=/deploy/suprex/.env
+UPDATER_MANIFEST_URL=https://…/api/installations/…/rollouts/next   # опційно, для sync compose overlays
+AUTO_UPDATE_ENABLED=true
+CONTROL_PLANE_URL=…
+CONTROL_PLANE_INSTALLATION_ID=…
+CONTROL_PLANE_INSTALLATION_TOKEN=…
+```
+
+Після `docker compose … up -d` з повним манифестом має з’явитися контейнер **`updater`** (потрібен **`/var/run/docker.sock`**). У Settings → Health з’явиться зелений блок «Автооновлення увімкнено».
+
+Щоб вимкнути автооновлення: `AUTO_UPDATE_ENABLED=false`.
+
 ## `client-pull-agent.sh`
 
 1. Берёт манифест релиза (**`MANIFEST_URL`**, **`DEPLOYMENT_MANIFEST_PATH`**, или **`deployment-manifest.json`** в корне bundle).

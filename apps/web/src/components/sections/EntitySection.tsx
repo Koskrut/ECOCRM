@@ -14,12 +14,16 @@ export type EntitySectionProps = {
  */
 export function EntitySection({ title, rightAction, children }: EntitySectionProps) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-4">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-zinc-900">{title}</h3>
-        {rightAction != null ? <div className="shrink-0">{rightAction}</div> : null}
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2">
+        <h3 className="min-w-0 flex-1 text-sm font-semibold text-zinc-900">{title}</h3>
+        {rightAction != null ? (
+          <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+            {rightAction}
+          </div>
+        ) : null}
       </div>
-      <div className="mt-3">{children}</div>
+      <div className="mt-3 min-w-0">{children}</div>
     </div>
   );
 }

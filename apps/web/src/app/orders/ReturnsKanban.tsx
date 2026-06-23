@@ -1,10 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDate } from "@/lib/crmDatetime";
+import {
+  KanbanLoadSentinel,
+  KANBAN_COLUMN_BODY_CLASS,
+} from "@/components/kanban/KanbanLoadSentinel";
+import { useKanbanInfiniteColumns } from "@/components/kanban/useKanbanInfiniteColumns";
+import { strings } from "@/locales";
 
 /** Phase 5: Returns kanban — columns by ReturnStatus, drag-and-drop to change status (validated on backend). */
 
@@ -75,10 +81,6 @@ const STATUS_LABELS: Record<ReturnStatus, string> = {
   CLOSED: "Закрито",
 };
 
-function isKnownStatus(s: string): s is ReturnStatus {
-  return COLUMN_ORDER.includes(s as ReturnStatus);
-}
-
 export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
@@ -89,57 +91,47 @@ export function ReturnsKanban({
   /** Increment to force refetch (e.g. after creating a return from order modal). */
   refreshKey?: number;
 }) {
-  const [list, setList] = useState<ReturnsListResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ returnId: string; from: ReturnStatus } | null>(null);
   const [dragOver, setDragOver] = useState<ReturnStatus | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await apiHttp.get<ReturnsListResponse>("/order-returns", {
-        params: { pageSize: 100 },
-      });
-      setList(res.data ?? { items: [] });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load returns");
-      setList(null);
-    } finally {
-      setLoading(false);
-    }
+  const buildParams = useCallback((status: ReturnStatus, page: number): Record<string, string> => {
+    return {
+      status,
+      page: String(page),
+    };
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
+  const fetchPage = useCallback(async (params: Record<string, string>) => {
+    const res = await apiHttp.get<ReturnsListResponse>("/order-returns", { params });
+    const data = res.data ?? { items: [] };
+    return {
+      items: data.items ?? [],
+      total: data.total ?? data.items?.length ?? 0,
+    };
+  }, []);
+
+  const { columns: columnStates, loadMore, moveItem, reloadAll, anyInitialLoading, firstError } =
+    useKanbanInfiniteColumns<ReturnCard, ReturnStatus>({
+      columnIds: COLUMN_ORDER,
+      buildParams,
+      fetchPage,
+      resetKey: refreshKey,
+    });
+
+  const columns = useMemo(
+    () =>
+      COLUMN_ORDER.map((id) => ({
+        id,
+        title: STATUS_LABELS[id],
+        items: columnStates[id]?.items ?? [],
+        state: columnStates[id],
+      })),
+    [columnStates],
+  );
 
   const patchStatus = useCallback(async (returnId: string, status: ReturnStatus) => {
     await apiHttp.patch(`/order-returns/${returnId}/status`, { status });
   }, []);
-
-  const columns = useMemo(() => {
-    const items = list?.items ?? [];
-    const map: Record<ReturnStatus, ReturnCard[]> = {
-      REQUESTED: [],
-      APPROVED: [],
-      IN_TRANSIT_BACK: [],
-      RECEIVED_BY_WAREHOUSE: [],
-      INSPECTION: [],
-      REFUND_OR_ADJUSTMENT: [],
-      CLOSED: [],
-    };
-    for (const r of items) {
-      const st = isKnownStatus(r.status) ? r.status : "REQUESTED";
-      map[st].push(r);
-    }
-    return COLUMN_ORDER.map((id) => ({
-      id,
-      title: STATUS_LABELS[id],
-      items: map[id],
-    }));
-  }, [list]);
 
   const handleDrop = useCallback(
     async (returnId: string, to: ReturnStatus) => {
@@ -148,29 +140,29 @@ export function ReturnsKanban({
         setDragging(null);
         return;
       }
-      setList((prev) => {
-        if (!prev) return prev;
-        const next = prev.items.map((r) =>
-          r.id === returnId ? { ...r, status: to } : r,
-        );
-        return { ...prev, items: next };
-      });
+      if (from) {
+        moveItem(returnId, from, to, (r) => ({ ...r, status: to }));
+      }
       try {
         await patchStatus(returnId, to);
-        void load();
+        reloadAll();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to update status");
-        void load();
+        alert(e instanceof Error ? e.message : strings.kanban.statusUpdateFailed);
+        reloadAll();
       } finally {
         setDragging(null);
       }
     },
-    [dragging, load, patchStatus],
+    [dragging, moveItem, patchStatus, reloadAll],
   );
 
-  if (loading) return <div className="text-sm text-zinc-500">Завантаження повернень…</div>;
-  if (err) return <div className="text-sm text-red-600">{err}</div>;
-  if (!list) return null;
+  const boardEmpty = columns.every((col) => col.items.length === 0);
+  if (anyInitialLoading && boardEmpty) {
+    return <div className="text-sm text-zinc-500">Завантаження повернень…</div>;
+  }
+  if (firstError && boardEmpty) {
+    return <div className="text-sm text-red-600">{firstError}</div>;
+  }
 
   const totalUnits = (r: ReturnCard) =>
     r.items.reduce((s, i) => s + (i.qtyReturned ?? 0), 0);
@@ -190,10 +182,10 @@ export function ReturnsKanban({
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
               <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
-              <div className="text-xs text-zinc-500">{col.items.length}</div>
+              <div className="text-xs text-zinc-500">{col.state?.total ?? col.items.length}</div>
             </div>
             <div
-              className="min-h-[160px] space-y-3 p-3"
+              className={KANBAN_COLUMN_BODY_CLASS}
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
@@ -207,7 +199,9 @@ export function ReturnsKanban({
                 if (id) void handleDrop(id, col.id);
               }}
             >
-              {col.items.length === 0 ? (
+              {col.state?.initialLoading ? (
+                <div className="text-xs text-zinc-500">Завантаження…</div>
+              ) : col.items.length === 0 ? (
                 <div className="text-xs text-zinc-500">—</div>
               ) : (
                 col.items.map((r) => {
@@ -246,7 +240,12 @@ export function ReturnsKanban({
                       </div>
                       {r.order.debtAmount != null && (
                         <div className="mt-1 text-xs text-amber-700">
-                          Борг: {formatOrderAmount(r.order.debtAmount, r.order.currency ?? "UAH", r.order.exchangeRate)}
+                          Борг:{" "}
+                          {formatOrderAmount(
+                            r.order.debtAmount,
+                            r.order.currency ?? "UAH",
+                            r.order.exchangeRate,
+                          )}
                         </div>
                       )}
                       <div className="mt-1 text-xs text-zinc-400">
@@ -256,6 +255,15 @@ export function ReturnsKanban({
                   );
                 })
               )}
+              {col.state?.hasMore ? (
+                <KanbanLoadSentinel
+                  disabled={col.state.loadingMore || col.state.initialLoading}
+                  onVisible={() => loadMore(col.id)}
+                />
+              ) : null}
+              {col.state?.loadingMore ? (
+                <div className="py-1 text-center text-xs text-zinc-400">Завантаження…</div>
+              ) : null}
             </div>
           </div>
         ))}

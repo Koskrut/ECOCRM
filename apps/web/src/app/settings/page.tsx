@@ -27,6 +27,8 @@ type CardDescriptor = {
   group: "accessTeam" | "salesProcesses" | "integrations" | "system" | "advanced";
   /** When non-null, the card is shown only if the role matches. */
   adminOnly?: boolean;
+  /** Visible to ADMIN and LEAD (not MANAGER). */
+  leadAccess?: boolean;
   accent?: boolean;
 };
 
@@ -40,6 +42,13 @@ function allCards(): CardDescriptor[] {
       title: "Сповіщення",
       desc: "In-app, browser push та Telegram для подій CRM",
       group: "accessTeam",
+    },
+    {
+      href: "/settings/day-plan",
+      title: t.dayPlan.title,
+      desc: t.dayPlan.desc,
+      group: "salesProcesses",
+      leadAccess: true,
     },
     {
       href: "/settings/orders-pipeline",
@@ -135,6 +144,7 @@ export default function SettingsHomePage() {
 
   for (const card of allCards()) {
     if (card.adminOnly && role !== "ADMIN") continue;
+    if (card.leadAccess && role !== "ADMIN" && role !== "LEAD") continue;
     const mid = settingsHrefModuleId(card.href);
     if (mid) {
       // Fail-closed: while modules are loading or errored, hide module-gated sections.

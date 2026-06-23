@@ -8,7 +8,6 @@ import { SettingsService } from "../settings/settings.service";
 import { getBaseCurrency, paymentToBase } from "../common/currency.util";
 import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
 import { DayPlanService } from "../day-plan/day-plan.service";
-import { dayPlanStatusFromPercent } from "../day-plan/day-plan.scoring";
 import type { DayPlanStatus } from "../day-plan/day-plan.types";
 
 export type DashboardPeriod = "week" | "month";
@@ -322,14 +321,14 @@ export class DashboardService {
     }
 
     const baseCurrency = getBaseCurrency(rates);
-    const dayPlanPercents = await this.dayPlan.getOverallPercentsForUsers(
+    const dayPlanByUser = await this.dayPlan.getOverallPercentsForUsers(
       users.map((u) => u.id),
       dateYmd,
     );
 
     const rows: DailyTeamActivityRow[] = users.map((u) => {
       const r = byId.get(u.id)!;
-      const dayPlanPercent = dayPlanPercents.get(u.id) ?? 0;
+      const dayPlan = dayPlanByUser.get(u.id);
       return {
         userId: r.userId,
         fullName: r.fullName,
@@ -339,8 +338,8 @@ export class DashboardService {
         ordersCount: r.ordersCount,
         ordersAmount: Math.round(r.ordersAmount * 100) / 100,
         paymentsAmount: Math.round(r.paymentsAmount * 100) / 100,
-        dayPlanPercent,
-        dayPlanStatus: dayPlanStatusFromPercent(dayPlanPercent),
+        dayPlanPercent: dayPlan?.percent ?? 0,
+        dayPlanStatus: dayPlan?.status ?? "red",
       };
     });
 

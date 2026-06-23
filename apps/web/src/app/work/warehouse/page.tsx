@@ -463,7 +463,7 @@ export default function WarehouseWorkPage() {
                                 setMissingByItemId((prev) => ({ ...prev, [it.id]: false }));
                               }
                             }}
-                            className="w-12 border-0 bg-transparent px-2 py-1 text-right focus:outline-none disabled:cursor-not-allowed"
+                            className="w-20 border-0 bg-transparent px-2 py-1 text-right focus:outline-none disabled:cursor-not-allowed"
                           />
                           <span className="border-l border-zinc-200 px-2 py-1 text-xs text-zinc-500">
                             / {it.qty}

@@ -4,16 +4,14 @@ import type { AuthUser } from "../auth/auth.types";
 import { kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { dayPlanStatusFromPercent, scoreDayPlanItem, scoreOverallPercent } from "./day-plan.scoring";
-import {
-  DEFAULT_FIELD_DAY_PLAN,
-  DEFAULT_OFFICE_DAY_PLAN,
-} from "./day-plan.templates";
+import { DayPlanSettingsService } from "./day-plan.settings.service";
 import type {
   DayPlanItemResult,
   DayPlanPayload,
   DayPlanProfile,
   DayPlanTemplate,
   DayPlanTemplateItem,
+  DayPlanThresholds,
   DayPlanUserMetrics,
 } from "./day-plan.types";
 
@@ -44,7 +42,10 @@ function routePlanUtcDate(dateYmd: string): Date {
 
 @Injectable()
 export class DayPlanService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dayPlanSettings: DayPlanSettingsService,
+  ) {}
 
   async getDayPlan(
     dateRaw: string | undefined,
@@ -64,24 +65,34 @@ export class DayPlanService {
     }
 
     const profile = await this.resolveProfile(targetUserId);
-    const template = await this.resolveTemplate(profile);
+    const { template, thresholds } =
+      await this.dayPlanSettings.getEffectiveTemplateForUser(targetUserId);
     const metrics = await this.loadMetricsForUser(targetUserId, dateYmd);
-    return this.buildPayload(dateYmd, user.id, user.fullName, profile, template, metrics);
+    return this.buildPayload(
+      dateYmd,
+      user.id,
+      user.fullName,
+      profile,
+      template,
+      thresholds,
+      metrics,
+    );
   }
 
   async getOverallPercentsForUsers(
     userIds: string[],
     dateYmd: string,
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, { percent: number; status: import("./day-plan.types").DayPlanStatus }>> {
     if (userIds.length === 0) return new Map();
 
     const profiles = await this.resolveProfiles(userIds);
     const metricsByUser = await this.loadMetricsForUsers(userIds, dateYmd);
-    const result = new Map<string, number>();
+    const result = new Map<string, { percent: number; status: import("./day-plan.types").DayPlanStatus }>();
 
     for (const userId of userIds) {
       const profile = profiles.get(userId) ?? "office";
-      const template = profile === "field" ? DEFAULT_FIELD_DAY_PLAN : DEFAULT_OFFICE_DAY_PLAN;
+      const { template, thresholds } =
+        await this.dayPlanSettings.getEffectiveTemplateForUser(userId);
       const metrics = metricsByUser.get(userId) ?? emptyMetrics();
       const payload = this.buildPayload(
         dateYmd,
@@ -89,9 +100,10 @@ export class DayPlanService {
         "",
         profile,
         template,
+        thresholds,
         metrics,
       );
-      result.set(userId, payload.overallPercent);
+      result.set(userId, { percent: payload.overallPercent, status: payload.status });
     }
 
     return result;
@@ -133,32 +145,13 @@ export class DayPlanService {
     return map;
   }
 
-  private async resolveTemplate(profile: DayPlanProfile): Promise<DayPlanTemplate> {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { id: "day_plan_templates" },
-      select: { value: true },
-    });
-    const saved = row?.value;
-    if (saved && typeof saved === "object" && !Array.isArray(saved)) {
-      const key = profile === "field" ? "field" : "office";
-      const custom = (saved as Record<string, unknown>)[key];
-      if (custom && typeof custom === "object" && !Array.isArray(custom)) {
-        const items = (custom as { items?: unknown }).items;
-        if (Array.isArray(items) && items.length > 0) {
-          const base = profile === "field" ? DEFAULT_FIELD_DAY_PLAN : DEFAULT_OFFICE_DAY_PLAN;
-          return { profile, items: mergeTemplateItems(base.items, items) };
-        }
-      }
-    }
-    return profile === "field" ? DEFAULT_FIELD_DAY_PLAN : DEFAULT_OFFICE_DAY_PLAN;
-  }
-
   private buildPayload(
     dateYmd: string,
     userId: string,
     fullName: string,
     profile: DayPlanProfile,
     template: DayPlanTemplate,
+    thresholds: DayPlanThresholds,
     metrics: DayPlanUserMetrics,
   ): DayPlanPayload {
     const items: DayPlanItemResult[] = template.items.map((item) =>
@@ -171,7 +164,7 @@ export class DayPlanService {
       fullName,
       profile,
       overallPercent,
-      status: dayPlanStatusFromPercent(overallPercent),
+      status: dayPlanStatusFromPercent(overallPercent, thresholds),
       items,
     };
   }
@@ -442,25 +435,4 @@ function emptyMetrics(): DayPlanUserMetrics {
     leadsProcessedToday: 0,
     workQueueTouches: 0,
   };
-}
-
-function mergeTemplateItems(
-  defaults: DayPlanTemplateItem[],
-  overrides: unknown[],
-): DayPlanTemplateItem[] {
-  const byKey = new Map(defaults.map((d) => [d.key, { ...d }]));
-  for (const raw of overrides) {
-    if (!raw || typeof raw !== "object") continue;
-    const o = raw as Partial<DayPlanTemplateItem>;
-    if (typeof o.key !== "string" || !byKey.has(o.key as DayPlanTemplateItem["key"])) continue;
-    const base = byKey.get(o.key as DayPlanTemplateItem["key"])!;
-    byKey.set(o.key as DayPlanTemplateItem["key"], {
-      ...base,
-      ...(typeof o.label === "string" ? { label: o.label } : {}),
-      ...(typeof o.target === "number" ? { target: o.target } : {}),
-      ...(typeof o.weight === "number" ? { weight: o.weight } : {}),
-      ...(typeof o.actionHref === "string" ? { actionHref: o.actionHref } : {}),
-    });
-  }
-  return Array.from(byKey.values());
 }

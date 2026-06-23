@@ -13,6 +13,23 @@ export type DayPlanMetricKey =
 
 export type DayPlanStatus = "green" | "yellow" | "red";
 
+export type DayPlanProfile = "office" | "field";
+
+export type DayPlanThresholds = {
+  green: number;
+  yellow: number;
+};
+
+export type DayPlanTemplateItem = {
+  key: DayPlanMetricKey;
+  label: string;
+  kind: "target" | "zero_target";
+  target: number;
+  weight: number;
+  actionHref: string;
+  enabled?: boolean;
+};
+
 export type DayPlanItem = {
   key: DayPlanMetricKey;
   label: string;

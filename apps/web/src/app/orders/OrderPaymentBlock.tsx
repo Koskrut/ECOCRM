@@ -5,6 +5,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
+import { strings } from "@/locales";
+
+const pt = strings.orders.modal.paymentBlock;
 
 function isReceiverCodeHintError(msg: string): boolean {
   const m = msg.toLowerCase();
@@ -46,10 +49,10 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
-  UNPAID: "Unpaid",
-  PARTIALLY_PAID: "Partially paid",
-  PAID: "Paid",
-  OVERPAID: "Overpaid",
+  UNPAID: pt.unpaid,
+  PARTIALLY_PAID: pt.partiallyPaid,
+  PAID: pt.paid,
+  OVERPAID: pt.overpaid,
 };
 
 type PaymentRequestListItem = {
@@ -122,12 +125,12 @@ export function OrderPaymentBlock({
         cache: "no-store",
         credentials: "include",
       });
-      if (!r.ok) throw new Error(`Failed to load payments (${r.status})`);
+      if (!r.ok) throw new Error(`Не вдалося завантажити оплати (${r.status})`);
       const data = (await r.json()) as PaymentItem[];
       setPayments(Array.isArray(data) ? data : []);
     } catch (e) {
       setPayments([]);
-      setError(e instanceof Error ? e.message : "Failed to load payments");
+      setError(e instanceof Error ? e.message : pt.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -168,8 +171,8 @@ export function OrderPaymentBlock({
         В назначении платежа указывайте номер заказа — оплаты подтянутся автоматически.
       </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm text-zinc-600">
-          <span className="font-medium text-zinc-900">{statusLabel ?? "Payment"}</span>
+        <div className="min-w-0 text-sm text-zinc-600">
+          <span className="font-medium text-zinc-900">{statusLabel ?? pt.payment}</span>
           {" · "}
           <span>
             {formatOrderAmount(paidAmount, currency, exchangeRate)} / {formatOrderAmount(totalAmount, currency, exchangeRate)}
@@ -276,24 +279,24 @@ export function OrderPaymentBlock({
       {error ? (
         <p className="text-xs text-red-600">{error}</p>
       ) : loading ? (
-        <p className="text-xs text-zinc-500">Loading payments…</p>
+        <p className="text-xs text-zinc-500">{pt.loading}</p>
       ) : (
         <div className="space-y-4">
           <div>
-            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">Cash</h4>
+            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">{pt.cash}</h4>
             {payments.filter((p) => p.sourceType === "CASH").length === 0 ? (
-              <p className="text-xs text-zinc-400">No cash payments</p>
+              <p className="text-xs text-zinc-400">{pt.noCashPayments}</p>
             ) : (
               <ul className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-2">
                 {payments
                   .filter((p) => p.sourceType === "CASH")
                   .map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-zinc-600">
+                    <li key={p.id} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="min-w-0 flex-1 truncate text-zinc-600">
                         {formatDate(p.paidAt)}
                         {p.note ? ` · ${p.note}` : ""}
                       </span>
-                      <span className="font-medium text-zinc-900">
+                      <span className="shrink-0 font-medium text-zinc-900">
                         {formatPaymentAmount(p)}
                       </span>
                     </li>
@@ -302,16 +305,16 @@ export function OrderPaymentBlock({
             )}
           </div>
           <div>
-            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">FOP (bank)</h4>
+            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">{pt.fopBank}</h4>
             {payments.filter((p) => p.sourceType === "BANK").length === 0 ? (
-              <p className="text-xs text-zinc-400">No bank payments</p>
+              <p className="text-xs text-zinc-400">{pt.noBankPayments}</p>
             ) : (
               <ul className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-2">
                 {payments
                   .filter((p) => p.sourceType === "BANK")
                   .map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-zinc-600">
+                    <li key={p.id} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="min-w-0 flex-1 truncate text-zinc-600">
                         {formatDate(p.paidAt)}
                         {p.bankTransaction?.counterpartyName
                           ? ` · ${p.bankTransaction.counterpartyName}`
@@ -320,7 +323,7 @@ export function OrderPaymentBlock({
                           ? ` · Orders: ${p.sameTransactionOrderNumbers.join(", ")}`
                           : ""}
                       </span>
-                      <span className="font-medium text-zinc-900">
+                      <span className="shrink-0 font-medium text-zinc-900">
                         {formatPaymentAmount(p)}
                       </span>
                     </li>
@@ -471,7 +474,7 @@ function CreatePaymentLinkModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
+      <div className="max-h-[min(90dvh,40rem)] w-full max-w-md overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
         <h3 className="text-sm font-semibold text-zinc-900">Посилання на оплату</h3>
         <p className="mt-1 text-xs text-zinc-500">
           IBAN і найменування — з рахунку ФОП замовлення. ЄДРПОУ/ІПН — з реквізитів рахунку, компанії замовлення або клієнта; якщо в CRM порожньо — введіть вручну нижче.
@@ -613,7 +616,7 @@ function AddCashPaymentModal({
   const submit = async () => {
     const num = parseFloat(amount.replace(/,/g, "."));
     if (!Number.isFinite(num) || num <= 0) {
-      setError("Enter a positive amount");
+      setError(pt.enterAmount);
       return;
     }
     setSubmitting(true);
@@ -637,7 +640,7 @@ function AddCashPaymentModal({
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : pt.saveFailed);
     } finally {
       setSubmitting(false);
     }
@@ -645,8 +648,8 @@ function AddCashPaymentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
-        <h3 className="text-sm font-semibold text-zinc-900">Cash payment</h3>
+      <div className="max-h-[min(90dvh,32rem)] w-full max-w-sm overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
+        <h3 className="text-sm font-semibold text-zinc-900">{pt.cashPaymentTitle}</h3>
         <div className="mt-3 space-y-2">
           <div>
             <span className="block text-xs font-medium text-zinc-600">Сума</span>
@@ -674,7 +677,7 @@ function AddCashPaymentModal({
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Date & time</label>
+            <label className="block text-xs font-medium text-zinc-600">{pt.dateTime}</label>
             <input
               type="datetime-local"
               value={paidAt}
@@ -683,12 +686,12 @@ function AddCashPaymentModal({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-zinc-600">Note</label>
+            <label className="block text-xs font-medium text-zinc-600">{pt.note}</label>
             <input
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Optional"
+              placeholder={pt.noteOptional}
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
             />
           </div>
@@ -701,7 +704,7 @@ function AddCashPaymentModal({
             disabled={submitting}
             className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
           >
-            Cancel
+            {pt.cancel}
           </button>
           <button
             type="button"
@@ -709,7 +712,7 @@ function AddCashPaymentModal({
             disabled={submitting}
             className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
           >
-            {submitting ? "Saving…" : "Save"}
+            {submitting ? pt.saving : pt.save}
           </button>
         </div>
       </div>

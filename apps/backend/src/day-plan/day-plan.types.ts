@@ -13,6 +13,11 @@ export type DayPlanMetricKey =
 
 export type DayPlanItemKind = "target" | "zero_target";
 
+export type DayPlanThresholds = {
+  green: number;
+  yellow: number;
+};
+
 export type DayPlanTemplateItem = {
   key: DayPlanMetricKey;
   label: string;
@@ -21,6 +26,46 @@ export type DayPlanTemplateItem = {
   target: number;
   weight: number;
   actionHref: string;
+  /** Default true. Disabled items are excluded from scoring. */
+  enabled?: boolean;
+};
+
+export type DayPlanGlobalConfigStored = {
+  thresholds?: DayPlanThresholds;
+  office?: { items?: Partial<DayPlanTemplateItem>[] };
+  field?: { items?: Partial<DayPlanTemplateItem>[] };
+};
+
+export type DayPlanUserOverrideStored = {
+  items: Partial<DayPlanTemplateItem>[];
+  thresholds?: DayPlanThresholds;
+};
+
+export type DayPlanSettingsProfilePayload = {
+  profile: DayPlanProfile;
+  /** All items after merge (including disabled) for editor. */
+  items: DayPlanTemplateItem[];
+  /** Enabled items used in scoring. */
+  effective: DayPlanTemplateItem[];
+  overrides: Partial<DayPlanTemplateItem>[];
+};
+
+export type DayPlanGlobalSettingsPayload = {
+  thresholds: DayPlanThresholds;
+  office: DayPlanSettingsProfilePayload;
+  field: DayPlanSettingsProfilePayload;
+};
+
+export type DayPlanUserSettingsPayload = {
+  userId: string;
+  fullName: string;
+  profile: DayPlanProfile;
+  hasCustomOverride: boolean;
+  thresholds: DayPlanThresholds;
+  globalBase: DayPlanTemplateItem[];
+  items: DayPlanTemplateItem[];
+  effective: DayPlanTemplateItem[];
+  overrides: Partial<DayPlanTemplateItem>[];
 };
 
 export type DayPlanTemplate = {

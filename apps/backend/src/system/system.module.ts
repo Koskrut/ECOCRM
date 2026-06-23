@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ScheduleModule } from "@nestjs/schedule";
 import { EnabledModulesProvider } from "../modules/enabled/enabled-modules.provider";
 import { SystemSettingEnabledModulesProvider } from "../modules/enabled/system-setting-enabled-modules.provider";
 import { FileLicenseStateProvider } from "../modules/license/file-license-state.provider";
@@ -8,12 +9,14 @@ import { ModuleStateService } from "../modules/module-state.service";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
 import { SystemController } from "./system.controller";
 import { SystemReleaseService } from "./system-release.service";
+import { SystemAutoUpdateCron } from "./system-auto-update.cron";
 import { SystemUpdateService } from "./system-update.service";
 import { SystemVersionService } from "./system-version.service";
 
 const activeLicenseProviderClass = FileLicenseStateProvider;
 
 @Module({
+  imports: [ScheduleModule.forRoot()],
   controllers: [SystemController],
   providers: [
     ModuleHealthService,
@@ -21,6 +24,7 @@ const activeLicenseProviderClass = FileLicenseStateProvider;
     ControlPlanePhoneHomeService,
     SystemReleaseService,
     SystemUpdateService,
+    SystemAutoUpdateCron,
     SystemVersionService,
     {
       provide: EnabledModulesProvider,

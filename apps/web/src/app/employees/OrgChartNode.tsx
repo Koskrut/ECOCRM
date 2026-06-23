@@ -2,12 +2,19 @@
 
 import { memo } from "react";
 import { Handle, type Node, type NodeProps, Position } from "@xyflow/react";
+import { strings } from "@/locales";
+
+const roleLabels = {
+  admin: strings.employees.orgChart.roleAdmin,
+  lead: strings.employees.orgChart.roleLead,
+  manager: strings.employees.orgChart.roleManager,
+};
 
 export type OrgNodeData = {
   label: string;
   role: "admin" | "lead" | "manager";
   subtitle?: string;
-  /** Закреплённые области (регионы) за позицией */
+  /** Закріплені області (регіони) за позицією */
   regions?: string[];
 };
 
@@ -15,12 +22,6 @@ const roleStyles = {
   admin: "border-violet-300 bg-violet-50 shadow-md shadow-violet-100",
   lead: "border-amber-300 bg-amber-50 shadow-md shadow-amber-100",
   manager: "border-emerald-300 bg-emerald-50 shadow-md shadow-emerald-100",
-};
-
-const roleLabels = {
-  admin: "Админ",
-  lead: "Руководитель отдела продаж",
-  manager: "Менеджер",
 };
 
 function OrgChartNodeComponent({ data, selected }: NodeProps<Node<OrgNodeData>>) {

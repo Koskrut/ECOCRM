@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.89**.)_
+_(планируемые изменения после **0.2.90**.)_
+
+## [0.2.90] — 2026-06-23
+
+### Summary
+
+Патч **0.2.90**: настройки **плана на день** (шаблоны office/field, override по сотруднику), **auto-update** через cron, рефакторинг **kanban** заказов, доработки employees/orders UI.
+
+### Added
+
+- **Day plan settings**: `GET/PATCH /settings/day-plan`, per-user override API, **`UserDayPlanOverride`**; миграция **`20260623120000_user_day_plan_override`**; страница **`/settings/day-plan`**, редактор шаблонов, секция в карточке сотрудника.
+- **Auto-update**: `SystemAutoUpdateCron` (`AUTO_UPDATE_ENABLED`, `AUTO_UPDATE_CRON`, `tryAutoApply` в updater agent).
+- **Web**: shared **`KanbanLoadSentinel`**, **`useKanbanInfiniteColumns`**; **`DocumentsRequestedBadge`**; API proxy **`/api/settings/day-plan`**.
+
+### Changed
+
+- **Orders**: kanban (orders/financial/returns) — infinite scroll, i18n; **OrderModal** / **OrderPaymentBlock** UX.
+- **Employees**: org chart layout, route address field.
+- **Dashboard / day-plan**: учёт настраиваемых порогов и шаблонов.
+- **compose.client.yml** / **updater agent**: env для auto-update; **suprex/README**.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.90`**.
+- **Миграция:** **`20260623120000_user_day_plan_override`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- Auto-update (опционально): `AUTO_UPDATE_ENABLED=true`, `CRON_ENABLED=true`, `AUTO_UPDATE_CRON` в env backend/updater.
 
 ## [0.2.89] — 2026-06-23
 
@@ -713,7 +738,7 @@ _(планируемые изменения после **0.2.89**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.89`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.90`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

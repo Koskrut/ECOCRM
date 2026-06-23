@@ -19,6 +19,8 @@ import {
 import { apiHttp } from "../../lib/api/client";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { formatUserRole } from "@/lib/roleLabels";
+import { dayPlanSettingsApi } from "@/lib/api/resources/day-plan-settings";
+import { strings } from "@/locales";
 
 type UsersResponse = {
   items?: Employee[];
@@ -42,6 +44,10 @@ export default function EmployeesPage() {
   const [structureSaveError, setStructureSaveError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [editing, setEditing] = useState<Employee | null>(null);
+  const [dayPlanOverrideUserIds, setDayPlanOverrideUserIds] = useState<Set<string>>(() => new Set());
+
+  const t = strings.employees.page;
+  const dayPlanT = strings.dayPlan;
 
   useEffect(() => {
     saveAssignments(assignments);
@@ -77,12 +83,12 @@ export default function EmployeesPage() {
     setErr(null);
     try {
       const r = await apiHttp.get<UsersResponse | Employee[]>("/users");
-      if (r.status >= 400) throw new Error((r.data as unknown as string) || `Failed (${r.status})`);
+      if (r.status >= 400) throw new Error((r.data as unknown as string) || `HTTP ${r.status}`);
       const data = r.data as UsersResponse | Employee[];
       const list = Array.isArray(data) ? data : (data?.items ?? []);
       setItems(list);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load employees");
+      setErr(e instanceof Error ? e.message : t.loadFailed);
       setItems([]);
     } finally {
       setLoading(false);
@@ -91,6 +97,22 @@ export default function EmployeesPage() {
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    void apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then(async (r) => {
+        const role = r.data?.user?.role;
+        if (role !== "ADMIN" && role !== "LEAD") return;
+        try {
+          const data = await dayPlanSettingsApi.listUsersWithOverrides();
+          setDayPlanOverrideUserIds(new Set(data.userIds));
+        } catch {
+          setDayPlanOverrideUserIds(new Set());
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -155,7 +177,7 @@ export default function EmployeesPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-zinc-900">Employees</h1>
+        <h1 className="text-xl font-semibold text-zinc-900">{t.title}</h1>
 
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-zinc-200 bg-zinc-100/80 p-0.5">
@@ -166,7 +188,7 @@ export default function EmployeesPage() {
                 tab === "list" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
               }`}
             >
-              Список
+              {t.tabList}
             </button>
             <button
               type="button"
@@ -175,7 +197,7 @@ export default function EmployeesPage() {
                 tab === "structure" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900"
               }`}
             >
-              Структура отдела
+              {t.tabStructure}
             </button>
           </div>
           {tab === "list" && (
@@ -184,7 +206,7 @@ export default function EmployeesPage() {
               onClick={openCreate}
               className="btn-primary"
             >
-              + Add employee
+              + {t.addEmployee}
             </button>
           )}
         </div>
@@ -194,12 +216,12 @@ export default function EmployeesPage() {
         <div className="mt-4">
           {structureSaveStatus === "saved" && (
             <div className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Структура сохранена
+              {t.structureSaved}
             </div>
           )}
           {structureSaveStatus === "error" && (
             <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-              {structureSaveError ?? "Не удалось сохранить структуру"}
+              {structureSaveError ?? t.structureSaveFailed}
             </div>
           )}
           <OrgChartFlow
@@ -243,23 +265,35 @@ export default function EmployeesPage() {
             <ErrorPanel variant="inline" message={err} onRetry={() => void load()} />
           </div>
         ) : items.length === 0 ? (
-          <div className="p-4 text-sm text-zinc-500">No employees</div>
+          <div className="p-4 text-sm text-zinc-500">{t.empty}</div>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="border-b border-zinc-200 text-xs text-zinc-500">
               <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Позиция в структуре</th>
-                <th className="px-4 py-3">Области</th>
+                <th className="px-4 py-3">{t.colName}</th>
+                <th className="px-4 py-3">{t.colEmail}</th>
+                <th className="px-4 py-3">{t.colRole}</th>
+                <th className="px-4 py-3">{t.colStructurePosition}</th>
+                <th className="px-4 py-3">{t.colRegions}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {items.map((u) => (
                 <tr key={u.id} className="border-b border-zinc-100 last:border-b-0">
-                  <td className="px-4 py-3 text-zinc-900">{u.fullName ?? "—"}</td>
+                  <td className="px-4 py-3 text-zinc-900">
+                    <span className="inline-flex items-center gap-2">
+                      {u.fullName ?? "—"}
+                      {dayPlanOverrideUserIds.has(u.id) ? (
+                        <span
+                          title={dayPlanT.customPlanBadge}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800"
+                        >
+                          {dayPlanT.customPlanShort}
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-zinc-700">{u.email}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700">
@@ -278,7 +312,7 @@ export default function EmployeesPage() {
                       onClick={() => openEdit(u)}
                       className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
                     >
-                      Edit
+                      {t.edit}
                     </button>
                   </td>
                 </tr>

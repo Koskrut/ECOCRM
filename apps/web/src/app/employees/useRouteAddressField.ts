@@ -67,7 +67,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
       try {
         const result = await geocodeText(mapsApiKey, q, { regionCode: "UA" });
         if (!result) {
-          setError("Address service temporarily unavailable.");
+          setError(strings.employees.orgChart.addressServiceUnavailable);
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(q, result.formattedAddress || q);
@@ -86,7 +86,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
         setLng(String(result.lng));
         lastGeocodedRef.current = merged.trim();
       } catch {
-        setError("Address service temporarily unavailable.");
+        setError(strings.employees.orgChart.addressServiceUnavailable);
       } finally {
         setGeocodeLoading(false);
       }
@@ -107,7 +107,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
       try {
         const result = await geocodePlace(mapsApiKey, suggestion.placeId);
         if (!result) {
-          setError("Address service temporarily unavailable.");
+          setError(strings.employees.orgChart.addressServiceUnavailable);
           return;
         }
         const merged = mergeFormattedAddressWithUserDetail(
@@ -129,7 +129,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
         setLng(String(result.lng));
         lastGeocodedRef.current = merged.trim();
       } catch {
-        setError("Address service temporarily unavailable.");
+        setError(strings.employees.orgChart.addressServiceUnavailable);
       } finally {
         setGeocodeLoading(false);
       }
@@ -159,7 +159,7 @@ export function useRouteAddressField(mapsApiKey: string | null, open: boolean) {
       } catch {
         if (autocompleteAbortRef.current !== controller) return;
         setSuggestions([]);
-        setError("Address service temporarily unavailable.");
+        setError(strings.employees.orgChart.addressServiceUnavailable);
       } finally {
         if (autocompleteAbortRef.current === controller) setLookupLoading(false);
       }

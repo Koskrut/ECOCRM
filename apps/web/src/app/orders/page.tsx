@@ -7,6 +7,7 @@ import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
+import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { useListColumns } from "@/lib/lists/useListColumns";
@@ -59,6 +60,7 @@ type OrderSummary = {
   client?: { id: string; firstName: string; lastName: string } | null;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
+  documentsRequested?: boolean | null;
 };
 
 type OrdersListResponse = {
@@ -841,11 +843,14 @@ function OrdersPageContent() {
                           )}
                         </td>
                         <td className="px-4 py-4">
-                          <StatusBadge
-                            variant="order"
-                            status={order.status}
-                            orderStage={order.orderStage}
-                          />
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge
+                              variant="order"
+                              status={order.status}
+                              orderStage={order.orderStage}
+                            />
+                            <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
+                          </div>
                         </td>
                         <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
                           <div className="relative inline-flex items-center justify-end group">

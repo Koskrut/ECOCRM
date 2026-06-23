@@ -15,6 +15,7 @@ type UpdateStatus = {
   reason: string;
   cpReachable: boolean;
   updaterReachable: boolean;
+  autoUpdateEnabled: boolean;
   activeJobId: string | null;
   lastJobId: string | null;
 };
@@ -54,6 +55,9 @@ function updateSubtitle(status: UpdateStatus | null, job: UpdateJob | null): str
     return `Поточна версія ${status.currentVersion}. Натисніть «Оновити» — система зробить решту сама.`;
   }
   if (status.state === "up_to_date") return "Нових оновлень немає.";
+  if (status.autoUpdateEnabled && status.mode === "agent_available") {
+    return "Нові версії встановлюються автоматично з Control Plane.";
+  }
   if (status.canUpdate && status.targetVersion) {
     return "Натисніть «Оновити» — система зробить решту сама.";
   }
@@ -233,7 +237,7 @@ export default function SettingsHealthPage() {
   if (role !== "ADMIN") {
     return (
       <div>
-        <p className="text-sm text-zinc-600">Доступ тільки для ADMIN.</p>
+        <p className="text-sm text-zinc-600">Доступ лише для адміністратора.</p>
       </div>
     );
   }
@@ -271,8 +275,14 @@ export default function SettingsHealthPage() {
             ) : null}
             {updateStatus?.mode !== "agent_available" && !isBusy ? (
               <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                Щоб оновлення працювало, задайте <code className="text-[11px]">UPDATER_AGENT_URL</code> у backend і
-                запустіть updater-агент на хості.
+                Щоб оновлення працювало автоматично, переконайтеся що сервіс <code className="text-[11px]">updater</code>{" "}
+                запущений (<code className="text-[11px]">compose.client.yml</code>) і backend бачить{" "}
+                <code className="text-[11px]">UPDATER_AGENT_URL</code>.
+              </p>
+            ) : null}
+            {updateStatus?.mode === "agent_available" && updateStatus.autoUpdateEnabled && !isBusy ? (
+              <p className="mt-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900">
+                Автооновлення увімкнено — нова версія з Control Plane буде встановлена без ручного втручання.
               </p>
             ) : null}
             {canUpdateNow ? (

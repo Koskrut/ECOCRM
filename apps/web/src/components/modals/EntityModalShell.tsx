@@ -68,8 +68,8 @@ export function EntityModalShell({
       >
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-2 overflow-visible border-b border-zinc-200 px-4 py-2.5 sm:items-center sm:px-5">
-          <div className="min-w-0 pr-2">
-            <div className="text-base font-semibold text-zinc-900">{title}</div>
+          <div className="min-w-0 flex-1 pr-2">
+            <div className="min-w-0 text-base font-semibold text-zinc-900">{title}</div>
             {subtitle != null ? (
               <div className="mt-0.5 text-xs text-zinc-500">{subtitle}</div>
             ) : null}
@@ -88,18 +88,20 @@ export function EntityModalShell({
         </div>
 
         {tabsUnderHeader != null ? (
-          <div className="shrink-0 border-b border-zinc-200 px-5">{tabsUnderHeader}</div>
+          <div className="min-w-0 shrink-0 overflow-hidden border-b border-zinc-200 px-5">
+            {tabsUnderHeader}
+          </div>
         ) : null}
 
         {/* Body: on narrow viewports single scroll column (left then right). On xl: grid 7+5 cols, columns scroll independently. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-auto xl:grid xl:grid-cols-12 xl:gap-0 xl:overflow-visible">
           <div
-            className={`min-h-0 w-full shrink-0 p-3 sm:p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
+            className={`min-h-0 min-w-0 w-full shrink-0 p-3 sm:p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
           >
             {left}
           </div>
           {right != null ? (
-            <div className="min-h-0 shrink-0 border-t border-zinc-200 p-5 max-xl:w-full xl:min-h-0 xl:col-span-5 xl:border-t-0 xl:border-l xl:overflow-auto">
+            <div className="min-h-0 shrink-0 border-t border-zinc-200 p-5 max-xl:w-full xl:min-h-0 xl:col-span-5 xl:border-t-0 xl:border-l xl:overflow-auto xl:min-w-0">
               {right}
             </div>
           ) : null}

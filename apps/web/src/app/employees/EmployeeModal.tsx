@@ -7,6 +7,7 @@ import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import { RouteAddressInput } from "./RouteAddressInput";
 import { useRouteAddressField } from "./useRouteAddressField";
+import { EmployeeDayPlanSection } from "@/components/day-plan/EmployeeDayPlanSection";
 
 const t = strings.employees.modal;
 
@@ -528,6 +529,10 @@ export function EmployeeModal({
             </div>
           </div>
         </details>
+      ) : null}
+
+      {mode === "edit" && initial?.id ? (
+        <EmployeeDayPlanSection userId={initial.id} fullName={initial.fullName} />
       ) : null}
     </div>
   );

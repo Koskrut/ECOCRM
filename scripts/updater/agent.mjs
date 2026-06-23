@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { get as httpsGet } from "node:https";
 import { join } from "node:path";
 
 const PORT = Number(process.env.UPDATER_AGENT_PORT || 7788);
@@ -13,6 +14,8 @@ const COMPOSE_FILES = (process.env.UPDATER_COMPOSE_FILES || "compose.base.yml,co
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
+const MANIFEST_URL = String(process.env.UPDATER_MANIFEST_URL || "").trim();
+const MANIFEST_PATH = process.env.UPDATER_MANIFEST_PATH || join(REPO_ROOT, "deployment-manifest.json");
 const LOG_DIR = process.env.UPDATER_LOG_DIR || join(REPO_ROOT, ".updater-logs");
 
 mkdirSync(LOG_DIR, { recursive: true });
@@ -51,11 +54,59 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function buildComposeArgs() {
+function buildComposeArgs(composeFiles = COMPOSE_FILES) {
   const args = [];
-  for (const file of COMPOSE_FILES) args.push("-f", file);
+  for (const file of composeFiles) args.push("-f", file);
   args.push("--env-file", ENV_FILE);
   return args;
+}
+
+function downloadHttps(url, destPath) {
+  return new Promise((resolve, reject) => {
+    httpsGet(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location;
+        res.resume();
+        if (!loc) reject(new Error(`redirect without location from ${url}`));
+        else resolve(downloadHttps(new URL(loc, url).href, destPath));
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        return;
+      }
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        writeFileSync(destPath, Buffer.concat(chunks), "utf8");
+        resolve();
+      });
+    }).on("error", reject);
+  });
+}
+
+async function syncComposeFromManifest(manifestPath) {
+  const script = join(REPO_ROOT, "scripts/sync-compose-from-manifest.mjs");
+  if (!existsSync(script)) return;
+  const r = await runCommand("node", [script, "--manifest", manifestPath, "--root", REPO_ROOT]);
+  if (r.code !== 0) throw new Error(r.stderr.trim() || "compose manifest sync failed");
+}
+
+async function resolveComposeFiles() {
+  let manifestPath = null;
+  if (MANIFEST_URL) {
+    manifestPath = join(LOG_DIR, `manifest-${Date.now()}.json`);
+    await downloadHttps(MANIFEST_URL, manifestPath);
+  } else if (existsSync(MANIFEST_PATH)) {
+    manifestPath = MANIFEST_PATH;
+  }
+  if (!manifestPath) return COMPOSE_FILES;
+
+  await syncComposeFromManifest(manifestPath);
+  const doc = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const files = Array.isArray(doc.composeFiles) ? doc.composeFiles.filter(Boolean) : [];
+  return files.length > 0 ? files : COMPOSE_FILES;
 }
 
 function runCommand(command, args, opts = {}) {
@@ -117,7 +168,6 @@ async function runPreflight() {
 async function runApplyJob(job, targetVersion) {
   job.status = "running";
   job.updatedAt = nowIso();
-  const composeArgs = buildComposeArgs();
   const log = [];
   const pushLog = (s) => {
     if (!s) return;
@@ -131,10 +181,17 @@ async function runApplyJob(job, targetVersion) {
     job.fromVersion = fromVersion;
     job.toVersion = targetVersion;
 
+    job.message = "Syncing deployment manifest";
+    job.updatedAt = nowIso();
+    const composeFiles = await resolveComposeFiles();
+    const composeArgs = buildComposeArgs(composeFiles);
+    pushLog(`compose files: ${composeFiles.join(", ")}`);
+
     const buildTime = nowIso();
     setEnvValues({
       BACKEND_VERSION: targetVersion,
       WEB_VERSION: targetVersion,
+      STORE_VERSION: targetVersion,
       CRM_RELEASE_VERSION: targetVersion,
       BUILD_TIME: buildTime,
       IMAGE_TAG: `ghcr.io/koskrut/crm-core-api:${targetVersion}`,

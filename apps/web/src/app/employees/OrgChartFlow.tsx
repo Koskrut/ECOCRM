@@ -17,6 +17,9 @@ import {
 } from "@xyflow/react";
 import { useReactFlow } from "@xyflow/react";
 import dagre from "dagre";
+import { strings } from "@/locales";
+
+const oc = strings.employees.orgChart;
 import "@xyflow/react/dist/style.css";
 import type { Employee } from "./EmployeeModal";
 import { OrgChartNode, type OrgNodeData } from "./OrgChartNode";
@@ -93,17 +96,17 @@ const BASE_MANAGER_SLOTS = ["lead1", "lead2", "admin-manager", "m1-1", "m1-2", "
 
 export function slotLabel(slotId: string): string {
   const map: Record<string, string> = {
-    lead1: "Руководитель 1",
-    lead2: "Руководитель 2",
-    "admin-manager": "Менеджер (под админом)",
-    "m1-1": "Менеджер 1.1",
-    "m1-2": "Менеджер 1.2",
-    "m2-1": "Менеджер 2.1",
-    "m2-2": "Менеджер 2.2",
+    lead1: oc.slotLead1,
+    lead2: oc.slotLead2,
+    "admin-manager": oc.slotAdminManager,
+    "m1-1": oc.slotManager("1", "1"),
+    "m1-2": oc.slotManager("1", "2"),
+    "m2-1": oc.slotManager("2", "1"),
+    "m2-2": oc.slotManager("2", "2"),
   };
   if (map[slotId]) return map[slotId];
   const m = slotId.match(/^m(\d)-(\d+)$/);
-  if (m) return `Менеджер ${m[1]}.${m[2]}`;
+  if (m) return oc.slotManager(m[1], m[2]);
   return slotId;
 }
 
@@ -181,9 +184,9 @@ function buildNodesFromEmployees(
   const adminLabel =
     admins.length > 0
       ? admins.map((a) => a.fullName?.trim() || a.email).join(", ")
-      : "Админы";
+      : oc.adminsEmpty;
   const adminSubtitle =
-    admins.length > 0 ? "Управление системой" : "Нет назначенных";
+    admins.length > 0 ? oc.adminsSubtitle : oc.adminsEmptySubtitle;
 
   const slot = (e: Employee | undefined, fallback: string) =>
     e ? (e.fullName?.trim() || e.email) : fallback;
@@ -209,9 +212,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 80, y: 140 },
       data: {
-        label: slot(lead1, "Руководитель 1"),
+        label: slot(lead1, oc.slotLead1),
         role: "lead",
-        subtitle: lead1 ? lead1.email : "Отдел продаж",
+        subtitle: lead1 ? lead1.email : oc.salesDept,
         regions: regions("lead1"),
       },
     },
@@ -220,9 +223,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 340, y: 140 },
       data: {
-        label: slot(adminManager, "Менеджер (под админом)"),
+        label: slot(adminManager, oc.slotAdminManager),
         role: "manager",
-        subtitle: adminManager ? adminManager.email : "Подчиняется админу",
+        subtitle: adminManager ? adminManager.email : oc.reportsToAdmin,
         regions: regions("admin-manager"),
       },
     },
@@ -231,9 +234,9 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 600, y: 140 },
       data: {
-        label: slot(lead2, "Руководитель 2"),
+        label: slot(lead2, oc.slotLead2),
         role: "lead",
-        subtitle: lead2 ? lead2.email : "Отдел продаж",
+        subtitle: lead2 ? lead2.email : oc.salesDept,
         regions: regions("lead2"),
       },
     },
@@ -242,7 +245,7 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 0, y: 280 },
       data: {
-        label: slot(get(assignments["m1-1"] ?? null), "Менеджер 1.1"),
+        label: slot(get(assignments["m1-1"] ?? null), oc.slotManager("1", "1")),
         role: "manager",
         subtitle: get(assignments["m1-1"] ?? null)?.email,
         regions: regions("m1-1"),
@@ -253,7 +256,7 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 240, y: 280 },
       data: {
-        label: slot(get(assignments["m1-2"] ?? null), "Менеджер 1.2"),
+        label: slot(get(assignments["m1-2"] ?? null), oc.slotManager("1", "2")),
         role: "manager",
         subtitle: get(assignments["m1-2"] ?? null)?.email,
         regions: regions("m1-2"),
@@ -264,7 +267,7 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 440, y: 280 },
       data: {
-        label: slot(get(assignments["m2-1"] ?? null), "Менеджер 2.1"),
+        label: slot(get(assignments["m2-1"] ?? null), oc.slotManager("2", "1")),
         role: "manager",
         subtitle: get(assignments["m2-1"] ?? null)?.email,
         regions: regions("m2-1"),
@@ -275,7 +278,7 @@ function buildNodesFromEmployees(
       type: "orgNode",
       position: { x: 680, y: 280 },
       data: {
-        label: slot(get(assignments["m2-2"] ?? null), "Менеджер 2.2"),
+        label: slot(get(assignments["m2-2"] ?? null), oc.slotManager("2", "2")),
         role: "manager",
         subtitle: get(assignments["m2-2"] ?? null)?.email,
         regions: regions("m2-2"),
@@ -387,7 +390,7 @@ function FitViewButton({ onAutoLayout }: { onAutoLayout: () => void }) {
       onClick={handleClick}
       className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50"
     >
-      Выровнять структуру
+      {oc.align}
     </button>
   );
 }
@@ -519,9 +522,9 @@ export function OrgChartFlow({
             }}
           />
 <Panel position="top-left" className="flex flex-col gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm font-medium text-zinc-700 shadow-sm backdrop-blur">
-          <span>Структура отдела продаж</span>
+          <span>{oc.title}</span>
           <span className="block text-xs font-normal text-zinc-500">
-            Клик по позиции — назначить сотрудника
+            {oc.hint}
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <FitViewButton onAutoLayout={handleAutoLayout} />
@@ -532,7 +535,7 @@ export function OrgChartFlow({
                 disabled={isSavingStructure}
                 className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
               >
-                {isSavingStructure ? "Сохранение…" : "Сохранить структуру"}
+                {isSavingStructure ? oc.saving : oc.saveStructure}
               </button>
             )}
             <div className="relative">
@@ -541,7 +544,7 @@ export function OrgChartFlow({
                 onClick={() => setAddMenuOpen((o) => !o)}
                 className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50"
               >
-                + Добавить менеджера
+                + {oc.addManager}
               </button>
             {addMenuOpen && (
               <>
@@ -556,14 +559,14 @@ export function OrgChartFlow({
                     onClick={() => addManagerUnder("lead1")}
                     className="w-full px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
                   >
-                    Под Руководителем 1
+                    {oc.underLead1}
                   </button>
                   <button
                     type="button"
                     onClick={() => addManagerUnder("lead2")}
                     className="w-full px-3 py-2 text-left text-xs text-zinc-700 hover:bg-zinc-50"
                   >
-                    Под Руководителем 2
+                    {oc.underLead2}
                   </button>
                 </div>
               </>
@@ -577,7 +580,7 @@ export function OrgChartFlow({
       {selectedSlotId && (
         <div className="absolute inset-x-4 bottom-4 z-10 max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-lg md:inset-x-auto md:bottom-auto md:right-0 md:top-0 md:w-72">
           <div className="mb-2 text-sm font-medium text-zinc-700">
-            Назначить на позицию: {slotLabel(selectedSlotId)}
+            {oc.assignTo} {slotLabel(selectedSlotId)}
           </div>
           <select
             className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
@@ -588,7 +591,7 @@ export function OrgChartFlow({
             }}
             autoFocus
           >
-            <option value="">— Не назначен</option>
+            <option value="">{oc.notAssigned}</option>
             {employees.map((emp) => (
               <option key={emp.id} value={emp.id}>
                 {emp.fullName?.trim() || emp.email}
@@ -596,7 +599,7 @@ export function OrgChartFlow({
             ))}
           </select>
           <label className="mt-3 block text-xs font-medium text-zinc-600">
-            Области
+            {strings.employees.page.colRegions}
           </label>
           <div className="relative mt-1">
             <button
@@ -607,7 +610,7 @@ export function OrgChartFlow({
               <span className="truncate text-zinc-700">
                 {(regionAssignments[selectedSlotId] ?? []).length > 0
                   ? (regionAssignments[selectedSlotId] ?? []).join(", ")
-                  : "Выберите области…"}
+                  : oc.selectRegions}
               </span>
               <span className="ml-2 shrink-0 text-zinc-400" aria-hidden>
                 {regionsDropdownOpen ? "▴" : "▾"}
@@ -657,7 +660,7 @@ export function OrgChartFlow({
               onClick={() => removeExtraSlot(selectedSlotId)}
               className="mt-2 w-full rounded-lg border border-red-200 py-2 text-sm text-red-600 hover:bg-red-50"
             >
-              Удалить позицию
+              {oc.removeSlot}
             </button>
           )}
           <button
@@ -665,7 +668,7 @@ export function OrgChartFlow({
             className="mt-3 w-full rounded-lg border border-zinc-200 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
             onClick={() => setSelectedSlotId(null)}
           >
-            Закрыть
+            {oc.close}
           </button>
         </div>
       )}

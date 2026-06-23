@@ -4,8 +4,18 @@ import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  KanbanLoadSentinel,
+  KANBAN_COLUMN_BODY_CLASS,
+} from "@/components/kanban/KanbanLoadSentinel";
+import {
+  KANBAN_PAGE_SIZE,
+  useKanbanInfiniteColumns,
+} from "@/components/kanban/useKanbanInfiniteColumns";
+import { strings } from "@/locales";
 import { AlertTriangle } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
+import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
 import {
   StockReadinessBadge,
   type OrderStockReadiness,
@@ -46,6 +56,7 @@ type BoardOrder = {
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
+  documentsRequested?: boolean | null;
 };
 
 type OrdersListResponse = {
@@ -181,10 +192,7 @@ export function OrdersKanban({
   refreshKey?: number;
   warehouseMode?: boolean;
 }) {
-  const [list, setList] = useState<OrdersListResponse | null>(null);
   const [pipeline, setPipeline] = useState<PipelineStageRow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   const [dragging, setDragging] = useState<{ orderId: string; from: OrderStage } | null>(null);
   const [dragOver, setDragOver] = useState<OrderStage | null>(null);
@@ -251,43 +259,34 @@ export function OrdersKanban({
     return FALLBACK_FINAL_DROP_ZONES;
   }, [pipeline]);
 
-  const columns: BoardColumn[] = useMemo(() => {
-    const items = list?.items ?? [];
-    const map: Record<OrderStage, BoardOrder[]> = {
-      NEW: [],
-      CONFIRMED: [],
-      AWAITING_PAYMENT: [],
-      AWAITING_STOCK: [],
-      READY_TO_SHIP: [],
-      SHIPPED: [],
-      AWAITING_RECEIPT: [],
-      RECEIVED: [],
-      COMPLETED: [],
-      CANCELED: [],
-      REFUSED: [],
-      RETURN_IN_PROGRESS: [],
-    };
-    for (const o of items) {
-      const st = resolveStage(o);
-      map[st].push(o);
+  const loadColumnIds = useMemo((): OrderStage[] => {
+    const stages = mainBoardStages.map((cfg) => cfg.stage);
+    if (filters?.orderStage && isKnownStage(filters.orderStage)) {
+      return stages.includes(filters.orderStage) ? [filters.orderStage] : [];
     }
-    return mainBoardStages.map((cfg) => ({
-      id: cfg.stage,
-      title: cfg.label,
-      items: map[cfg.stage],
-    }));
-  }, [list, mainBoardStages]);
+    return stages;
+  }, [mainBoardStages, filters?.orderStage]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    try {
+  const kanbanResetKey = useMemo(
+    () =>
+      JSON.stringify({
+        refreshKey,
+        warehouseMode,
+        filters,
+        stages: loadColumnIds,
+      }),
+    [refreshKey, warehouseMode, filters, loadColumnIds],
+  );
+
+  const buildParams = useCallback(
+    (stage: OrderStage, page: number): Record<string, string> => {
       const params: Record<string, string> = {
         board: "true",
         withCompanyClient: "true",
-        pageSize: "100",
+        orderStages: stage,
+        page: String(page),
+        pageSize: String(KANBAN_PAGE_SIZE),
       };
-      if (filters?.orderStage) params.orderStage = filters.orderStage;
       if (filters?.status) params.status = filters.status;
       if (filters?.ownerId) params.ownerId = filters.ownerId;
       if (filters?.amountFrom) params.amountFrom = filters.amountFrom;
@@ -304,40 +303,57 @@ export function OrdersKanban({
         params.sortBy = "createdAt";
         params.sortDir = "asc";
       }
+      return params;
+    },
+    [
+      filters?.amountFrom,
+      filters?.amountTo,
+      filters?.dateFrom,
+      filters?.dateTo,
+      filters?.hasTtn,
+      filters?.ownerId,
+      filters?.paymentStatus,
+      filters?.paymentType,
+      filters?.q,
+      filters?.sortBy,
+      filters?.sortDir,
+      filters?.status,
+      warehouseMode,
+    ],
+  );
 
-      const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
-      const raw = res.data ?? { items: [] };
-      const items = warehouseMode
-        ? (raw.items ?? []).filter((o) => WAREHOUSE_KANBAN_STAGES.includes(resolveStage(o)))
-        : (raw.items ?? []);
+  const fetchPage = useCallback(async (params: Record<string, string>) => {
+    const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
+    const data = res.data ?? { items: [] };
+    return {
+      items: data.items ?? [],
+      total: data.total ?? data.items?.length ?? 0,
+    };
+  }, []);
 
-      setList({ ...raw, items });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load board");
-      setList(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    filters?.amountFrom,
-    filters?.amountTo,
-    filters?.dateFrom,
-    filters?.dateTo,
-    filters?.hasTtn,
-    filters?.orderStage,
-    filters?.ownerId,
-    filters?.paymentStatus,
-    filters?.paymentType,
-    filters?.q,
-    filters?.sortBy,
-    filters?.sortDir,
-    filters?.status,
-    warehouseMode,
-  ]);
+  const {
+    columns: columnStates,
+    loadMore,
+    reloadAll,
+    moveItem,
+    anyInitialLoading,
+    firstError,
+  } = useKanbanInfiniteColumns<BoardOrder, OrderStage>({
+    columnIds: loadColumnIds,
+    buildParams,
+    fetchPage,
+    resetKey: kanbanResetKey,
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
+  const columns: BoardColumn[] = useMemo(
+    () =>
+      mainBoardStages.map((cfg) => ({
+        id: cfg.stage,
+        title: cfg.label,
+        items: columnStates[cfg.stage]?.items ?? [],
+      })),
+    [mainBoardStages, columnStates],
+  );
 
   useEffect(() => {
     if (columns.length > 0 && selectedStageIndex >= columns.length) {
@@ -351,16 +367,16 @@ export function OrdersKanban({
     return res.data ?? null;
   }, []);
 
-  const moveLocal = (orderId: string, to: OrderStage) => {
-    setList((prev) => {
-      if (!prev) return prev;
-      const next = [...(prev.items ?? [])];
-      const idx = next.findIndex((x) => x.id === orderId);
-      if (idx === -1) return prev;
-      next[idx] = { ...next[idx], orderStage: to };
-      return { ...prev, items: next };
-    });
-  };
+  const findOrder = useCallback(
+    (orderId: string): BoardOrder | undefined => {
+      for (const col of Object.values(columnStates)) {
+        const found = col.items.find((x) => x.id === orderId);
+        if (found) return found;
+      }
+      return undefined;
+    },
+    [columnStates],
+  );
 
   const handleDrop = useCallback(
     async (orderId: string, to: OrderStage) => {
@@ -369,7 +385,7 @@ export function OrdersKanban({
         setDragging(null);
         return;
       }
-      const order = list?.items?.find((x) => x.id === orderId);
+      const order = findOrder(orderId);
       if (from && isForwardStageTransition(from, to) && !order?.paymentType) {
         alert("Оберіть умови оплати перед переведенням замовлення на наступний етап.");
         setDragging(null);
@@ -393,25 +409,31 @@ export function OrdersKanban({
           return;
         }
       }
-      moveLocal(orderId, to);
+      if (from) {
+        moveItem(orderId, from, to, (o) => ({ ...o, orderStage: to }));
+      }
       try {
         await patchStage(orderId, to, "Moved in board");
         if (["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS"].includes(to)) {
-          void load();
+          reloadAll();
         }
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Failed to move");
-        void load();
+        alert(error instanceof Error ? error.message : strings.kanban.moveFailed);
+        reloadAll();
       } finally {
         setDragging(null);
       }
     },
-    [dragging, list, load, patchStage, warehouseMode],
+    [dragging, findOrder, moveItem, patchStage, reloadAll, warehouseMode],
   );
 
-  if (loading) return <div className="text-sm text-zinc-500">Loading board…</div>;
-  if (err) return <div className="text-sm text-red-600">{err}</div>;
-  if (!list) return null;
+  const boardEmpty = columns.every((col) => col.items.length === 0);
+  if (anyInitialLoading && boardEmpty) {
+    return <div className="text-sm text-zinc-500">{strings.kanban.loadingBoard}</div>;
+  }
+  if (firstError && boardEmpty) {
+    return <div className="text-sm text-red-600">{firstError}</div>;
+  }
 
   return (
     <div className="space-y-4">
@@ -431,7 +453,9 @@ export function OrdersKanban({
               ].join(" ")}
             >
               <span className="whitespace-nowrap">{col.title}</span>
-              <span className="ml-1.5 text-xs opacity-80">({(col.items ?? []).length})</span>
+              <span className="ml-1.5 text-xs opacity-80">
+                ({columnStates[col.id]?.total ?? col.items.length})
+              </span>
             </button>
           ))}
         </div>
@@ -441,6 +465,7 @@ export function OrdersKanban({
         {columns.map((col, colIndex) => {
           const st = col.id;
           const items = col.items ?? [];
+          const colState = columnStates[st];
           const isOver = dragOver === st;
           const isSelectedOnMobile = colIndex === selectedStageIndex;
 
@@ -456,12 +481,13 @@ export function OrdersKanban({
             >
               <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
                 <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
-                <div className="text-xs text-zinc-500">{items.length}</div>
+                <div className="text-xs text-zinc-500">{colState?.total ?? items.length}</div>
               </div>
 
               <div
                 className={[
-                  "min-h-[200px] space-y-3 p-3 transition-colors",
+                  KANBAN_COLUMN_BODY_CLASS,
+                  "min-h-[200px] transition-colors",
                   isOver ? "bg-zinc-50" : "",
                 ].join(" ")}
                 onDragOver={(e) => {
@@ -478,7 +504,9 @@ export function OrdersKanban({
                   void handleDrop(orderId, st);
                 }}
               >
-                {items.length === 0 ? (
+                {colState?.initialLoading ? (
+                  <div className="text-xs text-zinc-500">Завантаження…</div>
+                ) : items.length === 0 ? (
                   <div className="text-xs text-zinc-500">Empty</div>
                 ) : (
                   items.map((o) => {
@@ -555,6 +583,7 @@ export function OrdersKanban({
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
+                          <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
                           {stage === "AWAITING_STOCK" ? (
                             <StockReadinessBadge readiness={o.stockReadiness} size="xs" />
                           ) : null}
@@ -579,6 +608,15 @@ export function OrdersKanban({
                     );
                   })
                 )}
+                {colState?.hasMore ? (
+                  <KanbanLoadSentinel
+                    disabled={colState.loadingMore || colState.initialLoading}
+                    onVisible={() => loadMore(st)}
+                  />
+                ) : null}
+                {colState?.loadingMore ? (
+                  <div className="py-1 text-center text-xs text-zinc-400">Завантаження…</div>
+                ) : null}
               </div>
             </div>
           );

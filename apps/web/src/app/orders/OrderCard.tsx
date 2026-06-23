@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Globe, MailPlus } from "lucide-react";
+import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
@@ -28,6 +29,7 @@ export type OrderCardOrder = {
   clientId?: string | null;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
+  documentsRequested?: boolean | null;
 };
 
 export function OrderCard({
@@ -88,6 +90,7 @@ export function OrderCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StatusBadge variant="order" status={order.status} orderStage={order.orderStage} />
+        <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
         {order.orderStage === "RECEIVED" && (order.debtAmount ?? 0) > 0 && (
           <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
             Неоплачено

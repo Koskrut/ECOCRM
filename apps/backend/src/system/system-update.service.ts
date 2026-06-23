@@ -107,6 +107,8 @@ export class SystemUpdateService {
       }
     }
 
+    const autoUpdateEnabled = process.env.AUTO_UPDATE_ENABLED === "true";
+
     return {
       mode,
       state,
@@ -117,9 +119,22 @@ export class SystemUpdateService {
       reason,
       cpReachable: cpStatus.reachable,
       updaterReachable,
+      autoUpdateEnabled,
       activeJobId: this.activeJobId,
       lastJobId: this.lastJobId,
     };
+  }
+
+  async tryAutoApply(): Promise<SystemUpdateJobDto | null> {
+    if (process.env.AUTO_UPDATE_ENABLED !== "true") return null;
+
+    const status = await this.getStatus();
+    if (!status.canUpdate || status.activeJobId) return null;
+
+    const preflight = await this.preflight();
+    if (!preflight.ok) return null;
+
+    return this.apply("auto-update", {});
   }
 
   async preflight(): Promise<SystemUpdatePreflightDto> {

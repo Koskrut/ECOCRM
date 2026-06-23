@@ -32,6 +32,8 @@ services:
       # In-product update button talks to the updater service below (no client configuration needed).
       UPDATER_AGENT_URL: ${UPDATER_AGENT_URL:-http://updater:7788}
       UPDATER_AGENT_TOKEN: ${UPDATER_AGENT_TOKEN:-}
+      AUTO_UPDATE_ENABLED: ${AUTO_UPDATE_ENABLED:-true}
+      AUTO_UPDATE_CRON: ${AUTO_UPDATE_CRON:-*/15 * * * *}
 
       # Release metadata surfaced to ADMIN via GET /system/release and /system/update-status.
       CRM_RELEASE_VERSION: ${CRM_RELEASE_VERSION:-}
@@ -98,8 +100,10 @@ services:
     environment:
       UPDATER_AGENT_TOKEN: ${UPDATER_AGENT_TOKEN:-}
       UPDATER_REPO_ROOT: /deploy
-      UPDATER_ENV_FILE: /deploy/.env
+      UPDATER_ENV_FILE: ${UPDATER_ENV_FILE:-/deploy/.env}
       UPDATER_COMPOSE_FILES: ${UPDATER_COMPOSE_FILES:-compose.base.yml,compose.client.yml}
+      UPDATER_MANIFEST_URL: ${UPDATER_MANIFEST_URL:-}
+      UPDATER_MANIFEST_PATH: ${UPDATER_MANIFEST_PATH:-/deploy/deployment-manifest.json}
       UPDATER_LOG_DIR: /deploy/.updater-logs
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
