@@ -157,10 +157,24 @@ export class LeadsService {
 
   // ===== CRUD =====
 
-  async create(dto: CreateLeadDto, actor?: AuthUser) {
-    if (!dto.companyId) {
-      throw new BadRequestException("companyId is required");
+  private async resolveLeadCompanyId(explicit?: string): Promise<string> {
+    const trimmed = explicit?.trim();
+    if (trimmed) return trimmed;
+
+    const first = await this.prisma.company.findFirst({
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!first?.id) {
+      throw new BadRequestException(
+        "Немає компанії в CRM — створіть компанію або оберіть її при створенні ліда",
+      );
     }
+    return first.id;
+  }
+
+  async create(dto: CreateLeadDto, actor?: AuthUser) {
+    const companyId = await this.resolveLeadCompanyId(dto.companyId);
 
     const ownerId = actor?.id ?? null;
 
@@ -168,7 +182,7 @@ export class LeadsService {
       dto.phone != null ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null)) : null;
     const phoneNormalized = dto.phone != null ? getPhoneNormalizedDigits(dto.phone) ?? null : null;
     const data: Prisma.LeadCreateInput = {
-      company: { connect: { id: dto.companyId } },
+      company: { connect: { id: companyId } },
       owner: ownerId ? { connect: { id: ownerId } } : undefined,
       status: LeadStatusEnum.NEW,
       source: dto.source ?? "OTHER",

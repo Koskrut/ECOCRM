@@ -60,13 +60,41 @@ test("contacts.list: q includes address/addressInfo/region/city in OR", async ()
   }
 });
 
+test("contacts.list: multiple regions use OR filter", async () => {
+  const { service, findManyCalls } = createService();
+  await service.list({ regions: ["Львівська", "Одеська"] });
+  const args = findManyCalls[0];
+  const andParts: any[] = args.where.AND ?? [];
+  const regionOr = andParts.find((p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.region));
+  assert.ok(regionOr, "AND should contain OR for multiple regions");
+  assert.equal(regionOr.OR.length, 2);
+});
+
+test("contacts.list: multiple cities use OR filter", async () => {
+  const { service, findManyCalls } = createService();
+  await service.list({ cities: ["Львів", "Київ"] });
+  const args = findManyCalls[0];
+  const andParts: any[] = args.where.AND ?? [];
+  const cityOr = andParts.find((p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.city));
+  assert.ok(cityOr, "AND should contain OR for multiple cities");
+  assert.equal(cityOr.OR.length, 2);
+});
+
 test("contacts.list: q still includes legacy name/phone/email/company fields", async () => {
   const { service, findManyCalls } = createService();
   await service.list({ q: "Іван" });
   const args = findManyCalls[0];
   const orPart = (args.where.AND as any[]).find((p) => Array.isArray(p.OR));
   const keys = flattenOrFields(orPart.OR);
-  for (const expected of ["firstName", "lastName", "middleName", "phone", "email", "company.name"]) {
+  for (const expected of [
+    "firstName",
+    "lastName",
+    "middleName",
+    "phone",
+    "email",
+    "externalCode",
+    "company.name",
+  ]) {
     assert.ok(keys.includes(expected), `OR should keep ${expected}`);
   }
 });

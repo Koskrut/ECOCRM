@@ -267,7 +267,7 @@ export function CreateOrderModal({
                 }}
               >
                 <option value={PaymentMethod.CASH}>Готівка</option>
-                <option value={PaymentMethod.FOP}>ФОП (банк)</option>
+                <option value={PaymentMethod.FOP}>Безготівка</option>
               </select>
             </div>
             {paymentMethod === PaymentMethod.FOP && (

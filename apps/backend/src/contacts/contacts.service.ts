@@ -514,8 +514,8 @@ export class ContactsService {
       hasEmail?: boolean;
       hasCallToday?: boolean;
       hasMissedCall?: boolean;
-      region?: string;
-      city?: string;
+      regions?: string[];
+      cities?: string[];
       clientType?: string;
       status?: string;
       sortBy?: string;
@@ -555,6 +555,7 @@ export class ContactsService {
         { middleName: { contains: search, mode: "insensitive" } },
         { phone: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
+        { externalCode: { contains: search, mode: "insensitive" } },
         { company: { name: { contains: search, mode: "insensitive" } } },
         { address: { contains: search, mode: "insensitive" } },
         { addressInfo: { contains: search, mode: "insensitive" } },
@@ -610,15 +611,26 @@ export class ContactsService {
       }
       andParts.push({ OR: searchOr });
     }
+    const regions = params.regions?.map((r) => r.trim()).filter(Boolean) ?? [];
+    if (regions.length === 1) {
+      andParts.push({ region: { equals: regions[0], mode: "insensitive" } });
+    } else if (regions.length > 1) {
+      andParts.push({
+        OR: regions.map((region) => ({ region: { equals: region, mode: "insensitive" } })),
+      });
+    }
+    const cities = params.cities?.map((c) => c.trim()).filter(Boolean) ?? [];
+    if (cities.length === 1) {
+      andParts.push({ city: { contains: cities[0], mode: "insensitive" } });
+    } else if (cities.length > 1) {
+      andParts.push({
+        OR: cities.map((city) => ({ city: { contains: city, mode: "insensitive" } })),
+      });
+    }
+
     const where: Prisma.ContactWhereInput = {
       ...(params.companyId ? { companyId: params.companyId } : {}),
       ...(params.ownerId ? { ownerId: params.ownerId } : {}),
-      ...(params.region
-        ? { region: { contains: params.region, mode: "insensitive" } }
-        : {}),
-      ...(params.city
-        ? { city: { contains: params.city, mode: "insensitive" } }
-        : {}),
       ...(params.clientType
         ? { clientType: { contains: params.clientType, mode: "insensitive" } }
         : {}),

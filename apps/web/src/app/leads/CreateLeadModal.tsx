@@ -107,10 +107,6 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 
   const submit = async () => {
     setErr(null);
-    if (!companyId) {
-      setErr("Оберіть компанію");
-      return;
-    }
     if (!phone.replace(/\D/g, "").length && !email.trim()) {
       setErr("Потрібно вказати телефон або email");
       return;
@@ -119,7 +115,6 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
-        companyId,
         source,
         name: name.trim() || undefined,
         phone: (normalizePhone(phone) ?? phone.trim()) || undefined,
@@ -127,6 +122,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         companyName: companyName.trim() || undefined,
         message: message.trim() || undefined,
       };
+      if (companyId) payload.companyId = companyId;
       if (createItems.length > 0) {
         payload.items = createItems.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price }));
       }
@@ -173,14 +169,16 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             </div>
           )}
 
-          <label className="block text-xs font-medium text-zinc-600">Компанія</label>
+          <label className="block text-xs font-medium text-zinc-600">
+            Компанія <span className="font-normal text-zinc-400">(необовʼязково)</span>
+          </label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
             disabled={loadingCompanies || saving}
           >
-            <option value="">— оберіть компанію —</option>
+            <option value="">— за замовчуванням —</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}

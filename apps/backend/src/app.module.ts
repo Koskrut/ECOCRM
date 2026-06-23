@@ -8,6 +8,7 @@ import { CompaniesModule } from "./companies/companies.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { CustomFieldsModule } from "./custom-fields/custom-fields.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { DayPlanModule } from "./day-plan/day-plan.module";
 import { DictionariesModule } from "./dictionaries/dictionaries.module";
 import { LayoutsModule } from "./layouts/layouts.module";
 import { LeadsModule } from "./leads/leads.module";
@@ -72,6 +73,7 @@ import { FieldModule } from "./field/field.module";
     AuthModule,
     AnalyticsModule,
     DashboardModule,
+    DayPlanModule,
     ActivitiesModule,
     VisitsModule,
     FieldModule,

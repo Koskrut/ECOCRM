@@ -247,8 +247,24 @@ type ContactOption = {
   firstName: string;
   lastName: string;
   phone: string;
+  externalCode?: string | null;
   companyId?: string | null;
 };
+
+function formatContactOptionLabel(
+  c: Pick<ContactOption, "firstName" | "lastName" | "phone" | "externalCode">,
+  opts?: { hasCompany?: boolean },
+) {
+  const code = c.externalCode?.trim();
+  const suffix = [
+    c.phone,
+    code ? `1С: ${code}` : null,
+    opts?.hasCompany ? "(Has Company)" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `${c.lastName} ${c.firstName} — ${suffix}`;
+}
 
 type TimelineItem = {
   id: string;
@@ -1825,13 +1841,15 @@ export function OrderModal({
   const contactOptions = useMemo(() => {
     const list = contacts.map((c) => ({
       id: c.id,
-      label: `${c.lastName} ${c.firstName} — ${c.phone}${!companyId && c.companyId ? " (Has Company)" : ""}`,
+      label: formatContactOptionLabel(c, {
+        hasCompany: !companyId && Boolean(c.companyId),
+      }),
     }));
     if (clientId && order?.client && !contacts.some((c) => c.id === clientId)) {
       return [
         {
           id: order.client.id,
-          label: `${order.client.lastName} ${order.client.firstName} — ${order.client.phone}`,
+          label: formatContactOptionLabel(order.client),
         },
         ...list,
       ];
@@ -3325,7 +3343,7 @@ export function OrderModal({
                               : "text-zinc-600 hover:bg-white/70 hover:text-zinc-900"
                           }`}
                         >
-                          ФОП
+                          Безготівка
                         </button>
                       </div>
                     </div>

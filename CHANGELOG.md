@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.88**.)_
+_(планируемые изменения после **0.2.89**.)_
+
+## [0.2.89] — 2026-06-23
+
+### Summary
+
+Патч **0.2.89**: **план на день** (day plan), work hub, доработки контактов/NP/курсов; **фикс Telegram в prod** — `NotificationsModule` в **`AppModuleCore`** (раньше был только в полном `AppModule`, core API не поднимал notifications → доставка через Telegram не работала).
+
+### Added
+
+- **Day plan**: `DayPlanModule`, `GET /work/day-plan`, scoring, виджет и страница **`/work/day-plan`**; колонка плана на Dashboard.
+- **Work hub**: **`/work/calls`**, queue/history, **`/work/warehouse`**.
+- **Contacts**: work queue, расширенные фильтры.
+- **NP**: `declaredCostMode` (minimum_200 / order_total), TTN defaults API, доработки **`TtnModal`**.
+- **Exchange rates**: **`UAH_TO_EUR`**, нормализация курсов EUR/USD.
+- **Telegram**: регрессионный тест **`telegram-di.spec.ts`** (circular import guard).
+
+### Fixed
+
+- **`AppModuleCore`**: добавлен **`NotificationsModule`** — in-app уведомления и Telegram delivery в **crm-core-api**.
+- **Web CI**: `useMemo` на Dashboard; **Suspense** на `/work/day-plan`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.89`**.
+- **Новых миграций нет** (day plan на существующих данных).
+- С **0.2.79**: миграции **0.2.81** (3 шт.) и **`20260615120000_add_order_fx_write_off`** (0.2.87+) — если ещё не были.
 
 ## [0.2.88] — 2026-06-16
 
@@ -687,7 +713,7 @@ _(планируемые изменения после **0.2.88**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.88`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.89`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

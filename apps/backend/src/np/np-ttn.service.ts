@@ -25,6 +25,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
+import { orderAmountToUah } from "../common/currency.util";
 
 type SenderCache = {
   senderCityRef: string;
@@ -66,6 +67,13 @@ export class NpTtnService {
     private readonly np: NpClient,
     private readonly settings: SettingsService,
   ) {}
+
+  // ======================
+  // PUBLIC: TTN form defaults
+  // ======================
+  async getTtnDefaults() {
+    return this.settings.resolveNovaPoshtaFinancialDefaults();
+  }
 
   // ======================
   // PUBLIC: create TTN
@@ -222,8 +230,9 @@ export class NpTtnService {
     const npRefs = await this.ensureNpRecipientRefs(resolved);
 
     // 2) build payload
+    const declaredCost = await this.resolveDeclaredCost(dto, order);
     const payload = await this.buildInternetDocumentPayload({
-      dto,
+      dto: { ...dto, declaredCost },
       resolved,
       npRefs,
       orderNumber: order.orderNumber,
@@ -599,6 +608,26 @@ export class NpTtnService {
   // ==========================
   // InternetDocument.save body
   // ==========================
+  private async resolveDeclaredCost(
+    dto: CreateNpTtnDto,
+    order: { totalAmount: unknown; currency: string | null },
+  ): Promise<number> {
+    if (dto.declaredCost != null && Number.isFinite(Number(dto.declaredCost))) {
+      return Number(dto.declaredCost);
+    }
+
+    const mode = await this.settings.resolveNovaPoshtaDeclaredCostMode();
+    if (mode === "order_total") {
+      const total = Number(order.totalAmount ?? 0);
+      if (Number.isFinite(total) && total > 0) {
+        const rates = await this.settings.getExchangeRates();
+        return orderAmountToUah(total, order.currency, rates);
+      }
+    }
+
+    return 200;
+  }
+
   private async buildInternetDocumentPayload(args: {
     dto: CreateNpTtnDto;
     resolved: { data: unknown };
@@ -1321,8 +1350,9 @@ export class NpTtnService {
     }
 
     const npRefs = await this.ensureNpRecipientRefs(resolved);
+    const declaredCost = await this.resolveDeclaredCost(dto, order);
     const payload = await this.buildInternetDocumentPayload({
-      dto,
+      dto: { ...dto, declaredCost },
       resolved,
       npRefs,
       orderNumber: order.orderNumber,

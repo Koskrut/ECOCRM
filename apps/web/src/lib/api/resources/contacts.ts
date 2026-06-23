@@ -75,8 +75,8 @@ export type ContactsListParams = {
   hasEmail?: "yes" | "no";
   hasCallToday?: "yes" | "no";
   hasMissedCall?: "yes" | "no";
-  region?: string;
-  city?: string;
+  regions?: string[];
+  cities?: string[];
   clientType?: string;
   status?: string;
   sortBy?: "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
@@ -264,8 +264,14 @@ export const contactsApi = {
     if (params?.hasEmail) searchParams.set("hasEmail", params.hasEmail);
     if (params?.hasCallToday) searchParams.set("hasCallToday", params.hasCallToday);
     if (params?.hasMissedCall) searchParams.set("hasMissedCall", params.hasMissedCall);
-    if (params?.region?.trim()) searchParams.set("region", params.region.trim());
-    if (params?.city?.trim()) searchParams.set("city", params.city.trim());
+    for (const region of params?.regions ?? []) {
+      const trimmed = region.trim();
+      if (trimmed) searchParams.append("region", trimmed);
+    }
+    for (const city of params?.cities ?? []) {
+      const trimmed = city.trim();
+      if (trimmed) searchParams.append("city", trimmed);
+    }
     if (params?.clientType?.trim()) searchParams.set("clientType", params.clientType.trim());
     if (params?.status?.trim()) searchParams.set("status", params.status.trim());
     if (params?.sortBy) searchParams.set("sortBy", params.sortBy);

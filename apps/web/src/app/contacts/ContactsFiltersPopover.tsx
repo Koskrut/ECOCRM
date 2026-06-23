@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NpCitySelect, cityNameOnly } from "@/components/inputs/NpDirectorySelects";
+import { CONTACT_REGION_OPTIONS } from "./contact-region-options";
 
 export type ContactsFiltersState = {
   companyId: string;
@@ -9,8 +11,8 @@ export type ContactsFiltersState = {
   hasEmail: string;
   hasCallToday: string;
   hasMissedCall: string;
-  region: string;
-  city: string;
+  regions: string[];
+  cities: string[];
   clientType: string;
   sortBy: string;
   sortDir: string;
@@ -49,6 +51,42 @@ const BOOL_OPTIONS: { value: string; label: string }[] = [
   { value: "yes", label: "Да" },
   { value: "no", label: "Нет" },
 ];
+
+const REGION_OPTIONS = CONTACT_REGION_OPTIONS.filter((opt) => opt.value);
+
+function FilterValueChips({
+  values,
+  disabled,
+  onRemove,
+}: {
+  values: string[];
+  disabled?: boolean;
+  onRemove: (value: string) => void;
+}) {
+  if (values.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {values.map((value) => (
+        <span
+          key={value}
+          className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700"
+        >
+          {value}
+          {!disabled ? (
+            <button
+              type="button"
+              onClick={() => onRemove(value)}
+              className="text-zinc-400 hover:text-zinc-700"
+              aria-label={`Видалити ${value}`}
+            >
+              ✕
+            </button>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 const SORT_BY_OPTIONS: { value: string; label: string }[] = [
   { value: "createdAt", label: "По дате создания" },
@@ -112,8 +150,8 @@ export function ContactsFiltersPopover({
           draft.hasEmail ||
           draft.hasCallToday ||
           draft.hasMissedCall ||
-          draft.region.trim() ||
-          draft.city.trim() ||
+          draft.regions.length ||
+          draft.cities.length ||
           draft.clientType.trim() ||
           draft.sortBy !== "createdAt" ||
           draft.sortDir !== "desc",
@@ -245,26 +283,52 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Регион</label>
-          <input
-            type="text"
-            value={draft.region}
-            onChange={(e) => setDraft((p) => ({ ...p, region: e.target.value }))}
-            placeholder="Часть названия региона"
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Область</label>
+          <select
+            value=""
+            onChange={(e) => {
+              const next = e.target.value;
+              if (!next || draft.regions.includes(next)) return;
+              setDraft((p) => ({ ...p, regions: [...p.regions, next] }));
+            }}
             disabled={presetMode}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
+          >
+            <option value="">Додати область…</option>
+            {REGION_OPTIONS.filter((opt) => !draft.regions.includes(opt.value)).map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <FilterValueChips
+            values={draft.regions}
+            disabled={presetMode}
+            onRemove={(value) =>
+              setDraft((p) => ({ ...p, regions: p.regions.filter((item) => item !== value) }))
+            }
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Город</label>
-          <input
-            type="text"
-            value={draft.city}
-            onChange={(e) => setDraft((p) => ({ ...p, city: e.target.value }))}
-            placeholder="Часть названия города"
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Місто</label>
+          <NpCitySelect
+            valueRef=""
+            valueLabel=""
+            onChange={(_ref, label) => {
+              const city = cityNameOnly(label);
+              if (!city || draft.cities.includes(city)) return;
+              setDraft((p) => ({ ...p, cities: [...p.cities, city] }));
+            }}
             disabled={presetMode}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
+            placeholder="Додати місто…"
+          />
+          <FilterValueChips
+            values={draft.cities}
+            disabled={presetMode}
+            onRemove={(value) =>
+              setDraft((p) => ({ ...p, cities: p.cities.filter((item) => item !== value) }))
+            }
           />
         </div>
 

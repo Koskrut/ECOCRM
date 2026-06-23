@@ -10,8 +10,9 @@ import {
 import { LeadItemDto } from "./lead-item.dto";
 
 export class CreateLeadDto {
+  @IsOptional()
   @IsString()
-  companyId!: string;
+  companyId?: string;
 
   @IsOptional()
   @IsEnum(LeadSource)

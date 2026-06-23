@@ -56,8 +56,24 @@ export function computeOrderExchangeRate(
   const c = normalizeCurrencyCode(currency);
   const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
   if (c === "USD") return uahPerUsd;
-  if (c === "EUR") return uahPerUsd * (rates.EUR_TO_USD || 1);
+  if (c === "EUR") {
+    if (rates.UAH_TO_EUR != null && rates.UAH_TO_EUR > 0) return 1 / rates.UAH_TO_EUR;
+    return uahPerUsd * (rates.EUR_TO_USD || 1);
+  }
   return null;
+}
+
+/** Order amount converted to UAH for carrier declared value (Nova Poshta Cost). */
+export function orderAmountToUah(
+  amount: number,
+  currency: string | null | undefined,
+  rates: ExchangeRates,
+): number {
+  const c = normalizeCurrencyCode(currency);
+  if (c === "UAH") return Math.round(amount * 100) / 100;
+  const rate = computeOrderExchangeRate(c, rates);
+  if (rate == null || rate <= 0) return Math.round(amount * 100) / 100;
+  return Math.round(amount * rate * 100) / 100;
 }
 
 export function normalizeBaseCurrency(value: unknown): BaseCurrency {

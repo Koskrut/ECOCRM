@@ -14,6 +14,7 @@ import { CompaniesModule } from "./companies/companies.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
 import { CustomFieldsModule } from "./custom-fields/custom-fields.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { DayPlanModule } from "./day-plan/day-plan.module";
 import { DictionariesModule } from "./dictionaries/dictionaries.module";
 import { LayoutsModule } from "./layouts/layouts.module";
 import { LeadsModule } from "./leads/leads.module";
@@ -40,6 +41,7 @@ import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
 import { TimelineModule } from "./timeline/timeline.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 
 @Module({
   imports: [
@@ -56,11 +58,13 @@ import { AuditModule } from "./audit/audit.module";
     AuthModule,
     AnalyticsModule,
     DashboardModule,
+    DayPlanModule,
     ActivitiesModule,
     VisitsModule,
     FieldModule,
     StoreModule,
     TelegramModule,
+    NotificationsModule,
     TasksModule,
     OrderReturnsModule,
     OrdersModule,

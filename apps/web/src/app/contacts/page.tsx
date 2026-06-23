@@ -178,8 +178,12 @@ function ContactsPageContent() {
   const [filterHasMissedCall, setFilterHasMissedCall] = useState<string>(
     () => searchParams.get("hasMissedCall") || "",
   );
-  const [filterRegion, setFilterRegion] = useState<string>(() => searchParams.get("region") || "");
-  const [filterCity, setFilterCity] = useState<string>(() => searchParams.get("city") || "");
+  const [filterRegions, setFilterRegions] = useState<string[]>(() =>
+    searchParams.getAll("region").map((v) => v.trim()).filter(Boolean),
+  );
+  const [filterCities, setFilterCities] = useState<string[]>(() =>
+    searchParams.getAll("city").map((v) => v.trim()).filter(Boolean),
+  );
   const [filterClientType, setFilterClientType] = useState<string>(
     () => searchParams.get("clientType") || "",
   );
@@ -231,8 +235,8 @@ function ContactsPageContent() {
       if (filterHasEmail) params.set("hasEmail", filterHasEmail);
       if (filterHasCallToday) params.set("hasCallToday", filterHasCallToday);
       if (filterHasMissedCall) params.set("hasMissedCall", filterHasMissedCall);
-      if (filterRegion) params.set("region", filterRegion);
-      if (filterCity) params.set("city", filterCity);
+      filterRegions.forEach((region) => params.append("region", region));
+      filterCities.forEach((city) => params.append("city", city));
       if (filterClientType) params.set("clientType", filterClientType);
       if (sortBy !== "createdAt") params.set("sortBy", sortBy);
       if (sortDir !== "desc") params.set("sortDir", sortDir);
@@ -251,8 +255,8 @@ function ContactsPageContent() {
     filterHasEmail,
     filterHasCallToday,
     filterHasMissedCall,
-    filterRegion,
-    filterCity,
+    filterRegions,
+    filterCities,
     filterClientType,
     sortBy,
     sortDir,
@@ -307,8 +311,8 @@ function ContactsPageContent() {
               filterHasMissedCall === "yes" || filterHasMissedCall === "no"
                 ? filterHasMissedCall
                 : undefined,
-            region: filterRegion.trim() || undefined,
-            city: filterCity.trim() || undefined,
+            regions: filterRegions.length > 0 ? filterRegions : undefined,
+            cities: filterCities.length > 0 ? filterCities : undefined,
             clientType: filterClientType.trim() || undefined,
             sortBy,
             sortDir,
@@ -357,8 +361,8 @@ function ContactsPageContent() {
       filterHasEmail,
       filterHasCallToday,
       filterHasMissedCall,
-      filterRegion,
-      filterCity,
+      filterRegions,
+      filterCities,
       filterClientType,
       sortBy,
       sortDir,
@@ -441,8 +445,8 @@ function ContactsPageContent() {
       setFilterHasEmail(next.hasEmail || "");
       setFilterHasCallToday(next.hasCallToday || "");
       setFilterHasMissedCall(next.hasMissedCall || "");
-      setFilterRegion(next.region || "");
-      setFilterCity(next.city || "");
+      setFilterRegions(next.regions ?? []);
+      setFilterCities(next.cities ?? []);
       setFilterClientType(next.clientType || "");
       setSortBy(
         next.sortBy === "updatedAt" ||
@@ -464,8 +468,8 @@ function ContactsPageContent() {
     setFilterHasEmail("");
     setFilterHasCallToday("");
     setFilterHasMissedCall("");
-    setFilterRegion("");
-    setFilterCity("");
+    setFilterRegions([]);
+    setFilterCities([]);
     setFilterClientType("");
     setSortBy("createdAt");
     setSortDir("desc");
@@ -481,8 +485,8 @@ function ContactsPageContent() {
     hasEmail: filterHasEmail,
     hasCallToday: filterHasCallToday,
     hasMissedCall: filterHasMissedCall,
-    region: filterRegion,
-    city: filterCity,
+    regions: filterRegions,
+    cities: filterCities,
     clientType: filterClientType,
     sortBy,
     sortDir,
@@ -499,15 +503,15 @@ function ContactsPageContent() {
             Boolean(filterHasEmail),
             Boolean(filterHasCallToday),
             Boolean(filterHasMissedCall),
-            Boolean(filterRegion.trim()),
-            Boolean(filterCity.trim()),
+            filterRegions.length > 0,
+            filterCities.length > 0,
             Boolean(filterClientType.trim()),
             sortBy !== "createdAt",
             sortDir !== "desc",
           ].filter(Boolean).length,
     [
       isPresetMode,
-      filterCity,
+      filterCities,
       filterClientType,
       filterCompanyId,
       filterHasEmail,
@@ -515,7 +519,7 @@ function ContactsPageContent() {
       filterHasPhone,
       filterHasMissedCall,
       filterOwnerId,
-      filterRegion,
+      filterRegions,
       sortBy,
       sortDir,
     ],
@@ -549,8 +553,8 @@ function ContactsPageContent() {
       setFilterHasEmail("");
       setFilterHasCallToday("");
       setFilterHasMissedCall("");
-      setFilterRegion("");
-      setFilterCity("");
+      setFilterRegions([]);
+      setFilterCities([]);
       setFilterClientType("");
       setSortBy("createdAt");
       setSortDir("desc");
@@ -740,30 +744,34 @@ function ContactsPageContent() {
                 Пропущенные: {filterHasMissedCall === "yes" ? "да" : "нет"} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterRegion.trim() ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterRegion("");
-                  setPage(1);
-                }}
-                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
-              >
-                Регион: {filterRegion} ✕
-              </button>
-            ) : null}
-            {!isPresetMode && filterCity.trim() ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterCity("");
-                  setPage(1);
-                }}
-                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
-              >
-                Город: {filterCity} ✕
-              </button>
-            ) : null}
+            {!isPresetMode &&
+              filterRegions.map((region) => (
+                <button
+                  key={region}
+                  type="button"
+                  onClick={() => {
+                    setFilterRegions((prev) => prev.filter((item) => item !== region));
+                    setPage(1);
+                  }}
+                  className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
+                >
+                  Область: {region} ✕
+                </button>
+              ))}
+            {!isPresetMode &&
+              filterCities.map((city) => (
+                <button
+                  key={city}
+                  type="button"
+                  onClick={() => {
+                    setFilterCities((prev) => prev.filter((item) => item !== city));
+                    setPage(1);
+                  }}
+                  className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
+                >
+                  Місто: {city} ✕
+                </button>
+              ))}
             {!isPresetMode && filterClientType.trim() ? (
               <button
                 type="button"

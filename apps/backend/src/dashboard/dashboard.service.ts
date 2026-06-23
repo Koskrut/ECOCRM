@@ -7,6 +7,9 @@ import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
 import { getBaseCurrency, paymentToBase } from "../common/currency.util";
 import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
+import { DayPlanService } from "../day-plan/day-plan.service";
+import { dayPlanStatusFromPercent } from "../day-plan/day-plan.scoring";
+import type { DayPlanStatus } from "../day-plan/day-plan.types";
 
 export type DashboardPeriod = "week" | "month";
 
@@ -56,6 +59,8 @@ export type DailyTeamActivityRow = {
   ordersCount: number;
   ordersAmount: number;
   paymentsAmount: number;
+  dayPlanPercent: number;
+  dayPlanStatus: DayPlanStatus;
 };
 
 export type DailyTeamActivityPayload = {
@@ -85,6 +90,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly dayPlan: DayPlanService,
   ) {}
 
   async getStats(period: DashboardPeriod, actor?: AuthUser): Promise<DashboardStats> {
@@ -316,8 +322,14 @@ export class DashboardService {
     }
 
     const baseCurrency = getBaseCurrency(rates);
+    const dayPlanPercents = await this.dayPlan.getOverallPercentsForUsers(
+      users.map((u) => u.id),
+      dateYmd,
+    );
+
     const rows: DailyTeamActivityRow[] = users.map((u) => {
       const r = byId.get(u.id)!;
+      const dayPlanPercent = dayPlanPercents.get(u.id) ?? 0;
       return {
         userId: r.userId,
         fullName: r.fullName,
@@ -327,6 +339,8 @@ export class DashboardService {
         ordersCount: r.ordersCount,
         ordersAmount: Math.round(r.ordersAmount * 100) / 100,
         paymentsAmount: Math.round(r.paymentsAmount * 100) / 100,
+        dayPlanPercent,
+        dayPlanStatus: dayPlanStatusFromPercent(dayPlanPercent),
       };
     });
 

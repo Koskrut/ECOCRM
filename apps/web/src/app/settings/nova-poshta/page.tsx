@@ -24,6 +24,7 @@ type NovaPoshtaSettings = {
   senderPhone?: string;
   defaultPayerType?: string;
   defaultPaymentMethod?: string;
+  declaredCostMode?: "minimum_200" | "order_total";
   apiKeyMasked?: string;
   senderCityLabel?: string;
   senderWarehouseLabel?: string;
@@ -190,6 +191,7 @@ export default function NovaPoshtaSettingsPage() {
         senderPhone: config.senderPhone?.trim() || undefined,
         defaultPayerType: config.defaultPayerType?.trim() || undefined,
         defaultPaymentMethod: config.defaultPaymentMethod?.trim() || undefined,
+        declaredCostMode: config.declaredCostMode ?? "minimum_200",
       };
       if (clearStoredApiKey) body.apiKey = "";
       else if (apiKeyInput.trim()) body.apiKey = apiKeyInput.trim();
@@ -479,6 +481,44 @@ export default function NovaPoshtaSettingsPage() {
                   <option value="NonCash">{t.paymentNonCash}</option>
                 </select>
               </div>
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-zinc-100 bg-zinc-50/80 p-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-800">{t.declaredCostTitle}</p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {(config.declaredCostMode ?? "minimum_200") === "order_total"
+                    ? t.declaredCostOrderHint
+                    : t.declaredCostMinHint}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={(config.declaredCostMode ?? "minimum_200") === "order_total"}
+                aria-label={t.declaredCostTitle}
+                onClick={() =>
+                  setConfig({
+                    ...config,
+                    declaredCostMode:
+                      (config.declaredCostMode ?? "minimum_200") === "order_total"
+                        ? "minimum_200"
+                        : "order_total",
+                  })
+                }
+                className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
+                  (config.declaredCostMode ?? "minimum_200") === "order_total"
+                    ? "border-emerald-500 bg-emerald-500"
+                    : "border-zinc-300 bg-zinc-100"
+                }`}
+              >
+                <span
+                  className={`ml-1 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    (config.declaredCostMode ?? "minimum_200") === "order_total"
+                      ? "translate-x-4"
+                      : ""
+                  }`}
+                />
+              </button>
             </div>
           </section>
 

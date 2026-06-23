@@ -12,6 +12,21 @@ import {
 
 type NpDeliveryType = "WAREHOUSE" | "POSTOMAT" | "ADDRESS";
 type NpRecipientType = "PERSON" | "COMPANY";
+type NpPayerType = "Recipient" | "Sender";
+type NpPaymentMethod = "Cash" | "NonCash";
+
+type NpTtnDefaults = {
+  payerType: NpPayerType;
+  paymentMethod: NpPaymentMethod;
+};
+
+function normalizeNpPayerType(value: string | null | undefined): NpPayerType {
+  return value === "Sender" ? "Sender" : "Recipient";
+}
+
+function normalizeNpPaymentMethod(value: string | null | undefined): NpPaymentMethod {
+  return value === "NonCash" ? "NonCash" : "Cash";
+}
 
 /**
  * UI view type (совмещаем с Prisma ContactShippingProfile)
@@ -118,7 +133,11 @@ export function TtnModal({
     recipientLabel?: string;
     shipmentId: string;
     mode: "EXISTING" | "NEW";
-    existingPayload?: { profileId: string; payerType: "Recipient" | "Sender" };
+    existingPayload?: {
+      profileId: string;
+      payerType: NpPayerType;
+      paymentMethod: NpPaymentMethod;
+    };
     newPayload?: Record<string, unknown>;
   } | null>(null);
   const duplicateChoiceRef = useRef<HTMLDivElement | null>(null);
@@ -161,11 +180,29 @@ export function TtnModal({
   const [building, setBuilding] = useState("");
   const [flat, setFlat] = useState("");
 
-  const [payerType, setPayerType] = useState<"Recipient" | "Sender">("Recipient");
+  const [payerType, setPayerType] = useState<NpPayerType>("Recipient");
+  const [paymentMethod, setPaymentMethod] = useState<NpPaymentMethod>("Cash");
 
   const canClose = !loading && !creating;
 
-  const resetNewForm = useCallback(() => {
+  const loadTtnDefaults = useCallback(async (): Promise<NpTtnDefaults> => {
+    try {
+      const res = await apiHttp.get<{ payerType?: string; paymentMethod?: string }>(
+        "/np/ttn/defaults",
+        {
+          headers: { "Cache-Control": "no-store" },
+        },
+      );
+      return {
+        payerType: normalizeNpPayerType(res.data?.payerType),
+        paymentMethod: normalizeNpPaymentMethod(res.data?.paymentMethod),
+      };
+    } catch {
+      return { payerType: "Recipient", paymentMethod: "Cash" };
+    }
+  }, []);
+
+  const resetNewForm = useCallback((defaults: Partial<NpTtnDefaults> = {}) => {
     setSaveToContact(true);
     setLabel("");
 
@@ -193,7 +230,8 @@ export function TtnModal({
     setStreetName("");
     setBuilding("");
     setFlat("");
-    setPayerType("Recipient");
+    setPayerType(defaults.payerType ?? "Recipient");
+    setPaymentMethod(defaults.paymentMethod ?? "Cash");
   }, []);
 
   const applyRecipientToForm = useCallback((recipient: Record<string, unknown>) => {
@@ -250,6 +288,8 @@ export function TtnModal({
     });
     const payer = String(ttn.payerType ?? "").trim();
     if (payer === "Sender" || payer === "Recipient") setPayerType(payer);
+    const pm = String(ttn.paymentMethod ?? "").trim();
+    if (pm === "Cash" || pm === "NonCash") setPaymentMethod(pm);
     if (ttn.recipient && typeof ttn.recipient === "object") {
       applyRecipientToForm(ttn.recipient);
       setMode("NEW");
@@ -355,9 +395,9 @@ export function TtnModal({
     setError(null);
     setTtnMeta(null);
     setDuplicateChoice(null);
-    resetNewForm();
 
     if (isEdit) {
+      resetNewForm();
       setLoading(true);
       void (async () => {
         try {
@@ -372,8 +412,12 @@ export function TtnModal({
       return;
     }
 
-    void loadProfiles();
-  }, [open, isEdit, loadProfiles, loadTtnDetails, resetNewForm]);
+    void (async () => {
+      const defaults = await loadTtnDefaults();
+      resetNewForm(defaults);
+      await loadProfiles();
+    })();
+  }, [open, isEdit, loadProfiles, loadTtnDetails, loadTtnDefaults, resetNewForm]);
 
   useEffect(() => {
     if (!open) return;
@@ -459,6 +503,7 @@ export function TtnModal({
     saveAsProfile: !!saveToContact,
     profileLabel: newFormValues.label?.trim() || undefined,
     payerType,
+    paymentMethod,
     draft: {
       recipientType: newFormValues.recipientType,
       deliveryType: newFormValues.deliveryType,
@@ -564,6 +609,7 @@ export function TtnModal({
         const res = await apiHttp.post(createPath, {
           profileId: selectedProfileId.trim(),
           payerType,
+          paymentMethod,
         });
         onCreated?.(res.data);
         onClose();
@@ -581,7 +627,11 @@ export function TtnModal({
             recipientLabel: String(duplicate.recipientLabel ?? ""),
             shipmentId: String(duplicate.shipmentId ?? ""),
             mode: "EXISTING",
-            existingPayload: { profileId: selectedProfileId.trim(), payerType },
+            existingPayload: {
+              profileId: selectedProfileId.trim(),
+              payerType,
+              paymentMethod,
+            },
           });
           return;
         }
@@ -833,33 +883,64 @@ export function TtnModal({
           </div>
           ) : null}
 
-          <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
-            <span className="text-sm font-medium text-zinc-700">Плательщик</span>
-            <div className="flex gap-4">
-              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-recipient">
-                <input
-                  id="np-payer-recipient"
-                  type="radio"
-                  name="npPayer"
-                  checked={payerType === "Recipient"}
-                  onChange={() => setPayerType("Recipient")}
-                  className="h-4 w-4 flex-shrink-0"
-                  disabled={readOnly || loading}
-                />
-                <span className="text-sm">Отримувач</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-sender">
-                <input
-                  id="np-payer-sender"
-                  type="radio"
-                  name="npPayer"
-                  checked={payerType === "Sender"}
-                  onChange={() => setPayerType("Sender")}
-                  className="h-4 w-4 flex-shrink-0"
-                  disabled={readOnly || loading}
-                />
-                <span className="text-sm">Відправник</span>
-              </label>
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <span className="text-sm font-medium text-zinc-700 shrink-0">Платник</span>
+              <div className="flex gap-4">
+                <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-recipient">
+                  <input
+                    id="np-payer-recipient"
+                    type="radio"
+                    name="npPayer"
+                    checked={payerType === "Recipient"}
+                    onChange={() => setPayerType("Recipient")}
+                    className="h-4 w-4 flex-shrink-0"
+                    disabled={readOnly || loading}
+                  />
+                  <span className="text-sm">Отримувач</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payer-sender">
+                  <input
+                    id="np-payer-sender"
+                    type="radio"
+                    name="npPayer"
+                    checked={payerType === "Sender"}
+                    onChange={() => setPayerType("Sender")}
+                    className="h-4 w-4 flex-shrink-0"
+                    disabled={readOnly || loading}
+                  />
+                  <span className="text-sm">Відправник</span>
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <span className="text-sm font-medium text-zinc-700 shrink-0">Спосіб оплати</span>
+              <div className="flex gap-4">
+                <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payment-cash">
+                  <input
+                    id="np-payment-cash"
+                    type="radio"
+                    name="npPayment"
+                    checked={paymentMethod === "Cash"}
+                    onChange={() => setPaymentMethod("Cash")}
+                    className="h-4 w-4 flex-shrink-0"
+                    disabled={readOnly || loading}
+                  />
+                  <span className="text-sm">Готівка</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2" htmlFor="np-payment-noncash">
+                  <input
+                    id="np-payment-noncash"
+                    type="radio"
+                    name="npPayment"
+                    checked={paymentMethod === "NonCash"}
+                    onChange={() => setPaymentMethod("NonCash")}
+                    className="h-4 w-4 flex-shrink-0"
+                    disabled={readOnly || loading}
+                  />
+                  <span className="text-sm">Безготівково</span>
+                </label>
+              </div>
             </div>
           </div>
 

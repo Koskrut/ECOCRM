@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Bar,
@@ -31,6 +31,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
+import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
+import { DayPlanPercentBadge, DayPlanWidget } from "@/components/day-plan/DayPlanWidget";
 import { DateTime } from "luxon";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { baseCurrencySymbol } from "@/lib/base-currency";
@@ -50,6 +52,8 @@ type DailyTeamActivityRow = {
   ordersCount: number;
   ordersAmount: number;
   paymentsAmount: number;
+  dayPlanPercent: number;
+  dayPlanStatus: "green" | "yellow" | "red";
 };
 
 type DailyTeamActivityPayload = {
@@ -171,6 +175,10 @@ export default function DashboardPage() {
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState<string | null>(null);
 
+  const [dayPlan, setDayPlan] = useState<DayPlanPayload | null>(null);
+  const [dayPlanLoading, setDayPlanLoading] = useState(true);
+  const [dayPlanError, setDayPlanError] = useState<string | null>(null);
+
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
@@ -241,6 +249,32 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadActivity();
   }, [loadActivity]);
+
+  const loadDayPlan = useCallback(async () => {
+    setDayPlanLoading(true);
+    setDayPlanError(null);
+    try {
+      const res = await dayPlanApi.get({ date: todayYmdInKyiv() });
+      setDayPlan(res);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDayPlanError(msg);
+      setDayPlan(null);
+    } finally {
+      setDayPlanLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDayPlan();
+  }, [loadDayPlan]);
+
+  const activityRowsSorted = useMemo(() => {
+    const rows = activity?.rows ?? [];
+    return [...rows].sort((a, b) => a.dayPlanPercent - b.dayPlanPercent);
+  }, [activity?.rows]);
+
+  const showTeamDayPlan = (activity?.rows?.length ?? 0) > 1;
 
   if (loading && !data) {
     return <PageLoading />;
@@ -347,6 +381,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <DayPlanWidget
+        plan={dayPlan}
+        loading={dayPlanLoading}
+        error={dayPlanError}
+        detailHref="/work/day-plan"
+      />
+
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
@@ -389,6 +430,7 @@ export default function DashboardPage() {
           День за календарною датою (Київ). Дзвінки за менеджером у записі дзвінка; візити —{" "}
           <span className="font-medium text-zinc-600">Visit</span>; замовлення та оплати ({activity?.currency ?? "USD"}) — за власником
           замовлення.
+          {showTeamDayPlan ? " Сортування за % плану дня (найнижчі зверху)." : ""}
         </p>
         {activityLoading ? (
           <p className="text-sm text-zinc-500">Завантаження…</p>
@@ -398,10 +440,13 @@ export default function DashboardPage() {
           <p className="text-sm text-zinc-500">Немає рядків (немає доступних користувачів).</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
+            <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
                   <th className="py-2 pr-3">Менеджер</th>
+                  {showTeamDayPlan ? (
+                    <th className="py-2 pr-2">% плану</th>
+                  ) : null}
                   <th className="py-2 pr-2">
                     <span className="inline-flex items-center gap-1">
                       <Phone className="h-3.5 w-3.5" /> Вхідні
@@ -419,9 +464,28 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {activity.rows.map((row) => (
+                {activityRowsSorted.map((row) => (
                   <tr key={row.userId} className="border-b border-zinc-100 last:border-0">
-                    <td className="py-2 pr-3 font-medium text-zinc-900">{row.fullName}</td>
+                    <td className="py-2 pr-3 font-medium text-zinc-900">
+                      {showTeamDayPlan ? (
+                        <Link
+                          href={`/work/day-plan?date=${encodeURIComponent(activityDate)}&userId=${encodeURIComponent(row.userId)}`}
+                          className="hover:text-sky-700 hover:underline"
+                        >
+                          {row.fullName}
+                        </Link>
+                      ) : (
+                        row.fullName
+                      )}
+                    </td>
+                    {showTeamDayPlan ? (
+                      <td className="py-2 pr-2">
+                        <DayPlanPercentBadge
+                          percent={row.dayPlanPercent ?? 0}
+                          status={row.dayPlanStatus ?? "red"}
+                        />
+                      </td>
+                    ) : null}
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.callsInbound}</td>
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.callsOutbound}</td>
                     <td className="py-2 pr-2 tabular-nums text-zinc-800">{row.visits}</td>

@@ -4,6 +4,7 @@ import {
   computeOrderExchangeRate,
   getBaseCurrency,
   normalizeBaseCurrency,
+  orderAmountToUah,
   paymentToBase,
   toBaseCurrency,
   toUsd,
@@ -13,6 +14,7 @@ import type { ExchangeRates } from "../../settings/settings.service";
 
 const rates: ExchangeRates = {
   UAH_TO_USD: 0.024,
+  UAH_TO_EUR: 0.024 / 1.05,
   EUR_TO_USD: 1.05,
   baseCurrency: "USD",
 };
@@ -52,6 +54,11 @@ test("computeOrderExchangeRate", () => {
   assert.equal(computeOrderExchangeRate("USD", rates), uahPerUsd);
   assert.equal(computeOrderExchangeRate("EUR", rates), uahPerUsd * 1.05);
   assert.equal(computeOrderExchangeRate("UAH", rates), null);
+});
+
+test("orderAmountToUah", () => {
+  assert.equal(orderAmountToUah(200, "UAH", rates), 200);
+  assert.equal(orderAmountToUah(10, "USD", rates), Math.round(10 * (1 / 0.024) * 100) / 100);
 });
 
 test("usdToBase", () => {

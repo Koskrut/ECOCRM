@@ -29,6 +29,12 @@ function parseNullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parseQueryList(value?: string | string[]): string[] {
+  if (!value) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return [...new Set(raw.map((v) => v.trim()).filter(Boolean))];
+}
+
 @Controller("contacts")
 export class ContactsController {
   constructor(
@@ -80,8 +86,8 @@ export class ContactsController {
     @Query("hasEmail") hasEmail?: string,
     @Query("hasCallToday") hasCallToday?: string,
     @Query("hasMissedCall") hasMissedCall?: string,
-    @Query("region") region?: string,
-    @Query("city") city?: string,
+    @Query("region") region?: string | string[],
+    @Query("city") city?: string | string[],
     @Query("clientType") clientType?: string,
     @Query("status") status?: string,
     @Query("sortBy") sortBy?: string,
@@ -98,8 +104,8 @@ export class ContactsController {
         hasEmail: hasEmail === "yes" ? true : hasEmail === "no" ? false : undefined,
         hasCallToday: hasCallToday === "yes" ? true : hasCallToday === "no" ? false : undefined,
         hasMissedCall: hasMissedCall === "yes" ? true : hasMissedCall === "no" ? false : undefined,
-        region: region?.trim() || undefined,
-        city: city?.trim() || undefined,
+        regions: parseQueryList(region),
+        cities: parseQueryList(city),
         clientType: clientType?.trim() || undefined,
         status: status?.trim() || undefined,
         sortBy: sortBy?.trim() || undefined,

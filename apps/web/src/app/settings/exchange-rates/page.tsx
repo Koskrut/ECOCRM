@@ -11,6 +11,7 @@ type BaseCurrency = "USD" | "EUR";
 
 type ExchangeRates = {
   UAH_TO_USD: number;
+  UAH_TO_EUR?: number;
   EUR_TO_USD: number;
   baseCurrency?: BaseCurrency;
 };
@@ -29,9 +30,10 @@ export default function ExchangeRatesSettingsPage() {
     setError(null);
     try {
       const res = await apiHttp.get<ExchangeRates>("/settings/exchange-rates");
-      const data = res.data ?? { UAH_TO_USD: 0.024, EUR_TO_USD: 1.05, baseCurrency: "USD" };
+      const data = res.data ?? { UAH_TO_USD: 0.024, UAH_TO_EUR: 0.024 / 1.05, EUR_TO_USD: 1.05, baseCurrency: "USD" };
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : "41.5");
-      setEurInput(data.EUR_TO_USD.toString());
+      const uahToEur = data.UAH_TO_EUR ?? (data.UAH_TO_USD > 0 && data.EUR_TO_USD > 0 ? data.UAH_TO_USD / data.EUR_TO_USD : 0);
+      setEurInput(uahToEur > 0 ? (1 / uahToEur).toString() : "43.5");
       setBaseCurrency(data.baseCurrency === "EUR" ? "EUR" : "USD");
     } catch (e) {
       setError(getUserFriendlyApiError(e, t.loadError));
@@ -46,8 +48,8 @@ export default function ExchangeRatesSettingsPage() {
 
   async function save() {
     const uahPerUsd = parseFloat(uahInput.replace(/,/g, "."));
-    const eur = parseFloat(eurInput.replace(/,/g, "."));
-    if (!Number.isFinite(uahPerUsd) || uahPerUsd <= 0 || !Number.isFinite(eur) || eur <= 0) {
+    const uahPerEur = parseFloat(eurInput.replace(/,/g, "."));
+    if (!Number.isFinite(uahPerUsd) || uahPerUsd <= 0 || !Number.isFinite(uahPerEur) || uahPerEur <= 0) {
       setError(t.invalidRates);
       return;
     }
@@ -56,12 +58,13 @@ export default function ExchangeRatesSettingsPage() {
     try {
       const res = await apiHttp.patch<ExchangeRates>("/settings/exchange-rates", {
         UAH_TO_USD: 1 / uahPerUsd,
-        EUR_TO_USD: eur,
+        UAH_TO_EUR: 1 / uahPerEur,
         baseCurrency,
       });
-      const data = res.data ?? { UAH_TO_USD: 1 / uahPerUsd, EUR_TO_USD: eur, baseCurrency };
+      const data = res.data ?? { UAH_TO_USD: 1 / uahPerUsd, UAH_TO_EUR: 1 / uahPerEur, baseCurrency };
       setUahInput(data.UAH_TO_USD > 0 ? (1 / data.UAH_TO_USD).toString() : uahInput);
-      setEurInput(data.EUR_TO_USD.toString());
+      const savedUahToEur = data.UAH_TO_EUR ?? (data.UAH_TO_USD > 0 && data.EUR_TO_USD > 0 ? data.UAH_TO_USD / data.EUR_TO_USD : 0);
+      setEurInput(savedUahToEur > 0 ? (1 / savedUahToEur).toString() : eurInput);
       setBaseCurrency(data.baseCurrency === "EUR" ? "EUR" : "USD");
     } catch (e) {
       setError(getUserFriendlyApiError(e, t.saveError));
@@ -109,13 +112,13 @@ export default function ExchangeRatesSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700">{t.eurPerUsd}</label>
+              <label className="block text-sm font-medium text-zinc-700">{t.uahPerEur}</label>
               <input
                 type="text"
                 inputMode="decimal"
                 value={eurInput}
                 onChange={(e) => setEurInput(e.target.value)}
-                placeholder="1.05"
+                placeholder="43.5"
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>

@@ -20,6 +20,8 @@ export type BaseCurrency = "USD" | "EUR";
 
 export type ExchangeRates = {
   UAH_TO_USD: number;
+  /** EUR per 1 UAH (same convention as UAH_TO_USD). */
+  UAH_TO_EUR?: number;
   EUR_TO_USD: number;
   baseCurrency?: BaseCurrency;
 };
@@ -31,9 +33,35 @@ export type CurrencyConfig = {
 const EXCHANGE_RATES_KEY = "exchange_rates";
 const DEFAULT_RATES: ExchangeRates = {
   UAH_TO_USD: 0.024,
+  UAH_TO_EUR: 0.024 / 1.05,
   EUR_TO_USD: 1.05,
   baseCurrency: "USD",
 };
+
+function normalizeExchangeRates(v: Record<string, unknown>): ExchangeRates {
+  const UAH_TO_USD =
+    typeof v.UAH_TO_USD === "number" ? v.UAH_TO_USD : DEFAULT_RATES.UAH_TO_USD;
+  let UAH_TO_EUR = typeof v.UAH_TO_EUR === "number" ? v.UAH_TO_EUR : undefined;
+  let EUR_TO_USD =
+    typeof v.EUR_TO_USD === "number" ? v.EUR_TO_USD : DEFAULT_RATES.EUR_TO_USD;
+
+  if (UAH_TO_EUR == null && UAH_TO_USD > 0 && EUR_TO_USD > 0) {
+    UAH_TO_EUR = UAH_TO_USD / EUR_TO_USD;
+  }
+  if (UAH_TO_EUR == null) {
+    UAH_TO_EUR = DEFAULT_RATES.UAH_TO_EUR ?? UAH_TO_USD / EUR_TO_USD;
+  }
+  if (UAH_TO_USD > 0 && UAH_TO_EUR > 0) {
+    EUR_TO_USD = UAH_TO_USD / UAH_TO_EUR;
+  }
+
+  return {
+    UAH_TO_USD,
+    UAH_TO_EUR,
+    EUR_TO_USD,
+    baseCurrency: normalizeBaseCurrency(v.baseCurrency),
+  };
+}
 
 export type MetaLeadAdsConfig = {
   webhookVerifyToken?: string;
@@ -314,6 +342,8 @@ export type OutboundVoiceIntegrationConfig = {
   catalogDefaults?: Record<string, unknown>;
 };
 
+export type NovaPoshtaDeclaredCostMode = "minimum_200" | "order_total";
+
 /** Persisted in `IntegrationSetting` (provider {@link NOVA_POSHTA_INTEGRATION_PROVIDER}); secrets in `apiToken`. */
 export type NovaPoshtaIntegrationConfig = {
   /** API v2 JSON endpoint (optional; default NP public API). */
@@ -326,6 +356,8 @@ export type NovaPoshtaIntegrationConfig = {
   senderPhone?: string;
   defaultPayerType?: string;
   defaultPaymentMethod?: string;
+  /** Declared value (Cost) on TTN when not overridden: fixed 200 UAH or order total in UAH. */
+  declaredCostMode?: NovaPoshtaDeclaredCostMode;
 };
 
 function maskToken(value: string | undefined): string {
@@ -371,12 +403,7 @@ export class SettingsService {
     if (!row || !row.value || typeof row.value !== "object") {
       return { ...DEFAULT_RATES };
     }
-    const v = row.value as Record<string, unknown>;
-    return {
-      UAH_TO_USD: typeof v.UAH_TO_USD === "number" ? v.UAH_TO_USD : DEFAULT_RATES.UAH_TO_USD,
-      EUR_TO_USD: typeof v.EUR_TO_USD === "number" ? v.EUR_TO_USD : DEFAULT_RATES.EUR_TO_USD,
-      baseCurrency: normalizeBaseCurrency(v.baseCurrency),
-    };
+    return normalizeExchangeRates(row.value as Record<string, unknown>);
   }
 
   async getCurrencyConfig(): Promise<CurrencyConfig> {
@@ -386,14 +413,16 @@ export class SettingsService {
 
   async setExchangeRates(rates: Partial<ExchangeRates>): Promise<ExchangeRates> {
     const current = await this.getExchangeRates();
-    const next: ExchangeRates = {
+    const merged: Record<string, unknown> = {
       UAH_TO_USD: typeof rates.UAH_TO_USD === "number" ? rates.UAH_TO_USD : current.UAH_TO_USD,
+      UAH_TO_EUR: typeof rates.UAH_TO_EUR === "number" ? rates.UAH_TO_EUR : current.UAH_TO_EUR,
       EUR_TO_USD: typeof rates.EUR_TO_USD === "number" ? rates.EUR_TO_USD : current.EUR_TO_USD,
       baseCurrency:
         rates.baseCurrency === "USD" || rates.baseCurrency === "EUR"
           ? rates.baseCurrency
           : current.baseCurrency ?? "USD",
     };
+    const next = normalizeExchangeRates(merged);
     await this.prisma.systemSetting.upsert({
       where: { id: EXCHANGE_RATES_KEY },
       create: { id: EXCHANGE_RATES_KEY, value: next },
@@ -1190,6 +1219,10 @@ export class SettingsService {
       senderPhone: typeof cfg.senderPhone === "string" ? cfg.senderPhone : undefined,
       defaultPayerType: typeof cfg.defaultPayerType === "string" ? cfg.defaultPayerType : undefined,
       defaultPaymentMethod: typeof cfg.defaultPaymentMethod === "string" ? cfg.defaultPaymentMethod : undefined,
+      declaredCostMode:
+        cfg.declaredCostMode === "order_total" || cfg.declaredCostMode === "minimum_200"
+          ? cfg.declaredCostMode
+          : undefined,
       apiKeyMasked: maskToken(row?.apiToken ?? undefined),
       senderCityLabel,
       senderWarehouseLabel,
@@ -1271,6 +1304,15 @@ export class SettingsService {
           ? String(body.defaultPaymentMethod).trim() || undefined
           : typeof currentConfig.defaultPaymentMethod === "string"
             ? currentConfig.defaultPaymentMethod
+            : undefined,
+      declaredCostMode:
+        body.declaredCostMode !== undefined
+          ? body.declaredCostMode === "order_total" || body.declaredCostMode === "minimum_200"
+            ? body.declaredCostMode
+            : undefined
+          : currentConfig.declaredCostMode === "order_total" ||
+              currentConfig.declaredCostMode === "minimum_200"
+            ? currentConfig.declaredCostMode
             : undefined,
     };
 
@@ -1367,6 +1409,14 @@ export class SettingsService {
         ? cfg.defaultPaymentMethod.trim()
         : String(process.env.NP_DEFAULT_PAYMENT_METHOD ?? "").trim()) || "Cash";
     return { payerType, paymentMethod };
+  }
+
+  async resolveNovaPoshtaDeclaredCostMode(): Promise<NovaPoshtaDeclaredCostMode> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    return cfg.declaredCostMode === "order_total" ? "order_total" : "minimum_200";
   }
 
   async getOutboundVoiceIntegrationConfig(): Promise<
