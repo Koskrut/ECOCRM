@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil, Phone, Trash2 } from "lucide-react";
+import { CallRecordingPlayer } from "@/components/calls/CallRecordingPlayer";
 import { formatDateTime } from "@/lib/crmDatetime";
 
 type CallMeta = {
@@ -75,15 +76,6 @@ function statusLabel(
   return { label: s, variant: "other" };
 }
 
-function recordingLabel(status?: string): string {
-  const s = (status ?? "").toUpperCase();
-  if (s === "READY") return "Готова";
-  if (s === "PENDING") return "Обрабатывается";
-  if (s === "FAILED") return "Ошибка";
-  if (!s) return "Нет записи";
-  return s;
-}
-
 export function CallCard({
   item,
   isExpanded = false,
@@ -102,8 +94,6 @@ export function CallCard({
   const talkText = formatDuration(call.talkSec);
   const waitText = formatDuration(call.waitingSec);
   const occurredAt = formatDateTime(item.occurredAt);
-  const canPlay =
-    !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
 
   const rawFrom = (call.from ?? "").trim();
   const rawTo = (call.to ?? "").trim();
@@ -121,17 +111,24 @@ export function CallCard({
   const hasRecording =
     !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
 
+  const recordingSubtitle = [
+    showSingleNumber ? fromLabel || toLabel : [fromLabel, toLabel].filter(Boolean).join(" → "),
+    occurredAt,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
         <div className="flex shrink-0 items-center pt-0.5">
           <Phone className="h-5 w-5 text-emerald-600" aria-hidden />
         </div>
         <div
           className={
             canExpand
-              ? "min-w-0 flex-1 space-y-1 cursor-pointer hover:bg-zinc-100/80 rounded focus:outline-none focus:ring-2 focus:ring-zinc-300 -m-1 p-1"
-              : "min-w-0 flex-1 space-y-1"
+              ? "min-w-0 flex-1 space-y-2 cursor-pointer hover:bg-zinc-100/80 rounded focus:outline-none focus:ring-2 focus:ring-zinc-300 -m-1 p-1"
+              : "min-w-0 flex-1 space-y-2"
           }
           role={canExpand ? "button" : undefined}
           tabIndex={canExpand ? 0 : undefined}
@@ -274,32 +271,24 @@ export function CallCard({
           )}
 
           {!showDeleteConfirm && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            <span>{occurredAt}</span>
-            <span>·</span>
-            <span>by {item.createdByName ?? item.createdBy}</span>
-          </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <span>{occurredAt}</span>
+              <span>·</span>
+              <span>by {item.createdByName ?? item.createdBy}</span>
+            </div>
           )}
-        </div>
 
-        <div className="flex w-40 flex-col items-end gap-2">
-          <span className="text-xs text-zinc-500">
-            Запись: {recordingLabel(call.recordingStatus)}
-          </span>
-          {canPlay ? (
-            <audio
-              controls
-              className="w-full rounded-md border border-zinc-200 bg-white"
-              src={call.recordingUrl}
-            />
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="w-full cursor-not-allowed rounded-md border border-dashed border-zinc-300 px-2 py-1 text-xs text-zinc-500"
-            >
-              Нет доступной записи
-            </button>
+          {!showDeleteConfirm && (
+            <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+              <CallRecordingPlayer
+                url={call.recordingUrl}
+                status={call.recordingStatus}
+                durationSec={call.talkSec ?? call.durationSec}
+                sessionId={item.id}
+                title={item.title || "Звонок"}
+                subtitle={recordingSubtitle}
+              />
+            </div>
           )}
         </div>
       </div>

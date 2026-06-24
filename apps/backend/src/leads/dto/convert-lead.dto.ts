@@ -85,6 +85,11 @@ export class ConvertLeadCreateCompanyDto {
 }
 
 export class ConvertLeadDto {
+  /** Link an existing CRM company (client) for contact and order. */
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
   /** When set, create a new company first and use it for contact and order. */
   @IsOptional()
   @ValidateNested()

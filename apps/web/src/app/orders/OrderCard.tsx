@@ -83,6 +83,7 @@ export function OrderCard({
                 <CheckCircle2 className="h-4 w-4" />
               </span>
             )}
+            <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
           </div>
           <div className="mt-0.5 text-xs text-zinc-500">{formatRelativeTime(order.createdAt)}</div>
         </div>
@@ -90,7 +91,6 @@ export function OrderCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StatusBadge variant="order" status={order.status} orderStage={order.orderStage} />
-        <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
         {order.orderStage === "RECEIVED" && (order.debtAmount ?? 0) > 0 && (
           <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
             Неоплачено

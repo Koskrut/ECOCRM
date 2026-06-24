@@ -12,6 +12,7 @@ import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestio
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay, formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import { leadsApi, type Lead, LeadItem, LeadStatus, LeadSource } from "@/lib/api";
+import { companiesApi } from "@/lib/api/resources/companies";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
@@ -53,6 +54,24 @@ type ContactSuggestion = {
   phone: string;
   email?: string | null;
 };
+
+type ContactSearchHit = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email?: string | null;
+  companyId?: string | null;
+  company?: { name?: string | null } | null;
+};
+
+function formatConvertContactLabel(c: ContactSearchHit): string {
+  const name = [c.lastName, c.firstName].filter(Boolean).join(" ").trim() || "—";
+  const parts = [formatPhoneDisplay(c.phone), c.email?.trim() || null, c.company?.name?.trim() || null].filter(
+    Boolean,
+  );
+  return parts.length > 0 ? `${name} • ${parts.join(" • ")}` : name;
+}
 
 type LeadPipelineUiStepKey = "NEW" | "IN_PROGRESS" | "PROCESSED";
 
@@ -166,6 +185,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [queueingDialer, setQueueingDialer] = useState(false);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
+  const [contactSearchHits, setContactSearchHits] = useState<ContactSearchHit[]>([]);
+  const [loadingContactSearch, setLoadingContactSearch] = useState(false);
+
+  const [companyMode, setCompanyMode] = useState<"link" | "create">("link");
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [companyOptions, setCompanyOptions] = useState<Option[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
 
   const [createContact, setCreateContact] = useState(false);
   const [newContactFirstName, setNewContactFirstName] = useState("");
@@ -457,6 +483,95 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     }
   }, [leadId]);
 
+  const searchCompanies = useCallback(async (query: string) => {
+    setLoadingCompanies(true);
+    try {
+      const res = await companiesApi.list({
+        search: query.trim() || undefined,
+        page: 1,
+        pageSize: 15,
+      });
+      setCompanyOptions(
+        (res.items ?? []).map((c) => ({
+          id: c.id,
+          label: c.name,
+        })),
+      );
+    } catch {
+      setCompanyOptions([]);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, []);
+
+  const searchContacts = useCallback(
+    async (query: string, companyId: string | null) => {
+      setLoadingContactSearch(true);
+      try {
+        const params = new URLSearchParams();
+        if (query.trim()) params.set("q", query.trim());
+        if (companyId) params.set("companyId", companyId);
+        params.set("page", "1");
+        params.set("pageSize", "15");
+        const r = await apiHttp.get<{ items?: ContactSearchHit[] }>(`/contacts?${params}`);
+        const items = Array.isArray(r.data?.items) ? r.data.items : [];
+        setContactSearchHits(items);
+      } catch {
+        setContactSearchHits([]);
+      } finally {
+        setLoadingContactSearch(false);
+      }
+    },
+    [],
+  );
+
+  const onCompanySearchQueryChange = useCallback(
+    (q: string) => {
+      void searchCompanies(q);
+    },
+    [searchCompanies],
+  );
+
+  const onContactSearchQueryChange = useCallback(
+    (q: string) => {
+      void searchContacts(q, selectedCompanyId);
+    },
+    [searchContacts, selectedCompanyId],
+  );
+
+  const contactSearchOptions = useMemo(() => {
+    const fromSearch = contactSearchHits.map((c) => ({
+      id: c.id,
+      label: formatConvertContactLabel(c),
+    }));
+    if (selectedContactId && !fromSearch.some((o) => o.id === selectedContactId)) {
+      const fromSuggestion = suggestions.find((c) => c.id === selectedContactId);
+      if (fromSuggestion) {
+        return [
+          {
+            id: fromSuggestion.id,
+            label: formatConvertContactLabel(fromSuggestion),
+          },
+          ...fromSearch,
+        ];
+      }
+    }
+    return fromSearch;
+  }, [contactSearchHits, selectedContactId, suggestions]);
+
+  const selectExistingContact = useCallback(
+    (contactId: string, hit?: ContactSearchHit | ContactSuggestion) => {
+      setSelectedContactId(contactId);
+      setCreateContact(false);
+      const companyId =
+        hit && "companyId" in hit ? hit.companyId ?? null : null;
+      if (companyId) {
+        setSelectedCompanyId(companyId);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     void loadLead();
   }, [loadLead]);
@@ -677,9 +792,15 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
   const handleConvert = async () => {
     if (!lead) return;
-    if (convertPreset === "company_contact_deal" && !newCompanyName.trim()) {
-      setConvertError("Введіть назву компанії");
-      return;
+    if (convertPreset === "company_contact_deal") {
+      if (companyMode === "link" && !selectedCompanyId) {
+        setConvertError("Оберіть компанію або увімкніть створення");
+        return;
+      }
+      if (companyMode === "create" && !newCompanyName.trim()) {
+        setConvertError("Введіть назву компанії");
+        return;
+      }
     }
     const hasSelectedContact = !!selectedContactId;
     const mode = hasSelectedContact || !createContact ? "link" : "create";
@@ -706,8 +827,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         createDeal,
       };
 
-      if (convertPreset === "company_contact_deal" && newCompanyName.trim()) {
-        payload.createCompany = { name: newCompanyName.trim() };
+      if (convertPreset === "company_contact_deal") {
+        if (companyMode === "link" && selectedCompanyId) {
+          payload.companyId = selectedCompanyId;
+        } else if (companyMode === "create" && newCompanyName.trim()) {
+          payload.createCompany = { name: newCompanyName.trim() };
+        }
+      } else if (selectedCompanyId) {
+        payload.companyId = selectedCompanyId;
       }
 
       if (mode === "link") {
@@ -811,24 +938,32 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     setNewContactEmail(lead?.email ?? "");
     setNewContactCompanyName(lead?.companyName ?? "");
     setDealTitle(title);
+    setSelectedContactId(null);
+    setContactSearchHits([]);
+    setSelectedCompanyId(null);
+    setCompanyOptions([]);
     if (preset === "company_contact_deal") {
+      setCompanyMode("link");
       setCreateContact(true);
       setCreateDeal(true);
-      setSelectedContactId(null);
       setNewCompanyName(lead?.companyName ?? "");
     } else if (preset === "contact_deal") {
+      setCompanyMode("link");
       setCreateContact(false);
       setCreateDeal(true);
-      setSelectedContactId(null);
       setNewCompanyName("");
     } else if (preset === "contact") {
+      setCompanyMode("link");
       setCreateContact(false);
       setCreateDeal(false);
-      setSelectedContactId(null);
+      setNewCompanyName("");
+    } else {
+      setCompanyMode("link");
       setNewCompanyName("");
     }
     setShowConvertWizard(true);
     setCreatedOrderId(null);
+    setConvertError(null);
     void loadSuggestions();
   };
 
@@ -1502,16 +1637,66 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               {convertPreset === "company_contact_deal" && (
                 <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                   <div className="font-medium text-zinc-900">Крок 1. Компанія</div>
-                  <p className="mt-1 text-xs text-zinc-500">Спочатку створіть компанію; контакт і замовлення будуть привʼязані до неї.</p>
-                  <div className="mt-3">
-                    <label className="block text-xs font-medium text-zinc-600">Назва компанії</label>
-                    <input
-                      className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm outline-none focus:border-zinc-400"
-                      placeholder="Назва компанії"
-                      value={newCompanyName}
-                      onChange={(e) => setNewCompanyName(e.target.value)}
-                    />
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Оберіть існуючу компанію або створіть нову; контакт і замовлення будуть привʼязані до неї.
+                  </p>
+                  <div className="mt-3 flex gap-3 text-xs">
+                    <label className="flex items-center gap-1.5 text-zinc-700">
+                      <input
+                        type="radio"
+                        name="companyMode"
+                        checked={companyMode === "link"}
+                        onChange={() => {
+                          setCompanyMode("link");
+                          setNewCompanyName("");
+                        }}
+                      />
+                      Обрати існуючу
+                    </label>
+                    <label className="flex items-center gap-1.5 text-zinc-700">
+                      <input
+                        type="radio"
+                        name="companyMode"
+                        checked={companyMode === "create"}
+                        onChange={() => {
+                          setCompanyMode("create");
+                          setSelectedCompanyId(null);
+                          setCompanyOptions([]);
+                        }}
+                      />
+                      Створити нову
+                    </label>
                   </div>
+                  {companyMode === "link" ? (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-zinc-600">Компанія</label>
+                      <div className="mt-1">
+                        <SearchableSelectLite
+                          value={selectedCompanyId}
+                          options={companyOptions}
+                          placeholder="Пошук компанії…"
+                          disabled={converting}
+                          isLoading={loadingCompanies}
+                          onSearchQueryChange={onCompanySearchQueryChange}
+                          onChange={(id) => {
+                            setSelectedCompanyId(id);
+                            setSelectedContactId(null);
+                            setContactSearchHits([]);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-zinc-600">Назва компанії</label>
+                      <input
+                        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm outline-none focus:border-zinc-400"
+                        placeholder="Назва компанії"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
@@ -1533,7 +1718,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     <div className="text-xs text-zinc-500">Пошук контактів…</div>
                   ) : suggestions.length === 0 ? (
                     <div className="text-xs text-zinc-500">
-                      Контакти за телефоном/email не знайдено — можна створити новий.
+                      Автоматичних збігів немає — знайдіть контакт вручну або створіть новий.
                     </div>
                   ) : (
                     <>
@@ -1546,8 +1731,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                               key={c.id}
                               type="button"
                               onClick={() => {
-                                setSelectedContactId(c.id);
-                                setCreateContact(false);
+                                selectExistingContact(c.id, c);
                               }}
                               className={`w-full rounded-md border px-3 py-2 text-left text-xs ${
                                 active
@@ -1569,6 +1753,28 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   )}
                 </div>
 
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-zinc-600">Знайти контакт</label>
+                  <div className="mt-1">
+                    <SearchableSelectLite
+                      value={selectedContactId}
+                      options={contactSearchOptions}
+                      placeholder="Пошук за імʼям, телефоном, email…"
+                      disabled={converting || (createContact && convertPreset !== "company_contact_deal")}
+                      isLoading={loadingContactSearch}
+                      onSearchQueryChange={onContactSearchQueryChange}
+                      onChange={(id) => {
+                        if (!id) {
+                          setSelectedContactId(null);
+                          return;
+                        }
+                        const hit = contactSearchHits.find((c) => c.id === id);
+                        selectExistingContact(id, hit);
+                      }}
+                    />
+                  </div>
+                </div>
+
                 {convertPreset !== "company_contact_deal" && (
                   <div className="mt-3 flex items-center gap-2">
                     <input
@@ -1577,7 +1783,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       checked={createContact}
                       onChange={(e) => {
                         setCreateContact(e.target.checked);
-                        if (e.target.checked) setSelectedContactId(null);
+                        if (e.target.checked) {
+                          setSelectedContactId(null);
+                          setContactSearchHits([]);
+                        }
                       }}
                     />
                     <label htmlFor="createContact" className="text-xs text-zinc-700">
@@ -1586,7 +1795,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   </div>
                 )}
 
-                {(createContact || convertPreset === "company_contact_deal") && (
+                {(createContact || convertPreset === "company_contact_deal") && !selectedContactId && (
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">

@@ -16,6 +16,6 @@ import { ContactsWorkQueueService } from "./contacts-work-queue.service";
     ContactsPriorityService,
     ContactsWorkQueueService,
   ],
-  exports: [ContactsService],
+  exports: [ContactsService, ContactsWorkQueueService],
 })
 export class ContactsModule {}

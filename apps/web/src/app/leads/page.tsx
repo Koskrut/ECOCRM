@@ -9,13 +9,14 @@ import {
   type LeadsResponse,
   type LeadStatus,
   type LeadSource,
+  type LeadChannel,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
-import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopover";
+import { LeadsFiltersPopover, DEFAULT_LEADS_FILTERS, isActiveFilterState, type LeadsFiltersState } from "./LeadsFiltersPopover";
 import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
@@ -30,24 +31,32 @@ function leadPrimaryLabel(lead: Lead): string {
 }
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "All statuses" },
-  { value: "NEW", label: "New" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "WON", label: "Won" },
-  { value: "NOT_TARGET", label: "Not target" },
-  { value: "LOST", label: "Lost" },
-  { value: "SPAM", label: "Spam" },
+  { value: "", label: "Активні" },
+  { value: "NEW", label: "Нові" },
+  { value: "IN_PROGRESS", label: "В роботі" },
+  { value: "WON", label: "Успішні" },
+  { value: "NOT_TARGET", label: "Нецільові" },
+  { value: "LOST", label: "Програні" },
+  { value: "SPAM", label: "Спам" },
 ];
 
 const SOURCE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "All sources" },
+  { value: "", label: "Усі джерела" },
   { value: "META", label: "Meta" },
   { value: "FACEBOOK", label: "Facebook" },
   { value: "TELEGRAM", label: "Telegram" },
   { value: "INSTAGRAM", label: "Instagram" },
   { value: "WEBSITE", label: "Website" },
   { value: "RINGOSTAT", label: "Ringostat" },
-  { value: "OTHER", label: "Other" },
+  { value: "OTHER", label: "Інше" },
+];
+
+const CHANNEL_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "Усі канали" },
+  { value: "FB_LEAD_ADS", label: "FB Lead Ads" },
+  { value: "IG_LEAD_ADS", label: "IG Lead Ads" },
+  { value: "FB_DM", label: "FB DM" },
+  { value: "IG_DM", label: "IG DM" },
 ];
 
 function LeadsPageContent() {
@@ -72,9 +81,20 @@ function LeadsPageContent() {
 
   const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
   const [source, setSource] = useState(() => searchParams.get("source") ?? "");
+  const [channel, setChannel] = useState(() => searchParams.get("channel") ?? "");
+  const [ownerId, setOwnerId] = useState(() => searchParams.get("ownerId") ?? "");
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get("dateFrom") ?? "");
+  const [dateTo, setDateTo] = useState(() => searchParams.get("dateTo") ?? "");
+  const [sortBy, setSortBy] = useState(
+    () => searchParams.get("sortBy") ?? DEFAULT_LEADS_FILTERS.sortBy,
+  );
+  const [sortOrder, setSortOrder] = useState(
+    () => searchParams.get("sortOrder") ?? DEFAULT_LEADS_FILTERS.sortOrder,
+  );
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [ownerOptions, setOwnerOptions] = useState<Array<{ id: string; fullName: string }>>([]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
   const { extraColumns, customValues, loadValuesFor } = useListColumns("LEAD");
@@ -90,6 +110,12 @@ function LeadsPageContent() {
     if (page > 1) params.set("page", String(page));
     if (status) params.set("status", status);
     if (source) params.set("source", source);
+    if (channel) params.set("channel", channel);
+    if (ownerId) params.set("ownerId", ownerId);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+    if (sortBy && sortBy !== DEFAULT_LEADS_FILTERS.sortBy) params.set("sortBy", sortBy);
+    if (sortOrder && sortOrder !== DEFAULT_LEADS_FILTERS.sortOrder) params.set("sortOrder", sortOrder);
     if (q) params.set("q", q);
 
     const next = params.toString();
@@ -97,7 +123,7 @@ function LeadsPageContent() {
     if (next !== current) {
       router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
     }
-  }, [leadId, page, pathname, q, router, searchParams, source, status]);
+  }, [channel, dateFrom, dateTo, leadId, ownerId, page, pathname, q, router, searchParams, sortBy, sortOrder, source, status]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -123,6 +149,12 @@ function LeadsPageContent() {
         };
         if (status) params.status = status as LeadStatus;
         if (source) params.source = source as LeadSource;
+        if (channel) params.channel = channel as LeadChannel;
+        if (ownerId) params.ownerId = ownerId;
+        if (dateFrom) params.dateFrom = dateFrom;
+        if (dateTo) params.dateTo = dateTo;
+        if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
+        if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
         if (q.trim()) params.q = q.trim();
 
         const res: LeadsResponse = await leadsApi.list(params);
@@ -138,7 +170,7 @@ function LeadsPageContent() {
         setLoading(false);
       }
     },
-    [page, pageSize, q, source, status],
+    [channel, dateFrom, dateTo, ownerId, page, pageSize, q, sortBy, sortOrder, source, status],
   );
 
   useEffect(() => {
@@ -150,6 +182,19 @@ function LeadsPageContent() {
       .get<{ user?: { role?: string } }>("/auth/me")
       .then((res) => setUserRole(res.data?.user?.role ?? null))
       .catch(() => setUserRole(null));
+  }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<{ items?: Array<{ id: string; fullName: string }> }>("/users")
+      .then((res) => {
+        setOwnerOptions(
+          Array.isArray(res.data?.items)
+            ? res.data.items.map((u) => ({ id: u.id, fullName: u.fullName || u.id }))
+            : [],
+        );
+      })
+      .catch(() => setOwnerOptions([]));
   }, []);
 
   const openLead = (id: string) => {
@@ -174,18 +219,41 @@ function LeadsPageContent() {
   const applyPopoverFilters = (next: LeadsFiltersState) => {
     setStatus(next.status);
     setSource(next.source);
+    setChannel(next.channel);
+    setOwnerId(next.ownerId);
+    setDateFrom(next.dateFrom);
+    setDateTo(next.dateTo);
+    setSortBy(next.sortBy);
+    setSortOrder(next.sortOrder);
     setPage(1);
   };
 
   const resetAllFilters = () => {
     setStatus("");
     setSource("");
+    setChannel("");
+    setOwnerId("");
+    setDateFrom("");
+    setDateTo("");
+    setSortBy(DEFAULT_LEADS_FILTERS.sortBy);
+    setSortOrder(DEFAULT_LEADS_FILTERS.sortOrder);
     setQInput("");
     setQ("");
     setPage(1);
   };
 
-  const filtersState: LeadsFiltersState = { status, source };
+  const filtersState: LeadsFiltersState = {
+    status,
+    source,
+    channel,
+    ownerId,
+    dateFrom,
+    dateTo,
+    sortBy,
+    sortOrder,
+  };
+
+  const filtersActive = isActiveFilterState(filtersState);
 
   return (
     <div className="space-y-4">
@@ -222,10 +290,15 @@ function LeadsPageContent() {
               <button
                 type="button"
                 onClick={() => setFiltersOpen(true)}
-                className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
+                className={`relative flex shrink-0 items-center justify-center rounded p-1 hover:bg-zinc-200/50 ${
+                  filtersActive ? "text-accent-600" : "text-zinc-500 hover:text-zinc-700"
+                }`}
                 aria-label="Open filters"
               >
                 <Filter className="h-4 w-4" />
+                {filtersActive ? (
+                  <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent-500" />
+                ) : null}
               </button>
             </div>
           </form>
@@ -235,6 +308,8 @@ function LeadsPageContent() {
             value={filtersState}
             statusOptions={STATUS_OPTIONS}
             sourceOptions={SOURCE_OPTIONS}
+            channelOptions={CHANNEL_OPTIONS}
+            ownerOptions={ownerOptions}
             onClose={() => setFiltersOpen(false)}
             onApply={applyPopoverFilters}
             onReset={resetAllFilters}

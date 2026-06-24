@@ -78,8 +78,8 @@ test("leads.list: q with phone-like digits enables phoneNormalized lookup", asyn
 test("leads.list: MANAGER RBAC stays effective even when q is supplied (regression)", async () => {
   const args = await listWithQ(manager("mgr-1"), "Іван");
   const andParts: any[] = args.where.AND ?? [];
-  // Two AND-parts expected: one for search OR and one for RBAC OR.
-  assert.equal(andParts.length, 2, `expected 2 AND parts, got ${andParts.length}`);
+  // Three AND-parts: active statuses, search OR, RBAC OR.
+  assert.equal(andParts.length, 3, `expected 3 AND parts, got ${andParts.length}`);
   const rbacPart = andParts.find(
     (p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.ownerId === "mgr-1"),
   );
@@ -94,7 +94,31 @@ test("leads.list: MANAGER RBAC stays effective even when q is supplied (regressi
 test("leads.list: without q, MANAGER RBAC still applied via AND", async () => {
   const args = await listWithQ(manager("mgr-2"));
   const andParts: any[] = args.where.AND ?? [];
-  assert.equal(andParts.length, 1);
-  const orFields = (andParts[0].OR as any[]).map((c) => Object.keys(c)[0]);
-  assert.deepEqual(orFields.sort(), ["ownerId", "ownerId"].sort());
+  assert.equal(andParts.length, 2);
+  const activePart = andParts.find((p) => Array.isArray(p.status?.in));
+  assert.ok(activePart, "default list should restrict to active statuses");
+  assert.deepEqual(activePart.status.in.sort(), ["IN_PROGRESS", "NEW"]);
+  const rbacPart = andParts.find(
+    (p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.ownerId === "mgr-2"),
+  );
+  assert.ok(rbacPart, "RBAC OR must be present");
+});
+
+test("leads.list: without status filter, only active leads (NEW, IN_PROGRESS)", async () => {
+  const args = await listWithQ();
+  const andParts: any[] = args.where.AND ?? [];
+  const activePart = andParts.find((p) => Array.isArray(p.status?.in));
+  assert.ok(activePart, "default list should restrict to active statuses");
+  assert.deepEqual(activePart.status.in.sort(), ["IN_PROGRESS", "NEW"]);
+});
+
+test("leads.list: explicit status filter overrides active-only default", async () => {
+  const { service, findManyCalls } = createService();
+  const dto: ListLeadsQueryDto = { status: "WON" } as ListLeadsQueryDto;
+  await service.list(dto);
+  const args = findManyCalls[0];
+  assert.equal(args.where.status, "WON");
+  const andParts: any[] = args.where.AND ?? [];
+  const activePart = andParts.find((p) => Array.isArray(p.status?.in));
+  assert.equal(activePart, undefined, "status=in should not be applied when status filter set");
 });

@@ -562,6 +562,7 @@ export function OrdersKanban({
                                 <AlertTriangle className="h-3.5 w-3.5" />
                               </span>
                             ) : null}
+                            <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
                           </span>
                           {o.paymentType && (
                             <span
@@ -583,7 +584,6 @@ export function OrdersKanban({
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
-                          <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
                           {stage === "AWAITING_STOCK" ? (
                             <StockReadinessBadge readiness={o.stockReadiness} size="xs" />
                           ) : null}

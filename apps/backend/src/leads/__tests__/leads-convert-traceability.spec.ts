@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { ConflictException, BadRequestException } from "@nestjs/common";
+import { ConflictException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import { LeadsService } from "../leads.service";
 import type { PrismaService } from "../../prisma/prisma.service";
@@ -274,6 +274,263 @@ describe("LeadsService.convert — lead → order traceability", () => {
           actor,
         ),
       (err: unknown) => err instanceof ConflictException,
+    );
+  });
+
+  it("uses companyId when linking existing company and contact", async () => {
+    let orderCreatePayload: Record<string, unknown> | null = null;
+
+    const baseLead = {
+      id: "lead-6",
+      companyId: "comp-default",
+      ownerId: "user-1",
+      phone: "+380501112233",
+      name: "Test",
+      region: "Київська",
+      convertedOrderId: null as string | null,
+      items: [] as Array<{ productId: string; qty: number; price: number }>,
+    };
+
+    const prisma = {
+      lead: {
+        findUnique: async () => ({ ...baseLead }),
+        update: async () => ({
+          ...baseLead,
+          contactId: "contact-1",
+          status: "WON",
+          convertedOrderId: "order-1",
+          convertedOrder: { id: "order-1", orderNumber: "7001" },
+        }),
+      },
+      activity: { updateMany: async () => ({ count: 0 }) },
+      telegramAccount: { updateMany: async () => ({ count: 0 }) },
+      conversation: { updateMany: async () => ({ count: 0 }) },
+      company: {
+        findUnique: async () => ({ id: "comp-client", ownerId: "user-1" }),
+      },
+      contact: {
+        findUnique: async () => ({
+          id: "contact-1",
+          ownerId: "user-1",
+          companyId: "comp-client",
+        }),
+        update: async () => ({}),
+      },
+    } as unknown as PrismaService;
+
+    const ordersService = {
+      create: async (data: Record<string, unknown>) => {
+        orderCreatePayload = data;
+        return { id: "order-1" };
+      },
+      addItem: async () => ({}),
+    } as unknown as OrdersService;
+
+    const svc = new LeadsService(
+      prisma,
+      noopSettings,
+      {} as ContactsService,
+      {} as CompaniesService,
+      ordersService,
+    );
+
+    await svc.convert(
+      "lead-6",
+      {
+        companyId: "comp-client",
+        contactMode: "link",
+        contactId: "contact-1",
+        createDeal: true,
+      },
+      actor,
+    );
+
+    assert.ok(orderCreatePayload);
+    assert.strictEqual(orderCreatePayload!.companyId, "comp-client");
+  });
+
+  it("uses contact companyId when linking without explicit company", async () => {
+    let orderCreatePayload: Record<string, unknown> | null = null;
+
+    const baseLead = {
+      id: "lead-7",
+      companyId: "comp-default",
+      ownerId: "user-1",
+      phone: "+380501112233",
+      name: "Test",
+      region: "Київська",
+      convertedOrderId: null as string | null,
+      items: [] as Array<{ productId: string; qty: number; price: number }>,
+    };
+
+    const prisma = {
+      lead: {
+        findUnique: async () => ({ ...baseLead }),
+        update: async () => ({
+          ...baseLead,
+          contactId: "contact-1",
+          status: "WON",
+        }),
+      },
+      activity: { updateMany: async () => ({ count: 0 }) },
+      telegramAccount: { updateMany: async () => ({ count: 0 }) },
+      conversation: { updateMany: async () => ({ count: 0 }) },
+      contact: {
+        findUnique: async () => ({
+          id: "contact-1",
+          ownerId: "user-1",
+          companyId: "comp-from-contact",
+        }),
+        update: async () => ({}),
+      },
+    } as unknown as PrismaService;
+
+    const ordersService = {
+      create: async (data: Record<string, unknown>) => {
+        orderCreatePayload = data;
+        return { id: "order-1" };
+      },
+      addItem: async () => ({}),
+    } as unknown as OrdersService;
+
+    const svc = new LeadsService(
+      prisma,
+      noopSettings,
+      {} as ContactsService,
+      {} as CompaniesService,
+      ordersService,
+    );
+
+    await svc.convert(
+      "lead-7",
+      { contactMode: "link", contactId: "contact-1", createDeal: true },
+      actor,
+    );
+
+    assert.ok(orderCreatePayload);
+    assert.strictEqual(orderCreatePayload!.companyId, "comp-from-contact");
+  });
+
+  it("throws when companyId and createCompany are both set", async () => {
+    const baseLead = {
+      id: "lead-8",
+      companyId: "comp-1",
+      ownerId: "user-1",
+      phone: "+380501112233",
+      name: "Test",
+      convertedOrderId: null as string | null,
+      items: [] as Array<{ productId: string; qty: number; price: number }>,
+    };
+
+    const prisma = {
+      lead: { findUnique: async () => ({ ...baseLead }) },
+    } as unknown as PrismaService;
+
+    const svc = new LeadsService(
+      prisma,
+      noopSettings,
+      {} as ContactsService,
+      {} as CompaniesService,
+      {} as OrdersService,
+    );
+
+    await assert.rejects(
+      () =>
+        svc.convert(
+          "lead-8",
+          {
+            companyId: "comp-client",
+            createCompany: { name: "New Co" },
+            contactMode: "link",
+            contactId: "contact-1",
+          },
+          actor,
+        ),
+      (err: unknown) =>
+        err instanceof BadRequestException &&
+        String((err as BadRequestException).message).includes("companyId and createCompany"),
+    );
+  });
+
+  it("throws Forbidden when manager links another user's company", async () => {
+    const baseLead = {
+      id: "lead-9",
+      companyId: "comp-1",
+      ownerId: "user-1",
+      phone: "+380501112233",
+      name: "Test",
+      convertedOrderId: null as string | null,
+      items: [] as Array<{ productId: string; qty: number; price: number }>,
+    };
+
+    const prisma = {
+      lead: { findUnique: async () => ({ ...baseLead }) },
+      company: {
+        findUnique: async () => ({ id: "comp-other", ownerId: "user-2" }),
+      },
+    } as unknown as PrismaService;
+
+    const svc = new LeadsService(
+      prisma,
+      noopSettings,
+      {} as ContactsService,
+      {} as CompaniesService,
+      {} as OrdersService,
+    );
+
+    await assert.rejects(
+      () =>
+        svc.convert(
+          "lead-9",
+          {
+            companyId: "comp-other",
+            contactMode: "link",
+            contactId: "contact-1",
+          },
+          actor,
+        ),
+      (err: unknown) => err instanceof ForbiddenException,
+    );
+  });
+
+  it("throws Forbidden when manager links another user's contact", async () => {
+    const baseLead = {
+      id: "lead-10",
+      companyId: "comp-1",
+      ownerId: "user-1",
+      phone: "+380501112233",
+      name: "Test",
+      convertedOrderId: null as string | null,
+      items: [] as Array<{ productId: string; qty: number; price: number }>,
+    };
+
+    const prisma = {
+      lead: { findUnique: async () => ({ ...baseLead }) },
+      contact: {
+        findUnique: async () => ({
+          id: "contact-1",
+          ownerId: "user-2",
+          companyId: null,
+        }),
+      },
+    } as unknown as PrismaService;
+
+    const svc = new LeadsService(
+      prisma,
+      noopSettings,
+      {} as ContactsService,
+      {} as CompaniesService,
+      {} as OrdersService,
+    );
+
+    await assert.rejects(
+      () =>
+        svc.convert(
+          "lead-10",
+          { contactMode: "link", contactId: "contact-1" },
+          actor,
+        ),
+      (err: unknown) => err instanceof ForbiddenException,
     );
   });
 });

@@ -7,6 +7,7 @@ import { UserMenu } from "@/components/UserMenu";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ModulesProvider } from "@/lib/modules/useModules";
 import { ConfirmProvider, ToastProvider } from "@/components/feedback";
+import { CallRecordingPlaybackProvider } from "@/components/calls/call-recording-playback";
 import { KyivstarFmcShell } from "@/components/kyivstar/KyivstarIncomingCallDock";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <ModulesProvider>
       <ConfirmProvider>
         <ToastProvider>
+          <CallRecordingPlaybackProvider>
           <KyivstarFmcShell />
           <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
 
@@ -75,6 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <div className="w-full max-w-full p-4">{children}</div>
             </main>
           </div>
+          </CallRecordingPlaybackProvider>
         </ToastProvider>
       </ConfirmProvider>
     </ModulesProvider>

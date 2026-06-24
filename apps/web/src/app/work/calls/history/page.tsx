@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatDateTimeNumeric, todayYmdInKyiv, ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
+import { CallRecordingPlayer } from "@/components/calls/CallRecordingPlayer";
+import { useCallRecordingPlayback } from "@/components/calls/call-recording-playback";
 import { callsApi, type CallsHistoryItem } from "@/lib/api/resources/calls";
 import type { ManualCallOutcome } from "@/lib/api/resources/manual-calling";
 
@@ -101,6 +103,30 @@ function sourceLabel(row: CallsHistoryItem): string {
   return row.provider ?? "Телефонія";
 }
 
+function rowSessionId(row: CallsHistoryItem): string {
+  return `${row.rowKind}-${row.id}`;
+}
+
+function rowRecordingTitle(row: CallsHistoryItem): string {
+  return row.target?.displayName?.trim() || row.target?.phone || row.fromDisplay || "Дзвінок";
+}
+
+function rowRecordingSubtitle(row: CallsHistoryItem, time: string | null): string {
+  const displayManager =
+    row.rowKind === "CALL" ? row.manager : row.manualUser ?? row.manager;
+  return [
+    time ? formatDateTimeNumeric(time) : null,
+    row.direction ? DIR_UA[row.direction] ?? row.direction : null,
+    displayManager?.fullName ?? null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function rowHasRecording(row: CallsHistoryItem): boolean {
+  return !!row.recordingUrl && (row.recordingStatus ?? "").toUpperCase() === "READY";
+}
+
 export default function CallsHistoryPage() {
   const [role, setRole] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -119,6 +145,7 @@ export default function CallsHistoryPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const playback = useCallRecordingPlayback();
 
   useEffect(() => {
     apiHttp
@@ -398,8 +425,31 @@ export default function CallsHistoryPage() {
                         : recStatus === "FAILED"
                           ? "bad"
                           : "neutral";
+                  const sessionId = rowSessionId(row);
+                  const isRowActive = playback.isActive(sessionId);
+                  const canListen = rowHasRecording(row);
                   return (
-                    <tr key={`${row.rowKind}-${row.id}`} className="border-b border-zinc-100 last:border-0">
+                    <tr
+                      key={sessionId}
+                      className={`border-b border-zinc-100 last:border-0 ${
+                        isRowActive ? "bg-emerald-50/70" : "hover:bg-zinc-50/80"
+                      } ${canListen ? "cursor-pointer" : ""}`}
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest("a, button, input, select, textarea, [role='slider']")) return;
+                        if (!canListen) return;
+                        playback.activate(
+                          {
+                            id: sessionId,
+                            url: row.recordingUrl!,
+                            durationSec: row.talkSec ?? row.durationSec,
+                            title: rowRecordingTitle(row),
+                            subtitle: rowRecordingSubtitle(row, t),
+                          },
+                          { autoPlay: true },
+                        );
+                      }}
+                    >
                       <td className="whitespace-nowrap px-3 py-2 text-zinc-600">
                         {t ? formatDateTimeNumeric(t) : "—"}
                       </td>
@@ -509,12 +559,17 @@ export default function CallsHistoryPage() {
                           );
                         })()}
                       </td>
-                      <td className="max-w-[280px] px-3 py-2">
-                        {row.recordingUrl ? (
-                          <audio controls className="h-8 w-full max-w-[260px]" src={row.recordingUrl} />
-                        ) : (
-                          <span className="text-zinc-400">—</span>
-                        )}
+                      <td className="min-w-[240px] max-w-[320px] px-3 py-2">
+                        <CallRecordingPlayer
+                          url={row.recordingUrl}
+                          status={row.recordingStatus}
+                          durationSec={row.talkSec ?? row.durationSec}
+                          sessionId={sessionId}
+                          title={rowRecordingTitle(row)}
+                          subtitle={rowRecordingSubtitle(row, t)}
+                          variant="compact"
+                          className="w-full max-w-[300px]"
+                        />
                       </td>
                       <td
                         className="max-w-xs truncate px-3 py-2 text-zinc-600"

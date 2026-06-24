@@ -1,3 +1,5 @@
+import { FileText } from "lucide-react";
+
 export function DocumentsRequestedBadge({
   documentsRequested,
   size = "sm",
@@ -7,14 +9,11 @@ export function DocumentsRequestedBadge({
 }) {
   if (documentsRequested !== true) return null;
 
-  const sizeClass = size === "xs" ? "text-[10px] px-1.5 py-0.5" : "text-xs px-2 py-0.5";
+  const iconClass = size === "xs" ? "h-3.5 w-3.5" : "h-4 w-4";
 
   return (
-    <span
-      title="Потрібні документи"
-      className={`inline-flex shrink-0 rounded font-medium bg-sky-100 text-sky-800 ${sizeClass}`}
-    >
-      Документи
+    <span title="Потрібні документи" className="inline-flex shrink-0 text-sky-600">
+      <FileText className={iconClass} />
     </span>
   );
 }

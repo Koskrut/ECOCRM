@@ -316,7 +316,10 @@ export function FinancialKanban({
                         className="w-full rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-sm transition-shadow hover:shadow-md"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-zinc-900">{o.orderNumber}</span>
+                          <span className="flex items-center gap-1 font-medium text-zinc-900">
+                            <span>{o.orderNumber}</span>
+                            <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
+                          </span>
                           {o.paymentType && (
                             <span
                               className={
@@ -356,9 +359,8 @@ export function FinancialKanban({
                           <span className="text-zinc-500">Срок оплати</span>
                           <span className="text-zinc-700">{formatDate(o.paymentDueDate)}</span>
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <div className="mt-2">
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
-                          <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
                         </div>
                       </button>
                     );

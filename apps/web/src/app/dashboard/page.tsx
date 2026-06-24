@@ -32,7 +32,10 @@ import {
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
 import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
+import { dailyAgendaApi, type DailyAgendaPayload } from "@/lib/api/resources/daily-agenda";
 import { DayPlanPercentBadge, DayPlanWidget } from "@/components/day-plan/DayPlanWidget";
+import { DailyAgendaWidget } from "@/components/daily-agenda/DailyAgendaWidget";
+import { MorningPlanModal } from "@/components/daily-agenda/MorningPlanModal";
 import { DateTime } from "luxon";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { baseCurrencySymbol } from "@/lib/base-currency";
@@ -179,6 +182,12 @@ export default function DashboardPage() {
   const [dayPlanLoading, setDayPlanLoading] = useState(true);
   const [dayPlanError, setDayPlanError] = useState<string | null>(null);
 
+  const [agenda, setAgenda] = useState<DailyAgendaPayload | null>(null);
+  const [agendaLoading, setAgendaLoading] = useState(true);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [morningOpen, setMorningOpen] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
   const loadTasks = useCallback(async () => {
     setTasksLoading(true);
     try {
@@ -268,6 +277,36 @@ export default function DashboardPage() {
   useEffect(() => {
     void loadDayPlan();
   }, [loadDayPlan]);
+
+  const loadAgenda = useCallback(async () => {
+    setAgendaLoading(true);
+    setAgendaError(null);
+    try {
+      const res = await dailyAgendaApi.get({ date: todayYmdInKyiv() });
+      setAgenda(res);
+      return res;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAgendaError(msg);
+      setAgenda(null);
+      return null;
+    } finally {
+      setAgendaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void apiGet<{ user?: { role?: string } }>("/auth/me")
+      .then((me) => setUserRole(me.user?.role ?? null))
+      .catch(() => setUserRole(null));
+    void loadAgenda();
+  }, [loadAgenda]);
+
+  useEffect(() => {
+    if (userRole === "MANAGER" && agenda?.plan?.status !== "COMMITTED") {
+      setMorningOpen(true);
+    }
+  }, [userRole, agenda?.plan?.status]);
 
   const activityRowsSorted = useMemo(() => {
     const rows = activity?.rows ?? [];
@@ -387,6 +426,25 @@ export default function DashboardPage() {
         error={dayPlanError}
         detailHref="/work/day-plan"
       />
+
+      <DailyAgendaWidget
+        agenda={agenda}
+        loading={agendaLoading}
+        error={agendaError}
+        onCompose={() => setMorningOpen(true)}
+      />
+
+      {agenda && morningOpen && userRole === "MANAGER" ? (
+        <MorningPlanModal
+          open={morningOpen}
+          agenda={agenda}
+          onClose={() => setMorningOpen(false)}
+          onUpdated={(data) => {
+            setAgenda(data);
+            setMorningOpen(false);
+          }}
+        />
+      ) : null}
 
       <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

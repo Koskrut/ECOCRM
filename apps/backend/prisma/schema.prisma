@@ -545,6 +545,7 @@ model User {
   fuelDayReports             FuelDayReport[]
   dayPlanOverride            UserDayPlanOverride?
   dayPlanOverridesUpdated    UserDayPlanOverride[] @relation("UserDayPlanOverrideUpdatedBy")
+  dailyWorkPlans             DailyWorkPlan[]
 
   /**
    * LEAD: копія складських/замовлень сповіщень по команді (фаза 2).
@@ -804,6 +805,7 @@ model Contact {
   customer             Customer?
   outboundCallAttempts OutboundCallAttempt[]
   shipments            Shipment[]
+  dailyWorkPlanItems   DailyWorkPlanItem[]
   changeHistory        ContactChangeHistory[]
   callQueueItems       CallQueueItem[]
   manualCallSessions   ManualCallSession[]
@@ -930,6 +932,7 @@ model Visit {
   routeStops             RouteStop[]
   routeSessionsAsCurrent RouteSession[]
   visitGpsEvents         VisitGpsEvent[]
+  dailyWorkPlanItems     DailyWorkPlanItem[]
 
   @@index([ownerId, status])
   @@index([ownerId, startsAt])
@@ -981,6 +984,73 @@ model UserDayPlanOverride {
 
   user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   updatedBy User? @relation("UserDayPlanOverrideUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+enum DailyWorkPlanStatus {
+  DRAFT
+  COMMITTED
+}
+
+enum DailyWorkPlanItemKind {
+  VISIT
+  TASK
+  CONTACT_ACTION
+  LEAD
+  SUGGESTION
+}
+
+enum DailyWorkPlanItemStatus {
+  PLANNED
+  DISMISSED
+  DONE
+}
+
+/// Утренний / дневной план работы менеджера (agenda).
+model DailyWorkPlan {
+  id          String              @id @default(cuid())
+  userId      String
+  /// YYYY-MM-DD Europe/Kyiv
+  date        String
+  status      DailyWorkPlanStatus @default(DRAFT)
+  committedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  user  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items DailyWorkPlanItem[]
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+model DailyWorkPlanItem {
+  id          String                  @id @default(cuid())
+  planId      String
+  kind        DailyWorkPlanItemKind
+  status      DailyWorkPlanItemStatus @default(PLANNED)
+  position    Int
+  visitId     String?
+  taskId      String?
+  contactId   String?
+  leadId      String?
+  title       String
+  subtitle    String?
+  scheduledAt DateTime?
+  completedAt DateTime?
+  completedBy String?
+  metadata    Json?
+
+  plan    DailyWorkPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  visit   Visit?        @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  task    Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  contact Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead    Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([planId, position])
+  @@index([visitId])
+  @@index([taskId])
+  @@index([contactId])
+  @@index([leadId])
 }
 
 /// Рабочая смена (политика GPS и группировка трековых точек).
@@ -1159,6 +1229,7 @@ model Lead {
   materialReservations MaterialReservation[]
   callQueueItems       CallQueueItem[]
   manualCallSessions   ManualCallSession[]
+  dailyWorkPlanItems   DailyWorkPlanItem[]
 
   @@unique([legacySource, legacyId])
   @@index([companyId, status])
@@ -1931,6 +2002,7 @@ model Task {
   company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  dailyWorkPlanItems DailyWorkPlanItem[]
 
   @@unique([legacySource, legacyId])
   @@index([assigneeId, status])

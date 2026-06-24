@@ -14,6 +14,9 @@ export const ALL_LEAD_STATUSES: LeadStatus[] = [
   "SPAM",
 ];
 
+/** Inbox list: NEW + IN_PROGRESS only (excludes processed/terminal leads). */
+export const ACTIVE_LEAD_STATUSES: LeadStatus[] = ["NEW", "IN_PROGRESS"];
+
 /**
  * Canonical mapping: stepper grouping is fixed by LeadStatus (not user-editable; not client-provided on write).
  */

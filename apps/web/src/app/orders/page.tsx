@@ -815,6 +815,7 @@ function OrdersPageContent() {
                                 <CheckCircle2 className="h-4 w-4" />
                               </span>
                             )}
+                            <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
                           </div>
                         </td>
                         <td className="px-4 py-4 hidden xl:table-cell text-zinc-700">
@@ -843,14 +844,11 @@ function OrdersPageContent() {
                           )}
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <StatusBadge
-                              variant="order"
-                              status={order.status}
-                              orderStage={order.orderStage}
-                            />
-                            <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
-                          </div>
+                          <StatusBadge
+                            variant="order"
+                            status={order.status}
+                            orderStage={order.orderStage}
+                          />
                         </td>
                         <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
                           <div className="relative inline-flex items-center justify-end group">

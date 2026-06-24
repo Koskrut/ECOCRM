@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.90**.)_
+_(планируемые изменения после **0.2.91**.)_
+
+## [0.2.91] — 2026-06-24
+
+### Summary
+
+Патч **0.2.91**: **daily work agenda** — утренний план дня (visits, tasks, contact actions, suggestions, commit/draft, auto-complete); доработки **leads** (convert, modal, filters), **calls** UI.
+
+### Added
+
+- **Daily agenda**: `DailyWorkPlan` / `DailyWorkPlanItem`, миграция **`20260624120000_daily_work_plan`**; API **`GET/POST /work/daily-agenda`**, draft/commit, patch item; страница **`/work/daily-agenda`**, виджет на Dashboard, **`docs/daily-agenda/overview.md`**.
+
+### Changed
+
+- **Leads**: convert traceability (region/address, company/contact guards), расширенные тесты; **LeadModal**, **LeadsFiltersPopover**, pipeline default stage.
+- **Calls**: **CallCard**, история звонков; shell nav.
+- **Orders**: мелкие правки kanban/cards.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.91`**.
+- **Миграция:** **`20260624120000_daily_work_plan`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
 
 ## [0.2.90] — 2026-06-23
 
@@ -738,7 +759,7 @@ _(планируемые изменения после **0.2.90**.)_
 
 ### Upgrade notes
 
-- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.90`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
+- **Не использовать в проде теги образов `crm-backend-core:0.2.0`** (и при необходимости проверьте **`0.2.1`**, если собирался до фикса Dockerfile): рекомендуемый полный патч (**все module-образы**, **`composeFileUrls`**, **`compose.modules.store.yml`**) — **`0.2.91`**; иначе минимум **`0.2.6`** … **`0.2.2`** для `BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`, затем `pull` и `up -d`.
 - После обновления CP: при необходимости **PATCH манифеста** (см. документацию CP) или перерегистрация релиза с валидным **`composeFiles`**.
 
 ## [0.2.0] — 2026-05-13

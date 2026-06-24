@@ -27,6 +27,7 @@ import type { UpdateLeadStatusDto } from "./dto/update-lead-status.dto";
 import type { ConvertLeadDto, ConvertLeadDealDto } from "./dto/convert-lead.dto";
 import type { AddNoteDto } from "./dto/add-note.dto";
 import type { MetaSyncFormDto } from "./dto/meta-sync-form.dto";
+import { ACTIVE_LEAD_STATUSES } from "./pipeline/lead-pipeline.defaults";
 import { ContactsService } from "../contacts/contacts.service";
 import { CompaniesService } from "../companies/companies.service";
 import { OrdersService } from "../orders/orders.service";
@@ -111,14 +112,22 @@ export class LeadsService {
     const where: Prisma.LeadWhereInput = {};
     const andParts: Prisma.LeadWhereInput[] = [];
 
-    if (q.status) where.status = q.status as LeadStatus;
+    if (q.status) {
+      where.status = q.status as LeadStatus;
+    } else {
+      andParts.push({ status: { in: [...ACTIVE_LEAD_STATUSES] } });
+    }
     if (q.source) where.source = q.source as LeadSource;
     if (q.channel) where.channel = q.channel as LeadChannel;
     if (q.ownerId) where.ownerId = q.ownerId;
     if (q.dateFrom || q.dateTo) {
       where.createdAt = {};
       if (q.dateFrom) (where.createdAt as Prisma.DateTimeFilter).gte = new Date(q.dateFrom);
-      if (q.dateTo) (where.createdAt as Prisma.DateTimeFilter).lte = new Date(q.dateTo);
+      if (q.dateTo) {
+        const end = new Date(q.dateTo);
+        end.setHours(23, 59, 59, 999);
+        (where.createdAt as Prisma.DateTimeFilter).lte = end;
+      }
     }
 
     if (q.q) {
@@ -595,8 +604,25 @@ export class LeadsService {
       throw new ConflictException("Lead already has a conversion order");
     }
 
+    const explicitCompanyOverride = Boolean(
+      dto.companyId?.trim() || dto.createCompany?.name?.trim(),
+    );
+    if (dto.companyId?.trim() && dto.createCompany?.name?.trim()) {
+      throw new BadRequestException("Cannot specify both companyId and createCompany");
+    }
+
     let companyId: string = lead.companyId;
-    if (dto.createCompany?.name?.trim()) {
+    if (dto.companyId?.trim()) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: dto.companyId.trim() },
+        select: { id: true, ownerId: true },
+      });
+      if (!company) throw new NotFoundException("Company not found");
+      if (actor.role === UserRole.MANAGER && company.ownerId && company.ownerId !== actor.id) {
+        throw new ForbiddenException("You can only use companies assigned to you");
+      }
+      companyId = company.id;
+    } else if (dto.createCompany?.name?.trim()) {
       const company = await this.companiesService.create({
         name: dto.createCompany.name.trim(),
       });
@@ -618,6 +644,10 @@ export class LeadsService {
 
       if (actor.role === UserRole.MANAGER && contact.ownerId && contact.ownerId !== actor.id) {
         throw new ForbiddenException("You can only use contacts assigned to you");
+      }
+
+      if (!explicitCompanyOverride && contact.companyId) {
+        companyId = contact.companyId;
       }
 
       if (contact.companyId && contact.companyId !== companyId) {
