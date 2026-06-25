@@ -410,6 +410,7 @@ export class KyivstarFmcIngestService {
 
         if (this.isMissed(status) && customerPhoneNormalized && direction === "INBOUND") {
           await this.createMissedCallTaskActivity(tx, {
+            callId: call.id,
             contactId,
             companyId,
             leadId,
@@ -752,6 +753,7 @@ export class KyivstarFmcIngestService {
   private async createMissedCallTaskActivity(
     tx: Prisma.TransactionClient,
     params: {
+      callId: string;
       contactId: string | null;
       companyId: string | null;
       leadId: string | null;
@@ -760,14 +762,28 @@ export class KyivstarFmcIngestService {
       startedAt: Date;
     },
   ): Promise<void> {
+    if (process.env.KYIVSTAR_FMC_MISSED_CALL_TASKS_DISABLED === "true") {
+      return;
+    }
     const dueAt = new Date(params.startedAt.getTime() + 2 * 60 * 60 * 1000);
     const bodyLines: string[] = ["Перезвонить клиенту"];
     if (params.customerPhoneNormalized) bodyLines.push(`Телефон: ${params.customerPhoneNormalized}`);
     const body = bodyLines.join("\n");
 
     if (params.managerUserId && (params.contactId || params.companyId || params.leadId)) {
-      await tx.task.create({
-        data: {
+      await tx.task.upsert({
+        where: { callId: params.callId },
+        create: {
+          callId: params.callId,
+          assigneeId: params.managerUserId,
+          contactId: params.contactId,
+          companyId: params.companyId,
+          leadId: params.leadId,
+          title: "Перезвонить",
+          body,
+          dueAt,
+        },
+        update: {
           assigneeId: params.managerUserId,
           contactId: params.contactId,
           companyId: params.companyId,

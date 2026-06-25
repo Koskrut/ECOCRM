@@ -1,14 +1,17 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import "react-native-reanimated";
 
+import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { useColorScheme } from "@/components/useColorScheme";
 import { AuthProvider, useAuth } from "@/context/auth-context";
+import { ModulesProvider } from "@/context/modules-context";
+import { OfflineQueueProvider } from "@/context/offline-queue-context";
 import { ShiftTrackingProvider } from "@/context/shift-tracking-context";
-import "@/lib/location-tracking-task";
+import { installGlobalErrorHandlers } from "@/lib/error-log";
+import { t } from "@/lib/i18n";
 
 export { ErrorBoundary } from "expo-router";
 
@@ -33,11 +36,6 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
     }
     if (token && root === "login") {
       router.replace("/");
-      return;
-    }
-    if (!token && root === "visit") {
-      router.replace("/login");
-      return;
     }
   }, [ready, segments, token, router]);
 
@@ -46,23 +44,35 @@ function RouteGuard({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   useEffect(() => {
-    void SplashScreen.hideAsync();
+    installGlobalErrorHandlers();
   }, []);
 
   return (
-    <AuthProvider>
-      <ShiftTrackingProvider>
-        <RouteGuard>
-          <RootLayoutNav />
-        </RouteGuard>
-      </ShiftTrackingProvider>
-    </AuthProvider>
+    <RootErrorBoundary>
+      <AuthProvider>
+        <ModulesProvider>
+          <OfflineQueueProvider>
+            <ShiftTrackingProvider>
+              <RouteGuard>
+                <RootLayoutNav />
+              </RouteGuard>
+            </ShiftTrackingProvider>
+          </OfflineQueueProvider>
+        </ModulesProvider>
+      </AuthProvider>
+    </RootErrorBoundary>
   );
 }
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { ready } = useAuth();
+
+  useEffect(() => {
+    if (ready) {
+      void SplashScreen.hideAsync();
+    }
+  }, [ready]);
 
   if (!ready) {
     return null;
@@ -73,10 +83,25 @@ function RootLayoutNav() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="visit/[id]" options={{ title: "Визит", headerShown: true }} />
-        <Stack.Screen name="fuel/index" options={{ title: "Топливо", headerShown: true }} />
-        <Stack.Screen name="fuel/[date]" options={{ title: "День", headerShown: true }} />
-        <Stack.Screen name="fuel/profile" options={{ title: "Профиль авто", headerShown: true }} />
+        <Stack.Screen name="visit/[id]" options={{ title: t("visit.title"), headerShown: true }} />
+        <Stack.Screen name="contact/[id]" options={{ title: t("clients.card"), headerShown: true }} />
+        <Stack.Screen
+          name="contact/[id]/activity/new"
+          options={{ title: "Нотатка", headerShown: true }}
+        />
+        <Stack.Screen name="contacts/new" options={{ title: "Новий контакт", headerShown: true }} />
+        <Stack.Screen name="leads/new" options={{ title: "Новий лід", headerShown: true }} />
+        <Stack.Screen name="visits/new" options={{ title: "Новий візит", headerShown: true }} />
+        <Stack.Screen name="visits/backlog" options={{ title: "Беклог", headerShown: true }} />
+        <Stack.Screen name="visits/history" options={{ title: "Історія", headerShown: true }} />
+        <Stack.Screen name="tasks/new" options={{ title: "Нове завдання", headerShown: true }} />
+        <Stack.Screen name="tasks/[id]" options={{ title: "Завдання", headerShown: true }} />
+        <Stack.Screen name="orders/index" options={{ title: "Замовлення", headerShown: true }} />
+        <Stack.Screen name="orders/new" options={{ title: "Нове замовлення", headerShown: true }} />
+        <Stack.Screen name="orders/[id]" options={{ title: "Замовлення", headerShown: true }} />
+        <Stack.Screen name="fuel/index" options={{ title: t("fuel.title"), headerShown: true }} />
+        <Stack.Screen name="fuel/[date]" options={{ title: t("fuel.day"), headerShown: true }} />
+        <Stack.Screen name="fuel/profile" options={{ title: t("fuel.profile"), headerShown: true }} />
       </Stack>
     </ThemeProvider>
   );

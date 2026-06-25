@@ -1,5 +1,22 @@
 export type LatLng = { lat: number; lng: number };
 
+export function isValidLatLng(p: LatLng | null | undefined): p is LatLng {
+  if (!p || typeof p !== "object") return false;
+  const { lat, lng } = p;
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180
+  );
+}
+
+/** Drop null/NaN/out-of-range coordinates before map rendering. */
+export function sanitizePath(path?: LatLng[] | null): LatLng[] {
+  if (!Array.isArray(path)) return [];
+  return path.filter(isValidLatLng);
+}
+
 export type RouteGeometryResult = {
   kind: string;
   source: string;
@@ -38,7 +55,9 @@ export function buildStaticMapUrl(opts: {
   paths: Array<{ color: string; points: LatLng[] }>;
   size?: string;
 }): string | null {
-  const paths = opts.paths.filter((p) => p.points.length >= 2);
+  const paths = opts.paths
+    .map((p) => ({ ...p, points: sanitizePath(p.points) }))
+    .filter((p) => p.points.length >= 2);
   if (paths.length === 0) return null;
 
   const segments = paths.map((p) => {

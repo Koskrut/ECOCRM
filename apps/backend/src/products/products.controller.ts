@@ -151,6 +151,9 @@ export class ProductsController {
     created: number;
     notFound: string[];
     unmatchedWarehouseNames: string[];
+    matchedSkus: string[];
+    unresolvedSkus: string[];
+    skuCorrections: Array<{ fileSku: string; dbSku: string }>;
   }> {
     const buffer = file?.buffer;
     if (!buffer) throw new BadRequestException("File is required");
@@ -180,6 +183,9 @@ export class ProductsController {
       updated: applied.updated,
       created: applied.created,
       notFound: prepared.notFound,
+      unresolvedSkus: prepared.notFound,
+      matchedSkus: prepared.matchedSkus,
+      skuCorrections: prepared.skuCorrections,
       unmatchedWarehouseNames,
     };
   }

@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -10,41 +10,32 @@ import {
   View as RNView,
 } from "react-native";
 
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { QuickActions } from "@/components/QuickActions";
+import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
+import { useModules } from "@/context/modules-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
+import { t } from "@/lib/i18n";
 import type { RouteGeometryBundle } from "@/lib/route-map";
+import {
+  findNearestVisit,
+  visitPhone,
+  visitProgress,
+  visitTimeRange,
+  visitLabel,
+} from "@/lib/visit-utils";
 import type { VisitSummary } from "@/types/crm";
-
-function visitLabel(v: VisitSummary): string {
-  if (v.title?.trim()) return v.title.trim();
-  if (v.contact) {
-    return [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ");
-  }
-  if (v.company?.name) return v.company.name;
-  return "Визит";
-}
-
-function timeRange(v: VisitSummary): string {
-  if (!v.startsAt) return "";
-  const start = new Date(v.startsAt);
-  const h = start.getHours();
-  const m = String(start.getMinutes()).padStart(2, "0");
-  if (v.endsAt) {
-    const end = new Date(v.endsAt);
-    const eh = end.getHours();
-    const em = String(end.getMinutes()).padStart(2, "0");
-    return `${h}:${m}–${eh}:${em}`;
-  }
-  return `${h}:${m}`;
-}
 
 export default function TodayScreen() {
   const router = useRouter();
   const { token } = useAuth();
-  const { activeShift, isTracking, startShift, endShift, loading: shiftLoading } = useShiftTracking();
+  const { visitsEnabled } = useModules();
+  const { activeShift, isTracking, startShift, endShift, loading: shiftLoading } =
+    useShiftTracking();
   const [items, setItems] = useState<VisitSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [fuelBanner, setFuelBanner] = useState<string | null>(null);
@@ -52,8 +43,19 @@ export default function TodayScreen() {
 
   const dateKey = formatLocalDateKey();
 
+  const nearest = useMemo(() => findNearestVisit(items), [items]);
+  const progress = useMemo(() => visitProgress(items), [items]);
+  const listItems = useMemo(
+    () => (nearest ? items.filter((v) => v.id !== nearest.id) : items),
+    [items, nearest],
+  );
+
   const reload = useCallback(async () => {
-    if (!token) return;
+    if (!token || !visitsEnabled) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [day, fuel, route] = await Promise.all([
@@ -76,8 +78,8 @@ export default function TodayScreen() {
       const amt = fuel?.report?.amountEstimated;
       if (km != null) {
         const sum =
-          amt != null && Number.isFinite(Number(amt)) ? ` · ${Number(amt)} грн` : "";
-        setFuelBanner(`${km} км${sum}`);
+          amt != null && Number.isFinite(Number(amt)) ? ` · ${Number(amt)} ${t("common.currency")}` : "";
+        setFuelBanner(`${km} ${t("common.km")}${sum}`);
       } else {
         setFuelBanner(null);
       }
@@ -86,11 +88,11 @@ export default function TodayScreen() {
         const gps = route.factGps.distanceKm;
         const visits = route.factVisits.distanceKm;
         const gpsNote =
-          route.factGps.quality.degraded && gps != null ? " · GPS слабый" : "";
+          route.factGps.quality.degraded && gps != null ? ` · ${t("today.weakGps")}` : "";
         setRouteBanner(
-          `План ${plan} км` +
-            (gps != null ? ` · GPS ${gps} км` : "") +
-            (visits != null ? ` · визиты ${visits} км` : "") +
+          t("today.planKm", { km: plan }) +
+            (gps != null ? ` · ${t("today.gpsKm", { km: gps })}` : "") +
+            (visits != null ? ` · ${t("today.visitsKm", { km: visits })}` : "") +
             gpsNote,
         );
       } else {
@@ -99,7 +101,7 @@ export default function TodayScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token, dateKey]);
+  }, [token, dateKey, visitsEnabled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -107,14 +109,57 @@ export default function TodayScreen() {
     }, [reload]),
   );
 
+  if (!visitsEnabled) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>{t("today.heading")}</Text>
+        <RNView style={styles.moduleBanner}>
+          <Text style={styles.moduleBannerTitle}>{t("modules.unavailableTitle")}</Text>
+          <Text style={styles.moduleBannerBody}>{t("modules.unavailableBody")}</Text>
+        </RNView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>Сегодня</Text>
+      <ScreenHeader
+        title={t("today.heading")}
+        actionLabel="+ Візит"
+        onAction={() => router.push("/visits/new")}
+      />
       <Text style={styles.dateLine}>{dateKey}</Text>
+
+      {progress.total > 0 ? (
+        <Text style={styles.progress}>
+          {t("today.progress", { done: progress.done, total: progress.total })}
+        </Text>
+      ) : null}
+
+      <View style={styles.quickRow}>
+        <Pressable
+          onPress={() => router.push("/orders")}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
+          <Text style={styles.smallBtnText}>Замовлення</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/visits/backlog")}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
+          <Text style={styles.smallBtnText}>Беклог</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/visits/history")}
+          accessibilityRole="button"
+          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
+          <Text style={styles.smallBtnText}>Історія</Text>
+        </Pressable>
+      </View>
 
       {isTracking ? (
         <RNView style={styles.trackingBanner}>
-          <Text style={styles.trackingBannerText}>Збір локацій активний</Text>
+          <Text style={styles.trackingBannerText}>{t("today.trackingActive")}</Text>
         </RNView>
       ) : null}
 
@@ -125,7 +170,9 @@ export default function TodayScreen() {
             disabled={shiftLoading}
             accessibilityRole="button"
             style={[styles.shiftBtn, styles.shiftBtnEnd]}>
-            <Text style={styles.shiftBtnTxt}>{shiftLoading ? "…" : "Завершити зміну"}</Text>
+            <Text style={styles.shiftBtnTxt}>
+              {shiftLoading ? "…" : t("today.endShift")}
+            </Text>
           </Pressable>
         ) : (
           <Pressable
@@ -133,17 +180,52 @@ export default function TodayScreen() {
             disabled={shiftLoading}
             accessibilityRole="button"
             style={styles.shiftBtn}>
-            <Text style={styles.shiftBtnTxt}>{shiftLoading ? "…" : "Почати зміну"}</Text>
+            <Text style={styles.shiftBtnTxt}>
+              {shiftLoading ? "…" : t("today.startShift")}
+            </Text>
           </Pressable>
         )}
       </RNView>
+
+      {nearest ? (
+        <RNView style={styles.hero}>
+          <Text style={styles.heroLabel}>{t("today.nearestVisit")}</Text>
+          <Text style={styles.heroTitle}>{visitLabel(nearest)}</Text>
+          <Text style={styles.heroMeta}>
+            {visitTimeRange(nearest)}
+            {visitTimeRange(nearest) ? " · " : ""}
+            {nearest.status}
+          </Text>
+          {nearest.addressText ? (
+            <Text style={styles.heroAddress} numberOfLines={2}>
+              {nearest.addressText}
+            </Text>
+          ) : null}
+          <QuickActions
+            token={token!}
+            date={dateKey}
+            phone={visitPhone(nearest)}
+            visitId={nearest.id}
+            lat={nearest.lat}
+            lng={nearest.lng}
+          />
+          <Pressable
+            onPress={() => router.push(`/visit/${nearest.id}`)}
+            style={({ pressed }) => [styles.heroOpen, pressed && { opacity: 0.8 }]}
+            accessibilityRole="button">
+            <Text style={styles.heroOpenText}>{t("visit.title")} ›</Text>
+          </Pressable>
+        </RNView>
+      ) : null}
 
       {routeBanner ? (
         <Pressable
           onPress={() => router.push("/(tabs)/map")}
           style={styles.routeBanner}
           accessibilityRole="button">
-          <Text style={styles.routeBannerText}>Маршрут: {routeBanner}</Text>
+          <Text style={styles.routeBannerText}>
+            {t("today.route")}: {routeBanner}
+          </Text>
           <Text style={styles.routeBannerChev}>›</Text>
         </Pressable>
       ) : null}
@@ -153,39 +235,30 @@ export default function TodayScreen() {
           onPress={() => router.push(`/fuel/${dateKey}`)}
           style={styles.fuelBanner}
           accessibilityRole="button">
-          <Text style={styles.fuelBannerText}>Топливо за день: {fuelBanner}</Text>
+          <Text style={styles.fuelBannerText}>
+            {t("today.fuel")}: {fuelBanner}
+          </Text>
           <Text style={styles.fuelBannerChev}>›</Text>
         </Pressable>
       ) : null}
 
       <FlatList
-        data={items}
+        data={listItems}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          <Text style={styles.empty}>
-            {loading ? "Загрузка…" : "Нет визитов на этот день. Добавьте их в веб-CRM."}
-          </Text>
+          !nearest ? (
+            <Text style={styles.empty}>
+              {loading ? t("common.loading") : t("today.empty")}
+            </Text>
+          ) : null
         }
         renderItem={({ item }) => (
-          <Pressable
-            onPress={() => router.push(`/visit/${item.id}`)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.row, pressed && { opacity: 0.72 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.visitTitle}>{visitLabel(item)}</Text>
-              <Text style={styles.visitMeta}>
-                {timeRange(item)} · {item.status}
-              </Text>
-            </View>
-            <Text style={styles.chev}>›</Text>
-          </Pressable>
+          <VisitCard visit={item} onPress={() => router.push(`/visit/${item.id}`)} />
         )}
       />
 
-      <Text style={styles.footerHint}>
-        Маршрут — вкладка «Карта». Паливо — «Ще».
-      </Text>
+      <Text style={styles.footerHint}>{t("today.footerHint")}</Text>
     </View>
   );
 }
@@ -197,16 +270,32 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  heading: {
-    fontSize: 26,
-    fontWeight: "700",
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
-  dateLine: {
-    marginTop: 4,
-    marginBottom: 8,
-    opacity: 0.75,
-    fontSize: 14,
+  heading: { fontSize: 26, fontWeight: "700" },
+  headerBtn: {
+    backgroundColor: "rgba(37,99,235,0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
+  headerBtnText: { color: "#1d4ed8", fontWeight: "700" },
+  dateLine: { marginTop: 4, marginBottom: 4, opacity: 0.75, fontSize: 14 },
+  quickRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
+  progress: { fontSize: 14, fontWeight: "600", color: "#047857", marginBottom: 8 },
+  smallBtn: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "rgba(120,120,128,0.06)",
+  },
+  smallBtnText: { fontWeight: "600", fontSize: 13, opacity: 0.9 },
   trackingBanner: {
     backgroundColor: "rgba(37,99,235,0.12)",
     borderRadius: 10,
@@ -224,6 +313,20 @@ const styles = StyleSheet.create({
   },
   shiftBtnEnd: { backgroundColor: "#475569" },
   shiftBtnTxt: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  hero: {
+    backgroundColor: "rgba(37,99,235,0.08)",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(37,99,235,0.2)",
+  },
+  heroLabel: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", textTransform: "uppercase" },
+  heroTitle: { fontSize: 18, fontWeight: "700", marginTop: 6 },
+  heroMeta: { opacity: 0.75, marginTop: 4, fontSize: 14 },
+  heroAddress: { opacity: 0.7, marginTop: 6, fontSize: 13, lineHeight: 18 },
+  heroOpen: { marginTop: 10, alignSelf: "flex-start" },
+  heroOpenText: { color: "#2563eb", fontWeight: "600", fontSize: 15 },
   routeBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -232,17 +335,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
-  routeBannerText: {
-    flex: 1,
-    fontWeight: "600",
-    color: "#047857",
-    fontSize: 13,
-  },
-  routeBannerChev: {
-    fontSize: 20,
-    color: "#047857",
-    opacity: 0.6,
-  },
+  routeBannerText: { flex: 1, fontWeight: "600", color: "#047857", fontSize: 13 },
+  routeBannerChev: { fontSize: 20, color: "#047857", opacity: 0.6 },
   fuelBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -251,39 +345,8 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 12,
   },
-  fuelBannerText: {
-    flex: 1,
-    fontWeight: "600",
-    color: "#1d4ed8",
-  },
-  fuelBannerChev: {
-    fontSize: 20,
-    color: "#1d4ed8",
-    opacity: 0.6,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(120,120,128,0.08)",
-    marginBottom: 8,
-  },
-  visitTitle: {
-    fontWeight: "600",
-    fontSize: 17,
-  },
-  visitMeta: {
-    opacity: 0.7,
-    marginTop: 4,
-    fontSize: 14,
-  },
-  chev: {
-    fontSize: 24,
-    opacity: 0.4,
-    marginLeft: 8,
-  },
+  fuelBannerText: { flex: 1, fontWeight: "600", color: "#1d4ed8" },
+  fuelBannerChev: { fontSize: 20, color: "#1d4ed8", opacity: 0.6 },
   empty: {
     marginTop: 32,
     textAlign: "center",
@@ -298,4 +361,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
   },
+  moduleBanner: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "rgba(234,179,8,0.12)",
+  },
+  moduleBannerTitle: { fontWeight: "700", fontSize: 16, color: "#a16207" },
+  moduleBannerBody: { marginTop: 8, lineHeight: 22, opacity: 0.85 },
 });

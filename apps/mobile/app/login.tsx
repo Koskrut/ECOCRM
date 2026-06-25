@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
 import { Text } from "@/components/Themed";
+import { t } from "@/lib/i18n";
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -24,7 +25,7 @@ export default function LoginScreen() {
   async function onSubmit() {
     setError(null);
     if (!loginField.trim() || !password) {
-      setError("Укажите логин (email или username) и пароль");
+      setError(t("login.validation"));
       return;
     }
     setLoading(true);
@@ -43,15 +44,15 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}>
         <View style={styles.card}>
-          <Text style={styles.title}>CRM — менеджер</Text>
-          <Text style={styles.hint}>Вход теми же учётными данными, что и в веб-CRM</Text>
+          <Text style={styles.title}>{t("login.title")}</Text>
+          <Text style={styles.hint}>{t("login.hint")}</Text>
 
           <TextInput
             value={loginField}
             onChangeText={setLoginField}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="Email или username"
+            placeholder={t("login.loginPlaceholder")}
             placeholderTextColor="#888"
             style={styles.input}
             editable={!loading}
@@ -60,7 +61,7 @@ export default function LoginScreen() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry
-            placeholder="Пароль"
+            placeholder={t("login.passwordPlaceholder")}
             placeholderTextColor="#888"
             style={styles.input}
             editable={!loading}
@@ -84,7 +85,7 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Войти</Text>
+              <Text style={styles.buttonText}>{t("login.submit")}</Text>
             )}
           </Pressable>
         </View>
@@ -94,27 +95,11 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-  },
-  flex: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  card: {
-    gap: 12,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  hint: {
-    opacity: 0.75,
-    marginBottom: 12,
-    fontSize: 14,
-  },
+  safe: { flex: 1 },
+  flex: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
+  card: { gap: 12 },
+  title: { fontSize: 24, fontWeight: "700", marginBottom: 4 },
+  hint: { opacity: 0.75, marginBottom: 12, fontSize: 14 },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -123,10 +108,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
-  error: {
-    fontSize: 14,
-    marginTop: 4,
-  },
+  error: { fontSize: 14, marginTop: 4 },
   button: {
     marginTop: 8,
     backgroundColor: "#2563eb",
@@ -134,9 +116,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
   },
-  buttonText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
+  buttonText: { color: "#fff", fontSize: 17, fontWeight: "600" },
 });

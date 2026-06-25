@@ -4,7 +4,39 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.91**.)_
+_(планируемые изменения после **0.2.92**.)_
+
+## [0.2.92] — 2026-05-20
+
+### Summary
+
+Патч **0.2.92**: дедупликация задач на пропущенные звонки (**`Task.callId`**), склады **Киев / Луцьк / Хмельницький**, улучшения загрузки остатков из Excel, видимость заказов для **MANAGER**, доработки каталога и задач.
+
+### Added
+
+- **`Task.callId`**: уникальный FK на **`Call`**; миграция **`20260624143000_task_call_id`**; Ringostat / Kyivstar FMC ingest создают задачу с привязкой к звонку.
+- **Склады**: **Киев**, **Луцьк**, **Хмельницький** — миграция **`20260625120000_add_kyiv_lutsk_khmelnitsky_warehouses`**; колонки в каталоге.
+- **Stock upload**: нормализация SKU, алиасы складов (Луцк → Луцьк, Kyiv → Киев), тесты **`stock-upload.service.spec.ts`**.
+- **Orders**: видимость для **MANAGER** (свои, store, managed contacts) — **`orders-manager-visibility.spec.ts`**.
+- **Script**: **`cleanup-duplicate-missed-call-tasks.ts`** для очистки дублей после миграции.
+- **Mobile** (в репозитории): экраны contacts/leads/orders/tasks/visits, offline queue, API layer.
+
+### Changed
+
+- **Tasks**: **`callId`** в list/create API и web **`/tasks`**.
+- **Catalog**: остатки по новым складам, **`qtyAtWarehouse`**.
+- **Leads**: модалки create/edit.
+
+### Fixed
+
+- **`catalog/page.tsx`**: восстановлена функция **`qtyAtWarehouse`** (синтаксис).
+- **`orders.setOrderStage`**: **`contact.ownerId`** в select для **`assertOrderAccess`**.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.92`**.
+- **Миграции:** **`20260624143000_task_call_id`**, **`20260625120000_add_kyiv_lutsk_khmelnitsky_warehouses`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- После миграции при необходимости: **`ts-node scripts/cleanup-duplicate-missed-call-tasks.ts`** (dry-run, затем apply).
 
 ## [0.2.91] — 2026-06-24
 

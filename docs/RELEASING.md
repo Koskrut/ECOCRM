@@ -1,6 +1,6 @@
 # Выпуск релиза в Git (чеклист)
 
-Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.91`** / **`0.2.91`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.89`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.91]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
+Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.92`** / **`0.2.92`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.91`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.92]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
 
 ## Перед тегом
 
@@ -18,8 +18,8 @@ git fetch origin
 git checkout <ваша-ветка-релиза>   # например main
 git pull origin <ваша-ветка-релиза>
 
-git tag -a v0.2.91 -m "Release 0.2.91"
-git push origin v0.2.91
+git tag -a v0.2.92 -m "Release 0.2.92"
+git push origin v0.2.92
 ```
 
 После `git push origin v0.2.91` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** в dispatch собираются **все** module-образы и полный манифест compose.
@@ -28,11 +28,11 @@ git push origin v0.2.91
 
 ## Альтернатива: без тега
 
-**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.91`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
+**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.92`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
 
 ## После успешного CI
 
-- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.91`**, `docker compose pull` и перезапуск.
+- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.92`**, `docker compose pull` и перезапуск.
 - При наличии новых миграций в релизе: **`prisma migrate deploy`** на стороне клиента (или сервис `backend-migrate` в compose).
 
 ## Compose на сервере клиента (SUPREX / install bundle)

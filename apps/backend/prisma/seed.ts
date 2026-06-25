@@ -152,6 +152,33 @@ async function main() {
     externalCode: "000000051",
   },
   });
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-kyiv" },
+    update: { name: "Киев", sortOrder: 3 },
+    create: {
+      id: "seed-wh-kyiv",
+      name: "Киев",
+      sortOrder: 3,
+    },
+  });
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-lutsk" },
+    update: { name: "Луцьк", sortOrder: 4 },
+    create: {
+      id: "seed-wh-lutsk",
+      name: "Луцьк",
+      sortOrder: 4,
+    },
+  });
+  await prisma.warehouse.upsert({
+    where: { id: "seed-wh-khmelnitsky" },
+    update: { name: "Хмельницький", sortOrder: 5 },
+    create: {
+      id: "seed-wh-khmelnitsky",
+      name: "Хмельницький",
+      sortOrder: 5,
+    },
+  });
 
   // =========================
   // 2) Company + Contacts

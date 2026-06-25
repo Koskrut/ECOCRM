@@ -395,6 +395,7 @@ export class RingostatIngestService {
 
         if (this.isMissed(status) && customerPhoneNormalized) {
           await this.createMissedCallTaskActivity(tx, {
+            callId: call.id,
             contactId,
             companyId,
             leadId,
@@ -1163,6 +1164,7 @@ export class RingostatIngestService {
   private async createMissedCallTaskActivity(
     tx: Prisma.TransactionClient,
     params: {
+      callId: string;
       contactId: string | null;
       companyId: string | null;
       leadId: string | null;
@@ -1171,6 +1173,9 @@ export class RingostatIngestService {
       startedAt: Date;
     },
   ): Promise<void> {
+    if (process.env.RINGOSTAT_MISSED_CALL_TASKS_DISABLED === "true") {
+      return;
+    }
     const dueAt = new Date(params.startedAt.getTime() + 2 * 60 * 60 * 1000);
 
     const bodyLines: string[] = ["Перезвонить клиенту"];
@@ -1184,8 +1189,19 @@ export class RingostatIngestService {
     const hasAssignee = params.managerUserId != null;
 
     if (hasAssignee && hasEntity) {
-      await tx.task.create({
-        data: {
+      await tx.task.upsert({
+        where: { callId: params.callId },
+        create: {
+          callId: params.callId,
+          assigneeId: params.managerUserId!,
+          contactId: params.contactId,
+          companyId: params.companyId,
+          leadId: params.leadId,
+          title: "Перезвонить",
+          body,
+          dueAt,
+        },
+        update: {
           assigneeId: params.managerUserId!,
           contactId: params.contactId,
           companyId: params.companyId,

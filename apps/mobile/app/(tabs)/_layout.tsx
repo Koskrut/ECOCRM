@@ -5,6 +5,8 @@ import { Tabs } from "expo-router";
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
 import { useColorScheme } from "@/components/useColorScheme";
 import Colors from "@/constants/Colors";
+import { useModules } from "@/context/modules-context";
+import { t } from "@/lib/i18n";
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>["name"];
@@ -15,6 +17,7 @@ function TabBarIcon(props: {
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { visitsEnabled } = useModules();
 
   return (
     <Tabs
@@ -25,35 +28,36 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Сегодня",
+          title: t("tabs.today"),
           tabBarIcon: ({ color }) => <TabBarIcon name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: "Карта",
+          title: t("tabs.map"),
+          href: visitsEnabled ? undefined : null,
           tabBarIcon: ({ color }) => <TabBarIcon name="map-marker" color={color} />,
         }}
       />
       <Tabs.Screen
         name="clients"
         options={{
-          title: "Клиенты",
+          title: t("tabs.clients"),
           tabBarIcon: ({ color }) => <TabBarIcon name="users" color={color} />,
         }}
       />
       <Tabs.Screen
         name="tasks"
         options={{
-          title: "Задачи",
+          title: t("tabs.tasks"),
           tabBarIcon: ({ color }) => <TabBarIcon name="check-square-o" color={color} />,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: "Ещё",
+          title: t("tabs.more"),
           tabBarIcon: ({ color }) => <TabBarIcon name="ellipsis-h" color={color} />,
         }}
       />

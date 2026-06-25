@@ -1985,6 +1985,10 @@ model Task {
   companyId   String?
   leadId      String?
   orderId     String?
+  /**
+   * Задача «Перезвонить» по пропущенному звонку — одна на Call (идемпотентность ingest).
+   */
+  callId      String?    @unique
   title       String
   body        String?
   dueAt       DateTime?
@@ -2002,6 +2006,7 @@ model Task {
   company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   lead      Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  call      Call?    @relation("MissedCallTask", fields: [callId], references: [id], onDelete: SetNull)
   dailyWorkPlanItems DailyWorkPlanItem[]
 
   @@unique([legacySource, legacyId])
@@ -2895,6 +2900,7 @@ model Call {
   activity            Activity?            @relation("ActivityCall")
   outboundCallAttempt OutboundCallAttempt?
   manualCallSessions  ManualCallSession[]
+  missedCallTask      Task?                @relation("MissedCallTask")
 
   @@unique([provider, externalId])
   @@index([fromNormalized])

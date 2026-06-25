@@ -51,6 +51,7 @@ export type ListTasksQuery = {
   status?: TaskStatus | TaskStatus[];
   dueFrom?: string;
   dueTo?: string;
+  q?: string;
   sortBy?: TaskSortField;
   sortDir?: "asc" | "desc";
   page?: number;
@@ -97,6 +98,7 @@ export const tasksApi = {
     }
     if (query.dueFrom) params.dueFrom = query.dueFrom;
     if (query.dueTo) params.dueTo = query.dueTo;
+    if (query.q?.trim()) params.q = query.q.trim();
     if (query.sortBy) params.sortBy = query.sortBy;
     if (query.sortDir) params.sortDir = query.sortDir;
     if (query.page != null) params.page = query.page;

@@ -81,6 +81,11 @@ export class RingostatPollingService {
       }
 
       const events = listResult.events;
+      if (process.env.RINGOSTAT_MISSED_CALL_TASKS_DISABLED === "true") {
+        this.logger.warn(
+          "Ringostat polling: missed-call task creation is DISABLED via RINGOSTAT_MISSED_CALL_TASKS_DISABLED=true",
+        );
+      }
       // Keep polling logs lightweight, but include a quick hint if events are missing stable ids.
       const sample = events.slice(0, 50) as Array<Record<string, unknown>>;
       const uniqueidCount = sample.reduce(

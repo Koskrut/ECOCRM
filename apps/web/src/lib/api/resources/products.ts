@@ -75,6 +75,9 @@ export type StockUploadResult = {
   created: number;
   notFound: string[];
   unmatchedWarehouseNames?: string[];
+  matchedSkus?: string[];
+  unresolvedSkus?: string[];
+  skuCorrections?: Array<{ fileSku: string; dbSku: string }>;
 };
 
 export type CreateProductPayload = {

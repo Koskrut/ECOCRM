@@ -140,11 +140,67 @@ export class OrdersService {
     }
   }
 
-  /** MANAGER может работать только с заказами, где ownerId === actor.id. ADMIN и LEAD — полный доступ. */
-  private assertOrderAccess(order: { ownerId: string | null }, actor: AuthUser): void {
-    if (actor.role === UserRole.MANAGER && order.ownerId !== actor.id) {
-      throw new ForbiddenException("You can only access orders assigned to you");
+  /** Contacts a manager may see orders for (matches contacts.service access rules). */
+  private managedContactWhere(actorId: string): Prisma.ContactWhereInput {
+    return { OR: [{ ownerId: actorId }, { ownerId: null }] };
+  }
+
+  /** Orders visible to a field manager in list/detail (owner, store, managed contacts/companies). */
+  private managerOrderVisibilityWhere(actorId: string): Prisma.OrderWhereInput {
+    const managedContact = this.managedContactWhere(actorId);
+    return {
+      OR: [
+        { ownerId: actorId },
+        { orderSource: OrderSource.STORE },
+        { contact: { is: managedContact } },
+        { client: { is: managedContact } },
+        { company: { is: { OR: [{ ownerId: actorId }, { ownerId: null }] } } },
+      ],
+    };
+  }
+
+  private managerCanAccessOrder(
+    order: {
+      ownerId: string | null;
+      orderSource?: OrderSource | null;
+      contact?: { ownerId: string | null } | null;
+      client?: { ownerId: string | null } | null;
+      company?: { ownerId: string | null } | null;
+    },
+    actorId: string,
+  ): boolean {
+    if (order.ownerId === actorId) return true;
+    if (order.orderSource === OrderSource.STORE) return true;
+    for (const contact of [order.contact, order.client]) {
+      if (contact && (!contact.ownerId || contact.ownerId === actorId)) return true;
     }
+    if (order.company && (!order.company.ownerId || order.company.ownerId === actorId)) return true;
+    return false;
+  }
+
+  private async managerCanAccessOrderById(orderId: string, actorId: string): Promise<boolean> {
+    const count = await this.prisma.order.count({
+      where: { id: orderId, AND: [this.managerOrderVisibilityWhere(actorId)] },
+    });
+    return count > 0;
+  }
+
+  /** MANAGER: own orders, store orders, and orders on managed contacts/companies. */
+  private async assertOrderAccess(
+    order: {
+      id?: string;
+      ownerId: string | null;
+      orderSource?: OrderSource | null;
+      contact?: { ownerId: string | null } | null;
+      client?: { ownerId: string | null } | null;
+      company?: { ownerId: string | null } | null;
+    },
+    actor: AuthUser,
+  ): Promise<void> {
+    if (actor.role !== UserRole.MANAGER) return;
+    if (this.managerCanAccessOrder(order, actor.id)) return;
+    if (order.id && (await this.managerCanAccessOrderById(order.id, actor.id))) return;
+    throw new ForbiddenException("You can only access orders assigned to you");
   }
 
   private effectiveOrderIdForTtn(row: {
@@ -365,7 +421,7 @@ export class OrdersService {
       }
     }
     if (actor?.role === UserRole.MANAGER) {
-      where.OR = [{ ownerId: actor.id }, { orderSource: OrderSource.STORE }];
+      andWhere.push(this.managerOrderVisibilityWhere(actor.id));
     }
     if (q?.paymentType) where.paymentType = q.paymentType;
     if (q?.parentOrderId) where.parentOrderId = String(q.parentOrderId);
@@ -698,7 +754,7 @@ export class OrdersService {
       include: ORDER_INCLUDE,
     });
     if (!o) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(o, actor);
+    if (actor) await this.assertOrderAccess(o, actor);
     const ttnSharedMeta = await this.computeTtnSharedAcrossOrdersMeta([id]);
     const relatedOrderIds = ttnSharedMeta.get(id)?.relatedOrderIds ?? [];
     const relatedOrders =
@@ -866,7 +922,7 @@ export class OrdersService {
       },
     });
     if (!existing) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(existing, actor);
+    if (actor) await this.assertOrderAccess(existing, actor);
     assertWarehouseOrderUpdate(actor, dto as unknown as Record<string, unknown>);
     const before = this.mapToEntity(existing as unknown as Record<string, unknown>);
 
@@ -1004,7 +1060,7 @@ export class OrdersService {
       select: { id: true, ownerId: true, currency: true },
     });
     if (!order) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(order, actor);
+    if (actor) await this.assertOrderAccess(order, actor);
 
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
@@ -1056,7 +1112,7 @@ export class OrdersService {
       select: { id: true, ownerId: true, orderStage: true, totalAmount: true },
     });
     if (!order) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(order, actor);
+    if (actor) await this.assertOrderAccess(order, actor);
     assertWarehouseOrderItemQtyUpdate(actor, order.orderStage, dto);
 
     const item = await this.prisma.orderItem.findFirst({
@@ -1107,7 +1163,7 @@ export class OrdersService {
       select: { id: true, ownerId: true },
     });
     if (!order) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(order, actor);
+    if (actor) await this.assertOrderAccess(order, actor);
 
     const item = await this.prisma.orderItem.findFirst({
       where: { id: itemId, orderId },
@@ -1190,7 +1246,7 @@ export class OrdersService {
       include: { items: true },
     });
     if (!parent) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(parent, actor);
+    if (actor) await this.assertOrderAccess(parent, actor);
 
     const picks = dto?.picks;
     const hasPicks = picks != null && picks.length > 0;
@@ -1515,7 +1571,7 @@ export class OrdersService {
         id: true,
         ownerId: true,
         contactId: true,
-        contact: { select: { externalCode: true } },
+        contact: { select: { externalCode: true, ownerId: true } },
         orderStage: true,
         status: true,
         paymentType: true,
@@ -1538,7 +1594,7 @@ export class OrdersService {
       },
     });
     if (!current) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(current, actor);
+    if (actor) await this.assertOrderAccess(current, actor);
     assertWarehouseStageTransition(actor, current.orderStage, toStage);
 
     if (current.orderStage === "NEW" && toStage !== "NEW") {
@@ -1685,7 +1741,7 @@ export class OrdersService {
       select: { id: true, ownerId: true },
     });
     if (!order) throw new NotFoundException("Order not found");
-    if (actor) this.assertOrderAccess(order, actor);
+    if (actor) await this.assertOrderAccess(order, actor);
 
     const [history, activities, ttns] = await Promise.all([
       this.prisma.orderStatusHistory.findMany({

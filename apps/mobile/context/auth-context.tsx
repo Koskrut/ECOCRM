@@ -51,11 +51,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           } catch {
             if (!cancelled) {
-              await SecureStore.deleteItemAsync(TOKEN_KEY);
+              try {
+                await SecureStore.deleteItemAsync(TOKEN_KEY);
+              } catch {
+                /* ignore keystore errors */
+              }
               setToken(null);
               setUser(null);
             }
           }
+        }
+      } catch {
+        if (!cancelled) {
+          setToken(null);
+          setUser(null);
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -72,13 +81,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ login: loginStr.trim(), password }),
       token: null,
     });
-    await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+    try {
+      await SecureStore.setItemAsync(TOKEN_KEY, data.token);
+    } catch {
+      throw new Error("Не вдалося зберегти сесію на пристрої");
+    }
     setToken(data.token);
     setUser(data.user);
   }, []);
 
   const logout = useCallback(async () => {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    try {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+    } catch {
+      /* clear local session even if keystore fails */
+    }
     setToken(null);
     setUser(null);
   }, []);

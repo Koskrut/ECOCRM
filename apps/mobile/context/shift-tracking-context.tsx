@@ -6,11 +6,12 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import { Alert } from "react-native";
+import { Alert, InteractionManager } from "react-native";
 
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
+import { t } from "@/lib/i18n";
 import {
   getTrackingState,
   resumeTrackingIfNeeded,
@@ -70,19 +71,33 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       await syncTrackingState();
     } catch {
       setActiveShift(null);
+      setTrackingMode("none");
     } finally {
       setLoading(false);
     }
   }, [token, syncTrackingState]);
 
   useEffect(() => {
-    if (!ready) return;
-    void refresh();
-  }, [ready, refresh]);
+    if (!ready || !token) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      timeoutId = setTimeout(() => {
+        if (!cancelled) void refresh();
+      }, 500);
+    });
+
+    return () => {
+      cancelled = true;
+      handle.cancel();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [ready, token, refresh]);
 
   useEffect(() => {
     if (!token) {
-      void stopLocationTracking();
+      void stopLocationTracking().catch(() => undefined);
       setActiveShift(null);
       setTrackingMode("none");
     }
@@ -125,19 +140,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
         if (mode === "foreground") {
-          Alert.alert(
-            "Геолокація",
-            "Фоновий доступ не надано — трек працює лише поки застосунок відкритий.",
-          );
+          Alert.alert(t("gps.title"), t("gps.backgroundHint"));
         } else if (mode === "none") {
-          Alert.alert("Геолокація", "Дозвіл не надано — трек не збирається.");
+          Alert.alert(t("gps.title"), t("gps.noneHint"));
         }
       } else {
         setTrackingMode("none");
       }
       await syncTrackingState();
     } catch (e) {
-      Alert.alert("Помилка", String(e));
+      Alert.alert(t("common.error"), String(e));
     } finally {
       setLoading(false);
     }
@@ -153,7 +165,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setTrackingMode("none");
       await syncTrackingState();
     } catch (e) {
-      Alert.alert("Помилка", String(e));
+      Alert.alert(t("common.error"), String(e));
     } finally {
       setLoading(false);
     }

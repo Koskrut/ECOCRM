@@ -1,0 +1,9 @@
+# Monorepo: не загружать остальные приложения
+../../apps/web
+../../apps/backend
+../../apps/store
+../../docs
+../../deploy
+../../scripts
+../../.updater-logs
+../../.dev-license

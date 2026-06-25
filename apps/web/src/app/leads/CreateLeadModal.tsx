@@ -1,11 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import type { LeadSource, Lead } from "@/lib/api";
-
-type CompanyOption = { id: string; name: string };
 
 type EditItem = { productId: string; productName?: string; qty: number; price: number };
 
@@ -17,10 +15,6 @@ type Props = {
 };
 
 export function CreateLeadModal({ onClose, onCreated }: Props) {
-  const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [loadingCompanies, setLoadingCompanies] = useState(false);
-
-  const [companyId, setCompanyId] = useState<string>("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -39,20 +33,6 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   const canClose = !saving;
-
-  const loadCompanies = useCallback(async () => {
-    setLoadingCompanies(true);
-    try {
-      const res = await apiHttp.get<{ items?: CompanyOption[] }>("/companies?page=1&pageSize=200");
-      setCompanies(Array.isArray(res.data?.items) ? res.data.items : []);
-    } finally {
-      setLoadingCompanies(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadCompanies();
-  }, [loadCompanies]);
 
   useEffect(() => {
     if (!productSearch.trim()) {
@@ -122,7 +102,6 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         companyName: companyName.trim() || undefined,
         message: message.trim() || undefined,
       };
-      if (companyId) payload.companyId = companyId;
       if (createItems.length > 0) {
         payload.items = createItems.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price }));
       }
@@ -169,24 +148,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             </div>
           )}
 
-          <label className="block text-xs font-medium text-zinc-600">
-            Компанія <span className="font-normal text-zinc-400">(необовʼязково)</span>
-          </label>
-          <select
-            className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={companyId}
-            onChange={(e) => setCompanyId(e.target.value)}
-            disabled={loadingCompanies || saving}
-          >
-            <option value="">— за замовчуванням —</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-zinc-600">Імʼя</label>
               <input
@@ -221,14 +183,15 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-zinc-600">
-                Компанія (текст)
+                Компанія клієнта
               </label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 disabled={saving}
-                placeholder="Назва з джерела"
+                placeholder="Назва з форми або дзвінка"
+                autoComplete="off"
               />
             </div>
           </div>

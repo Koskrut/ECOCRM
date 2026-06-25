@@ -68,9 +68,31 @@ type PrismaProduct = {
   updatedAt: Date;
 };
 
-export type StockUpdateEntry = { sku: string; stock: number; name?: string; basePrice?: number };
+export type StockUpdateEntry = {
+  sku: string;
+  stock: number;
+  name?: string;
+  basePrice?: number;
+  fileSku?: string;
+};
 
-export type StockByWarehouseEntry = { sku: string; warehouseId: string; qty: number };
+export type StockByWarehouseEntry = {
+  sku: string;
+  warehouseId: string;
+  qty: number;
+  /** Raw article text from Excel cell (for skuCorrections reporting). */
+  fileSku?: string;
+};
+
+export type SkuCorrection = { fileSku: string; dbSku: string };
+
+export type PrepareBulkWarehouseStockResult = {
+  updates: Array<{ productId: string; warehouseId: string; qty: number }>;
+  productIds: Set<string>;
+  notFound: string[];
+  matchedSkus: string[];
+  skuCorrections: SkuCorrection[];
+};
 
 export type BulkStockUpdateResult = {
   updated: number;
@@ -391,25 +413,31 @@ export class ProductStore {
     return buildStockSkuIndex(rows);
   }
 
-  /** Resolve upload rows to product IDs by exact trimmed SKU match. */
-  public async prepareBulkWarehouseStock(entries: StockByWarehouseEntry[]): Promise<{
-    updates: Array<{ productId: string; warehouseId: string; qty: number }>;
-    productIds: Set<string>;
-    notFound: string[];
-  }> {
+  /** Resolve upload rows to product IDs via normalized article matching. */
+  public async prepareBulkWarehouseStock(
+    entries: StockByWarehouseEntry[],
+  ): Promise<PrepareBulkWarehouseStockResult> {
     const index = await this.loadStockSkuIndex();
     const notFoundSet = new Set<string>();
+    const matchedSkuSet = new Set<string>();
+    const correctionMap = new Map<string, string>();
     const updateMap = new Map<string, { productId: string; warehouseId: string; qty: number }>();
 
-    for (const { sku, warehouseId, qty } of entries) {
+    for (const { sku, fileSku, warehouseId, qty } of entries) {
       const skuTrim = sku.trim();
       const whId = warehouseId?.trim();
       if (!skuTrim || !whId) continue;
 
       const ref = resolveStockSkuToProduct(skuTrim, index);
       if (!ref) {
-        notFoundSet.add(skuTrim);
+        notFoundSet.add((fileSku ?? skuTrim).trim());
         continue;
+      }
+
+      matchedSkuSet.add(ref.sku);
+      const rawFileSku = (fileSku ?? skuTrim).trim();
+      if (rawFileSku && rawFileSku !== ref.sku) {
+        correctionMap.set(rawFileSku, ref.sku);
       }
 
       const key = `${ref.id}:${whId}`;
@@ -422,7 +450,16 @@ export class ProductStore {
 
     const updates = Array.from(updateMap.values());
     const productIds = new Set(updates.map((u) => u.productId));
-    return { updates, productIds, notFound: Array.from(notFoundSet) };
+    const skuCorrections = Array.from(correctionMap.entries())
+      .map(([fileSku, dbSku]) => ({ fileSku, dbSku }))
+      .sort((a, b) => a.fileSku.localeCompare(b.fileSku));
+    return {
+      updates,
+      productIds,
+      notFound: Array.from(notFoundSet).sort(),
+      matchedSkus: Array.from(matchedSkuSet).sort(),
+      skuCorrections,
+    };
   }
 
   /**

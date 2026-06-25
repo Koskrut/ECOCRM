@@ -340,4 +340,79 @@ describe("RingostatIngestService", () => {
     assert.equal(res?.fromNormalized, "+380931112233");
     assert.equal(res?.toNormalized, "+380441112233");
   });
+
+  it("missed calls create at most one callback task (idempotent via callId upsert)", async () => {
+    const calls: unknown[] = [];
+    const tasks: unknown[] = [];
+
+    const tx = {
+      call: {
+        upsert: async () => {
+          calls.push(true);
+          return {
+            id: "call_1",
+            contactId: "c1",
+            companyId: null,
+            leadId: null,
+            durationSec: 0,
+            startedAt: new Date("2026-04-02T10:00:00.000Z"),
+          };
+        },
+      },
+      activity: {
+        findFirst: async () => null,
+        create: async () => null,
+        updateMany: async () => null,
+      },
+      task: {
+        upsert: async (args: unknown) => {
+          tasks.push(args);
+          return null;
+        },
+      },
+    };
+
+    const prismaMock = {
+      integrationSetting: {
+        findFirst: async () =>
+          ({
+            config: {
+              defaultManagerId: "m1",
+            },
+          }) as unknown,
+      },
+      $transaction: async (fn: (t: typeof tx) => Promise<void>) => fn(tx),
+    } as unknown as PrismaService;
+
+    const phoneLookupMock = {
+      findContactByNormalizedKeys: async () => ({ id: "c1" }),
+      findCompanyIdByNormalizedKeys: async () => null,
+    } as unknown as PhoneEntityLookupService;
+
+    const svc = new RingostatIngestService(prismaMock, phoneLookupMock);
+
+    const raw = {
+      uniqueid: "u1",
+      type: "in",
+      calldate: "2026-04-02 10:00:00",
+      disposition: "NO ANSWER",
+      billsec: "0",
+      waiting: "0",
+      additional_call_data: {
+        E164: "380501234567",
+        // manager line must differ from client, otherwise entity matching is intentionally skipped
+        dst: "380441112233",
+      },
+    };
+
+    // two ingests of the same external call should still lead to one task upsert target (same callId).
+    // @ts-expect-error public method
+    await svc.ingestFromApi([raw, raw]);
+
+    assert.equal(tasks.length, 2, "task.upsert called for each event");
+    const where0 = (tasks[0] as any).where;
+    const where1 = (tasks[1] as any).where;
+    assert.equal(where0.callId, "call_1");
+    assert.equal(where1.callId, "call_1");
+  });
 });

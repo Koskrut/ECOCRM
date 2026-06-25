@@ -36,6 +36,14 @@ function CatalogExpandedCharacteristics({
   );
 }
 
+/** Preferred warehouse column order in catalog (matches Google Sheets export). */
+const WAREHOUSE_ORDER = ["Днепр", "Львов", "Киев", "Луцьк", "Одесса", "Хмельницький"] as const;
+
+function warehouseDisplayOrder(name: string): number {
+  const idx = WAREHOUSE_ORDER.findIndex((w) => w.toLowerCase() === name.toLowerCase());
+  return idx >= 0 ? idx : WAREHOUSE_ORDER.length;
+}
+
 function qtyAtWarehouse(
   p: ProductCatalogItem,
   warehouseName: string,
@@ -881,10 +889,28 @@ function StockUploadByWarehousesModal({
               </p>
               {result.notFound.length > 0 && (
                 <p className="mt-1 text-zinc-600">
-                  Не найдены артикулы: {result.notFound.slice(0, 10).join(", ")}
-                  {result.notFound.length > 10
-                    ? ` и ещё ${result.notFound.length - 10}`
+                  Не найдены артикулы:{" "}
+                  {(result.unresolvedSkus ?? result.notFound).slice(0, 10).join(", ")}
+                  {(result.unresolvedSkus ?? result.notFound).length > 10
+                    ? ` и ещё ${(result.unresolvedSkus ?? result.notFound).length - 10}`
                     : ""}
+                </p>
+              )}
+              {result.skuCorrections && result.skuCorrections.length > 0 && (
+                <p className="mt-2 text-zinc-700">
+                  Сопоставлены артикулы из файла:{" "}
+                  {result.skuCorrections
+                    .slice(0, 8)
+                    .map((c) => `${c.fileSku} → ${c.dbSku}`)
+                    .join(", ")}
+                  {result.skuCorrections.length > 8
+                    ? ` и ещё ${result.skuCorrections.length - 8}`
+                    : ""}
+                </p>
+              )}
+              {result.matchedSkus && result.matchedSkus.length > 0 && (
+                <p className="mt-1 text-zinc-500">
+                  Найдено в каталоге: {result.matchedSkus.length} арт.
                 </p>
               )}
               {result.unmatchedWarehouseNames && result.unmatchedWarehouseNames.length > 0 && (
@@ -1189,7 +1215,12 @@ function CatalogPageContent() {
   }, [reloadWarehouses]);
 
   const sortedWarehouses = useMemo(
-    () => [...warehouses].sort((a, b) => a.sortOrder - b.sortOrder),
+    () =>
+      [...warehouses].sort((a, b) => {
+        const orderDiff = warehouseDisplayOrder(a.name) - warehouseDisplayOrder(b.name);
+        if (orderDiff !== 0) return orderDiff;
+        return a.sortOrder - b.sortOrder;
+      }),
     [warehouses],
   );
   const sortedWarehouseNames = useMemo(

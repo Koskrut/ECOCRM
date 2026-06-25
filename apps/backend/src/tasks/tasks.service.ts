@@ -174,8 +174,10 @@ export class TasksService {
       throw new BadRequestException("User is required");
     }
     const where: Prisma.TaskWhereInput = {};
+    const andParts: Prisma.TaskWhereInput[] = [];
+
     if (actor.role === UserRole.MANAGER) {
-      where.OR = [{ assigneeId: actor.id }, { createdById: actor.id }];
+      andParts.push({ OR: [{ assigneeId: actor.id }, { createdById: actor.id }] });
     } else if (query.assigneeId) {
       where.assigneeId = query.assigneeId;
     }
@@ -198,6 +200,49 @@ export class TasksService {
       if (query.dueTo) {
         (where.dueAt as Prisma.DateTimeNullableFilter).lte = new Date(query.dueTo);
       }
+    }
+
+    if (query.q) {
+      const search = query.q.trim();
+      if (search.length > 0) {
+        const phoneDigits = search.replace(/\D/g, "");
+        const searchOr: Prisma.TaskWhereInput[] = [
+          { title: { contains: search, mode: "insensitive" } },
+          { body: { contains: search, mode: "insensitive" } },
+          {
+            contact: {
+              OR: [
+                { firstName: { contains: search, mode: "insensitive" } },
+                { lastName: { contains: search, mode: "insensitive" } },
+                { phone: { contains: search, mode: "insensitive" } },
+              ],
+            },
+          },
+          { company: { name: { contains: search, mode: "insensitive" } } },
+          {
+            lead: {
+              OR: [
+                { fullName: { contains: search, mode: "insensitive" } },
+                { phone: { contains: search, mode: "insensitive" } },
+                { companyName: { contains: search, mode: "insensitive" } },
+              ],
+            },
+          },
+          { order: { orderNumber: { contains: search, mode: "insensitive" } } },
+          { assignee: { fullName: { contains: search, mode: "insensitive" } } },
+        ];
+        if (phoneDigits.length >= 5) {
+          searchOr.push(
+            { contact: { phoneNormalized: { contains: phoneDigits } } },
+            { lead: { phoneNormalized: { contains: phoneDigits } } },
+          );
+        }
+        andParts.push({ OR: searchOr });
+      }
+    }
+
+    if (andParts.length > 0) {
+      where.AND = andParts;
     }
 
     const page = Math.max(1, Number(query.page) || 1);

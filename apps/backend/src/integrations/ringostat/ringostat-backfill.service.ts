@@ -49,6 +49,11 @@ export class RingostatBackfillService {
     from: string;
     to: string;
   }> {
+    if (process.env.RINGOSTAT_MISSED_CALL_TASKS_DISABLED === "true") {
+      this.logger.warn(
+        "Ringostat backfill: missed-call task creation is DISABLED via RINGOSTAT_MISSED_CALL_TASKS_DISABLED=true",
+      );
+    }
     const from = new Date(fromIso);
     const to = new Date(toIso);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {

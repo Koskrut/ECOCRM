@@ -170,6 +170,25 @@ export class LeadsService {
     const trimmed = explicit?.trim();
     if (trimmed) return trimmed;
 
+    const fromEnv =
+      (process.env.LEAD_COMPANY_ID as string)?.trim() ||
+      (process.env.META_LEAD_COMPANY_ID as string)?.trim();
+    if (fromEnv) return fromEnv;
+
+    try {
+      const meta = await this.settings.getMetaLeadAdsSecrets();
+      if (meta.companyId?.trim()) return meta.companyId.trim();
+    } catch {
+      // settings optional
+    }
+
+    try {
+      const telegram = await this.settings.getTelegramSecrets();
+      if (telegram.leadCompanyId?.trim()) return telegram.leadCompanyId.trim();
+    } catch {
+      // settings optional
+    }
+
     const first = await this.prisma.company.findFirst({
       select: { id: true },
       orderBy: { createdAt: "asc" },
@@ -611,7 +630,7 @@ export class LeadsService {
       throw new BadRequestException("Cannot specify both companyId and createCompany");
     }
 
-    let companyId: string = lead.companyId;
+    let companyId: string | null = null;
     if (dto.companyId?.trim()) {
       const company = await this.prisma.company.findUnique({
         where: { id: dto.companyId.trim() },
@@ -650,7 +669,7 @@ export class LeadsService {
         companyId = contact.companyId;
       }
 
-      if (contact.companyId && contact.companyId !== companyId) {
+      if (contact.companyId && companyId && contact.companyId !== companyId) {
         throw new BadRequestException("Contact belongs to a different company");
       }
 
@@ -676,7 +695,7 @@ export class LeadsService {
 
       const created = await this.contactsService.create(
         {
-          companyId,
+          companyId: companyId ?? undefined,
           firstName,
           lastName,
           middleName,
@@ -706,7 +725,7 @@ export class LeadsService {
       const comment = this.buildOrderComment(dto.deal);
       const orderDto: CreateOrderDto = {
         ownerId: actor.id,
-        companyId,
+        companyId: companyId ?? undefined,
         clientId: contactId,
         contactId,
         comment: comment ?? undefined,

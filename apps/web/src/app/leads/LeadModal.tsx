@@ -484,10 +484,15 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   }, [leadId]);
 
   const searchCompanies = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setCompanyOptions([]);
+      return;
+    }
     setLoadingCompanies(true);
     try {
       const res = await companiesApi.list({
-        search: query.trim() || undefined,
+        search: q,
         page: 1,
         pageSize: 15,
       });
@@ -1400,11 +1405,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-zinc-700" htmlFor="lead-company">
-              Компанія
+              Компанія клієнта
             </label>
             <input
               id="lead-company"
-              autoComplete="organization"
+              autoComplete="off"
               className={LEAD_FIELD_CLASS}
               placeholder="Введіть компанію..."
               value={editCompanyName}
@@ -1674,7 +1679,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                         <SearchableSelectLite
                           value={selectedCompanyId}
                           options={companyOptions}
-                          placeholder="Пошук компанії…"
+                          placeholder="Пошук компанії (мін. 2 символи)…"
                           disabled={converting}
                           isLoading={loadingCompanies}
                           onSearchQueryChange={onCompanySearchQueryChange}

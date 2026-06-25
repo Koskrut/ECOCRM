@@ -1,18 +1,10 @@
+import { t } from "@/lib/i18n";
+
 export function gpsVerificationLabel(code: string | null | undefined): string {
-  switch (code) {
-    case "VERIFIED":
-      return "Вы на месте";
-    case "NEARBY_WARNING":
-      return "Рядом с точкой (подойдите ближе)";
-    case "OUTSIDE_RADIUS":
-      return "Далеко от плановой точки";
-    case "MANUAL_REVIEW":
-      return "Нужна ручная проверка (нет координат визита)";
-    case "NO_FIX":
-      return "Нет координат или слабый GPS";
-    default:
-      return code ? code : "";
-  }
+  if (!code) return "";
+  const key = `gps.${code}` as const;
+  const label = t(key);
+  return label === key ? code : label;
 }
 
 export const VISIT_OUTCOMES = [
@@ -26,12 +18,21 @@ export const VISIT_OUTCOMES = [
 export type VisitOutcome = (typeof VISIT_OUTCOMES)[number];
 
 export function visitOutcomeLabel(o: VisitOutcome): string {
-  const map: Record<VisitOutcome, string> = {
-    SUCCESS: "Успешно",
-    FOLLOW_UP: "Повторный контакт",
-    NO_DECISION: "Без решения",
-    NOT_RELEVANT: "Не релевантно",
-    FAILED: "Неуспешно",
-  };
-  return map[o] ?? o;
+  const key = `outcomes.${o}` as const;
+  const label = t(key);
+  return label === key ? o : label;
+}
+
+export function orderStageLabel(stage: string | null | undefined): string {
+  if (!stage) return "";
+  const key = `orderStage.${stage}` as const;
+  const label = t(key);
+  return label === key ? stage : label;
+}
+
+export function clientStageLabel(stage: string | null | undefined): string {
+  if (!stage) return "";
+  const key = `clientStage.${stage}` as const;
+  const label = t(key);
+  return label === key ? stage : label;
 }

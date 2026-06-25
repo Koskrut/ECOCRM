@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ListTodo } from "lucide-react";
+import { ListTodo, Search } from "lucide-react";
 import {
   tasksApi,
   resolveTaskListStatus,
@@ -110,6 +110,9 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("active");
   const [periodFilter, setPeriodFilter] = useState<"" | "week" | "overdue">("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState("");
   const [sortBy, setSortBy] = useState<TaskSortField>("dueAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
@@ -128,6 +131,7 @@ export default function TasksPage() {
   const [addError, setAddError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [newAssigneeId, setNewAssigneeId] = useState<string>("");
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -162,6 +166,7 @@ export default function TasksPage() {
         ]);
         setUsers(usersRes.data?.items ?? []);
         setMyUserId(meRes.user?.id ?? null);
+        setUserRole(meRes.user?.role ?? null);
         setNewAssigneeId(meRes.user?.id ?? "");
       } catch {
         setUsers([]);
@@ -169,11 +174,22 @@ export default function TasksPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextQ = qInput.trim();
+      setPage(1);
+      setQ((prev) => (prev === nextQ ? prev : nextQ));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [qInput]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const period = getPeriodBounds(periodFilter);
       const res = await tasksApi.list({
+        assigneeId: assigneeFilter || undefined,
+        q: q.trim() || undefined,
         status: resolveTaskListStatus(statusFilter, period.status),
         dueFrom: period.dueFrom,
         dueTo: period.dueTo,
@@ -190,7 +206,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, periodFilter, sortBy, sortDir, page]);
+  }, [assigneeFilter, q, statusFilter, periodFilter, sortBy, sortDir, page]);
 
   useEffect(() => {
     void load();
@@ -347,6 +363,32 @@ export default function TasksPage() {
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const showAssigneeFilter = userRole != null && userRole !== "MANAGER";
+
+  const onSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPage(1);
+    setQ(qInput.trim());
+  };
+
+  const resetFilters = () => {
+    setStatusFilter("active");
+    setPeriodFilter("");
+    setAssigneeFilter("");
+    setSortBy("dueAt");
+    setSortDir("asc");
+    setQInput("");
+    setQ("");
+    setPage(1);
+  };
+
+  const filtersActive =
+    statusFilter !== "active" ||
+    periodFilter !== "" ||
+    assigneeFilter !== "" ||
+    sortBy !== "dueAt" ||
+    sortDir !== "asc" ||
+    q.trim() !== "";
 
   return (
     <div className="space-y-6">
@@ -355,6 +397,30 @@ export default function TasksPage() {
           <ListTodo className="h-7 w-7 text-zinc-600" />
           Tasks
         </h1>
+        <button
+          type="button"
+          onClick={() => setShowAdd((v) => !v)}
+          className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white"
+        >
+          {showAdd ? "Cancel" : "+ Add task"}
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        <form
+          onSubmit={onSearchSubmit}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2"
+        >
+          <Search className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+          <input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            placeholder="Search by title, note, assignee, contact, company, lead, order…"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+            type="search"
+            aria-label="Search tasks"
+          />
+        </form>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={periodFilter}
@@ -384,6 +450,23 @@ export default function TasksPage() {
               </option>
             ))}
           </select>
+          {showAssigneeFilter && (
+            <select
+              value={assigneeFilter}
+              onChange={(e) => {
+                setAssigneeFilter(e.target.value);
+                setPage(1);
+              }}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
+            >
+              <option value="">All assignees</option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.fullName}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={`${sortBy}-${sortDir}`}
             onChange={(e) => {
@@ -402,14 +485,20 @@ export default function TasksPage() {
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={() => setShowAdd((v) => !v)}
-            className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white"
-          >
-            {showAdd ? "Cancel" : "+ Add task"}
-          </button>
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
+            >
+              Reset filters
+            </button>
+          )}
         </div>
+        <p className="text-sm text-zinc-500">
+          Total: {total}
+          {totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
+        </p>
       </div>
 
       {showAdd && (

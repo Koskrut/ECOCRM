@@ -11,6 +11,7 @@ export type ListTasksQueryDto = {
   status?: TaskStatus | TaskStatus[];
   dueFrom?: string; // ISO date
   dueTo?: string;   // ISO date
+  q?: string;
   sortBy?: TaskSortField;
   sortDir?: "asc" | "desc";
   page?: number;
