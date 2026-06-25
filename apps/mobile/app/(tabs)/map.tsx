@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { useCallback, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -10,7 +10,7 @@ import {
   Switch,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline, type Region } from "react-native-maps";
+import type { Region } from "react-native-maps";
 
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
@@ -18,7 +18,16 @@ import { useModules } from "@/context/modules-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
 import { t } from "@/lib/i18n";
-import { buildStaticMapUrl, sanitizePath, type RouteGeometryBundle } from "@/lib/route-map";
+import {
+  buildStaticMapUrl,
+  layerPath,
+  normalizeGeometryBundle,
+  type RouteGeometryBundle,
+} from "@/lib/route-map";
+
+const RouteMapView = React.lazy(() =>
+  import("@/components/RouteMapView").then((m) => ({ default: m.RouteMapView })),
+);
 
 type LayerKey = "planned" | "fact_visits" | "fact_gps";
 
@@ -34,6 +43,18 @@ const LAYER_COLORS: Record<LayerKey, string> = {
   fact_gps: "0xd97706",
 };
 
+const STROKE_COLORS: Record<LayerKey, string> = {
+  planned: "#2563eb",
+  fact_visits: "#059669",
+  fact_gps: "#d97706",
+};
+
+function geometryForLayer(bundle: RouteGeometryBundle, key: LayerKey) {
+  if (key === "planned") return bundle.planned;
+  if (key === "fact_visits") return bundle.factVisits;
+  return bundle.factGps;
+}
+
 export default function MapScreen() {
   const { token } = useAuth();
   const { visitsEnabled } = useModules();
@@ -43,6 +64,8 @@ export default function MapScreen() {
   const [loading, setLoading] = useState(true);
   const [interactive, setInteractive] = useState(false);
   const [userRegion, setUserRegion] = useState<Region | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [staticImageError, setStaticImageError] = useState(false);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     planned: true,
     fact_gps: true,
@@ -52,9 +75,11 @@ export default function MapScreen() {
   const reload = useCallback(async () => {
     if (!token || !visitsEnabled) return;
     setLoading(true);
+    setMapError(null);
+    setStaticImageError(false);
     try {
       const [geo, cfg] = await Promise.all([
-        apiFetch<RouteGeometryBundle>(
+        apiFetch<unknown>(
           `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`,
           { token },
         ),
@@ -62,10 +87,11 @@ export default function MapScreen() {
           () => ({ mapsApiKey: null }),
         ),
       ]);
-      setBundle(geo);
+      setBundle(normalizeGeometryBundle(geo));
       setMapsKey(typeof cfg.mapsApiKey === "string" ? cfg.mapsApiKey : null);
     } catch {
       setBundle(null);
+      setMapError("Не вдалося завантажити маршрут");
     } finally {
       setLoading(false);
     }
@@ -82,9 +108,11 @@ export default function MapScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = pos.coords;
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
       setUserRegion({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
+        latitude,
+        longitude,
         latitudeDelta: 0.12,
         longitudeDelta: 0.12,
       });
@@ -99,47 +127,46 @@ export default function MapScreen() {
     }, [loadUserLocation]),
   );
 
-  const staticUrl =
-    mapsKey && bundle
-      ? buildStaticMapUrl({
-          apiKey: mapsKey,
-          paths: (
-            [
-              ["planned", bundle.planned] as const,
-              ["fact_visits", bundle.factVisits] as const,
-              ["fact_gps", bundle.factGps] as const,
-            ] as const
-          )
-            .filter(([k]) => layers[k])
-            .map(([k, g]) => ({ color: LAYER_COLORS[k], points: sanitizePath(g?.path) }))
-            .filter((p) => p.points.length >= 2),
-        })
-      : null;
+  const activeLayers = useMemo(() => {
+    return (Object.keys(LAYER_LABELS) as LayerKey[]).filter((k) => layers[k]);
+  }, [layers]);
 
-  const gpsQuality = bundle?.factGps?.quality;
+  const staticUrl = useMemo(() => {
+    if (!mapsKey || !bundle) return null;
+    try {
+      return buildStaticMapUrl({
+        apiKey: mapsKey,
+        paths: activeLayers
+          .map((k) => ({
+            color: LAYER_COLORS[k],
+            points: layerPath(geometryForLayer(bundle, k)),
+          }))
+          .filter((p) => p.points.length >= 2),
+      });
+    } catch {
+      return null;
+    }
+  }, [mapsKey, bundle, activeLayers]);
 
   const polylines = useMemo(() => {
     if (!bundle) return [];
-    const entries = [
-      ["planned", bundle.planned] as const,
-      ["fact_visits", bundle.factVisits] as const,
-      ["fact_gps", bundle.factGps] as const,
-    ] as const;
-    return entries
-      .filter(([k]) => layers[k])
-      .map(([k, g]) => ({ key: k, path: sanitizePath(g?.path) }))
-      .filter((p) => p.path.length >= 2)
-      .map((p) => ({
-        key: p.key,
-        coords: p.path.map((pt) => ({ latitude: pt.lat, longitude: pt.lng })),
-      }));
-  }, [bundle, layers]);
+    return activeLayers
+      .map((k) => ({
+        key: k,
+        path: layerPath(geometryForLayer(bundle, k)),
+        color: STROKE_COLORS[k],
+      }))
+      .filter((p) => p.path.length >= 2);
+  }, [bundle, activeLayers]);
 
   const defaultRegion = useMemo<Region | null>(() => {
     if (userRegion) return userRegion;
-    const pts = sanitizePath(
-      bundle?.planned?.path ?? bundle?.factGps?.path ?? bundle?.factVisits?.path,
-    );
+    if (!bundle) return null;
+    const pts = layerPath(bundle.planned).length
+      ? layerPath(bundle.planned)
+      : layerPath(bundle.factGps).length
+        ? layerPath(bundle.factGps)
+        : layerPath(bundle.factVisits);
     const c = pts[Math.floor(pts.length / 2)];
     if (!c) return null;
     return {
@@ -150,7 +177,19 @@ export default function MapScreen() {
     };
   }, [bundle, userRegion]);
 
-  const showInteractiveMap = interactive && !!mapsKey && !!defaultRegion && !loading;
+  const showInteractiveMap = interactive && !!defaultRegion && !loading && polylines.length > 0;
+
+  function toggleLayer(key: LayerKey) {
+    setMapError(null);
+    setStaticImageError(false);
+    setLayers((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      const anyOn = Object.values(next).some(Boolean);
+      return anyOn ? next : prev;
+    });
+  }
+
+  const gpsQuality = bundle?.factGps?.quality;
 
   if (!visitsEnabled) {
     return (
@@ -163,7 +202,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content} nestedScrollEnabled>
+      <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.heading}>{t("tabs.map")}</Text>
         <Text style={styles.dateLine}>{dateKey}</Text>
 
@@ -171,19 +210,25 @@ export default function MapScreen() {
           <Text style={{ fontWeight: "600" }}>Інтерактивна карта</Text>
           <Switch
             value={interactive}
-            onValueChange={setInteractive}
-            disabled={!mapsKey}
+            onValueChange={(v) => {
+              setMapError(null);
+              setInteractive(v);
+            }}
+            disabled={!mapsKey || polylines.length === 0}
           />
         </View>
         {!mapsKey && !loading ? (
-          <Text style={styles.hint}>Google Maps API key не налаштовано — лише статична карта.</Text>
+          <Text style={styles.hint}>Google Maps API key не налаштовано.</Text>
+        ) : null}
+        {interactive && !mapsKey ? (
+          <Text style={styles.hint}>Інтерактивна карта потребує Google Maps API key.</Text>
         ) : null}
 
         <View style={styles.layerRow}>
           {(Object.keys(LAYER_LABELS) as LayerKey[]).map((key) => (
             <Pressable
               key={key}
-              onPress={() => setLayers((p) => ({ ...p, [key]: !p[key] }))}
+              onPress={() => toggleLayer(key)}
               style={[styles.layerChip, layers[key] && styles.layerChipOn]}>
               <Text style={[styles.layerChipText, layers[key] && styles.layerChipTextOn]}>
                 {t(LAYER_LABELS[key])}
@@ -192,15 +237,23 @@ export default function MapScreen() {
           ))}
         </View>
 
+        {mapError ? <Text style={styles.errorText}>{mapError}</Text> : null}
+
         {loading ? (
           <ActivityIndicator style={{ marginTop: 24 }} />
-        ) : !mapsKey ? (
-          <Text style={styles.hint}>Google Maps API key не налаштовано.</Text>
         ) : !interactive ? (
-          !staticUrl ? (
+          !mapsKey ? (
+            <Text style={styles.hint}>Google Maps API key не налаштовано.</Text>
+          ) : !staticUrl || staticImageError ? (
             <Text style={styles.hint}>{t("map.noPoints")}</Text>
           ) : (
-            <Image source={{ uri: staticUrl }} style={styles.mapImage} resizeMode="cover" />
+            <Image
+              key={staticUrl}
+              source={{ uri: staticUrl }}
+              style={styles.mapImage}
+              resizeMode="cover"
+              onError={() => setStaticImageError(true)}
+            />
           )
         ) : null}
 
@@ -225,32 +278,21 @@ export default function MapScreen() {
         ) : null}
       </ScrollView>
 
-      {showInteractiveMap ? (
-        <View style={styles.mapSlot}>
-          <MapView style={styles.mapLive} initialRegion={defaultRegion} scrollEnabled={false}>
-            {polylines.map((p) => (
-              <Polyline
-                key={p.key}
-                coordinates={p.coords}
-                strokeWidth={4}
-                strokeColor={
-                  p.key === "planned"
-                    ? "#2563eb"
-                    : p.key === "fact_visits"
-                      ? "#059669"
-                      : "#d97706"
-                }
-              />
-            ))}
-            {userRegion ? (
-              <Marker
-                coordinate={{ latitude: userRegion.latitude, longitude: userRegion.longitude }}
-                title="Ви тут"
-              />
-            ) : null}
-          </MapView>
+      {showInteractiveMap && defaultRegion ? (
+        <View style={styles.mapSlotFixed}>
+          <Suspense fallback={<ActivityIndicator style={{ marginTop: 24 }} />}>
+            <RouteMapView
+              region={defaultRegion}
+              polylines={polylines}
+              userCoordinate={
+                userRegion
+                  ? { latitude: userRegion.latitude, longitude: userRegion.longitude }
+                  : null
+              }
+            />
+          </Suspense>
         </View>
-      ) : interactive && mapsKey && !defaultRegion && !loading ? (
+      ) : interactive && !loading && !defaultRegion ? (
         <Text style={[styles.hint, { paddingHorizontal: 16 }]}>{t("map.noPoints")}</Text>
       ) : null}
     </View>
@@ -285,13 +327,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(120,120,128,0.1)",
   },
-  mapSlot: {
+  mapSlotFixed: {
     height: 320,
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
-  mapLive: { flex: 1, borderRadius: 12 },
   hint: { marginTop: 16, lineHeight: 22, opacity: 0.8, fontSize: 14 },
+  errorText: { color: "#ef4444", marginBottom: 8, lineHeight: 20 },
   metrics: {
     marginTop: 16,
     padding: 12,

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivDayBounds } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
 
@@ -36,18 +37,18 @@ export class RouteSessionsService {
     return date;
   }
 
-  private getDayRange(date: Date): { dayStart: Date; dayEnd: Date } {
-    const dayStart = date;
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    return { dayStart, dayEnd };
+  private getDayRange(dateStr: string): { dayStart: Date; dayEnd: Date } {
+    const { from, to } = kyivDayBounds(dateStr);
+    return { dayStart: from, dayEnd: to };
   }
 
   /** First non-DONE visit: from RoutePlan by position, else earliest incomplete by startsAt (includes overdue). */
   private async resolveFirstVisitId(
     ownerId: string,
+    dateStr: string,
     date: Date,
   ): Promise<string | null> {
-    const { dayStart, dayEnd } = this.getDayRange(date);
+    const { dayStart, dayEnd } = this.getDayRange(dateStr);
     const plan = await this.prisma.routePlan.findUnique({
       where: {
         ownerId_date: { ownerId, date },
@@ -70,7 +71,7 @@ export class RouteSessionsService {
       where: {
         ownerId,
         status: { notIn: [VisitStatus.DONE, VisitStatus.CANCELED] },
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       orderBy: { startsAt: "asc" },
       select: { id: true, startsAt: true },
@@ -81,10 +82,11 @@ export class RouteSessionsService {
   /** Next non-DONE visit after currentVisitId: from RoutePlan order, else by startsAt. */
   private async resolveNextVisitId(
     ownerId: string,
+    dateStr: string,
     date: Date,
     currentVisitId: string | null,
   ): Promise<string | null> {
-    const { dayStart, dayEnd } = this.getDayRange(date);
+    const { dayStart, dayEnd } = this.getDayRange(dateStr);
     const plan = await this.prisma.routePlan.findUnique({
       where: {
         ownerId_date: { ownerId, date },
@@ -109,7 +111,7 @@ export class RouteSessionsService {
       where: {
         ownerId,
         status: { notIn: [VisitStatus.DONE, VisitStatus.CANCELED] },
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       orderBy: { startsAt: "asc" },
       select: { id: true, startsAt: true },
@@ -208,7 +210,7 @@ export class RouteSessionsService {
       throw new BadRequestException("date is required");
     }
     const date = this.parseDate(dateStr);
-    const firstVisitId = await this.resolveFirstVisitId(actor.id, date);
+    const firstVisitId = await this.resolveFirstVisitId(actor.id, dateStr, date);
     const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId: actor.id, date } },
     });
@@ -268,6 +270,7 @@ export class RouteSessionsService {
     }
     const nextVisitId = await this.resolveNextVisitId(
       actor.id,
+      dateStr,
       date,
       session.currentVisitId,
     );
@@ -297,7 +300,7 @@ export class RouteSessionsService {
       throw new BadRequestException("visitId is required");
     }
     const date = this.parseDate(dateStr);
-    const { dayStart, dayEnd } = this.getDayRange(date);
+    const { dayStart, dayEnd } = this.getDayRange(dateStr);
     const session = await this.prisma.routeSession.findUnique({
       where: { ownerId_date: { ownerId: actor.id, date } },
     });
@@ -320,18 +323,8 @@ export class RouteSessionsService {
       throw new BadRequestException("Cannot select a completed or canceled visit");
     }
     const starts = visit.startsAt;
-    if (!starts || starts < dayStart || starts >= dayEnd) {
+    if (!starts || starts < dayStart || starts > dayEnd) {
       throw new BadRequestException("Visit is not on this day");
-    }
-    const plan = await this.prisma.routePlan.findUnique({
-      where: { ownerId_date: { ownerId: actor.id, date } },
-      include: { stops: { select: { visitId: true } } },
-    });
-    if (plan?.stops?.length) {
-      const onPlan = plan.stops.some((s) => s.visitId === visitId);
-      if (!onPlan) {
-        throw new BadRequestException("Visit is not on this day's route");
-      }
     }
     const updated = await this.prisma.routeSession.update({
       where: { id: session.id },

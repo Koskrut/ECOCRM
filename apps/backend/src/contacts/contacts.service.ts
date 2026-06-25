@@ -547,69 +547,77 @@ export class ContactsService {
     }
     const search = params.q?.trim();
     if (search) {
-      const phoneDigits = search.replace(/\D/g, "");
-      const tokens = search.split(/\s+/).filter(Boolean);
-      const searchOr: Prisma.ContactWhereInput[] = [
-        { firstName: { contains: search, mode: "insensitive" } },
-        { lastName: { contains: search, mode: "insensitive" } },
-        { middleName: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { externalCode: { contains: search, mode: "insensitive" } },
-        { company: { name: { contains: search, mode: "insensitive" } } },
-        { address: { contains: search, mode: "insensitive" } },
-        { addressInfo: { contains: search, mode: "insensitive" } },
-        { region: { contains: search, mode: "insensitive" } },
-        { city: { contains: search, mode: "insensitive" } },
-        {
-          addresses: {
-            some: {
-              OR: [
-                { addressText: { contains: search, mode: "insensitive" } },
-                { city: { contains: search, mode: "insensitive" } },
-                { label: { contains: search, mode: "insensitive" } },
-              ],
+      if (search.startsWith("/")) {
+        const externalCodeQuery = search.slice(1).trim();
+        if (externalCodeQuery) {
+          andParts.push({
+            externalCode: { contains: externalCodeQuery, mode: "insensitive" },
+          });
+        }
+      } else {
+        const phoneDigits = search.replace(/\D/g, "");
+        const tokens = search.split(/\s+/).filter(Boolean);
+        const searchOr: Prisma.ContactWhereInput[] = [
+          { firstName: { contains: search, mode: "insensitive" } },
+          { lastName: { contains: search, mode: "insensitive" } },
+          { middleName: { contains: search, mode: "insensitive" } },
+          { phone: { contains: search, mode: "insensitive" } },
+          { email: { contains: search, mode: "insensitive" } },
+          { company: { name: { contains: search, mode: "insensitive" } } },
+          { address: { contains: search, mode: "insensitive" } },
+          { addressInfo: { contains: search, mode: "insensitive" } },
+          { region: { contains: search, mode: "insensitive" } },
+          { city: { contains: search, mode: "insensitive" } },
+          {
+            addresses: {
+              some: {
+                OR: [
+                  { addressText: { contains: search, mode: "insensitive" } },
+                  { city: { contains: search, mode: "insensitive" } },
+                  { label: { contains: search, mode: "insensitive" } },
+                ],
+              },
             },
           },
-        },
-      ];
-      if (tokens.length === 2) {
-        const [a, b] = [tokens[0]!, tokens[1]!];
-        searchOr.push({
-          AND: [
-            { firstName: { contains: a, mode: "insensitive" } },
-            { lastName: { contains: b, mode: "insensitive" } },
-          ],
-        });
-        searchOr.push({
-          AND: [
-            { firstName: { contains: b, mode: "insensitive" } },
-            { lastName: { contains: a, mode: "insensitive" } },
-          ],
-        });
-      } else if (tokens.length > 2) {
-        const first = tokens[0]!;
-        const last = tokens[tokens.length - 1]!;
-        const middleJoined = tokens.slice(1, -1).join(" ");
-        searchOr.push({
-          AND: [
-            { firstName: { contains: first, mode: "insensitive" } },
-            { lastName: { contains: last, mode: "insensitive" } },
-            { middleName: { contains: middleJoined, mode: "insensitive" } },
-          ],
-        });
-        searchOr.push({
-          AND: [
-            { firstName: { contains: first, mode: "insensitive" } },
-            { lastName: { contains: last, mode: "insensitive" } },
-          ],
-        });
+        ];
+        if (tokens.length === 2) {
+          const [a, b] = [tokens[0]!, tokens[1]!];
+          searchOr.push({
+            AND: [
+              { firstName: { contains: a, mode: "insensitive" } },
+              { lastName: { contains: b, mode: "insensitive" } },
+            ],
+          });
+          searchOr.push({
+            AND: [
+              { firstName: { contains: b, mode: "insensitive" } },
+              { lastName: { contains: a, mode: "insensitive" } },
+            ],
+          });
+        } else if (tokens.length > 2) {
+          const first = tokens[0]!;
+          const last = tokens[tokens.length - 1]!;
+          const middleJoined = tokens.slice(1, -1).join(" ");
+          searchOr.push({
+            AND: [
+              { firstName: { contains: first, mode: "insensitive" } },
+              { lastName: { contains: last, mode: "insensitive" } },
+              { middleName: { contains: middleJoined, mode: "insensitive" } },
+            ],
+          });
+          searchOr.push({
+            AND: [
+              { firstName: { contains: first, mode: "insensitive" } },
+              { lastName: { contains: last, mode: "insensitive" } },
+            ],
+          });
+        }
+        if (phoneDigits.length >= 5) {
+          searchOr.push({ phoneNormalized: { contains: phoneDigits } });
+          searchOr.push({ phones: { some: { phoneNormalized: { contains: phoneDigits } } } });
+        }
+        andParts.push({ OR: searchOr });
       }
-      if (phoneDigits.length >= 5) {
-        searchOr.push({ phoneNormalized: { contains: phoneDigits } });
-        searchOr.push({ phones: { some: { phoneNormalized: { contains: phoneDigits } } } });
-      }
-      andParts.push({ OR: searchOr });
     }
     const regions = params.regions?.map((r) => r.trim()).filter(Boolean) ?? [];
     if (regions.length === 1) {

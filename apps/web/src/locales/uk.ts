@@ -1022,7 +1022,7 @@ export const uk = {
       delivery: "Доставка",
       discount: "Знижка",
       comment: "Коментар",
-      selectClientHint: "Натисніть, щоб обрати клієнта…",
+      selectClientHint: "Натисніть, щоб обрати клієнта… Код 1С: /000000123",
       orderSource: "Джерело замовлення",
       sourceStore: "Сайт",
       sourceCrm: "CRM",
@@ -1085,6 +1085,7 @@ export const uk = {
       escCancel: "ESC — скасувати",
       selectCompany: "Оберіть компанію…",
       selectClient: "Оберіть клієнта…",
+      searchClientBy1C: "Пошук… Код 1С: /000000123",
       paymentBlock: {
         loading: "Завантаження оплат…",
         loadFailed: "Не вдалося завантажити оплати",

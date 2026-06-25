@@ -92,9 +92,20 @@ test("contacts.list: q still includes legacy name/phone/email/company fields", a
     "middleName",
     "phone",
     "email",
-    "externalCode",
     "company.name",
   ]) {
     assert.ok(keys.includes(expected), `OR should keep ${expected}`);
   }
+  assert.ok(!keys.includes("externalCode"), "general q should not search externalCode");
+});
+
+test("contacts.list: q with / prefix searches externalCode only", async () => {
+  const { service, findManyCalls } = createService();
+  await service.list({ q: "/000000123" });
+  const args = findManyCalls[0];
+  const andParts: any[] = args.where.AND ?? [];
+  assert.equal(andParts.length, 1);
+  assert.deepEqual(andParts[0], {
+    externalCode: { contains: "000000123", mode: "insensitive" },
+  });
 });

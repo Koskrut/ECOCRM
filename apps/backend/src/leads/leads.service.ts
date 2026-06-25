@@ -13,6 +13,7 @@ import {
   CustomFieldEntityType,
   LeadEventType,
   LeadIdentityType,
+  LeadSource as LeadSourceEnum,
   LeadStatus as LeadStatusEnum,
   UserRole,
 } from "@prisma/client";
@@ -88,10 +89,58 @@ export class LeadsService {
 
   // ===== ACCESS HELPERS =====
 
-  private assertLeadAccess(lead: { ownerId: string | null }, actor: AuthUser): void {
-    if (actor.role === UserRole.MANAGER && lead.ownerId && lead.ownerId !== actor.id) {
-      throw new ForbiddenException("You can only access leads assigned to you");
-    }
+  /** Contacts a manager may see leads for (matches orders.service access rules). */
+  private managedContactWhere(actorId: string): Prisma.ContactWhereInput {
+    return { OR: [{ ownerId: actorId }, { ownerId: null }] };
+  }
+
+  /** Leads visible to a field manager in list/detail (owner, website/store, managed contacts). */
+  private managerLeadVisibilityWhere(actorId: string): Prisma.LeadWhereInput {
+    const managedContact = this.managedContactWhere(actorId);
+    return {
+      OR: [
+        { ownerId: actorId },
+        { source: LeadSourceEnum.WEBSITE },
+        { contact: { is: managedContact } },
+      ],
+    };
+  }
+
+  private managerCanAccessLead(
+    lead: {
+      ownerId: string | null;
+      source?: LeadSource | null;
+      contact?: { ownerId: string | null } | null;
+    },
+    actorId: string,
+  ): boolean {
+    if (lead.ownerId === actorId) return true;
+    if (lead.source === LeadSourceEnum.WEBSITE) return true;
+    if (lead.contact && (!lead.contact.ownerId || lead.contact.ownerId === actorId)) return true;
+    return false;
+  }
+
+  private async managerCanAccessLeadById(leadId: string, actorId: string): Promise<boolean> {
+    const count = await this.prisma.lead.count({
+      where: { id: leadId, AND: [this.managerLeadVisibilityWhere(actorId)] },
+    });
+    return count > 0;
+  }
+
+  /** MANAGER: own leads, website leads, and leads on managed contacts. */
+  private async assertLeadAccess(
+    lead: {
+      id?: string;
+      ownerId: string | null;
+      source?: LeadSource | null;
+      contact?: { ownerId: string | null } | null;
+    },
+    actor: AuthUser,
+  ): Promise<void> {
+    if (actor.role !== UserRole.MANAGER) return;
+    if (this.managerCanAccessLead(lead, actor.id)) return;
+    if (lead.id && (await this.managerCanAccessLeadById(lead.id, actor.id))) return;
+    throw new ForbiddenException("You can only access leads assigned to you");
   }
 
   /** Only ADMIN can delete leads. */
@@ -156,7 +205,7 @@ export class LeadsService {
     }
 
     if (actor?.role === UserRole.MANAGER) {
-      andParts.push({ OR: [{ ownerId: actor.id }, { ownerId: null }] });
+      andParts.push(this.managerLeadVisibilityWhere(actor.id));
     }
 
     if (andParts.length > 0) where.AND = andParts;
@@ -353,11 +402,12 @@ export class LeadsService {
         events: { orderBy: { createdAt: "desc" } },
         identities: true,
         owner: { select: { id: true, fullName: true } },
+        contact: { select: { ownerId: true } },
         convertedOrder: { select: { id: true, orderNumber: true } },
       },
     });
     if (!lead) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(lead, actor);
+    if (actor) await this.assertLeadAccess(lead, actor);
     return this.mapToEntity(lead);
   }
 
@@ -370,7 +420,7 @@ export class LeadsService {
       },
     });
     if (!existingFull) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(existingFull, actor);
+    if (actor) await this.assertLeadAccess(existingFull, actor);
     const before = this.mapToEntity(existingFull);
     const existing = { id: existingFull.id, ownerId: existingFull.ownerId, status: existingFull.status };
 
@@ -508,7 +558,7 @@ export class LeadsService {
   async updateStatus(id: string, dto: UpdateLeadStatusDto, actor?: AuthUser) {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(lead, actor);
+    if (actor) await this.assertLeadAccess(lead, actor);
 
     if (lead.status !== dto.status) {
       const graph = await this.leadsPipelineConfig.getEffectiveTransitionGraph();
@@ -561,7 +611,7 @@ export class LeadsService {
   async addNote(id: string, dto: AddNoteDto, actor?: AuthUser) {
     const lead = await this.prisma.lead.findUnique({ where: { id }, select: { ownerId: true } });
     if (!lead) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(lead, actor);
+    if (actor) await this.assertLeadAccess(lead, actor);
     await this.prisma.leadEvent.create({
       data: {
         leadId: id,
@@ -616,7 +666,7 @@ export class LeadsService {
       include: { items: true },
     });
     if (!lead) throw new NotFoundException("Lead not found");
-    this.assertLeadAccess(lead, actor);
+    await this.assertLeadAccess(lead, actor);
 
     const createDeal = dto.createDeal !== false;
     if (createDeal && lead.convertedOrderId) {
@@ -798,7 +848,7 @@ export class LeadsService {
       select: { id: true, ownerId: true, phone: true, email: true },
     });
     if (!lead) throw new NotFoundException("Lead not found");
-    if (actor) this.assertLeadAccess(lead, actor);
+    if (actor) await this.assertLeadAccess(lead, actor);
 
     const where: Prisma.ContactWhereInput = {
       OR: [],

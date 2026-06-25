@@ -13,6 +13,7 @@ export type SystemModulesResponse = {
 
 export const VISITS_MODULE_ID = "ext.visits";
 export const NOVA_POSHTA_MODULE_ID = "int.nova_poshta";
+export const MANUAL_CALLING_MODULE_ID = "ext.manual_calling";
 
 export const systemApi = {
   listModules: (token: string) =>

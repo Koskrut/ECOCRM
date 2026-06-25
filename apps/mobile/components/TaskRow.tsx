@@ -17,18 +17,22 @@ function formatDue(dueAt: string | null | undefined): string {
 
 type TaskRowProps = {
   task: Task;
+  onPress?: () => void;
   onComplete?: () => void;
   onReschedule?: () => void;
   busy?: boolean;
 };
 
-export function TaskRow({ task, onComplete, onReschedule, busy }: TaskRowProps) {
+export function TaskRow({ task, onPress, onComplete, onReschedule, busy }: TaskRowProps) {
   const contactName = task.contact
     ? [task.contact.firstName, task.contact.lastName].filter(Boolean).join(" ")
     : task.company?.name;
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      style={({ pressed }) => [styles.card, onPress && pressed && styles.pressed]}>
       <Text style={styles.title}>{task.title}</Text>
       <Text style={styles.meta}>
         {t("tasks.due")}: {formatDue(task.dueAt)}
@@ -59,7 +63,7 @@ export function TaskRow({ task, onComplete, onReschedule, busy }: TaskRowProps) 
       ) : (
         <Text style={styles.done}>{t("tasks.completed")}</Text>
       )}
-    </View>
+    </Pressable>
   );
 }
 

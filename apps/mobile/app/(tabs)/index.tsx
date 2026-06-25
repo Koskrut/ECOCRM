@@ -11,7 +11,7 @@ import {
 } from "react-native";
 
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { QuickActions } from "@/components/QuickActions";
+import { EntityActionBar } from "@/components/EntityActionBar";
 import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
@@ -83,12 +83,12 @@ export default function TodayScreen() {
       } else {
         setFuelBanner(null);
       }
-      if (route?.planned.distanceKm != null) {
+      if (route?.planned?.distanceKm != null) {
         const plan = route.planned.distanceKm;
-        const gps = route.factGps.distanceKm;
-        const visits = route.factVisits.distanceKm;
+        const gps = route.factGps?.distanceKm;
+        const visits = route.factVisits?.distanceKm;
         const gpsNote =
-          route.factGps.quality.degraded && gps != null ? ` · ${t("today.weakGps")}` : "";
+          route.factGps?.quality?.degraded && gps != null ? ` · ${t("today.weakGps")}` : "";
         setRouteBanner(
           t("today.planKm", { km: plan }) +
             (gps != null ? ` · ${t("today.gpsKm", { km: gps })}` : "") +
@@ -138,10 +138,10 @@ export default function TodayScreen() {
 
       <View style={styles.quickRow}>
         <Pressable
-          onPress={() => router.push("/orders")}
+          onPress={() => router.push("/(tabs)/work")}
           accessibilityRole="button"
           style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
-          <Text style={styles.smallBtnText}>Замовлення</Text>
+          <Text style={styles.smallBtnText}>{t("tabs.work")}</Text>
         </Pressable>
         <Pressable
           onPress={() => router.push("/visits/backlog")}
@@ -201,13 +201,15 @@ export default function TodayScreen() {
               {nearest.addressText}
             </Text>
           ) : null}
-          <QuickActions
+          <EntityActionBar
             token={token!}
             date={dateKey}
             phone={visitPhone(nearest)}
             visitId={nearest.id}
+            contactId={nearest.contactId ?? nearest.contact?.id}
             lat={nearest.lat}
             lng={nearest.lng}
+            compact
           />
           <Pressable
             onPress={() => router.push(`/visit/${nearest.id}`)}
@@ -220,7 +222,7 @@ export default function TodayScreen() {
 
       {routeBanner ? (
         <Pressable
-          onPress={() => router.push("/(tabs)/map")}
+          onPress={() => router.push("/map")}
           style={styles.routeBanner}
           accessibilityRole="button">
           <Text style={styles.routeBannerText}>

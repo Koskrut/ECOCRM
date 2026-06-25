@@ -25,6 +25,7 @@ import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { contactsApi } from "@/lib/api/contacts";
 import { ordersApi } from "@/lib/api/orders";
+import { productsApi } from "@/lib/api/products";
 import { colors, spacing } from "@/lib/design/tokens";
 import { t } from "@/lib/i18n";
 import type { Contact, DraftOrderLine, Product } from "@/types/crm";
@@ -46,8 +47,11 @@ export default function NewOrderScreen() {
   const router = useRouter();
   const { token } = useAuth();
   const { npEnabled } = useModules();
-  const rawContactId = useLocalSearchParams<{ contactId?: string }>().contactId;
-  const preselectedContactId = typeof rawContactId === "string" && rawContactId ? rawContactId : null;
+  const rawContactId = useLocalSearchParams<{ contactId?: string; productId?: string }>();
+  const preselectedContactId =
+    typeof rawContactId.contactId === "string" && rawContactId.contactId ? rawContactId.contactId : null;
+  const preselectedProductId =
+    typeof rawContactId.productId === "string" && rawContactId.productId ? rawContactId.productId : null;
 
   const [step, setStep] = useState<Step>(1);
   const [contact, setContact] = useState<Contact | null>(null);
@@ -77,6 +81,37 @@ export default function NewOrderScreen() {
   useEffect(() => {
     void loadPreselected();
   }, [loadPreselected]);
+
+  const loadPreselectedProduct = useCallback(async () => {
+    if (!token || !preselectedProductId) return;
+    try {
+      const res = await productsApi.list(token, { pageSize: 100, catalog: true });
+      const product = (res.items ?? []).find((p) => p.id === preselectedProductId);
+      if (product) {
+        setLines((prev) => {
+          if (prev.some((l) => l.productId === product.id)) return prev;
+          return [
+            ...prev,
+            {
+              key: newLineKey(),
+              productId: product.id,
+              productName: product.name ?? product.sku ?? "Товар",
+              qty: 1,
+              price: product.basePrice ?? 0,
+              discountPercent: 0,
+            },
+          ];
+        });
+        if (!preselectedContactId) setStep(2);
+      }
+    } catch {
+      // ignore
+    }
+  }, [token, preselectedProductId, preselectedContactId]);
+
+  useEffect(() => {
+    void loadPreselectedProduct();
+  }, [loadPreselectedProduct]);
 
   useEffect(() => {
     const q = query.trim();

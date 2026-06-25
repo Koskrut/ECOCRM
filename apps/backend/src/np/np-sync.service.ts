@@ -230,10 +230,93 @@ export class NpSyncService {
   ];
 
   private static isMainCity(description: string): boolean {
-    const d = description.trim();
+    const name = NpSyncService.cityNameFromDescription(description);
     return NpSyncService.MAIN_CITY_PREFIXES.some(
-      (name) => d === name || d.startsWith(name + ",") || d.startsWith(name + " "),
+      (main) => name === main || name.startsWith(`${main},`) || name.startsWith(`${main} `),
     );
+  }
+
+  /** Назва без типу (м./смт/с.) і без району/області в description. */
+  private static cityNameFromDescription(description: string): string {
+    const d = description.trim();
+    const withoutType = d.replace(/^(?:м\.|смт|с\.|село|місто)\s+/iu, "");
+    const comma = withoutType.indexOf(",");
+    return (comma > 0 ? withoutType.slice(0, comma) : withoutType).trim();
+  }
+
+  /** Обласний центр: м. + назва збігається з коренем області в region/areaDescription. */
+  private static isOblastCenter(row: {
+    description: string;
+    settlementTypeDescription: string | null;
+    areaDescription: string | null;
+    region: string | null;
+  }): boolean {
+    const cityName = NpSyncService.cityNameFromDescription(row.description);
+    if (!cityName) return false;
+
+    const st = (row.settlementTypeDescription ?? "").toLowerCase();
+    const desc = row.description.toLowerCase();
+    const isCity =
+      st === "м." || st.includes("місто") || st.includes("город") || desc.startsWith("м. ");
+    if (!isCity) return false;
+
+    const regionText = [row.region, row.areaDescription]
+      .map((v) => (v ?? "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!regionText) return false;
+
+    const cityLower = cityName.toLowerCase();
+    if (regionText.includes(cityLower)) return true;
+
+    const rootLen = Math.min(5, Math.max(3, cityLower.length));
+    return regionText.includes(cityLower.slice(0, rootLen));
+  }
+
+  /** Записи типу «область/район» без міста — в кінець списку. */
+  private static isRegionOnlySettlement(row: {
+    description: string;
+    settlementTypeDescription: string | null;
+    areaDescription: string | null;
+  }): boolean {
+    const st = (row.settlementTypeDescription ?? "").toLowerCase();
+    const ad = (row.areaDescription ?? "").toLowerCase();
+    const desc = row.description.toLowerCase();
+    return (
+      st.includes("область") ||
+      (ad.includes("область") && !desc.startsWith("м. ")) ||
+      /область\s*$/i.test(desc) ||
+      /район\s*$/i.test(desc)
+    );
+  }
+
+  /** Пріоритет: обласний центр → велике місто → м. → смт → с. */
+  private static settlementTier(row: {
+    description: string;
+    settlementTypeDescription: string | null;
+    areaDescription: string | null;
+    region: string | null;
+  }): number {
+    if (NpSyncService.isRegionOnlySettlement(row)) return 0;
+    if (NpSyncService.isOblastCenter(row)) return 1000;
+    if (NpSyncService.isMainCity(row.description)) return 500;
+
+    const st = (row.settlementTypeDescription ?? "").toLowerCase();
+    const desc = row.description.toLowerCase();
+    if (st === "м." || st.includes("місто") || st.includes("город") || desc.startsWith("м. ")) return 100;
+    if (st === "смт" || st.includes("селище") || desc.startsWith("смт ")) return 50;
+    if (st === "с." || st.includes("село") || desc.startsWith("с. ")) return 10;
+    return 20;
+  }
+
+  private static cityTextMatchScore(description: string, qLower: string): number {
+    const cityName = NpSyncService.cityNameFromDescription(description).toLowerCase();
+    const full = description.toLowerCase();
+    if (cityName === qLower || full === qLower) return 4;
+    if (cityName.startsWith(qLower) || full.startsWith(qLower)) return 3;
+    if (cityName.includes(qLower) || full.includes(qLower)) return 2;
+    return 0;
   }
 
   async searchCities(args: { q: string; limit?: number }) {
@@ -255,22 +338,18 @@ export class NpSyncService {
         areaDescription: true,
         region: true,
       },
-      orderBy: { description: "asc" },
-      take: limit * 4,
+      take: Math.max(limit * 10, 100),
     });
 
     const items = raw
       .sort((a, b) => {
-        const aDesc = a.description.trim();
-        const bDesc = b.description.trim();
-        const aMain = NpSyncService.isMainCity(aDesc);
-        const bMain = NpSyncService.isMainCity(bDesc);
-        const aStart = aDesc.toLowerCase().startsWith(qLower);
-        const bStart = bDesc.toLowerCase().startsWith(qLower);
-        const aScore = (aMain ? 2 : 0) + (aStart ? 1 : 0);
-        const bScore = (bMain ? 2 : 0) + (bStart ? 1 : 0);
-        if (bScore !== aScore) return bScore - aScore;
-        return aDesc.localeCompare(bDesc, "uk");
+        const tierA = NpSyncService.settlementTier(a);
+        const tierB = NpSyncService.settlementTier(b);
+        if (tierB !== tierA) return tierB - tierA;
+        const textA = NpSyncService.cityTextMatchScore(a.description.trim(), qLower);
+        const textB = NpSyncService.cityTextMatchScore(b.description.trim(), qLower);
+        if (textB !== textA) return textB - textA;
+        return a.description.trim().localeCompare(b.description.trim(), "uk");
       })
       .slice(0, limit);
 
@@ -399,20 +478,31 @@ export class NpSyncService {
       return { status: "SYNCING", items: [] };
     }
 
-    const allForCity = await this.prisma.npStreet.findMany({
-      where: { cityRef },
+    if (browse) {
+      const items = await this.prisma.npStreet.findMany({
+        where: { cityRef },
+        select: { ref: true, street: true },
+        orderBy: { street: "asc" },
+        take: limit,
+      });
+      return { status: "OK", items };
+    }
+
+    const dbToken = this.pickStreetDbSearchToken(q);
+    const dbTokens = this.streetDbSearchVariants(dbToken);
+    const candidates = await this.prisma.npStreet.findMany({
+      where: {
+        cityRef,
+        OR: dbTokens.map((token) => ({ street: { contains: token, mode: "insensitive" as const } })),
+      },
       select: { ref: true, street: true },
       orderBy: { street: "asc" },
-      take: 2000,
+      take: 500,
     });
-
-    if (browse) {
-      return { status: "OK", items: allForCity.slice(0, limit) };
-    }
 
     // Нормализация для поиска: NFC + приведение і/и, є/е, ї/й к одному виду (НП часто і, пользователь может и)
     const qNorm = this.normalizeStreetQuery(q.toLowerCase().normalize("NFC"));
-    const raw = allForCity.filter((r) =>
+    const raw = candidates.filter((r) =>
       this.normalizeStreetQuery(r.street.normalize("NFC").toLowerCase()).includes(qNorm),
     );
     const items =
@@ -513,6 +603,27 @@ export class NpSyncService {
       .replace(/\u0456/g, "\u0438") // і -> и
       .replace(/\u0454/g, "\u0435") // є -> е
       .replace(/\u0457/g, "\u0439"); // ї -> й
+  }
+
+  /** Самый длинный «смысловой» токен запроса для prefilter в БД (без типа вулиці). */
+  private pickStreetDbSearchToken(q: string): string {
+    const tokens = q
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 3);
+    if (tokens.length === 0) return q;
+    const typeOnly =
+      /^(?:просп\.?|проспект|вул\.?|вулиця|ул\.?|бул\.?|бульвар|пров\.?|провулок|пл\.?|площа|наб\.?|набережна)$/iu;
+    const meaningful = tokens.filter((t) => !typeOnly.test(t));
+    const pool = meaningful.length > 0 ? meaningful : tokens;
+    return pool.reduce((a, b) => (a.length >= b.length ? a : b));
+  }
+
+  /** Варианты токена для БД: оригинал + нормализованные і/и, є/е, ї/й. */
+  private streetDbSearchVariants(token: string): string[] {
+    const lower = token.toLowerCase();
+    const normalized = this.normalizeStreetQuery(lower);
+    return normalized !== lower ? [token, normalized] : [token];
   }
 
   private extractWarehouseNumber(description: string): string | null {

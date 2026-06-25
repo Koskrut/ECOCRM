@@ -7,6 +7,7 @@ import "react-native-reanimated";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { useColorScheme } from "@/components/useColorScheme";
 import { AuthProvider, useAuth } from "@/context/auth-context";
+import { ActiveWorkProvider } from "@/context/active-work-context";
 import { ModulesProvider } from "@/context/modules-context";
 import { OfflineQueueProvider } from "@/context/offline-queue-context";
 import { ShiftTrackingProvider } from "@/context/shift-tracking-context";
@@ -51,13 +52,15 @@ export default function RootLayout() {
     <RootErrorBoundary>
       <AuthProvider>
         <ModulesProvider>
-          <OfflineQueueProvider>
-            <ShiftTrackingProvider>
-              <RouteGuard>
-                <RootLayoutNav />
-              </RouteGuard>
-            </ShiftTrackingProvider>
-          </OfflineQueueProvider>
+          <ActiveWorkProvider>
+            <OfflineQueueProvider>
+              <ShiftTrackingProvider>
+                <RouteGuard>
+                  <RootLayoutNav />
+                </RouteGuard>
+              </ShiftTrackingProvider>
+            </OfflineQueueProvider>
+          </ActiveWorkProvider>
         </ModulesProvider>
       </AuthProvider>
     </RootErrorBoundary>
@@ -90,7 +93,17 @@ function RootLayoutNav() {
           options={{ title: "Нотатка", headerShown: true }}
         />
         <Stack.Screen name="contacts/new" options={{ title: "Новий контакт", headerShown: true }} />
+        <Stack.Screen name="leads/index" options={{ title: "Ліди", headerShown: true }} />
+        <Stack.Screen name="leads/[id]" options={{ title: "Лід", headerShown: true }} />
         <Stack.Screen name="leads/new" options={{ title: "Новий лід", headerShown: true }} />
+        <Stack.Screen name="map" options={{ title: t("map.title"), headerShown: true }} />
+        <Stack.Screen name="catalog/index" options={{ title: t("catalog.title"), headerShown: true }} />
+        <Stack.Screen name="calls/queue" options={{ title: t("calls.queueTitle"), headerShown: true }} />
+        <Stack.Screen name="calls/session" options={{ title: t("calls.sessionTitle"), headerShown: true }} />
+        <Stack.Screen
+          name="contact/[id]/edit"
+          options={{ title: t("clients.edit"), headerShown: true }}
+        />
         <Stack.Screen name="visits/new" options={{ title: "Новий візит", headerShown: true }} />
         <Stack.Screen name="visits/backlog" options={{ title: "Беклог", headerShown: true }} />
         <Stack.Screen name="visits/history" options={{ title: "Історія", headerShown: true }} />

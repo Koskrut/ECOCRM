@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { FieldShiftStatus, Prisma } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { RoutePlansService } from "../visits/route-plans.service";
 import {
   assertCanAccessOwner,
   getAllowedOwnerIds,
@@ -13,7 +14,10 @@ const MAX_SAMPLES_READ = 500;
 
 @Injectable()
 export class FieldShiftsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly routePlans: RoutePlansService,
+  ) {}
 
   private utcDayStart(reference: Date): Date {
     return new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate()));
@@ -330,6 +334,31 @@ export class FieldShiftsService {
         createdAt: r.createdAt.toISOString(),
       })),
       hasMore,
+    };
+  }
+
+  async getTrackGeometry(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    opts?: { traffic?: boolean },
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const shift = await this.prisma.fieldShift.findUnique({
+      where: { id: shiftId },
+    });
+    if (!shift) {
+      throw new NotFoundException("Shift not found");
+    }
+    await assertCanAccessOwner(this.prisma, actor, shift.ownerId);
+
+    const { items } = await this.getSamples(actor, shiftId, { limit: MAX_SAMPLES_READ });
+    const points = items.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const geometry = await this.routePlans.snapGpsPathToRoads(points, opts);
+    return {
+      sampleCount: items.length,
+      ...geometry,
     };
   }
 }

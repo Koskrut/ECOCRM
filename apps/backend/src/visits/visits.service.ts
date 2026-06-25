@@ -17,6 +17,7 @@ import {
   VisitGpsVerification,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivDayBounds } from "../crm-timezone";
 import { ActivitiesService } from "../activities/activities.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { VISIT_COMPLETED_EVENT } from "../field/field.events";
@@ -425,12 +426,13 @@ export class VisitsService {
     if (!dateStr) {
       throw new BadRequestException("date is required");
     }
-    const date = new Date(`${dateStr}T00:00:00.000Z`);
-    if (Number.isNaN(date.getTime())) {
+    let dayStart: Date;
+    let dayEnd: Date;
+    try {
+      ({ from: dayStart, to: dayEnd } = kyivDayBounds(dateStr));
+    } catch {
       throw new BadRequestException("Invalid date");
     }
-    const dayStart = date;
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
     const ownerFilter = await buildVisitOwnerFilter(this.prisma, actor, requestedOwnerId);
 
     return this.prisma.visit.findMany({
@@ -439,7 +441,7 @@ export class VisitsService {
         status: { in: [VisitStatusEnum.SCHEDULED, VisitStatusEnum.IN_PROGRESS, VisitStatusEnum.DONE] },
         startsAt: {
           gte: dayStart,
-          lt: dayEnd,
+          lte: dayEnd,
         },
       },
       orderBy: { startsAt: "asc" },

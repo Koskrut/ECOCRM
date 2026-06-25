@@ -172,6 +172,7 @@ export default function TasksScreen() {
           <TaskRow
             task={item}
             busy={busyId === item.id}
+            onPress={() => router.push(`/tasks/${item.id}`)}
             onComplete={() => void onComplete(item)}
             onReschedule={() => onReschedule(item)}
           />

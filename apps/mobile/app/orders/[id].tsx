@@ -11,6 +11,8 @@ import {
 } from "react-native";
 
 import { Card } from "@/components/ui/Card";
+import { OrderStickyFooter } from "@/components/OrderStickyFooter";
+import { ProductPicker } from "@/components/ProductPicker";
 import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -25,7 +27,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { colors, spacing } from "@/lib/design/tokens";
 import { t } from "@/lib/i18n";
 import { orderStageLabel } from "@/lib/labels";
-import type { Contact, Order, OrderItem } from "@/types/crm";
+import type { Contact, Order, OrderItem, Product } from "@/types/crm";
 
 function formatAmount(amount: number | null | undefined, currency?: string | null): string {
   if (amount == null) return "—";
@@ -53,6 +55,8 @@ export default function OrderDetailScreen() {
   const [ttnNumber, setTtnNumber] = useState<string | null>(null);
   const [ttnStatus, setTtnStatus] = useState<string | null>(null);
   const [ttnBusy, setTtnBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !orderId) return;
@@ -125,6 +129,49 @@ export default function OrderDetailScreen() {
     await load();
   }
 
+  async function onAddProduct(product: Product) {
+    if (!token || !orderId) return;
+    setSaving(true);
+    try {
+      const updated = await ordersApi.addItem(token, orderId, {
+        productId: product.id,
+        qty: 1,
+        price: product.basePrice ?? 0,
+      });
+      setOrder(updated);
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onUpdateQty(item: OrderItem, qty: number) {
+    if (!token || !orderId || qty < 1) return;
+    setSaving(true);
+    try {
+      const updated = await ordersApi.updateItem(token, orderId, item.id, { qty });
+      setOrder(updated);
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onRemoveItem(item: OrderItem) {
+    if (!token || !orderId) return;
+    setSaving(true);
+    try {
+      const updated = await ordersApi.removeItem(token, orderId, item.id);
+      setOrder(updated);
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onCreateTtn() {
     if (!token || !orderId || !selectedProfileId) {
       Alert.alert(t("common.error"), "Оберіть профіль доставки");
@@ -182,8 +229,9 @@ export default function OrderDetailScreen() {
   const items = order.items ?? [];
 
   return (
+    <View style={styles.root}>
     <ScrollView
-      contentContainerStyle={styles.scroll}
+      contentContainerStyle={[styles.scroll, editing && { paddingBottom: 120 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>
@@ -191,11 +239,18 @@ export default function OrderDetailScreen() {
         </Text>
         <StatusPill label={orderStageLabel(order.orderStage) || order.status} tone="info" />
       </View>
+      <Pressable
+        onPress={() => setEditing((v) => !v)}
+        style={styles.editToggle}
+        accessibilityRole="button">
+        <Text style={styles.editToggleText}>{editing ? "Готово" : "Редагувати"}</Text>
+      </Pressable>
       <Text style={styles.meta}>Сума: {formatAmount(order.totalAmount, order.currency)}</Text>
 
       {order.comment ? <Text style={styles.box}>{order.comment}</Text> : null}
 
       <SectionTitle title="Позиції" />
+      {editing && token ? <ProductPicker token={token} onSelect={(p) => void onAddProduct(p)} /> : null}
       {items.length === 0 ? (
         <Text style={styles.muted}>{t("common.noData")}</Text>
       ) : (
@@ -204,6 +259,20 @@ export default function OrderDetailScreen() {
             <Text style={styles.itemName}>
               {item.productName ?? item.productNameSnapshot ?? "Товар"}
             </Text>
+            {editing ? (
+              <View style={styles.qtyRow}>
+                <Pressable onPress={() => void onUpdateQty(item, item.qty - 1)} style={styles.qtyBtn}>
+                  <Text>−</Text>
+                </Pressable>
+                <Text style={styles.qtyVal}>{item.qty}</Text>
+                <Pressable onPress={() => void onUpdateQty(item, item.qty + 1)} style={styles.qtyBtn}>
+                  <Text>+</Text>
+                </Pressable>
+                <Pressable onPress={() => void onRemoveItem(item)} style={styles.removeBtn}>
+                  <Text style={styles.removeText}>✕</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <Text style={styles.itemMeta}>
               {item.qty} × {item.price}
               {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} = {itemLineTotal(item)}
@@ -257,13 +326,25 @@ export default function OrderDetailScreen() {
         <Text style={styles.backBtnText}>{t("common.cancel")}</Text>
       </Pressable>
     </ScrollView>
+    {editing ? (
+      <OrderStickyFooter
+        totalLabel={`Сума: ${formatAmount(order.totalAmount, order.currency)}`}
+        actionLabel={saving ? "…" : t("common.save")}
+        onAction={() => setEditing(false)}
+        loading={saving}
+      />
+    ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   scroll: { padding: 16, paddingBottom: 32 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  editToggle: { alignSelf: "flex-start", marginTop: 8, marginBottom: 4 },
+  editToggleText: { color: colors.primaryText, fontWeight: "700" },
   title: { fontSize: 22, fontWeight: "700", flex: 1 },
   meta: { marginTop: 6, opacity: 0.75, lineHeight: 20 },
   errorTitle: { fontWeight: "700", fontSize: 18, marginBottom: 8 },
@@ -278,6 +359,18 @@ const styles = StyleSheet.create({
   },
   itemName: { fontWeight: "700", fontSize: 15 },
   itemMeta: { marginTop: 4, opacity: 0.75, fontSize: 13 },
+  qtyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
+  qtyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qtyVal: { fontWeight: "700", minWidth: 24, textAlign: "center" },
+  removeBtn: { marginLeft: "auto", padding: 8 },
+  removeText: { color: colors.danger, fontWeight: "700" },
   btnPrimary: {
     marginTop: 12,
     backgroundColor: "#2563eb",

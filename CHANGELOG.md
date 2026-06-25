@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.92**.)_
+_(планируемые изменения после **0.2.93**.)_
+
+## [0.2.93] — 2026-05-20
+
+### Summary
+
+Патч **0.2.93**: геометрия трека смены по дорогам, фикс календаря визитов (Kyiv TZ), видимость лидов для **MANAGER**, поиск контактов по коду **`/…`**, доработки NP city matching, mobile work hub (звонки, каталог, карта).
+
+### Added
+
+- **Field shifts**: **`GET /field/shifts/:id/track-geometry`** — snap GPS-трека к дорогам (Google Roads / fallback); web **`/visits/team`** рисует маршрут по дорогам.
+- **Leads**: видимость для **MANAGER** (owned, website, managed contacts) — **`leads-manager-visibility.spec.ts`**.
+- **Contacts**: поиск по **`externalCode`** через префикс **`/`** (например `/00.100`).
+- **Visits**: day-query в часовом поясе **Europe/Kyiv** — **`visits-day-kyiv.spec.ts`**.
+- **Mobile**: вкладка **Work**, звонки, каталог, карта маршрута, active-work banner, редактирование контакта.
+
+### Changed
+
+- **NP sync**: улучшенный матчинг названий населённых пунктов из description.
+- **Products**: нормализация артикулов / SKU в stock upload.
+- **Web**: **OrderModal**, **TeamFieldMap**, **NpDirectorySelects**, visits pages.
+- **Dashboard**: мелкие правки.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.93`**.
+- **Новых миграций нет.**
 
 ## [0.2.92] — 2026-05-20
 

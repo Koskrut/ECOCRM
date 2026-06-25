@@ -59,16 +59,16 @@ export default function MoreScreen() {
         </Card>
       ) : null}
 
-      <Text style={styles.section}>Робота</Text>
-      <Pressable onPress={() => router.push("/orders")} accessibilityRole="button" style={styles.btnGhost}>
-        <Text style={styles.btnGhostTitle}>Замовлення</Text>
-        <Text style={styles.btnGhostMeta}>Список, створення, ТТН</Text>
+      <Text style={styles.section}>{t("more.shift")}</Text>
+      <Pressable onPress={() => router.push("/leads")} accessibilityRole="button" style={styles.btnGhost}>
+        <Text style={styles.btnGhostTitle}>{t("leads.title")}</Text>
       </Pressable>
-      <Pressable
-        onPress={() => router.push("/orders/new")}
-        accessibilityRole="button"
-        style={styles.btnGhost}>
-        <Text style={styles.btnGhostTitle}>+ Нове замовлення</Text>
+      <Pressable onPress={() => router.push("/map")} accessibilityRole="button" style={styles.btnGhost}>
+        <Text style={styles.btnGhostTitle}>{t("map.title")}</Text>
+      </Pressable>
+      <Pressable onPress={() => router.push("/(tabs)/work")} accessibilityRole="button" style={styles.btnGhost}>
+        <Text style={styles.btnGhostTitle}>{t("tabs.work")}</Text>
+        <Text style={styles.btnGhostMeta}>Замовлення, дзвінки, каталог</Text>
       </Pressable>
 
       {visitsEnabled ? (

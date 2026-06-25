@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,10 +14,12 @@ import {
   View,
 } from "react-native";
 
-import { QuickActions } from "@/components/QuickActions";
+import { EntityActionBar } from "@/components/EntityActionBar";
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
+import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
+import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey } from "@/lib/date";
 import {
   gpsVerificationLabel,
@@ -34,11 +37,14 @@ export default function VisitDetailScreen() {
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const visitId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
+  const { setActiveVisit } = useActiveWork();
   const dateKey = formatLocalDateKey();
 
   const [visit, setVisit] = useState<VisitSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleAt, setRescheduleAt] = useState("");
   const [outcome, setOutcome] = useState<VisitOutcome>("SUCCESS");
   const [resultNote, setResultNote] = useState("");
   const [nextActionEnabled, setNextActionEnabled] = useState(false);
@@ -54,6 +60,9 @@ export default function VisitDetailScreen() {
     try {
       const row = await apiFetch<VisitSummary>(`/visits/${visitId}`, { token });
       setVisit(row);
+      if (row.status === "IN_PROGRESS") {
+        setActiveVisit(row.id, visitLabel(row));
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +113,7 @@ export default function VisitDetailScreen() {
         token,
       });
       setVisit(updated);
+      setActiveVisit(updated.id, visitLabel(updated));
       const vLabel = gpsVerificationLabel(updated.startGpsVerification ?? null);
       if (vLabel) Alert.alert("GPS", vLabel);
     } catch (e) {
@@ -145,6 +155,7 @@ export default function VisitDetailScreen() {
         body: JSON.stringify(payload),
         token,
       });
+      setActiveVisit(null, null);
       const vLabel = gpsVerificationLabel(done.completeGpsVerification ?? null);
       Alert.alert(
         t("common.done"),
@@ -172,6 +183,22 @@ export default function VisitDetailScreen() {
       } else {
         Alert.alert(t("common.error"), String(e));
       }
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function onReschedule() {
+    if (!token || !visit || !rescheduleAt.trim()) return;
+    setActionBusy(true);
+    try {
+      const startsAt = new Date(rescheduleAt.trim()).toISOString();
+      const updated = await visitsApi.update(token, visit.id, { startsAt });
+      setVisit(updated);
+      setRescheduleOpen(false);
+      Alert.alert(t("common.done"), "Візит перенесено");
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
       setActionBusy(false);
     }
@@ -210,11 +237,12 @@ export default function VisitDetailScreen() {
         </Text>
       ) : null}
 
-      <QuickActions
+      <EntityActionBar
         token={token!}
         date={dateKey}
         phone={visitPhone(visit)}
         visitId={visit.id}
+        contactId={visit.contactId ?? visit.contact?.id}
         lat={visit.lat}
         lng={visit.lng}
       />
@@ -229,7 +257,17 @@ export default function VisitDetailScreen() {
       ) : null}
 
       <Pressable
-        onPress={() => router.push("/(tabs)/map")}
+        onPress={() => {
+          setRescheduleAt(visit.startsAt ?? "");
+          setRescheduleOpen(true);
+        }}
+        style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
+        accessibilityRole="button">
+        <Text style={styles.btnOutlineText}>{t("tasks.reschedule")}</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => router.push("/map")}
         style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
         accessibilityRole="button">
         <Text style={styles.btnOutlineText}>{t("visit.mapDay")}</Text>
@@ -316,8 +354,54 @@ export default function VisitDetailScreen() {
           </Pressable>
         </>
       ) : visit.status === "DONE" ? (
-        <Text style={styles.done}>{t("visit.completed")}</Text>
+        <>
+          <Text style={styles.done}>{t("visit.completed")}</Text>
+          <Pressable
+            onPress={() =>
+              router.push(
+                `/orders/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
+              )
+            }
+            style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
+            accessibilityRole="button">
+            <Text style={styles.btnPrimaryText}>Створити замовлення</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              router.push(
+                `/tasks/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
+              )
+            }
+            style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
+            accessibilityRole="button">
+            <Text style={styles.btnOutlineText}>Запланувати follow-up</Text>
+          </Pressable>
+        </>
       ) : null}
+
+      <Modal visible={rescheduleOpen} transparent animationType="slide">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.section}>{t("tasks.rescheduleTitle")}</Text>
+            <TextInput
+              value={rescheduleAt}
+              onChangeText={setRescheduleAt}
+              placeholder="2026-06-25T10:00:00"
+              placeholderTextColor="#888"
+              style={styles.note}
+            />
+            <Pressable
+              disabled={actionBusy}
+              onPress={() => void onReschedule()}
+              style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
+              <Text style={styles.btnPrimaryText}>{actionBusy ? "…" : t("common.save")}</Text>
+            </Pressable>
+            <Pressable onPress={() => setRescheduleOpen(false)} style={{ marginTop: 12, alignItems: "center" }}>
+              <Text style={{ color: "#2563eb" }}>{t("common.cancel")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -390,4 +474,15 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   done: { fontSize: 16, opacity: 0.8, marginTop: 16 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#1a1d27",
+    padding: 20,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
 });

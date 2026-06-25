@@ -896,7 +896,17 @@ function StockUploadByWarehousesModal({
                     : ""}
                 </p>
               )}
-              {result.skuCorrections && result.skuCorrections.length > 0 && (
+              {result.resolved && result.resolved.length > 0 && (
+                <p className="mt-2 text-zinc-700">
+                  Сопоставлено:{" "}
+                  {result.resolved
+                    .slice(0, 8)
+                    .map((r) => `${r.fileSku} → ${r.dbSku}`)
+                    .join(", ")}
+                  {result.resolved.length > 8 ? ` и ещё ${result.resolved.length - 8}` : ""}
+                </p>
+              )}
+              {result.skuCorrections && result.skuCorrections.length > 0 && !result.resolved?.length && (
                 <p className="mt-2 text-zinc-700">
                   Сопоставлены артикулы из файла:{" "}
                   {result.skuCorrections

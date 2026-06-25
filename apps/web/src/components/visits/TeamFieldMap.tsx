@@ -9,6 +9,8 @@ type TeamFieldMapProps = {
   items: FieldShiftTeamItem[];
   selectedOwnerId: string | null;
   trackPath: Array<{ lat: number; lng: number }>;
+  routeSource?: "google" | "fallback" | "none" | null;
+  routeLoading?: boolean;
 };
 
 export function TeamFieldMap({
@@ -16,6 +18,8 @@ export function TeamFieldMap({
   items,
   selectedOwnerId,
   trackPath,
+  routeSource,
+  routeLoading,
 }: TeamFieldMapProps) {
   const { isLoaded, loadError } = useLoadScript({
     id: "google-map-script-team-field",
@@ -62,7 +66,7 @@ export function TeamFieldMap({
   if (!isLoaded) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-        Завантаження карти…
+        {routeLoading ? "Будуємо маршрут по вулицях…" : "Завантаження карти…"}
       </div>
     );
   }
@@ -87,7 +91,22 @@ export function TeamFieldMap({
       {trackPath.length > 1 ? (
         <Polyline
           path={trackPath}
-          options={{ strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 4 }}
+          options={{
+            strokeColor: routeSource === "google" ? "#d97706" : "#f59e0b",
+            strokeOpacity: routeSource === "google" ? 0.95 : 0.65,
+            strokeWeight: routeSource === "google" ? 4 : 3,
+            ...(routeSource !== "google"
+              ? {
+                  icons: [
+                    {
+                      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+                      offset: "0",
+                      repeat: "12px",
+                    },
+                  ],
+                }
+              : {}),
+          }}
         />
       ) : null}
       {markers.map((m) => (

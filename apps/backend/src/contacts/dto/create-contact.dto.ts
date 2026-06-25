@@ -15,6 +15,8 @@ export type CreateContactDto = {
   isPrimary?: boolean;
   /** Код 1С. */
   externalCode?: string | null;
+  /** Як виводити на документ (счёт/РН): напр. «ФОП Петров Петр». */
+  documentDisplayName?: string | null;
   region: string;
   addressInfo?: string | null;
   city?: string | null;
@@ -54,6 +56,9 @@ export const validateCreateContactDto = (payload: CreateContactDto): ValidationE
 
   if (payload.externalCode !== undefined && payload.externalCode !== null) {
     validateString(payload.externalCode, "externalCode", errors);
+  }
+  if (payload.documentDisplayName !== undefined && payload.documentDisplayName !== null) {
+    validateString(payload.documentDisplayName, "documentDisplayName", errors);
   }
 
   if (payload.clientType !== undefined && payload.clientType !== null) {

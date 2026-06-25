@@ -10,11 +10,18 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export const contactsApi = {
-  search: (token: string, q: string, page = 1, pageSize = 20) =>
+  list: (token: string, query: { q?: string; page?: number; pageSize?: number } = {}) =>
     apiFetch<ListContactsResponse>(
-      `/contacts${qs({ q: q.trim() || undefined, page, pageSize })}`,
+      `/contacts${qs({
+        q: query.q?.trim() || undefined,
+        page: query.page ?? 1,
+        pageSize: query.pageSize ?? 20,
+      })}`,
       { token },
     ),
+
+  search: (token: string, q: string, page = 1, pageSize = 20) =>
+    contactsApi.list(token, { q, page, pageSize }),
 
   getById: (token: string, id: string) =>
     apiFetch<Contact>(`/contacts/${id}`, { token }),
@@ -37,6 +44,25 @@ export const contactsApi = {
   ) =>
     apiFetch<Contact>("/contacts", {
       method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
+
+  patch: (
+    token: string,
+    id: string,
+    body: Partial<{
+      firstName: string;
+      lastName: string;
+      phone: string;
+      email: string | null;
+      address: string | null;
+      lat: number | null;
+      lng: number | null;
+    }>,
+  ) =>
+    apiFetch<Contact>(`/contacts/${id}`, {
+      method: "PATCH",
       body: JSON.stringify(body),
       token,
     }),

@@ -16,7 +16,7 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
-import { Save } from "lucide-react";
+import { ChevronDown, ChevronUp, Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
@@ -25,6 +25,27 @@ import { VisitsSubNav } from "./VisitsSubNav";
 function formatHmKyiv(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
   return d.isValid ? d.toFormat("HH:mm") : "";
+}
+
+function sortScheduledVisitIds(visits: Visit[]): string[] {
+  return [...visits]
+    .filter((v) => v.status !== "CANCELED" && v.status !== "PLANNED_UNASSIGNED")
+    .sort((a, b) => {
+      const aTime = a.startsAt ? new Date(a.startsAt).getTime() : 0;
+      const bTime = b.startsAt ? new Date(b.startsAt).getTime() : 0;
+      if (aTime !== bTime) return aTime - bTime;
+      return String(a.id).localeCompare(String(b.id));
+    })
+    .map((v) => v.id);
+}
+
+function mergeRouteOrder(planIds: string[], scheduledIds: string[]): string[] {
+  const scheduledSet = new Set(scheduledIds);
+  const result = planIds.filter((id) => scheduledSet.has(id));
+  for (const id of scheduledIds) {
+    if (!result.includes(id)) result.push(id);
+  }
+  return result;
 }
 
 type GoogleMapsPublicConfig = {
@@ -218,6 +239,8 @@ export default function VisitsPage() {
   const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSaveRouteRef = useRef<() => Promise<void>>(async () => {});
+  const loadGenerationRef = useRef(0);
+  const [routeOrderIds, setRouteOrderIds] = useState<string[]>([]);
 
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [resultModalVisit, setResultModalVisit] = useState<Visit | null>(null);
@@ -280,8 +303,10 @@ export default function VisitsPage() {
   const planOwnerOpts = useMemo(() => {
     if (viewOwnerId) return { ownerId: viewOwnerId };
     if (!showOwnerFilter && myUserId) return { ownerId: myUserId };
+    // LEAD plans own route by default; ADMIN must pick a manager explicitly.
+    if (showOwnerFilter && role === "LEAD" && myUserId) return { ownerId: myUserId };
     return undefined;
-  }, [viewOwnerId, showOwnerFilter, myUserId]);
+  }, [viewOwnerId, showOwnerFilter, myUserId, role]);
   const readOnlyPlan = Boolean(
     planOwnerOpts && myUserId && planOwnerOpts.ownerId !== myUserId,
   );
@@ -290,17 +315,23 @@ export default function VisitsPage() {
 
   const scheduledVisits = dayVisits;
 
+  const timelineOrderVisitIds = useMemo(
+    () => sortScheduledVisitIds(dayVisits),
+    [dayVisits],
+  );
+
   const currentOrderVisitIds = useMemo(() => {
-    const sorted = [...dayVisits]
-      .filter((v) => v.status !== "CANCELED" && v.status !== "PLANNED_UNASSIGNED")
-      .sort((a, b) => {
-        const aTime = a.startsAt ? new Date(a.startsAt).getTime() : 0;
-        const bTime = b.startsAt ? new Date(b.startsAt).getTime() : 0;
-        if (aTime !== bTime) return aTime - bTime;
-        return String(a.id).localeCompare(String(b.id));
-      });
-    return sorted.map((v) => v.id);
-  }, [dayVisits]);
+    if (routeOrderIds.length === 0) return timelineOrderVisitIds;
+    return mergeRouteOrder(routeOrderIds, timelineOrderVisitIds);
+  }, [routeOrderIds, timelineOrderVisitIds]);
+
+  const routeListVisits = useMemo(
+    () =>
+      currentOrderVisitIds
+        .map((id) => dayVisits.find((v) => v.id === id))
+        .filter((v): v is Visit => v != null),
+    [currentOrderVisitIds, dayVisits],
+  );
 
   const savedPlanVisitIds = useMemo(() => {
     if (!routePlan?.stops?.length) return [];
@@ -308,7 +339,8 @@ export default function VisitsPage() {
   }, [routePlan?.stops]);
 
   const hasUnsavedPlanOrder = useMemo(() => {
-    if (!routePlan?.stops?.length) return false;
+    if (currentOrderVisitIds.length === 0) return false;
+    if (!routePlan?.stops?.length) return true;
     if (savedPlanVisitIds.length !== currentOrderVisitIds.length) return true;
     for (let i = 0; i < savedPlanVisitIds.length; i++) {
       if (savedPlanVisitIds[i] !== currentOrderVisitIds[i]) return true;
@@ -370,7 +402,6 @@ export default function VisitsPage() {
     }
     if (!autoSaveRoutePlan) return;
     if (!planOwnerOpts || readOnlyPlan) return;
-    if (!routePlan?.stops?.length) return;
     if (!hasUnsavedPlanOrder) return;
     if (savingRoute || loading) return;
     if (hasScheduledWithoutCoords) return;
@@ -410,6 +441,7 @@ export default function VisitsPage() {
   }, []);
 
   const loadData = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -428,18 +460,26 @@ export default function VisitsPage() {
           ? routeSessionsApi.get(dateParam, planOwnerOpts)
           : Promise.resolve(null),
       ]);
+      if (generation !== loadGenerationRef.current) return;
       setBacklog(backlogRes);
-      setDayVisits(dayRes.items ?? []);
+      const dayItems = dayRes.items ?? [];
+      setDayVisits(dayItems);
       setRoutePlan(planRes.plan ?? null);
       setRouteSessionState(sessionRes ?? null);
+      const scheduledIds = sortScheduledVisitIds(dayItems);
+      const planIds = planRes.plan?.stops?.map((s) => s.visitId) ?? [];
+      setRouteOrderIds(planIds.length ? mergeRouteOrder(planIds, scheduledIds) : scheduledIds);
     } catch (e) {
+      if (generation !== loadGenerationRef.current) return;
       setError(e instanceof Error ? e.message : "Failed to load visits");
       setBacklog([]);
       setDayVisits([]);
       setRoutePlan(null);
       setRouteSessionState(null);
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current) {
+        setLoading(false);
+      }
     }
   }, [dateParam, planOwnerOpts, showOwnerFilter, viewOwnerId]);
 
@@ -659,6 +699,9 @@ export default function VisitsPage() {
           return aTime - bTime;
         });
       });
+      setRouteOrderIds((prev) =>
+        prev.includes(updated.id) ? prev : [...prev, updated.id],
+      );
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "Failed to schedule visit", "error");
       void loadData();
@@ -717,18 +760,39 @@ export default function VisitsPage() {
     }
   };
 
+  const moveInRouteOrder = useCallback((visitId: string, delta: number) => {
+    setRouteOrderIds((prev) => {
+      const base = prev.length ? mergeRouteOrder(prev, timelineOrderVisitIds) : [...timelineOrderVisitIds];
+      const idx = base.indexOf(visitId);
+      if (idx === -1) return base;
+      const next = idx + delta;
+      if (next < 0 || next >= base.length) return base;
+      const copy = [...base];
+      [copy[idx], copy[next]] = [copy[next], copy[idx]];
+      return copy;
+    });
+  }, [timelineOrderVisitIds]);
+
+  const refreshRouteSession = useCallback(async () => {
+    if (!planOwnerOpts) return;
+    try {
+      const state = await routeSessionsApi.get(dateParam, planOwnerOpts);
+      if (state?.session?.isActive) {
+        setRouteSessionState(state);
+      }
+    } catch {
+      // ignore
+    }
+  }, [dateParam, planOwnerOpts]);
+
   const handleSaveRoute = async () => {
     if (!planOwnerOpts || readOnlyPlan) return;
     setSavingRoute(true);
     try {
-      const sorted = [...dayVisits].sort((a, b) => {
-        const aTime = a.startsAt ? new Date(a.startsAt).getTime() : 0;
-        const bTime = b.startsAt ? new Date(b.startsAt).getTime() : 0;
-        return aTime - bTime;
-      });
-      const ids = sorted.map((v) => v.id);
+      const ids = currentOrderVisitIds;
       const res = await routePlansApi.saveForDay(dateParam, ids, planOwnerOpts);
       setRoutePlan(res.plan ?? null);
+      setRouteOrderIds(ids);
       // Refresh km immediately after saving a new plan order.
       if (res.plan?.stops?.length) {
         setRouteMetricsLoading(true);
@@ -746,6 +810,7 @@ export default function VisitsPage() {
       } else {
         setRouteMetrics(null);
       }
+      await refreshRouteSession();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "Failed to save route", "error");
     } finally {
@@ -841,6 +906,7 @@ export default function VisitsPage() {
       });
       setDayVisits((prev) => prev.filter((v) => v.id !== visit.id));
       setBacklog((prev) => [updated, ...prev.filter((v) => v.id !== visit.id)]);
+      setRouteOrderIds((prev) => prev.filter((id) => id !== visit.id));
     } catch (e) {
       pushToast(e instanceof Error ? e.message : "Failed to move visit to backlog", "error");
       void loadData();
@@ -860,6 +926,7 @@ export default function VisitsPage() {
         await visitsApi.update(visit.id, { status: "CANCELED" });
         setBacklog((prev) => prev.filter((v) => v.id !== visit.id));
         setDayVisits((prev) => prev.filter((v) => v.id !== visit.id));
+        setRouteOrderIds((prev) => prev.filter((id) => id !== visit.id));
       } catch (e) {
         pushToast(e instanceof Error ? e.message : "Failed to remove visit", "error");
         void loadData();
@@ -1167,128 +1234,95 @@ export default function VisitsPage() {
             </div>
             <div className="w-full shrink-0 overflow-auto md:max-w-xs">
               <div className="text-xs font-semibold uppercase text-zinc-500">Точки маршрута</div>
-              <ul className="mt-1 flex flex-wrap gap-1">
-                {(routeSessionState.routePlan?.stops ?? []).length > 0
-                  ? routeSessionState.routePlan!.stops.map((s) => {
-                      const v = s.visit as Visit;
-                      const isCurrent = v.id === routeSessionState.session.currentVisitId;
-                      const isDone = v.status === "DONE";
-                      const isInProgress = v.status === "IN_PROGRESS";
-                      const isUnsuccessfulOutcome =
-                        isDone &&
-                        (v.outcome === "FAILED" ||
-                          v.outcome === "NOT_RELEVANT" ||
-                          v.outcome === "NO_DECISION");
-                      return (
-                        <li key={s.id} className="list-none">
-                          <button
-                            type="button"
-                            disabled={isDone || routeSessionLoading}
-                            title={isDone ? undefined : "Сделать текущей встречей"}
-                            onClick={async () => {
-                              if (isDone || isCurrent) return;
-                              setRouteSessionLoading(true);
-                              try {
-                                const state = await routeSessionsApi.setCurrent(dateParam, v.id);
-                                setRouteSessionState(state);
-                              } catch (e) {
-                                pushToast(
-                                  e instanceof Error ? e.message : "Не удалось выбрать визит",
-                                  "error",
-                                );
-                              } finally {
-                                setRouteSessionLoading(false);
-                              }
-                            }}
-                            className={[
-                              "w-full rounded px-2 py-0.5 text-left text-[11px] disabled:cursor-not-allowed disabled:opacity-60",
-                              !isDone ? "hover:ring-1 hover:ring-zinc-300" : "",
-                              isCurrent
-                                ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
-                                : isUnsuccessfulOutcome
-                                  ? "bg-red-100 text-red-800"
-                                  : isDone
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : isInProgress
-                                      ? "bg-amber-100 text-amber-800"
-                                      : "bg-zinc-100 text-zinc-700",
-                            ].join(" ")}
-                          >
-                            {s.position}. {v.title || v.addressText || "Visit"}
-                            {isDone
-                              ? isUnsuccessfulOutcome
-                                ? " ✗"
-                                : " ✓"
-                              : isCurrent
-                                ? " (текущая)"
-                                : ""}
-                          </button>
-                        </li>
-                      );
-                    })
-                  : dayVisits
-                      .filter((v) => v.status !== "CANCELED" && v.status !== "PLANNED_UNASSIGNED")
-                      .sort((a, b) => {
-                        const at = a.startsAt ? new Date(a.startsAt).getTime() : 0;
-                        const bt = b.startsAt ? new Date(b.startsAt).getTime() : 0;
-                        return at - bt;
-                      })
-                      .map((v, idx) => {
-                        const isCurrent = v.id === routeSessionState.session.currentVisitId;
-                        const isDone = v.status === "DONE";
-                        const isInProgress = v.status === "IN_PROGRESS";
-                        const isUnsuccessfulOutcome =
-                          isDone &&
-                          (v.outcome === "FAILED" ||
-                            v.outcome === "NOT_RELEVANT" ||
-                            v.outcome === "NO_DECISION");
-                        return (
-                          <li key={v.id} className="list-none">
+              <p className="mt-0.5 text-[10px] text-zinc-500">
+                Можно менять порядок и добавлять визиты в течение дня
+              </p>
+              <ul className="mt-1 flex flex-col gap-1">
+                {routeListVisits.length === 0 ? (
+                  <li className="text-[11px] text-zinc-500">Нет запланированных визитов</li>
+                ) : (
+                  routeListVisits.map((v, idx) => {
+                    const isCurrent = v.id === routeSessionState.session.currentVisitId;
+                    const isDone = v.status === "DONE";
+                    const isInProgress = v.status === "IN_PROGRESS";
+                    const isUnsuccessfulOutcome =
+                      isDone &&
+                      (v.outcome === "FAILED" ||
+                        v.outcome === "NOT_RELEVANT" ||
+                        v.outcome === "NO_DECISION");
+                    return (
+                      <li key={v.id} className="list-none flex items-stretch gap-0.5">
+                        {!readOnlyPlan && !isDone ? (
+                          <div className="flex shrink-0 flex-col">
                             <button
                               type="button"
-                              disabled={isDone || routeSessionLoading}
-                              title={isDone ? undefined : "Сделать текущей встречей"}
-                              onClick={async () => {
-                                if (isDone || isCurrent) return;
-                                setRouteSessionLoading(true);
-                                try {
-                                  const state = await routeSessionsApi.setCurrent(dateParam, v.id);
-                                  setRouteSessionState(state);
-                                } catch (e) {
-                                  pushToast(
-                                    e instanceof Error ? e.message : "Не удалось выбрать визит",
-                                    "error",
-                                  );
-                                } finally {
-                                  setRouteSessionLoading(false);
-                                }
-                              }}
-                              className={[
-                                "w-full rounded px-2 py-0.5 text-left text-[11px] disabled:cursor-not-allowed disabled:opacity-60",
-                                !isDone ? "hover:ring-1 hover:ring-zinc-300" : "",
-                                isCurrent
-                                  ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
-                                  : isUnsuccessfulOutcome
-                                    ? "bg-red-100 text-red-800"
-                                    : isDone
-                                      ? "bg-emerald-100 text-emerald-800"
-                                      : isInProgress
-                                        ? "bg-amber-100 text-amber-800"
-                                        : "bg-zinc-100 text-zinc-700",
-                              ].join(" ")}
+                              disabled={idx === 0 || savingRoute}
+                              onClick={() => moveInRouteOrder(v.id, -1)}
+                              className="rounded border border-zinc-200 bg-white px-0.5 py-0 text-zinc-600 hover:bg-zinc-50 disabled:opacity-30"
+                              title="Выше в маршруте"
+                              aria-label="Выше в маршруте"
                             >
-                              {idx + 1}. {v.title || v.addressText || "Visit"}
-                              {isDone
-                                ? isUnsuccessfulOutcome
-                                  ? " ✗"
-                                  : " ✓"
-                                : isCurrent
-                                  ? " (текущая)"
-                                  : ""}
+                              <ChevronUp className="h-3 w-3" />
                             </button>
-                          </li>
-                        );
-                      })}
+                            <button
+                              type="button"
+                              disabled={idx === routeListVisits.length - 1 || savingRoute}
+                              onClick={() => moveInRouteOrder(v.id, 1)}
+                              className="rounded border border-zinc-200 bg-white px-0.5 py-0 text-zinc-600 hover:bg-zinc-50 disabled:opacity-30"
+                              title="Ниже в маршруте"
+                              aria-label="Ниже в маршруте"
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={isDone || routeSessionLoading}
+                          title={isDone ? undefined : "Сделать текущей встречей"}
+                          onClick={async () => {
+                            if (isDone || isCurrent) return;
+                            setRouteSessionLoading(true);
+                            try {
+                              const state = await routeSessionsApi.setCurrent(dateParam, v.id);
+                              setRouteSessionState(state);
+                            } catch (e) {
+                              pushToast(
+                                e instanceof Error ? e.message : "Не удалось выбрать визит",
+                                "error",
+                              );
+                            } finally {
+                              setRouteSessionLoading(false);
+                            }
+                          }}
+                          className={[
+                            "min-w-0 flex-1 rounded px-2 py-0.5 text-left text-[11px] disabled:cursor-not-allowed disabled:opacity-60",
+                            !isDone ? "hover:ring-1 hover:ring-zinc-300" : "",
+                            isCurrent
+                              ? "bg-blue-100 font-medium text-blue-900 ring-1 ring-blue-300"
+                              : isUnsuccessfulOutcome
+                                ? "bg-red-100 text-red-800"
+                                : isDone
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : isInProgress
+                                    ? "bg-amber-100 text-amber-800"
+                                    : "bg-zinc-100 text-zinc-700",
+                          ].join(" ")}
+                        >
+                          {idx + 1}. {v.title || v.addressText || "Visit"}
+                          {v.startsAt ? ` · ${formatHmKyiv(v.startsAt)}` : ""}
+                          {isDone
+                            ? isUnsuccessfulOutcome
+                              ? " ✗"
+                              : " ✓"
+                            : isCurrent
+                              ? " (текущая)"
+                              : ""}
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
               </ul>
             </div>
           </div>
@@ -1527,6 +1561,42 @@ export default function VisitsPage() {
                   Some visits overlap in time — please review.
                 </div>
               )}
+              {!routeSessionState?.session?.isActive &&
+              routeListVisits.length > 0 &&
+              !readOnlyPlan ? (
+                <div className="mt-2 max-h-32 overflow-auto rounded border border-zinc-100 bg-zinc-50/80 p-2">
+                  <div className="text-[11px] font-medium text-zinc-600">Порядок маршрута</div>
+                  <ul className="mt-1 space-y-1">
+                    {routeListVisits.map((v, idx) => (
+                      <li key={v.id} className="flex items-center gap-1 text-[11px]">
+                        <span className="w-4 shrink-0 tabular-nums text-zinc-400">{idx + 1}.</span>
+                        <span className="min-w-0 flex-1 truncate text-zinc-800">
+                          {v.title || v.addressText || "Visit"}
+                          {v.startsAt ? ` · ${formatHmKyiv(v.startsAt)}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={idx === 0 || savingRoute}
+                          onClick={() => moveInRouteOrder(v.id, -1)}
+                          className="rounded border border-zinc-200 bg-white p-0.5 disabled:opacity-30"
+                          title="Выше"
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === routeListVisits.length - 1 || savingRoute}
+                          onClick={() => moveInRouteOrder(v.id, 1)}
+                          className="rounded border border-zinc-200 bg-white p-0.5 disabled:opacity-30"
+                          title="Ниже"
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
                 <label className="inline-flex items-center gap-1">
                   <input
@@ -1536,7 +1606,7 @@ export default function VisitsPage() {
                   />
                   Учитывать пробки
                 </label>
-                {routePlan?.stops?.length ? (
+                {currentOrderVisitIds.length > 0 ? (
                   <label className="inline-flex items-center gap-1">
                     <input
                       type="checkbox"
@@ -1546,7 +1616,7 @@ export default function VisitsPage() {
                     Автосохранение
                   </label>
                 ) : null}
-                {routePlan?.stops?.length && hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
+                {hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
                   <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
                     Есть несохранённые изменения
                   </span>
@@ -1664,6 +1734,7 @@ export default function VisitsPage() {
                       planOwnerOpts,
                     );
                     setRoutePlan(res.plan ?? null);
+                    setRouteOrderIds(optimized.visitIds);
                     setRouteMetricsLoading(true);
                     try {
                       const m = await routePlansApi.metrics(dateParam, {
@@ -1674,6 +1745,7 @@ export default function VisitsPage() {
                     } finally {
                       setRouteMetricsLoading(false);
                     }
+                    await refreshRouteSession();
                   } catch (e) {
                     pushToast(e instanceof Error ? e.message : "Failed to optimize route", "error");
                   }
@@ -1853,7 +1925,7 @@ export default function VisitsPage() {
                               width: `${widthPercent}%`,
                               left: `${leftPercent}%`,
                             }}
-                            draggable
+                            draggable={!readOnlyPlan}
                             onMouseEnter={() => setHoveredVisitId(v.id)}
                             onMouseLeave={() => setHoveredVisitId(null)}
                             onDragStart={(e) => {

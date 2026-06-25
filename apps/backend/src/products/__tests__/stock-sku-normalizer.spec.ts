@@ -32,4 +32,13 @@ describe("stock-sku-normalizer", () => {
     const index = buildStockSkuIndex([{ id: "p", sku: "01.011" }]);
     assert.strictEqual(resolveStockSkuToProduct("1.011", index)?.sku, "01.011");
   });
+
+  it("matches file article 10.046 to Product.sku «10.046 | Test» via primary article index", () => {
+    const index = buildStockSkuIndex([{ id: "p-1046", sku: "10.046 | Test" }]);
+    const ref = resolveStockSkuToProduct("10.046", index);
+    assert.strictEqual(ref?.id, "p-1046");
+    assert.strictEqual(ref?.sku, "10.046 | Test");
+    assert.ok(index.byArticle.has("10.046"));
+    assert.strictEqual(index.byArticle.get("10.046")?.id, "p-1046");
+  });
 });

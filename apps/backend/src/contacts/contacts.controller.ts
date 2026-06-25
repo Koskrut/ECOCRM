@@ -66,6 +66,12 @@ export class ContactsController {
         ownerId: body.ownerId !== undefined ? (body.ownerId != null ? String(body.ownerId) : null) : undefined,
         isPrimary: Boolean(body.isPrimary ?? false),
         externalCode: body.externalCode !== undefined ? (body.externalCode != null ? String(body.externalCode) : null) : undefined,
+        documentDisplayName:
+          body.documentDisplayName !== undefined
+            ? body.documentDisplayName != null
+              ? String(body.documentDisplayName)
+              : null
+            : undefined,
         region: body.region !== undefined ? (body.region != null ? String(body.region) : null) : undefined,
         addressInfo: body.addressInfo !== undefined ? (body.addressInfo != null ? String(body.addressInfo) : null) : undefined,
         city: body.city !== undefined ? (body.city != null ? String(body.city) : null) : undefined,
@@ -392,8 +398,8 @@ export class ContactsController {
         lastName: body.lastName != null ? String(body.lastName) : undefined,
         middleName: body.middleName !== undefined ? (body.middleName != null ? String(body.middleName) : null) : undefined,
         phone: body.phone != null ? String(body.phone) : undefined,
-        email: body.email != null ? String(body.email) : undefined,
-        position: body.position != null ? String(body.position) : undefined,
+        email: body.email !== undefined ? (body.email != null ? String(body.email) : null) : undefined,
+        position: body.position !== undefined ? (body.position != null ? String(body.position) : null) : undefined,
         address: body.address !== undefined ? (body.address != null ? String(body.address) : null) : undefined,
         lat: body.lat !== undefined ? parseNullableNumber(body.lat) : undefined,
         lng: body.lng !== undefined ? parseNullableNumber(body.lng) : undefined,
@@ -406,6 +412,12 @@ export class ContactsController {
         ownerId: body.ownerId !== undefined ? (body.ownerId != null ? String(body.ownerId) : null) : undefined,
         isPrimary: body.isPrimary != null ? Boolean(body.isPrimary) : undefined,
         externalCode: body.externalCode !== undefined ? (body.externalCode != null ? String(body.externalCode) : null) : undefined,
+        documentDisplayName:
+          body.documentDisplayName !== undefined
+            ? body.documentDisplayName != null
+              ? String(body.documentDisplayName)
+              : null
+            : undefined,
         region: body.region !== undefined ? (body.region != null ? String(body.region) : null) : undefined,
         addressInfo: body.addressInfo !== undefined ? (body.addressInfo != null ? String(body.addressInfo) : null) : undefined,
         city: body.city !== undefined ? (body.city != null ? String(body.city) : null) : undefined,

@@ -36,3 +36,37 @@ export function clientStageLabel(stage: string | null | undefined): string {
   const label = t(key);
   return label === key ? stage : label;
 }
+
+export const CALL_OUTCOMES = [
+  "NO_ANSWER",
+  "BUSY",
+  "WRONG_NUMBER",
+  "GATEKEEPER",
+  "NOT_INTERESTED",
+  "INTERESTED",
+  "REQUESTED_OFFER",
+  "REQUESTED_CALLBACK",
+  "MEETING_SCHEDULED",
+  "CONVERTED",
+] as const;
+
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+export function callOutcomeLabel(o: CallOutcome): string {
+  const key = `callOutcome.${o}` as const;
+  const label = t(key);
+  return label === key ? o : label;
+}
+
+export function leadStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  const key = `leadStatus.${status}` as const;
+  const label = t(key);
+  return label === key ? status : label;
+}
+
+export function workQueuePresetLabel(preset: string): string {
+  const key = `workQueue.${preset}` as const;
+  const label = t(key);
+  return label === key ? preset : label;
+}

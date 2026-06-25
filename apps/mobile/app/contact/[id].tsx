@@ -10,12 +10,13 @@ import {
 } from "react-native";
 
 import { contactDisplayName } from "@/components/ContactRow";
-import { QuickActions } from "@/components/QuickActions";
+import { EntityActionBar } from "@/components/EntityActionBar";
 import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { contactsApi } from "@/lib/api/contacts";
+import { activitiesApi, type Activity } from "@/lib/api/activities";
 import { ordersApi } from "@/lib/api/orders";
 import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey, startOfLocalDayIso, endOfLocalDayIso } from "@/lib/date";
@@ -46,6 +47,7 @@ export default function ContactDetailScreen() {
   const [phones, setPhones] = useState<string[]>([]);
   const [recentVisits, setRecentVisits] = useState<VisitSummary[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -96,6 +98,11 @@ export default function ContactDetailScreen() {
         .list(token, { contactId, page: 1, pageSize: 10 })
         .catch(() => ({ items: [] as Order[], total: 0, page: 1, pageSize: 10 }));
       setOrders(ord.items ?? []);
+
+      const act = await activitiesApi
+        .listForContact(token, contactId, { limit: 30 })
+        .catch(() => ({ items: [] as Activity[] }));
+      setActivities(act.items ?? []);
     } finally {
       setLoading(false);
     }
@@ -123,13 +130,22 @@ export default function ContactDetailScreen() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
       <Text style={styles.title}>{name}</Text>
 
-      <QuickActions
+      <EntityActionBar
         token={token!}
         date={dateKey}
         phone={phone}
+        contactId={contact.id}
         lat={contact.lat}
         lng={contact.lng}
+        compact
       />
+
+      <Pressable
+        onPress={() => router.push(`/contact/${contact.id}/edit`)}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.noteBtn, pressed && { opacity: 0.75 }]}>
+        <Text style={styles.noteBtnText}>{t("clients.edit")}</Text>
+      </Pressable>
 
       <Field label={t("clients.phone")} value={phone} />
       {phones.length > 1 ? (
@@ -151,6 +167,20 @@ export default function ContactDetailScreen() {
         style={({ pressed }) => [styles.noteBtn, pressed && { opacity: 0.75 }]}>
         <Text style={styles.noteBtnText}>+ Нотатка</Text>
       </Pressable>
+
+      <Text style={styles.section}>{t("clients.timeline")}</Text>
+      {activities.length === 0 ? (
+        <Text style={styles.muted}>{t("common.noData")}</Text>
+      ) : (
+        activities.map((a) => (
+          <View key={a.id} style={styles.activityRow}>
+            <Text style={styles.activityMeta}>
+              {new Date(a.createdAt).toLocaleString("uk-UA")} · {a.kind}
+            </Text>
+            <Text style={styles.activityBody}>{a.body}</Text>
+          </View>
+        ))
+      )}
 
       {visitsEnabled ? (
         <>
@@ -243,6 +273,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(120,120,128,0.08)",
   },
+  activityRow: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(120,120,128,0.06)",
+  },
+  activityMeta: { fontSize: 12, opacity: 0.6 },
+  activityBody: { marginTop: 4, lineHeight: 20 },
   backBtn: {
     marginTop: 28,
     alignSelf: "center",

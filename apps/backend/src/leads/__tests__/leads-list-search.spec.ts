@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UserRole } from "@prisma/client";
+import { LeadSource, UserRole } from "@prisma/client";
 import { LeadsService } from "../leads.service";
 import type { AuthUser } from "../../auth/auth.types";
 import type { ListLeadsQueryDto } from "../leads.dto";
@@ -81,14 +81,17 @@ test("leads.list: MANAGER RBAC stays effective even when q is supplied (regressi
   // Three AND-parts: active statuses, search OR, RBAC OR.
   assert.equal(andParts.length, 3, `expected 3 AND parts, got ${andParts.length}`);
   const rbacPart = andParts.find(
-    (p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.ownerId === "mgr-1"),
+    (p) =>
+      Array.isArray(p.OR) &&
+      p.OR.some((c: any) => c.ownerId === "mgr-1" || c.source === LeadSource.WEBSITE),
   );
   assert.ok(rbacPart, "RBAC OR must be its own AND-part, not merged with search OR");
-  const rbacKeys = (rbacPart.OR as any[]).map((c) => Object.keys(c).join(":"));
-  // RBAC OR must contain exactly { ownerId } variants and nothing else.
-  for (const k of rbacKeys) {
-    assert.equal(k, "ownerId", `RBAC OR must only contain ownerId conditions; saw ${k}`);
-  }
+  assert.ok(rbacPart.OR.some((c: any) => c.ownerId === "mgr-1"), "includes own leads");
+  assert.ok(rbacPart.OR.some((c: any) => c.source === LeadSource.WEBSITE), "includes website leads");
+  assert.ok(
+    rbacPart.OR.some((c: any) => c.contact?.is?.OR?.some((x: any) => x.ownerId === "mgr-1")),
+    "includes managed contact leads",
+  );
 });
 
 test("leads.list: without q, MANAGER RBAC still applied via AND", async () => {
@@ -99,7 +102,9 @@ test("leads.list: without q, MANAGER RBAC still applied via AND", async () => {
   assert.ok(activePart, "default list should restrict to active statuses");
   assert.deepEqual(activePart.status.in.sort(), ["IN_PROGRESS", "NEW"]);
   const rbacPart = andParts.find(
-    (p) => Array.isArray(p.OR) && p.OR.some((c: any) => c.ownerId === "mgr-2"),
+    (p) =>
+      Array.isArray(p.OR) &&
+      p.OR.some((c: any) => c.ownerId === "mgr-2" || c.source === LeadSource.WEBSITE),
   );
   assert.ok(rbacPart, "RBAC OR must be present");
 });

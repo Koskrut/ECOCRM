@@ -31,6 +31,7 @@ export function SearchableSelectLite({
   createLabel,
   variant = "default",
   onSearchQueryChange,
+  searchPlaceholder,
 }: {
   value: string | null;
   options: Option[];
@@ -44,6 +45,7 @@ export function SearchableSelectLite({
   variant?: "default" | "inline";
   /** When set, search is done by parent (API); query is passed here debounced. No local filtering. */
   onSearchQueryChange?: (query: string) => void;
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -137,7 +139,7 @@ export function SearchableSelectLite({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={isLoading ? "Loading…" : "Search…"}
+            placeholder={isLoading ? "Loading…" : searchPlaceholder ?? "Search…"}
             className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
           />
         </div>

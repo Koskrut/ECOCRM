@@ -2259,6 +2259,7 @@ export function OrderModal({
                     onCreate={onOpenContact ? () => onOpenContact("new") : undefined}
                     createLabel={t.createContact}
                     onSearchQueryChange={onContactSearchQueryChange}
+                    searchPlaceholder={t.searchClientBy1C}
                   />
                 </div>
 
@@ -2841,6 +2842,7 @@ export function OrderModal({
                             disabled={saving}
                             isLoading={loadingContacts}
                             onSearchQueryChange={onContactSearchQueryChange}
+                    searchPlaceholder={t.searchClientBy1C}
                             onChange={async (id) => {
                               setClientId(id);
                               let nextCompanyId = companyId;

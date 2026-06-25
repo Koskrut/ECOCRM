@@ -154,6 +154,7 @@ export class ProductsController {
     matchedSkus: string[];
     unresolvedSkus: string[];
     skuCorrections: Array<{ fileSku: string; dbSku: string }>;
+    resolved: Array<{ fileSku: string; dbSku: string; productId: string }>;
   }> {
     const buffer = file?.buffer;
     if (!buffer) throw new BadRequestException("File is required");
@@ -186,6 +187,7 @@ export class ProductsController {
       unresolvedSkus: prepared.notFound,
       matchedSkus: prepared.matchedSkus,
       skuCorrections: prepared.skuCorrections,
+      resolved: prepared.resolved,
       unmatchedWarehouseNames,
     };
   }

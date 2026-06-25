@@ -1013,7 +1013,7 @@ export const en = {
       delivery: "Delivery",
       discount: "Discount",
       comment: "Comment",
-      selectClientHint: "Click to select client…",
+      selectClientHint: "Click to select client… 1C code: /000000123",
       orderSource: "Order source",
       sourceStore: "Store",
       sourceCrm: "CRM",
@@ -1076,6 +1076,7 @@ export const en = {
       escCancel: "ESC — cancel",
       selectCompany: "Select company…",
       selectClient: "Select client…",
+      searchClientBy1C: "Search… 1C code: /000000123",
       paymentBlock: {
         loading: "Loading payments…",
         loadFailed: "Failed to load payments",

@@ -86,18 +86,22 @@ export type StockByWarehouseEntry = {
 
 export type SkuCorrection = { fileSku: string; dbSku: string };
 
+export type ResolvedStockSku = { fileSku: string; dbSku: string; productId: string };
+
 export type PrepareBulkWarehouseStockResult = {
   updates: Array<{ productId: string; warehouseId: string; qty: number }>;
   productIds: Set<string>;
   notFound: string[];
   matchedSkus: string[];
   skuCorrections: SkuCorrection[];
+  resolved: ResolvedStockSku[];
 };
 
 export type BulkStockUpdateResult = {
   updated: number;
   created: number;
   notFound: string[];
+  resolved?: ResolvedStockSku[];
 };
 
 export type CreateProductData = {
@@ -421,6 +425,7 @@ export class ProductStore {
     const notFoundSet = new Set<string>();
     const matchedSkuSet = new Set<string>();
     const correctionMap = new Map<string, string>();
+    const resolvedMap = new Map<string, ResolvedStockSku>();
     const updateMap = new Map<string, { productId: string; warehouseId: string; qty: number }>();
 
     for (const { sku, fileSku, warehouseId, qty } of entries) {
@@ -429,13 +434,18 @@ export class ProductStore {
       if (!skuTrim || !whId) continue;
 
       const ref = resolveStockSkuToProduct(skuTrim, index);
+      const rawFileSku = (fileSku ?? skuTrim).trim();
       if (!ref) {
-        notFoundSet.add((fileSku ?? skuTrim).trim());
+        notFoundSet.add(rawFileSku);
         continue;
       }
 
       matchedSkuSet.add(ref.sku);
-      const rawFileSku = (fileSku ?? skuTrim).trim();
+      resolvedMap.set(rawFileSku, {
+        fileSku: rawFileSku,
+        dbSku: ref.sku,
+        productId: ref.id,
+      });
       if (rawFileSku && rawFileSku !== ref.sku) {
         correctionMap.set(rawFileSku, ref.sku);
       }
@@ -453,12 +463,16 @@ export class ProductStore {
     const skuCorrections = Array.from(correctionMap.entries())
       .map(([fileSku, dbSku]) => ({ fileSku, dbSku }))
       .sort((a, b) => a.fileSku.localeCompare(b.fileSku));
+    const resolved = Array.from(resolvedMap.values()).sort((a, b) =>
+      a.fileSku.localeCompare(b.fileSku),
+    );
     return {
       updates,
       productIds,
       notFound: Array.from(notFoundSet).sort(),
       matchedSkus: Array.from(matchedSkuSet).sort(),
       skuCorrections,
+      resolved,
     };
   }
 
@@ -554,6 +568,7 @@ export class ProductStore {
       updated: applied.updated,
       created: applied.created,
       notFound: prepared.notFound,
+      resolved: prepared.resolved,
     };
   }
 

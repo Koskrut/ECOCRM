@@ -547,6 +547,11 @@ export class RoutePlansService {
       });
     }
 
+    await this.prisma.routeSession.updateMany({
+      where: { ownerId, date, isActive: true },
+      data: { routePlanId: plan.id },
+    });
+
     const result = await this.prisma.routePlan.findUnique({
       where: { id: plan.id },
       include: {
@@ -692,6 +697,56 @@ export class RoutePlansService {
       out.push(last);
     }
     return out;
+  }
+
+  /** Chronological GPS track → drivable path (Google Routes, up to 25 via-points). */
+  async snapGpsPathToRoads(
+    points: LatLng[],
+    opts?: { traffic?: boolean },
+  ): Promise<{ path: LatLng[]; source: "google" | "fallback" | "none"; distanceKm: number | null }> {
+    if (points.length < 2) {
+      return { path: [], source: "none", distanceKm: null };
+    }
+
+    const sampled = this.downsamplePath(points, 25);
+    if (sampled.length < 2) {
+      return { path: points, source: "fallback", distanceKm: this.pathDistanceKm(points) };
+    }
+
+    const origin = sampled[0]!;
+    const destination = sampled[sampled.length - 1]!;
+    const intermediates = sampled.length > 2 ? sampled.slice(1, -1) : [];
+
+    try {
+      const google = await this.computeRouteByGoogle({
+        origin,
+        destination,
+        intermediates,
+        traffic: opts?.traffic === true,
+      });
+      if (google?.encodedPolyline) {
+        return {
+          path: decodeEncodedPolyline(google.encodedPolyline),
+          source: "google",
+          distanceKm: google.distanceKm,
+        };
+      }
+      if (google) {
+        return {
+          path: pathFromWaypoints(origin, intermediates, destination),
+          source: "fallback",
+          distanceKm: google.distanceKm,
+        };
+      }
+    } catch {
+      // fall through
+    }
+
+    return {
+      path: points,
+      source: "fallback",
+      distanceKm: this.pathDistanceKm(points),
+    };
   }
 
   private async buildRoutedGeometry(opts: {

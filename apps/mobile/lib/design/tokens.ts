@@ -10,10 +10,20 @@ export const colors = {
   primaryMuted: "rgba(59,130,246,0.16)",
   primaryText: "#93c5fd",
   success: "#10b981",
+  successMuted: "rgba(16,185,129,0.16)",
+  successText: "#6ee7b7",
   warning: "#f59e0b",
+  warningMuted: "rgba(245,158,11,0.16)",
+  warningText: "#fcd34d",
   danger: "#ef4444",
   chip: "rgba(120,120,128,0.14)",
   chipOn: "rgba(59,130,246,0.2)",
+  visit: "#10b981",
+  visitMuted: "rgba(16,185,129,0.16)",
+  order: "#3b82f6",
+  orderMuted: "rgba(59,130,246,0.16)",
+  call: "#f59e0b",
+  callMuted: "rgba(245,158,11,0.16)",
 };
 
 export const spacing = {
@@ -30,6 +40,12 @@ export const radius = {
   md: 12,
   lg: 16,
   pill: 999,
+};
+
+export const layout = {
+  stickyFooterHeight: 72,
+  minTouchTarget: 44,
+  actionBarHeight: 52,
 };
 
 export const typography = {

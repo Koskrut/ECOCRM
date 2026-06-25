@@ -3,6 +3,7 @@ const assert = require("node:assert");
 const {
   extractArticleFromFileName,
   extractArticleCandidatesFromFileName,
+  extractPrimaryArticleFromSku,
   normalizeArticle,
   resolveProductMatchForImageFile,
 } = require("../article-normalizer");
@@ -49,5 +50,11 @@ describe("article-normalizer / extract by mask in filename", () => {
     assert.strictEqual(m1?.productId, "a");
     const m2 = resolveProductMatchForImageFile("00.107 WF-OS-MU.png", products);
     assert.strictEqual(m2?.productId, "b");
+  });
+
+  it("extractPrimaryArticleFromSku reads code from pipe-suffixed SKU", () => {
+    assert.strictEqual(extractPrimaryArticleFromSku("10.046 | Test"), "10.046");
+    assert.strictEqual(extractPrimaryArticleFromSku("10.046"), "10.046");
+    assert.strictEqual(extractPrimaryArticleFromSku("10.046 | OS-TB"), "10.046");
   });
 });

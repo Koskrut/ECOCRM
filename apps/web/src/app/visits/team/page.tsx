@@ -26,6 +26,11 @@ export default function VisitsTeamPage() {
   const [items, setItems] = useState<FieldShiftTeamItem[]>([]);
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
   const [trackSamples, setTrackSamples] = useState<FieldLocationSampleRow[]>([]);
+  const [trackRoadPath, setTrackRoadPath] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [trackRouteSource, setTrackRouteSource] = useState<"google" | "fallback" | "none" | null>(
+    null,
+  );
+  const [trackGeometryLoading, setTrackGeometryLoading] = useState(false);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -118,6 +123,35 @@ export default function VisitsTeamPage() {
     () => trackSamples.map((s) => ({ lat: s.lat, lng: s.lng })),
     [trackSamples],
   );
+
+  const loadTrackGeometry = useCallback(async () => {
+    if (!selectedItem || trackSamples.length < 2) {
+      setTrackRoadPath([]);
+      setTrackRouteSource(null);
+      return;
+    }
+    const rawPath = trackSamples.map((s) => ({ lat: s.lat, lng: s.lng }));
+    setTrackGeometryLoading(true);
+    try {
+      const res = await fieldShiftsApi.getTrackGeometry(selectedItem.shift.id);
+      if (res.path.length >= 2) {
+        setTrackRoadPath(res.path);
+        setTrackRouteSource(res.source);
+      } else {
+        setTrackRoadPath(rawPath);
+        setTrackRouteSource("fallback");
+      }
+    } catch {
+      setTrackRoadPath(rawPath);
+      setTrackRouteSource("fallback");
+    } finally {
+      setTrackGeometryLoading(false);
+    }
+  }, [selectedItem, trackSamples]);
+
+  useEffect(() => {
+    void loadTrackGeometry();
+  }, [loadTrackGeometry]);
 
   async function reviewFuel(ownerId: string, date: string, status: "APPROVED" | "REJECTED") {
     await fieldFuelApi.review(date, ownerId, status);
@@ -215,7 +249,9 @@ export default function VisitsTeamPage() {
               mapsApiKey={mapsApiKey}
               items={items}
               selectedOwnerId={selectedOwnerId}
-              trackPath={trackPath}
+              trackPath={trackRoadPath.length >= 2 ? trackRoadPath : trackPath}
+              routeSource={trackRouteSource}
+              routeLoading={trackGeometryLoading}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-zinc-500">

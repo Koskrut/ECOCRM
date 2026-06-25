@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { PaymentStatus, UserRole, VisitStatus } from "@prisma/client";
+import { LeadSource, PaymentStatus, UserRole, VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { ExchangeRates } from "../settings/settings.service";
@@ -31,7 +31,15 @@ function buildLeadWhere(actor: AuthUser | undefined, from: Date, to: Date): Pris
     createdAt: { gte: from, lte: to },
   };
   if (actor?.role === UserRole.MANAGER) {
-    where.OR = [{ ownerId: actor.id }, { ownerId: null }];
+    where.AND = [
+      {
+        OR: [
+          { ownerId: actor.id },
+          { source: LeadSource.WEBSITE },
+          { contact: { is: { OR: [{ ownerId: actor.id }, { ownerId: null }] } } },
+        ],
+      },
+    ];
   }
   return where;
 }

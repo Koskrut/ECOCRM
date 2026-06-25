@@ -66,6 +66,27 @@ export function cityNameOnly(fullLabel: string): string {
   return s;
 }
 
+function cityNameFromDescription(description: string): string {
+  const d = description.trim();
+  const withoutType = d.replace(/^(?:м\.|смт|с\.|село|місто)\s+/iu, "");
+  const comma = withoutType.indexOf(",");
+  return (comma > 0 ? withoutType.slice(0, comma) : withoutType).trim();
+}
+
+const MAIN_CITY_NAMES = [
+  "Київ", "Харків", "Одеса", "Дніпро", "Львів", "Запоріжжя", "Вінниця", "Кривий Ріг",
+  "Полтава", "Чернігів", "Івано-Франківськ", "Кропивницький", "Тернопіль", "Ужгород",
+  "Луцьк", "Черкаси", "Суми", "Миколаїв", "Херсон", "Чернівці", "Житомир", "Рівне",
+  "Кам'янське", "Кременчук",
+];
+
+function isMainCityItem(item: NpCityItem): boolean {
+  const name = cityNameFromDescription(item.description ?? "");
+  return MAIN_CITY_NAMES.some(
+    (main) => name === main || name.startsWith(`${main},`) || name.startsWith(`${main} `),
+  );
+}
+
 /** Is this a city (місто/город) — prioritize over oblast, district, village. */
 function isCitySettlement(item: NpCityItem): boolean {
   const st = (item.settlementTypeDescription ?? "").toLowerCase();
@@ -88,10 +109,38 @@ function isOblastOrRegion(item: NpCityItem): boolean {
   const desc = (item.description ?? "").toLowerCase();
   return (
     st.includes("область") ||
-    ad.includes("область") ||
+    (ad.includes("область") && !desc.startsWith("м. ")) ||
     /область\s*$/i.test(desc) ||
     /район\s*$/i.test(desc)
   );
+}
+
+function isOblastCenter(item: NpCityItem): boolean {
+  const cityName = cityNameFromDescription(item.description ?? "");
+  if (!cityName || !isCitySettlement(item)) return false;
+  const regionText = [item.region, item.areaDescription]
+    .map((v) => (v ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!regionText) return false;
+  const cityLower = cityName.toLowerCase();
+  if (regionText.includes(cityLower)) return true;
+  const rootLen = Math.min(5, Math.max(3, cityLower.length));
+  return regionText.includes(cityLower.slice(0, rootLen));
+}
+
+/** Пріоритет: обласний центр → велике місто → м. → смт → с. */
+function settlementTier(item: NpCityItem): number {
+  if (isOblastOrRegion(item)) return 0;
+  if (isOblastCenter(item)) return 1000;
+  if (isMainCityItem(item)) return 500;
+  if (isCitySettlement(item)) return 100;
+  const st = (item.settlementTypeDescription ?? "").toLowerCase();
+  const desc = (item.description ?? "").toLowerCase();
+  if (st === "смт" || st.includes("селище") || desc.startsWith("смт ")) return 50;
+  if (st === "с." || st.includes("село") || desc.startsWith("с. ")) return 10;
+  return 20;
 }
 
 /** City search query variants (Ukrainian ↔ Russian) so e.g. "Дніпро" finds "Днепр". */
@@ -203,12 +252,9 @@ export function NpCitySelect({
             return 0;
           };
           list.sort((a, b) => {
-            const cityA = isCitySettlement(a.raw) ? 1 : 0;
-            const cityB = isCitySettlement(b.raw) ? 1 : 0;
-            if (cityA !== cityB) return cityB - cityA;
-            const oblastA = isOblastOrRegion(a.raw) ? 1 : 0;
-            const oblastB = isOblastOrRegion(b.raw) ? 1 : 0;
-            if (oblastA !== oblastB) return oblastA - oblastB;
+            const tierA = settlementTier(a.raw);
+            const tierB = settlementTier(b.raw);
+            if (tierA !== tierB) return tierB - tierA;
             const sa = textScore(a.label);
             const sb = textScore(b.label);
             if (sa !== sb) return sb - sa;

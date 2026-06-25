@@ -107,6 +107,7 @@ export const validateUpdateContactDto = (payload: UpdateContactDto): ValidationE
     payload.lng === undefined &&
     payload.googlePlaceId === undefined &&
     payload.isPrimary === undefined &&
+    payload.externalCode === undefined &&
     payload.documentDisplayName === undefined &&
     payload.region === undefined &&
     payload.addressInfo === undefined &&

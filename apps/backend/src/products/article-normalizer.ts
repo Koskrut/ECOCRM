@@ -89,6 +89,20 @@ export function extractArticleFromFileName(fileName: string): string {
   return list[0] ?? "";
 }
 
+/**
+ * Главный числовой артикул из SKU в БД или из ячейки Excel («10.046 | OS-TB» → «10.046»).
+ * Не использует basenameWithoutExtension — голый «10.046» не теряет дробную часть.
+ */
+export function extractPrimaryArticleFromSku(sku: string): string {
+  const trimmed = sku.trim();
+  if (!trimmed) return "";
+  const re = new RegExp(ARTICLE_PATTERN.source, "i");
+  const m = trimmed.match(re);
+  if (m) return normalizeArticle(m[1]);
+  const head = trimmed.split("|")[0]?.trim() ?? trimmed;
+  return normalizeArticle(head);
+}
+
 /** Нормализованное имя файла без расширения (для полного совпадения с SKU). */
 export function normalizeImageBasename(fileName: string): string {
   return normalizeArticle(basenameWithoutExtension(fileName));

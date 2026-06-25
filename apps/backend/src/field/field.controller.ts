@@ -72,6 +72,15 @@ export class FieldController {
     });
   }
 
+  @Get("shifts/:id/track-geometry")
+  async trackGeometry(
+    @Param("id") id: string,
+    @Query("traffic") traffic: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.shifts.getTrackGeometry(req.user, id, { traffic: traffic === "1" });
+  }
+
   @Post("shifts/:id/samples")
   async samples(
     @Param("id") id: string,

@@ -112,4 +112,24 @@ describe("stock-upload.service", () => {
     const ref = resolveStockSkuToProduct(entries[0].sku, index);
     assert.strictEqual(ref?.sku, "01.011");
   });
+
+  it("10.046 qty=103 Днепр resolves to «10.046 | Test» and keeps product in reset set", () => {
+    const buffer = buildWorkbookBuffer([
+      ["Артикул", "Днепр"],
+      ["10.046", 103],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, [warehouses[0]]);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].fileSku, "10.046");
+    assert.strictEqual(entries[0].qty, 103);
+
+    const index = buildStockSkuIndex([{ id: "p-1046", sku: "10.046 | Test" }]);
+    const ref = resolveStockSkuToProduct(entries[0].sku, index);
+    assert.strictEqual(ref?.id, "p-1046");
+    assert.strictEqual(ref?.sku, "10.046 | Test");
+
+    const productIds = new Set([ref.id]);
+    assert.ok(productIds.has("p-1046"));
+    assert.strictEqual(entries[0].warehouseId, "wh-dnipro");
+  });
 });

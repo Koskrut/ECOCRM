@@ -41,11 +41,13 @@ export class NpController {
     @Query("cityRef") cityRef = "",
     @Query("q") q = "",
     @Query("limit") limit?: string,
+    @Query("browse") browse?: string,
   ) {
     return this.sync.searchStreets({
       cityRef,
       q,
       limit: limit ? Number(limit) : undefined,
+      browse: browse === "1" || browse === "true",
     });
   }
 
