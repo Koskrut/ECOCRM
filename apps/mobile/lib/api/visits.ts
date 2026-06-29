@@ -49,9 +49,9 @@ function normalizeVisitList(res: VisitSummary[] | { items?: VisitSummary[] }): V
 }
 
 export const visitsApi = {
-  day: (token: string, dateKey: string) =>
+  day: (token: string, dateKey: string, ownerId?: string) =>
     apiFetch<VisitSummary[] | { items: VisitSummary[] }>(
-      `/visits/day?date=${encodeURIComponent(dateKey)}`,
+      `/visits/day${qs({ date: dateKey, ownerId })}`,
       { token },
     ).then(normalizeVisitList),
 

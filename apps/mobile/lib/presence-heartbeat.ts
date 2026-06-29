@@ -2,10 +2,14 @@ import * as Location from "expo-location";
 import { AppState, type AppStateStatus } from "react-native";
 
 import { apiFetch } from "@/lib/api";
+import { getAuthToken } from "@/lib/auth-token";
 import { getTrackingState } from "@/lib/location-tracking";
 
 const HEARTBEAT_INTERVAL_ACTIVE_MS = 60_000;
-const HEARTBEAT_INTERVAL_BACKGROUND_MS = 120_000;
+const HEARTBEAT_INTERVAL_BACKGROUND_MS = 60_000;
+const TASK_HEARTBEAT_MIN_INTERVAL_MS = 60_000;
+
+let lastTaskHeartbeatAt = 0;
 
 type HeartbeatCoords = {
   lat?: number;
@@ -44,6 +48,25 @@ async function captureCoords(): Promise<HeartbeatCoords> {
   }
 }
 
+async function postHeartbeat(
+  token: string,
+  body: {
+    appState: AppPresenceState;
+    trackingMode?: string;
+    lat?: number;
+    lng?: number;
+  },
+): Promise<void> {
+  await apiFetch("/presence/heartbeat", {
+    method: "POST",
+    token,
+    body: JSON.stringify({
+      platform: "MOBILE",
+      ...body,
+    }),
+  });
+}
+
 export async function sendPresenceHeartbeat(token: string): Promise<void> {
   const appState = mapAppState(AppState.currentState);
   const coords = appState === "ACTIVE" ? await captureCoords() : {};
@@ -58,17 +81,31 @@ export async function sendPresenceHeartbeat(token: string): Promise<void> {
     /* optional */
   }
 
-  await apiFetch("/presence/heartbeat", {
-    method: "POST",
-    token,
-    body: JSON.stringify({
-      platform: "MOBILE",
-      appState,
-      ...(trackingMode ? { trackingMode } : {}),
-      ...(coords.lat != null ? { lat: coords.lat } : {}),
-      ...(coords.lng != null ? { lng: coords.lng } : {}),
-    }),
+  await postHeartbeat(token, {
+    appState,
+    ...(trackingMode ? { trackingMode } : {}),
+    ...(coords.lat != null ? { lat: coords.lat } : {}),
+    ...(coords.lng != null ? { lng: coords.lng } : {}),
   });
+}
+
+/** Lightweight heartbeat from background location task (no getCurrentPosition). */
+export async function sendPresenceHeartbeatFromTask(): Promise<void> {
+  const now = Date.now();
+  if (now - lastTaskHeartbeatAt < TASK_HEARTBEAT_MIN_INTERVAL_MS) return;
+
+  const token = await getAuthToken();
+  if (!token) return;
+
+  try {
+    await postHeartbeat(token, {
+      appState: "BACKGROUND",
+      trackingMode: "background",
+    });
+    lastTaskHeartbeatAt = now;
+  } catch {
+    /* retry on next location point */
+  }
 }
 
 export async function endPresenceSession(token: string): Promise<void> {

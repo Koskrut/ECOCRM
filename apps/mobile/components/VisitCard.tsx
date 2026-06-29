@@ -13,9 +13,10 @@ type VisitCardProps = {
   onPress: () => void;
   highlight?: boolean;
   index?: number;
+  ownerLabel?: string | null;
 };
 
-export function VisitCard({ visit, onPress, highlight, index = 0 }: VisitCardProps) {
+export function VisitCard({ visit, onPress, highlight, index = 0, ownerLabel }: VisitCardProps) {
   const theme = useTheme();
 
   return (
@@ -40,6 +41,11 @@ export function VisitCard({ visit, onPress, highlight, index = 0 }: VisitCardPro
             </Text>
             <StatusPill label={visit.status} tone="info" />
           </View>
+          {ownerLabel ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+              {ownerLabel}
+            </Text>
+          ) : null}
           {visit.addressText ? (
             <Text
               style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 6 }]}

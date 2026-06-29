@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 
+import { getAuthToken } from "./auth-token";
 import { FLUSH_INTERVAL_MS, FLUSH_WHEN_PENDING_GTE } from "./location-tracking-config";
 import { getApiBaseUrl } from "./config";
 import { appendErrorLog } from "./error-log";
@@ -10,7 +10,6 @@ import {
   type FlushErrorAction,
 } from "./location-flush-errors";
 
-const TOKEN_KEY = "crm_manager_jwt";
 const MAX_BATCH = 30;
 export const MAX_PENDING_SAMPLES = 500;
 
@@ -94,10 +93,7 @@ export async function getPendingCount(): Promise<number> {
   return withBufferLock(async () => (await readPending()).length);
 }
 
-async function getAuthToken(): Promise<string | null> {
-  const token = await SecureStore.getItemAsync(TOKEN_KEY);
-  return token && token.length > 0 ? token : null;
-}
+export { getAuthToken };
 
 export async function flushPendingSamples(shiftId?: string): Promise<number> {
   return withBufferLock(async () => {

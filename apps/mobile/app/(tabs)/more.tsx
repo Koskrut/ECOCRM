@@ -238,6 +238,9 @@ export default function MoreScreen() {
                     status: trackingDebug.backgroundTaskStarted ? "yes" : "no",
                   })}
                 </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugHealthy", { status: trackingDebug.healthy ? "yes" : "no" })}
+                </Text>
               </>
             ) : null}
             {errorLog.slice(0, 5).map((e) => (

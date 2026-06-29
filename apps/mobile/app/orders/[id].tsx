@@ -11,6 +11,7 @@ import {
 
 import { contactDisplayName } from "@/components/ContactRow";
 import { Text } from "@/components/Themed";
+import { CreatePaymentLinkSheet } from "@/components/order/CreatePaymentLinkSheet";
 import { OrderStageControl } from "@/components/order/OrderStageControl";
 import { ShippingProfilePicker } from "@/components/ShippingProfilePicker";
 import { AppButton } from "@/components/ui/AppButton";
@@ -57,6 +58,7 @@ export default function OrderDetailScreen() {
   const [ttnStatus, setTtnStatus] = useState<string | null>(null);
   const [ttnBusy, setTtnBusy] = useState(false);
   const [stageBusy, setStageBusy] = useState(false);
+  const [showPaymentLinkSheet, setShowPaymentLinkSheet] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !orderId) return;
@@ -216,6 +218,16 @@ export default function OrderDetailScreen() {
   const title = order.orderNumber
     ? `${t("orders.orderFallback")} #${order.orderNumber}`
     : t("orders.orderFallback");
+  const canCreatePaymentLink = order.paymentMethod === "FOP" || Boolean(order.bankAccountId);
+  const debtAmount = order.debtAmount ?? 0;
+
+  function onPaymentLinkPress() {
+    if (!canCreatePaymentLink) {
+      Alert.alert(t("common.error"), t("paymentLink.noBankAccount"));
+      return;
+    }
+    setShowPaymentLinkSheet(true);
+  }
 
   return (
     <Screen padded={false} contentStyle={styles.flex}>
@@ -286,7 +298,23 @@ export default function OrderDetailScreen() {
               {t("orderCreate.deferredDue")}: {new Date(order.paymentDueDate).toLocaleDateString("uk-UA")}
             </Text>
           ) : null}
+          {order.paidAmount != null || order.debtAmount != null ? (
+            <Text style={[theme.typography.body, styles.condLine]}>
+              {t("orders.paidDebt")}: {formatAmount(order.paidAmount, order.currency)} /{" "}
+              {formatAmount(order.debtAmount, order.currency)}
+            </Text>
+          ) : null}
         </Card>
+
+        {token ? (
+          <AppButton
+            label={t("paymentLink.create")}
+            onPress={onPaymentLinkPress}
+            disabled={!canCreatePaymentLink}
+            variant="secondary"
+            style={{ marginBottom: theme.spacing.md, alignSelf: "flex-start" }}
+          />
+        ) : null}
 
         {order.comment ? (
           <Card style={{ marginBottom: theme.spacing.md }}>
@@ -363,6 +391,19 @@ export default function OrderDetailScreen() {
           style={{ marginTop: theme.spacing.xl, alignSelf: "center" }}
         />
       </ScrollView>
+
+      {token && order ? (
+        <CreatePaymentLinkSheet
+          visible={showPaymentLinkSheet}
+          onClose={() => setShowPaymentLinkSheet(false)}
+          token={token}
+          orderId={order.id}
+          orderNumber={order.orderNumber ?? ""}
+          currency={order.currency ?? "UAH"}
+          exchangeRate={order.exchangeRate}
+          debtAmount={debtAmount}
+        />
+      ) : null}
     </Screen>
   );
 }

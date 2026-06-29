@@ -9,6 +9,7 @@ import {
   maybeFlushAfterAppend,
 } from "./location-tracking-buffer";
 import { processLocationUpdate } from "./location-tracking-processor";
+import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
 import type { SamplingTier } from "./location-tracking-config";
 
 export { FIELD_LOCATION_TASK };
@@ -43,6 +44,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
       if (result.accepted && result.sample) {
         const count = await appendPendingSample(result.sample);
         void maybeFlushAfterAppend(count).catch(() => undefined);
+        void sendPresenceHeartbeatFromTask().catch(() => undefined);
       }
 
       if (result.tierChanged) {

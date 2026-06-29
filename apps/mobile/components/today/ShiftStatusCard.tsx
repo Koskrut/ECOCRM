@@ -11,6 +11,7 @@ type Props = {
   activeShift: boolean;
   isTracking: boolean;
   trackingMode?: "background" | "foreground" | "none";
+  trackingHealthy?: boolean;
   pendingSamples: number;
   loading: boolean;
   onStart: () => void;
@@ -21,12 +22,15 @@ export function ShiftStatusCard({
   activeShift,
   isTracking,
   trackingMode = "none",
+  trackingHealthy = true,
   pendingSamples,
   loading,
   onStart,
   onEnd,
 }: Props) {
   const theme = useTheme();
+  const trackingBroken =
+    activeShift && trackingMode !== "none" && !trackingHealthy;
 
   return (
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>
@@ -37,6 +41,11 @@ export function ShiftStatusCard({
             <Text style={[theme.typography.caption, { color: theme.colors.primaryText }]}>
               {t("today.trackingActive")}
               {pendingSamples > 0 ? ` · ${t("today.queuePending", { count: pendingSamples })}` : ""}
+            </Text>
+          ) : null}
+          {trackingBroken ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+              {t("gps.trackingUnhealthy")}
             </Text>
           ) : null}
           {isTracking && trackingMode === "foreground" ? (

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import {
   appendPendingSample,
@@ -32,6 +32,7 @@ import {
   type TrackingPermissionStatus,
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
+import { reconcileTrackingHealth } from "./location-tracking-health";
 
 export { registerFieldLocationTask };
 export { requestTrackingPermissionsWithRationale as requestTrackingPermissions };
@@ -50,6 +51,13 @@ export type TrackingDiagnostics = {
   foregroundPermission: string;
   backgroundPermission: string | null;
   backgroundTaskStarted: boolean;
+  healthy: boolean;
+};
+
+export type TrackingRuntimeHealth = TrackingDiagnostics & {
+  claimedMode: TrackingMode;
+  actualMode: TrackingMode;
+  foregroundWatchActive: boolean;
 };
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -93,6 +101,7 @@ async function handleRawLocation(input: {
 function startFlushTimer(): void {
   if (flushTimer) return;
   flushTimer = setInterval(() => {
+    if (AppState.currentState !== "active") return;
     void flushPendingSamples().catch(() => {
       /* retry on next tick */
     });
@@ -133,7 +142,7 @@ async function stopForegroundWatch(): Promise<void> {
   setForegroundSubscription(null);
 }
 
-async function startBackgroundUpdates(initialTier: SamplingTier): Promise<void> {
+async function startBackgroundUpdates(initialTier: SamplingTier): Promise<boolean> {
   const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK);
   if (started) {
     await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
@@ -142,6 +151,7 @@ async function startBackgroundUpdates(initialTier: SamplingTier): Promise<void> 
     FIELD_LOCATION_TASK,
     backgroundOptionsForTier(initialTier),
   );
+  return Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false);
 }
 
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
@@ -161,7 +171,12 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     const initialTier = DEFAULT_TIER;
 
     if (hasBackground) {
-      await startBackgroundUpdates(initialTier);
+      const taskStarted = await startBackgroundUpdates(initialTier);
+      if (!taskStarted) {
+        void appendErrorLog("startLocationTracking: background task failed to start");
+        await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+        return "none";
+      }
       await stopForegroundWatch();
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
       startFlushTimer();
@@ -244,6 +259,7 @@ export async function resumeTrackingIfNeeded(
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     void appendErrorLog(`resumeTrackingIfNeeded: ${message}`);
+    await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none").catch(() => undefined);
     return "none";
   }
 }
@@ -263,21 +279,43 @@ export async function getTrackingState(): Promise<{
   };
 }
 
-export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
+export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth> {
   const [state, perms, activeShiftId, backgroundTaskStarted] = await Promise.all([
     getTrackingState(),
     getTrackingPermissionStatus(),
     AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
     Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
   ]);
+  const { getForegroundSubscription } = await import("./location-tracking-adaptive");
+  const foregroundWatchActive = !!getForegroundSubscription();
+  const health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive);
+
   return {
     mode: state.mode,
+    claimedMode: health.claimedMode,
+    actualMode: health.actualMode,
     pendingSamples: state.pendingSamples,
     lastFlushAt: state.lastFlushAt,
     activeShiftId,
     foregroundPermission: perms.foreground,
     backgroundPermission: perms.background,
     backgroundTaskStarted,
+    foregroundWatchActive,
+    healthy: health.healthy,
+  };
+}
+
+export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
+  const health = await getTrackingRuntimeHealth();
+  return {
+    mode: health.mode,
+    pendingSamples: health.pendingSamples,
+    lastFlushAt: health.lastFlushAt,
+    activeShiftId: health.activeShiftId,
+    foregroundPermission: health.foregroundPermission,
+    backgroundPermission: health.backgroundPermission,
+    backgroundTaskStarted: health.backgroundTaskStarted,
+    healthy: health.healthy,
   };
 }
 
@@ -338,8 +376,7 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
 }
 
 /**
- * When the app goes to background: only restart an already-running background task.
- * Do not request permissions or start background updates for the first time here.
+ * When the app goes to background: flush samples and restart a dead background task.
  */
 export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
@@ -351,9 +388,11 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
     const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
       () => false,
     );
-    if (started) {
-      void flushPendingSamples().catch(() => undefined);
+    if (!started) {
+      void appendErrorLog("maintainBackgroundTracking: task dead, restarting");
+      return startLocationTracking(shiftId);
     }
+    void flushPendingSamples().catch(() => undefined);
     return "background";
   }
 

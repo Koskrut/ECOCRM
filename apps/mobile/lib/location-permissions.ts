@@ -104,6 +104,11 @@ export async function openAppSettings(): Promise<void> {
   }
 }
 
+/** Open app settings — preferred entry for location "Always" permission. */
+export async function openLocationPermissionSettings(): Promise<void> {
+  await openAppSettings();
+}
+
 /**
  * Open the Android battery-optimization settings so the user can mark the app
  * as "not optimized". No-op on iOS. Falls back to app settings on failure.

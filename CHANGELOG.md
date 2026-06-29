@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.94**.)_
+_(планируемые изменения после **0.2.95**.)_
+
+## [0.2.95] — 2026-05-20
+
+### Summary
+
+Патч **0.2.95**: надёжность **mobile field tracking** (health check, auto-restart), раздельные статусы heartbeat/GPS на карте команды, payment link с mobile, фильтр командных визитов.
+
+### Added
+
+- **Mobile tracking health**: `reconcileTrackingHealth`, предупреждения на Shift card при мёртвом background task, `resumeTrackingIfNeeded`.
+- **Mobile orders**: **`CreatePaymentLinkSheet`** — публичная ссылка на оплату из карточки заказа.
+- **Mobile visits**: фильтр командных визитов (`TeamVisitFilter`, `use-team-visit-filter`).
+- **Docs**: **`docs/mobile-field-tracking-qa.md`** — чеклист QA перед mobile-релизом.
+
+### Changed
+
+- **Presence thresholds**: online **180s**, GPS stale **20 min**.
+- **Web `/visits/team`**: отдельные бейджи heartbeat vs GPS («Немає heartbeat» при живом GPS).
+- **Backend field shifts**: логирование причин отклонения GPS-сэмплов.
+- **Mobile**: улучшенный presence heartbeat, location buffer/permissions, today screen, visit schedule.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.95`**.
+- **Новых миграций нет.**
 
 ## [0.2.94] — 2026-05-20
 

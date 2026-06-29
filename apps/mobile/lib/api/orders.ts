@@ -11,6 +11,10 @@ export type OrderListItem = {
   totalAmount?: number | null;
   subtotalAmount?: number | null;
   discountAmount?: number | null;
+  paidAmount?: number | null;
+  debtAmount?: number | null;
+  exchangeRate?: number | null;
+  paymentStatus?: string | null;
   currency?: string | null;
   createdAt: string;
   contactId?: string | null;

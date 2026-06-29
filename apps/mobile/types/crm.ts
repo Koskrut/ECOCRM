@@ -1,6 +1,14 @@
+export type VisitOwnerSnippet = {
+  id: string;
+  fullName: string;
+  email?: string;
+};
+
 /** CRM Visit (subset). Shape matches Nest + Prisma JSON. */
 export type VisitSummary = {
   id: string;
+  ownerId?: string;
+  owner?: VisitOwnerSnippet | null;
   title?: string | null;
   status: string;
   startsAt?: string | null;
@@ -279,6 +287,10 @@ export type Order = {
   totalAmount?: number | null;
   subtotalAmount?: number | null;
   discountAmount?: number | null;
+  paidAmount?: number | null;
+  debtAmount?: number | null;
+  exchangeRate?: number | null;
+  paymentStatus?: string | null;
   currency?: string | null;
   createdAt: string;
   contactId?: string | null;

@@ -8,7 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "export:android": "expo export --platform android",
-    "test": "node --test --require ../../node_modules/ts-node/register/transpile-only lib/__tests__/location-flush-errors.spec.ts"
+    "test": "node --test --require ../../node_modules/ts-node/register/transpile-only lib/__tests__/location-flush-errors.spec.ts lib/__tests__/location-tracking-health.spec.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

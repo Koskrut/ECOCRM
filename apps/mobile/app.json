@@ -77,6 +77,7 @@
     },
     "extra": {
       "apiUrl": "",
+      "crmPayUrl": "",
       "router": {},
       "eas": {
         "projectId": "3ee36eac-37fb-4fc4-8876-15526406423d"

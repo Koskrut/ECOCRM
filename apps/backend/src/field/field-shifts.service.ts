@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ClientPlatform, FieldShiftStatus, Prisma } from "@prisma/client";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
@@ -19,6 +19,8 @@ const MAX_SAMPLES_READ = 500;
 
 @Injectable()
 export class FieldShiftsService {
+  private readonly logger = new Logger(FieldShiftsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly routePlans: RoutePlansService,
@@ -149,6 +151,7 @@ export class FieldShiftsService {
 
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
     let rejected = 0;
+    const rejectReasons: Record<string, number> = {};
 
     for (const it of items) {
       if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) {
@@ -170,6 +173,8 @@ export class FieldShiftsService {
       const verdict = filterGpsSample(prev, candidate);
       if (!verdict.accept) {
         rejected += 1;
+        const reason = verdict.reason ?? "unknown";
+        rejectReasons[reason] = (rejectReasons[reason] ?? 0) + 1;
         continue;
       }
 
@@ -186,6 +191,13 @@ export class FieldShiftsService {
     if (rows.length > 0) {
       await this.prisma.fieldLocationSample.createMany({ data: rows });
     }
+
+    if (rejected > 0 || rows.length > 0) {
+      this.logger.log(
+        `appendSamples shiftId=${shiftId} ownerId=${actor.id} created=${rows.length} rejected=${rejected} rejectReasons=${JSON.stringify(rejectReasons)}`,
+      );
+    }
+
     return { created: rows.length, rejected };
   }
 

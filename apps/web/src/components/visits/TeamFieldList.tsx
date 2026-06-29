@@ -19,15 +19,27 @@ function formatAgo(iso: string | null | undefined): string {
   return strings.monitoring.lastSeenHours.replace("{n}", String(h));
 }
 
-function appStatusLabel(device: FieldTeamDevicePresence | null): string {
-  if (!device?.appState) return t.appUnreachable;
+function appStatusLabel(
+  device: FieldTeamDevicePresence | null,
+  gpsStatus: FieldTeamGpsStatus,
+): string {
+  if (!device?.appState) {
+    if (gpsStatus === "ok") return t.appNoHeartbeat;
+    return t.appOffline;
+  }
   if (device.appState === "ACTIVE") return t.appOpen;
   if (device.appState === "BACKGROUND") return t.appBackground;
   return t.appInactive;
 }
 
-function appStatusClass(device: FieldTeamDevicePresence | null): string {
-  if (!device?.appState) return "bg-zinc-100 text-zinc-600";
+function appStatusClass(
+  device: FieldTeamDevicePresence | null,
+  gpsStatus: FieldTeamGpsStatus,
+): string {
+  if (!device?.appState) {
+    if (gpsStatus === "ok") return "bg-sky-100 text-sky-800";
+    return "bg-zinc-100 text-zinc-600";
+  }
   if (device.appState === "ACTIVE") return "bg-emerald-100 text-emerald-800";
   if (device.appState === "BACKGROUND") return "bg-sky-100 text-sky-800";
   return "bg-amber-100 text-amber-800";
@@ -62,7 +74,7 @@ function gpsStatusClass(status: FieldTeamGpsStatus): string {
 export function teamMarkerTitle(item: FieldShiftTeamItem): string {
   return t.markerTitle
     .replace("{name}", item.owner.fullName)
-    .replace("{app}", appStatusLabel(item.device))
+    .replace("{app}", appStatusLabel(item.device, item.gpsStatus))
     .replace("{gps}", gpsStatusLabel(item.gpsStatus));
 }
 
@@ -89,6 +101,8 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
           item.sampleCountToday > 0
             ? t.gpsSamplesSuffix.replace("{count}", String(item.sampleCountToday))
             : "";
+        const heartbeatAgo = formatAgo(item.device?.lastSeenAt);
+        const gpsAgo = formatAgo(item.lastSample?.clientRecordedAt);
 
         return (
           <li key={item.shift.id}>
@@ -111,9 +125,9 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                   </span>
                   <div className="flex flex-wrap justify-end gap-1">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${appStatusClass(item.device)}`}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${appStatusClass(item.device, item.gpsStatus)}`}
                       title={t.badgeApp}>
-                      {appStatusLabel(item.device)}
+                      {appStatusLabel(item.device, item.gpsStatus)}
                     </span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${gpsStatusClass(item.gpsStatus)}`}
@@ -134,8 +148,9 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                   <p className="text-zinc-400">{t.noCurrentVisit}</p>
                 )}
                 <p>
-                  {t.gpsDetail
-                    .replace("{ago}", formatAgo(item.lastSample?.clientRecordedAt))
+                  {t.teamPresenceDetail
+                    .replace("{heartbeat}", heartbeatAgo)
+                    .replace("{gps}", gpsAgo)
                     .replace("{samples}", samplesSuffix)}
                 </p>
               </div>

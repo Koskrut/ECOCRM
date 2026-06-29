@@ -40,8 +40,8 @@ export const SAMPLING_TIERS: Record<SamplingTier, WatchOptions> = {
   },
   idle: {
     accuracy: Location.Accuracy.Balanced,
-    timeInterval: 180_000,
-    distanceInterval: 80,
+    timeInterval: 300_000,
+    distanceInterval: 0,
   },
 };
 

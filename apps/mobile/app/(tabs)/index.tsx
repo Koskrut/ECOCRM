@@ -16,10 +16,12 @@ import { SectionHeader } from "@/components/today/SectionHeader";
 import { ShiftStatusCard } from "@/components/today/ShiftStatusCard";
 import { StatTiles, type StatTile } from "@/components/today/StatTiles";
 import { TodayHeader } from "@/components/today/TodayHeader";
+import { TeamVisitFilter } from "@/components/visit/TeamVisitFilter";
 import { VisitDayNavigator } from "@/components/visit/VisitDayNavigator";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
+import { useTeamVisitFilter } from "@/hooks/use-team-visit-filter";
 import { apiFetch } from "@/lib/api";
 import { manualCallingApi, type QueueItemResponse } from "@/lib/api/manual-calling";
 import { ordersApi, type OrderListItem } from "@/lib/api/orders";
@@ -28,6 +30,7 @@ import { formatLocalDateKey, parseDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import type { RouteGeometryBundle } from "@/lib/route-map";
+import { visitOwnerId } from "@/lib/team-visits";
 import {
   findNearestVisit,
   visitProgress,
@@ -45,6 +48,7 @@ export default function TodayScreen() {
     activeShift,
     isTracking,
     trackingMode,
+    trackingHealthy,
     startShift,
     endShift,
     loading: shiftLoading,
@@ -60,7 +64,24 @@ export default function TodayScreen() {
 
   const [dateKey, setDateKey] = useState(() => formatLocalDateKey());
 
-  const nearest = useMemo(() => findNearestVisit(items), [items]);
+  const {
+    isTeamLead,
+    viewOwnerId,
+    setViewOwnerId,
+    teamMembers,
+    showTeamSections,
+    teamGroups,
+  } = useTeamVisitFilter(token, user, items);
+
+  const ownVisits = useMemo(() => {
+    if (!isTeamLead || !user?.id) return items;
+    return items.filter((v) => visitOwnerId(v) === user.id);
+  }, [items, isTeamLead, user?.id]);
+
+  const nearest = useMemo(
+    () => findNearestVisit(isTeamLead ? ownVisits : items),
+    [items, isTeamLead, ownVisits],
+  );
   const progress = useMemo(() => visitProgress(items), [items]);
   const listItems = useMemo(
     () => (nearest ? items.filter((v) => v.id !== nearest.id) : items),
@@ -86,7 +107,7 @@ export default function TodayScreen() {
         .catch(() => ({ items: [] as OrderListItem[] }));
 
       const [day, fuel, route, calls, orders] = await Promise.all([
-        visitsApi.day(token, dateKey),
+        visitsApi.day(token, dateKey, viewOwnerId || undefined),
         apiFetch<{
           report: {
             compensationKm: number | null;
@@ -123,7 +144,7 @@ export default function TodayScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token, dateKey, visitsEnabled, manualCallingEnabled]);
+  }, [token, dateKey, viewOwnerId, visitsEnabled, manualCallingEnabled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -249,10 +270,21 @@ export default function TodayScreen() {
           <Chip label={t("today.history")} onPress={() => router.push("/visits/history")} />
         </View>
 
+        {isTeamLead ? (
+          <TeamVisitFilter
+            userId={user?.id}
+            viewOwnerId={viewOwnerId}
+            teamMembers={teamMembers}
+            showTeamSections={showTeamSections}
+            onViewOwnerIdChange={setViewOwnerId}
+          />
+        ) : null}
+
         <ShiftStatusCard
           activeShift={!!activeShift}
           isTracking={isTracking}
           trackingMode={trackingMode}
+          trackingHealthy={trackingHealthy}
           pendingSamples={pendingSamples}
           loading={shiftLoading}
           onStart={() => void startShift()}
@@ -266,7 +298,7 @@ export default function TodayScreen() {
           </>
         ) : null}
 
-        {!loading && nearest && token ? (
+        {!loading && nearest && token && (!isTeamLead || viewOwnerId === user?.id) && !showTeamSections ? (
           <NearestVisitHero visit={nearest} token={token} dateKey={dateKey} />
         ) : null}
 
@@ -300,18 +332,69 @@ export default function TodayScreen() {
           <ReadyOrderRow key={order.id} order={order} index={index} />
         ))}
 
-        <SectionHeader title={t("today.sectionOtherVisits")} />
-        {listItems.length === 0 && !nearest && !loading ? (
-          <EmptyState message={t("today.empty")} icon="calendar-outline" />
-        ) : null}
-        {listItems.map((item, index) => (
-          <VisitCard
-            key={item.id}
-            visit={item}
-            index={index}
-            onPress={() => router.push(`/visit/${item.id}`)}
-          />
-        ))}
+        {showTeamSections && teamGroups ? (
+          <>
+            {teamGroups.length === 0 && !loading ? (
+              <EmptyState message={t("today.empty")} icon="calendar-outline" />
+            ) : null}
+            {teamGroups.map((group) => {
+              const groupNearest =
+                group.ownerId === user?.id ? findNearestVisit(group.visits) : null;
+              const groupList = groupNearest
+                ? group.visits.filter((v) => v.id !== groupNearest.id)
+                : group.visits;
+              const sectionTitle =
+                group.ownerId === user?.id
+                  ? t("today.myVisitsSection")
+                  : t("today.teamVisitsSection", { name: group.ownerName });
+
+              return (
+                <View key={group.ownerId}>
+                  <SectionHeader title={sectionTitle} />
+                  {!loading && groupNearest && token && group.ownerId === user?.id ? (
+                    <NearestVisitHero visit={groupNearest} token={token} dateKey={dateKey} />
+                  ) : null}
+                  {groupList.map((item, index) => (
+                    <VisitCard
+                      key={item.id}
+                      visit={item}
+                      index={index}
+                      onPress={() => router.push(`/visit/${item.id}`)}
+                    />
+                  ))}
+                </View>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <SectionHeader
+              title={
+                isTeamLead && viewOwnerId === user?.id
+                  ? t("today.myVisitsSection")
+                  : t("today.sectionOtherVisits")
+              }
+            />
+            {listItems.length === 0 && !nearest && !loading ? (
+              <EmptyState message={t("today.empty")} icon="calendar-outline" />
+            ) : null}
+            {listItems.map((item, index) => (
+              <VisitCard
+                key={item.id}
+                visit={item}
+                index={index}
+                ownerLabel={
+                  isTeamLead && viewOwnerId && viewOwnerId !== user?.id
+                    ? visitOwnerId(item) === user?.id
+                      ? t("today.teamMine")
+                      : (item.owner?.fullName ?? null)
+                    : null
+                }
+                onPress={() => router.push(`/visit/${item.id}`)}
+              />
+            ))}
+          </>
+        )}
 
         <Text style={[theme.typography.caption, styles.footerHint, { color: theme.colors.textMuted }]}>
           {t("today.footerHint")}

@@ -15,7 +15,8 @@ import { formatLocalDateKey } from "@/lib/date";
 import { t } from "@/lib/i18n";
 import {
   ensureTrackingContinuity,
-  getTrackingState,
+  flushPendingSamples,
+  getTrackingRuntimeHealth,
   maintainBackgroundTracking,
   resumeTrackingIfNeeded,
   startLocationTracking,
@@ -23,13 +24,18 @@ import {
   type TrackingMode,
 } from "@/lib/location-tracking";
 import {
+  getTrackingPermissionStatus,
   isAndroid,
   markBatteryPromptShown,
   openAppSettings,
   openBatteryOptimizationSettings,
+  openLocationPermissionSettings,
   wasBatteryPromptShown,
 } from "@/lib/location-permissions";
 import type { FieldShift } from "@/types/crm";
+
+const WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
+const FLUSH_STALE_MS = 3 * 60 * 1000;
 
 type ShiftTrackingCtx = {
   activeShift: FieldShift | null;
@@ -39,6 +45,8 @@ type ShiftTrackingCtx = {
   setTrackingEnabled: (v: boolean) => void;
   pendingSamples: number;
   lastFlushAt: string | null;
+  trackingHealthy: boolean;
+  backgroundTaskStarted: boolean;
   refresh: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
@@ -55,25 +63,44 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [trackingEnabled, setTrackingEnabled] = useState(true);
   const [pendingSamples, setPendingSamples] = useState(0);
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
+  const [trackingHealthy, setTrackingHealthy] = useState(true);
+  const [backgroundTaskStarted, setBackgroundTaskStarted] = useState(false);
   const foregroundWarnedRef = useRef(false);
+  const flushAlertShownRef = useRef(false);
 
-  const syncTrackingState = useCallback(async () => {
-    const state = await getTrackingState();
-    setTrackingMode(state.mode);
-    setPendingSamples(state.pendingSamples);
-    setLastFlushAt(state.lastFlushAt);
-  }, []);
+  const applyHealth = useCallback(
+    (health: Awaited<ReturnType<typeof getTrackingRuntimeHealth>>) => {
+      setTrackingMode(health.mode);
+      setPendingSamples(health.pendingSamples);
+      setLastFlushAt(health.lastFlushAt);
+      setTrackingHealthy(health.healthy);
+      setBackgroundTaskStarted(health.backgroundTaskStarted);
+      return health;
+    },
+    [],
+  );
+
+  const syncTrackingHealth = useCallback(async () => {
+    const health = await getTrackingRuntimeHealth();
+    return applyHealth(health);
+  }, [applyHealth]);
 
   const promptOpenSettings = useCallback((message: string) => {
     Alert.alert(t("gps.title"), message, [
-      { text: t("gps.openSettings"), onPress: () => void openAppSettings() },
+      { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
       { text: t("common.later"), style: "cancel" },
     ]);
   }, []);
 
-  const maybePromptBatteryOptimization = useCallback(async () => {
+  const maybePromptBatteryOptimization = useCallback(async (taskStarted: boolean) => {
     if (!isAndroid()) return;
+    if (taskStarted) return;
+
+    const perms = await getTrackingPermissionStatus();
+    if (perms.background !== "granted") return;
+
     if (await wasBatteryPromptShown()) return;
+
     await markBatteryPromptShown();
     Alert.alert(t("gps.batteryTitle"), t("gps.batteryHint"), [
       {
@@ -84,10 +111,37 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     ]);
   }, []);
 
+  const maybePromptBatteryIfTaskDead = useCallback(async () => {
+    if (!isAndroid()) return;
+    const health = await getTrackingRuntimeHealth();
+    if (health.backgroundTaskStarted) return;
+
+    const perms = await getTrackingPermissionStatus();
+    if (perms.background !== "granted") return;
+
+    Alert.alert(t("gps.batteryTitle"), t("gps.batteryHint"), [
+      {
+        text: t("gps.batteryOpen"),
+        onPress: () => void openBatteryOptimizationSettings(),
+      },
+      { text: t("common.later"), style: "cancel" },
+    ]);
+  }, []);
+
+  const alertBackgroundTaskStatus = useCallback((started: boolean) => {
+    if (started) return;
+    Alert.alert(t("gps.taskFailedTitle"), t("gps.taskFailedHint"), [
+      { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
+      { text: t("common.later"), style: "cancel" },
+    ]);
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!token) {
       setActiveShift(null);
       setTrackingMode("none");
+      setTrackingHealthy(true);
+      setBackgroundTaskStarted(false);
       return;
     }
     setLoading(true);
@@ -101,16 +155,18 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setTrackingMode(mode);
       if (mode === "foreground" && !foregroundWarnedRef.current) {
         foregroundWarnedRef.current = true;
-        promptOpenSettings(t("gps.backgroundHint"));
+        promptOpenSettings(t("gps.foregroundOnlyHint"));
       }
-      await syncTrackingState();
+      await syncTrackingHealth();
     } catch {
       setActiveShift(null);
       setTrackingMode("none");
+      setTrackingHealthy(true);
+      setBackgroundTaskStarted(false);
     } finally {
       setLoading(false);
     }
-  }, [token, syncTrackingState, promptOpenSettings]);
+  }, [token, syncTrackingHealth, promptOpenSettings]);
 
   useEffect(() => {
     if (!ready || !token) return;
@@ -135,16 +191,18 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       void stopLocationTracking().catch(() => undefined);
       setActiveShift(null);
       setTrackingMode("none");
+      setTrackingHealthy(true);
+      setBackgroundTaskStarted(false);
     }
   }, [token]);
 
   useEffect(() => {
     if (!token || trackingMode === "none") return;
     const id = setInterval(() => {
-      void syncTrackingState();
+      void syncTrackingHealth();
     }, 15_000);
     return () => clearInterval(id);
-  }, [token, trackingMode, syncTrackingState]);
+  }, [token, trackingMode, syncTrackingHealth]);
 
   useEffect(() => {
     if (!token || !activeShift || activeShift.status !== "ACTIVE" || !activeShift.trackingEnabled) {
@@ -154,13 +212,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     const onAppState = (state: AppStateStatus) => {
       if (state === "active") {
         void ensureTrackingContinuity()
-          .then((mode) => {
+          .then(async (mode) => {
             setTrackingMode(mode);
             if (mode === "foreground" && !foregroundWarnedRef.current) {
               foregroundWarnedRef.current = true;
-              promptOpenSettings(t("gps.backgroundHint"));
+              promptOpenSettings(t("gps.foregroundOnlyHint"));
             }
-            return syncTrackingState();
+            const health = await syncTrackingHealth();
+            if (!health.healthy) {
+              void maybePromptBatteryIfTaskDead();
+            }
           })
           .catch(() => undefined);
         return;
@@ -169,7 +230,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         void maintainBackgroundTracking()
           .then((mode) => {
             setTrackingMode(mode);
-            return syncTrackingState();
+            return syncTrackingHealth();
           })
           .catch(() => undefined);
       }
@@ -177,11 +238,63 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
     const sub = AppState.addEventListener("change", onAppState);
     return () => sub.remove();
-  }, [token, activeShift, syncTrackingState, promptOpenSettings]);
+  }, [
+    token,
+    activeShift,
+    syncTrackingHealth,
+    promptOpenSettings,
+    maybePromptBatteryIfTaskDead,
+  ]);
+
+  useEffect(() => {
+    if (!token || !activeShift || activeShift.status !== "ACTIVE" || !activeShift.trackingEnabled) {
+      return;
+    }
+
+    const runWatchdog = async () => {
+      if (AppState.currentState !== "active") return;
+
+      const health = await syncTrackingHealth();
+
+      if (!health.healthy && health.claimedMode !== "none") {
+        const mode = await ensureTrackingContinuity();
+        setTrackingMode(mode);
+        await syncTrackingHealth();
+        if (health.claimedMode === "background") {
+          void maybePromptBatteryIfTaskDead();
+        }
+      }
+
+      const flushStale =
+        health.pendingSamples > 0 &&
+        (!health.lastFlushAt ||
+          Date.now() - new Date(health.lastFlushAt).getTime() > FLUSH_STALE_MS);
+
+      if (flushStale && !flushAlertShownRef.current) {
+        flushAlertShownRef.current = true;
+        try {
+          await flushPendingSamples();
+          await syncTrackingHealth();
+        } catch {
+          /* retry next watchdog tick */
+        }
+        Alert.alert(t("gps.flushRetryTitle"), t("gps.flushRetryHint"), [
+          { text: t("common.ok"), style: "default" },
+        ]);
+      }
+    };
+
+    const id = setInterval(() => {
+      void runWatchdog().catch(() => undefined);
+    }, WATCHDOG_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [token, activeShift, syncTrackingHealth, maybePromptBatteryIfTaskDead]);
 
   const startShift = useCallback(async () => {
     if (!token) return;
     setLoading(true);
+    flushAlertShownRef.current = false;
     try {
       let plannedDistanceKm: number | null = null;
       const dateKey = formatLocalDateKey();
@@ -207,21 +320,24 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (trackingEnabled) {
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
+        const health = await syncTrackingHealth();
+
         if (mode === "foreground") {
           foregroundWarnedRef.current = true;
-          promptOpenSettings(t("gps.backgroundHint"));
+          promptOpenSettings(t("gps.foregroundOnlyHint"));
         } else if (mode === "none") {
           Alert.alert(t("gps.title"), t("gps.noneHint"), [
-            { text: t("gps.openSettings"), onPress: () => void openAppSettings() },
+            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
             { text: t("common.later"), style: "cancel" },
           ]);
         } else if (mode === "background") {
-          await maybePromptBatteryOptimization();
+          alertBackgroundTaskStatus(health.backgroundTaskStarted);
+          await maybePromptBatteryOptimization(health.backgroundTaskStarted);
         }
       } else {
         setTrackingMode("none");
       }
-      await syncTrackingState();
+      await syncTrackingHealth();
     } catch (e) {
       Alert.alert(t("common.error"), String(e));
     } finally {
@@ -230,9 +346,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   }, [
     token,
     trackingEnabled,
-    syncTrackingState,
+    syncTrackingHealth,
     promptOpenSettings,
     maybePromptBatteryOptimization,
+    alertBackgroundTaskStatus,
   ]);
 
   const endShift = useCallback(async () => {
@@ -243,15 +360,18 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       await apiFetch(`/field/shifts/${activeShift.id}/end`, { method: "POST", token });
       setActiveShift(null);
       setTrackingMode("none");
-      await syncTrackingState();
+      setTrackingHealthy(true);
+      setBackgroundTaskStarted(false);
+      await syncTrackingHealth();
     } catch (e) {
       Alert.alert(t("common.error"), String(e));
     } finally {
       setLoading(false);
     }
-  }, [token, activeShift, syncTrackingState]);
+  }, [token, activeShift, syncTrackingHealth]);
 
-  const isTracking = trackingMode !== "none" && activeShift?.status === "ACTIVE";
+  const isTracking =
+    trackingMode !== "none" && activeShift?.status === "ACTIVE" && trackingHealthy;
 
   const value = useMemo<ShiftTrackingCtx>(
     () => ({
@@ -262,6 +382,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setTrackingEnabled,
       pendingSamples,
       lastFlushAt,
+      trackingHealthy,
+      backgroundTaskStarted,
       refresh,
       startShift,
       endShift,
@@ -274,6 +396,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       trackingEnabled,
       pendingSamples,
       lastFlushAt,
+      trackingHealthy,
+      backgroundTaskStarted,
       refresh,
       startShift,
       endShift,
