@@ -27,7 +27,11 @@ describe("FieldShiftsService.getSamples validation", () => {
     snapGpsPathToRoads: async () => ({ path: [], source: "none" as const, distanceKm: null }),
   };
 
-  const svc = new FieldShiftsService(prisma as never, routePlans as never);
+  const eventEmitter = {
+    emitAsync: async () => undefined,
+  };
+
+  const svc = new FieldShiftsService(prisma as never, routePlans as never, eventEmitter as never);
 
   it("throws when shift not found", async () => {
     await assert.rejects(
@@ -47,7 +51,7 @@ describe("FieldShiftsService.getSamples validation", () => {
       user: { findMany: async () => [] },
       fieldLocationSample: { findMany: async () => [] },
     };
-    const local = new FieldShiftsService(prismaWithShift as never, routePlans as never);
+    const local = new FieldShiftsService(prismaWithShift as never, routePlans as never, eventEmitter as never);
     await assert.rejects(
       () => local.getSamples(actor(UserRole.MANAGER), "s1", { since: "not-a-date" }),
       /Invalid since/,

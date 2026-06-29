@@ -1,21 +1,17 @@
 import { useFocusEffect } from "@react-navigation/native";
 import React, { useCallback, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  View,
-} from "react-native";
+import { Alert, FlatList, RefreshControl, StyleSheet, View } from "react-native";
 
 import { EmptyState } from "@/components/EmptyState";
 import { TaskRow } from "@/components/TaskRow";
-import { Text } from "@/components/Themed";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { Chip } from "@/components/ui/Chip";
+import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/context/auth-context";
 import { useRouter } from "expo-router";
 import { tasksApi } from "@/lib/api/tasks";
 import { addDays, endOfLocalDayIso, startOfLocalDayIso } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
 import { enqueueOfflineJob, isOfflineLikeError } from "@/lib/offline-queue";
 import { t } from "@/lib/i18n";
 import type { Task, TaskStatus } from "@/types/crm";
@@ -26,6 +22,7 @@ const OPEN_STATUSES: TaskStatus[] = ["OPEN", "IN_PROGRESS"];
 
 export default function TasksScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
   const [filter, setFilter] = useState<FilterKey>("today");
   const [items, setItems] = useState<Task[]>([]);
@@ -80,7 +77,7 @@ export default function TasksScreen() {
     } catch (e) {
       if (isOfflineLikeError(e)) {
         await enqueueOfflineJob("taskComplete", { taskId: task.id });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
         await reload();
       } else {
         Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
@@ -119,7 +116,7 @@ export default function TasksScreen() {
     } catch (e) {
       if (isOfflineLikeError(e)) {
         await enqueueOfflineJob("taskUpdate", { taskId: id, body: { dueAt: due.toISOString() } });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
         await reload();
       } else {
         Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
@@ -136,31 +133,29 @@ export default function TasksScreen() {
   ];
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.heading}>{t("tasks.title")}</Text>
-        <Pressable
-          onPress={() => router.push("/tasks/new")}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.75 }]}>
-          <Text style={styles.headerBtnText}>+ Завдання</Text>
-        </Pressable>
-      </View>
-      <View style={styles.filterRow}>
+    <Screen>
+      <AppHeader
+        title={t("tasks.title")}
+        actionLabel={t("tasks.addTask")}
+        onAction={() => router.push("/tasks/new")}
+        large={false}
+      />
+
+      <View style={[styles.filterRow, { marginBottom: theme.spacing.md }]}>
         {filters.map((f) => (
-          <Pressable
+          <Chip
             key={f.key}
+            label={f.label}
+            selected={filter === f.key}
             onPress={() => setFilter(f.key)}
-            style={[styles.chip, filter === f.key && styles.chipActive]}
-            accessibilityRole="button">
-            <Text style={filter === f.key ? styles.chipTextActive : undefined}>{f.label}</Text>
-          </Pressable>
+          />
         ))}
       </View>
 
       <FlatList
         data={items}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}
+        style={styles.list}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <EmptyState
@@ -178,24 +173,11 @@ export default function TasksScreen() {
           />
         )}
       />
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  heading: { fontSize: 26, fontWeight: "700", marginBottom: 12 },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  headerBtn: { backgroundColor: "rgba(37,99,235,0.12)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
-  headerBtnText: { color: "#1d4ed8", fontWeight: "700" },
-  filterRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  chipActive: { backgroundColor: "#dbeafe", borderColor: "#2563eb" },
-  chipTextActive: { fontWeight: "600", color: "#1d4ed8" },
+  filterRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  list: { flex: 1 },
 });

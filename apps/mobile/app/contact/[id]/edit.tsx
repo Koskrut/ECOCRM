@@ -1,17 +1,21 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
 
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { AppButton } from "@/components/ui/AppButton";
+import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
+import { Screen } from "@/components/ui/Screen";
+import { TextField } from "@/components/ui/TextField";
 import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
 import { contactsApi } from "@/lib/api/contacts";
-import { spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import type { Contact } from "@/types/crm";
 
 export default function EditContactScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const contactId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -48,7 +52,7 @@ export default function EditContactScreen() {
   async function onSave() {
     if (!token || !contactId) return;
     if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
-      Alert.alert(t("common.error"), "Ім'я, прізвище та телефон обов'язкові");
+      Alert.alert(t("common.error"), t("clients.validationRequired"));
       return;
     }
     setBusy(true);
@@ -72,35 +76,67 @@ export default function EditContactScreen() {
 
   if (loading || !contact) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+            {t("common.loading")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <TextInput value={firstName} onChangeText={setFirstName} placeholder="Ім'я *" style={styles.input} />
-      <TextInput value={lastName} onChangeText={setLastName} placeholder="Прізвище *" style={styles.input} />
-      <TextInput value={phone} onChangeText={setPhone} placeholder="Телефон *" keyboardType="phone-pad" style={styles.input} />
-      <TextInput value={email} onChangeText={setEmail} placeholder="Email" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
-      <TextInput value={address} onChangeText={setAddress} placeholder="Адреса" style={[styles.input, styles.multiline]} multiline />
-      <PrimaryButton label={t("common.save")} onPress={() => void onSave()} loading={busy} />
-    </ScrollView>
+    <Screen padded={false}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg },
+        ]}>
+        <TextField
+          value={firstName}
+          onChangeText={setFirstName}
+          placeholder={t("clients.firstNameRequired")}
+        />
+        <TextField
+          value={lastName}
+          onChangeText={setLastName}
+          placeholder={t("clients.lastNameRequired")}
+        />
+        <TextField
+          value={phone}
+          onChangeText={setPhone}
+          placeholder={t("clients.phoneRequiredField")}
+          keyboardType="phone-pad"
+        />
+        <TextField
+          value={email}
+          onChangeText={setEmail}
+          placeholder={t("clients.email")}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <TextField
+          value={address}
+          onChangeText={setAddress}
+          placeholder={t("clients.address")}
+          multiline
+          style={{ minHeight: 80, textAlignVertical: "top" }}
+        />
+        <AppButton
+          label={t("common.save")}
+          onPress={() => void onSave()}
+          loading={busy}
+          fullWidth
+          style={{ marginTop: theme.spacing.sm }}
+        />
+      </KeyboardAwareScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  scroll: { padding: spacing.lg, paddingBottom: 48 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  multiline: { minHeight: 80, textAlignVertical: "top" },
+  scroll: { paddingTop: 8 },
 });

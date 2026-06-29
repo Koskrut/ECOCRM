@@ -145,18 +145,25 @@ export class OrdersService {
     return { OR: [{ ownerId: actorId }, { ownerId: null }] };
   }
 
-  /** Orders visible to a field manager in list/detail (owner, store, managed contacts/companies). */
+  /** Store checkout pool owner (orders not yet tied to a region manager). */
+  private storePoolOwnerId(): string | null {
+    return process.env.STORE_OWNER_ID?.trim() || null;
+  }
+
+  /** Orders visible to a field manager in list/detail (owner, unassigned store, managed contacts/companies). */
   private managerOrderVisibilityWhere(actorId: string): Prisma.OrderWhereInput {
     const managedContact = this.managedContactWhere(actorId);
-    return {
-      OR: [
-        { ownerId: actorId },
-        { orderSource: OrderSource.STORE },
-        { contact: { is: managedContact } },
-        { client: { is: managedContact } },
-        { company: { is: { OR: [{ ownerId: actorId }, { ownerId: null }] } } },
-      ],
-    };
+    const or: Prisma.OrderWhereInput[] = [
+      { ownerId: actorId },
+      { contact: { is: managedContact } },
+      { client: { is: managedContact } },
+      { company: { is: { ownerId: actorId } } },
+    ];
+    const storePool = this.storePoolOwnerId();
+    if (storePool) {
+      or.push({ orderSource: OrderSource.STORE, ownerId: storePool });
+    }
+    return { OR: or };
   }
 
   private managerCanAccessOrder(
@@ -170,11 +177,14 @@ export class OrdersService {
     actorId: string,
   ): boolean {
     if (order.ownerId === actorId) return true;
-    if (order.orderSource === OrderSource.STORE) return true;
+    const storePool = this.storePoolOwnerId();
+    if (order.orderSource === OrderSource.STORE && storePool && order.ownerId === storePool) {
+      return true;
+    }
     for (const contact of [order.contact, order.client]) {
       if (contact && (!contact.ownerId || contact.ownerId === actorId)) return true;
     }
-    if (order.company && (!order.company.ownerId || order.company.ownerId === actorId)) return true;
+    if (order.company?.ownerId === actorId) return true;
     return false;
   }
 
@@ -185,7 +195,7 @@ export class OrdersService {
     return count > 0;
   }
 
-  /** MANAGER: own orders, store orders, and orders on managed contacts/companies. */
+  /** MANAGER: own orders, unassigned store orders, and orders on managed contacts/companies. */
   private async assertOrderAccess(
     order: {
       id?: string;

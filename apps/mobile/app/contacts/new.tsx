@@ -1,15 +1,22 @@
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
+import { Alert, StyleSheet } from "react-native";
 
-import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
+import { Screen } from "@/components/ui/Screen";
+import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { contactsApi } from "@/lib/api/contacts";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
 export default function NewContactScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
+  const params = useLocalSearchParams<{ companyId?: string }>();
+  const companyId = typeof params.companyId === "string" && params.companyId ? params.companyId : null;
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -21,7 +28,7 @@ export default function NewContactScreen() {
   async function onCreate() {
     if (!token) return;
     if (!phone.trim()) {
-      Alert.alert(t("common.error"), "Вкажіть телефон");
+      Alert.alert(t("common.error"), t("contacts.phoneRequired"));
       return;
     }
     setBusy(true);
@@ -32,8 +39,9 @@ export default function NewContactScreen() {
         phone: phone.trim(),
         email: email.trim() ? email.trim() : null,
         address: address.trim() ? address.trim() : null,
+        companyId,
       });
-      Alert.alert(t("common.done"), "Контакт створено", [
+      Alert.alert(t("common.done"), t("contacts.created"), [
         {
           text: t("common.ok"),
           onPress: () => router.replace(`/visits/new?contactId=${encodeURIComponent(c.id)}`),
@@ -47,76 +55,39 @@ export default function NewContactScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <Text style={styles.heading}>Новий контакт</Text>
-      <TextInput
-        value={firstName}
-        onChangeText={setFirstName}
-        placeholder="Ім'я"
-        placeholderTextColor="#888"
-        style={styles.input}
-      />
-      <TextInput
-        value={lastName}
-        onChangeText={setLastName}
-        placeholder="Прізвище"
-        placeholderTextColor="#888"
-        style={styles.input}
-      />
-      <TextInput
-        value={phone}
-        onChangeText={setPhone}
-        placeholder="Телефон *"
-        placeholderTextColor="#888"
-        style={styles.input}
-        keyboardType="phone-pad"
-      />
-      <TextInput
-        value={email}
-        onChangeText={setEmail}
-        placeholder="Email (опційно)"
-        placeholderTextColor="#888"
-        style={styles.input}
-        autoCapitalize="none"
-      />
-      <TextInput
-        value={address}
-        onChangeText={setAddress}
-        placeholder="Адреса (опційно)"
-        placeholderTextColor="#888"
-        style={styles.input}
-      />
-
-      <Pressable
-        onPress={() => void onCreate()}
-        disabled={busy}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.btnPrimary, (pressed || busy) && { opacity: 0.75 }]}>
-        <Text style={styles.btnPrimaryText}>{busy ? "…" : "Створити"}</Text>
-      </Pressable>
-    </ScrollView>
+    <Screen padded={false}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg },
+        ]}>
+        <TextField value={firstName} onChangeText={setFirstName} placeholder={t("clients.firstName")} />
+        <TextField value={lastName} onChangeText={setLastName} placeholder={t("clients.lastName")} />
+        <TextField
+          value={phone}
+          onChangeText={setPhone}
+          placeholder={t("clients.phoneRequiredField")}
+          keyboardType="phone-pad"
+        />
+        <TextField
+          value={email}
+          onChangeText={setEmail}
+          placeholder={t("clients.emailOptional")}
+          autoCapitalize="none"
+        />
+        <TextField value={address} onChangeText={setAddress} placeholder={t("clients.addressOptional")} />
+        <AppButton
+          label={t("common.create")}
+          onPress={() => void onCreate()}
+          loading={busy}
+          fullWidth
+          style={{ marginTop: theme.spacing.sm }}
+        />
+      </KeyboardAwareScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 32 },
-  heading: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  btnPrimary: {
-    marginTop: 8,
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  btnPrimaryText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  scroll: { paddingTop: 8 },
 });
-

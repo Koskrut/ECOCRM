@@ -22,7 +22,7 @@ export type FuelVisitBreakdownRow = {
 export type RouteMetrics = {
   distanceKm: number | null;
   durationMin: number | null;
-  source: "google" | "fallback" | "none";
+  source: "google" | "fallback" | "raw_gps" | "none";
 };
 
 export type FuelDayReport = {

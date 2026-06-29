@@ -22,12 +22,14 @@ import {
   type PlaybookSection,
   type SessionDetail,
 } from "@/lib/api/manual-calling";
-import { colors, spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
+import { spacing } from "@/lib/design/tokens";
 import { t } from "@/lib/i18n";
 import { openPhone } from "@/lib/linking-actions";
 
 export default function CallSessionScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const sessionId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -133,10 +135,10 @@ export default function CallSessionScreen() {
   return (
     <>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.phone}>{phone}</Text>
+        <Text style={[styles.name, { color: theme.colors.text }]}>{name}</Text>
+        <Text style={[styles.phone, { color: theme.colors.call }]}>{phone}</Text>
         {session.contact?.company?.name || session.lead?.company?.name ? (
-          <Text style={styles.meta}>
+          <Text style={[styles.meta, { color: theme.colors.textMuted }]}>
             {session.contact?.company?.name ?? session.lead?.company?.name}
           </Text>
         ) : null}
@@ -149,12 +151,14 @@ export default function CallSessionScreen() {
 
         {playbook.length > 0 ? (
           <>
-            <Text style={styles.section}>{t("calls.playbook")}</Text>
+            <Text style={[styles.section, { color: theme.colors.text }]}>{t("calls.playbook")}</Text>
             {playbook.map((sec) => (
-              <View key={sec.id} style={styles.playbook}>
-                <Text style={styles.playbookTitle}>{sec.title}</Text>
+              <View
+                key={sec.id}
+                style={[styles.playbook, { backgroundColor: theme.colors.surfaceMuted }]}>
+                <Text style={[styles.playbookTitle, { color: theme.colors.text }]}>{sec.title}</Text>
                 {sec.bullets.map((b, i) => (
-                  <Text key={i} style={styles.bullet}>
+                  <Text key={i} style={[styles.bullet, { color: theme.colors.text }]}>
                     • {b}
                   </Text>
                 ))}
@@ -165,9 +169,9 @@ export default function CallSessionScreen() {
 
         <Pressable
           onPress={() => setOutcomeOpen(true)}
-          style={styles.outcomeBtn}
+          style={[styles.outcomeBtn, { borderColor: theme.colors.call }]}
           accessibilityRole="button">
-          <Text style={styles.outcomeBtnText}>{t("calls.outcomeTitle")}</Text>
+          <Text style={[styles.outcomeBtnText, { color: theme.colors.call }]}>{t("calls.outcomeTitle")}</Text>
         </Pressable>
       </ScrollView>
 
@@ -185,24 +189,22 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   scroll: { padding: spacing.lg, paddingBottom: 48 },
   name: { fontSize: 26, fontWeight: "700" },
-  phone: { fontSize: 22, marginTop: 8, color: colors.call },
-  meta: { marginTop: 8, opacity: 0.75 },
+  phone: { fontSize: 22, marginTop: 8 },
+  meta: { marginTop: 8 },
   section: { fontWeight: "700", fontSize: 16, marginTop: spacing.xl, marginBottom: spacing.sm },
   playbook: {
     padding: spacing.md,
     borderRadius: 10,
-    backgroundColor: colors.surfaceMuted,
     marginBottom: spacing.sm,
   },
   playbookTitle: { fontWeight: "700", marginBottom: 6 },
-  bullet: { lineHeight: 20, opacity: 0.9 },
+  bullet: { lineHeight: 20 },
   outcomeBtn: {
     marginTop: spacing.xl,
     padding: spacing.md,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.call,
     alignItems: "center",
   },
-  outcomeBtnText: { color: colors.call, fontWeight: "700" },
+  outcomeBtnText: { fontWeight: "700" },
 });

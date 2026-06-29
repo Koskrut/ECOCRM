@@ -1,9 +1,11 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { useTheme } from "@/lib/design/theme-context";
 import { npApi } from "@/lib/api/np";
 import { shippingProfilesApi } from "@/lib/api/shipping-profiles";
+import { t } from "@/lib/i18n";
 import type {
   Contact,
   ContactShippingProfile,
@@ -32,12 +34,80 @@ export function ShippingProfilePicker({
   selectedProfileId,
   onSelectProfileId,
 }: ShippingProfilePickerProps) {
+  const theme = useTheme();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        centered: { paddingVertical: 16, alignItems: "center" },
+        profileRow: {
+          padding: 12,
+          borderRadius: 10,
+          backgroundColor: theme.colors.surfaceMuted,
+          marginBottom: 8,
+          borderWidth: 2,
+          borderColor: "transparent",
+        },
+        profileRowSelected: {
+          borderColor: theme.colors.primary,
+          backgroundColor: theme.colors.primaryMuted,
+        },
+        profileLabel: { fontWeight: "700", fontSize: 15, color: theme.colors.text },
+        profileMeta: { marginTop: 4, opacity: 0.75, fontSize: 13, color: theme.colors.textMuted },
+        linkBtn: { marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
+        linkText: { color: theme.colors.primary, fontWeight: "600" },
+        form: {
+          marginTop: 8,
+          padding: 12,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+        },
+        formTitle: { fontWeight: "700", marginBottom: 10, color: theme.colors.text },
+        input: {
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          fontSize: 15,
+          marginBottom: 8,
+          color: theme.colors.text,
+          backgroundColor: theme.colors.surfaceMuted,
+        },
+        typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+        typeChip: {
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+          borderRadius: 8,
+          backgroundColor: theme.colors.chip,
+        },
+        typeChipActive: { backgroundColor: theme.colors.primary },
+        typeChipText: { fontSize: 13, fontWeight: "600", color: theme.colors.text },
+        typeChipTextActive: { color: theme.colors.textInverse },
+        pickRow: {
+          paddingVertical: 10,
+          paddingHorizontal: 8,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: theme.colors.border,
+        },
+        saveBtn: {
+          marginTop: 4,
+          backgroundColor: theme.colors.primary,
+          paddingVertical: 12,
+          borderRadius: 10,
+          alignItems: "center",
+        },
+        saveBtnText: { color: theme.colors.textInverse, fontWeight: "600" },
+        hint: { opacity: 0.7, marginTop: 4, color: theme.colors.textMuted },
+      }),
+    [theme],
+  );
   const [profiles, setProfiles] = useState<ContactShippingProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
-  const [label, setLabel] = useState("Основна");
+  const [label, setLabel] = useState(t("shipping.defaultLabel"));
   const [deliveryType, setDeliveryType] = useState<NpDeliveryType>("WAREHOUSE");
   const [firstName, setFirstName] = useState(contact.firstName ?? "");
   const [lastName, setLastName] = useState(contact.lastName ?? "");
@@ -137,7 +207,7 @@ export function ShippingProfilePicker({
   async function onCreateProfile() {
     if (!token) return;
     const body: CreateShippingProfileBody = {
-      label: label.trim() || "Адреса",
+      label: label.trim() || t("shipping.addressFallback"),
       recipientType: "PERSON",
       deliveryType,
       firstName: firstName.trim() || undefined,
@@ -198,17 +268,19 @@ export function ShippingProfilePicker({
         onPress={() => setShowForm((v) => !v)}
         accessibilityRole="button"
         style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.7 }]}>
-        <Text style={styles.linkText}>{showForm ? "Сховати форму" : "+ Нова адреса НП"}</Text>
+        <Text style={styles.linkText}>
+          {showForm ? t("shipping.hideForm") : t("shipping.addAddress")}
+        </Text>
       </Pressable>
 
       {showForm ? (
         <View style={styles.form}>
-          <Text style={styles.formTitle}>Новий профіль доставки</Text>
+          <Text style={styles.formTitle}>{t("shipping.newProfile")}</Text>
           <TextInput
             value={label}
             onChangeText={setLabel}
-            placeholder="Назва (напр. Дім, Клініка)"
-            placeholderTextColor="#888"
+            placeholder={t("shipping.labelPlaceholder")}
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
           />
           <View style={styles.typeRow}>
@@ -218,7 +290,11 @@ export function ShippingProfilePicker({
                 onPress={() => setDeliveryType(dt)}
                 style={[styles.typeChip, deliveryType === dt && styles.typeChipActive]}>
                 <Text style={[styles.typeChipText, deliveryType === dt && styles.typeChipTextActive]}>
-                  {dt === "WAREHOUSE" ? "Відділення" : dt === "POSTOMAT" ? "Поштомат" : "Адреса"}
+                  {dt === "WAREHOUSE"
+                    ? t("shipping.warehouse")
+                    : dt === "POSTOMAT"
+                      ? t("shipping.postomat")
+                      : t("shipping.address")}
                 </Text>
               </Pressable>
             ))}
@@ -227,22 +303,22 @@ export function ShippingProfilePicker({
           <TextInput
             value={lastName}
             onChangeText={setLastName}
-            placeholder="Прізвище"
-            placeholderTextColor="#888"
+            placeholder={t("shipping.lastName")}
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
           />
           <TextInput
             value={firstName}
             onChangeText={setFirstName}
-            placeholder="Ім'я"
-            placeholderTextColor="#888"
+            placeholder={t("shipping.firstName")}
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
           />
           <TextInput
             value={phone}
             onChangeText={setPhone}
-            placeholder="Телефон"
-            placeholderTextColor="#888"
+            placeholder={t("shipping.phone")}
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
             keyboardType="phone-pad"
           />
@@ -254,8 +330,8 @@ export function ShippingProfilePicker({
               setCityRef("");
               setCityName("");
             }}
-            placeholder="Місто (мін. 2 символи)"
-            placeholderTextColor="#888"
+            placeholder={t("shipping.cityPlaceholder")}
+            placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
           />
           {cityResults.map((c) => (
@@ -281,8 +357,8 @@ export function ShippingProfilePicker({
                   setStreetRef("");
                   setStreetName("");
                 }}
-                placeholder="Вулиця (мін. 3 символи)"
-                placeholderTextColor="#888"
+                placeholder={t("shipping.streetPlaceholder")}
+                placeholderTextColor={theme.colors.textMuted}
                 style={styles.input}
               />
               {streetResults.map((s) => (
@@ -301,15 +377,15 @@ export function ShippingProfilePicker({
               <TextInput
                 value={building}
                 onChangeText={setBuilding}
-                placeholder="Будинок"
-                placeholderTextColor="#888"
+                placeholder={t("shipping.building")}
+                placeholderTextColor={theme.colors.textMuted}
                 style={styles.input}
               />
               <TextInput
                 value={flat}
                 onChangeText={setFlat}
-                placeholder="Квартира"
-                placeholderTextColor="#888"
+                placeholder={t("shipping.flat")}
+                placeholderTextColor={theme.colors.textMuted}
                 style={styles.input}
               />
             </>
@@ -318,8 +394,8 @@ export function ShippingProfilePicker({
               <TextInput
                 value={whQuery || warehouseLabel}
                 onChangeText={setWhQuery}
-                placeholder="Відділення (номер або адреса)"
-                placeholderTextColor="#888"
+                placeholder={t("shipping.warehousePlaceholder")}
+                placeholderTextColor={theme.colors.textMuted}
                 style={styles.input}
               />
               {whResults.map((w) => (
@@ -346,73 +422,14 @@ export function ShippingProfilePicker({
             onPress={() => void onCreateProfile()}
             accessibilityRole="button"
             style={({ pressed }) => [styles.saveBtn, (creating || pressed) && { opacity: 0.75 }]}>
-            <Text style={styles.saveBtnText}>{creating ? "…" : "Зберегти профіль"}</Text>
+            <Text style={styles.saveBtnText}>{creating ? "…" : t("shipping.saveProfile")}</Text>
           </Pressable>
         </View>
       ) : null}
 
       {profiles.length === 0 && !showForm ? (
-        <Text style={styles.hint}>Немає збережених адрес. Додайте профіль доставки.</Text>
+        <Text style={styles.hint}>{t("shipping.noProfiles")}</Text>
       ) : null}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  centered: { paddingVertical: 16, alignItems: "center" },
-  profileRow: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(120,120,128,0.08)",
-    marginBottom: 8,
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  profileRowSelected: { borderColor: "#2563eb", backgroundColor: "rgba(37,99,235,0.08)" },
-  profileLabel: { fontWeight: "700", fontSize: 15 },
-  profileMeta: { marginTop: 4, opacity: 0.75, fontSize: 13 },
-  linkBtn: { marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
-  linkText: { color: "#2563eb", fontWeight: "600" },
-  form: {
-    marginTop: 8,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  formTitle: { fontWeight: "700", marginBottom: 10 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    marginBottom: 8,
-  },
-  typeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
-  typeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: "rgba(120,120,128,0.12)",
-  },
-  typeChipActive: { backgroundColor: "#2563eb" },
-  typeChipText: { fontSize: 13, fontWeight: "600" },
-  typeChipTextActive: { color: "#fff" },
-  pickRow: {
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#ddd",
-  },
-  saveBtn: {
-    marginTop: 4,
-    backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  saveBtnText: { color: "#fff", fontWeight: "600" },
-  hint: { opacity: 0.7, marginTop: 4 },
-});

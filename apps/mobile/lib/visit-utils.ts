@@ -54,3 +54,25 @@ export function visitProgress(items: VisitSummary[]): { done: number; total: num
   const done = items.filter((v) => isVisitDone(v)).length;
   return { done, total };
 }
+
+export type VisitCountdownKind = "none" | "now" | "future" | "late";
+
+export function visitCountdown(
+  v: VisitSummary,
+  now = new Date(),
+): { kind: VisitCountdownKind; minutes: number } {
+  if (!v.startsAt) return { kind: "none", minutes: 0 };
+  const minutes = Math.round((new Date(v.startsAt).getTime() - now.getTime()) / 60_000);
+  if (minutes > 0 && minutes <= 60) return { kind: "future", minutes };
+  if (minutes <= 0 && minutes > -30) return { kind: "now", minutes };
+  if (minutes <= -30) return { kind: "late", minutes: Math.abs(minutes) };
+  return { kind: "none", minutes: 0 };
+}
+
+export function visitCountdownLabel(v: VisitSummary, now = new Date()): string | null {
+  const { kind, minutes } = visitCountdown(v, now);
+  if (kind === "future") return t("today.countdownIn", { minutes });
+  if (kind === "now") return t("today.countdownNow");
+  if (kind === "late") return t("today.countdownLate", { minutes });
+  return null;
+}

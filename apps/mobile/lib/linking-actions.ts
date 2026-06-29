@@ -55,3 +55,12 @@ export async function openNavigation(opts: {
     Alert.alert(t("common.error"), e instanceof Error ? e.message : t("actions.navFailed"));
   }
 }
+
+export async function openDayRouteInMaps(token: string, date: string): Promise<void> {
+  try {
+    const { url } = await navigationApi.getUrl(token, { date, mode: "multi" });
+    await Linking.openURL(url);
+  } catch (e) {
+    Alert.alert(t("common.error"), e instanceof Error ? e.message : t("actions.navFailed"));
+  }
+}

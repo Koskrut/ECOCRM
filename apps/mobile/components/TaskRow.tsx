@@ -1,6 +1,9 @@
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { AnimatedListItem } from "@/components/ui/AnimatedListItem";
+import { Chip } from "@/components/ui/Chip";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import type { Task } from "@/types/crm";
 
@@ -21,72 +24,65 @@ type TaskRowProps = {
   onComplete?: () => void;
   onReschedule?: () => void;
   busy?: boolean;
+  index?: number;
 };
 
-export function TaskRow({ task, onPress, onComplete, onReschedule, busy }: TaskRowProps) {
+export function TaskRow({ task, onPress, onComplete, onReschedule, busy, index = 0 }: TaskRowProps) {
+  const theme = useTheme();
   const contactName = task.contact
     ? [task.contact.firstName, task.contact.lastName].filter(Boolean).join(" ")
     : task.company?.name;
 
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={!onPress}
-      style={({ pressed }) => [styles.card, onPress && pressed && styles.pressed]}>
-      <Text style={styles.title}>{task.title}</Text>
-      <Text style={styles.meta}>
-        {t("tasks.due")}: {formatDue(task.dueAt)}
-        {contactName ? ` · ${contactName}` : ""}
-      </Text>
-      {task.body ? <Text style={styles.body}>{task.body}</Text> : null}
-      {task.status !== "DONE" && task.status !== "CANCELED" ? (
-        <View style={styles.actions}>
-          {onComplete ? (
-            <Pressable
-              disabled={busy}
-              onPress={onComplete}
-              style={({ pressed }) => [styles.btn, styles.btnPrimary, pressed && styles.pressed]}
-              accessibilityRole="button">
-              <Text style={styles.btnPrimaryText}>{busy ? "…" : t("tasks.complete")}</Text>
-            </Pressable>
-          ) : null}
-          {onReschedule ? (
-            <Pressable
-              disabled={busy}
-              onPress={onReschedule}
-              style={({ pressed }) => [styles.btn, styles.btnGhost, pressed && styles.pressed]}
-              accessibilityRole="button">
-              <Text style={styles.btnGhostText}>{t("tasks.reschedule")}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : (
-        <Text style={styles.done}>{t("tasks.completed")}</Text>
-      )}
-    </Pressable>
+    <AnimatedListItem index={index}>
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        style={({ pressed }) => [
+          styles.card,
+          {
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
+            ...theme.elevation.sm,
+          },
+          onPress && pressed && styles.pressed,
+        ]}>
+        <Text style={theme.typography.bodyMedium}>{task.title}</Text>
+        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 6 }]}>
+          {t("tasks.due")}: {formatDue(task.dueAt)}
+          {contactName ? ` · ${contactName}` : ""}
+        </Text>
+        {task.body ? (
+          <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
+            {task.body}
+          </Text>
+        ) : null}
+        {task.status !== "DONE" && task.status !== "CANCELED" ? (
+          <View style={styles.actions}>
+            {onComplete ? (
+              <Chip label={busy ? "…" : t("tasks.complete")} onPress={onComplete} selected />
+            ) : null}
+            {onReschedule ? (
+              <Chip label={t("tasks.reschedule")} onPress={onReschedule} />
+            ) : null}
+          </View>
+        ) : (
+          <Text style={[theme.typography.caption, { marginTop: 8, color: theme.colors.successText }]}>
+            {t("tasks.completed")}
+          </Text>
+        )}
+      </Pressable>
+    </AnimatedListItem>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     padding: 14,
-    borderRadius: 12,
-    backgroundColor: "rgba(120,120,128,0.08)",
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
     marginBottom: 10,
   },
-  title: { fontWeight: "600", fontSize: 16 },
-  meta: { opacity: 0.7, marginTop: 6, fontSize: 13 },
-  body: { marginTop: 8, fontSize: 14, lineHeight: 20, opacity: 0.85 },
-  actions: { flexDirection: "row", gap: 8, marginTop: 12 },
-  btn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  btnPrimary: { backgroundColor: "#2563eb" },
-  btnPrimaryText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  btnGhost: { borderWidth: 1, borderColor: "#94a3b8" },
-  btnGhostText: { fontWeight: "600", fontSize: 14 },
-  done: { marginTop: 8, fontSize: 13, opacity: 0.6, fontStyle: "italic" },
-  pressed: { opacity: 0.75 },
+  actions: { flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" },
+  pressed: { opacity: 0.82 },
 });

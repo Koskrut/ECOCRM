@@ -24,12 +24,22 @@ export type FieldShiftCurrentVisit = {
   status: string;
 };
 
+export type FieldTeamDevicePresence = {
+  appState: "ACTIVE" | "BACKGROUND" | "INACTIVE" | null;
+  trackingMode: "background" | "foreground" | "none" | null;
+  lastSeenAt: string | null;
+};
+
+export type FieldTeamGpsStatus = "ok" | "stale" | "none" | "disabled";
+
 export type FieldShiftTeamItem = {
   shift: FieldShiftSummary;
   owner: { id: string; fullName: string; email: string };
   lastSample: FieldShiftLastSample | null;
   sampleCountToday: number;
   currentVisit: FieldShiftCurrentVisit | null;
+  device: FieldTeamDevicePresence | null;
+  gpsStatus: FieldTeamGpsStatus;
 };
 
 export type FieldLocationSampleRow = {

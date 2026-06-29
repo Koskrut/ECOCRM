@@ -2,9 +2,9 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { Text } from "@/components/Themed";
-import { colors, layout, spacing } from "@/lib/design/tokens";
+import { AppButton } from "@/components/ui/AppButton";
+import { useTheme } from "@/lib/design/theme-context";
 
 type Props = {
   totalLabel: string;
@@ -25,21 +25,33 @@ export function OrderStickyFooter({
   secondaryLabel,
   onSecondary,
 }: Props) {
+  const theme = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-      <Text style={styles.total}>{totalLabel}</Text>
+    <View
+      style={[
+        styles.footer,
+        {
+          paddingBottom: Math.max(insets.bottom, theme.spacing.md),
+          paddingHorizontal: theme.spacing.lg,
+          paddingTop: theme.spacing.md,
+          borderTopColor: theme.colors.border,
+          backgroundColor: theme.colors.bgElevated,
+          minHeight: theme.layout.stickyFooterHeight,
+        },
+      ]}>
+      <Text style={theme.typography.bodyMedium}>{totalLabel}</Text>
       <View style={styles.actions}>
         {secondaryLabel && onSecondary ? (
-          <PrimaryButton
+          <AppButton
             label={secondaryLabel}
             onPress={onSecondary}
             variant="secondary"
             style={styles.btn}
           />
         ) : null}
-        <PrimaryButton
+        <AppButton
           label={actionLabel}
           onPress={onAction}
           disabled={disabled}
@@ -57,14 +69,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    backgroundColor: "rgba(15,17,23,0.96)",
-    minHeight: layout.stickyFooterHeight,
   },
-  total: { fontWeight: "700", fontSize: 16, marginBottom: spacing.sm },
-  actions: { flexDirection: "row", gap: spacing.sm },
+  actions: { flexDirection: "row", gap: 8, marginTop: 8 },
   btn: { flex: 1 },
 });

@@ -1,26 +1,31 @@
-import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
-  TextInput,
   View,
 } from "react-native";
 
 import { EntityActionBar } from "@/components/EntityActionBar";
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { BottomSheet } from "@/components/ui/BottomSheet";
+import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
+import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
+import { Screen } from "@/components/ui/Screen";
+import { SectionTitle } from "@/components/ui/SectionTitle";
+import { TextField } from "@/components/ui/TextField";
+import { VisitProximityCard } from "@/components/visit/VisitProximityCard";
 import { useAuth } from "@/context/auth-context";
 import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
 import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
+import { captureGpsForVisitRequest } from "@/lib/gps-capture";
 import {
   gpsVerificationLabel,
   visitOutcomeLabel,
@@ -34,6 +39,7 @@ import type { VisitSummary } from "@/types/crm";
 
 export default function VisitDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const visitId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -66,40 +72,14 @@ export default function VisitDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [token, visitId]);
+  }, [token, visitId, setActiveVisit]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   async function gpsPayloadForRequest(): Promise<Record<string, unknown> | undefined> {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(t("gps.title"), t("gps.denied"));
-      return { permissionState: status };
-    }
-    try {
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const c = pos.coords;
-      return {
-        lat: c.latitude,
-        lng: c.longitude,
-        accuracyM:
-          typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
-        clientRecordedAt: new Date().toISOString(),
-        permissionState: status,
-        locationProvider: Platform.select({
-          ios: "ios-core",
-          android: "android-fused",
-          default: "expo-location",
-        }),
-      };
-    } catch {
-      Alert.alert(t("gps.title"), t("gps.failed"));
-      return { permissionState: status };
-    }
+    return captureGpsForVisitRequest();
   }
 
   async function onStart() {
@@ -115,12 +95,12 @@ export default function VisitDetailScreen() {
       setVisit(updated);
       setActiveVisit(updated.id, visitLabel(updated));
       const vLabel = gpsVerificationLabel(updated.startGpsVerification ?? null);
-      if (vLabel) Alert.alert("GPS", vLabel);
+      if (vLabel) Alert.alert(t("gps.title"), vLabel);
     } catch (e) {
       if (isOfflineLikeError(e)) {
         const extra = await gpsPayloadForRequest().catch(() => undefined);
         await enqueueOfflineJob("visitStart", { visitId: visit.id, body: extra ?? {} });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
       } else {
         Alert.alert(t("common.error"), String(e));
       }
@@ -178,7 +158,7 @@ export default function VisitDetailScreen() {
           if (nextActionNote.trim()) payload.nextActionNote = nextActionNote.trim();
         }
         await enqueueOfflineJob("visitComplete", { visitId: visit.id, body: payload });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
         router.back();
       } else {
         Alert.alert(t("common.error"), String(e));
@@ -196,7 +176,7 @@ export default function VisitDetailScreen() {
       const updated = await visitsApi.update(token, visit.id, { startsAt });
       setVisit(updated);
       setRescheduleOpen(false);
-      Alert.alert(t("common.done"), "Візит перенесено");
+      Alert.alert(t("common.done"), t("visit.rescheduled"));
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
@@ -206,10 +186,14 @@ export default function VisitDetailScreen() {
 
   if (loading || !visit) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+            {t("common.loading")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
@@ -220,189 +204,198 @@ export default function VisitDetailScreen() {
     : null;
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <Text style={styles.title}>{visitLabel(visit)}</Text>
+    <Screen padded={false} edges={["left", "right", "bottom"]}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg, gap: theme.spacing.md },
+        ]}>
+        <Text style={theme.typography.title}>{visitLabel(visit)}</Text>
 
-      <Text style={styles.section}>{t("visit.preparation")}</Text>
-      <Text style={styles.meta}>
-        {t("visit.status")}: {visit.status}
-        {"\n"}
-        {visit.addressText ?? t("visit.noAddress")}
-      </Text>
-      {contactName ? <Text style={styles.meta}>{contactName}</Text> : null}
-      {visit.company?.name ? <Text style={styles.meta}>{visit.company.name}</Text> : null}
-      {visit.purpose ? (
-        <Text style={styles.meta}>
-          {t("visit.purpose")}: {visit.purpose}
+        <SectionTitle title={t("visit.preparation")} />
+        <Text style={[theme.typography.body, { color: theme.colors.textMuted, lineHeight: 22 }]}>
+          {t("visit.status")}: {visit.status}
+          {"\n"}
+          {visit.addressText ?? t("visit.noAddress")}
         </Text>
-      ) : null}
+        {contactName ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{contactName}</Text>
+        ) : null}
+        {visit.company?.name ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{visit.company.name}</Text>
+        ) : null}
+        {visit.purpose ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
+            {t("visit.purpose")}: {visit.purpose}
+          </Text>
+        ) : null}
 
-      <EntityActionBar
-        token={token!}
-        date={dateKey}
-        phone={visitPhone(visit)}
-        visitId={visit.id}
-        contactId={visit.contactId ?? visit.contact?.id}
-        lat={visit.lat}
-        lng={visit.lng}
-      />
+        {visit.lat != null && visit.lng != null ? <VisitProximityCard visit={visit} /> : null}
 
-      {visit.contact?.id ? (
-        <Pressable
-          onPress={() => router.push(`/contact/${visit.contact!.id}`)}
-          style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
-          accessibilityRole="button">
-          <Text style={styles.btnOutlineText}>{t("visit.openContact")}</Text>
-        </Pressable>
-      ) : null}
+        <EntityActionBar
+          token={token!}
+          date={dateKey}
+          phone={visitPhone(visit)}
+          visitId={visit.id}
+          contactId={visit.contactId ?? visit.contact?.id}
+          lat={visit.lat}
+          lng={visit.lng}
+        />
 
-      <Pressable
-        onPress={() => {
-          setRescheduleAt(visit.startsAt ?? "");
-          setRescheduleOpen(true);
-        }}
-        style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
-        accessibilityRole="button">
-        <Text style={styles.btnOutlineText}>{t("tasks.reschedule")}</Text>
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.push("/map")}
-        style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
-        accessibilityRole="button">
-        <Text style={styles.btnOutlineText}>{t("visit.mapDay")}</Text>
-      </Pressable>
-
-      {(visit.startGpsVerification ?? visit.completeGpsVerification) ? (
-        <View style={styles.box}>
-          {visit.startGpsVerification ? (
-            <Text>
-              {t("visit.startGps")}: {gpsVerificationLabel(visit.startGpsVerification)}
-            </Text>
-          ) : null}
-          {visit.completeGpsVerification ? (
-            <Text>
-              {t("visit.completeGps")}: {gpsVerificationLabel(visit.completeGpsVerification)}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {scheduled ? (
-        <>
-          <Text style={styles.section}>{t("visit.sectionVisit")}</Text>
-          <Pressable
-            disabled={actionBusy}
-            onPress={onStart}
-            style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
-            accessibilityRole="button">
-            <Text style={styles.btnPrimaryText}>
-              {actionBusy ? "…" : t("visit.start")}
-            </Text>
-          </Pressable>
-        </>
-      ) : null}
-
-      {active ? (
-        <>
-          <Text style={styles.section}>{t("visit.sectionResult")}</Text>
-          <View style={styles.row}>
-            {VISIT_OUTCOMES.map((code) => (
-              <Pressable
-                key={code}
-                onPress={() => setOutcome(code)}
-                style={[styles.chip, outcome === code && styles.chipActive]}
-                accessibilityRole="button">
-                <Text>{visitOutcomeLabel(code)}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Text style={styles.sectionTitle}>{t("visit.comment")}</Text>
-          <TextInput
-            value={resultNote}
-            onChangeText={setResultNote}
-            multiline
-            placeholder={t("visit.commentPlaceholder")}
-            placeholderTextColor="#888"
-            style={styles.note}
+        {visit.contact?.id ? (
+          <AppButton
+            label={t("visit.openContact")}
+            onPress={() => router.push(`/contact/${visit.contact!.id}`)}
+            variant="secondary"
+            fullWidth
           />
+        ) : null}
 
-          <View style={styles.nextRow}>
-            <Text style={styles.sectionTitle}>{t("visit.nextAction")}</Text>
-            <Switch value={nextActionEnabled} onValueChange={setNextActionEnabled} />
-          </View>
-          {nextActionEnabled ? (
-            <TextInput
-              value={nextActionNote}
-              onChangeText={setNextActionNote}
-              placeholder={t("visit.nextActionNotePlaceholder")}
-              placeholderTextColor="#888"
-              style={styles.noteSmall}
+        <AppButton
+          label={t("tasks.reschedule")}
+          onPress={() => {
+            setRescheduleAt(visit.startsAt ?? "");
+            setRescheduleOpen(true);
+          }}
+          variant="secondary"
+          fullWidth
+        />
+
+        <AppButton
+          label={t("visit.mapDay")}
+          onPress={() => router.push("/map")}
+          variant="secondary"
+          fullWidth
+        />
+
+        {(visit.startGpsVerification ?? visit.completeGpsVerification) ? (
+          <Card>
+            {visit.startGpsVerification ? (
+              <Text style={theme.typography.body}>
+                {t("visit.startGps")}: {gpsVerificationLabel(visit.startGpsVerification)}
+              </Text>
+            ) : null}
+            {visit.completeGpsVerification ? (
+              <Text style={[theme.typography.body, visit.startGpsVerification ? { marginTop: 6 } : undefined]}>
+                {t("visit.completeGps")}: {gpsVerificationLabel(visit.completeGpsVerification)}
+              </Text>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {scheduled ? (
+          <>
+            <SectionTitle title={t("visit.sectionVisit")} />
+            <AppButton
+              label={t("visit.start")}
+              onPress={() => void onStart()}
+              loading={actionBusy}
+              fullWidth
             />
-          ) : null}
+          </>
+        ) : null}
 
-          <Text style={styles.section}>{t("visit.sectionComplete")}</Text>
-          <Pressable
-            disabled={actionBusy}
-            onPress={onComplete}
-            style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
-            accessibilityRole="button">
-            <Text style={styles.btnPrimaryText}>
-              {actionBusy ? "…" : t("visit.complete")}
+        {active ? (
+          <>
+            <SectionTitle title={t("visit.sectionResult")} />
+            <View style={styles.row}>
+              {VISIT_OUTCOMES.map((code) => (
+                <Chip
+                  key={code}
+                  label={visitOutcomeLabel(code)}
+                  selected={outcome === code}
+                  onPress={() => setOutcome(code)}
+                />
+              ))}
+            </View>
+
+            <TextField
+              label={t("visit.comment")}
+              value={resultNote}
+              onChangeText={setResultNote}
+              placeholder={t("visit.commentPlaceholder")}
+              multiline
+              style={{ minHeight: 100 }}
+            />
+
+            <View style={styles.nextRow}>
+              <Text style={theme.typography.bodyMedium}>{t("visit.nextAction")}</Text>
+              <Switch
+                value={nextActionEnabled}
+                onValueChange={setNextActionEnabled}
+                trackColor={{ false: theme.colors.border, true: theme.colors.primaryMuted }}
+                thumbColor={nextActionEnabled ? theme.colors.primary : theme.colors.surfaceMuted}
+              />
+            </View>
+            {nextActionEnabled ? (
+              <TextField
+                value={nextActionNote}
+                onChangeText={setNextActionNote}
+                placeholder={t("visit.nextActionNotePlaceholder")}
+                style={{ minHeight: 56 }}
+              />
+            ) : null}
+
+            <SectionTitle title={t("visit.sectionComplete")} />
+            <AppButton
+              label={t("visit.complete")}
+              onPress={() => void onComplete()}
+              loading={actionBusy}
+              fullWidth
+            />
+          </>
+        ) : visit.status === "DONE" ? (
+          <>
+            <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+              {t("visit.completed")}
             </Text>
-          </Pressable>
-        </>
-      ) : visit.status === "DONE" ? (
-        <>
-          <Text style={styles.done}>{t("visit.completed")}</Text>
-          <Pressable
-            onPress={() =>
-              router.push(
-                `/orders/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
-              )
-            }
-            style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}
-            accessibilityRole="button">
-            <Text style={styles.btnPrimaryText}>Створити замовлення</Text>
-          </Pressable>
-          <Pressable
-            onPress={() =>
-              router.push(
-                `/tasks/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
-              )
-            }
-            style={({ pressed }) => [styles.btnOutline, pressed && styles.pressed]}
-            accessibilityRole="button">
-            <Text style={styles.btnOutlineText}>Запланувати follow-up</Text>
-          </Pressable>
-        </>
-      ) : null}
-
-      <Modal visible={rescheduleOpen} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.section}>{t("tasks.rescheduleTitle")}</Text>
-            <TextInput
-              value={rescheduleAt}
-              onChangeText={setRescheduleAt}
-              placeholder="2026-06-25T10:00:00"
-              placeholderTextColor="#888"
-              style={styles.note}
+            <AppButton
+              label={t("orders.create")}
+              onPress={() =>
+                router.push(
+                  `/orders/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
+                )
+              }
+              fullWidth
             />
-            <Pressable
-              disabled={actionBusy}
-              onPress={() => void onReschedule()}
-              style={({ pressed }) => [styles.btnPrimary, pressed && styles.pressed]}>
-              <Text style={styles.btnPrimaryText}>{actionBusy ? "…" : t("common.save")}</Text>
-            </Pressable>
-            <Pressable onPress={() => setRescheduleOpen(false)} style={{ marginTop: 12, alignItems: "center" }}>
-              <Text style={{ color: "#2563eb" }}>{t("common.cancel")}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
+            <AppButton
+              label={t("visit.planFollowUp")}
+              onPress={() =>
+                router.push(
+                  `/tasks/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact?.id ?? "")}`,
+                )
+              }
+              variant="secondary"
+              fullWidth
+            />
+          </>
+        ) : null}
+      </KeyboardAwareScrollView>
+
+      <BottomSheet
+        visible={rescheduleOpen}
+        onClose={() => setRescheduleOpen(false)}
+        title={t("tasks.rescheduleTitle")}>
+        <TextField
+          value={rescheduleAt}
+          onChangeText={setRescheduleAt}
+          placeholder={t("visit.reschedulePlaceholder")}
+        />
+        <AppButton
+          label={t("common.save")}
+          onPress={() => void onReschedule()}
+          loading={actionBusy}
+          fullWidth
+        />
+        <AppButton
+          label={t("common.cancel")}
+          onPress={() => setRescheduleOpen(false)}
+          variant="ghost"
+          fullWidth
+          style={{ marginTop: theme.spacing.sm }}
+        />
+      </BottomSheet>
+    </Screen>
   );
 }
 
@@ -413,76 +406,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 24,
   },
-  scroll: { padding: 20, gap: 14, paddingBottom: 48 },
-  title: { fontSize: 22, fontWeight: "700" },
-  section: { fontWeight: "700", fontSize: 16, marginTop: 8 },
-  meta: { fontSize: 15, opacity: 0.85, lineHeight: 22 },
-  box: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(128,128,128,0.12)",
-    gap: 6,
-  },
-  btnOutline: {
-    borderWidth: 1,
-    borderColor: "#059669",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    backgroundColor: "rgba(5,150,105,0.08)",
-  },
-  btnOutlineText: { color: "#047857", fontWeight: "600", fontSize: 15 },
-  btnPrimary: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  btnPrimaryText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  pressed: { opacity: 0.85 },
-  sectionTitle: { fontWeight: "600", fontSize: 16, marginTop: 8 },
+  scroll: { paddingTop: 8 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  chipActive: { backgroundColor: "#dbeafe", borderColor: "#2563eb" },
-  note: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    minHeight: 100,
-    padding: 12,
-    textAlignVertical: "top",
-    fontSize: 16,
-  },
-  noteSmall: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    minHeight: 56,
-    padding: 12,
-    fontSize: 15,
-  },
   nextRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: 8,
-  },
-  done: { fontSize: 16, opacity: 0.8, marginTop: 16 },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  modalSheet: {
-    backgroundColor: "#1a1d27",
-    padding: 20,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
   },
 });

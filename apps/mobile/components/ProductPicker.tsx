@@ -4,15 +4,20 @@ import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { EmptyState } from "@/components/EmptyState";
 import { Text } from "@/components/Themed";
 import { productsApi } from "@/lib/api/products";
+import { useTheme } from "@/lib/design/theme-context";
+import { formatOrderStockMeta } from "@/lib/stock-display";
+import { warehouseStockBreakdown } from "@/lib/order-utils";
 import { t } from "@/lib/i18n";
 import type { Product } from "@/types/crm";
 
 type ProductPickerProps = {
   token: string;
+  warehouseId?: string | null;
   onSelect: (product: Product) => void;
 };
 
-export function ProductPicker({ token, onSelect }: ProductPickerProps) {
+export function ProductPicker({ token, warehouseId, onSelect }: ProductPickerProps) {
+  const theme = useTheme();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Product[]>([]);
   const [searching, setSearching] = useState(false);
@@ -44,19 +49,33 @@ export function ProductPicker({ token, onSelect }: ProductPickerProps) {
       <TextInput
         value={query}
         onChangeText={setQuery}
-        placeholder="Пошук товару (SKU або назва)…"
-        placeholderTextColor="#888"
-        style={styles.input}
+        placeholder={t("catalog.searchHint")}
+        placeholderTextColor={theme.colors.textMuted}
+        style={[
+          styles.input,
+          {
+            color: theme.colors.text,
+            borderColor: theme.colors.border,
+            backgroundColor: theme.colors.surface,
+          },
+        ]}
         autoCapitalize="none"
         autoCorrect={false}
       />
-      {searching ? <Text style={styles.hint}>{t("common.loading")}</Text> : null}
+      {searching ? (
+        <Text style={[styles.hint, { color: theme.colors.textMuted }]}>{t("common.loading")}</Text>
+      ) : null}
       {query.trim().length >= 2 && !searching && results.length === 0 ? (
         <EmptyState message={t("common.noData")} />
       ) : null}
       {results.map((p) => {
         const title = p.name ?? p.sku ?? "Товар";
-        const meta = [p.sku, p.basePrice != null ? `${p.basePrice}` : null]
+        const stock = warehouseStockBreakdown(p, warehouseId);
+        const meta = [
+          p.sku,
+          p.basePrice != null ? `${p.basePrice}` : null,
+          stock ? formatOrderStockMeta(stock) : null,
+        ]
           .filter(Boolean)
           .join(" · ");
         return (
@@ -68,12 +87,18 @@ export function ProductPicker({ token, onSelect }: ProductPickerProps) {
               setResults([]);
             }}
             accessibilityRole="button"
-            style={({ pressed }) => [styles.row, pressed && { opacity: 0.72 }]}>
+            style={({ pressed }) => [
+              styles.row,
+              { backgroundColor: theme.colors.surfaceMuted },
+              pressed && { opacity: 0.72 },
+            ]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{title}</Text>
-              {meta ? <Text style={styles.meta}>{meta}</Text> : null}
+              <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
+              {meta ? (
+                <Text style={[styles.meta, { color: theme.colors.textMuted }]}>{meta}</Text>
+              ) : null}
             </View>
-            <Text style={styles.add}>+</Text>
+            <Text style={[styles.add, { color: theme.colors.order }]}>+</Text>
           </Pressable>
         );
       })}
@@ -84,24 +109,22 @@ export function ProductPicker({ token, onSelect }: ProductPickerProps) {
 const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
     marginBottom: 8,
   },
-  hint: { opacity: 0.7, marginBottom: 8 },
+  hint: { marginBottom: 8 },
   row: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
-    backgroundColor: "rgba(120,120,128,0.08)",
     marginBottom: 6,
   },
   title: { fontWeight: "600", fontSize: 15 },
-  meta: { opacity: 0.7, marginTop: 4, fontSize: 13 },
-  add: { fontSize: 22, color: "#2563eb", fontWeight: "700", marginLeft: 8 },
+  meta: { marginTop: 4, fontSize: 13 },
+  add: { fontSize: 22, fontWeight: "700", marginLeft: 8 },
 });

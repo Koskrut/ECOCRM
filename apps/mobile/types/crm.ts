@@ -102,6 +102,46 @@ export type ContactPhonesResponse = {
   additional: { id: string; phone: string; label?: string | null }[];
 };
 
+export type CompanyAddress = {
+  id: string;
+  label: string | null;
+  city: string | null;
+  addressText: string;
+  lat: number | null;
+  lng: number | null;
+  googlePlaceId: string | null;
+  isDefault: boolean;
+  displayLine: string;
+  hasCoordinates: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Company = {
+  id: string;
+  name: string;
+  edrpou?: string;
+  taxId?: string;
+  phone?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  googlePlaceId?: string;
+  ownerId?: string | null;
+  owner?: { id: string; fullName: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
+  lastVisitAt?: string;
+  addresses?: CompanyAddress[];
+};
+
+export type ListCompaniesResponse = {
+  items: Company[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export type TaskStatus = "OPEN" | "IN_PROGRESS" | "DONE" | "CANCELED";
 
 export type Task = {
@@ -144,13 +184,25 @@ export type OrderItem = {
   product?: { sku?: string | null; name?: string | null } | null;
 };
 
+export type ProductStockByWarehouse = {
+  warehouseId: string;
+  warehouseName?: string;
+  qty?: number;
+  availableQty?: number;
+};
+
 export type Product = {
   id: string;
   sku?: string | null;
   name?: string | null;
   unit?: string | null;
   basePrice?: number | null;
+  /** Physical stock total (API field: stock). */
+  stock?: number | null;
+  /** @deprecated use stock */
   totalStock?: number | null;
+  availableStock?: number | null;
+  stockByWarehouse?: ProductStockByWarehouse[];
 };
 
 export type NpRecipientType = "PERSON" | "COMPANY";
@@ -211,6 +263,7 @@ export type CreateShippingProfileBody = {
 
 export type DraftOrderLine = {
   key: string;
+  itemId?: string;
   productId: string;
   productName: string;
   qty: number;
@@ -230,9 +283,18 @@ export type Order = {
   createdAt: string;
   contactId?: string | null;
   companyId?: string | null;
+  company?: { id: string; name: string } | null;
   comment?: string | null;
   deliveryMethod?: string | null;
   deliveryData?: Record<string, unknown> | null;
+  paymentType?: string | null;
+  paymentMethod?: string | null;
+  paymentDueDate?: string | null;
+  bankAccountId?: string | null;
+  warehouseId?: string | null;
+  documentsRequested?: boolean | null;
+  warehouse?: { id: string; name: string } | null;
+  bankAccount?: { id: string; name: string } | null;
   items?: OrderItem[];
   contact?: {
     id: string;

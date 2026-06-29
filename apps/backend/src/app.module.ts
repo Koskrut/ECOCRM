@@ -53,6 +53,7 @@ import { DataImportModule } from "./data-import/data-import.module";
 import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
 import { TimelineModule } from "./timeline/timeline.module";
 import { FieldModule } from "./field/field.module";
+import { PresenceModule } from "./presence/presence.module";
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { FieldModule } from "./field/field.module";
     ActivitiesModule,
     VisitsModule,
     FieldModule,
+    PresenceModule,
     TasksModule,
     NotificationsModule,
     OrderReturnsModule,

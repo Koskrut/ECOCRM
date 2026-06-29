@@ -3,6 +3,7 @@
 import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
 import { useMemo } from "react";
 import type { FieldShiftTeamItem } from "@/lib/api/resources/field-shifts";
+import { teamMarkerTitle } from "@/components/visits/TeamFieldList";
 
 type TeamFieldMapProps = {
   mapsApiKey: string;
@@ -32,10 +33,12 @@ export function TeamFieldMap({
         .filter((i) => i.lastSample)
         .map((i) => ({
           id: i.owner.id,
+          item: i,
           lat: i.lastSample!.lat,
           lng: i.lastSample!.lng,
           label: i.owner.fullName.charAt(0).toUpperCase(),
           selected: i.owner.id === selectedOwnerId,
+          title: teamMarkerTitle(i),
         })),
     [items, selectedOwnerId],
   );
@@ -114,6 +117,7 @@ export function TeamFieldMap({
           key={m.id}
           position={{ lat: m.lat, lng: m.lng }}
           label={m.label}
+          title={m.title}
           icon={
             m.selected
               ? {

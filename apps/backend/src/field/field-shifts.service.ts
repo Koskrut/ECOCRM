@@ -1,12 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { FieldShiftStatus, Prisma } from "@prisma/client";
+import { ClientPlatform, FieldShiftStatus, Prisma } from "@prisma/client";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
+import { todayYmdKyiv } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import {
   assertCanAccessOwner,
   getAllowedOwnerIds,
 } from "../visits/visits-owner-scope";
+import { filterGpsSample, filterGpsTrack } from "./gps-sample-filter";
+import { SHIFT_ENDED_EVENT } from "./field.events";
+import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
 import type { FieldShiftTeamItem } from "./field-shifts.types";
 
 const MAX_SAMPLES_BATCH = 250;
@@ -17,10 +22,11 @@ export class FieldShiftsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly routePlans: RoutePlansService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private utcDayStart(reference: Date): Date {
-    return new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), reference.getUTCDate()));
+  private calendarDateKey(dateStr: string): Date {
+    return new Date(`${dateStr}T00:00:00.000Z`);
   }
 
   async getActive(actor: AuthUser | undefined) {
@@ -42,7 +48,7 @@ export class FieldShiftsService {
       throw new BadRequestException("User is required");
     }
     const ownerId = actor.id;
-    const date = this.utcDayStart(new Date());
+    const date = this.calendarDateKey(todayYmdKyiv());
 
     const existingToday = await this.prisma.fieldShift.findFirst({
       where: { ownerId, date, status: FieldShiftStatus.ACTIVE },
@@ -89,10 +95,16 @@ export class FieldShiftsService {
     if (shift.status === FieldShiftStatus.ENDED) {
       return shift;
     }
-    return this.prisma.fieldShift.update({
+    const updated = await this.prisma.fieldShift.update({
       where: { id: shiftId },
       data: { status: FieldShiftStatus.ENDED, endedAt: new Date() },
     });
+    const dateStr = updated.date.toISOString().slice(0, 10);
+    void this.eventEmitter.emitAsync(SHIFT_ENDED_EVENT, {
+      ownerId: updated.ownerId,
+      dateStr,
+    });
+    return updated;
   }
 
   async appendSamples(
@@ -122,7 +134,22 @@ export class FieldShiftsService {
       throw new BadRequestException("Tracking is disabled for this shift");
     }
 
+    const lastDb = await this.prisma.fieldLocationSample.findFirst({
+      where: { shiftId },
+      orderBy: { clientRecordedAt: "desc" },
+      select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
+    });
+
+    let prev: {
+      lat: number;
+      lng: number;
+      accuracyM?: number | null;
+      clientRecordedAt: Date;
+    } | null = lastDb;
+
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
+    let rejected = 0;
+
     for (const it of items) {
       if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) {
         throw new BadRequestException("Invalid lat/lng");
@@ -131,18 +158,35 @@ export class FieldShiftsService {
       if (Number.isNaN(clientRecordedAt.getTime())) {
         throw new BadRequestException("Invalid clientRecordedAt");
       }
-      rows.push({
-        shiftId,
+
+      const candidate = {
         lat: it.lat,
         lng: it.lng,
         accuracyM:
           it.accuracyM != null && Number.isFinite(Number(it.accuracyM)) ? Number(it.accuracyM) : undefined,
         clientRecordedAt,
+      };
+
+      const verdict = filterGpsSample(prev, candidate);
+      if (!verdict.accept) {
+        rejected += 1;
+        continue;
+      }
+
+      rows.push({
+        shiftId,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        accuracyM: candidate.accuracyM,
+        clientRecordedAt,
       });
+      prev = candidate;
     }
 
-    await this.prisma.fieldLocationSample.createMany({ data: rows });
-    return { created: rows.length };
+    if (rows.length > 0) {
+      await this.prisma.fieldLocationSample.createMany({ data: rows });
+    }
+    return { created: rows.length, rejected };
   }
 
   private visitTitle(v: {
@@ -185,7 +229,7 @@ export class FieldShiftsService {
     const shiftIds = shifts.map((s) => s.id);
     const ownerIds = [...new Set(shifts.map((s) => s.ownerId))];
 
-    const [samples, sampleCounts, sessions] = await Promise.all([
+    const [samples, sampleCounts, sessions, presenceSessions] = await Promise.all([
       this.prisma.fieldLocationSample.findMany({
         where: { shiftId: { in: shiftIds } },
         orderBy: [{ clientRecordedAt: "desc" }],
@@ -205,6 +249,19 @@ export class FieldShiftsService {
       this.prisma.routeSession.findMany({
         where: { ownerId: { in: ownerIds }, isActive: true },
         select: { ownerId: true, currentVisitId: true },
+      }),
+      this.prisma.userActivitySession.findMany({
+        where: {
+          userId: { in: ownerIds },
+          platform: ClientPlatform.MOBILE,
+        },
+        orderBy: { lastSeenAt: "desc" },
+        select: {
+          userId: true,
+          lastSeenAt: true,
+          appState: true,
+          trackingMode: true,
+        },
       }),
     ]);
 
@@ -238,10 +295,19 @@ export class FieldShiftsService {
     const visitById = new Map(visits.map((v) => [v.id, v] as const));
     const sessionByOwner = new Map(sessions.map((s) => [s.ownerId, s] as const));
 
+    const presenceByOwner = new Map<string, (typeof presenceSessions)[number]>();
+    for (const row of presenceSessions) {
+      if (!presenceByOwner.has(row.userId)) {
+        presenceByOwner.set(row.userId, row);
+      }
+    }
+
+    const nowMs = Date.now();
     const items: FieldShiftTeamItem[] = shifts.map((shift) => {
       const last = lastByShift.get(shift.id);
       const session = sessionByOwner.get(shift.ownerId);
       const visit = session?.currentVisitId ? visitById.get(session.currentVisitId) : undefined;
+      const presence = presenceByOwner.get(shift.ownerId);
       return {
         shift: {
           id: shift.id,
@@ -270,6 +336,12 @@ export class FieldShiftsService {
               status: visit.status,
             }
           : null,
+        device: deriveDevicePresence(presence, nowMs),
+        gpsStatus: deriveGpsStatus(
+          shift.trackingEnabled,
+          last?.clientRecordedAt ?? null,
+          nowMs,
+        ),
       };
     });
 
@@ -354,10 +426,18 @@ export class FieldShiftsService {
     await assertCanAccessOwner(this.prisma, actor, shift.ownerId);
 
     const { items } = await this.getSamples(actor, shiftId, { limit: MAX_SAMPLES_READ });
-    const points = items.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const filtered = filterGpsTrack(
+      items.map((s) => ({
+        lat: s.lat,
+        lng: s.lng,
+        accuracyM: s.accuracyM,
+        clientRecordedAt: s.clientRecordedAt,
+      })),
+    );
+    const points = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
     const geometry = await this.routePlans.snapGpsPathToRoads(points, opts);
     return {
-      sampleCount: items.length,
+      sampleCount: filtered.length,
       ...geometry,
     };
   }

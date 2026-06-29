@@ -43,6 +43,7 @@ import { TimelineModule } from "./timeline/timeline.module";
 import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { PresenceModule } from "./presence/presence.module";
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { NotificationsModule } from "./notifications/notifications.module";
     StoreModule,
     TelegramModule,
     NotificationsModule,
+    PresenceModule,
     TasksModule,
     OrderReturnsModule,
     OrdersModule,

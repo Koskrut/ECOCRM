@@ -1,0 +1,63 @@
+import * as Location from "expo-location";
+
+export const FIELD_LOCATION_TASK = "FIELD_LOCATION_TASK";
+
+/** Keep in sync with apps/backend/src/field/gps-sample-filter.ts */
+export const TRACK_MAX_ACCURACY_M = 100;
+export const MAX_IMPLAUSIBLE_SPEED_KMH = 180;
+export const MIN_TIME_DELTA_S = 5;
+
+export type SamplingTier = "moving" | "city" | "idle";
+
+export const TIER_CHANGE_DEBOUNCE_MS = 120_000;
+
+export const FLUSH_INTERVAL_MS = 30_000;
+export const FLUSH_WHEN_PENDING_GTE = 10;
+
+export const STORAGE_KEYS_EXTRA = {
+  LAST_ACCEPTED_SAMPLE: "field_last_accepted_sample",
+  CURRENT_TIER: "field_tracking_tier",
+  TIER_CHANGED_AT: "field_tier_changed_at",
+  GEOFENCE_NOTIFIED: "field_geofence_notified",
+} as const;
+
+export type WatchOptions = {
+  accuracy: Location.Accuracy;
+  timeInterval: number;
+  distanceInterval: number;
+};
+
+export const SAMPLING_TIERS: Record<SamplingTier, WatchOptions> = {
+  moving: {
+    accuracy: Location.Accuracy.High,
+    timeInterval: 30_000,
+    distanceInterval: 25,
+  },
+  city: {
+    accuracy: Location.Accuracy.Balanced,
+    timeInterval: 60_000,
+    distanceInterval: 40,
+  },
+  idle: {
+    accuracy: Location.Accuracy.Balanced,
+    timeInterval: 180_000,
+    distanceInterval: 80,
+  },
+};
+
+export const DEFAULT_TIER: SamplingTier = "city";
+
+/** Speed thresholds (km/h) between accepted samples. */
+export const TIER_SPEED_MOVING_KMH = 15;
+export const TIER_SPEED_CITY_KMH = 3;
+
+export function tierFromSpeedKmh(speedKmh: number | null): SamplingTier {
+  if (speedKmh == null || !Number.isFinite(speedKmh)) return DEFAULT_TIER;
+  if (speedKmh > TIER_SPEED_MOVING_KMH) return "moving";
+  if (speedKmh >= TIER_SPEED_CITY_KMH) return "city";
+  return "idle";
+}
+
+export function watchOptionsForTier(tier: SamplingTier): WatchOptions {
+  return SAMPLING_TIERS[tier];
+}

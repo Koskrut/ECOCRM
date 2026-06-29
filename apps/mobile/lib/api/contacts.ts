@@ -10,10 +10,14 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export const contactsApi = {
-  list: (token: string, query: { q?: string; page?: number; pageSize?: number } = {}) =>
+  list: (
+    token: string,
+    query: { q?: string; companyId?: string; page?: number; pageSize?: number } = {},
+  ) =>
     apiFetch<ListContactsResponse>(
       `/contacts${qs({
         q: query.q?.trim() || undefined,
+        companyId: query.companyId,
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 20,
       })}`,

@@ -1,19 +1,19 @@
-const tintColorLight = '#2f95dc';
-const tintColorDark = '#fff';
+import { darkTheme, lightTheme } from "@/lib/design/tokens";
 
+/** @deprecated Use useTheme() instead */
 export default {
   light: {
-    text: '#000',
-    background: '#fff',
-    tint: tintColorLight,
-    tabIconDefault: '#ccc',
-    tabIconSelected: tintColorLight,
+    text: lightTheme.colors.text,
+    background: lightTheme.colors.bg,
+    tint: lightTheme.colors.primary,
+    tabIconDefault: lightTheme.colors.textMuted,
+    tabIconSelected: lightTheme.colors.primary,
   },
   dark: {
-    text: '#fff',
-    background: '#000',
-    tint: tintColorDark,
-    tabIconDefault: '#ccc',
-    tabIconSelected: tintColorDark,
+    text: darkTheme.colors.text,
+    background: darkTheme.colors.bg,
+    tint: darkTheme.colors.primary,
+    tabIconDefault: darkTheme.colors.textMuted,
+    tabIconSelected: darkTheme.colors.primary,
   },
 };

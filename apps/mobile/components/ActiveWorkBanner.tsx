@@ -4,10 +4,12 @@ import { Pressable, StyleSheet } from "react-native";
 
 import { Text } from "@/components/Themed";
 import { useActiveWork } from "@/context/active-work-context";
-import { colors, radius, spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
+import { t } from "@/lib/i18n";
 
 export function ActiveWorkBanner() {
   const router = useRouter();
+  const theme = useTheme();
   const {
     activeVisitId,
     activeVisitLabel,
@@ -20,10 +22,20 @@ export function ActiveWorkBanner() {
     return (
       <Pressable
         onPress={() => router.push(`/calls/session?id=${callSessionId}`)}
-        style={styles.banner}
+        style={[
+          styles.banner,
+          {
+            backgroundColor: theme.colors.callMuted,
+            borderBottomColor: theme.colors.border,
+            paddingHorizontal: theme.spacing.lg,
+            paddingVertical: theme.spacing.sm,
+          },
+        ]}
         accessibilityRole="button">
-        <Text style={styles.text}>📞 Дзвінок: {callSessionLabel ?? "активний"}</Text>
-        <Text style={styles.chev}>›</Text>
+        <Text style={[theme.typography.bodyMedium, styles.text]}>
+          📞 {t("activeWork.call", { label: callSessionLabel ?? t("activeWork.callActive") })}
+        </Text>
+        <Text style={[styles.chev, { color: theme.colors.textMuted }]}>›</Text>
       </Pressable>
     );
   }
@@ -32,10 +44,20 @@ export function ActiveWorkBanner() {
     return (
       <Pressable
         onPress={() => router.push(`/visit/${activeVisitId}`)}
-        style={[styles.banner, styles.visit]}
+        style={[
+          styles.banner,
+          {
+            backgroundColor: theme.colors.visitMuted,
+            borderBottomColor: theme.colors.border,
+            paddingHorizontal: theme.spacing.lg,
+            paddingVertical: theme.spacing.sm,
+          },
+        ]}
         accessibilityRole="button">
-        <Text style={styles.text}>📍 Візит: {activeVisitLabel ?? "активний"}</Text>
-        <Text style={styles.chev}>›</Text>
+        <Text style={[theme.typography.bodyMedium, styles.text]}>
+          📍 {t("activeWork.visit", { label: activeVisitLabel ?? t("activeWork.visitActive") })}
+        </Text>
+        <Text style={[styles.chev, { color: theme.colors.textMuted }]}>›</Text>
       </Pressable>
     );
   }
@@ -44,10 +66,20 @@ export function ActiveWorkBanner() {
     return (
       <Pressable
         onPress={() => router.push("/orders/new")}
-        style={[styles.banner, styles.order]}
+        style={[
+          styles.banner,
+          {
+            backgroundColor: theme.colors.orderMuted,
+            borderBottomColor: theme.colors.border,
+            paddingHorizontal: theme.spacing.lg,
+            paddingVertical: theme.spacing.sm,
+          },
+        ]}
         accessibilityRole="button">
-        <Text style={styles.text}>🛒 Чернетка: {orderDraftLabel}</Text>
-        <Text style={styles.chev}>›</Text>
+        <Text style={[theme.typography.bodyMedium, styles.text]}>
+          🛒 {t("activeWork.orderDraft", { label: orderDraftLabel })}
+        </Text>
+        <Text style={[styles.chev, { color: theme.colors.textMuted }]}>›</Text>
       </Pressable>
     );
   }
@@ -60,14 +92,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: colors.callMuted,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
   },
-  visit: { backgroundColor: colors.visitMuted },
-  order: { backgroundColor: colors.orderMuted },
-  text: { fontWeight: "600", fontSize: 14, flex: 1 },
-  chev: { fontSize: 20, opacity: 0.5 },
+  text: { flex: 1 },
+  chev: { fontSize: 20 },
 });

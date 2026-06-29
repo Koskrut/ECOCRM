@@ -1,18 +1,22 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import { TaskRow } from "@/components/TaskRow";
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/context/auth-context";
 import { tasksApi } from "@/lib/api/tasks";
 import { addDays } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
 import { enqueueOfflineJob, isOfflineLikeError } from "@/lib/offline-queue";
 import { t } from "@/lib/i18n";
 import type { Task } from "@/types/crm";
 
 export default function TaskDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const taskId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -45,7 +49,7 @@ export default function TaskDetailScreen() {
     } catch (e) {
       if (isOfflineLikeError(e)) {
         await enqueueOfflineJob("taskComplete", { taskId: task.id });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
         router.back();
       } else {
         Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
@@ -84,7 +88,7 @@ export default function TaskDetailScreen() {
     } catch (e) {
       if (isOfflineLikeError(e)) {
         await enqueueOfflineJob("taskUpdate", { taskId: task.id, body: { dueAt: due.toISOString() } });
-        Alert.alert(t("common.done"), "Дію додано в офлайн-чергу.");
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
       } else {
         Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
       }
@@ -95,44 +99,50 @@ export default function TaskDetailScreen() {
 
   if (loading || !task) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+            {t("common.loading")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <TaskRow
-        task={task}
-        onComplete={() => void onComplete()}
-        onReschedule={onReschedule}
-        busy={busy}
-      />
-      {task.contact?.id ? (
-        <Pressable
-          onPress={() => router.push(`/contact/${task.contact!.id}`)}
-          style={styles.linkBtn}
-          accessibilityRole="button">
-          <Text style={styles.linkText}>Відкрити контакт</Text>
-        </Pressable>
-      ) : null}
-      <Pressable
-        onPress={() => router.back()}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.75 }]}>
-        <Text style={styles.backBtnText}>{t("common.cancel")}</Text>
-      </Pressable>
-    </ScrollView>
+    <Screen padded={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl },
+        ]}>
+        <TaskRow
+          task={task}
+          onComplete={() => void onComplete()}
+          onReschedule={onReschedule}
+          busy={busy}
+        />
+        {task.contact?.id ? (
+          <AppButton
+            label={t("tasks.openContact")}
+            onPress={() => router.push(`/contact/${task.contact!.id}`)}
+            variant="ghost"
+            style={{ marginTop: theme.spacing.lg, alignSelf: "flex-start" }}
+          />
+        ) : null}
+        <AppButton
+          label={t("common.cancel")}
+          onPress={() => router.back()}
+          variant="ghost"
+          style={{ marginTop: theme.spacing.md, alignSelf: "center" }}
+        />
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  scroll: { padding: 16, paddingBottom: 32 },
-  linkBtn: { marginTop: 16, alignSelf: "flex-start" },
-  linkText: { color: "#2563eb", fontWeight: "600" },
-  backBtn: { marginTop: 10, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20 },
-  backBtnText: { color: "#2563eb", fontWeight: "600" },
+  scroll: { paddingTop: 8 },
 });

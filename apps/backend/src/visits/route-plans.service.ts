@@ -12,6 +12,8 @@ import type {
 } from "./route-geometry.types";
 import { effectiveVisitLatLng } from "./visit-coordinates";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
+import { filterGpsTrack } from "../field/gps-sample-filter";
+import { kyivDayBounds } from "../crm-timezone";
 
 export type RoutePlanScopeOpts = { traffic?: boolean; ownerId?: string };
 
@@ -412,17 +414,14 @@ export class RoutePlansService {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
-    const date = this.parseDate(dateStr);
-    const dayStart = new Date(date);
-    const dayEnd = new Date(date);
-    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const { dayStart, dayEnd } = this.kyivVisitWindowFromStr(dateStr);
 
     // "Факт" = порядок завершения визитов за день (если completedAt нет — fallback на endsAt/startsAt).
     const done = await this.prisma.visit.findMany({
       where: {
         ownerId,
         status: "DONE",
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       select: {
         id: true,
@@ -459,6 +458,20 @@ export class RoutePlansService {
 
     const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
     return { distanceKm: Math.round(km * 10) / 10, durationMin: null, source: "fallback" };
+  }
+
+  private calendarDateStr(date: Date): string {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private kyivVisitWindow(date: Date): { dayStart: Date; dayEnd: Date } {
+    const { from, to } = kyivDayBounds(this.calendarDateStr(date));
+    return { dayStart: from, dayEnd: to };
+  }
+
+  private kyivVisitWindowFromStr(dateStr: string): { dayStart: Date; dayEnd: Date } {
+    const { from, to } = kyivDayBounds(dateStr);
+    return { dayStart: from, dayEnd: to };
   }
 
   private parseDate(dateStr: string): Date {
@@ -918,14 +931,12 @@ export class RoutePlansService {
       return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
     }
 
-    const dayStart = date;
-    const dayEnd = new Date(date);
-    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const { dayStart, dayEnd } = this.kyivVisitWindow(date);
     const scheduled = await this.prisma.visit.findMany({
       where: {
         ownerId,
         status: { in: ["SCHEDULED", "IN_PROGRESS", "DONE"] },
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       orderBy: { startsAt: "asc" },
       include: {
@@ -951,14 +962,12 @@ export class RoutePlansService {
   }
 
   private async loadFactVisitPoints(ownerId: string, date: Date) {
-    const dayStart = date;
-    const dayEnd = new Date(date);
-    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+    const { dayStart, dayEnd } = this.kyivVisitWindow(date);
     const done = await this.prisma.visit.findMany({
       where: {
         ownerId,
         status: "DONE",
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       select: {
         id: true,
@@ -1000,6 +1009,8 @@ export class RoutePlansService {
     if (shifts.length === 0) {
       return {
         path: [] as LatLng[],
+        fullPath: [] as LatLng[],
+        distanceKm: null as number | null,
         sampleCount: 0,
         coverageRatio: null as number | null,
         shiftDurationMin: null as number | null,
@@ -1010,10 +1021,11 @@ export class RoutePlansService {
     const samples = await this.prisma.fieldLocationSample.findMany({
       where: { shiftId: { in: shiftIds } },
       orderBy: { clientRecordedAt: "asc" },
-      select: { lat: true, lng: true, clientRecordedAt: true },
+      select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
     });
 
-    const path: LatLng[] = samples.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const filtered = filterGpsTrack(samples);
+    const fullPath: LatLng[] = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
     const firstShift = shifts[0]!;
     const lastShift = shifts[shifts.length - 1]!;
     const spanStart = firstShift.startedAt.getTime();
@@ -1021,9 +1033,9 @@ export class RoutePlansService {
     const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
 
     let sampledSpanMin = 0;
-    if (samples.length >= 2) {
-      const t0 = samples[0]!.clientRecordedAt.getTime();
-      const t1 = samples[samples.length - 1]!.clientRecordedAt.getTime();
+    if (filtered.length >= 2) {
+      const t0 = filtered[0]!.clientRecordedAt.getTime();
+      const t1 = filtered[filtered.length - 1]!.clientRecordedAt.getTime();
       sampledSpanMin = Math.max(0, (t1 - t0) / 60000);
     }
 
@@ -1033,8 +1045,10 @@ export class RoutePlansService {
         : null;
 
     return {
-      path: this.downsamplePath(path),
-      sampleCount: samples.length,
+      path: this.downsamplePath(fullPath),
+      fullPath,
+      distanceKm: this.pathDistanceKm(fullPath),
+      sampleCount: filtered.length,
       coverageRatio,
       shiftDurationMin,
     };
@@ -1080,20 +1094,38 @@ export class RoutePlansService {
     }
 
     const gps = await this.loadGpsTrack(ownerId, date);
-    if (gps.sampleCount < 2 || gps.path.length < 2) {
+    if (gps.sampleCount < 2 || gps.fullPath.length < 2) {
       return this.emptyGeometry(kind, "insufficient_gps_samples");
     }
 
     const degraded =
       gps.sampleCount < 10 || (gps.coverageRatio != null && gps.coverageRatio < 0.25);
-    const distanceKm = this.pathDistanceKm(gps.path);
+
+    let distanceKm = gps.distanceKm;
+    let path = gps.path;
+    let source: RouteGeometryResult["source"] = "raw_gps";
+
+    if (!degraded) {
+      const snapped = await this.snapGpsPathToRoads(gps.fullPath, { traffic });
+      if (snapped.source !== "none" && snapped.distanceKm != null) {
+        distanceKm = snapped.distanceKm;
+        if (snapped.path.length >= 2) {
+          path = snapped.path;
+        }
+        source = snapped.source === "google" ? "google" : "raw_gps";
+      }
+    }
+
+    if (distanceKm == null) {
+      distanceKm = this.pathDistanceKm(gps.fullPath);
+    }
 
     return {
       kind: "fact_gps",
-      source: "raw_gps",
+      source,
       distanceKm,
       durationMin: null,
-      path: gps.path,
+      path,
       encodedPolyline: null,
       waypoints: [],
       quality: {
@@ -1109,7 +1141,11 @@ export class RoutePlansService {
     dateStr: string,
     actor: AuthUser | undefined,
     opts?: RoutePlanScopeOpts,
-  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "raw_gps" | "none" }> {
+  ): Promise<{
+    distanceKm: number | null;
+    durationMin: number | null;
+    source: "google" | "fallback" | "raw_gps" | "none";
+  }> {
     const geom = await this.getRouteGeometry(dateStr, "fact_gps", actor, opts);
     if (geom.source === "none" || geom.path.length < 2) {
       return { distanceKm: null, durationMin: null, source: "none" };
@@ -1117,7 +1153,7 @@ export class RoutePlansService {
     return {
       distanceKm: geom.distanceKm,
       durationMin: geom.durationMin,
-      source: "raw_gps",
+      source: geom.source,
     };
   }
 

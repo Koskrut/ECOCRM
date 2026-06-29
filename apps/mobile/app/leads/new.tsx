@@ -1,14 +1,19 @@
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
+import { Alert, StyleSheet } from "react-native";
 
-import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
+import { Screen } from "@/components/ui/Screen";
+import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { leadsApi } from "@/lib/api/leads";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
 export default function NewLeadScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
 
   const [name, setName] = useState("");
@@ -20,7 +25,7 @@ export default function NewLeadScreen() {
   async function onCreate() {
     if (!token) return;
     if (!phone.trim() && !name.trim() && !companyName.trim()) {
-      Alert.alert(t("common.error"), "Заповніть хоча б телефон або ім'я/компанію");
+      Alert.alert(t("common.error"), t("leads.validationRequired"));
       return;
     }
     setBusy(true);
@@ -32,7 +37,9 @@ export default function NewLeadScreen() {
         message: message.trim() || undefined,
         source: "MANUAL",
       });
-      Alert.alert(t("common.done"), "Лід створено", [{ text: t("common.ok"), onPress: () => router.back() }]);
+      Alert.alert(t("common.done"), t("leads.created"), [
+        { text: t("common.ok"), onPress: () => router.back() },
+      ]);
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
@@ -41,69 +48,47 @@ export default function NewLeadScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <Text style={styles.heading}>Новий лід</Text>
-      <TextInput
-        value={name}
-        onChangeText={setName}
-        placeholder="Ім'я (опційно)"
-        placeholderTextColor="#888"
-        style={styles.input}
-      />
-      <TextInput
-        value={phone}
-        onChangeText={setPhone}
-        placeholder="Телефон (опційно)"
-        placeholderTextColor="#888"
-        style={styles.input}
-        keyboardType="phone-pad"
-      />
-      <TextInput
-        value={companyName}
-        onChangeText={setCompanyName}
-        placeholder="Компанія (опційно)"
-        placeholderTextColor="#888"
-        style={styles.input}
-      />
-      <TextInput
-        value={message}
-        onChangeText={setMessage}
-        placeholder="Коментар (опційно)"
-        placeholderTextColor="#888"
-        style={[styles.input, { minHeight: 90 }]}
-        multiline
-      />
-
-      <Pressable
-        onPress={() => void onCreate()}
-        disabled={busy}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.btnPrimary, (pressed || busy) && { opacity: 0.75 }]}>
-        <Text style={styles.btnPrimaryText}>{busy ? "…" : "Створити"}</Text>
-      </Pressable>
-    </ScrollView>
+    <Screen padded={false}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg },
+        ]}>
+        <TextField
+          value={name}
+          onChangeText={setName}
+          placeholder={t("leads.nameOptional")}
+        />
+        <TextField
+          value={phone}
+          onChangeText={setPhone}
+          placeholder={t("leads.phoneOptional")}
+          keyboardType="phone-pad"
+        />
+        <TextField
+          value={companyName}
+          onChangeText={setCompanyName}
+          placeholder={t("leads.companyOptional")}
+        />
+        <TextField
+          value={message}
+          onChangeText={setMessage}
+          placeholder={t("leads.messageOptional")}
+          multiline
+          style={{ minHeight: 90, textAlignVertical: "top" }}
+        />
+        <AppButton
+          label={t("common.create")}
+          onPress={() => void onCreate()}
+          loading={busy}
+          fullWidth
+          style={{ marginTop: theme.spacing.sm }}
+        />
+      </KeyboardAwareScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 32 },
-  heading: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  btnPrimary: {
-    marginTop: 8,
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  btnPrimaryText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  scroll: { paddingTop: 8 },
 });
-

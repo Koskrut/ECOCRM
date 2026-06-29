@@ -9,6 +9,7 @@ import {
   type ProductImagesSyncResult,
   type ProductImagesSyncStatus,
   type StockUploadResult,
+  type MissingStockProduct,
   type WarehouseItem,
 } from "../../lib/api";
 import { PRODUCT_GROUP_NAMES } from "../../lib/product-groups";
@@ -683,6 +684,79 @@ function SyncImagesModal({
   );
 }
 
+function StockImportMissingProductsBlock({
+  missingProducts,
+  onCreated,
+}: {
+  missingProducts: MissingStockProduct[];
+  onCreated: () => void;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ created: number; updated: number; failed: string[] } | null>(
+    null,
+  );
+
+  if (missingProducts.length === 0) return null;
+
+  const handleCreate = async () => {
+    setCreating(true);
+    setError(null);
+    try {
+      const res = await productsApi.createMissingFromStockImport(missingProducts);
+      setDone(res);
+      if (res.created > 0 || res.updated > 0) onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось добавить позиции");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const preview = missingProducts.slice(0, 8);
+  const label = (p: MissingStockProduct) => p.fileSku ?? p.sku;
+
+  return (
+    <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
+      <p className="font-medium text-amber-900">
+        Не найдено в каталоге: {missingProducts.length}{" "}
+        {missingProducts.length === 1 ? "позиция" : "позиций"}
+      </p>
+      <p className="mt-1 text-amber-800">
+        {preview.map((p) => (p.name ? `${label(p)} (${p.name})` : label(p))).join(", ")}
+        {missingProducts.length > preview.length
+          ? ` и ещё ${missingProducts.length - preview.length}`
+          : ""}
+      </p>
+      {done ? (
+        <p className="mt-2 text-emerald-800">
+          Добавлено: {done.created}
+          {done.updated > 0 ? `, обновлено: ${done.updated}` : ""}
+          {done.failed.length > 0
+            ? `. Не удалось: ${done.failed.slice(0, 5).join(", ")}${
+                done.failed.length > 5 ? ` и ещё ${done.failed.length - 5}` : ""
+              }`
+            : ""}
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void handleCreate()}
+          disabled={creating}
+          className="mt-2 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+        >
+          {creating ? "Добавление…" : `Добавить в каталог (${missingProducts.length})`}
+        </button>
+      )}
+      {error ? (
+        <p className="mt-2 text-sm text-red-600" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function StockUploadModal({
   open,
   onClose,
@@ -759,7 +833,7 @@ function StockUploadModal({
                 Обновлено: {result.updated}
                 {result.created > 0 && `, добавлено: ${result.created}`}
               </p>
-              {result.notFound.length > 0 && (
+              {result.notFound.length > 0 && !result.missingProducts?.length && (
                 <p className="mt-1 text-zinc-600">
                   Не найдены артикулы: {result.notFound.slice(0, 10).join(", ")}
                   {result.notFound.length > 10
@@ -767,6 +841,12 @@ function StockUploadModal({
                     : ""}
                 </p>
               )}
+              {result.missingProducts && result.missingProducts.length > 0 ? (
+                <StockImportMissingProductsBlock
+                  missingProducts={result.missingProducts}
+                  onCreated={onSuccess}
+                />
+              ) : null}
             </div>
           )}
           <div className="flex gap-2">
@@ -887,7 +967,7 @@ function StockUploadByWarehousesModal({
                 Обновлено записей: {result.updated}
                 {result.created > 0 && `, создано: ${result.created}`}
               </p>
-              {result.notFound.length > 0 && (
+              {result.notFound.length > 0 && !result.missingProducts?.length && (
                 <p className="mt-1 text-zinc-600">
                   Не найдены артикулы:{" "}
                   {(result.unresolvedSkus ?? result.notFound).slice(0, 10).join(", ")}
@@ -896,6 +976,12 @@ function StockUploadByWarehousesModal({
                     : ""}
                 </p>
               )}
+              {result.missingProducts && result.missingProducts.length > 0 ? (
+                <StockImportMissingProductsBlock
+                  missingProducts={result.missingProducts}
+                  onCreated={onSuccess}
+                />
+              ) : null}
               {result.resolved && result.resolved.length > 0 && (
                 <p className="mt-2 text-zinc-700">
                   Сопоставлено:{" "}

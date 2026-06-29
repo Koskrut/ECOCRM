@@ -1,44 +1,40 @@
-import FontAwesome from "@expo/vector-icons/FontAwesome";
 import React from "react";
 import { View } from "react-native";
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ActiveWorkBanner } from "@/components/ActiveWorkBanner";
+import { AppTabBar } from "@/components/ui/AppTabBar";
 import { useClientOnlyValue } from "@/components/useClientOnlyValue";
-import { useColorScheme } from "@/components/useColorScheme";
-import Colors from "@/constants/Colors";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+import { useTabBarInset } from "@/lib/use-tab-bar-inset";
 
-function TabBarIcon(props: {
-  name: React.ComponentProps<typeof FontAwesome>["name"];
-  color: string;
-}) {
-  return <FontAwesome size={24} style={{ marginBottom: -3 }} {...props} />;
-}
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+function TabNavigator() {
+  const theme = useTheme();
+  const tabBarInset = useTabBarInset();
 
   return (
-    <View style={{ flex: 1 }}>
-      <ActiveWorkBanner />
-      <Tabs
-        screenOptions={{
-          tabBarActiveTintColor: Colors[colorScheme ?? "light"].tint,
-          headerShown: useClientOnlyValue(false, true),
-        }}>
+    <Tabs
+      tabBar={(props) => <AppTabBar {...props} />}
+      screenOptions={{
+        headerShown: useClientOnlyValue(false, true),
+        headerStyle: { backgroundColor: theme.colors.surface },
+        headerTintColor: theme.colors.primary,
+        headerTitleStyle: { ...theme.typography.section, color: theme.colors.text },
+        headerShadowVisible: false,
+        sceneStyle: { backgroundColor: theme.colors.bg, paddingBottom: tabBarInset },
+      }}>
         <Tabs.Screen
           name="index"
           options={{
             title: t("tabs.today"),
-            tabBarIcon: ({ color }) => <TabBarIcon name="calendar" color={color} />,
           }}
         />
         <Tabs.Screen
           name="work"
           options={{
             title: t("tabs.work"),
-            tabBarIcon: ({ color }) => <TabBarIcon name="briefcase" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -51,24 +47,34 @@ export default function TabLayout() {
           name="clients"
           options={{
             title: t("tabs.clients"),
-            tabBarIcon: ({ color }) => <TabBarIcon name="users" color={color} />,
           }}
         />
         <Tabs.Screen
           name="tasks"
           options={{
             title: t("tabs.tasks"),
-            tabBarIcon: ({ color }) => <TabBarIcon name="check-square-o" color={color} />,
           }}
         />
         <Tabs.Screen
           name="more"
           options={{
             title: t("tabs.more"),
-            tabBarIcon: ({ color }) => <TabBarIcon name="ellipsis-h" color={color} />,
           }}
         />
       </Tabs>
+  );
+}
+
+export default function TabLayout() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.colors.bg }}>
+      <View style={{ paddingTop: insets.top, backgroundColor: theme.colors.bg }}>
+        <ActiveWorkBanner />
+      </View>
+      <TabNavigator />
     </View>
   );
 }

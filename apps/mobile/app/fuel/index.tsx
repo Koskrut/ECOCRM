@@ -2,7 +2,6 @@ import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,9 +10,15 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 
 import { Text } from "@/components/Themed";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { Card } from "@/components/ui/Card";
+import { IconButton } from "@/components/ui/IconButton";
+import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
+import { t } from "@/lib/i18n";
 
 type FuelRangeResponse = {
   from: string;
@@ -43,12 +48,12 @@ type FuelRangeResponse = {
   }>;
 };
 
-const STATUS: Record<string, string> = {
-  DRAFT: "Черновик",
-  SUBMITTED: "Отправлен",
-  APPROVED: "Утверждён",
-  REJECTED: "Отклонён",
-  PAID: "Выплачен",
+const STATUS_KEYS: Record<string, string> = {
+  DRAFT: "fuel.statusDraft",
+  SUBMITTED: "fuel.statusSubmitted",
+  APPROVED: "fuel.statusApproved",
+  REJECTED: "fuel.statusRejected",
+  PAID: "fuel.statusPaid",
 };
 
 function monthBounds(ym: string): { from: string; to: string } {
@@ -67,6 +72,7 @@ function shiftMonth(ym: string, delta: number): string {
 
 export default function FuelMonthScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
   const [monthKey, setMonthKey] = useState(() => formatLocalDateKey().slice(0, 7));
   const [data, setData] = useState<FuelRangeResponse | null>(null);
@@ -96,95 +102,104 @@ export default function FuelMonthScreen() {
     }, [reload]),
   );
 
+  function statusLabel(code: string): string {
+    const key = STATUS_KEYS[code];
+    return key ? t(key) : code;
+  }
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.scroll}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => setMonthKey(shiftMonth(monthKey, -1))} style={styles.navBtn}>
-          <Text>◀</Text>
-        </Pressable>
-        <Text style={styles.h1}>{monthKey}</Text>
-        <Pressable onPress={() => setMonthKey(shiftMonth(monthKey, 1))} style={styles.navBtn}>
-          <Text>▶</Text>
-        </Pressable>
-      </View>
+    <Screen contentStyle={styles.flex}>
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={{ paddingBottom: theme.spacing.xl }}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />
+        }>
+        <AppHeader title={t("fuel.title")} />
 
-      <Pressable onPress={() => router.push("/fuel/profile")} style={styles.profileBox}>
-        <Text style={styles.profileTitle}>
-          {data?.profile.vehicleLabel || "Профиль авто"}
-        </Text>
-        <Text style={styles.muted}>
-          {data?.profile.fuelLitersPer100km ?? "—"} л/100 км
-          {data?.profile.fuelPricePerLiter != null
-            ? ` · ${Number(data.profile.fuelPricePerLiter)} грн/л`
-            : ""}
-        </Text>
-      </Pressable>
-
-      {data ? (
-        <View style={styles.totalsBox}>
-          <Text style={styles.totalsLine}>
-            {data.totals.totalKm} км · {data.totals.totalLiters} л · {data.totals.totalAmount} грн
-          </Text>
-          <Text style={styles.muted}>
-            {data.totals.daysWithReport} дн. с расчётом · {data.totals.daysDraft} черновиков
-          </Text>
+        <View style={styles.headerRow}>
+          <IconButton name="chevron-back" onPress={() => setMonthKey(shiftMonth(monthKey, -1))} />
+          <Text style={theme.typography.title}>{monthKey}</Text>
+          <IconButton name="chevron-forward" onPress={() => setMonthKey(shiftMonth(monthKey, 1))} />
         </View>
-      ) : null}
 
-      <Text style={styles.hint}>
-        Полный экспорт CSV/Excel — в веб-CRM: Визиты → Паливо
-      </Text>
+        <Card onPress={() => router.push("/fuel/profile")} style={{ marginBottom: theme.spacing.md }}>
+          <Text style={theme.typography.bodyMedium}>
+            {data?.profile.vehicleLabel || t("fuel.vehicleDefault")}
+          </Text>
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+            {t("fuel.litersPer100", { value: data?.profile.fuelLitersPer100km ?? "—" })}
+            {data?.profile.fuelPricePerLiter != null
+              ? t("fuel.pricePerLiter", { value: Number(data.profile.fuelPricePerLiter) })
+              : ""}
+          </Text>
+        </Card>
 
-      {loading && !data ? <ActivityIndicator style={{ marginTop: 24 }} /> : null}
-
-      {data?.days.map((d) => (
-        <Pressable
-          key={d.date}
-          style={styles.dayRow}
-          onPress={() => router.push(`/fuel/${d.date}`)}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.dayDate}>{d.date}</Text>
-            <Text style={styles.muted}>
-              {d.report.visitCount ?? 0} визитов · {d.report.compensationKm ?? "—"} км
+        {data ? (
+          <Card style={{ marginBottom: theme.spacing.md }}>
+            <Text style={theme.typography.bodyMedium}>
+              {t("fuel.totalsLine", {
+                km: data.totals.totalKm,
+                liters: data.totals.totalLiters,
+                amount: data.totals.totalAmount,
+              })}
             </Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text style={styles.amount}>
-              {d.report.amountEstimated != null ? `${Number(d.report.amountEstimated)} грн` : "—"}
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+              {t("fuel.daysSummary", {
+                withReport: data.totals.daysWithReport,
+                drafts: data.totals.daysDraft,
+              })}
             </Text>
-            <Text style={styles.muted}>{STATUS[d.report.compensationStatus] ?? d.report.compensationStatus}</Text>
-          </View>
-        </Pressable>
-      ))}
-    </ScrollView>
+          </Card>
+        ) : null}
+
+        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.md }]}>
+          {t("fuel.exportHint")}
+        </Text>
+
+        {loading && !data ? <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} /> : null}
+
+        {data?.days.map((d) => (
+          <Card
+            key={d.date}
+            onPress={() => router.push(`/fuel/${d.date}`)}
+            style={{ marginBottom: theme.spacing.sm }}>
+            <View style={styles.dayRow}>
+              <View style={styles.flex}>
+                <Text style={theme.typography.bodyMedium}>{d.date}</Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                  {t("fuel.visitsKm", {
+                    visits: d.report.visitCount ?? 0,
+                    km: d.report.compensationKm ?? "—",
+                  })}
+                </Text>
+              </View>
+              <View style={styles.dayEnd}>
+                <Text style={theme.typography.bodyMedium}>
+                  {d.report.amountEstimated != null
+                    ? `${Number(d.report.amountEstimated)} ${t("common.currency")}`
+                    : "—"}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                  {statusLabel(d.report.compensationStatus)}
+                </Text>
+              </View>
+            </View>
+          </Card>
+        ))}
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 40 },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  navBtn: { padding: 8 },
-  h1: { fontSize: 20, fontWeight: "700" },
-  profileBox: {
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(128,128,128,0.08)",
-    marginBottom: 12,
-  },
-  profileTitle: { fontWeight: "600", fontSize: 15 },
-  totalsBox: { marginBottom: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "#ddd" },
-  totalsLine: { fontSize: 16, fontWeight: "600" },
-  hint: { fontSize: 12, opacity: 0.65, marginBottom: 16 },
-  dayRow: {
+  flex: { flex: 1 },
+  headerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#ccc",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
-  dayDate: { fontWeight: "600", fontSize: 15 },
-  amount: { fontWeight: "600" },
-  muted: { fontSize: 12, opacity: 0.7, marginTop: 2 },
+  dayRow: { flexDirection: "row", alignItems: "center" },
+  dayEnd: { alignItems: "flex-end" },
 });

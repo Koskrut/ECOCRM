@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { ProductImageStore } from "./product-image.store";
 import {
   buildStockSkuIndex,
+  registerProductInStockIndex,
   resolveStockSkuToProduct,
   type StockSkuIndex,
 } from "./stock-sku-normalizer";
@@ -82,6 +83,16 @@ export type StockByWarehouseEntry = {
   qty: number;
   /** Raw article text from Excel cell (for skuCorrections reporting). */
   fileSku?: string;
+  name?: string;
+};
+
+export type MissingStockProduct = {
+  sku: string;
+  fileSku?: string;
+  name?: string;
+  stock?: number;
+  basePrice?: number;
+  warehouseStocks?: Array<{ warehouseId: string; qty: number }>;
 };
 
 export type SkuCorrection = { fileSku: string; dbSku: string };
@@ -92,6 +103,7 @@ export type PrepareBulkWarehouseStockResult = {
   updates: Array<{ productId: string; warehouseId: string; qty: number }>;
   productIds: Set<string>;
   notFound: string[];
+  missingProducts: MissingStockProduct[];
   matchedSkus: string[];
   skuCorrections: SkuCorrection[];
   resolved: ResolvedStockSku[];
@@ -101,6 +113,7 @@ export type BulkStockUpdateResult = {
   updated: number;
   created: number;
   notFound: string[];
+  missingProducts?: MissingStockProduct[];
   resolved?: ResolvedStockSku[];
 };
 
@@ -423,12 +436,13 @@ export class ProductStore {
   ): Promise<PrepareBulkWarehouseStockResult> {
     const index = await this.loadStockSkuIndex();
     const notFoundSet = new Set<string>();
+    const missingBySku = new Map<string, MissingStockProduct>();
     const matchedSkuSet = new Set<string>();
     const correctionMap = new Map<string, string>();
     const resolvedMap = new Map<string, ResolvedStockSku>();
     const updateMap = new Map<string, { productId: string; warehouseId: string; qty: number }>();
 
-    for (const { sku, fileSku, warehouseId, qty } of entries) {
+    for (const { sku, fileSku, name, warehouseId, qty } of entries) {
       const skuTrim = sku.trim();
       const whId = warehouseId?.trim();
       if (!skuTrim || !whId) continue;
@@ -437,6 +451,15 @@ export class ProductStore {
       const rawFileSku = (fileSku ?? skuTrim).trim();
       if (!ref) {
         notFoundSet.add(rawFileSku);
+        const existing = missingBySku.get(skuTrim);
+        const warehouseStocks = existing?.warehouseStocks ?? [];
+        warehouseStocks.push({ warehouseId: whId, qty: Math.max(0, Math.floor(qty)) });
+        missingBySku.set(skuTrim, {
+          sku: skuTrim,
+          fileSku: rawFileSku || undefined,
+          name: name?.trim() || existing?.name,
+          warehouseStocks,
+        });
         continue;
       }
 
@@ -466,10 +489,14 @@ export class ProductStore {
     const resolved = Array.from(resolvedMap.values()).sort((a, b) =>
       a.fileSku.localeCompare(b.fileSku),
     );
+    const missingProducts = Array.from(missingBySku.values()).sort((a, b) =>
+      a.sku.localeCompare(b.sku),
+    );
     return {
       updates,
       productIds,
       notFound: Array.from(notFoundSet).sort(),
+      missingProducts,
       matchedSkus: Array.from(matchedSkuSet).sort(),
       skuCorrections,
       resolved,
@@ -608,10 +635,11 @@ export class ProductStore {
   public async bulkUpdateStocks(entries: StockUpdateEntry[]): Promise<BulkStockUpdateResult> {
     const index = await this.loadStockSkuIndex();
     const notFound: string[] = [];
+    const missingProducts: MissingStockProduct[] = [];
     let updated = 0;
     let created = 0;
     const stockVal = (n: number) => Math.max(0, Math.floor(n));
-    for (const { sku, stock, name: entryName, basePrice: entryPrice } of entries) {
+    for (const { sku, stock, name: entryName, basePrice: entryPrice, fileSku } of entries) {
       const skuTrim = sku.trim();
       if (!skuTrim) continue;
       const stockData = stockVal(stock);
@@ -647,10 +675,85 @@ export class ProductStore {
         });
         created++;
       } catch {
-        notFound.push(skuTrim);
+        notFound.push((fileSku ?? skuTrim).trim());
+        missingProducts.push({
+          sku: skuTrim,
+          fileSku: fileSku?.trim() || undefined,
+          name: entryName?.trim() || undefined,
+          stock: stockData,
+          basePrice:
+            entryPrice !== undefined && entryPrice !== null && !Number.isNaN(entryPrice)
+              ? Math.max(0, Number(entryPrice))
+              : undefined,
+        });
       }
     }
-    return { updated, created, notFound };
+    return { updated, created, notFound, missingProducts };
+  }
+
+  public async createMissingProductsFromImport(
+    products: MissingStockProduct[],
+  ): Promise<{ created: number; updated: number; failed: string[] }> {
+    const index = await this.loadStockSkuIndex();
+    let created = 0;
+    let updated = 0;
+    const failed: string[] = [];
+
+    for (const item of products) {
+      const skuTrim = item.sku.trim();
+      if (!skuTrim) continue;
+      const displaySku = (item.fileSku ?? skuTrim).trim();
+
+      try {
+        const existing = resolveStockSkuToProduct(skuTrim, index);
+        let productId = existing?.id;
+
+        if (!productId) {
+          const basePrice =
+            item.basePrice !== undefined && item.basePrice !== null && !Number.isNaN(item.basePrice)
+              ? Math.max(0, Number(item.basePrice))
+              : 0;
+          const product = await this.prisma.product.create({
+            data: {
+              sku: skuTrim,
+              name: item.name?.trim() || skuTrim,
+              unit: "pcs",
+              basePrice,
+              stock: 0,
+            },
+          });
+          productId = product.id;
+          registerProductInStockIndex(index, { id: product.id, sku: skuTrim });
+          created++;
+        } else {
+          updated++;
+        }
+
+        if (item.warehouseStocks && item.warehouseStocks.length > 0) {
+          await this.applyBulkWarehouseStock(
+            item.warehouseStocks.map((ws) => ({
+              productId,
+              warehouseId: ws.warehouseId,
+              qty: Math.max(0, Math.floor(ws.qty)),
+            })),
+          );
+        } else if (item.stock !== undefined) {
+          await this.prisma.product.update({
+            where: { id: productId },
+            data: {
+              stock: Math.max(0, Math.floor(item.stock)),
+              ...(item.basePrice !== undefined && !Number.isNaN(item.basePrice)
+                ? { basePrice: Math.max(0, Number(item.basePrice)) }
+                : {}),
+            },
+          });
+        }
+      } catch {
+        failed.push(displaySku);
+      }
+    }
+
+    return { created, updated, failed };
   }
 
   public async findActiveById(id: string): Promise<Product | null> {

@@ -1,47 +1,64 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  View,
-  View as RNView,
-} from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
-import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { EntityActionBar } from "@/components/EntityActionBar";
+import { EmptyState } from "@/components/EmptyState";
 import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
+import { Chip } from "@/components/ui/Chip";
+import { Screen } from "@/components/ui/Screen";
+import { SkeletonCard } from "@/components/ui/Skeleton";
+import { CallQueueRow } from "@/components/today/CallQueueRow";
+import { NearestVisitHero } from "@/components/today/NearestVisitHero";
+import { ReadyOrderRow } from "@/components/today/ReadyOrderRow";
+import { SectionHeader } from "@/components/today/SectionHeader";
+import { ShiftStatusCard } from "@/components/today/ShiftStatusCard";
+import { StatTiles, type StatTile } from "@/components/today/StatTiles";
+import { TodayHeader } from "@/components/today/TodayHeader";
+import { VisitDayNavigator } from "@/components/visit/VisitDayNavigator";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
 import { apiFetch } from "@/lib/api";
-import { formatLocalDateKey } from "@/lib/date";
+import { manualCallingApi, type QueueItemResponse } from "@/lib/api/manual-calling";
+import { ordersApi, type OrderListItem } from "@/lib/api/orders";
+import { visitsApi } from "@/lib/api/visits";
+import { formatLocalDateKey, parseDateKey } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import type { RouteGeometryBundle } from "@/lib/route-map";
 import {
   findNearestVisit,
-  visitPhone,
   visitProgress,
-  visitTimeRange,
-  visitLabel,
 } from "@/lib/visit-utils";
 import type { VisitSummary } from "@/types/crm";
 
+const TOP_N = 3;
+
 export default function TodayScreen() {
   const router = useRouter();
-  const { token } = useAuth();
-  const { visitsEnabled } = useModules();
-  const { activeShift, isTracking, startShift, endShift, loading: shiftLoading } =
-    useShiftTracking();
-  const [items, setItems] = useState<VisitSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fuelBanner, setFuelBanner] = useState<string | null>(null);
-  const [routeBanner, setRouteBanner] = useState<string | null>(null);
+  const theme = useTheme();
+  const { token, user } = useAuth();
+  const { visitsEnabled, manualCallingEnabled } = useModules();
+  const {
+    activeShift,
+    isTracking,
+    trackingMode,
+    startShift,
+    endShift,
+    loading: shiftLoading,
+    pendingSamples,
+  } = useShiftTracking();
 
-  const dateKey = formatLocalDateKey();
+  const [items, setItems] = useState<VisitSummary[]>([]);
+  const [callQueue, setCallQueue] = useState<QueueItemResponse[]>([]);
+  const [readyOrders, setReadyOrders] = useState<OrderListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [routeKm, setRouteKm] = useState<number | null>(null);
+  const [fuelLabel, setFuelLabel] = useState<string | null>(null);
+
+  const [dateKey, setDateKey] = useState(() => formatLocalDateKey());
 
   const nearest = useMemo(() => findNearestVisit(items), [items]);
   const progress = useMemo(() => visitProgress(items), [items]);
@@ -53,15 +70,23 @@ export default function TodayScreen() {
   const reload = useCallback(async () => {
     if (!token || !visitsEnabled) {
       setItems([]);
+      setCallQueue([]);
+      setReadyOrders([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [day, fuel, route] = await Promise.all([
-        apiFetch<{ items: VisitSummary[] }>(`/visits/day?date=${encodeURIComponent(dateKey)}`, {
-          token,
-        }),
+      const callsPromise = manualCallingEnabled
+        ? manualCallingApi.getQueue(token).catch(() => ({ items: [] as QueueItemResponse[] }))
+        : Promise.resolve({ items: [] as QueueItemResponse[] });
+
+      const ordersPromise = ordersApi
+        .list(token, { orderStage: "AWAITING_STOCK", pageSize: 100 })
+        .catch(() => ({ items: [] as OrderListItem[] }));
+
+      const [day, fuel, route, calls, orders] = await Promise.all([
+        visitsApi.day(token, dateKey),
         apiFetch<{
           report: {
             compensationKm: number | null;
@@ -72,36 +97,33 @@ export default function TodayScreen() {
           `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`,
           { token },
         ).catch(() => null),
+        callsPromise,
+        ordersPromise,
       ]);
-      setItems(day.items ?? []);
+
+      setItems(day);
+      setCallQueue(calls.items ?? []);
+      setReadyOrders(
+        (orders.items ?? []).filter((o) => o.stockReadiness === "FULL"),
+      );
+
       const km = fuel?.report?.compensationKm;
       const amt = fuel?.report?.amountEstimated;
       if (km != null) {
         const sum =
-          amt != null && Number.isFinite(Number(amt)) ? ` · ${Number(amt)} ${t("common.currency")}` : "";
-        setFuelBanner(`${km} ${t("common.km")}${sum}`);
+          amt != null && Number.isFinite(Number(amt))
+            ? ` ${Number(amt)} ${t("common.currency")}`
+            : "";
+        setFuelLabel(`${km} ${t("common.km")}${sum}`);
       } else {
-        setFuelBanner(null);
+        setFuelLabel(null);
       }
-      if (route?.planned?.distanceKm != null) {
-        const plan = route.planned.distanceKm;
-        const gps = route.factGps?.distanceKm;
-        const visits = route.factVisits?.distanceKm;
-        const gpsNote =
-          route.factGps?.quality?.degraded && gps != null ? ` · ${t("today.weakGps")}` : "";
-        setRouteBanner(
-          t("today.planKm", { km: plan }) +
-            (gps != null ? ` · ${t("today.gpsKm", { km: gps })}` : "") +
-            (visits != null ? ` · ${t("today.visitsKm", { km: visits })}` : "") +
-            gpsNote,
-        );
-      } else {
-        setRouteBanner(null);
-      }
+
+      setRouteKm(route?.planned?.distanceKm ?? null);
     } finally {
       setLoading(false);
     }
-  }, [token, dateKey, visitsEnabled]);
+  }, [token, dateKey, visitsEnabled, manualCallingEnabled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -109,266 +131,202 @@ export default function TodayScreen() {
     }, [reload]),
   );
 
+  const statTiles = useMemo((): StatTile[] => {
+    const tiles: StatTile[] = [
+      {
+        key: "visits",
+        label: t("today.statVisits"),
+        value: `${progress.done}/${progress.total}`,
+        icon: "calendar-outline",
+        color: theme.colors.visit,
+        bg: theme.colors.visitMuted,
+        onPress: () => router.push(`/visits/schedule?date=${dateKey}`),
+      },
+    ];
+    if (manualCallingEnabled) {
+      tiles.push({
+        key: "calls",
+        label: t("today.statCalls"),
+        value: String(callQueue.length),
+        icon: "call-outline",
+        color: theme.colors.call,
+        bg: theme.colors.callMuted,
+        onPress: () => router.push("/calls/queue"),
+      });
+    }
+    tiles.push({
+      key: "ready",
+      label: t("today.statReady"),
+      value: String(readyOrders.length),
+      icon: "cube-outline",
+      color: theme.colors.order,
+      bg: theme.colors.orderMuted,
+      onPress: () => router.push("/(tabs)/work"),
+    });
+    if (routeKm != null) {
+      tiles.push({
+        key: "route",
+        label: t("today.statRoute"),
+        value: `${routeKm} ${t("common.km")}`,
+        icon: "map-outline",
+        color: theme.colors.success,
+        bg: theme.colors.successMuted,
+        onPress: () => router.push("/map"),
+      });
+    }
+    if (fuelLabel) {
+      tiles.push({
+        key: "fuel",
+        label: t("today.statFuel"),
+        value: fuelLabel,
+        icon: "speedometer-outline",
+        color: theme.colors.primary,
+        bg: theme.colors.primaryMuted,
+        onPress: () => router.push(`/fuel/${dateKey}`),
+      });
+    }
+    return tiles;
+  }, [
+    progress,
+    callQueue.length,
+    readyOrders.length,
+    routeKm,
+    fuelLabel,
+    manualCallingEnabled,
+    theme,
+    router,
+    dateKey,
+  ]);
+
   if (!visitsEnabled) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.heading}>{t("today.heading")}</Text>
-        <RNView style={styles.moduleBanner}>
-          <Text style={styles.moduleBannerTitle}>{t("modules.unavailableTitle")}</Text>
-          <Text style={styles.moduleBannerBody}>{t("modules.unavailableBody")}</Text>
-        </RNView>
-      </View>
+      <Screen>
+        <TodayHeader userName={user?.fullName} done={0} total={0} />
+        <View
+          style={{
+            backgroundColor: theme.colors.warningMuted,
+            borderRadius: theme.radius.md,
+            padding: theme.spacing.lg,
+          }}>
+          <Text style={[theme.typography.bodyMedium, { color: theme.colors.warningText }]}>
+            {t("modules.unavailableTitle")}
+          </Text>
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+            {t("modules.unavailableBody")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <ScreenHeader
-        title={t("today.heading")}
-        actionLabel="+ Візит"
-        onAction={() => router.push("/visits/new")}
-      />
-      <Text style={styles.dateLine}>{dateKey}</Text>
+    <Screen contentStyle={styles.screenContent} padded={false}>
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.md }}
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />
+        }>
+        <TodayHeader
+          userName={user?.fullName}
+          done={progress.done}
+          total={progress.total}
+          dateLabel={formatLocalDateKey() !== dateKey ? parseDateKey(dateKey) : undefined}
+          onAddVisit={() => router.push(`/visits/new?schedule=today&date=${dateKey}`)}
+        />
 
-      {progress.total > 0 ? (
-        <Text style={styles.progress}>
-          {t("today.progress", { done: progress.done, total: progress.total })}
-        </Text>
-      ) : null}
+        <VisitDayNavigator
+          dateKey={dateKey}
+          onDateKeyChange={setDateKey}
+          onOpenCalendar={() => router.push(`/visits/schedule?date=${dateKey}`)}
+        />
 
-      <View style={styles.quickRow}>
-        <Pressable
-          onPress={() => router.push("/(tabs)/work")}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
-          <Text style={styles.smallBtnText}>{t("tabs.work")}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/visits/backlog")}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
-          <Text style={styles.smallBtnText}>Беклог</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/visits/history")}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.smallBtn, pressed && { opacity: 0.75 }]}>
-          <Text style={styles.smallBtnText}>Історія</Text>
-        </Pressable>
-      </View>
+        <StatTiles tiles={statTiles} />
 
-      {isTracking ? (
-        <RNView style={styles.trackingBanner}>
-          <Text style={styles.trackingBannerText}>{t("today.trackingActive")}</Text>
-        </RNView>
-      ) : null}
+        <View style={[styles.quickRow, { marginBottom: theme.spacing.md }]}>
+          <Chip label={t("tabs.work")} onPress={() => router.push("/(tabs)/work")} />
+          <Chip label={t("visits.calendar")} onPress={() => router.push(`/visits/schedule?date=${dateKey}`)} />
+          <Chip label={t("today.backlog")} onPress={() => router.push("/visits/backlog")} />
+          <Chip label={t("today.history")} onPress={() => router.push("/visits/history")} />
+        </View>
 
-      <RNView style={styles.shiftRow}>
-        {activeShift ? (
-          <Pressable
-            onPress={() => void endShift()}
-            disabled={shiftLoading}
-            accessibilityRole="button"
-            style={[styles.shiftBtn, styles.shiftBtnEnd]}>
-            <Text style={styles.shiftBtnTxt}>
-              {shiftLoading ? "…" : t("today.endShift")}
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={() => void startShift()}
-            disabled={shiftLoading}
-            accessibilityRole="button"
-            style={styles.shiftBtn}>
-            <Text style={styles.shiftBtnTxt}>
-              {shiftLoading ? "…" : t("today.startShift")}
-            </Text>
-          </Pressable>
-        )}
-      </RNView>
+        <ShiftStatusCard
+          activeShift={!!activeShift}
+          isTracking={isTracking}
+          trackingMode={trackingMode}
+          pendingSamples={pendingSamples}
+          loading={shiftLoading}
+          onStart={() => void startShift()}
+          onEnd={() => void endShift()}
+        />
 
-      {nearest ? (
-        <RNView style={styles.hero}>
-          <Text style={styles.heroLabel}>{t("today.nearestVisit")}</Text>
-          <Text style={styles.heroTitle}>{visitLabel(nearest)}</Text>
-          <Text style={styles.heroMeta}>
-            {visitTimeRange(nearest)}
-            {visitTimeRange(nearest) ? " · " : ""}
-            {nearest.status}
+        {loading && items.length === 0 ? (
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        ) : null}
+
+        {!loading && nearest && token ? (
+          <NearestVisitHero visit={nearest} token={token} dateKey={dateKey} />
+        ) : null}
+
+        {manualCallingEnabled ? (
+          <>
+            <SectionHeader
+              title={t("today.sectionCalls")}
+              onSeeAll={callQueue.length > TOP_N ? () => router.push("/calls/queue") : undefined}
+            />
+            {callQueue.length === 0 && !loading ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
+                {t("today.noCalls")}
+              </Text>
+            ) : null}
+            {callQueue.slice(0, TOP_N).map((item, index) => (
+              <CallQueueRow key={item.id} item={item} index={index} />
+            ))}
+          </>
+        ) : null}
+
+        <SectionHeader
+          title={t("today.sectionReadyOrders")}
+          onSeeAll={readyOrders.length > TOP_N ? () => router.push("/(tabs)/work") : undefined}
+        />
+        {readyOrders.length === 0 && !loading ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
+            {t("today.noReadyOrders")}
           </Text>
-          {nearest.addressText ? (
-            <Text style={styles.heroAddress} numberOfLines={2}>
-              {nearest.addressText}
-            </Text>
-          ) : null}
-          <EntityActionBar
-            token={token!}
-            date={dateKey}
-            phone={visitPhone(nearest)}
-            visitId={nearest.id}
-            contactId={nearest.contactId ?? nearest.contact?.id}
-            lat={nearest.lat}
-            lng={nearest.lng}
-            compact
+        ) : null}
+        {readyOrders.slice(0, TOP_N).map((order, index) => (
+          <ReadyOrderRow key={order.id} order={order} index={index} />
+        ))}
+
+        <SectionHeader title={t("today.sectionOtherVisits")} />
+        {listItems.length === 0 && !nearest && !loading ? (
+          <EmptyState message={t("today.empty")} icon="calendar-outline" />
+        ) : null}
+        {listItems.map((item, index) => (
+          <VisitCard
+            key={item.id}
+            visit={item}
+            index={index}
+            onPress={() => router.push(`/visit/${item.id}`)}
           />
-          <Pressable
-            onPress={() => router.push(`/visit/${nearest.id}`)}
-            style={({ pressed }) => [styles.heroOpen, pressed && { opacity: 0.8 }]}
-            accessibilityRole="button">
-            <Text style={styles.heroOpenText}>{t("visit.title")} ›</Text>
-          </Pressable>
-        </RNView>
-      ) : null}
+        ))}
 
-      {routeBanner ? (
-        <Pressable
-          onPress={() => router.push("/map")}
-          style={styles.routeBanner}
-          accessibilityRole="button">
-          <Text style={styles.routeBannerText}>
-            {t("today.route")}: {routeBanner}
-          </Text>
-          <Text style={styles.routeBannerChev}>›</Text>
-        </Pressable>
-      ) : null}
-
-      {fuelBanner ? (
-        <Pressable
-          onPress={() => router.push(`/fuel/${dateKey}`)}
-          style={styles.fuelBanner}
-          accessibilityRole="button">
-          <Text style={styles.fuelBannerText}>
-            {t("today.fuel")}: {fuelBanner}
-          </Text>
-          <Text style={styles.fuelBannerChev}>›</Text>
-        </Pressable>
-      ) : null}
-
-      <FlatList
-        data={listItems}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={
-          !nearest ? (
-            <Text style={styles.empty}>
-              {loading ? t("common.loading") : t("today.empty")}
-            </Text>
-          ) : null
-        }
-        renderItem={({ item }) => (
-          <VisitCard visit={item} onPress={() => router.push(`/visit/${item.id}`)} />
-        )}
-      />
-
-      <Text style={styles.footerHint}>{t("today.footerHint")}</Text>
-    </View>
+        <Text style={[theme.typography.caption, styles.footerHint, { color: theme.colors.textMuted }]}>
+          {t("today.footerHint")}
+        </Text>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  heading: { fontSize: 26, fontWeight: "700" },
-  headerBtn: {
-    backgroundColor: "rgba(37,99,235,0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  headerBtnText: { color: "#1d4ed8", fontWeight: "700" },
-  dateLine: { marginTop: 4, marginBottom: 4, opacity: 0.75, fontSize: 14 },
-  quickRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
-  progress: { fontSize: 14, fontWeight: "600", color: "#047857", marginBottom: 8 },
-  smallBtn: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: "rgba(120,120,128,0.06)",
-  },
-  smallBtnText: { fontWeight: "600", fontSize: 13, opacity: 0.9 },
-  trackingBanner: {
-    backgroundColor: "rgba(37,99,235,0.12)",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 8,
-  },
-  trackingBannerText: { color: "#1d4ed8", fontWeight: "600", fontSize: 13 },
-  shiftRow: { marginBottom: 12 },
-  shiftBtn: {
-    alignSelf: "flex-start",
-    backgroundColor: "#2563eb",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  shiftBtnEnd: { backgroundColor: "#475569" },
-  shiftBtnTxt: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  hero: {
-    backgroundColor: "rgba(37,99,235,0.08)",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "rgba(37,99,235,0.2)",
-  },
-  heroLabel: { fontSize: 12, fontWeight: "700", color: "#1d4ed8", textTransform: "uppercase" },
-  heroTitle: { fontSize: 18, fontWeight: "700", marginTop: 6 },
-  heroMeta: { opacity: 0.75, marginTop: 4, fontSize: 14 },
-  heroAddress: { opacity: 0.7, marginTop: 6, fontSize: 13, lineHeight: 18 },
-  heroOpen: { marginTop: 10, alignSelf: "flex-start" },
-  heroOpenText: { color: "#2563eb", fontWeight: "600", fontSize: 15 },
-  routeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(5,150,105,0.1)",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-  },
-  routeBannerText: { flex: 1, fontWeight: "600", color: "#047857", fontSize: 13 },
-  routeBannerChev: { fontSize: 20, color: "#047857", opacity: 0.6 },
-  fuelBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(37,99,235,0.1)",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  fuelBannerText: { flex: 1, fontWeight: "600", color: "#1d4ed8" },
-  fuelBannerChev: { fontSize: 20, color: "#1d4ed8", opacity: 0.6 },
-  empty: {
-    marginTop: 32,
-    textAlign: "center",
-    opacity: 0.7,
-    paddingHorizontal: 20,
-    lineHeight: 22,
-  },
+  screenContent: { flex: 1 },
+  quickRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   footerHint: {
-    fontSize: 12,
-    opacity: 0.55,
     textAlign: "center",
-    marginTop: 4,
+    marginTop: 16,
     marginBottom: 8,
   },
-  moduleBanner: {
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(234,179,8,0.12)",
-  },
-  moduleBannerTitle: { fontWeight: "700", fontSize: 16, color: "#a16207" },
-  moduleBannerBody: { marginTop: 8, lineHeight: 22, opacity: 0.85 },
 });

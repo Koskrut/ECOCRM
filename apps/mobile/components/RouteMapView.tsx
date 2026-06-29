@@ -1,8 +1,9 @@
-import React, { useMemo } from "react";
-import { StyleSheet } from "react-native";
+import React, { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
+import { Platform, StyleSheet } from "react-native";
 import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 
-import { downsamplePath, sanitizePath, type LatLng } from "@/lib/route-map";
+import { downsamplePath, isValidLatLng, sanitizePath, type LatLng } from "@/lib/route-map";
+import { t } from "@/lib/i18n";
 
 export type MapPolyline = {
   key: string;
@@ -10,9 +11,21 @@ export type MapPolyline = {
   color: string;
 };
 
+export type MapMarker = {
+  key: string;
+  lat: number;
+  lng: number;
+  label?: string | null;
+};
+
+export type RouteMapViewRef = {
+  animateToRegion: (region: Region) => void;
+};
+
 type Props = {
   region: Region;
   polylines: MapPolyline[];
+  markers?: MapMarker[];
   userCoordinate?: { latitude: number; longitude: number } | null;
 };
 
@@ -25,7 +38,31 @@ function toMapCoords(path: LatLng[]) {
   }));
 }
 
-export function RouteMapView({ region, polylines, userCoordinate }: Props) {
+function isValidRegion(region: Region): boolean {
+  return (
+    Number.isFinite(region.latitude) &&
+    Number.isFinite(region.longitude) &&
+    Number.isFinite(region.latitudeDelta) &&
+    Number.isFinite(region.longitudeDelta) &&
+    region.latitudeDelta > 0 &&
+    region.longitudeDelta > 0 &&
+    isValidLatLng({ lat: region.latitude, lng: region.longitude })
+  );
+}
+
+export const RouteMapView = forwardRef<RouteMapViewRef, Props>(function RouteMapView(
+  { region, polylines, markers = [], userCoordinate },
+  ref,
+) {
+  const mapRef = useRef<MapView>(null);
+
+  useImperativeHandle(ref, () => ({
+    animateToRegion: (next: Region) => {
+      if (!isValidRegion(next)) return;
+      mapRef.current?.animateToRegion(next, 350);
+    },
+  }));
+
   const safePolylines = useMemo(
     () =>
       polylines
@@ -34,17 +71,29 @@ export function RouteMapView({ region, polylines, userCoordinate }: Props) {
     [polylines],
   );
 
-  const layerKey = safePolylines.map((p) => p.key).join(",");
+  const safeMarkers = useMemo(
+    () => markers.filter((m) => isValidLatLng({ lat: m.lat, lng: m.lng })),
+    [markers],
+  );
+
+  if (!isValidRegion(region)) {
+    return null;
+  }
 
   return (
     <MapView
-      key={layerKey}
+      ref={mapRef}
       style={styles.map}
       initialRegion={region}
-      scrollEnabled={false}
-      zoomEnabled={false}
+      scrollEnabled
+      zoomEnabled
       rotateEnabled={false}
-      pitchEnabled={false}>
+      pitchEnabled={false}
+      moveOnMarkerPress={false}
+      loadingEnabled
+      showsUserLocation={false}
+      showsMyLocationButton={false}
+      collapsable={false}>
       {safePolylines.map((p) => (
         <Polyline
           key={p.key}
@@ -54,14 +103,26 @@ export function RouteMapView({ region, polylines, userCoordinate }: Props) {
           geodesic
         />
       ))}
+      {safeMarkers.map((m) => (
+        <Marker
+          key={m.key}
+          coordinate={{ latitude: m.lat, longitude: m.lng }}
+          title={m.label ?? undefined}
+        />
+      ))}
       {userCoordinate &&
       Number.isFinite(userCoordinate.latitude) &&
-      Number.isFinite(userCoordinate.longitude) ? (
-        <Marker coordinate={userCoordinate} title="Ви тут" />
+      Number.isFinite(userCoordinate.longitude) &&
+      isValidLatLng({ lat: userCoordinate.latitude, lng: userCoordinate.longitude }) ? (
+        <Marker
+          coordinate={userCoordinate}
+          title={t("map.myLocation")}
+          pinColor={Platform.OS === "ios" ? "blue" : undefined}
+        />
       ) : null}
     </MapView>
   );
-}
+});
 
 const styles = StyleSheet.create({
   map: { flex: 1, borderRadius: 12 },

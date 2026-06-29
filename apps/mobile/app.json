@@ -25,6 +25,7 @@
       }
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "package": "dental.suprex.crm.manager",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -59,6 +60,13 @@
           "locationWhenInUsePermission": "CRM використовує геолокацію для перевірки візитів і треку маршруту.",
           "isAndroidBackgroundLocationEnabled": true,
           "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563eb"
         }
       ],
       "expo-secure-store",

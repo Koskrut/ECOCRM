@@ -6,16 +6,27 @@ export type OrderListItem = {
   orderNumber?: string | null;
   status: string;
   orderStage?: string | null;
+  stockReadiness?: "NONE" | "PARTIAL" | "FULL" | null;
   financialStatus?: string | null;
   totalAmount?: number | null;
+  subtotalAmount?: number | null;
+  discountAmount?: number | null;
   currency?: string | null;
   createdAt: string;
   contactId?: string | null;
   companyId?: string | null;
   ownerId?: string | null;
   comment?: string | null;
+  paymentType?: string | null;
+  paymentMethod?: string | null;
+  paymentDueDate?: string | null;
+  bankAccountId?: string | null;
+  warehouseId?: string | null;
+  documentsRequested?: boolean | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
+  warehouse?: { id: string; name: string } | null;
+  bankAccount?: { id: string; name: string } | null;
   items?: Array<{
     id: string;
     productId: string | null;
@@ -42,6 +53,7 @@ export type ListOrdersResponse = {
 
 export type ListOrdersQuery = {
   contactId?: string;
+  companyId?: string;
   q?: string;
   page?: number;
   pageSize?: number;
@@ -58,17 +70,27 @@ export type CreateOrderBody = {
   comment?: string;
   discountAmount?: number;
   documentsRequested?: boolean | null;
+  deliveryMethod?: string;
+  paymentType?: string;
+  paymentMethod?: string;
+  bankAccountId?: string | null;
+  warehouseId?: string | null;
 };
 
 export type PatchOrderBody = {
+  contactId?: string | null;
+  companyId?: string | null;
+  clientId?: string | null;
   comment?: string | null;
   deliveryMethod?: string | null;
   deliveryData?: Record<string, unknown> | null;
   warehouseId?: string | null;
   paymentType?: string | null;
   paymentMethod?: string | null;
+  paymentDueDate?: string | null;
   bankAccountId?: string | null;
   documentsRequested?: boolean | null;
+  discountAmount?: number | null;
 };
 
 export type AddOrderItemBody = {
@@ -98,6 +120,7 @@ export const ordersApi = {
     apiFetch<ListOrdersResponse>(
       `/orders${qs({
         contactId: query.contactId,
+        companyId: query.companyId,
         q: query.q,
         page: query.page ?? 1,
         pageSize: query.pageSize ?? 20,
@@ -145,6 +168,13 @@ export const ordersApi = {
   removeItem: (token: string, orderId: string, itemId: string) =>
     apiFetch<Order>(`/orders/${orderId}/items/${itemId}`, {
       method: "DELETE",
+      token,
+    }),
+
+  updateStage: (token: string, orderId: string, toStage: string, reason?: string) =>
+    apiFetch<Order>(`/orders/${orderId}/stage`, {
+      method: "PATCH",
+      body: JSON.stringify({ toStage, reason }),
       token,
     }),
 };

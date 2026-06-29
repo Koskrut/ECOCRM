@@ -1,38 +1,54 @@
+import { Ionicons } from "@expo/vector-icons";
+import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
-type EmptyStateProps = {
+type Props = {
+  title?: string;
   message: string;
+  icon?: React.ComponentProps<typeof Ionicons>["name"];
   onRetry?: () => void;
 };
 
-export function EmptyState({ message, onRetry }: EmptyStateProps) {
+export function EmptyState({ title, message, icon = "file-tray-outline", onRetry }: Props) {
+  const theme = useTheme();
+
   return (
     <View style={styles.wrap}>
-      <Text style={styles.text}>{message}</Text>
+      <View style={[styles.iconWrap, { backgroundColor: theme.colors.surfaceMuted }]}>
+        <Ionicons name={icon} size={32} color={theme.colors.textMuted} />
+      </View>
+      {title ? <Text style={[theme.typography.section, styles.title]}>{title}</Text> : null}
+      <Text style={[theme.typography.body, { color: theme.colors.textMuted, textAlign: "center" }]}>
+        {message}
+      </Text>
       {onRetry ? (
-        <Pressable
-          onPress={onRetry}
-          style={({ pressed }) => [styles.btn, pressed && { opacity: 0.75 }]}
-          accessibilityRole="button">
-          <Text style={styles.btnText}>{t("common.retry")}</Text>
-        </Pressable>
+        <AppButton label={t("common.retry")} onPress={onRetry} variant="secondary" style={styles.btn} />
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { marginTop: 32, alignItems: "center", paddingHorizontal: 24 },
-  text: { textAlign: "center", opacity: 0.7, lineHeight: 22, fontSize: 15 },
-  btn: {
-    marginTop: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "#2563eb",
+  wrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+    gap: 8,
   },
-  btnText: { color: "#fff", fontWeight: "600" },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  title: { textAlign: "center" },
+  btn: { marginTop: 12, minWidth: 160 },
 });

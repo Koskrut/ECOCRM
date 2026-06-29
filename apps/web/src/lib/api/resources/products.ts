@@ -70,6 +70,15 @@ export type ProductsCatalogResponse = {
   pageSize: number;
 };
 
+export type MissingStockProduct = {
+  sku: string;
+  fileSku?: string;
+  name?: string;
+  stock?: number;
+  basePrice?: number;
+  warehouseStocks?: Array<{ warehouseId: string; qty: number }>;
+};
+
 export type StockUploadResult = {
   updated: number;
   created: number;
@@ -77,8 +86,15 @@ export type StockUploadResult = {
   unmatchedWarehouseNames?: string[];
   matchedSkus?: string[];
   unresolvedSkus?: string[];
+  missingProducts?: MissingStockProduct[];
   skuCorrections?: Array<{ fileSku: string; dbSku: string }>;
   resolved?: Array<{ fileSku: string; dbSku: string; productId: string }>;
+};
+
+export type CreateMissingStockResult = {
+  created: number;
+  updated: number;
+  failed: string[];
 };
 
 export type CreateProductPayload = {
@@ -333,5 +349,28 @@ export const productsApi = {
       throw new Error(message);
     }
     return r.json() as Promise<StockUploadResult>;
+  },
+
+  createMissingFromStockImport: async (
+    products: MissingStockProduct[],
+  ): Promise<CreateMissingStockResult> => {
+    const r = await fetch("/api/products/stock/create-missing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ products }),
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const errBody = await r.text();
+      let message = `Create failed (${r.status})`;
+      try {
+        const j = JSON.parse(errBody);
+        if (j.message) message = Array.isArray(j.message) ? j.message[0] : j.message;
+      } catch {
+        if (errBody) message = errBody.slice(0, 200);
+      }
+      throw new Error(message);
+    }
+    return r.json() as Promise<CreateMissingStockResult>;
   },
 };

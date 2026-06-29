@@ -1,13 +1,16 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 
 import { EmptyState } from "@/components/EmptyState";
 import { VisitCard } from "@/components/VisitCard";
-import { Text } from "@/components/Themed";
+import { AnimatedListItem } from "@/components/ui/AnimatedListItem";
+import { Chip } from "@/components/ui/Chip";
+import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/context/auth-context";
 import { addDays, endOfLocalDayIso, startOfLocalDayIso } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { visitsApi } from "@/lib/api/visits";
 import type { VisitSummary } from "@/types/crm";
@@ -16,6 +19,7 @@ type RangeKey = "7d" | "30d";
 
 export default function VisitsHistoryScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
   const [range, setRange] = useState<RangeKey>("7d");
   const [items, setItems] = useState<VisitSummary[]>([]);
@@ -52,54 +56,53 @@ export default function VisitsHistoryScreen() {
     }, [reload]),
   );
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Історія візитів</Text>
+  const ranges = [
+    { key: "7d" as const, label: t("visits.range7d") },
+    { key: "30d" as const, label: t("visits.range30d") },
+  ];
 
-      <View style={styles.rangeRow}>
-        {(
-          [
-            { key: "7d" as const, label: "7 днів" },
-            { key: "30d" as const, label: "30 днів" },
-          ] as const
-        ).map((r) => (
-          <Pressable
+  return (
+    <Screen padded={false} contentStyle={styles.screen}>
+      <View
+        style={[
+          styles.rangeRow,
+          { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md },
+        ]}>
+        {ranges.map((r) => (
+          <Chip
             key={r.key}
+            label={r.label}
+            selected={range === r.key}
             onPress={() => setRange(r.key)}
-            style={[styles.chip, range === r.key && styles.chipActive]}
-            accessibilityRole="button">
-            <Text style={range === r.key ? styles.chipTextActive : undefined}>{r.label}</Text>
-          </Pressable>
+          />
         ))}
       </View>
-
       <FlatList
         data={items}
+        contentContainerStyle={{
+          paddingHorizontal: theme.spacing.lg,
+          paddingBottom: theme.spacing.xxl,
+        }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
-          <EmptyState message={error ?? (loading ? t("common.loading") : t("common.noData"))} onRetry={error ? reload : undefined} />
+          <EmptyState
+            message={error ?? (loading ? t("common.loading") : t("common.noData"))}
+            onRetry={error ? reload : undefined}
+          />
         }
-        renderItem={({ item }) => (
-          <VisitCard visit={item} onPress={() => router.push(`/visit/${item.id}`)} />
+        renderItem={({ item, index }) => (
+          <AnimatedListItem index={index} style={styles.item}>
+            <VisitCard visit={item} onPress={() => router.push(`/visit/${item.id}`)} />
+          </AnimatedListItem>
         )}
       />
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  heading: { fontSize: 22, fontWeight: "700", marginBottom: 10 },
+  screen: { flex: 1 },
   rangeRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  chipActive: { backgroundColor: "#dbeafe", borderColor: "#2563eb" },
-  chipTextActive: { fontWeight: "600", color: "#1d4ed8" },
+  item: { marginBottom: 8 },
 });
-

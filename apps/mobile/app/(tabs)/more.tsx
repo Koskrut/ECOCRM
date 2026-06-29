@@ -1,27 +1,33 @@
-import React, { useCallback, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, View as RNView } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
+import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { AppHeader } from "@/components/ui/AppHeader";
 import { Card } from "@/components/ui/Card";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { Text, View } from "@/components/Themed";
+import { ListItem } from "@/components/ui/ListItem";
+import { Screen } from "@/components/ui/Screen";
+import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { useOfflineQueue } from "@/context/offline-queue-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
-import { colors, spacing } from "@/lib/design/tokens";
 import { getApiBaseUrl } from "@/lib/config";
+import { useTheme } from "@/lib/design/theme-context";
 import { getErrorLog, type ErrorLogEntry } from "@/lib/error-log";
+import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location-tracking";
 import { t } from "@/lib/i18n";
 
 export default function MoreScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { user, logout } = useAuth();
   const { visitsEnabled } = useModules();
   const { jobs, flushNow, lastError } = useOfflineQueue();
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [trackingDebug, setTrackingDebug] = useState<TrackingDiagnostics | null>(null);
   const {
     activeShift,
     loading,
@@ -41,6 +47,25 @@ export default function MoreScreen() {
     }, []),
   );
 
+  useEffect(() => {
+    if (!showDebug) {
+      setTrackingDebug(null);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      void getTrackingDiagnostics().then((d) => {
+        if (!cancelled) setTrackingDebug(d);
+      });
+    };
+    load();
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [showDebug]);
+
   const trackingLabel =
     trackingMode === "background"
       ? t("more.trackBackground")
@@ -49,147 +74,197 @@ export default function MoreScreen() {
         : t("more.trackOff");
 
   return (
-    <ScrollView contentContainerStyle={styles.scroll}>
-      <ScreenHeader title={t("more.title")} />
+    <Screen padded={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingHorizontal: theme.spacing.lg,
+            paddingTop: theme.spacing.md,
+            paddingBottom: theme.spacing.md,
+          },
+        ]}>
+        <AppHeader title={t("more.title")} large={false} />
 
-      {user ? (
-        <Card>
-          <Text style={styles.userName}>{user.fullName}</Text>
-          <Text style={styles.userEmail}>{user.email}</Text>
-        </Card>
-      ) : null}
-
-      <Text style={styles.section}>{t("more.shift")}</Text>
-      <Pressable onPress={() => router.push("/leads")} accessibilityRole="button" style={styles.btnGhost}>
-        <Text style={styles.btnGhostTitle}>{t("leads.title")}</Text>
-      </Pressable>
-      <Pressable onPress={() => router.push("/map")} accessibilityRole="button" style={styles.btnGhost}>
-        <Text style={styles.btnGhostTitle}>{t("map.title")}</Text>
-      </Pressable>
-      <Pressable onPress={() => router.push("/(tabs)/work")} accessibilityRole="button" style={styles.btnGhost}>
-        <Text style={styles.btnGhostTitle}>{t("tabs.work")}</Text>
-        <Text style={styles.btnGhostMeta}>Замовлення, дзвінки, каталог</Text>
-      </Pressable>
-
-      {visitsEnabled ? (
-        <>
-          <Text style={styles.section}>{t("more.shift")}</Text>
-          {isTracking ? (
-            <RNView style={styles.trackingBanner}>
-              <Text style={styles.trackingBannerText}>{t("today.trackingActive")}</Text>
-            </RNView>
-          ) : null}
-
-          {!activeShift ? (
-            <PrimaryButton
-              label={loading ? "…" : t("today.startShift")}
-              onPress={() => void startShift()}
-              disabled={loading}
-              style={{ marginBottom: spacing.sm }}
-            />
-          ) : (
-            <>
-              <Text style={styles.meta}>
-                {t("more.shiftActive")} · {trackingLabel}
-                {pendingSamples > 0 ? ` · ${t("more.queue")} ${pendingSamples}` : ""}
-              </Text>
-              <RNView style={styles.toggleLine}>
-                <Text>{t("more.trackCollection")}</Text>
-                <Switch value={trackingEnabled} onValueChange={setTrackingEnabled} disabled={!!activeShift} />
-              </RNView>
-              <PrimaryButton
-                label={loading ? "…" : t("today.endShift")}
-                onPress={() => void endShift()}
-                disabled={loading}
-                variant="secondary"
-                style={{ marginBottom: spacing.sm }}
-              />
-            </>
-          )}
-
-          <Text style={styles.section}>{t("more.fuel")}</Text>
-          <Pressable onPress={() => router.push("/fuel")} accessibilityRole="button" style={styles.btnGhost}>
-            <Text style={styles.btnGhostTitle}>{t("more.fuelReports")}</Text>
-          </Pressable>
-        </>
-      ) : (
-        <RNView style={styles.moduleBanner}>
-          <Text style={styles.moduleBannerTitle}>{t("modules.unavailableTitle")}</Text>
-          <Text style={styles.moduleBannerBody}>{t("modules.unavailableBody")}</Text>
-        </RNView>
-      )}
-
-      <Text style={styles.section}>Офлайн</Text>
-      <Card>
-        <Text style={styles.meta}>
-          {jobs.length > 0 ? `${jobs.length} дій очікують відправки` : "Черга порожня"}
-        </Text>
-        {jobs.length > 0 ? (
-          <PrimaryButton label="Надіслати зараз" onPress={() => void flushNow()} style={{ marginTop: spacing.sm }} />
-        ) : null}
-        {lastError ? <Text style={styles.errorMeta}>Остання помилка: {lastError}</Text> : null}
-      </Card>
-
-      <Pressable onPress={() => setShowDebug((v) => !v)} style={styles.debugToggle}>
-        <Text style={styles.debugToggleText}>{showDebug ? "Сховати діагностику" : "Діагностика"}</Text>
-      </Pressable>
-
-      {showDebug ? (
-        <Card>
-          <Text style={styles.meta}>API: {getApiBaseUrl()}</Text>
-          {errorLog.slice(0, 5).map((e) => (
-            <Text key={`${e.at}-${e.message}`} style={styles.errorMeta}>
-              {new Date(e.at).toLocaleString()} · {e.type}
-              {"\n"}
-              {e.message}
+        {user ? (
+          <Card style={{ marginBottom: theme.spacing.sm }}>
+            <Text style={theme.typography.bodyMedium}>{user.fullName}</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+              {user.email}
             </Text>
-          ))}
-        </Card>
-      ) : null}
+          </Card>
+        ) : null}
 
-      <PrimaryButton
-        label={t("more.logout")}
-        onPress={() => logout()}
-        variant="danger"
-        style={{ marginTop: spacing.xl }}
-      />
-    </ScrollView>
+        <SectionTitle title={t("more.menu")} />
+        <ListItem title={t("leads.title")} onPress={() => router.push("/leads")} />
+        <ListItem title={t("map.title")} onPress={() => router.push("/map")} />
+        <ListItem
+          title={t("tabs.work")}
+          subtitle={t("more.workSubtitle")}
+          onPress={() => router.push("/(tabs)/work")}
+        />
+
+        {visitsEnabled ? (
+          <>
+            <SectionTitle title={t("more.shift")} />
+            {isTracking ? (
+              <View
+                style={[
+                  styles.banner,
+                  {
+                    backgroundColor: theme.colors.primaryMuted,
+                    borderRadius: theme.radius.md,
+                    marginBottom: theme.spacing.sm,
+                  },
+                ]}>
+                <Text style={[theme.typography.caption, { color: theme.colors.primaryText, fontWeight: "600" }]}>
+                  {t("today.trackingActive")}
+                </Text>
+              </View>
+            ) : null}
+
+            {!activeShift ? (
+              <AppButton
+                label={t("today.startShift")}
+                onPress={() => void startShift()}
+                disabled={loading}
+                loading={loading}
+                style={{ marginBottom: theme.spacing.sm }}
+              />
+            ) : (
+              <>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
+                  {t("more.shiftActive")} · {trackingLabel}
+                  {pendingSamples > 0 ? ` · ${t("more.queue")} ${pendingSamples}` : ""}
+                </Text>
+                <View style={[styles.toggleLine, { marginBottom: theme.spacing.sm }]}>
+                  <Text style={theme.typography.body}>{t("more.trackCollection")}</Text>
+                  <Switch
+                    value={trackingEnabled}
+                    onValueChange={setTrackingEnabled}
+                    disabled={!!activeShift}
+                    trackColor={{ false: theme.colors.border, true: theme.colors.primaryMuted }}
+                    thumbColor={trackingEnabled ? theme.colors.primary : theme.colors.surface}
+                  />
+                </View>
+                <AppButton
+                  label={t("today.endShift")}
+                  onPress={() => void endShift()}
+                  disabled={loading}
+                  loading={loading}
+                  variant="secondary"
+                  style={{ marginBottom: theme.spacing.sm }}
+                />
+              </>
+            )}
+
+            <SectionTitle title={t("more.fuel")} />
+            <ListItem title={t("more.fuelReports")} onPress={() => router.push("/fuel")} />
+          </>
+        ) : (
+          <View
+            style={[
+              styles.banner,
+              {
+                marginTop: theme.spacing.sm,
+                backgroundColor: theme.colors.warningMuted,
+                borderRadius: theme.radius.md,
+              },
+            ]}>
+            <Text style={[theme.typography.bodyMedium, { color: theme.colors.warningText }]}>
+              {t("modules.unavailableTitle")}
+            </Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+              {t("modules.unavailableBody")}
+            </Text>
+          </View>
+        )}
+
+        <SectionTitle title={t("more.offline")} />
+        <Card>
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+            {jobs.length > 0 ? t("more.offlinePending", { count: jobs.length }) : t("more.offlineEmpty")}
+          </Text>
+          {jobs.length > 0 ? (
+            <AppButton
+              label={t("more.offlineFlush")}
+              onPress={() => void flushNow()}
+              style={{ marginTop: theme.spacing.sm }}
+            />
+          ) : null}
+          {lastError ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.dangerText, marginTop: theme.spacing.sm }]}>
+              {t("more.offlineLastError", { error: lastError })}
+            </Text>
+          ) : null}
+        </Card>
+
+        <ListItem
+          title={showDebug ? t("more.hideDiagnostics") : t("more.diagnostics")}
+          onPress={() => setShowDebug((v) => !v)}
+        />
+
+        {showDebug ? (
+          <Card style={{ marginTop: theme.spacing.sm }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+              {t("more.apiLabel", { url: getApiBaseUrl() })}
+            </Text>
+            {trackingDebug ? (
+              <>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+                  {t("more.debugTrackingMode", { mode: trackingDebug.mode })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugShiftId", { id: trackingDebug.activeShiftId ?? "—" })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugPending", { count: trackingDebug.pendingSamples })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugLastFlush", {
+                    at: trackingDebug.lastFlushAt
+                      ? new Date(trackingDebug.lastFlushAt).toLocaleString()
+                      : "—",
+                  })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugFgPerm", { status: trackingDebug.foregroundPermission })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugBgPerm", { status: trackingDebug.backgroundPermission ?? "—" })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugTaskStarted", {
+                    status: trackingDebug.backgroundTaskStarted ? "yes" : "no",
+                  })}
+                </Text>
+              </>
+            ) : null}
+            {errorLog.slice(0, 5).map((e) => (
+              <Text
+                key={`${e.at}-${e.message}`}
+                style={[theme.typography.caption, { color: theme.colors.dangerText, marginTop: theme.spacing.sm }]}>
+                {new Date(e.at).toLocaleString()} · {e.type}
+                {"\n"}
+                {e.message}
+              </Text>
+            ))}
+          </Card>
+        ) : null}
+
+        <AppButton
+          label={t("more.logout")}
+          onPress={() => logout()}
+          variant="danger"
+          style={{ marginTop: theme.spacing.xl }}
+        />
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: spacing.lg, paddingBottom: 44 },
-  section: { fontWeight: "700", fontSize: 16, marginTop: spacing.lg, marginBottom: spacing.sm },
-  userName: { fontWeight: "700", fontSize: 17 },
-  userEmail: { marginTop: 4, opacity: 0.75 },
-  btnGhost: {
-    paddingVertical: spacing.md,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  btnGhostTitle: { fontWeight: "700" },
-  btnGhostMeta: { fontSize: 13, opacity: 0.7, marginTop: 4 },
-  meta: { fontSize: 13, opacity: 0.75, lineHeight: 20 },
-  errorMeta: { fontSize: 12, opacity: 0.65, marginTop: spacing.sm, lineHeight: 18 },
-  trackingBanner: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: spacing.sm,
-  },
-  trackingBannerText: { color: colors.primaryText, fontWeight: "600", fontSize: 13 },
-  toggleLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.sm },
-  debugToggle: { marginTop: spacing.lg, paddingVertical: spacing.sm },
-  debugToggleText: { opacity: 0.55, fontSize: 13 },
-  moduleBanner: {
-    marginTop: spacing.sm,
-    padding: 14,
-    borderRadius: 12,
-    backgroundColor: "rgba(234,179,8,0.12)",
-  },
-  moduleBannerTitle: { fontWeight: "700", fontSize: 15, color: "#a16207" },
-  moduleBannerBody: { marginTop: 6, lineHeight: 20, opacity: 0.85, fontSize: 14 },
+  scroll: {},
+  banner: { padding: 12 },
+  toggleLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 });

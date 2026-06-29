@@ -174,6 +174,7 @@ export class StockUploadService {
 
     const { sheet, headerRow } = parsed;
     const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
     if (skuIdx < 0) return [];
 
     const warehouseColIndices: { warehouseId: string; colIndex: number }[] = [];
@@ -186,11 +187,17 @@ export class StockUploadService {
     for (let i = 1; i < parsed.rows.length; i++) {
       const { raw, normalized } = readArticleFromCell(sheet, i, skuIdx);
       if (!normalized) continue;
+      const name =
+        nameIdx >= 0
+          ? (readArticleFromCell(sheet, i, nameIdx).raw ||
+              String(parsed.rows[i]?.[nameIdx] ?? "")).trim() || undefined
+          : undefined;
       for (const { warehouseId, colIndex } of warehouseColIndices) {
         const qty = readQtyFromCell(sheet, i, colIndex);
         entries.push({
           sku: normalized,
           fileSku: raw || undefined,
+          name,
           warehouseId,
           qty,
         });

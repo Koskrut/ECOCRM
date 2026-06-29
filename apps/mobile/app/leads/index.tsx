@@ -1,17 +1,20 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 
-import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/EmptyState";
-import { ScreenHeader } from "@/components/ui/ScreenHeader";
+import { Text } from "@/components/Themed";
+import { AnimatedListItem } from "@/components/ui/AnimatedListItem";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
+import { Screen } from "@/components/ui/Screen";
 import { SearchField } from "@/components/ui/SearchField";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
 import { leadsApi, type Lead } from "@/lib/api/leads";
-import { spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
 import { leadStatusLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
 
@@ -19,6 +22,7 @@ const STATUS_FILTERS = ["", "NEW", "IN_PROGRESS", "WON", "LOST"] as const;
 
 export default function LeadsListScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const { token } = useAuth();
   const [items, setItems] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,69 +62,70 @@ export default function LeadsListScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <ScreenHeader
-        title={t("leads.title")}
-        actionLabel="+ Лід"
-        onAction={() => router.push("/leads/new")}
-      />
-      <SearchField value={q} onChangeText={setQ} placeholder={t("common.search")} />
-      <View style={styles.filters}>
-        {STATUS_FILTERS.map((s) => (
-          <Pressable
-            key={s || "all"}
-            onPress={() => setStatus(s)}
-            style={[styles.chip, status === s && styles.chipOn]}
-            accessibilityRole="button">
-            <Text style={status === s ? styles.chipTextOn : undefined}>
-              {s ? leadStatusLabel(s) : "Усі"}
-            </Text>
-          </Pressable>
-        ))}
+    <Screen padded={false} contentStyle={styles.screen}>
+      <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md }}>
+        <AppHeader
+          title={t("leads.title")}
+          actionLabel={t("leads.addLead")}
+          onAction={() => router.push("/leads/new")}
+          large={false}
+        />
+        <SearchField value={q} onChangeText={setQ} placeholder={t("common.search")} />
+        <View style={styles.filters}>
+          {STATUS_FILTERS.map((s) => (
+            <Chip
+              key={s || "all"}
+              label={s ? leadStatusLabel(s) : t("common.all")}
+              selected={status === s}
+              onPress={() => setStatus(s)}
+            />
+          ))}
+        </View>
       </View>
       <FlatList
         data={items}
+        contentContainerStyle={{ paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxl }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}
         keyExtractor={(item) => item.id}
         ListEmptyComponent={
           <EmptyState message={error ?? t("leads.empty")} onRetry={error ? reload : undefined} />
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const name =
             item.name ??
             [item.firstName, item.lastName].filter(Boolean).join(" ") ??
             item.phone ??
             "—";
           return (
-            <Card onPress={() => router.push(`/leads/${item.id}`)} style={styles.card}>
-              <View style={styles.row}>
-                <Text style={styles.name}>{name}</Text>
-                <StatusPill label={leadStatusLabel(item.status)} tone="info" />
-              </View>
-              {item.phone ? <Text style={styles.meta}>{item.phone}</Text> : null}
-              {item.companyName ? <Text style={styles.meta}>{item.companyName}</Text> : null}
-            </Card>
+            <AnimatedListItem index={index} style={styles.cardWrap}>
+              <Card onPress={() => router.push(`/leads/${item.id}`)}>
+                <View style={styles.row}>
+                  <Text style={[theme.typography.bodyMedium, styles.name]}>{name}</Text>
+                  <StatusPill label={leadStatusLabel(item.status)} tone="info" />
+                </View>
+                {item.phone ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                    {item.phone}
+                  </Text>
+                ) : null}
+                {item.companyName ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                    {item.companyName}
+                  </Text>
+                ) : null}
+              </Card>
+            </AnimatedListItem>
           );
         }}
       />
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: spacing.lg },
-  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: spacing.sm },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  chipOn: { backgroundColor: "#dbeafe", borderColor: "#2563eb" },
-  chipTextOn: { fontWeight: "700", color: "#1d4ed8" },
-  card: { marginBottom: spacing.sm },
-  row: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  name: { fontWeight: "700", fontSize: 16, flex: 1 },
-  meta: { marginTop: 4, opacity: 0.75, fontSize: 14 },
+  screen: { flex: 1 },
+  filters: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 8 },
+  cardWrap: { marginBottom: 8 },
+  row: { flexDirection: "row", justifyContent: "space-between", gap: 8, alignItems: "flex-start" },
+  name: { flex: 1 },
 });

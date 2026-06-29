@@ -49,6 +49,21 @@ export function buildStockSkuIndex(products: StockSkuProductRef[]): StockSkuInde
   return { exact, byArticle, candidates };
 }
 
+export function registerProductInStockIndex(
+  index: StockSkuIndex,
+  product: StockSkuProductRef,
+): void {
+  const trimmed = product.sku.trim();
+  if (!trimmed) return;
+  index.exact.set(trimmed, product);
+  indexProductArticles(product, index.byArticle);
+  index.candidates.push({
+    id: product.id,
+    sku: product.sku,
+    skuNormalized: normalizeArticle(product.sku),
+  });
+}
+
 /** True when SKU looks like Excel numeric corruption (0.1, 1.011). */
 function looksLikeExcelNumericSku(normalized: string): boolean {
   return /^\d+\.\d+$/.test(normalized);

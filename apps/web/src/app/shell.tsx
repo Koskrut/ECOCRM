@@ -9,6 +9,7 @@ import { ModulesProvider } from "@/lib/modules/useModules";
 import { ConfirmProvider, ToastProvider } from "@/components/feedback";
 import { CallRecordingPlaybackProvider } from "@/components/calls/call-recording-playback";
 import { KyivstarFmcShell } from "@/components/kyivstar/KyivstarIncomingCallDock";
+import { usePresenceHeartbeat } from "@/lib/presence/usePresenceHeartbeat";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -17,6 +18,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const path = pathname ?? "";
   const noShell = path === "/login" || path.startsWith("/pay/");
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  usePresenceHeartbeat(!noShell);
 
   // ширина сайдбара: 240 (w-60) или 64 (w-16)
   const [sidebarPx, setSidebarPx] = useState<number>(240);

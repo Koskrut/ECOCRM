@@ -7,6 +7,7 @@ import {
 import { FuelCompensationStatus, Prisma, UserRole, VisitStatus } from "@prisma/client";
 import * as XLSX from "xlsx";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivDayBounds } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
@@ -30,11 +31,13 @@ export class FieldFuelService {
     return date;
   }
 
-  private dayBounds(date: Date): { dayStart: Date; dayEnd: Date } {
-    const dayStart = new Date(date);
-    const dayEnd = new Date(date);
-    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
-    return { dayStart, dayEnd };
+  private kyivVisitWindow(dateStr: string): { dayStart: Date; dayEnd: Date } {
+    try {
+      const { from, to } = kyivDayBounds(dateStr);
+      return { dayStart: from, dayEnd: to };
+    } catch {
+      throw new BadRequestException("Invalid date");
+    }
   }
 
   async resolveOwnerId(actor: AuthUser, requestedOwnerId?: string): Promise<string> {
@@ -57,13 +60,13 @@ export class FieldFuelService {
     return null;
   }
 
-  private async loadDoneVisitsForDay(ownerId: string, date: Date) {
-    const { dayStart, dayEnd } = this.dayBounds(date);
+  private async loadDoneVisitsForDay(ownerId: string, dateStr: string) {
+    const { dayStart, dayEnd } = this.kyivVisitWindow(dateStr);
     return this.prisma.visit.findMany({
       where: {
         ownerId,
         status: VisitStatus.DONE,
-        startsAt: { gte: dayStart, lt: dayEnd },
+        startsAt: { gte: dayStart, lte: dayEnd },
       },
       include: {
         contact: { select: { firstName: true, lastName: true, lat: true, lng: true } },
@@ -194,7 +197,7 @@ export class FieldFuelService {
     });
 
     const profile = await this.getOrCreateProfile(ownerId);
-    const doneVisits = await this.loadDoneVisitsForDay(ownerId, date);
+    const doneVisits = await this.loadDoneVisitsForDay(ownerId, dateStr);
     const planVisitIds = await this.planVisitIdSet(ownerId, date);
 
     const [plannedMetrics, factVisitsMetrics, factGpsMetrics, routeAnchors, geometryBundle] =
@@ -308,8 +311,41 @@ export class FieldFuelService {
       return this.recalculate(actorForRecalc, dateStr);
     }
 
-    const profile = await this.getOrCreateProfile(ownerId);
+    const actorForMetrics =
+      ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, geometryBundle] = await Promise.all([
+      this.routePlans.getRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getFactGpsRouteMetrics(dateStr, actorForMetrics),
+      this.routePlans.getRouteGeometryBundle(dateStr, actorForMetrics),
+    ]);
+
     const snapshot = (report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
+    const liveKind = geometryBundle.compensationFactKind;
+    const liveKm =
+      liveKind === "fact_gps" && factGpsMetrics.distanceKm != null
+        ? factGpsMetrics.distanceKm
+        : factVisitsMetrics.distanceKm;
+    const storedKind = snapshot.compensationFactKind;
+    const storedKm = report.compensationKm;
+    const kmStale =
+      storedKm == null && liveKm != null
+        ? true
+        : storedKm != null && liveKm == null
+          ? true
+          : storedKm != null && liveKm != null && Math.abs(storedKm - liveKm) > 0.05;
+
+    if (
+      (report.compensationStatus === FuelCompensationStatus.DRAFT ||
+        report.compensationStatus === FuelCompensationStatus.REJECTED) &&
+      (storedKind !== liveKind || kmStale)
+    ) {
+      const actorForRecalc =
+        ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+      return this.recalculate(actorForRecalc, dateStr);
+    }
+
+    const profile = await this.getOrCreateProfile(ownerId);
     const breakdown = snapshot.visits ?? [];
     const routeAnchors = await this.routePlans.getRouteAnchors(ownerId);
     const routeAnchorsSnapshot = {
@@ -324,15 +360,9 @@ export class FieldFuelService {
       report.compensationKm,
       routeAnchorsSnapshot,
     );
-
-    const actorForMetrics =
-      ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
-    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, geometryBundle] = await Promise.all([
-      this.routePlans.getRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getFactGpsRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getRouteGeometryBundle(dateStr, actorForMetrics),
-    ]);
+    if (storedKind !== liveKind || kmStale) {
+      warnings.push("report_stale");
+    }
 
     return {
       report,

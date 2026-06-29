@@ -4,21 +4,31 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { Alert, InteractionManager } from "react-native";
+import { Alert, AppState, InteractionManager, type AppStateStatus } from "react-native";
 
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatLocalDateKey } from "@/lib/date";
 import { t } from "@/lib/i18n";
 import {
+  ensureTrackingContinuity,
   getTrackingState,
+  maintainBackgroundTracking,
   resumeTrackingIfNeeded,
   startLocationTracking,
   stopLocationTracking,
   type TrackingMode,
 } from "@/lib/location-tracking";
+import {
+  isAndroid,
+  markBatteryPromptShown,
+  openAppSettings,
+  openBatteryOptimizationSettings,
+  wasBatteryPromptShown,
+} from "@/lib/location-permissions";
 import type { FieldShift } from "@/types/crm";
 
 type ShiftTrackingCtx = {
@@ -45,12 +55,33 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [trackingEnabled, setTrackingEnabled] = useState(true);
   const [pendingSamples, setPendingSamples] = useState(0);
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
+  const foregroundWarnedRef = useRef(false);
 
   const syncTrackingState = useCallback(async () => {
     const state = await getTrackingState();
     setTrackingMode(state.mode);
     setPendingSamples(state.pendingSamples);
     setLastFlushAt(state.lastFlushAt);
+  }, []);
+
+  const promptOpenSettings = useCallback((message: string) => {
+    Alert.alert(t("gps.title"), message, [
+      { text: t("gps.openSettings"), onPress: () => void openAppSettings() },
+      { text: t("common.later"), style: "cancel" },
+    ]);
+  }, []);
+
+  const maybePromptBatteryOptimization = useCallback(async () => {
+    if (!isAndroid()) return;
+    if (await wasBatteryPromptShown()) return;
+    await markBatteryPromptShown();
+    Alert.alert(t("gps.batteryTitle"), t("gps.batteryHint"), [
+      {
+        text: t("gps.batteryOpen"),
+        onPress: () => void openBatteryOptimizationSettings(),
+      },
+      { text: t("common.later"), style: "cancel" },
+    ]);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -68,6 +99,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       }
       const mode = await resumeTrackingIfNeeded(res.shift);
       setTrackingMode(mode);
+      if (mode === "foreground" && !foregroundWarnedRef.current) {
+        foregroundWarnedRef.current = true;
+        promptOpenSettings(t("gps.backgroundHint"));
+      }
       await syncTrackingState();
     } catch {
       setActiveShift(null);
@@ -75,7 +110,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  }, [token, syncTrackingState]);
+  }, [token, syncTrackingState, promptOpenSettings]);
 
   useEffect(() => {
     if (!ready || !token) return;
@@ -111,6 +146,39 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     return () => clearInterval(id);
   }, [token, trackingMode, syncTrackingState]);
 
+  useEffect(() => {
+    if (!token || !activeShift || activeShift.status !== "ACTIVE" || !activeShift.trackingEnabled) {
+      return;
+    }
+
+    const onAppState = (state: AppStateStatus) => {
+      if (state === "active") {
+        void ensureTrackingContinuity()
+          .then((mode) => {
+            setTrackingMode(mode);
+            if (mode === "foreground" && !foregroundWarnedRef.current) {
+              foregroundWarnedRef.current = true;
+              promptOpenSettings(t("gps.backgroundHint"));
+            }
+            return syncTrackingState();
+          })
+          .catch(() => undefined);
+        return;
+      }
+      if (state === "background" || state === "inactive") {
+        void maintainBackgroundTracking()
+          .then((mode) => {
+            setTrackingMode(mode);
+            return syncTrackingState();
+          })
+          .catch(() => undefined);
+      }
+    };
+
+    const sub = AppState.addEventListener("change", onAppState);
+    return () => sub.remove();
+  }, [token, activeShift, syncTrackingState, promptOpenSettings]);
+
   const startShift = useCallback(async () => {
     if (!token) return;
     setLoading(true);
@@ -140,9 +208,15 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
         if (mode === "foreground") {
-          Alert.alert(t("gps.title"), t("gps.backgroundHint"));
+          foregroundWarnedRef.current = true;
+          promptOpenSettings(t("gps.backgroundHint"));
         } else if (mode === "none") {
-          Alert.alert(t("gps.title"), t("gps.noneHint"));
+          Alert.alert(t("gps.title"), t("gps.noneHint"), [
+            { text: t("gps.openSettings"), onPress: () => void openAppSettings() },
+            { text: t("common.later"), style: "cancel" },
+          ]);
+        } else if (mode === "background") {
+          await maybePromptBatteryOptimization();
         }
       } else {
         setTrackingMode("none");
@@ -153,7 +227,13 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  }, [token, trackingEnabled, syncTrackingState]);
+  }, [
+    token,
+    trackingEnabled,
+    syncTrackingState,
+    promptOpenSettings,
+    maybePromptBatteryOptimization,
+  ]);
 
   const endShift = useCallback(async () => {
     if (!token || !activeShift) return;

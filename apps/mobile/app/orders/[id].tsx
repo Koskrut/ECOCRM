@@ -3,31 +3,31 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
 
+import { contactDisplayName } from "@/components/ContactRow";
+import { Text } from "@/components/Themed";
+import { OrderStageControl } from "@/components/order/OrderStageControl";
+import { ShippingProfilePicker } from "@/components/ShippingProfilePicker";
+import { AppButton } from "@/components/ui/AppButton";
 import { Card } from "@/components/ui/Card";
-import { OrderStickyFooter } from "@/components/OrderStickyFooter";
-import { ProductPicker } from "@/components/ProductPicker";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
+import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { ShippingProfilePicker } from "@/components/ShippingProfilePicker";
-import { Text } from "@/components/Themed";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { ApiError } from "@/lib/api";
 import { contactsApi } from "@/lib/api/contacts";
 import { npApi } from "@/lib/api/np";
 import { ordersApi } from "@/lib/api/orders";
-import { colors, spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { orderStageLabel } from "@/lib/labels";
-import type { Contact, Order, OrderItem, Product } from "@/types/crm";
+import type { Contact, Order, OrderItem } from "@/types/crm";
 
 function formatAmount(amount: number | null | undefined, currency?: string | null): string {
   if (amount == null) return "—";
@@ -40,6 +40,7 @@ function itemLineTotal(item: OrderItem): number {
 
 export default function OrderDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const orderId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -55,8 +56,7 @@ export default function OrderDetailScreen() {
   const [ttnNumber, setTtnNumber] = useState<string | null>(null);
   const [ttnStatus, setTtnStatus] = useState<string | null>(null);
   const [ttnBusy, setTtnBusy] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [stageBusy, setStageBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !orderId) return;
@@ -110,7 +110,7 @@ export default function OrderDetailScreen() {
       setOrder(null);
       if (e instanceof ApiError && e.status === 404) {
         setNotFound(true);
-        setLoadError("Замовлення не знайдено або немає доступу");
+        setLoadError(t("orders.notFound"));
       } else {
         setLoadError(e instanceof Error ? e.message : String(e));
       }
@@ -129,59 +129,16 @@ export default function OrderDetailScreen() {
     await load();
   }
 
-  async function onAddProduct(product: Product) {
-    if (!token || !orderId) return;
-    setSaving(true);
-    try {
-      const updated = await ordersApi.addItem(token, orderId, {
-        productId: product.id,
-        qty: 1,
-        price: product.basePrice ?? 0,
-      });
-      setOrder(updated);
-    } catch (e) {
-      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function onUpdateQty(item: OrderItem, qty: number) {
-    if (!token || !orderId || qty < 1) return;
-    setSaving(true);
-    try {
-      const updated = await ordersApi.updateItem(token, orderId, item.id, { qty });
-      setOrder(updated);
-    } catch (e) {
-      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function onRemoveItem(item: OrderItem) {
-    if (!token || !orderId) return;
-    setSaving(true);
-    try {
-      const updated = await ordersApi.removeItem(token, orderId, item.id);
-      setOrder(updated);
-    } catch (e) {
-      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   async function onCreateTtn() {
     if (!token || !orderId || !selectedProfileId) {
-      Alert.alert(t("common.error"), "Оберіть профіль доставки");
+      Alert.alert(t("common.error"), t("orders.selectDeliveryProfile"));
       return;
     }
     setTtnBusy(true);
     try {
       const res = await npApi.createTtn(token, orderId, { profileId: selectedProfileId });
       setTtnNumber(res.documentNumber);
-      Alert.alert(t("common.done"), `ТТН №${res.documentNumber} створено`);
+      Alert.alert(t("common.done"), t("orders.ttnCreated", { number: res.documentNumber }));
       await load();
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
@@ -190,195 +147,230 @@ export default function OrderDetailScreen() {
     }
   }
 
+  async function onChangeStage(toStage: string) {
+    if (!token || !orderId) return;
+    setStageBusy(true);
+    try {
+      const updated = await ordersApi.updateStage(token, orderId, toStage);
+      setOrder(updated);
+    } finally {
+      setStageBusy(false);
+    }
+  }
+
+  function paymentTypeLabel(pt: string | null | undefined): string {
+    if (!pt) return "—";
+    const key = `orderCreate.paymentType_${pt}` as const;
+    const label = t(key);
+    return label === key ? pt : label;
+  }
+
+  function paymentMethodLabel(pm: string | null | undefined): string {
+    if (!pm) return "—";
+    const key = `orderCreate.paymentMethod_${pm}` as const;
+    const label = t(key);
+    return label === key ? pm : label;
+  }
+
   if (!orderId) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorTitle}>Невірне посилання</Text>
-        <PrimaryButton label="Назад" onPress={() => router.back()} variant="secondary" />
-      </View>
+      <Screen contentStyle={styles.centered}>
+        <Text style={theme.typography.title}>{t("orders.invalidLink")}</Text>
+        <AppButton label={t("common.back")} onPress={() => router.back()} variant="secondary" style={{ marginTop: 16 }} />
+      </Screen>
     );
   }
 
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen contentStyle={styles.centered}>
+        <ActivityIndicator color={theme.colors.primary} />
+        <Text style={[theme.typography.caption, { marginTop: 12, color: theme.colors.textMuted }]}>
+          {t("common.loading")}
+        </Text>
+      </Screen>
     );
   }
 
   if (loadError || !order) {
     return (
-      <View style={styles.centered}>
+      <Screen contentStyle={styles.centered}>
         <Card style={{ width: "100%" }}>
-          <Text style={styles.errorTitle}>{notFound ? "Немає доступу" : t("common.error")}</Text>
-          <Text style={styles.errorBody}>{loadError ?? t("common.noData")}</Text>
+          <Text style={theme.typography.title}>{notFound ? t("orders.noAccess") : t("common.error")}</Text>
+          <Text style={[theme.typography.body, { marginTop: 8, color: theme.colors.textMuted }]}>
+            {loadError ?? t("common.noData")}
+          </Text>
         </Card>
-        <PrimaryButton label={t("common.retry")} onPress={() => void load()} style={{ marginTop: spacing.lg }} />
-        <PrimaryButton
-          label="До списку"
+        <AppButton label={t("common.retry")} onPress={() => void load()} style={{ marginTop: 16, alignSelf: "stretch" }} />
+        <AppButton
+          label={t("orders.backToList")}
           onPress={() => router.replace("/orders")}
           variant="secondary"
-          style={{ marginTop: spacing.sm }}
+          style={{ marginTop: 8, alignSelf: "stretch" }}
         />
-      </View>
+      </Screen>
     );
   }
 
   const items = order.items ?? [];
+  const title = order.orderNumber
+    ? `${t("orders.orderFallback")} #${order.orderNumber}`
+    : t("orders.orderFallback");
 
   return (
-    <View style={styles.root}>
-    <ScrollView
-      contentContainerStyle={[styles.scroll, editing && { paddingBottom: 120 }]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>
-          {order.orderNumber ? `Замовлення #${order.orderNumber}` : "Замовлення"}
+    <Screen padded={false} contentStyle={styles.flex}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { padding: theme.spacing.lg, paddingBottom: theme.spacing.xl }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={theme.colors.primary} />
+        }>
+        <View style={styles.titleRow}>
+          <Text style={[theme.typography.title, { flex: 1 }]}>{title}</Text>
+          <StatusPill label={orderStageLabel(order.orderStage) || order.status} tone="info" />
+        </View>
+        <AppButton
+          label={t("orders.edit")}
+          onPress={() => router.push(`/orders/${orderId}/edit`)}
+          variant="secondary"
+          style={{ alignSelf: "flex-start", marginTop: 8, marginBottom: 4 }}
+        />
+        <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+          {t("orders.amount")}: {formatAmount(order.totalAmount, order.currency)}
         </Text>
-        <StatusPill label={orderStageLabel(order.orderStage) || order.status} tone="info" />
-      </View>
-      <Pressable
-        onPress={() => setEditing((v) => !v)}
-        style={styles.editToggle}
-        accessibilityRole="button">
-        <Text style={styles.editToggleText}>{editing ? "Готово" : "Редагувати"}</Text>
-      </Pressable>
-      <Text style={styles.meta}>Сума: {formatAmount(order.totalAmount, order.currency)}</Text>
 
-      {order.comment ? <Text style={styles.box}>{order.comment}</Text> : null}
-
-      <SectionTitle title="Позиції" />
-      {editing && token ? <ProductPicker token={token} onSelect={(p) => void onAddProduct(p)} /> : null}
-      {items.length === 0 ? (
-        <Text style={styles.muted}>{t("common.noData")}</Text>
-      ) : (
-        items.map((item) => (
-          <View key={item.id} style={styles.itemRow}>
-            <Text style={styles.itemName}>
-              {item.productName ?? item.productNameSnapshot ?? "Товар"}
+        {contact ? (
+          <Card style={{ marginTop: theme.spacing.md }}>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+              {t("orders.client")}
             </Text>
-            {editing ? (
-              <View style={styles.qtyRow}>
-                <Pressable onPress={() => void onUpdateQty(item, item.qty - 1)} style={styles.qtyBtn}>
-                  <Text>−</Text>
-                </Pressable>
-                <Text style={styles.qtyVal}>{item.qty}</Text>
-                <Pressable onPress={() => void onUpdateQty(item, item.qty + 1)} style={styles.qtyBtn}>
-                  <Text>+</Text>
-                </Pressable>
-                <Pressable onPress={() => void onRemoveItem(item)} style={styles.removeBtn}>
-                  <Text style={styles.removeText}>✕</Text>
-                </Pressable>
-              </View>
+            <Text style={[theme.typography.bodyMedium, { marginTop: 4 }]}>{contactDisplayName(contact)}</Text>
+            {order.company?.name ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                {order.company.name}
+              </Text>
             ) : null}
-            <Text style={styles.itemMeta}>
-              {item.qty} × {item.price}
-              {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} = {itemLineTotal(item)}
+          </Card>
+        ) : null}
+
+        {token ? (
+          <OrderStageControl order={order} busy={stageBusy} onChangeStage={onChangeStage} />
+        ) : null}
+
+        <SectionTitle title={t("orderCreate.conditions")} />
+        <Card style={{ marginBottom: theme.spacing.md }}>
+          <Text style={[theme.typography.body, styles.condLine]}>
+            {t("orderCreate.paymentType")}: {paymentTypeLabel(order.paymentType)}
+          </Text>
+          <Text style={[theme.typography.body, styles.condLine]}>
+            {t("orderCreate.paymentMethod")}: {paymentMethodLabel(order.paymentMethod)}
+          </Text>
+          {order.warehouse?.name ? (
+            <Text style={[theme.typography.body, styles.condLine]}>
+              {t("orderCreate.warehouse")}: {order.warehouse.name}
             </Text>
-          </View>
-        ))
-      )}
-
-      {npEnabled && order.contactId && contact ? (
-        <>
-          <SectionTitle title="Nova Poshta" />
-          {order.deliveryMethod === "NOVA_POSHTA" ? (
-            <Text style={styles.muted}>Доставка: Нова Пошта</Text>
           ) : null}
+          <Text style={[theme.typography.body, styles.condLine]}>
+            {t("orderCreate.deliveryMethod")}:{" "}
+            {order.deliveryMethod === "NOVA_POSHTA" ? t("orders.novaPoshta") : t("orderCreate.pickup")}
+          </Text>
+          <Text style={[theme.typography.body, styles.condLine]}>
+            {t("orderCreate.documents")}: {order.documentsRequested ? t("common.ok") : t("common.cancel")}
+          </Text>
+          {(order.discountAmount ?? 0) > 0 ? (
+            <Text style={[theme.typography.body, styles.condLine]}>
+              {t("orderCreate.orderDiscount")}: {order.discountAmount}
+            </Text>
+          ) : null}
+          {order.paymentDueDate ? (
+            <Text style={[theme.typography.body, styles.condLine]}>
+              {t("orderCreate.deferredDue")}: {new Date(order.paymentDueDate).toLocaleDateString("uk-UA")}
+            </Text>
+          ) : null}
+        </Card>
 
-          {ttnNumber ? (
-            <View style={styles.box}>
-              <Text style={{ fontWeight: "700" }}>ТТН №{ttnNumber}</Text>
-              {ttnStatus ? <Text style={styles.muted}>{ttnStatus}</Text> : null}
-            </View>
-          ) : (
-            <>
-              <Text style={styles.muted}>Оберіть адресу для створення ТТН</Text>
-              {token ? (
-                <ShippingProfilePicker
-                  token={token}
-                  contact={contact}
-                  selectedProfileId={selectedProfileId}
-                  onSelectProfileId={setSelectedProfileId}
+        {order.comment ? (
+          <Card style={{ marginBottom: theme.spacing.md }}>
+            <Text style={theme.typography.body}>{order.comment}</Text>
+          </Card>
+        ) : null}
+
+        <SectionTitle title={t("orders.items")} />
+        {items.length === 0 ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
+        ) : (
+          items.map((item) => (
+            <Card key={item.id} style={{ marginBottom: theme.spacing.sm }}>
+              <Text style={theme.typography.bodyMedium}>
+                {item.productName ?? item.productNameSnapshot ?? t("orders.productFallback")}
+              </Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                {item.qty} × {item.price}
+                {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} = {itemLineTotal(item)}
+              </Text>
+            </Card>
+          ))
+        )}
+
+        {npEnabled && order.contactId && contact ? (
+          <>
+            <SectionTitle title={t("orders.novaPoshta")} />
+            {order.deliveryMethod === "NOVA_POSHTA" ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
+                {t("orders.deliveryNp")}
+              </Text>
+            ) : null}
+
+            {ttnNumber ? (
+              <Card>
+                <Text style={theme.typography.bodyMedium}>
+                  {t("orders.ttn")} №{ttnNumber}
+                </Text>
+                {ttnStatus ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                    {ttnStatus}
+                  </Text>
+                ) : null}
+              </Card>
+            ) : (
+              <>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
+                  {t("orders.selectAddressForTtn")}
+                </Text>
+                {token ? (
+                  <ShippingProfilePicker
+                    token={token}
+                    contact={contact}
+                    selectedProfileId={selectedProfileId}
+                    onSelectProfileId={setSelectedProfileId}
+                  />
+                ) : null}
+                <AppButton
+                  label={ttnBusy ? "…" : t("orders.createTtn")}
+                  onPress={() => void onCreateTtn()}
+                  disabled={ttnBusy || !selectedProfileId}
+                  loading={ttnBusy}
+                  style={{ marginTop: theme.spacing.md }}
                 />
-              ) : null}
-              <Pressable
-                disabled={ttnBusy || !selectedProfileId}
-                onPress={() => void onCreateTtn()}
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.btnPrimary,
-                  (ttnBusy || !selectedProfileId || pressed) && { opacity: 0.75 },
-                ]}>
-                <Text style={styles.btnPrimaryText}>{ttnBusy ? "…" : "Створити ТТН"}</Text>
-              </Pressable>
-            </>
-          )}
-        </>
-      ) : null}
+              </>
+            )}
+          </>
+        ) : null}
 
-      <Pressable
-        onPress={() => router.back()}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.75 }]}>
-        <Text style={styles.backBtnText}>{t("common.cancel")}</Text>
-      </Pressable>
-    </ScrollView>
-    {editing ? (
-      <OrderStickyFooter
-        totalLabel={`Сума: ${formatAmount(order.totalAmount, order.currency)}`}
-        actionLabel={saving ? "…" : t("common.save")}
-        onAction={() => setEditing(false)}
-        loading={saving}
-      />
-    ) : null}
-    </View>
+        <AppButton
+          label={t("common.cancel")}
+          onPress={() => router.back()}
+          variant="ghost"
+          style={{ marginTop: theme.spacing.xl, alignSelf: "center" }}
+        />
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  scroll: { padding: 16, paddingBottom: 32 },
+  flex: { flex: 1 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  scroll: {},
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  editToggle: { alignSelf: "flex-start", marginTop: 8, marginBottom: 4 },
-  editToggleText: { color: colors.primaryText, fontWeight: "700" },
-  title: { fontSize: 22, fontWeight: "700", flex: 1 },
-  meta: { marginTop: 6, opacity: 0.75, lineHeight: 20 },
-  errorTitle: { fontWeight: "700", fontSize: 18, marginBottom: 8 },
-  errorBody: { opacity: 0.8, lineHeight: 22 },
-  box: { marginTop: 14, padding: 12, borderRadius: 12, backgroundColor: colors.surfaceMuted },
-  muted: { opacity: 0.7, marginBottom: 8 },
-  itemRow: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(120,120,128,0.08)",
-    marginBottom: 8,
-  },
-  itemName: { fontWeight: "700", fontSize: 15 },
-  itemMeta: { marginTop: 4, opacity: 0.75, fontSize: 13 },
-  qtyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8 },
-  qtyBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: colors.surfaceMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qtyVal: { fontWeight: "700", minWidth: 24, textAlign: "center" },
-  removeBtn: { marginLeft: "auto", padding: 8 },
-  removeText: { color: colors.danger, fontWeight: "700" },
-  btnPrimary: {
-    marginTop: 12,
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  btnPrimaryText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  backBtn: { marginTop: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20 },
-  backBtnText: { color: "#2563eb", fontWeight: "600" },
+  condLine: { marginBottom: 6 },
 });

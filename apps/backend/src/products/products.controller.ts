@@ -22,7 +22,7 @@ import { Prisma } from "@prisma/client";
 import { createDriveAuth, getFileStream } from "./drive/google-drive.client";
 import { SettingsService } from "../settings/settings.service";
 import { normalizePagination } from "../common/pagination";
-import { ProductStore } from "./product.store";
+import { ProductStore, type MissingStockProduct } from "./product.store";
 import { ProductImageStore } from "./product-image.store";
 import { ProductImagesSyncService } from "./product-images-sync.service";
 import { ProductImagesSyncState } from "./product-images-sync-state";
@@ -124,7 +124,12 @@ export class ProductsController {
   @UseInterceptors(FileInterceptor("file"))
   public async uploadStock(
     @UploadedFile() file: { buffer?: Buffer } | undefined,
-  ): Promise<{ updated: number; created: number; notFound: string[] }> {
+  ): Promise<{
+    updated: number;
+    created: number;
+    notFound: string[];
+    missingProducts?: MissingStockProduct[];
+  }> {
     const buffer = file?.buffer;
     if (!buffer) {
       throw new BadRequestException("File is required");
@@ -153,6 +158,7 @@ export class ProductsController {
     unmatchedWarehouseNames: string[];
     matchedSkus: string[];
     unresolvedSkus: string[];
+    missingProducts: MissingStockProduct[];
     skuCorrections: Array<{ fileSku: string; dbSku: string }>;
     resolved: Array<{ fileSku: string; dbSku: string; productId: string }>;
   }> {
@@ -185,11 +191,26 @@ export class ProductsController {
       created: applied.created,
       notFound: prepared.notFound,
       unresolvedSkus: prepared.notFound,
+      missingProducts: prepared.missingProducts,
       matchedSkus: prepared.matchedSkus,
       skuCorrections: prepared.skuCorrections,
       resolved: prepared.resolved,
       unmatchedWarehouseNames,
     };
+  }
+
+  @Post("stock/create-missing")
+  public async createMissingFromStockImport(
+    @Body()
+    body: {
+      products?: MissingStockProduct[];
+    },
+  ): Promise<{ created: number; updated: number; failed: string[] }> {
+    const products = body?.products;
+    if (!Array.isArray(products) || products.length === 0) {
+      throw new BadRequestException("products array is required");
+    }
+    return this.productStore.createMissingProductsFromImport(products);
   }
 
   @Public()

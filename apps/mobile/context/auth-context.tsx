@@ -9,6 +9,7 @@ import React, {
 } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { endPresenceSession } from "@/lib/presence-heartbeat";
 import type { AuthUserBrief, LoginResponse } from "@/types/crm";
 
 const TOKEN_KEY = "crm_manager_jwt";
@@ -91,6 +92,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    if (token) {
+      try {
+        await endPresenceSession(token);
+      } catch {
+        /* proceed with logout */
+      }
+    }
     try {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
     } catch {
@@ -98,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setToken(null);
     setUser(null);
-  }, []);
+  }, [token]);
 
   const value = useMemo<AuthCtx>(
     () => ({ ready, token, user, login, logout }),

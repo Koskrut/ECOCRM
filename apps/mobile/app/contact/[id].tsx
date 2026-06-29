@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,11 @@ import { contactDisplayName } from "@/components/ContactRow";
 import { EntityActionBar } from "@/components/EntityActionBar";
 import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
+import { AnimatedListItem } from "@/components/ui/AnimatedListItem";
+import { AppButton } from "@/components/ui/AppButton";
+import { Card } from "@/components/ui/Card";
+import { Screen } from "@/components/ui/Screen";
+import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { contactsApi } from "@/lib/api/contacts";
@@ -20,22 +24,34 @@ import { activitiesApi, type Activity } from "@/lib/api/activities";
 import { ordersApi } from "@/lib/api/orders";
 import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey, startOfLocalDayIso, endOfLocalDayIso } from "@/lib/date";
+import { useTheme } from "@/lib/design/theme-context";
 import { clientStageLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
 import type { Contact, Order, VisitSummary } from "@/types/crm";
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({
+  label,
+  value,
+  theme,
+}: {
+  label: string;
+  value: string | null | undefined;
+  theme: ReturnType<typeof useTheme>;
+}) {
   if (!value?.trim()) return null;
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={styles.fieldValue}>{value}</Text>
+    <View style={{ marginTop: theme.spacing.md }}>
+      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textTransform: "uppercase" }]}>
+        {label}
+      </Text>
+      <Text style={[theme.typography.body, { marginTop: 4, lineHeight: 22 }]}>{value}</Text>
     </View>
   );
 }
 
 export default function ContactDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const contactId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -114,10 +130,14 @@ export default function ContactDetailScreen() {
 
   if (loading || !contact) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+            {t("common.loading")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
@@ -125,167 +145,139 @@ export default function ContactDetailScreen() {
   const phone = phones[0] ?? (contact.phone || contact.phones?.[0]?.phone);
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.scroll}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
-      <Text style={styles.title}>{name}</Text>
+    <Screen padded={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl },
+        ]}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+        <Text style={theme.typography.title}>{name}</Text>
 
-      <EntityActionBar
-        token={token!}
-        date={dateKey}
-        phone={phone}
-        contactId={contact.id}
-        lat={contact.lat}
-        lng={contact.lng}
-        compact
-      />
+        <EntityActionBar
+          token={token!}
+          date={dateKey}
+          phone={phone}
+          contactId={contact.id}
+          lat={contact.lat}
+          lng={contact.lng}
+          compact
+        />
 
-      <Pressable
-        onPress={() => router.push(`/contact/${contact.id}/edit`)}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.noteBtn, pressed && { opacity: 0.75 }]}>
-        <Text style={styles.noteBtnText}>{t("clients.edit")}</Text>
-      </Pressable>
+        <AppButton
+          label={t("clients.edit")}
+          onPress={() => router.push(`/contact/${contact.id}/edit`)}
+          variant="secondary"
+          style={{ marginTop: theme.spacing.md, alignSelf: "flex-start" }}
+        />
 
-      <Field label={t("clients.phone")} value={phone} />
-      {phones.length > 1 ? (
-        <Text style={styles.muted}>
-          {phones.slice(1).join(" · ")}
-        </Text>
-      ) : null}
-      <Field label={t("clients.email")} value={contact.email} />
-      <Field label={t("clients.company")} value={contact.company?.name} />
-      <Field label={t("clients.address")} value={contact.address} />
-      <Field
-        label={t("clients.stage")}
-        value={clientStageLabel(contact.clientStage) || contact.status}
-      />
+        <Field label={t("clients.phone")} value={phone} theme={theme} />
+        {phones.length > 1 ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+            {phones.slice(1).join(" · ")}
+          </Text>
+        ) : null}
+        <Field label={t("clients.email")} value={contact.email} theme={theme} />
+        <Field label={t("clients.company")} value={contact.company?.name} theme={theme} />
+        <Field label={t("clients.address")} value={contact.address} theme={theme} />
+        <Field
+          label={t("clients.stage")}
+          value={clientStageLabel(contact.clientStage) || contact.status}
+          theme={theme}
+        />
 
-      <Pressable
-        onPress={() => router.push(`/contact/${contact.id}/activity/new`)}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.noteBtn, pressed && { opacity: 0.75 }]}>
-        <Text style={styles.noteBtnText}>+ Нотатка</Text>
-      </Pressable>
+        <AppButton
+          label={t("contacts.noteAdd")}
+          onPress={() => router.push(`/contact/${contact.id}/activity/new`)}
+          variant="ghost"
+          style={{ marginTop: theme.spacing.lg, alignSelf: "flex-start" }}
+        />
 
-      <Text style={styles.section}>{t("clients.timeline")}</Text>
-      {activities.length === 0 ? (
-        <Text style={styles.muted}>{t("common.noData")}</Text>
-      ) : (
-        activities.map((a) => (
-          <View key={a.id} style={styles.activityRow}>
-            <Text style={styles.activityMeta}>
-              {new Date(a.createdAt).toLocaleString("uk-UA")} · {a.kind}
-            </Text>
-            <Text style={styles.activityBody}>{a.body}</Text>
-          </View>
-        ))
-      )}
+        <SectionTitle title={t("clients.timeline")} />
+        {activities.length === 0 ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
+        ) : (
+          activities.map((a, index) => (
+            <AnimatedListItem key={a.id} index={index} style={{ marginTop: theme.spacing.sm }}>
+              <Card>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                  {new Date(a.createdAt).toLocaleString("uk-UA")} · {a.kind}
+                </Text>
+                <Text style={[theme.typography.body, { marginTop: 4, lineHeight: 20 }]}>{a.body}</Text>
+              </Card>
+            </AnimatedListItem>
+          ))
+        )}
 
-      {visitsEnabled ? (
-        <>
-          <Text style={styles.section}>{t("clients.visitsToday")}</Text>
-          {visitsToday.length === 0 ? (
-            <Text style={styles.muted}>{t("clients.noVisitsToday")}</Text>
-          ) : (
-            visitsToday.map((v) => (
-              <VisitCard
-                key={v.id}
-                visit={v}
-                onPress={() => router.push(`/visit/${v.id}`)}
-              />
-            ))
-          )}
+        {visitsEnabled ? (
+          <>
+            <SectionTitle title={t("clients.visitsToday")} />
+            {visitsToday.length === 0 ? (
+              <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>
+                {t("clients.noVisitsToday")}
+              </Text>
+            ) : (
+              visitsToday.map((v) => (
+                <VisitCard
+                  key={v.id}
+                  visit={v}
+                  onPress={() => router.push(`/visit/${v.id}`)}
+                />
+              ))
+            )}
 
-          <Text style={styles.section}>Останні візити</Text>
-          {recentVisits.length === 0 ? (
-            <Text style={styles.muted}>{t("common.noData")}</Text>
-          ) : (
-            recentVisits.map((v) => (
-              <VisitCard
-                key={v.id}
-                visit={v}
-                onPress={() => router.push(`/visit/${v.id}`)}
-              />
-            ))
-          )}
-        </>
-      ) : null}
+            <SectionTitle title={t("clients.recentVisits")} />
+            {recentVisits.length === 0 ? (
+              <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
+            ) : (
+              recentVisits.map((v) => (
+                <VisitCard
+                  key={v.id}
+                  visit={v}
+                  onPress={() => router.push(`/visit/${v.id}`)}
+                />
+              ))
+            )}
+          </>
+        ) : null}
 
-      <Text style={styles.section}>Замовлення</Text>
-      <Pressable
-        onPress={() => router.push(`/orders/new?contactId=${encodeURIComponent(contact.id)}`)}
-        accessibilityRole="button"
-        style={({ pressed }) => [styles.noteBtn, pressed && { opacity: 0.75 }]}>
-        <Text style={styles.noteBtnText}>+ НОВЕ ЗАМОВЛЕННЯ</Text>
-      </Pressable>
-      {orders.length === 0 ? (
-        <Text style={styles.muted}>{t("common.noData")}</Text>
-      ) : (
-        orders.map((o) => (
-          <Pressable
-            key={o.id}
-            onPress={() => router.push(`/orders/${o.id}`)}
-            accessibilityRole="button"
-            style={({ pressed }) => [styles.orderRow, pressed && { opacity: 0.72 }]}>
-            <Text style={{ fontWeight: "700" }}>
-              {o.orderNumber ? `#${o.orderNumber}` : "Замовлення"}
-            </Text>
-            <Text style={styles.muted}>
-              {o.status}
-              {o.orderStage ? ` · ${o.orderStage}` : ""}
-            </Text>
-          </Pressable>
-        ))
-      )}
+        <SectionTitle title={t("orders.title")} />
+        <AppButton
+          label={t("orders.new")}
+          onPress={() => router.push(`/orders/new?contactId=${encodeURIComponent(contact.id)}`)}
+          variant="secondary"
+          style={{ marginBottom: theme.spacing.sm, alignSelf: "flex-start" }}
+        />
+        {orders.length === 0 ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
+        ) : (
+          orders.map((o, index) => (
+            <AnimatedListItem key={o.id} index={index} style={{ marginTop: theme.spacing.sm }}>
+              <Card onPress={() => router.push(`/orders/${o.id}`)}>
+                <Text style={theme.typography.bodyMedium}>
+                  {o.orderNumber ? `#${o.orderNumber}` : t("orders.orderFallback")}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {o.status}
+                  {o.orderStage ? ` · ${o.orderStage}` : ""}
+                </Text>
+              </Card>
+            </AnimatedListItem>
+          ))
+        )}
 
-      <Pressable
-        onPress={() => router.back()}
-        style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.75 }]}
-        accessibilityRole="button">
-        <Text style={styles.backBtnText}>{t("common.cancel")}</Text>
-      </Pressable>
-    </ScrollView>
+        <AppButton
+          label={t("common.cancel")}
+          onPress={() => router.back()}
+          variant="ghost"
+          style={{ marginTop: theme.spacing.xl, alignSelf: "center" }}
+        />
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  scroll: { padding: 20, paddingBottom: 48, gap: 4 },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  field: { marginTop: 12 },
-  fieldLabel: { fontSize: 12, opacity: 0.55, textTransform: "uppercase", letterSpacing: 0.5 },
-  fieldValue: { fontSize: 16, marginTop: 4, lineHeight: 22 },
-  section: { fontWeight: "700", fontSize: 16, marginTop: 24, marginBottom: 8 },
-  muted: { opacity: 0.65, fontSize: 14 },
-  noteBtn: {
-    marginTop: 14,
-    alignSelf: "flex-start",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(37,99,235,0.12)",
-  },
-  noteBtnText: { color: "#1d4ed8", fontWeight: "700" },
-  orderRow: {
-    marginTop: 10,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(120,120,128,0.08)",
-  },
-  activityRow: {
-    marginTop: 8,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(120,120,128,0.06)",
-  },
-  activityMeta: { fontSize: 12, opacity: 0.6 },
-  activityBody: { marginTop: 4, lineHeight: 20 },
-  backBtn: {
-    marginTop: 28,
-    alignSelf: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  backBtnText: { color: "#2563eb", fontWeight: "600" },
+  scroll: { paddingTop: 8, gap: 4 },
 });

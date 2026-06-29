@@ -3,19 +3,24 @@ import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { Card } from "@/components/ui/Card";
+import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
+import { Screen } from "@/components/ui/Screen";
+import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
+import { useTheme } from "@/lib/design/theme-context";
 import { gpsVerificationLabel } from "@/lib/labels";
+import { t } from "@/lib/i18n";
 
 type BreakdownRow = {
   id: string;
@@ -48,6 +53,7 @@ export default function FuelDayScreen() {
     typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : formatFallback();
   const { token } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
   const [data, setData] = useState<FuelDayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
@@ -68,7 +74,7 @@ export default function FuelDayScreen() {
       setData(r);
       setNote(r.report.managerNote ?? "");
     } catch (e) {
-      Alert.alert("Ошибка", String(e));
+      Alert.alert(t("common.error"), String(e));
     } finally {
       setLoading(false);
     }
@@ -90,7 +96,7 @@ export default function FuelDayScreen() {
       });
       await reload();
     } catch (e) {
-      Alert.alert("Ошибка", String(e));
+      Alert.alert(t("common.error"), String(e));
     } finally {
       setBusy(false);
     }
@@ -109,9 +115,9 @@ export default function FuelDayScreen() {
         }),
       });
       await reload();
-      Alert.alert("", "Отчёт отправлен");
+      Alert.alert(t("common.done"), t("fuel.reportSubmitted"));
     } catch (e) {
-      Alert.alert("Ошибка", String(e));
+      Alert.alert(t("common.error"), String(e));
     } finally {
       setBusy(false);
     }
@@ -120,142 +126,122 @@ export default function FuelDayScreen() {
   const r = data?.report;
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.scroll}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} />}>
-      <Text style={styles.h1}>{date}</Text>
-      <Text style={styles.hint}>К оплате — по завершённым визитам; план — для сравнения.</Text>
+    <Screen contentStyle={styles.flex}>
+      <KeyboardAwareScrollView
+        refreshControl={
+          <RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />
+        }>
+        <AppHeader title={date} subtitle={t("fuel.dayHint")} large={false} />
 
-      {loading && !data ? <ActivityIndicator /> : null}
+        {loading && !data ? <ActivityIndicator color={theme.colors.primary} /> : null}
 
-      {r ? (
-        <>
-          <View style={styles.cards}>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>Факт</Text>
-              <Text style={styles.cardValue}>{r.actualKm ?? "—"} км</Text>
-              <Text style={styles.muted}>{r.litersEstimated ?? "—"} л</Text>
+        {r ? (
+          <>
+            <View style={styles.cards}>
+              <Card style={styles.metricCard}>
+                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.fact")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4 }]}>
+                  {r.actualKm ?? "—"} {t("common.km")}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                  {r.litersEstimated ?? "—"} л
+                </Text>
+              </Card>
+              <Card style={styles.metricCard}>
+                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.plan")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4 }]}>
+                  {r.plannedKm ?? "—"} {t("common.km")}
+                </Text>
+              </Card>
+              <Card style={[styles.metricCard, { backgroundColor: theme.colors.primaryMuted, borderColor: theme.colors.primary }]}>
+                <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{t("fuel.amount")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4, color: theme.colors.primaryText }]}>
+                  {r.amountEstimated != null
+                    ? `${Number(r.amountEstimated)} ${t("common.currency")}`
+                    : "—"}
+                </Text>
+              </Card>
             </View>
-            <View style={styles.card}>
-              <Text style={styles.cardLabel}>План</Text>
-              <Text style={styles.cardValue}>{r.plannedKm ?? "—"} км</Text>
-            </View>
-            <View style={[styles.card, styles.cardAccent]}>
-              <Text style={styles.cardLabel}>Сумма</Text>
-              <Text style={styles.cardValue}>
-                {r.amountEstimated != null ? `${Number(r.amountEstimated)} грн` : "—"}
+
+            {(data?.warnings ?? []).includes("insufficient_completed_visits") ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginBottom: 12 }]}>
+                {t("fuel.insufficientVisits")}
               </Text>
-            </View>
-          </View>
+            ) : null}
 
-          {(data?.warnings ?? []).includes("insufficient_completed_visits") ? (
-            <Text style={styles.warn}>
-              Завершите минимум 2 визита с адресом на карте — тогда посчитаем пробег.
-            </Text>
-          ) : null}
+            {r.compensationStatus === "DRAFT" ? (
+              <>
+                <TextField
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder={t("fuel.notePlaceholder")}
+                  multiline
+                  style={{ minHeight: 60 }}
+                />
+                <AppButton
+                  label={t("fuel.submit")}
+                  onPress={() => void submit()}
+                  disabled={busy || r.compensationKm == null}
+                  loading={busy}
+                  style={{ marginBottom: theme.spacing.sm }}
+                />
+              </>
+            ) : null}
 
-          {r.compensationStatus === "DRAFT" ? (
-            <>
-              <TextInput
-                value={note}
-                onChangeText={setNote}
-                placeholder="Примечание (необязательно)"
-                style={styles.input}
-                multiline
-              />
-              <Pressable
-                style={[styles.btn, busy && styles.btnDisabled]}
-                disabled={busy || r.compensationKm == null}
-                onPress={() => void submit()}>
-                <Text style={styles.btnTxt}>Отправить</Text>
-              </Pressable>
-            </>
-          ) : null}
+            <AppButton
+              label={t("fuel.recalculate")}
+              onPress={() => void recalc()}
+              disabled={busy}
+              loading={busy}
+              variant="secondary"
+              style={{ marginBottom: theme.spacing.md }}
+            />
 
-          <Pressable
-            style={[styles.btnGhost, busy && styles.btnDisabled]}
-            disabled={busy}
-            onPress={() => void recalc()}>
-            <Text style={{ fontWeight: "600" }}>Пересчитать</Text>
-          </Pressable>
+            <Text style={[theme.typography.section, { marginBottom: theme.spacing.sm }]}>{t("fuel.routeFact")}</Text>
+            {(data?.breakdown ?? []).map((v, i) => (
+              <Card key={v.id} style={{ marginBottom: theme.spacing.sm }}>
+                <View style={styles.visitRow}>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, width: 20 }]}>
+                    {i + 1}.
+                  </Text>
+                  <View style={styles.flex}>
+                    <Text style={theme.typography.bodyMedium}>{v.title || t("fuel.visitFallback")}</Text>
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                      {!v.hasCoordinates ? t("fuel.noMapPoint") : ""}
+                      {v.includedInRoute ? t("fuel.inPlan") : t("fuel.outOfPlan")}
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                      {gpsVerificationLabel(v.completeGpsVerification) ||
+                        gpsVerificationLabel(v.startGpsVerification) ||
+                        "GPS —"}
+                    </Text>
+                  </View>
+                </View>
+              </Card>
+            ))}
 
-          <Text style={styles.section}>Маршрут по факту</Text>
-          {(data?.breakdown ?? []).map((v, i) => (
-            <View key={v.id} style={styles.visitRow}>
-              <Text style={styles.visitIdx}>{i + 1}.</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.visitTitle}>{v.title || "Визит"}</Text>
-                <Text style={styles.muted}>
-                  {!v.hasCoordinates ? "Нет точки на карте · " : ""}
-                  {v.includedInRoute ? "в плане" : "вне плана"}
-                </Text>
-                <Text style={styles.muted}>
-                  {gpsVerificationLabel(v.completeGpsVerification) ||
-                    gpsVerificationLabel(v.startGpsVerification) ||
-                    "GPS —"}
-                </Text>
-              </View>
-            </View>
-          ))}
+            {data?.factMetrics.source ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                {t("fuel.kmSource", { source: data.factMetrics.source })}
+              </Text>
+            ) : null}
+          </>
+        ) : null}
 
-          {data?.factMetrics.source ? (
-            <Text style={styles.muted}>Источник км: {data.factMetrics.source}</Text>
-          ) : null}
-        </>
-      ) : null}
-
-      <Pressable style={{ marginTop: 16 }} onPress={() => router.back()}>
-        <Text style={{ color: "#2563eb", fontWeight: "600" }}>← К месяцу</Text>
-      </Pressable>
-    </ScrollView>
+        <AppButton
+          label={t("fuel.backToMonth")}
+          onPress={() => router.back()}
+          variant="ghost"
+          style={{ marginTop: theme.spacing.lg, alignSelf: "flex-start" }}
+        />
+      </KeyboardAwareScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 40 },
-  h1: { fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  hint: { fontSize: 13, opacity: 0.75, marginBottom: 16 },
+  flex: { flex: 1 },
   cards: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  card: {
-    flex: 1,
-    minWidth: 100,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  cardAccent: { backgroundColor: "rgba(37,99,235,0.08)", borderColor: "#93c5fd" },
-  cardLabel: { fontSize: 11, opacity: 0.7, textTransform: "uppercase" },
-  cardValue: { fontSize: 18, fontWeight: "700", marginTop: 4 },
-  muted: { fontSize: 12, opacity: 0.7, marginTop: 2 },
-  warn: { color: "#b45309", fontSize: 13, marginBottom: 12 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#bbb",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    minHeight: 60,
-  },
-  btn: {
-    backgroundColor: "#2563eb",
-    padding: 14,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  btnGhost: {
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#bbb",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  btnDisabled: { opacity: 0.5 },
-  btnTxt: { color: "#fff", fontWeight: "600" },
-  section: { fontWeight: "700", fontSize: 16, marginBottom: 8 },
-  visitRow: { flexDirection: "row", gap: 8, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#ccc" },
-  visitIdx: { width: 20, opacity: 0.5 },
-  visitTitle: { fontWeight: "600" },
+  metricCard: { flex: 1, minWidth: 100 },
+  visitRow: { flexDirection: "row", gap: 8 },
 });

@@ -132,6 +132,11 @@ enum VisitGpsEventKind {
   COMPLETE
 }
 
+enum ClientPlatform {
+  WEB
+  MOBILE
+}
+
 enum FieldShiftStatus {
   ACTIVE
   ENDED
@@ -546,6 +551,7 @@ model User {
   dayPlanOverride            UserDayPlanOverride?
   dayPlanOverridesUpdated    UserDayPlanOverride[] @relation("UserDayPlanOverrideUpdatedBy")
   dailyWorkPlans             DailyWorkPlan[]
+  activitySessions           UserActivitySession[]
 
   /**
    * LEAD: копія складських/замовлень сповіщень по команді (фаза 2).
@@ -1054,6 +1060,31 @@ model DailyWorkPlanItem {
 }
 
 /// Рабочая смена (политика GPS и группировка трековых точек).
+model UserActivitySession {
+  id            String         @id @default(cuid())
+  userId        String
+  platform      ClientPlatform
+  ip            String?
+  userAgent     String?
+  ipCity        String?
+  ipRegion      String?
+  ipCountry     String?
+  lat           Float?
+  lng           Float?
+  startedAt     DateTime       @default(now())
+  lastSeenAt    DateTime       @default(now())
+  activeSeconds Int            @default(0)
+  appState      String?
+  trackingMode  String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lastSeenAt])
+  @@index([userId, startedAt])
+}
+
 model FieldShift {
   id                  String           @id @default(cuid())
   ownerId             String

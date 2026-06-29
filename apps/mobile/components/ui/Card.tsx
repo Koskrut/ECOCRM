@@ -1,35 +1,54 @@
 import React from "react";
 import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
-import { colors, radius, spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+type Variant = "default" | "glass" | "elevated";
 
 type Props = {
   children: React.ReactNode;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
+  variant?: Variant;
 };
 
-export function Card({ children, onPress, style }: Props) {
+export function Card({ children, onPress, style, variant = "default" }: Props) {
+  const theme = useTheme();
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const cardStyle: ViewStyle = {
+    backgroundColor:
+      variant === "glass" ? theme.colors.surfaceGlass : theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: theme.colors.border,
+    ...(variant === "elevated" ? theme.elevation.md : {}),
+  };
+
   if (onPress) {
     return (
-      <Pressable
+      <AnimatedPressable
         onPress={onPress}
         accessibilityRole="button"
-        style={({ pressed }) => [styles.card, pressed && styles.pressed, style]}>
+        onPressIn={() => {
+          scale.value = withSpring(0.98, { damping: 18, stiffness: 320 });
+        }}
+        onPressOut={() => {
+          scale.value = withSpring(1, { damping: 18, stiffness: 320 });
+        }}
+        style={[animatedStyle, cardStyle, style]}>
         {children}
-      </Pressable>
+      </AnimatedPressable>
     );
   }
-  return <View style={[styles.card, style]}>{children}</View>;
-}
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  pressed: { opacity: 0.82 },
-});
+  return <View style={[cardStyle, style]}>{children}</View>;
+}

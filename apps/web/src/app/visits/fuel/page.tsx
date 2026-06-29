@@ -51,6 +51,9 @@ function warningText(code: string): string | null {
   if (code === "gps_track_unavailable") {
     return "GPS-трек відсутній — для виплати використано факт по завершених візитах.";
   }
+  if (code === "report_stale") {
+    return "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».";
+  }
   return null;
 }
 

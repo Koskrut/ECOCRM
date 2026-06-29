@@ -1,51 +1,32 @@
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
 
-import { Text } from "@/components/Themed";
-import { colors, radius, spacing } from "@/lib/design/tokens";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { t } from "@/lib/i18n";
 
 export type WorkSegment = "orders" | "calls" | "catalog";
-
-const LABELS: Record<WorkSegment, string> = {
-  orders: "Замовлення",
-  calls: "Дзвінки",
-  catalog: "Каталог",
-};
 
 type Props = {
   value: WorkSegment;
   onChange: (v: WorkSegment) => void;
   showCalls?: boolean;
+  badges?: Partial<Record<WorkSegment, number>>;
 };
 
-export function WorkSegmentControl({ value, onChange, showCalls = true }: Props) {
-  const segments = (["orders", "calls", "catalog"] as WorkSegment[]).filter(
-    (s) => s !== "calls" || showCalls,
-  );
+export function WorkSegmentControl({ value, onChange, showCalls = true, badges }: Props) {
+  const callsCount = badges?.calls ?? 0;
 
-  return (
-    <View style={styles.row}>
-      {segments.map((seg) => (
-        <Pressable
-          key={seg}
-          onPress={() => onChange(seg)}
-          style={[styles.chip, value === seg && styles.chipOn]}>
-          <Text style={[styles.text, value === seg && styles.textOn]}>{LABELS[seg]}</Text>
-        </Pressable>
-      ))}
-    </View>
-  );
+  const options = (
+    [
+      { value: "orders" as const, label: t("work.orders") },
+      showCalls
+        ? {
+            value: "calls" as const,
+            label: callsCount > 0 ? `${t("work.calls")} (${callsCount})` : t("work.calls"),
+          }
+        : null,
+      { value: "catalog" as const, label: t("work.catalog") },
+    ] as const
+  ).filter(Boolean) as { value: WorkSegment; label: string }[];
+
+  return <SegmentedControl options={options} value={value} onChange={onChange} />;
 }
-
-const styles = StyleSheet.create({
-  row: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md, flexWrap: "wrap" },
-  chip: {
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.chip,
-  },
-  chipOn: { backgroundColor: colors.chipOn },
-  text: { fontSize: 14, opacity: 0.75 },
-  textOn: { fontWeight: "700", opacity: 1, color: colors.primaryText },
-});

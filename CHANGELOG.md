@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.93**.)_
+_(планируемые изменения после **0.2.94**.)_
+
+## [0.2.94] — 2026-05-20
+
+### Summary
+
+Патч **0.2.94**: **presence / monitoring** (сессии активности web+mobile), фильтрация GPS-трека, статусы полевой команды, доработки fuel, крупный mobile UI refresh, companies/visit geofence.
+
+### Added
+
+- **Presence**: `UserActivitySession`, миграции **`20260626120000_user_activity_session`**, **`20260629120000_user_activity_session_app_state`**; API **`POST /presence/heartbeat`**, **`GET /presence/overview`**; web **`/monitoring`**.
+- **GPS filter**: `filterGpsSample` / `filterGpsTrack` (backend + mobile) — отсев телепортов и дублей.
+- **Field team status**: GPS stale/ok/none + app presence (`ACTIVE`/`BACKGROUND`) на карте команды.
+- **Mobile**: design system (AppButton, Screen, BottomSheet, …), companies, visit geofence, presence heartbeat, adaptive location tracking, visit schedule.
+- **Web**: API proxy presence, **`/products/stock/create-missing`**, fuel/visits team UX.
+
+### Changed
+
+- **Field fuel**: пересчёт и approval flow.
+- **Orders**: видимость store-pool через **`STORE_OWNER_ID`** (не все store-заказы).
+- **Products**: stock upload / SKU normalizer.
+- **Payments**, **catalog**, sidebar nav.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.94`**.
+- **Миграции:** **`20260626120000_user_activity_session`**, **`20260629120000_user_activity_session_app_state`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
 
 ## [0.2.93] — 2026-05-20
 

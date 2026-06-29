@@ -141,6 +141,47 @@ function getSuggestedAmountUah(order: OrderOption): string {
   return uah > 0 ? uah.toFixed(2) : "";
 }
 
+type SplitRow = { orderId: string; orderNumber: string; amount: string };
+
+function buildSplitRowsFromOrders(orders: OrderOption[], totalAmount: number): SplitRow[] {
+  const sorted = [...orders].sort(
+    (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
+  );
+  const totalDebt = sorted.reduce(
+    (s, o) => s + (Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0),
+    0,
+  );
+  let rows: SplitRow[];
+  if (totalDebt > 0) {
+    let remaining = totalAmount;
+    rows = sorted.map((o) => {
+      const debt = Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0;
+      const amount = Math.min(remaining, debt);
+      remaining -= amount;
+      return {
+        orderId: o.id,
+        orderNumber: o.orderNumber ?? o.id,
+        amount: amount.toFixed(2),
+      };
+    });
+    if (remaining > 0.01 && rows.length > 0) {
+      rows[rows.length - 1]!.amount = (
+        parseFloat(rows[rows.length - 1]!.amount) + remaining
+      ).toFixed(2);
+    }
+  } else {
+    const perOrder = totalAmount / sorted.length;
+    rows = sorted.map((o, i) => ({
+      orderId: o.id,
+      orderNumber: o.orderNumber ?? o.id,
+      amount: (
+        i === sorted.length - 1 ? totalAmount - perOrder * (sorted.length - 1) : perOrder
+      ).toFixed(2),
+    }));
+  }
+  return rows.filter((r) => parseFloat(r.amount) > 0);
+}
+
 export default function PaymentsPage() {
   return (
     <Suspense fallback={<div>{t.common.loading}</div>}>
@@ -248,6 +289,10 @@ function PaymentsContent() {
   const [splitSubmitting, setSplitSubmitting] = useState(false);
   const [bankSyncLoading, setBankSyncLoading] = useState(false);
   const [splitContactId, setSplitContactId] = useState<string | null>(null);
+  const [splitContactName, setSplitContactName] = useState("");
+  const [splitContactSearch, setSplitContactSearch] = useState("");
+  const [splitContacts, setSplitContacts] = useState<ContactOption[]>([]);
+  const [splitContactsLoading, setSplitContactsLoading] = useState(false);
   const [splitClientOrders, setSplitClientOrders] = useState<OrderOption[]>([]);
   const [splitClientOrdersLoading, setSplitClientOrdersLoading] = useState(false);
   const defaultFopAppliedRef = useRef(false);
@@ -812,6 +857,38 @@ function PaymentsContent() {
     }
   }, []);
 
+  const resetSplitContactState = useCallback(() => {
+    setSplitContactId(null);
+    setSplitContactName("");
+    setSplitContactSearch("");
+    setSplitContacts([]);
+    setSplitClientOrders([]);
+  }, []);
+
+  const searchContactsForSplit = useCallback(async (q: string) => {
+    const term = q.trim();
+    if (term.length < 3) {
+      setSplitContacts([]);
+      return;
+    }
+    setSplitContactsLoading(true);
+    try {
+      const r = await apiHttp.get<{ items: ContactOption[] }>(
+        `/contacts?page=1&pageSize=50&q=${encodeURIComponent(term)}`,
+      );
+      setSplitContacts(r.data?.items ?? []);
+    } catch {
+      setSplitContacts([]);
+    } finally {
+      setSplitContactsLoading(false);
+    }
+  }, []);
+
+  const splitContactCandidates = useMemo(
+    () => (splitContactSearch.trim().length >= 3 ? splitContacts.slice(0, 15) : []),
+    [splitContacts, splitContactSearch],
+  );
+
   const searchOrdersForSplit = useCallback(async (q: string) => {
     if (!q.trim()) {
       setSplitOrderCandidates([]);
@@ -842,6 +919,17 @@ function PaymentsContent() {
     const t = setTimeout(() => void searchOrdersForSplit(splitOrderSearch), 300);
     return () => clearTimeout(t);
   }, [splitTx, splitFromEditPayment, splitOrderSearch, searchOrdersForSplit]);
+
+  useEffect(() => {
+    if (!splitTx && !splitFromEditPayment) return;
+    const q = splitContactSearch.trim();
+    if (q.length < 3 || splitContactId) {
+      setSplitContacts([]);
+      return;
+    }
+    const timer = setTimeout(() => void searchContactsForSplit(splitContactSearch), 300);
+    return () => clearTimeout(timer);
+  }, [splitTx, splitFromEditPayment, splitContactSearch, splitContactId, searchContactsForSplit]);
 
   const closeAllocateModal = useCallback(() => {
     setAllocateTxId(null);
@@ -879,6 +967,23 @@ function PaymentsContent() {
     : splitTx?.amount ?? 0;
   const splitCurrency = splitFromEditPayment?.currency ?? splitTx?.currency ?? "";
 
+  const pickSplitOrders = useCallback(() => {
+    const unpaid = splitClientOrders.filter((o) => Number(o.debtAmount ?? 0) > 0);
+    if (unpaid.length === 0) {
+      pushToast(t.payments.noUnpaidOrders, "error");
+      return;
+    }
+    const rows = buildSplitRowsFromOrders(unpaid, splitTotalAmount);
+    if (rows.length === 0) {
+      pushToast(t.payments.errors.noAmountsSplit, "error");
+      return;
+    }
+    setSplitRows(rows);
+    setSplitOrderForRowIndex(null);
+    setSplitOrderSearch("");
+    setSplitOrderCandidates([]);
+  }, [splitClientOrders, splitTotalAmount, pushToast]);
+
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
     if (valid.length === 0) {
@@ -908,16 +1013,14 @@ function PaymentsContent() {
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
         setSplitFromEditPayment(null);
-        setSplitContactId(null);
-        setSplitClientOrders([]);
+        resetSplitContactState();
       } else if (splitTx) {
         await apiHttp.post("/payments/allocate-split", {
           transactionId: splitTx.id,
           allocations: valid.map((r, i) => ({ orderId: r.orderId, amount: amounts[i] })),
         });
         setSplitTx(null);
-        setSplitContactId(null);
-        setSplitClientOrders([]);
+        resetSplitContactState();
         await fetchUnmatched();
         setViewWithUrl("payments");
       }
@@ -1481,8 +1584,7 @@ function PaymentsContent() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSplitContactId(null);
-                                  setSplitClientOrders([]);
+                                  resetSplitContactState();
                                   setSplitTx(tx);
                                   setSplitRows([
                                     { orderId: "", orderNumber: "", amount: "" },
@@ -1641,8 +1743,7 @@ function PaymentsContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            setSplitContactId(null);
-                            setSplitClientOrders([]);
+                            resetSplitContactState();
                             setSplitTx(tx);
                             setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
                             setSplitOrderSearch("");
@@ -2075,10 +2176,11 @@ function PaymentsContent() {
                     setSplitOrderForRowIndex(null);
                     if (cid) {
                       setSplitContactId(cid);
+                      setSplitContactName(allocateContactName);
+                      setSplitContactSearch("");
                       void loadSplitClientOrders(cid);
                     } else {
-                      setSplitContactId(null);
-                      setSplitClientOrders([]);
+                      resetSplitContactState();
                     }
                   }
                   closeAllocateModal();
@@ -2122,6 +2224,86 @@ function PaymentsContent() {
                 splitCurrency,
               )}
             </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500">{t.payments.contact}</label>
+                <input
+                  type="text"
+                  value={splitContactId ? splitContactName : splitContactSearch}
+                  onChange={(e) => {
+                    if (splitContactId) {
+                      resetSplitContactState();
+                      setSplitContactSearch(e.target.value);
+                    } else {
+                      setSplitContactSearch(e.target.value);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (splitContactId) {
+                      const name = splitContactName;
+                      resetSplitContactState();
+                      setSplitContactSearch(name);
+                    }
+                  }}
+                  placeholder={t.payments.contactSearchPlaceholder}
+                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                />
+                {splitContactSearch.trim().length >= 3 && splitContactsLoading && (
+                  <p className="mt-1 text-xs text-zinc-500">{t.payments.searching}</p>
+                )}
+                {splitContactCandidates.length > 0 && !splitContactId && (
+                  <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
+                    {splitContactCandidates.map((c) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSplitContactId(c.id);
+                            setSplitContactName(
+                              [c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone,
+                            );
+                            setSplitContactSearch("");
+                            void loadSplitClientOrders(c.id);
+                          }}
+                          className="w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100"
+                        >
+                          {[c.lastName, c.firstName].filter(Boolean).join(" ")}{" "}
+                          {c.phone ? `· ${formatPhoneDisplay(c.phone)}` : ""}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {splitContactId && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {splitClientOrdersLoading ? (
+                      <p className="text-xs text-zinc-500">{t.payments.loadingClientOrders}</p>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={pickSplitOrders}
+                          disabled={
+                            splitClientOrders.filter((o) => Number(o.debtAmount ?? 0) > 0).length ===
+                            0
+                          }
+                          className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                        >
+                          {t.payments.pickOrders}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetSplitContactState}
+                          className="text-xs text-zinc-500 underline hover:text-zinc-700"
+                        >
+                          {t.payments.changeContact}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="mt-4 space-y-3">
               {splitRows.map((row, idx) => (
                 <div key={idx} className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 p-2">
@@ -2279,8 +2461,7 @@ function PaymentsContent() {
                   setSplitFromEditPayment(null);
                   setSplitRows([]);
                   setSplitOrderForRowIndex(null);
-                  setSplitContactId(null);
-                  setSplitClientOrders([]);
+                  resetSplitContactState();
                 }}
                 disabled={splitSubmitting}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
@@ -2422,54 +2603,7 @@ function PaymentsContent() {
                             type="button"
                             disabled={savingPayment}
                             onClick={async () => {
-                              const total = editPayment.amount;
-                              const orders = [...editContactOrders] as (OrderOption & {
-                                debtAmount?: number;
-                              })[];
-                              const byDate = (
-                                a: { createdAt?: string },
-                                b: { createdAt?: string },
-                              ) =>
-                                new Date(a.createdAt ?? 0).getTime() -
-                                new Date(b.createdAt ?? 0).getTime();
-                              orders.sort(byDate);
-                              const totalDebt = orders.reduce(
-                                (s, o) =>
-                                  s + (Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0),
-                                0,
-                              );
-                              let rows: { orderId: string; orderNumber: string; amount: string }[];
-                              if (totalDebt > 0) {
-                                let remaining = total;
-                                rows = orders.map((o) => {
-                                  const debt =
-                                    Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0;
-                                  const amount = Math.min(remaining, debt);
-                                  remaining -= amount;
-                                  return {
-                                    orderId: o.id,
-                                    orderNumber: o.orderNumber ?? o.id,
-                                    amount: amount.toFixed(2),
-                                  };
-                                });
-                                if (remaining > 0.01 && rows.length > 0) {
-                                  rows[rows.length - 1]!.amount = (
-                                    parseFloat(rows[rows.length - 1]!.amount) + remaining
-                                  ).toFixed(2);
-                                }
-                              } else {
-                                const perOrder = total / orders.length;
-                                rows = orders.map((o, i) => ({
-                                  orderId: o.id,
-                                  orderNumber: o.orderNumber ?? o.id,
-                                  amount: (
-                                    i === orders.length - 1
-                                      ? total - perOrder * (orders.length - 1)
-                                      : perOrder
-                                  ).toFixed(2),
-                                }));
-                              }
-                              const valid = rows.filter((r) => parseFloat(r.amount) > 0);
+                              const valid = buildSplitRowsFromOrders(editContactOrders, editPayment.amount);
                               if (valid.length === 0) {
                                 pushToast(t.payments.errors.noAmountsSplit, "error");
                                 return;

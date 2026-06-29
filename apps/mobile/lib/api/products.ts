@@ -1,13 +1,7 @@
 import { apiFetch } from "@/lib/api";
+import type { Product } from "@/types/crm";
 
-export type Product = {
-  id: string;
-  sku?: string | null;
-  name?: string | null;
-  unit?: string | null;
-  basePrice?: number | null;
-  totalStock?: number | null;
-};
+export type { Product };
 
 export type ListProductsResponse = {
   items: Product[];

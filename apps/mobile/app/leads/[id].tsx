@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,15 +10,19 @@ import {
 } from "react-native";
 
 import { EntityActionBar } from "@/components/EntityActionBar";
-import { PrimaryButton } from "@/components/ui/PrimaryButton";
-import { StatusPill } from "@/components/ui/StatusPill";
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { Card } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
+import { Screen } from "@/components/ui/Screen";
+import { SectionTitle } from "@/components/ui/SectionTitle";
+import { StatusPill } from "@/components/ui/StatusPill";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { leadsApi, type Lead } from "@/lib/api/leads";
 import { manualCallingApi } from "@/lib/api/manual-calling";
 import { formatLocalDateKey } from "@/lib/date";
-import { spacing } from "@/lib/design/tokens";
+import { useTheme } from "@/lib/design/theme-context";
 import { leadStatusLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
 
@@ -27,6 +30,7 @@ const STATUSES = ["NEW", "IN_PROGRESS", "WON", "NOT_TARGET", "LOST", "SPAM"] as 
 
 export default function LeadDetailScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const leadId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
@@ -70,7 +74,7 @@ export default function LeadDetailScreen() {
     setBusy(true);
     try {
       const res = await leadsApi.convert(token, lead.id, { contactMode: "create" });
-      Alert.alert(t("common.done"), "Лід конвертовано", [
+      Alert.alert(t("common.done"), t("leads.converted"), [
         {
           text: t("common.ok"),
           onPress: () => {
@@ -99,10 +103,14 @@ export default function LeadDetailScreen() {
 
   if (loading || !lead) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 12 }}>{t("common.loading")}</Text>
-      </View>
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.primary} />
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
+            {t("common.loading")}
+          </Text>
+        </View>
+      </Screen>
     );
   }
 
@@ -110,83 +118,91 @@ export default function LeadDetailScreen() {
     lead.name ?? [lead.firstName, lead.lastName].filter(Boolean).join(" ") ?? lead.phone ?? "—";
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.scroll}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>{name}</Text>
-        <StatusPill label={leadStatusLabel(lead.status)} tone="info" />
-      </View>
+    <Screen padded={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl },
+        ]}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+        <View style={styles.titleRow}>
+          <Text style={[theme.typography.title, styles.title]}>{name}</Text>
+          <StatusPill label={leadStatusLabel(lead.status)} tone="info" />
+        </View>
 
-      {token ? (
-        <EntityActionBar
-          token={token}
-          date={dateKey}
-          phone={lead.phone}
-          leadId={lead.id}
-          compact
+        {token ? (
+          <EntityActionBar
+            token={token}
+            date={dateKey}
+            phone={lead.phone}
+            leadId={lead.id}
+            compact
+          />
+        ) : null}
+
+        {lead.phone ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+            {lead.phone}
+          </Text>
+        ) : null}
+        {lead.email ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+            {lead.email}
+          </Text>
+        ) : null}
+        {lead.companyName ? (
+          <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
+            {lead.companyName}
+          </Text>
+        ) : null}
+        {lead.message ? (
+          <Card style={{ marginTop: theme.spacing.md }}>
+            <Text style={theme.typography.body}>{lead.message}</Text>
+          </Card>
+        ) : null}
+        {lead.comment ? (
+          <Card style={{ marginTop: theme.spacing.md }}>
+            <Text style={theme.typography.body}>{lead.comment}</Text>
+          </Card>
+        ) : null}
+
+        <SectionTitle title={t("leads.changeStatus")} />
+        <View style={styles.chips}>
+          {STATUSES.map((s) => (
+            <Chip
+              key={s}
+              label={leadStatusLabel(s)}
+              selected={lead.status === s}
+              onPress={busy ? undefined : () => void onStatus(s)}
+            />
+          ))}
+        </View>
+
+        <AppButton
+          label={t("leads.convert")}
+          onPress={() => void onConvert()}
+          loading={busy}
+          fullWidth
+          style={{ marginTop: theme.spacing.lg }}
         />
-      ) : null}
-
-      {lead.phone ? <Text style={styles.field}>{lead.phone}</Text> : null}
-      {lead.email ? <Text style={styles.field}>{lead.email}</Text> : null}
-      {lead.companyName ? <Text style={styles.field}>{lead.companyName}</Text> : null}
-      {lead.message ? <Text style={styles.box}>{lead.message}</Text> : null}
-      {lead.comment ? <Text style={styles.box}>{lead.comment}</Text> : null}
-
-      <Text style={styles.section}>{t("leads.changeStatus")}</Text>
-      <View style={styles.chips}>
-        {STATUSES.map((s) => (
-          <Pressable
-            key={s}
-            disabled={busy}
-            onPress={() => void onStatus(s)}
-            style={[styles.chip, lead.status === s && styles.chipOn]}
-            accessibilityRole="button">
-            <Text>{leadStatusLabel(s)}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <PrimaryButton
-        label={t("leads.convert")}
-        onPress={() => void onConvert()}
-        loading={busy}
-        style={{ marginTop: spacing.lg }}
-      />
-      {manualCallingEnabled ? (
-        <PrimaryButton
-          label={t("leads.enqueue")}
-          onPress={() => void onEnqueue()}
-          variant="secondary"
-          style={{ marginTop: spacing.sm }}
-        />
-      ) : null}
-    </ScrollView>
+        {manualCallingEnabled ? (
+          <AppButton
+            label={t("leads.enqueue")}
+            onPress={() => void onEnqueue()}
+            variant="secondary"
+            fullWidth
+            style={{ marginTop: theme.spacing.sm }}
+          />
+        ) : null}
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  scroll: { padding: spacing.lg, paddingBottom: 48 },
+  scroll: { paddingTop: 8 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  title: { fontSize: 22, fontWeight: "700", flex: 1 },
-  field: { marginTop: 8, fontSize: 15, opacity: 0.85 },
-  box: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(120,120,128,0.08)",
-    lineHeight: 20,
-  },
-  section: { fontWeight: "700", fontSize: 16, marginTop: spacing.xl },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: spacing.sm },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#ccc",
-  },
-  chipOn: { backgroundColor: "#dbeafe", borderColor: "#2563eb" },
+  title: { flex: 1 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
 });

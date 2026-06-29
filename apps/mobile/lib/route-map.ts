@@ -1,5 +1,10 @@
 export type LatLng = { lat: number; lng: number };
 
+export type RouteWaypoint = LatLng & {
+  label?: string | null;
+  visitId?: string | null;
+};
+
 export function isValidLatLng(p: LatLng | null | undefined): p is LatLng {
   if (!p || typeof p !== "object") return false;
   const { lat, lng } = p;
@@ -22,6 +27,17 @@ export function normalizeRoutePoint(raw: unknown): LatLng | null {
   return isValidLatLng({ lat, lng }) ? { lat, lng } : null;
 }
 
+export function normalizeWaypoint(raw: unknown): RouteWaypoint | null {
+  const pt = normalizeRoutePoint(raw);
+  if (!pt) return null;
+  const o = raw as Record<string, unknown>;
+  return {
+    ...pt,
+    label: typeof o.label === "string" && o.label.trim() ? o.label.trim() : null,
+    visitId: typeof o.visitId === "string" && o.visitId ? o.visitId : null,
+  };
+}
+
 /** Drop invalid / duplicate coordinates before map rendering. */
 export function sanitizePath(path?: unknown[] | null): LatLng[] {
   if (!Array.isArray(path)) return [];
@@ -32,6 +48,19 @@ export function sanitizePath(path?: unknown[] | null): LatLng[] {
     const last = out[out.length - 1];
     if (last && last.lat === p.lat && last.lng === p.lng) continue;
     out.push(p);
+  }
+  return out;
+}
+
+export function sanitizeWaypoints(waypoints?: unknown[] | null): RouteWaypoint[] {
+  if (!Array.isArray(waypoints)) return [];
+  const out: RouteWaypoint[] = [];
+  for (const raw of waypoints) {
+    const wp = normalizeWaypoint(raw);
+    if (!wp) continue;
+    const last = out[out.length - 1];
+    if (last && last.lat === wp.lat && last.lng === wp.lng) continue;
+    out.push(wp);
   }
   return out;
 }
@@ -51,8 +80,9 @@ export type RouteGeometryResult = {
   kind: string;
   source: string;
   distanceKm: number | null;
+  durationMin: number | null;
   path: LatLng[];
-  waypoints?: Array<{ lat?: number; lng?: number; latitude?: number; longitude?: number }>;
+  waypoints: RouteWaypoint[];
   quality?: {
     sampleCount: number;
     coverageRatio: number | null;
@@ -73,6 +103,7 @@ const EMPTY_GEOMETRY: RouteGeometryResult = {
   kind: "none",
   source: "none",
   distanceKm: null,
+  durationMin: null,
   path: [],
   waypoints: [],
   quality: {
@@ -87,15 +118,17 @@ function normalizeGeometry(raw: unknown, kind: string): RouteGeometryResult {
   if (!raw || typeof raw !== "object") {
     return { ...EMPTY_GEOMETRY, kind };
   }
-  const g = raw as RouteGeometryResult;
-  const waypointPath = sanitizePath(g.waypoints ?? []);
+  const g = raw as Partial<RouteGeometryResult> & { waypoints?: unknown[] };
+  const labeledWaypoints = sanitizeWaypoints(g.waypoints ?? []);
+  const waypointPath = labeledWaypoints.map(({ lat, lng }) => ({ lat, lng }));
   const path = sanitizePath(g.path);
   return {
     kind: g.kind ?? kind,
     source: g.source ?? "none",
     distanceKm: typeof g.distanceKm === "number" ? g.distanceKm : null,
+    durationMin: typeof g.durationMin === "number" ? g.durationMin : null,
     path: path.length >= 2 ? path : waypointPath,
-    waypoints: waypointPath,
+    waypoints: labeledWaypoints,
     quality: g.quality ?? EMPTY_GEOMETRY.quality,
   };
 }
@@ -119,19 +152,30 @@ export function layerPath(geometry: RouteGeometryResult | null | undefined): Lat
   if (!geometry) return [];
   const path = sanitizePath(geometry.path);
   if (path.length >= 2) return path;
-  return sanitizePath(geometry.waypoints ?? []);
+  return geometry.waypoints.map(({ lat, lng }) => ({ lat, lng }));
+}
+
+export function layerWaypoints(geometry: RouteGeometryResult | null | undefined): RouteWaypoint[] {
+  if (!geometry) return [];
+  return sanitizeWaypoints(geometry.waypoints);
 }
 
 /** Google Static Maps path (max URL length — keep points sparse). */
 export function buildStaticMapUrl(opts: {
   apiKey: string;
   paths: Array<{ color: string; points: LatLng[] }>;
+  markers?: Array<{ lat: number; lng: number; color?: string; label?: string }>;
   size?: string;
 }): string | null {
   const cleaned = opts.paths
     .map((p) => ({ ...p, points: sanitizePath(p.points) }))
     .filter((p) => p.points.length >= 2);
-  if (cleaned.length === 0) return null;
+
+  const markerPts = (opts.markers ?? [])
+    .map((m) => normalizeRoutePoint(m))
+    .filter((m): m is LatLng => m != null);
+
+  if (cleaned.length === 0 && markerPts.length === 0) return null;
 
   const base = "https://maps.googleapis.com/maps/api/staticmap";
   const params = new URLSearchParams({
@@ -149,11 +193,24 @@ export function buildStaticMapUrl(opts: {
       return `path=color:${p.color}|weight:4|${pts}`;
     });
 
-    const all = cleaned.flatMap((p) => downsamplePath(p.points, maxPts));
-    const center = all[Math.floor(all.length / 2)] ?? all[0];
+    const markerSegments = markerPts.map((m, i) => {
+      const color = opts.markers?.[i]?.color ?? "red";
+      const label = (opts.markers?.[i]?.label?.slice(0, 1) ?? String(i + 1)).charAt(0);
+      return `markers=color:${color}|label:${label}|${m.lat.toFixed(5)},${m.lng.toFixed(5)}`;
+    });
+
+    const all = [...cleaned.flatMap((p) => downsamplePath(p.points, maxPts)), ...markerPts];
+    const center = all[Math.floor(all.length / 2)] ?? markerPts[0] ?? null;
     if (!center) return null;
 
-    const url = `${base}?${params.toString()}&center=${center.lat},${center.lng}&zoom=11&${segments.join("&")}`;
+    const parts = [
+      `${base}?${params.toString()}`,
+      `center=${center.lat},${center.lng}`,
+      `zoom=11`,
+      ...segments,
+      ...markerSegments,
+    ];
+    const url = parts.join("&");
     if (url.length <= 7800) return url;
   }
 
