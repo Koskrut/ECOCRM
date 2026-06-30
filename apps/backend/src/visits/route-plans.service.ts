@@ -5,6 +5,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./route-geometry";
 import { decodeEncodedPolyline, pathFromWaypoints } from "./polyline.util";
 import {
+  assessGpsTrackQuality,
   concatPaths,
   downsamplePathUniform,
   MAX_INTERMEDIATES_PER_LEG,
@@ -820,11 +821,23 @@ export class RoutePlansService {
     opts?: { traffic?: boolean },
   ): Promise<{ path: LatLng[]; source: "google" | "fallback" | "none"; distanceKm: number | null }> {
     if (points.length < 2) {
+      this.logger.warn("snapGpsPathToRoads: insufficient_points");
       return { path: [], source: "none", distanceKm: null };
+    }
+
+    const apiKey = await this.getGoogleMapsApiKey();
+    if (!apiKey) {
+      this.logger.warn("snapGpsPathToRoads: no_api_key");
+      return {
+        path: points,
+        source: "fallback",
+        distanceKm: this.pathDistanceKm(points),
+      };
     }
 
     const sampled = downsamplePathUniform(points, 100);
     if (sampled.length < 2) {
+      this.logger.warn("snapGpsPathToRoads: downsample_failed");
       return { path: points, source: "fallback", distanceKm: this.pathDistanceKm(points) };
     }
 
@@ -846,8 +859,17 @@ export class RoutePlansService {
           distanceKm: routed.distanceKm,
         };
       }
-    } catch {
-      // fall through
+      if (routed?.source === "fallback") {
+        this.logger.warn("snapGpsPathToRoads: partial_chunk_failure");
+        return {
+          path: routed.path.length >= 2 ? routed.path : points,
+          source: "fallback",
+          distanceKm: routed.distanceKm ?? this.pathDistanceKm(points),
+        };
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`snapGpsPathToRoads: api_error ${message}`);
     }
 
     return {
@@ -1174,22 +1196,22 @@ export class RoutePlansService {
       return this.emptyGeometry(kind, "insufficient_gps_samples");
     }
 
-    const degraded =
-      gps.sampleCount < 10 || (gps.coverageRatio != null && gps.coverageRatio < 0.25);
+    const { degraded, degradedReason } = assessGpsTrackQuality(
+      gps.sampleCount,
+      gps.coverageRatio,
+    );
 
     let distanceKm = gps.distanceKm;
     let path = gps.path;
     let source: RouteGeometryResult["source"] = "raw_gps";
 
-    if (!degraded) {
-      const snapped = await this.snapGpsPathToRoads(gps.fullPath, { traffic });
-      if (snapped.source !== "none" && snapped.distanceKm != null) {
-        distanceKm = snapped.distanceKm;
-        if (snapped.path.length >= 2) {
-          path = snapped.path;
-        }
-        source = snapped.source === "google" ? "google" : "raw_gps";
+    const snapped = await this.snapGpsPathToRoads(gps.fullPath, { traffic });
+    if (snapped.source !== "none" && snapped.distanceKm != null) {
+      distanceKm = snapped.distanceKm;
+      if (snapped.path.length >= 2) {
+        path = snapped.path;
       }
+      source = snapped.source === "google" ? "google" : "raw_gps";
     }
 
     if (distanceKm == null) {
@@ -1208,7 +1230,7 @@ export class RoutePlansService {
         sampleCount: gps.sampleCount,
         coverageRatio: gps.coverageRatio,
         degraded,
-        degradedReason: degraded ? "low_gps_coverage" : null,
+        degradedReason,
       },
     };
   }

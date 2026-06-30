@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  assessGpsTrackQuality,
   concatPaths,
   downsamplePathUniform,
   MAX_INTERMEDIATES_PER_LEG,
@@ -95,5 +96,20 @@ describe("multi-leg path vs straight fallback", () => {
     ];
     const road = concatPaths(simulatedLegPaths);
     assert.ok(road.length > straight.length);
+  });
+});
+
+describe("assessGpsTrackQuality", () => {
+  it("marks dense track with low coverage as partial, not degraded", () => {
+    const q = assessGpsTrackQuality(386, 0.12);
+    assert.equal(q.degraded, false);
+    assert.equal(q.partialCoverage, true);
+    assert.equal(q.degradedReason, "gps_partial_coverage");
+  });
+
+  it("marks sparse low-coverage track as degraded", () => {
+    const q = assessGpsTrackQuality(30, 0.12);
+    assert.equal(q.degraded, true);
+    assert.equal(q.degradedReason, "low_gps_coverage");
   });
 });

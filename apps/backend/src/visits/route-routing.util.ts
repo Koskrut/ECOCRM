@@ -86,6 +86,32 @@ export function sumLegMetrics(
   };
 }
 
+/** GPS track quality for fuel compensation and snap decisions. */
+export function assessGpsTrackQuality(
+  sampleCount: number,
+  coverageRatio: number | null,
+): {
+  degraded: boolean;
+  partialCoverage: boolean;
+  lowCoverage: boolean;
+  degradedReason: string | null;
+} {
+  const lowCoverage = coverageRatio != null && coverageRatio < 0.25;
+  const partialCoverage = lowCoverage && sampleCount >= 50;
+  const degraded = sampleCount < 10 || (lowCoverage && sampleCount < 50);
+
+  let degradedReason: string | null = null;
+  if (sampleCount < 10) {
+    degradedReason = "insufficient_gps_samples";
+  } else if (partialCoverage) {
+    degradedReason = "gps_partial_coverage";
+  } else if (lowCoverage) {
+    degradedReason = "low_gps_coverage";
+  }
+
+  return { degraded, partialCoverage, lowCoverage, degradedReason };
+}
+
 /** Evenly downsample a path while keeping first and last points. */
 export function downsamplePathUniform(path: LatLng[], maxPoints: number): LatLng[] {
   if (path.length <= maxPoints) return path;

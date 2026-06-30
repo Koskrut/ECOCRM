@@ -4,6 +4,9 @@ import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/a
 import { useMemo } from "react";
 import type { FieldShiftTeamItem } from "@/lib/api/resources/field-shifts";
 import { teamMarkerTitle } from "@/components/visits/TeamFieldList";
+import { strings } from "@/locales";
+
+const t = strings.visitsTeam;
 
 type TeamFieldMapProps = {
   mapsApiKey: string;
@@ -75,63 +78,70 @@ export function TeamFieldMap({
   }
 
   return (
-    <GoogleMap
-      mapContainerStyle={{ width: "100%", height: "100%" }}
-      center={center}
-      zoom={11}
-      onLoad={(map) => {
-        if (boundsPts.length > 1) {
-          const b = new google.maps.LatLngBounds();
-          for (const p of boundsPts) b.extend(p);
-          map.fitBounds(b, 48);
-        }
-      }}
-      options={{
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-      }}>
-      {trackPath.length > 1 ? (
-        <Polyline
-          path={trackPath}
-          options={{
-            strokeColor: routeSource === "google" ? "#d97706" : "#f59e0b",
-            strokeOpacity: routeSource === "google" ? 0.95 : 0.65,
-            strokeWeight: routeSource === "google" ? 4 : 3,
-            ...(routeSource !== "google"
-              ? {
-                  icons: [
-                    {
-                      icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
-                      offset: "0",
-                      repeat: "12px",
-                    },
-                  ],
-                }
-              : {}),
-          }}
-        />
-      ) : null}
-      {markers.map((m) => (
-        <Marker
-          key={m.id}
-          position={{ lat: m.lat, lng: m.lng }}
-          label={m.label}
-          title={m.title}
-          icon={
-            m.selected
-              ? {
-                  path: google.maps.SymbolPath.CIRCLE,
-                  scale: 10,
-                  fillColor: "#2563eb",
-                  fillOpacity: 1,
-                  strokeColor: "#fff",
-                  strokeWeight: 2,
-                }
-              : undefined
+    <div className="relative h-full w-full">
+      <GoogleMap
+        mapContainerStyle={{ width: "100%", height: "100%" }}
+        center={center}
+        zoom={11}
+        onLoad={(map) => {
+          if (boundsPts.length > 1) {
+            const b = new google.maps.LatLngBounds();
+            for (const p of boundsPts) b.extend(p);
+            map.fitBounds(b, 48);
           }
-        />
-      ))}
-    </GoogleMap>
+        }}
+        options={{
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+        }}>
+        {trackPath.length > 1 ? (
+          <Polyline
+            path={trackPath}
+            options={{
+              strokeColor: routeSource === "google" ? "#d97706" : "#f59e0b",
+              strokeOpacity: routeSource === "google" ? 0.95 : 0.65,
+              strokeWeight: routeSource === "google" ? 4 : 3,
+              ...(routeSource !== "google"
+                ? {
+                    icons: [
+                      {
+                        icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+                        offset: "0",
+                        repeat: "12px",
+                      },
+                    ],
+                  }
+                : {}),
+            }}
+          />
+        ) : null}
+        {markers.map((m) => (
+          <Marker
+            key={m.id}
+            position={{ lat: m.lat, lng: m.lng }}
+            label={m.label}
+            title={m.title}
+            icon={
+              m.selected
+                ? {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 10,
+                    fillColor: "#2563eb",
+                    fillOpacity: 1,
+                    strokeColor: "#fff",
+                    strokeWeight: 2,
+                  }
+                : undefined
+            }
+          />
+        ))}
+      </GoogleMap>
+      {trackPath.length > 1 && routeSource != null && routeSource !== "google" ? (
+        <p className="pointer-events-none absolute bottom-2 left-2 right-2 rounded bg-white/90 px-2 py-1 text-center text-xs text-amber-800 shadow-sm">
+          {t.routeGpsFallback}
+        </p>
+      ) : null}
+    </div>
   );
 }

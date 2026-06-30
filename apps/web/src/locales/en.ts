@@ -1373,6 +1373,7 @@ export const en = {
     badgeGps: "GPS",
     teamPresenceDetail: "Heartbeat: {heartbeat} · GPS: {gps}{samples}",
     markerTitle: "{name} · {app} · {gps}",
+    routeGpsFallback: "Route from GPS points, not matched to roads",
   },
 } as const;
 

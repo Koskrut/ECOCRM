@@ -235,13 +235,8 @@ export async function resumeTrackingIfNeeded(
     if (activeId === shift.id && mode && mode !== "none") {
       startFlushTimer();
       if (mode === "background") {
-        const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-          () => false,
-        );
-        if (!started) {
-          return startLocationTracking(shift.id);
-        }
-        return "background";
+        const restarted = await ensureBackgroundTaskRunning(shift.id, "resumeTrackingIfNeeded");
+        return restarted;
       }
       if (mode === "foreground") {
         const { getForegroundSubscription } = await import("./location-tracking-adaptive");
@@ -340,6 +335,31 @@ export async function maybeUpgradeToBackgroundTracking(): Promise<TrackingMode> 
   return startLocationTracking(shiftId);
 }
 
+/** Restart background task when storage says background but OS task is dead. */
+async function ensureBackgroundTaskRunning(
+  shiftId: string,
+  context: string,
+): Promise<TrackingMode> {
+  const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+  if (mode !== "background") {
+    return mode ?? "none";
+  }
+
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (started) {
+    return "background";
+  }
+
+  void appendErrorLog(`${context}: background task dead, restarting`);
+  const result = await startLocationTracking(shiftId);
+  if (result !== "background") {
+    void appendErrorLog(`${context}: restart failed → ${result}`);
+  }
+  return result;
+}
+
 /** Keep foreground watch or background task alive after resume / screen unlock. */
 export async function ensureTrackingContinuity(): Promise<TrackingMode> {
   const upgraded = await maybeUpgradeToBackgroundTracking();
@@ -353,14 +373,9 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode === "background") {
-    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-      () => false,
-    );
-    if (!started) {
-      return startLocationTracking(shiftId);
-    }
+    const restarted = await ensureBackgroundTaskRunning(shiftId, "ensureTrackingContinuity");
     startFlushTimer();
-    return "background";
+    return restarted;
   }
 
   if (mode === "foreground") {
@@ -385,15 +400,8 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
 
   if (mode === "background") {
-    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-      () => false,
-    );
-    if (!started) {
-      void appendErrorLog("maintainBackgroundTracking: task dead, restarting");
-      return startLocationTracking(shiftId);
-    }
     void flushPendingSamples().catch(() => undefined);
-    return "background";
+    return ensureBackgroundTaskRunning(shiftId, "maintainBackgroundTracking");
   }
 
   if (mode === "foreground") {

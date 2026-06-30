@@ -39,6 +39,7 @@ export default function MoreScreen() {
     startShift,
     endShift,
     isTracking,
+    backgroundTaskStarted,
   } = useShiftTracking();
 
   useFocusEffect(
@@ -72,6 +73,9 @@ export default function MoreScreen() {
       : trackingMode === "foreground"
         ? t("more.trackForeground")
         : t("more.trackOff");
+
+  const backgroundTaskDead =
+    !!activeShift && trackingMode === "background" && !backgroundTaskStarted;
 
   return (
     <Screen padded={false}>
@@ -133,6 +137,15 @@ export default function MoreScreen() {
               />
             ) : (
               <>
+                {backgroundTaskDead ? (
+                  <Text
+                    style={[
+                      theme.typography.caption,
+                      { color: theme.colors.dangerText, marginBottom: theme.spacing.sm },
+                    ]}>
+                    {t("gps.trackingUnhealthy")}
+                  </Text>
+                ) : null}
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
                   {t("more.shiftActive")} · {trackingLabel}
                   {pendingSamples > 0 ? ` · ${t("more.queue")} ${pendingSamples}` : ""}

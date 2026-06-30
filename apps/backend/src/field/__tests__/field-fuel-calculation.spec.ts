@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 
 import { kyivDayBounds } from "../../crm-timezone";
 import { haversineDistanceM } from "../../visits/visit-gps.verification";
+import { assessGpsTrackQuality } from "../../visits/route-routing.util";
 
 const CRM_TIME_ZONE = "Europe/Kyiv";
 
@@ -15,6 +16,16 @@ function pickCompensationFactKind(factGps: {
   return factGps.source !== "none" && !factGps.quality.degraded && factGps.path.length >= 2
     ? "fact_gps"
     : "fact_visits";
+}
+
+function pickCompensationFactKindFromTrack(
+  sampleCount: number,
+  coverageRatio: number | null,
+  source: string,
+  pathLength: number,
+): "fact_gps" | "fact_visits" {
+  const { degraded } = assessGpsTrackQuality(sampleCount, coverageRatio);
+  return pickCompensationFactKind({ source, quality: { degraded }, path: new Array(pathLength) });
 }
 
 function estimateFuelLiters(compensationKm: number, fuelLitersPer100km: number): number {
@@ -73,6 +84,20 @@ describe("fuel compensationFactKind selection", () => {
       path: [{}],
     });
     assert.equal(kind, "fact_visits");
+  });
+
+  it("uses fact_gps with many samples despite low coverage ratio", () => {
+    const kind = pickCompensationFactKindFromTrack(386, 0.12, "google", 386);
+    assert.equal(kind, "fact_gps");
+    const quality = assessGpsTrackQuality(386, 0.12);
+    assert.equal(quality.degraded, false);
+    assert.equal(quality.degradedReason, "gps_partial_coverage");
+  });
+
+  it("falls back to fact_visits when low coverage and fewer than 50 samples", () => {
+    const kind = pickCompensationFactKindFromTrack(30, 0.12, "raw_gps", 30);
+    assert.equal(kind, "fact_visits");
+    assert.equal(assessGpsTrackQuality(30, 0.12).degraded, true);
   });
 });
 

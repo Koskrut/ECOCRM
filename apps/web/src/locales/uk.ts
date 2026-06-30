@@ -1382,5 +1382,6 @@ export const uk = {
     badgeGps: "GPS",
     teamPresenceDetail: "Heartbeat: {heartbeat} · GPS: {gps}{samples}",
     markerTitle: "{name} · {app} · {gps}",
+    routeGpsFallback: "Маршрут по GPS, не по дорогах",
   },
 } as const;

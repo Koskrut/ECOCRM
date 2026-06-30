@@ -9,6 +9,13 @@ export type TrackingHealthSnapshot = {
   shouldRestartBackground: boolean;
 };
 
+export function shouldRestartBackgroundTask(
+  claimedMode: TrackingMode,
+  backgroundTaskStarted: boolean,
+): boolean {
+  return claimedMode === "background" && !backgroundTaskStarted;
+}
+
 /** Pure health check — testable without native mocks. */
 export function reconcileTrackingHealth(
   claimedMode: TrackingMode,

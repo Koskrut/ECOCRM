@@ -276,6 +276,9 @@ export class FieldFuelService {
     }
 
     const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors);
+    if (geometryBundle.factGps.quality.degradedReason === "gps_partial_coverage") {
+      warnings.push("gps_partial_coverage");
+    }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.quality.degraded) {
       warnings.push("gps_track_degraded");
     }

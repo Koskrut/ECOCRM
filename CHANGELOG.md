@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.96**.)_
+_(планируемые изменения после **0.2.97**.)_
+
+## [0.2.97] — 2026-05-20
+
+### Summary
+
+Патч **0.2.97**: качество GPS-трека для fuel compensation (partial coverage), надёжный restart background tracking на mobile, доработки snap-to-roads и карты команды.
+
+### Added
+
+- **`assessGpsTrackQuality`**: различие **partial coverage** (много точек, низкий coverage ratio) vs **degraded** (мало точек).
+- **Mobile**: `ensureBackgroundTaskRunning` — перезапуск мёртвого background task; тест **`location-tracking-restart.spec.ts`**.
+
+### Changed
+
+- **Fuel**: плотный GPS-трек (≥50 точек) считается `fact_gps` даже при низком coverage; warning **`gps_partial_coverage`**.
+- **Route plans**: логирование snap-to-roads, fallback при отсутствии API key.
+- **Mobile**: `resumeTrackingIfNeeded`, `ensureTrackingContinuity`, `maintainBackgroundTracking`.
+- **Web `/visits/team`**: **`TeamFieldMap`** i18n и UX.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.97`**.
+- **Новых миграций нет.**
 
 ## [0.2.96] — 2026-05-20
 
