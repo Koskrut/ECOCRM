@@ -9,6 +9,9 @@ import {
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
+import { strings } from "@/locales";
+
+const at = strings.analytics.tasks;
 
 type AttentionResponse = {
   crm: {
@@ -99,7 +102,7 @@ export default function AnalyticsAttentionPage() {
       </div>
 
       <section id="overdue-tasks" className="scroll-mt-24 space-y-2">
-        <h2 className="text-base font-semibold text-zinc-900">Прострочені задачі</h2>
+        <h2 className="text-base font-semibold text-zinc-900">{at.overdueTitle}</h2>
         <p className="text-xs text-zinc-500">
           OPEN/IN_PROGRESS, дедлайн (dueAt) у вибраному періоді.
         </p>

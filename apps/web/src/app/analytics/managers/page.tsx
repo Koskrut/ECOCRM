@@ -12,6 +12,9 @@ import {
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
+import { strings } from "@/locales";
+
+const at = strings.analytics.tasks;
 
 type ManagerRow = {
   id: string;
@@ -79,7 +82,7 @@ export default function AnalyticsManagersPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Менеджери</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Booked / collected / orders — за період (як на Sales). Overdue tasks — операційний знімок
+          Booked / collected / orders — за період (як на Sales). {at.overdueSnapshot} — операційний знімок
           по виконавцю. Прапорець compare в URL не змінює цей endpoint (немає compare у API).
         </p>
         <div className="mt-4 min-w-0 overflow-x-auto">
@@ -109,7 +112,7 @@ export default function AnalyticsManagersPage() {
               },
               {
                 key: "overdueTasks",
-                title: "Overdue tasks (snapshot)",
+                title: at.overdueSnapshot,
                 render: (row) => formatNumber(row.overdueTasks),
               },
             ]}

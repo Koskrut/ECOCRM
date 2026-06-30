@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -27,6 +27,13 @@ export class UsersService {
     },
   } as const;
 
+  private canActorAccessUser(actor: AuthUser | undefined, targetUserId: string, leadId: string | null) {
+    if (!actor || actor.role === UserRole.ADMIN) return true;
+    if (actor.id === targetUserId) return true;
+    if (actor.role === UserRole.LEAD && leadId === actor.id) return true;
+    return false;
+  }
+
   async listUsers(actor?: AuthUser) {
     const orderBy = { createdAt: "desc" as const };
     if (!actor || actor.role === UserRole.ADMIN) {
@@ -44,6 +51,19 @@ export class UsersService {
       orderBy,
       include: this.userListInclude,
     });
+  }
+
+  async getUserById(id: string, actor?: AuthUser) {
+    if (!id) throw new BadRequestException("id is required");
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: this.userListInclude,
+    });
+    if (!user) throw new NotFoundException("User not found");
+    if (!this.canActorAccessUser(actor, user.id, user.leadId)) {
+      throw new ForbiddenException("Access denied");
+    }
+    return user;
   }
 
   async createUser(payload: {
@@ -85,7 +105,9 @@ export class UsersService {
         passwordHash: passwordHashValue,
         fullName: payload.fullName ?? "",
         role: (payload.role as UserRole) ?? undefined,
+        isActive: payload.isActive ?? undefined,
       },
+      include: this.userListInclude,
     });
   }
 
@@ -109,6 +131,7 @@ export class UsersService {
       fuelLitersPer100km?: number;
       fuelPricePerLiter?: number | null;
       vehicleLabel?: string | null;
+      usePersonalCar?: boolean;
     },
   ) {
     if (!id) throw new BadRequestException("id is required");
@@ -117,6 +140,10 @@ export class UsersService {
       email: payload.email ?? undefined,
       fullName: payload.fullName ?? undefined,
     };
+
+    if (payload.isActive !== undefined) {
+      data.isActive = payload.isActive;
+    }
 
     if (payload.username !== undefined) {
       if (payload.username === null || payload.username === "") {
@@ -172,7 +199,8 @@ export class UsersService {
     const hasFuelPayload =
       payload.fuelLitersPer100km !== undefined ||
       payload.fuelPricePerLiter !== undefined ||
-      payload.vehicleLabel !== undefined;
+      payload.vehicleLabel !== undefined ||
+      payload.usePersonalCar !== undefined;
 
     if (hasFuelPayload) {
       if (
@@ -194,6 +222,9 @@ export class UsersService {
       if (payload.vehicleLabel !== undefined) {
         profileData.vehicleLabel = payload.vehicleLabel;
       }
+      if (payload.usePersonalCar !== undefined) {
+        profileData.usePersonalCar = payload.usePersonalCar;
+      }
       await this.prisma.userFieldProfile.upsert({
         where: { userId: id },
         create: {
@@ -204,6 +235,7 @@ export class UsersService {
               ? undefined
               : new Prisma.Decimal(payload.fuelPricePerLiter),
           vehicleLabel: payload.vehicleLabel ?? undefined,
+          usePersonalCar: payload.usePersonalCar ?? undefined,
         },
         update: profileData,
       });

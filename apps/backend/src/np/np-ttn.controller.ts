@@ -26,8 +26,8 @@ export class NpTtnController {
   }
 
   @Get("ttn/defaults")
-  async ttnDefaults() {
-    return this.ttn.getTtnDefaults();
+  async ttnDefaults(@Query("orderId") orderId?: string) {
+    return this.ttn.getTtnDefaults(orderId);
   }
 
   @Get("ttn/:orderId")

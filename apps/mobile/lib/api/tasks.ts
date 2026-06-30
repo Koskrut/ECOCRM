@@ -62,4 +62,7 @@ export const tasksApi = {
       body: JSON.stringify(body),
       token,
     }),
+
+  cancel: (token: string, id: string) =>
+    apiFetch<Task>(`/tasks/${id}/cancel`, { method: "POST", token }),
 };

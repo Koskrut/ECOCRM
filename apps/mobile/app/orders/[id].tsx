@@ -6,6 +6,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   View,
 } from "react-native";
 
@@ -19,6 +20,7 @@ import { Card } from "@/components/ui/Card";
 import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { ApiError } from "@/lib/api";
@@ -57,6 +59,14 @@ export default function OrderDetailScreen() {
   const [ttnNumber, setTtnNumber] = useState<string | null>(null);
   const [ttnStatus, setTtnStatus] = useState<string | null>(null);
   const [ttnBusy, setTtnBusy] = useState(false);
+  const [codEnabled, setCodEnabled] = useState(false);
+  const [codAmountUah, setCodAmountUah] = useState("");
+  const [codFeatureEnabled, setCodFeatureEnabled] = useState(false);
+  const [codMeta, setCodMeta] = useState<{
+    debtAmount: number;
+    currency: string;
+    suggestedAmountUah: number;
+  } | null>(null);
   const [stageBusy, setStageBusy] = useState(false);
   const [showPaymentLinkSheet, setShowPaymentLinkSheet] = useState(false);
 
@@ -90,21 +100,50 @@ export default function OrderDetailScreen() {
         setContact(null);
       }
 
+      let hasTtn = Boolean(ttnFromData);
+
       if (npEnabled && row.deliveryMethod === "NOVA_POSHTA") {
         try {
           const status = await npApi.ttnStatus(token, orderId, true);
           setTtnNumber(status.ttn);
+          hasTtn = hasTtn || Boolean(status.ttn);
           const st = status.status as Record<string, unknown> | undefined;
           setTtnStatus(st?.Status != null ? String(st.Status) : null);
         } catch {
-          if (!ttnFromData) {
+          if (!hasTtn) {
             try {
               const details = await npApi.getTtn(token, orderId);
               setTtnNumber(details.ttn.documentNumber);
               setTtnStatus(details.ttn.statusText ?? null);
+              hasTtn = true;
             } catch {
               // no TTN yet
             }
+          }
+        }
+
+        if (!hasTtn) {
+          try {
+            const defaults = await npApi.ttnDefaults(token, orderId);
+            setCodFeatureEnabled(defaults.codFeatureEnabled === true);
+            const cod = defaults.cod;
+            if (defaults.codFeatureEnabled && cod) {
+              setCodEnabled(cod.enabled);
+              setCodAmountUah(
+                cod.enabled && cod.suggestedAmountUah > 0 ? String(cod.suggestedAmountUah) : "",
+              );
+              setCodMeta({
+                debtAmount: cod.debtAmount,
+                currency: cod.currency,
+                suggestedAmountUah: cod.suggestedAmountUah,
+              });
+            } else {
+              setCodEnabled(false);
+              setCodAmountUah("");
+              setCodMeta(null);
+            }
+          } catch {
+            /* defaults optional */
           }
         }
       }
@@ -136,9 +175,20 @@ export default function OrderDetailScreen() {
       Alert.alert(t("common.error"), t("orders.selectDeliveryProfile"));
       return;
     }
+    const body: { profileId: string; afterpaymentOnGoodsCost?: number } = {
+      profileId: selectedProfileId,
+    };
+    if (codEnabled && codFeatureEnabled) {
+      const n = parseFloat(codAmountUah.replace(/,/g, ".").trim());
+      if (!Number.isFinite(n) || n <= 0) {
+        Alert.alert(t("common.error"), t("orders.codAmountRequired"));
+        return;
+      }
+      body.afterpaymentOnGoodsCost = Math.round(n * 100) / 100;
+    }
     setTtnBusy(true);
     try {
-      const res = await npApi.createTtn(token, orderId, { profileId: selectedProfileId });
+      const res = await npApi.createTtn(token, orderId, body);
       setTtnNumber(res.documentNumber);
       Alert.alert(t("common.done"), t("orders.ttnCreated", { number: res.documentNumber }));
       await load();
@@ -371,6 +421,51 @@ export default function OrderDetailScreen() {
                     selectedProfileId={selectedProfileId}
                     onSelectProfileId={setSelectedProfileId}
                   />
+                ) : null}
+                {codFeatureEnabled ? (
+                <Card style={{ marginTop: theme.spacing.sm, marginBottom: theme.spacing.sm }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}>
+                    <Text style={theme.typography.bodyMedium}>{t("orders.codPayment")}</Text>
+                    <Switch
+                      value={codEnabled}
+                      onValueChange={setCodEnabled}
+                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                    />
+                  </View>
+                  {codEnabled ? (
+                    <>
+                      <TextField
+                        label={t("orders.codAmount")}
+                        value={codAmountUah}
+                        onChangeText={setCodAmountUah}
+                        keyboardType="decimal-pad"
+                        style={{ marginTop: theme.spacing.sm }}
+                      />
+                      {codMeta && codMeta.debtAmount > 0 ? (
+                        <Text
+                          style={[
+                            theme.typography.caption,
+                            { color: theme.colors.textMuted, marginTop: 4 },
+                          ]}>
+                          {codMeta.currency !== "UAH"
+                            ? t("orders.codDebtHint", {
+                                debt: codMeta.debtAmount.toFixed(2),
+                                currency: codMeta.currency,
+                                uah: codMeta.suggestedAmountUah.toFixed(2),
+                              })
+                            : t("orders.codDebtHintUah", {
+                                debt: codMeta.debtAmount.toFixed(2),
+                              })}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : null}
+                </Card>
                 ) : null}
                 <AppButton
                   label={ttnBusy ? "…" : t("orders.createTtn")}

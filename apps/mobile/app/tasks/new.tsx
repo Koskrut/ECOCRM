@@ -3,17 +3,20 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { TaskDueSection } from "@/components/task/TaskDueSection";
+import { ContactPickerPanel } from "@/components/visit/ContactPickerPanel";
 import { AppButton } from "@/components/ui/AppButton";
-import { Chip } from "@/components/ui/Chip";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
 import { Screen } from "@/components/ui/Screen";
+import { SectionTitle } from "@/components/ui/SectionTitle";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
+import { contactDisplayName } from "@/lib/visit-create-utils";
 import { contactsApi } from "@/lib/api/contacts";
 import { tasksApi } from "@/lib/api/tasks";
-import { addDays } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+import type { Contact } from "@/types/crm";
 
 export default function NewTaskScreen() {
   const router = useRouter();
@@ -25,18 +28,20 @@ export default function NewTaskScreen() {
 
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [dueAt, setDueAt] = useState("");
-  const [contactId, setContactId] = useState<string | null>(preselectedContactId);
-  const [contactLabel, setContactLabel] = useState<string | null>(null);
+  const [dueAt, setDueAt] = useState<string | null>(null);
+  const [contact, setContact] = useState<Contact | null>(null);
+  const [showContactPicker, setShowContactPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const handleDueChange = useCallback((next: string | null) => {
+    setDueAt(next);
+  }, []);
 
   useEffect(() => {
     if (!token || !preselectedContactId) return;
     void contactsApi
       .getById(token, preselectedContactId)
-      .then((c) => {
-        setContactLabel([c.firstName, c.lastName].filter(Boolean).join(" ") || c.phone);
-      })
+      .then((c) => setContact(c))
       .catch(() => {});
   }, [token, preselectedContactId]);
 
@@ -51,8 +56,8 @@ export default function NewTaskScreen() {
       const task = await tasksApi.create(token, {
         title: title.trim(),
         body: body.trim() || null,
-        dueAt: dueAt.trim() ? new Date(dueAt.trim()).toISOString() : null,
-        contactId,
+        dueAt,
+        contactId: contact?.id ?? null,
       });
       Alert.alert(t("common.done"), t("tasks.created"), [
         { text: t("common.ok"), onPress: () => router.replace(`/tasks/${task.id}`) },
@@ -62,6 +67,14 @@ export default function NewTaskScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!token) {
+    return (
+      <Screen>
+        <View />
+      </Screen>
+    );
   }
 
   return (
@@ -84,30 +97,46 @@ export default function NewTaskScreen() {
           multiline
           style={{ minHeight: 120, textAlignVertical: "top" }}
         />
-        <TextField
-          value={dueAt}
-          onChangeText={setDueAt}
-          label={t("tasksForm.due")}
-          placeholder={t("tasks.dueIsoPlaceholder")}
-        />
-        <View style={styles.presets}>
-          {[
-            { label: t("tasks.tomorrow"), days: 1 },
-            { label: t("tasks.in3days"), days: 3 },
-            { label: t("tasks.inWeek"), days: 7 },
-          ].map((p) => (
-            <Chip
-              key={p.days}
-              label={p.label}
-              onPress={() => setDueAt(addDays(new Date(), p.days).toISOString())}
+        <TaskDueSection dueAt={dueAt} onChange={handleDueChange} />
+
+        <SectionTitle title={t("tasks.contactOptional")} />
+        {contact ? (
+          <View style={{ marginBottom: theme.spacing.md }}>
+            <Text style={theme.typography.bodyMedium}>{contactDisplayName(contact)}</Text>
+            <AppButton
+              label={t("tasks.changeContact")}
+              onPress={() => setShowContactPicker(true)}
+              variant="ghost"
+              style={{ alignSelf: "flex-start", marginTop: theme.spacing.sm }}
             />
-          ))}
-        </View>
-        {contactLabel ? (
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.md }]}>
-            {t("tasks.contactHint", { label: contactLabel })}
-          </Text>
+          </View>
+        ) : (
+          <AppButton
+            label={t("tasks.selectContact")}
+            onPress={() => setShowContactPicker(true)}
+            variant="secondary"
+            style={{ marginBottom: theme.spacing.md }}
+          />
+        )}
+
+        {showContactPicker ? (
+          <View style={{ marginBottom: theme.spacing.lg }}>
+            <ContactPickerPanel
+              token={token}
+              onSelect={(c) => {
+                setContact(c);
+                setShowContactPicker(false);
+              }}
+            />
+            <AppButton
+              label={t("common.cancel")}
+              onPress={() => setShowContactPicker(false)}
+              variant="ghost"
+              style={{ marginTop: theme.spacing.sm }}
+            />
+          </View>
         ) : null}
+
         <AppButton
           label={t("common.create")}
           onPress={() => void onCreate()}
@@ -121,5 +150,4 @@ export default function NewTaskScreen() {
 
 const styles = StyleSheet.create({
   scroll: { paddingTop: 8 },
-  presets: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
 });

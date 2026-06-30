@@ -11,8 +11,9 @@ import {
   type UserNotification,
 } from "@/lib/api/resources/notifications";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import { useToast } from "@/components/feedback";
 
-const POLL_MS = 30_000;
+const POLL_MS = 10_000;
 
 function formatRelativeTime(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -28,6 +29,7 @@ function formatRelativeTime(iso: string): string {
 
 export function NotificationBell() {
   const router = useRouter();
+  const { pushToast } = useToast();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<UserNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -35,6 +37,11 @@ export function NotificationBell() {
   const rootRef = useRef<HTMLDivElement>(null);
   const lastCountRef = useRef(0);
   const browserEnabledRef = useRef(false);
+  const openRef = useRef(false);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     void notificationsApi
@@ -50,26 +57,56 @@ export function NotificationBell() {
       });
   }, []);
 
-  const refreshCount = useCallback(async () => {
-    try {
-      const count = await notificationsApi.unreadCount();
-      setUnreadCount(count);
+  const notifyNewItems = useCallback(
+    async (prevCount: number, nextCount: number) => {
+      if (nextCount <= prevCount) return;
+
+      let latest: UserNotification | null = null;
+      try {
+        const res = await notificationsApi.list({ unreadOnly: true, pageSize: 1 });
+        latest = res.items[0] ?? null;
+      } catch {
+        /* ignore */
+      }
+
+      const title = latest?.title ?? "Нове сповіщення CRM";
+      const body =
+        latest?.body ??
+        (nextCount === 1
+          ? "У вас 1 непрочитане сповіщення"
+          : `У вас ${nextCount} непрочитаних сповіщень`);
+
+      if (!openRef.current) {
+        pushToast(title, "info");
+      }
+
       if (
-        count > lastCountRef.current &&
         browserEnabledRef.current &&
         typeof Notification !== "undefined" &&
         Notification.permission === "granted"
       ) {
-        new Notification("Нове сповіщення CRM", {
-          body: count === 1 ? "У вас 1 непрочитане сповіщення" : `У вас ${count} непрочитаних сповіщень`,
+        new Notification(title, {
+          body,
           tag: "crm-notifications",
         });
+      }
+    },
+    [pushToast],
+  );
+
+  const refreshCount = useCallback(async () => {
+    try {
+      const count = await notificationsApi.unreadCount();
+      const prev = lastCountRef.current;
+      setUnreadCount(count);
+      if (count > prev) {
+        await notifyNewItems(prev, count);
       }
       lastCountRef.current = count;
     } catch {
       /* ignore transient errors */
     }
-  }, []);
+  }, [notifyNewItems]);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -87,7 +124,6 @@ export function NotificationBell() {
     let cancelled = false;
 
     const tick = async () => {
-      if (document.hidden) return;
       if (!cancelled) await refreshCount();
     };
 

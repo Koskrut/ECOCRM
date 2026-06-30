@@ -171,3 +171,18 @@ export function resolveAssignedManagerForRegion(
   return buildRegionAssignments(org).get(canonical) ?? null;
 }
 
+const DEFAULT_MANAGER_REGION = "Київська";
+
+/** First org-chart region assigned to the manager; fallback when none. */
+export function resolvePrimaryRegionForManager(
+  org: OrgChartStructure,
+  managerId: string,
+): string {
+  const id = managerId.trim();
+  if (!id) return DEFAULT_MANAGER_REGION;
+  for (const assignment of buildRegionAssignments(org).values()) {
+    if (assignment.managerId === id) return assignment.region;
+  }
+  return DEFAULT_MANAGER_REGION;
+}
+

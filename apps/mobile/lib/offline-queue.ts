@@ -5,6 +5,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 export type OfflineJobKind =
   | "visitStart"
   | "visitComplete"
+  | "visitLogAdHoc"
   | "taskComplete"
   | "taskUpdate";
 
@@ -91,6 +92,15 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       const visitId = String(job.payload.visitId ?? "");
       const body = (job.payload.body ?? {}) as Record<string, unknown>;
       await apiFetch(`/visits/${encodeURIComponent(visitId)}/complete`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        token,
+      });
+      return;
+    }
+    case "visitLogAdHoc": {
+      const body = (job.payload.body ?? {}) as Record<string, unknown>;
+      await apiFetch("/visits/log-ad-hoc", {
         method: "POST",
         body: JSON.stringify(body),
         token,

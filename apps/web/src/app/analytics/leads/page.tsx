@@ -159,7 +159,7 @@ export default function AnalyticsLeadsPage() {
         <h2 className="text-lg font-semibold text-zinc-900">Ліди — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
           Періодні метрики — за датою створення ліда (createdAt). Дельта показується лише з
-          увімкненим порівнянням. Знімки внизу (без дотику, задачі) — стан «зараз», без дельти до
+          увімкненим порівнянням. Знімки внизу (без дотику, завдання) — стан «зараз», без дельти до
           попереднього періоду.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -351,7 +351,7 @@ export default function AnalyticsLeadsPage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Прострочені задачі на лід"
+            title="Прострочені завдання на лід"
             subtitle="Task з leadId, OPEN/IN_PROGRESS, dueAt &lt; зараз"
             tooltip="Той самий assignee scope, що й overdue tasks у overview."
             value={formatNumber(attention?.overdueLeadTasksCount)}

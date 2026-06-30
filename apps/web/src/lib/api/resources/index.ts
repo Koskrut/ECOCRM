@@ -13,3 +13,5 @@ export * from "./warehouses";
 export * from "./calls";
 export * from "./bank";
 export * from "./planning";
+export * from "./users";
+export * from "./rbac";

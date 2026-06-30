@@ -19,6 +19,7 @@ import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { TextField } from "@/components/ui/TextField";
 import { VisitProximityCard } from "@/components/visit/VisitProximityCard";
+import { LogAdHocVisitSheet } from "@/components/visit/LogAdHocVisitSheet";
 import { useAuth } from "@/context/auth-context";
 import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
@@ -55,6 +56,7 @@ export default function VisitDetailScreen() {
   const [resultNote, setResultNote] = useState("");
   const [nextActionEnabled, setNextActionEnabled] = useState(false);
   const [nextActionNote, setNextActionNote] = useState("");
+  const [logAdHocOpen, setLogAdHocOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !visitId) {
@@ -268,6 +270,13 @@ export default function VisitDetailScreen() {
           fullWidth
         />
 
+        <AppButton
+          label={t("visit.logAdHoc.newClientChip")}
+          onPress={() => setLogAdHocOpen(true)}
+          variant="secondary"
+          fullWidth
+        />
+
         {(visit.startGpsVerification ?? visit.completeGpsVerification) ? (
           <Card>
             {visit.startGpsVerification ? (
@@ -395,6 +404,12 @@ export default function VisitDetailScreen() {
           style={{ marginTop: theme.spacing.sm }}
         />
       </BottomSheet>
+
+      <LogAdHocVisitSheet
+        visible={logAdHocOpen}
+        onClose={() => setLogAdHocOpen(false)}
+        onSuccess={() => void load()}
+      />
     </Screen>
   );
 }

@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
+import { strings as t } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import {
   NpShippingProfileFormFields,
@@ -15,9 +16,18 @@ type NpRecipientType = "PERSON" | "COMPANY";
 type NpPayerType = "Recipient" | "Sender";
 type NpPaymentMethod = "Cash" | "NonCash";
 
+type NpTtnCodDefaults = {
+  enabled: boolean;
+  suggestedAmountUah: number;
+  debtAmount: number;
+  currency: string;
+};
+
 type NpTtnDefaults = {
   payerType: NpPayerType;
   paymentMethod: NpPaymentMethod;
+  codFeatureEnabled?: boolean;
+  cod?: NpTtnCodDefaults;
 };
 
 function normalizeNpPayerType(value: string | null | undefined): NpPayerType {
@@ -76,6 +86,7 @@ type TtnDetailsResponse = {
     editable?: boolean;
     payerType?: string | null;
     paymentMethod?: string | null;
+    afterpaymentOnGoodsCost?: number | null;
     recipient?: Record<string, unknown>;
   };
 };
@@ -137,6 +148,7 @@ export function TtnModal({
       profileId: string;
       payerType: NpPayerType;
       paymentMethod: NpPaymentMethod;
+      afterpaymentOnGoodsCost?: number;
     };
     newPayload?: Record<string, unknown>;
   } | null>(null);
@@ -182,25 +194,37 @@ export function TtnModal({
 
   const [payerType, setPayerType] = useState<NpPayerType>("Recipient");
   const [paymentMethod, setPaymentMethod] = useState<NpPaymentMethod>("Cash");
+  const [codEnabled, setCodEnabled] = useState(false);
+  const [codAmountUah, setCodAmountUah] = useState("");
+  const [codFeatureEnabled, setCodFeatureEnabled] = useState(false);
+  const [codMeta, setCodMeta] = useState<{
+    debtAmount: number;
+    currency: string;
+    suggestedAmountUah: number;
+  } | null>(null);
 
   const canClose = !loading && !creating;
 
   const loadTtnDefaults = useCallback(async (): Promise<NpTtnDefaults> => {
     try {
-      const res = await apiHttp.get<{ payerType?: string; paymentMethod?: string }>(
-        "/np/ttn/defaults",
-        {
-          headers: { "Cache-Control": "no-store" },
-        },
-      );
+      const res = await apiHttp.get<{
+        payerType?: string;
+        paymentMethod?: string;
+        codFeatureEnabled?: boolean;
+        cod?: NpTtnCodDefaults;
+      }>(`/np/ttn/defaults?orderId=${encodeURIComponent(orderId)}`, {
+        headers: { "Cache-Control": "no-store" },
+      });
       return {
         payerType: normalizeNpPayerType(res.data?.payerType),
         paymentMethod: normalizeNpPaymentMethod(res.data?.paymentMethod),
+        codFeatureEnabled: res.data?.codFeatureEnabled === true,
+        cod: res.data?.cod,
       };
     } catch {
-      return { payerType: "Recipient", paymentMethod: "Cash" };
+      return { payerType: "Recipient", paymentMethod: "Cash", codFeatureEnabled: false };
     }
-  }, []);
+  }, [orderId]);
 
   const resetNewForm = useCallback((defaults: Partial<NpTtnDefaults> = {}) => {
     setSaveToContact(true);
@@ -232,6 +256,24 @@ export function TtnModal({
     setFlat("");
     setPayerType(defaults.payerType ?? "Recipient");
     setPaymentMethod(defaults.paymentMethod ?? "Cash");
+    setCodFeatureEnabled(defaults.codFeatureEnabled === true);
+    if (defaults.codFeatureEnabled && defaults.cod) {
+      setCodEnabled(defaults.cod.enabled);
+      setCodAmountUah(
+        defaults.cod.enabled && defaults.cod.suggestedAmountUah > 0
+          ? String(defaults.cod.suggestedAmountUah)
+          : "",
+      );
+      setCodMeta({
+        debtAmount: defaults.cod.debtAmount,
+        currency: defaults.cod.currency,
+        suggestedAmountUah: defaults.cod.suggestedAmountUah,
+      });
+    } else {
+      setCodEnabled(false);
+      setCodAmountUah("");
+      setCodMeta(null);
+    }
   }, []);
 
   const applyRecipientToForm = useCallback((recipient: Record<string, unknown>) => {
@@ -268,6 +310,9 @@ export function TtnModal({
   }, []);
 
   const loadTtnDetails = useCallback(async () => {
+    const defaults = await loadTtnDefaults();
+    setCodFeatureEnabled(defaults.codFeatureEnabled === true);
+
     const params = new URLSearchParams();
     if (ttnId?.trim()) params.set("ttnId", ttnId.trim());
     if (shipmentId?.trim()) params.set("shipmentId", shipmentId.trim());
@@ -290,13 +335,21 @@ export function TtnModal({
     if (payer === "Sender" || payer === "Recipient") setPayerType(payer);
     const pm = String(ttn.paymentMethod ?? "").trim();
     if (pm === "Cash" || pm === "NonCash") setPaymentMethod(pm);
+    const ap = ttn.afterpaymentOnGoodsCost;
+    if (defaults.codFeatureEnabled && ap != null && Number(ap) > 0) {
+      setCodEnabled(true);
+      setCodAmountUah(String(ap));
+    } else {
+      setCodEnabled(false);
+      setCodAmountUah("");
+    }
     if (ttn.recipient && typeof ttn.recipient === "object") {
       applyRecipientToForm(ttn.recipient);
       setMode("NEW");
       setSelectedProfileId("");
     }
     return ttn;
-  }, [applyRecipientToForm, orderId, shipmentId, ttnId]);
+  }, [applyRecipientToForm, loadTtnDefaults, orderId, shipmentId, ttnId]);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -499,11 +552,31 @@ export function TtnModal({
     return validateNpShippingProfileForm(newFormValues, { requireLabel: !!saveToContact });
   };
 
+  const parseCodAmount = (): number | null => {
+    if (!codFeatureEnabled || !codEnabled) return null;
+    const n = parseFloat(codAmountUah.replace(/,/g, ".").trim());
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round(n * 100) / 100;
+  };
+
+  const buildCodFields = (): { afterpaymentOnGoodsCost?: number } => {
+    const amount = parseCodAmount();
+    if (amount != null) return { afterpaymentOnGoodsCost: amount };
+    return {};
+  };
+
+  const validateCod = (): string | null => {
+    if (!codFeatureEnabled || !codEnabled) return null;
+    if (parseCodAmount() == null) return t.orders.modal.codAmountRequired;
+    return null;
+  };
+
   const buildDraftPayload = () => ({
     saveAsProfile: !!saveToContact,
     profileLabel: newFormValues.label?.trim() || undefined,
     payerType,
     paymentMethod,
+    ...buildCodFields(),
     draft: {
       recipientType: newFormValues.recipientType,
       deliveryType: newFormValues.deliveryType,
@@ -582,6 +655,11 @@ export function TtnModal({
         setError(err);
         return;
       }
+      const codErr = validateCod();
+      if (codErr) {
+        setError(codErr);
+        return;
+      }
       setCreating(true);
       try {
         const res = await apiHttp.patch(pathWithQuery, buildDraftPayload());
@@ -603,6 +681,11 @@ export function TtnModal({
         setError("Оберіть збережену адресу");
         return;
       }
+      const codErr = validateCod();
+      if (codErr) {
+        setError(codErr);
+        return;
+      }
 
       setCreating(true);
       try {
@@ -610,6 +693,7 @@ export function TtnModal({
           profileId: selectedProfileId.trim(),
           payerType,
           paymentMethod,
+          ...buildCodFields(),
         });
         onCreated?.(res.data);
         onClose();
@@ -631,6 +715,7 @@ export function TtnModal({
               profileId: selectedProfileId.trim(),
               payerType,
               paymentMethod,
+              ...buildCodFields(),
             },
           });
           return;
@@ -648,6 +733,11 @@ export function TtnModal({
     const err = validateNew();
     if (err) {
       setError(err);
+      return;
+    }
+    const codErr = validateCod();
+    if (codErr) {
+      setError(codErr);
       return;
     }
 
@@ -943,6 +1033,52 @@ export function TtnModal({
               </div>
             </div>
           </div>
+
+          {codFeatureEnabled ? (
+          <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 space-y-3">
+            <label className="flex cursor-pointer items-center gap-2" htmlFor="np-cod-enabled">
+              <input
+                id="np-cod-enabled"
+                type="checkbox"
+                checked={codEnabled}
+                onChange={(e) => setCodEnabled(e.target.checked)}
+                className="h-4 w-4 flex-shrink-0"
+                disabled={readOnly || loading}
+              />
+              <span className="text-sm font-medium text-zinc-800">{t.orders.modal.codPayment}</span>
+            </label>
+            {codEnabled ? (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-zinc-700" htmlFor="np-cod-amount">
+                    {t.orders.modal.codAmount}
+                  </label>
+                  <input
+                    id="np-cod-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={codAmountUah}
+                    onChange={(e) => setCodAmountUah(e.target.value)}
+                    className={inputClass}
+                    disabled={readOnly || loading}
+                  />
+                </div>
+                {codMeta && codMeta.debtAmount > 0 ? (
+                  <p className="text-xs text-zinc-500">
+                    {codMeta.currency !== "UAH"
+                      ? t.orders.modal.codDebtHint(
+                          codMeta.debtAmount.toFixed(2),
+                          codMeta.currency,
+                          codMeta.suggestedAmountUah.toFixed(2),
+                        )
+                      : t.orders.modal.codDebtHintUah(codMeta.debtAmount.toFixed(2))}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          ) : null}
 
           {!isEdit && mode === "EXISTING" ? (
             <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4">

@@ -3,7 +3,7 @@
 import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
 import { useMemo } from "react";
 import type { RouteGeometryResult } from "@/lib/api/resources/visits";
-import { ROUTE_LAYER_STYLES, type RouteLayerKey } from "./RouteLayerControls";
+import { routePolylineOptions, type RouteLayerKey } from "./RouteLayerControls";
 
 export type VisitsRouteMapProps = {
   mapsApiKey: string;
@@ -95,25 +95,22 @@ export function VisitsRouteMap({
       ) : null}
 
       {layers.planned && layerPath(geometries.planned).length > 1 ? (
-        <Polyline path={layerPath(geometries.planned)} options={ROUTE_LAYER_STYLES.planned} />
+        <Polyline
+          path={layerPath(geometries.planned)}
+          options={routePolylineOptions(geometries.planned, "planned")}
+        />
       ) : null}
       {layers.fact_visits && layerPath(geometries.fact_visits).length > 1 ? (
         <Polyline
           path={layerPath(geometries.fact_visits)}
-          options={{
-            ...ROUTE_LAYER_STYLES.fact_visits,
-            icons: [
-              {
-                icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 },
-                offset: "0",
-                repeat: "14px",
-              },
-            ],
-          }}
+          options={routePolylineOptions(geometries.fact_visits, "fact_visits")}
         />
       ) : null}
       {layers.fact_gps && layerPath(geometries.fact_gps).length > 1 ? (
-        <Polyline path={layerPath(geometries.fact_gps)} options={ROUTE_LAYER_STYLES.fact_gps} />
+        <Polyline
+          path={layerPath(geometries.fact_gps)}
+          options={routePolylineOptions(geometries.fact_gps, "fact_gps")}
+        />
       ) : null}
 
       {markers.map((m, idx) => (

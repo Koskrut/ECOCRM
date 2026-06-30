@@ -158,6 +158,12 @@ export class CreateNpTtnDto {
   @IsString()
   paymentMethod?: string; // Cash/NonCash
 
+  /** Cash on delivery (наложений платіж) in UAH — NP AfterpaymentOnGoodsCost */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  afterpaymentOnGoodsCost?: number;
+
   @IsOptional()
   @ValidateNested({ each: true })
   @Type(() => NpParcelDto)

@@ -16,9 +16,10 @@ import { enqueueOfflineJob, isOfflineLikeError } from "@/lib/offline-queue";
 import { t } from "@/lib/i18n";
 import type { Task, TaskStatus } from "@/types/crm";
 
-type FilterKey = "today" | "overdue" | "all";
+type FilterKey = "today" | "overdue" | "all" | "closed";
 
 const OPEN_STATUSES: TaskStatus[] = ["OPEN", "IN_PROGRESS"];
+const CLOSED_STATUSES: TaskStatus[] = ["DONE", "CANCELED"];
 
 export default function TasksScreen() {
   const router = useRouter();
@@ -49,6 +50,8 @@ export default function TasksScreen() {
           status: OPEN_STATUSES,
           dueTo: endOfLocalDayIso(yesterday),
         };
+      } else if (filter === "closed") {
+        query = { status: CLOSED_STATUSES };
       } else {
         query = { status: OPEN_STATUSES };
       }
@@ -130,6 +133,7 @@ export default function TasksScreen() {
     { key: "today", label: t("tasks.filterToday") },
     { key: "overdue", label: t("tasks.filterOverdue") },
     { key: "all", label: t("tasks.filterAll") },
+    { key: "closed", label: t("tasks.filterClosed") },
   ];
 
   return (

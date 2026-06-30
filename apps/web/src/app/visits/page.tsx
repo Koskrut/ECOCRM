@@ -14,13 +14,15 @@ import {
   type RouteGeometryResult,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
-import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
+import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { ChevronDown, ChevronUp, Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { VisitsSubNav } from "./VisitsSubNav";
+import { LogAdHocVisitModal } from "@/components/visits/LogAdHocVisitModal";
+import { strings } from "@/locales";
 
 function formatHmKyiv(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -281,6 +283,7 @@ export default function VisitsPage() {
   const [newVisitPurpose, setNewVisitPurpose] = useState("");
   const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
+  const [logAdHocModalOpen, setLogAdHocModalOpen] = useState(false);
 
   const [role, setRole] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -1138,6 +1141,13 @@ export default function VisitsPage() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setLogAdHocModalOpen(true)}
+                className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                {strings.visitsPage.logAdHoc.newClientButton}
+              </button>
               <button
                 type="button"
                 disabled={!routeSessionState.currentVisit}
@@ -2042,7 +2052,11 @@ export default function VisitsPage() {
                         {routeMetrics.durationMin != null
                           ? ` · ~${routeMetrics.durationMin} мин`
                           : ""}
-                        {routeMetrics.source === "fallback" ? " (примерно)" : ""}
+                        {routeMetrics.source === "fallback"
+                          ? " (примерно)"
+                          : routeMetrics.source === "google"
+                            ? " (по дорогам)"
+                            : ""}
                       </>
                     ) : (
                       "км: —"
@@ -2061,6 +2075,30 @@ export default function VisitsPage() {
                 <p className="text-[10px] text-amber-700">
                   GPS-трек слабый ({routeGeometryBundle.factGps.quality.sampleCount} точек) — для
                   топлива используется факт по визитам.
+                </p>
+              ) : null}
+              {mapGeometries.planned?.source === "fallback" ? (
+                <p className="text-[10px] text-amber-700">
+                  {mapsApiKey
+                    ? "Плановый маршрут приблизительный — проверьте Routes API в Google Cloud."
+                    : "Настройте Google Maps API key (Settings) для маршрутов по дорогам."}
+                </p>
+              ) : null}
+              {routeGeometryBundle ? (
+                <p className="text-[10px] text-zinc-500">
+                  {[
+                    mapGeometries.planned?.path.length
+                      ? `План: ${routeSourceLabel(mapGeometries.planned?.source) ?? "—"}`
+                      : null,
+                    mapGeometries.fact_visits?.path.length
+                      ? `Факт визиты: ${routeSourceLabel(mapGeometries.fact_visits?.source) ?? "—"}`
+                      : null,
+                    mapGeometries.fact_gps?.path.length
+                      ? `Факт GPS: ${routeSourceLabel(mapGeometries.fact_gps?.source) ?? "—"}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               ) : null}
             </div>
@@ -2340,6 +2378,22 @@ export default function VisitsPage() {
           </div>
         </div>
       )}
+
+      <LogAdHocVisitModal
+        open={logAdHocModalOpen}
+        onClose={() => setLogAdHocModalOpen(false)}
+        onSubmit={(payload) => visitsApi.logAdHoc(payload)}
+        onSuccess={async () => {
+          pushToast(strings.visitsPage.logAdHoc.success, "success");
+          await loadData();
+          try {
+            const state = await routeSessionsApi.get(dateParam);
+            setRouteSessionState(state ?? null);
+          } catch {
+            /* ignore */
+          }
+        }}
+      />
 
       {error && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 shadow">

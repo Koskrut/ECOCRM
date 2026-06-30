@@ -114,5 +114,21 @@ export const visitsApi = {
       durationMin: durationMin ?? 60,
     });
   },
+
+  logAdHoc: (
+    token: string,
+    body: {
+      phone: string;
+      firstName: string;
+      lastName: string;
+      outcome: string;
+      resultNote: string;
+    } & Record<string, unknown>,
+  ) =>
+    apiFetch<VisitSummary>("/visits/log-ad-hoc", {
+      method: "POST",
+      body: JSON.stringify(body),
+      token,
+    }),
 };
 

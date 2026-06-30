@@ -25,6 +25,7 @@ type NovaPoshtaSettings = {
   defaultPayerType?: string;
   defaultPaymentMethod?: string;
   declaredCostMode?: "minimum_200" | "order_total";
+  codEnabled?: boolean;
   apiKeyMasked?: string;
   senderCityLabel?: string;
   senderWarehouseLabel?: string;
@@ -192,6 +193,7 @@ export default function NovaPoshtaSettingsPage() {
         defaultPayerType: config.defaultPayerType?.trim() || undefined,
         defaultPaymentMethod: config.defaultPaymentMethod?.trim() || undefined,
         declaredCostMode: config.declaredCostMode ?? "minimum_200",
+        codEnabled: config.codEnabled === true,
       };
       if (clearStoredApiKey) body.apiKey = "";
       else if (apiKeyInput.trim()) body.apiKey = apiKeyInput.trim();
@@ -516,6 +518,35 @@ export default function NovaPoshtaSettingsPage() {
                     (config.declaredCostMode ?? "minimum_200") === "order_total"
                       ? "translate-x-4"
                       : ""
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-zinc-100 bg-zinc-50/80 p-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-800">{t.codEnabledTitle}</p>
+                <p className="mt-0.5 text-xs text-zinc-500">{t.codEnabledHint}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.codEnabled === true}
+                aria-label={t.codEnabledTitle}
+                onClick={() =>
+                  setConfig({
+                    ...config,
+                    codEnabled: config.codEnabled !== true,
+                  })
+                }
+                className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition ${
+                  config.codEnabled === true
+                    ? "border-emerald-500 bg-emerald-500"
+                    : "border-zinc-300 bg-zinc-100"
+                }`}
+              >
+                <span
+                  className={`ml-1 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    config.codEnabled === true ? "translate-x-4" : ""
                   }`}
                 />
               </button>

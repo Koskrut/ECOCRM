@@ -12,6 +12,7 @@ import { ContactsService } from "../../contacts/contacts.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { ParsedInbound, TelegramUpdate } from "./telegram.types";
+import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 
 function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -71,6 +72,7 @@ export class TelegramService {
     private readonly contactsService: ContactsService,
     private readonly phoneEntityLookup: PhoneEntityLookupService,
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
+    private readonly inboxNotifier: TelegramInboxNotifierService,
   ) {}
 
   /**
@@ -447,6 +449,12 @@ export class TelegramService {
         }
         throw error;
       }
+
+      void this.inboxNotifier.notifyInboundMessage({
+        conversationId: conversation.id,
+        telegramChatId: parsed.chatId,
+        messageText: parsed.text,
+      });
 
       const trimmed = parsed.text?.trim() ?? "";
       const isHelp = trimmed.toLowerCase() === "/help";

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 
 export type FixedDropdownRect = {
   top: number;
@@ -71,11 +72,31 @@ type FixedDropdownPortalProps = {
   /** CSS length used inside min(..., calc(100dvh - top - 8px)). Default 14rem. */
   maxHeight?: string;
   className?: string;
+  /** fixed = portal to body; absolute = in-place under a relative parent; omit = auto (absolute on ≤767px). */
+  placement?: "fixed" | "absolute";
   children: React.ReactNode;
 };
 
-const DEFAULT_CLASS =
+const FIXED_CLASS =
   "fixed z-[100] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg";
+
+const ABSOLUTE_CLASS =
+  "absolute left-0 right-0 top-full z-[100] mt-1 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg";
+
+/** Drop positioning utilities from a custom className; base classes supply layout. */
+function mergePanelClass(base: string, className?: string): string {
+  if (!className) return base;
+  const stripped = className
+    .replace(/\bfixed\b/g, "")
+    .replace(/\babsolute\b/g, "")
+    .replace(/\bleft-0\b/g, "")
+    .replace(/\bright-0\b/g, "")
+    .replace(/\btop-full\b/g, "")
+    .replace(/\bmt-1\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped ? `${base} ${stripped}` : base;
+}
 
 export function FixedDropdownPortal({
   open,
@@ -83,19 +104,36 @@ export function FixedDropdownPortal({
   panelRef: panelRefProp,
   minWidth = 240,
   maxHeight = "14rem",
-  className = DEFAULT_CLASS,
+  className,
+  placement,
   children,
 }: FixedDropdownPortalProps) {
+  const isNarrowViewport = useMaxWidthMedia(767);
+  const effectivePlacement = placement ?? (isNarrowViewport ? "absolute" : "fixed");
   const localPanelRef = useRef<HTMLDivElement | null>(null);
   const panelRef = panelRefProp ?? localPanelRef;
-  const rect = useFixedDropdownRect(open, anchorRef);
+  const rect = useFixedDropdownRect(open && effectivePlacement === "fixed", anchorRef);
 
-  if (!open || !rect || typeof document === "undefined") return null;
+  if (!open) return null;
+
+  if (effectivePlacement === "absolute") {
+    return (
+      <div
+        ref={panelRef}
+        className={mergePanelClass(ABSOLUTE_CLASS, className)}
+        style={{ maxHeight }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  if (!rect || typeof document === "undefined") return null;
 
   return createPortal(
     <div
       ref={panelRef}
-      className={className}
+      className={mergePanelClass(FIXED_CLASS, className)}
       style={{
         top: rect.top,
         left: rect.left,

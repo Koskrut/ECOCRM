@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 import { ActivitiesModule } from "../activities/activities.module";
+import { ContactsModule } from "../contacts/contacts.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { SettingsModule } from "../settings/settings.module";
 import { RoutePlansController } from "./route-plans.controller";
 import { RoutePlansService } from "./route-plans.service";
 import { RouteSessionsController } from "./route-sessions.controller";
@@ -10,7 +12,7 @@ import { VisitsController } from "./visits.controller";
 import { VisitsService } from "./visits.service";
 
 @Module({
-  imports: [PrismaModule, ActivitiesModule, EventEmitterModule],
+  imports: [PrismaModule, ActivitiesModule, EventEmitterModule, ContactsModule, SettingsModule],
   controllers: [
     VisitsController,
     RoutePlansController,

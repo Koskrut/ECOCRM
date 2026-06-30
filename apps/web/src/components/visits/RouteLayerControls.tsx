@@ -1,5 +1,7 @@
 "use client";
 
+import type { RouteGeometryResult } from "@/lib/api/resources/visits";
+
 export type RouteLayerKey = "planned" | "fact_visits" | "fact_gps";
 
 const LAYER_META: Record<
@@ -63,3 +65,34 @@ export const ROUTE_LAYER_STYLES: Record<RouteLayerKey, google.maps.PolylineOptio
   fact_visits: { strokeColor: "#059669", strokeOpacity: 0.85, strokeWeight: 4 },
   fact_gps: { strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 3 },
 };
+
+const DASHED_LINE_ICONS: google.maps.PolylineOptions["icons"] = [
+  {
+    icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 },
+    offset: "0",
+    repeat: "12px",
+  },
+];
+
+/** Polyline style from geometry source: solid for roads, dashed for straight-line fallback. */
+export function routePolylineOptions(
+  geom: RouteGeometryResult | null | undefined,
+  layer: RouteLayerKey,
+): google.maps.PolylineOptions {
+  const base = ROUTE_LAYER_STYLES[layer];
+  if (!geom) return base;
+  if (geom.source === "fallback") {
+    return { ...base, strokeOpacity: 0.75, icons: DASHED_LINE_ICONS };
+  }
+  if (geom.source === "raw_gps") {
+    return { ...base, strokeOpacity: 0.65, strokeWeight: 2 };
+  }
+  return base;
+}
+
+export function routeSourceLabel(source: RouteGeometryResult["source"] | undefined): string | null {
+  if (source === "google") return "по дорогах";
+  if (source === "fallback") return "приблизно";
+  if (source === "raw_gps") return "GPS без доріг";
+  return null;
+}

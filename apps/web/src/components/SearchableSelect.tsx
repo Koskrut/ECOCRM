@@ -91,7 +91,7 @@ export function SearchableSelect({
         open={open && !disabled}
         anchorRef={rootRef}
         panelRef={panelRef}
-        className="fixed z-[100] overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg"
+        className="z-[100] overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg"
         maxHeight="16rem"
       >
         <div className="max-h-64 overflow-auto py-1">

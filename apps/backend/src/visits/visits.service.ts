@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import type { LocationSource, Prisma, VisitStatus } from "@prisma/client";
+import type { LocationSource, Prisma, VisitOutcome, VisitStatus } from "@prisma/client";
 import { buildVisitOwnerFilter, assertCanAccessOwner } from "./visits-owner-scope";
 import {
   UserRole,
@@ -24,6 +24,13 @@ import { VISIT_COMPLETED_EVENT } from "../field/field.events";
 import type { VisitGpsPayloadInput } from "./visit-gps.verification";
 import { verifyVisitAgainstPlannedLocation } from "./visit-gps.verification";
 import { formatEntityAddressLine } from "../common/entity-address.util";
+import {
+  getPhoneCandidatesForLookup,
+  getPhoneNormalizedDigits,
+} from "../common/phone.utils";
+import { ContactsService } from "../contacts/contacts.service";
+import { SettingsService } from "../settings/settings.service";
+import { resolvePrimaryRegionForManager } from "../settings/org-chart-region-resolver";
 
 type CreateVisitInput = {
   contactId?: string | null;
@@ -62,6 +69,14 @@ type CompleteVisitInput = {
   nextActionNote?: string | null;
 };
 
+type LogAdHocVisitInput = {
+  phone: string;
+  firstName: string;
+  lastName: string;
+  outcome: string;
+  resultNote: string;
+};
+
 @Injectable()
 export class VisitsService {
   private readonly logger = new Logger(VisitsService.name);
@@ -70,6 +85,8 @@ export class VisitsService {
     private readonly prisma: PrismaService,
     private readonly activitiesService: ActivitiesService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly contactsService: ContactsService,
+    private readonly settings: SettingsService,
   ) {}
 
   private async assertVisitAccess(visit: { ownerId: string }, actor: AuthUser): Promise<void> {
@@ -718,6 +735,211 @@ export class VisitsService {
           `Failed to create/update timeline activity for visit ${id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
+    }
+
+    const dayRef = updated.startsAt ?? updated.completedAt ?? now;
+    const dateStr = new Date(dayRef).toISOString().slice(0, 10);
+    void this.eventEmitter.emitAsync(VISIT_COMPLETED_EVENT, {
+      ownerId: updated.ownerId,
+      dateStr,
+    });
+
+    return updated;
+  }
+
+  async logAdHocVisit(
+    body: LogAdHocVisitInput,
+    actor: AuthUser | undefined,
+    gpsPayload?: VisitGpsPayloadInput,
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+
+    const phone = body.phone?.trim();
+    if (!phone) {
+      throw new BadRequestException("phone required");
+    }
+
+    let firstName = body.firstName?.trim() ?? "";
+    let lastName = body.lastName?.trim() ?? "";
+    if (!firstName && !lastName) {
+      throw new BadRequestException("firstName or lastName required");
+    }
+    if (!firstName) firstName = "—";
+    if (!lastName) lastName = "—";
+
+    if (!body.resultNote?.trim()) {
+      throw new BadRequestException("resultNote is required");
+    }
+    const validOutcomes = Object.values(VisitOutcomeEnum) as string[];
+    if (!body.outcome || !validOutcomes.includes(body.outcome)) {
+      throw new BadRequestException("Invalid outcome");
+    }
+    const outcomeValue = body.outcome as VisitOutcome;
+    const completeInput: CompleteVisitInput = {
+      outcome: body.outcome,
+      resultNote: body.resultNote.trim(),
+    };
+
+    const phoneNorm = getPhoneNormalizedDigits(phone);
+    if (!phoneNorm) {
+      throw new BadRequestException("phone must contain digits");
+    }
+
+    const ownerId = actor.id;
+    const now = new Date();
+    const gpsLat =
+      typeof gpsPayload?.lat === "number" && Number.isFinite(gpsPayload.lat) ? gpsPayload.lat : null;
+    const gpsLng =
+      typeof gpsPayload?.lng === "number" && Number.isFinite(gpsPayload.lng) ? gpsPayload.lng : null;
+
+    let contactId: string;
+    let contactPhone: string | null = phone;
+    let contactLat: number | null = gpsLat;
+    let contactLng: number | null = gpsLng;
+    let contactAddress: string | null = null;
+
+    let existingContact: { id: string } | null = null;
+    for (const candidate of getPhoneCandidatesForLookup(phoneNorm)) {
+      existingContact = await this.contactsService.findContactByPhone(candidate);
+      if (existingContact) break;
+    }
+
+    if (existingContact) {
+      const full = await this.prisma.contact.findUnique({
+        where: { id: existingContact.id },
+        select: { id: true, phone: true, lat: true, lng: true, address: true },
+      });
+      if (!full) {
+        throw new NotFoundException("Contact not found");
+      }
+      contactId = full.id;
+      contactPhone = full.phone;
+      contactLat = gpsLat ?? full.lat;
+      contactLng = gpsLng ?? full.lng;
+      contactAddress = full.address;
+    } else {
+      const org = await this.settings.getOrgChartStructure();
+      const region = resolvePrimaryRegionForManager(org, ownerId);
+      const created = await this.contactsService.create(
+        {
+          firstName,
+          lastName,
+          phone,
+          region,
+          lat: gpsLat,
+          lng: gpsLng,
+          ownerId,
+        },
+        actor,
+      );
+      contactId = created.id;
+      contactPhone = created.phone ?? phone;
+      contactLat = created.lat ?? gpsLat;
+      contactLng = created.lng ?? gpsLng;
+      contactAddress = created.address ?? null;
+    }
+
+    let visit = await this.prisma.visit.findFirst({
+      where: {
+        ownerId,
+        contactId,
+        status: VisitStatusEnum.PLANNED_UNASSIGNED,
+      },
+    });
+
+    const effectiveLat = gpsLat ?? contactLat ?? visit?.lat ?? null;
+    const effectiveLng = gpsLng ?? contactLng ?? visit?.lng ?? null;
+    const locationSource =
+      effectiveLat != null && effectiveLng != null
+        ? LocationSourceEnum.FROM_CONTACT
+        : LocationSourceEnum.NONE;
+
+    if (!visit) {
+      visit = await this.prisma.visit.create({
+        data: {
+          owner: { connect: { id: ownerId } },
+          contact: { connect: { id: contactId } },
+          phone: contactPhone ?? undefined,
+          addressText: contactAddress ?? undefined,
+          lat: effectiveLat ?? undefined,
+          lng: effectiveLng ?? undefined,
+          locationSource,
+          status: VisitStatusEnum.PLANNED_UNASSIGNED,
+          durationMin: 60,
+        },
+      });
+    }
+
+    const completeDataBase = {
+      status: VisitStatusEnum.DONE,
+      completedAt: now,
+      startedAt: visit.startedAt ?? now,
+      startsAt: visit.startsAt ?? now,
+      endsAt: visit.endsAt ?? new Date(now.getTime() + 60 * 60_000),
+      outcome: outcomeValue,
+      resultNote: body.resultNote.trim(),
+      phone: contactPhone ?? visit.phone ?? undefined,
+      addressText: contactAddress ?? visit.addressText ?? undefined,
+      lat: effectiveLat ?? visit.lat ?? undefined,
+      lng: effectiveLng ?? visit.lng ?? undefined,
+      locationSource,
+    } satisfies Prisma.VisitUpdateInput;
+
+    const visitForActivity = {
+      activityId: visit.activityId,
+      contactId,
+      companyId: visit.companyId,
+    };
+
+    const updated =
+      gpsPayload === undefined
+        ? await this.prisma.visit.update({
+            where: { id: visit.id },
+            data: completeDataBase,
+            include: {
+              contact: {
+                select: { firstName: true, lastName: true, middleName: true },
+              },
+            },
+          })
+        : await (async () => {
+            const { verification, distanceToPlannedM } = verifyVisitAgainstPlannedLocation({
+              visitLat: effectiveLat ?? visit.lat,
+              visitLng: effectiveLng ?? visit.lng,
+              radiusM: visit.radiusM,
+              payload: gpsPayload,
+            });
+            return this.prisma.$transaction(async (tx) => {
+              await this.persistVisitGpsLine(tx, {
+                visitId: visit.id,
+                kind: VisitGpsEventKind.COMPLETE,
+                verification,
+                distanceToPlannedM,
+                payload: gpsPayload,
+              });
+              return tx.visit.update({
+                where: { id: visit.id },
+                data: {
+                  ...completeDataBase,
+                  completeGpsVerification: verification,
+                },
+                include: {
+                  contact: {
+                    select: { firstName: true, lastName: true, middleName: true },
+                  },
+                },
+              });
+            });
+          })();
+
+    try {
+      await this.syncVisitResultActivity(visitForActivity, completeInput, now, actor, visit.id);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to create/update timeline activity for ad-hoc visit ${visit.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     const dayRef = updated.startsAt ?? updated.completedAt ?? now;

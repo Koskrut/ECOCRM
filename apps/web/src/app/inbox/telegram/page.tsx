@@ -17,6 +17,13 @@ import { PageLoading } from "@/components/feedback";
 
 const PAGE_SIZE = 50;
 const LIST_PAGE_SIZE = 30;
+const INBOX_POLL_MS = 5_000;
+
+function isConversationUnread(c: ConversationItem, activeId: string | null): boolean {
+  if (c.status !== "OPEN") return false;
+  if (c.id === activeId) return false;
+  return c.lastMessage?.direction === "INBOUND";
+}
 
 function formatTime(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -88,8 +95,8 @@ function InboxTelegramContent() {
 
   const selected = conversations.find((c) => c.id === selectedId);
 
-  const loadConversations = useCallback(async () => {
-    setConversationsLoading(true);
+  const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setConversationsLoading(true);
     try {
       const res = await conversationsApi.list({
         channel: "TELEGRAM",
@@ -100,15 +107,17 @@ function InboxTelegramContent() {
       setConversations(res.items);
       setConversationsTotal(res.total);
     } catch {
-      setConversations([]);
-      setConversationsTotal(0);
+      if (!opts?.silent) {
+        setConversations([]);
+        setConversationsTotal(0);
+      }
     } finally {
-      setConversationsLoading(false);
+      if (!opts?.silent) setConversationsLoading(false);
     }
   }, [statusFilter]);
 
-  const loadMessages = useCallback(async (convId: string) => {
-    setMessagesLoading(true);
+  const loadMessages = useCallback(async (convId: string, opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setMessagesLoading(true);
     try {
       const res = await conversationsApi.getMessages(convId, {
         page: 1,
@@ -117,16 +126,35 @@ function InboxTelegramContent() {
       setMessages(res.items);
       setMessagesTotal(res.total);
     } catch {
-      setMessages([]);
-      setMessagesTotal(0);
+      if (!opts?.silent) {
+        setMessages([]);
+        setMessagesTotal(0);
+      }
     } finally {
-      setMessagesLoading(false);
+      if (!opts?.silent) setMessagesLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  const selectedIdRef = useRef(selectedId);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadConversations({ silent: true });
+      const activeId = selectedIdRef.current;
+      if (activeId) void loadMessages(activeId, { silent: true });
+    };
+
+    const id = window.setInterval(tick, INBOX_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [loadConversations, loadMessages]);
 
   useEffect(() => {
     if (conversationIdFromUrl && conversationIdFromUrl !== selectedId) {
@@ -315,7 +343,9 @@ function InboxTelegramContent() {
             </div>
           ) : (
             <ul className="divide-y divide-zinc-100">
-              {conversations.map((c) => (
+              {conversations.map((c) => {
+                const unread = isConversationUnread(c, selectedId);
+                return (
                 <li key={c.id}>
                   <button
                     type="button"
@@ -325,18 +355,26 @@ function InboxTelegramContent() {
                     }}
                     className={`w-full px-3 py-3 text-left transition-colors ${
                       selectedId === c.id ? "bg-accent-gradient/10" : "hover:bg-zinc-100/80"
-                    }`}
+                    } ${unread ? "border-l-2 border-l-blue-600" : ""}`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-medium text-zinc-900">
+                      <span className={`truncate text-zinc-900 ${unread ? "font-semibold" : "font-medium"}`}>
                         {conversationTitle(c)}
                       </span>
-                      <span className="shrink-0 text-xs text-zinc-500">
-                        {c.lastMessageAt ? formatTime(c.lastMessageAt) : ""}
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {unread && (
+                          <span
+                            className="size-2 rounded-full bg-blue-600"
+                            aria-label="Нове повідомлення"
+                          />
+                        )}
+                        <span className="text-xs text-zinc-500">
+                          {c.lastMessageAt ? formatTime(c.lastMessageAt) : ""}
+                        </span>
                       </span>
                     </div>
                     {c.lastMessage?.text && (
-                      <p className="mt-0.5 truncate text-xs text-zinc-500">
+                      <p className={`mt-0.5 truncate text-xs ${unread ? "text-zinc-700" : "text-zinc-500"}`}>
                         {c.lastMessage.text}
                       </p>
                     )}
@@ -345,7 +383,8 @@ function InboxTelegramContent() {
                     </span>
                   </button>
                 </li>
-              ))}
+              );
+              })}
             </ul>
           )}
         </div>

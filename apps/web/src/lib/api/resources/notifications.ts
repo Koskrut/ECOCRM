@@ -6,7 +6,8 @@ export type NotificationType =
   | "ORDER_STAGE_CHANGED"
   | "MISSED_CALL"
   | "NEW_LEAD"
-  | "TASK_ASSIGNED";
+  | "TASK_ASSIGNED"
+  | "TELEGRAM_MESSAGE";
 
 export type UserNotification = {
   id: string;
@@ -98,6 +99,8 @@ export function notificationHref(n: UserNotification): string | null {
       return "/tasks";
     case "CONTACT":
       return `/contacts?contactId=${encodeURIComponent(n.entityId)}`;
+    case "CONVERSATION":
+      return `/inbox/telegram?conversationId=${encodeURIComponent(n.entityId)}`;
     default:
       return null;
   }

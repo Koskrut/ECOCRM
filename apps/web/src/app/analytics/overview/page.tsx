@@ -246,10 +246,10 @@ export default function AnalyticsOverviewPage() {
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <AttentionTile
-            title="Прострочені задачі"
+            title="Прострочені завдання"
             count={attention?.crm.overdueTasksCount ?? 0}
             href={`${attentionHref}#overdue-tasks`}
-            hint="Задачі з минулим дедлайном"
+            hint="Завдання з минулим дедлайном"
           />
           <AttentionTile
             title="Завислі угоди"

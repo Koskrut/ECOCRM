@@ -1,10 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { tasksApi, ACTIVE_TASK_STATUSES, type Task, type TaskStatus } from "@/lib/api/resources/tasks";
+import { tasksApi, ACTIVE_TASK_STATUSES, type Task } from "@/lib/api/resources/tasks";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { apiHttp } from "@/lib/api/client";
 import { authApi } from "@/lib/api/resources/auth";
+import { strings } from "@/locales";
+import { interpolate, taskStatusLabel } from "@/lib/task-labels";
+
+const t = strings.tasks;
 
 type Props = {
   contactId?: string | null;
@@ -13,13 +17,6 @@ type Props = {
   orderId?: string | null;
   /** Called after list loads or changes (active/open task count). */
   onCountChange?: (total: number) => void;
-};
-
-const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  OPEN: "Open",
-  IN_PROGRESS: "In progress",
-  DONE: "Done",
-  CANCELED: "Canceled",
 };
 
 function formatDueAt(dueAt: string | null | undefined): string {
@@ -103,7 +100,7 @@ export function EntityTasksList({
       setTotal(res.total);
       onCountChange?.(activeRes.total);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load tasks");
+      setErr(e instanceof Error ? e.message : t.errors.loadFailed);
       setItems([]);
       setTotal(0);
       onCountChange?.(0);
@@ -139,7 +136,7 @@ export function EntityTasksList({
     } catch (e) {
       setErr(
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to add task"),
+          (e instanceof Error ? e.message : t.errors.addFailed),
       );
     } finally {
       setSaving(false);
@@ -152,7 +149,7 @@ export function EntityTasksList({
         await tasksApi.complete(id);
         await load();
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Failed to complete task");
+        setErr(e instanceof Error ? e.message : t.errors.completeFailed);
       }
     },
     [load],
@@ -164,7 +161,7 @@ export function EntityTasksList({
         await tasksApi.cancel(id);
         await load();
       } catch (e) {
-        setErr(e instanceof Error ? e.message : "Failed to cancel task");
+        setErr(e instanceof Error ? e.message : t.errors.cancelFailed);
       }
     },
     [load],
@@ -173,7 +170,7 @@ export function EntityTasksList({
   if (!hasEntity) {
     return (
       <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50/50 p-4 text-sm text-zinc-500">
-        Save the entity first to manage tasks.
+        {t.saveEntityFirst}
       </div>
     );
   }
@@ -181,13 +178,13 @@ export function EntityTasksList({
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-md border border-zinc-200 bg-zinc-50/30 p-3">
-        <p className="mb-2 text-sm font-medium text-zinc-700">Add task</p>
+        <p className="mb-2 text-sm font-medium text-zinc-700">{t.actions.add}</p>
         <div className="flex flex-col gap-2">
           <input
             type="text"
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Task title"
+            placeholder={t.fields.titlePlaceholder}
             className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
           />
           <input
@@ -201,7 +198,7 @@ export function EntityTasksList({
             onChange={(e) => setNewAssigneeId(e.target.value)}
             className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
           >
-            {users.length === 0 && <option value="">No users available</option>}
+            {users.length === 0 && <option value="">{t.noUsers}</option>}
             {users.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.fullName}
@@ -211,7 +208,7 @@ export function EntityTasksList({
           <textarea
             value={newBody}
             onChange={(e) => setNewBody(e.target.value)}
-            placeholder="Note (optional)"
+            placeholder={t.fields.noteOptional}
             rows={2}
             className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
           />
@@ -221,7 +218,7 @@ export function EntityTasksList({
             disabled={saving || !newTitle.trim()}
             className="self-start rounded-md bg-accent-gradient px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {saving ? "Adding…" : "Add task"}
+            {saving ? t.actions.adding : t.actions.add}
           </button>
         </div>
       </div>
@@ -234,22 +231,22 @@ export function EntityTasksList({
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-medium text-zinc-700">
-          {showClosed ? "All tasks" : "Active tasks"}
+          {showClosed ? t.allTasks : t.activeTasks}
         </p>
         <button
           type="button"
           onClick={() => setShowClosed((v) => !v)}
           className="text-sm text-zinc-600 underline hover:text-zinc-900"
         >
-          {showClosed ? "Hide closed" : "Show closed"}
+          {showClosed ? t.hideClosed : t.showClosed}
         </button>
       </div>
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading tasks…</p>
+        <p className="text-sm text-zinc-500">{t.loading}</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          {showClosed ? "No tasks yet." : "No active tasks."}
+          {showClosed ? t.empty.noTasks : t.empty.noActive}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -273,10 +270,14 @@ export function EntityTasksList({
                           : "bg-blue-100 text-blue-800"
                     }`}
                   >
-                    {TASK_STATUS_LABELS[task.status]}
+                    {taskStatusLabel(task.status)}
                   </span>
-                  <span>Due: {formatDueAt(task.dueAt ?? null)}</span>
-                  <span>Assignee: {task.assignee?.fullName ?? "—"}</span>
+                  <span>
+                    {t.dueLabel} {formatDueAt(task.dueAt ?? null)}
+                  </span>
+                  <span>
+                    {t.assigneeLabel} {task.assignee?.fullName ?? "—"}
+                  </span>
                 </div>
               </div>
               {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
@@ -286,14 +287,14 @@ export function EntityTasksList({
                     onClick={() => void complete(task.id)}
                     className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
                   >
-                    Complete
+                    {t.actions.complete}
                   </button>
                   <button
                     type="button"
                     onClick={() => void cancel(task.id)}
                     className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                   >
-                    Cancel
+                    {t.actions.cancel}
                   </button>
                 </div>
               )}
@@ -303,7 +304,7 @@ export function EntityTasksList({
       )}
       {total > items.length && (
         <p className="text-xs text-zinc-500">
-          Showing {items.length} of {total} tasks.
+          {interpolate(t.showingCount, { shown: items.length, total })}
         </p>
       )}
     </div>

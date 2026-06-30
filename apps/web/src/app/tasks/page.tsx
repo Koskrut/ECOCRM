@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ListTodo, Search } from "lucide-react";
 import {
   tasksApi,
@@ -16,29 +17,39 @@ import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
 import { authApi } from "@/lib/api/resources/auth";
+import { strings } from "@/locales";
+import {
+  interpolate,
+  taskLinkedTypeLabel,
+  taskStatusFilterLabel,
+  taskStatusLabel,
+} from "@/lib/task-labels";
 
-const TASK_STATUS_OPTIONS: { value: TaskStatusFilter; label: string }[] = [
-  { value: "active", label: "Active" },
-  { value: "OPEN", label: "Open" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "DONE", label: "Done" },
-  { value: "CANCELED", label: "Canceled" },
-  { value: "all", label: "All" },
-];
+const t = strings.tasks;
 
-const PERIOD_OPTIONS: { value: "" | "week" | "overdue"; label: string }[] = [
-  { value: "", label: "All time" },
-  { value: "week", label: "This week" },
-  { value: "overdue", label: "Overdue" },
-];
+function getTaskStatusOptions(): { value: TaskStatusFilter; label: string }[] {
+  return (
+    ["active", "OPEN", "IN_PROGRESS", "DONE", "CANCELED", "all"] as TaskStatusFilter[]
+  ).map((value) => ({ value, label: taskStatusFilterLabel(value) }));
+}
 
-const SORT_OPTIONS: { sortBy: TaskSortField; sortDir: "asc" | "desc"; label: string }[] = [
-  { sortBy: "dueAt", sortDir: "asc", label: "Due date (nearest)" },
-  { sortBy: "dueAt", sortDir: "desc", label: "Due date (latest)" },
-  { sortBy: "createdAt", sortDir: "desc", label: "Created (newest)" },
-  { sortBy: "createdAt", sortDir: "asc", label: "Created (oldest)" },
-  { sortBy: "updatedAt", sortDir: "desc", label: "Updated (newest)" },
-];
+function getPeriodOptions(): { value: "" | "week" | "overdue"; label: string }[] {
+  return [
+    { value: "", label: t.period.allTime },
+    { value: "week", label: t.period.thisWeek },
+    { value: "overdue", label: t.period.overdue },
+  ];
+}
+
+function getSortOptions(): { sortBy: TaskSortField; sortDir: "asc" | "desc"; label: string }[] {
+  return [
+    { sortBy: "dueAt", sortDir: "asc", label: t.sort.dueAsc },
+    { sortBy: "dueAt", sortDir: "desc", label: t.sort.dueDesc },
+    { sortBy: "createdAt", sortDir: "desc", label: t.sort.createdDesc },
+    { sortBy: "createdAt", sortDir: "asc", label: t.sort.createdAsc },
+    { sortBy: "updatedAt", sortDir: "desc", label: t.sort.updatedDesc },
+  ];
+}
 
 function formatDueAt(dueAt: string | null | undefined): string {
   return formatDateTime(dueAt);
@@ -66,25 +77,33 @@ function TaskLinkedTo({ task }: { task: Task }) {
     const contactName = [task.contact?.lastName, task.contact?.firstName].filter(Boolean).join(" ").trim();
     links.push({
       href: `/contacts?contactId=${task.contactId}`,
-      label: contactName ? `Contact: ${contactName}` : "Contact",
+      label: contactName
+        ? interpolate(t.linkedTo.contactWithName, { name: contactName })
+        : t.linkedTo.contact,
     });
   }
   if (task.companyId) {
     links.push({
       href: `/companies?companyId=${task.companyId}`,
-      label: task.company?.name ? `Company: ${task.company.name}` : "Company",
+      label: task.company?.name
+        ? interpolate(t.linkedTo.companyWithName, { name: task.company.name })
+        : t.linkedTo.company,
     });
   }
   if (task.leadId) {
     links.push({
       href: `/leads?leadId=${task.leadId}`,
-      label: task.lead?.fullName ? `Lead: ${task.lead.fullName}` : "Lead",
+      label: task.lead?.fullName
+        ? interpolate(t.linkedTo.leadWithName, { name: task.lead.fullName })
+        : t.linkedTo.lead,
     });
   }
   if (task.orderId) {
     links.push({
       href: `/orders?orderId=${task.orderId}`,
-      label: task.order?.orderNumber ? `Order: ${task.order.orderNumber}` : "Order",
+      label: task.order?.orderNumber
+        ? interpolate(t.linkedTo.orderWithName, { name: task.order.orderNumber })
+        : t.linkedTo.order,
     });
   }
   if (links.length === 0) return <span className="text-zinc-500">—</span>;
@@ -105,6 +124,23 @@ type SearchOption = { id: string; label: string };
 type UserOption = { id: string; fullName: string };
 
 export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-500">{t.loading}</div>}>
+      <TasksPageContent />
+    </Suspense>
+  );
+}
+
+function TasksPageContent() {
+  const searchParams = useSearchParams();
+  const taskStatusOptions = useMemo(() => getTaskStatusOptions(), []);
+  const periodOptions = useMemo(() => getPeriodOptions(), []);
+  const sortOptions = useMemo(() => getSortOptions(), []);
+  const editStatusOptions = useMemo(
+    () => taskStatusOptions.filter((o) => o.value !== "active" && o.value !== "all"),
+    [taskStatusOptions],
+  );
+
   const [items, setItems] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -144,6 +180,7 @@ export default function TasksPage() {
   const [cardSaving, setCardSaving] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [editAssigneeId, setEditAssigneeId] = useState<string>("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedTask) {
@@ -212,6 +249,20 @@ export default function TasksPage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const taskId = searchParams.get("taskId");
+    if (!taskId) return;
+    setSelectedTaskId(taskId);
+    void tasksApi
+      .get(taskId)
+      .then((task) => {
+        setItems((prev) => (prev.some((row) => row.id === taskId) ? prev : [task, ...prev]));
+      })
+      .catch(() => {
+        // task may be inaccessible or deleted
+      });
+  }, [searchParams]);
+
   const searchEntities = useCallback(async () => {
     if (!linkSearch.trim()) {
       setLinkOptions([]);
@@ -261,7 +312,7 @@ export default function TasksPage() {
 
   const submitAdd = useCallback(async () => {
     if (!newTitle.trim()) {
-      setAddError("Title is required");
+      setAddError(t.errors.titleRequired);
       return;
     }
     const body: Parameters<typeof tasksApi.create>[0] = {
@@ -277,7 +328,7 @@ export default function TasksPage() {
       else body.orderId = selectedLinkId;
     }
     if (!body.contactId && !body.companyId && !body.leadId && !body.orderId) {
-      setAddError("Link task to a contact, company, lead or order");
+      setAddError(t.errors.linkRequired);
       return;
     }
     setSaving(true);
@@ -294,7 +345,7 @@ export default function TasksPage() {
       if (myUserId) setNewAssigneeId(myUserId);
       await load();
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to create task");
+      setAddError(e instanceof Error ? e.message : t.errors.createFailed);
     } finally {
       setSaving(false);
     }
@@ -314,12 +365,13 @@ export default function TasksPage() {
 
   const complete = useCallback(
     async (id: string) => {
+      setActionError(null);
       try {
         await tasksApi.complete(id);
         closeTaskIfHidden(id, "DONE");
         await load();
-      } catch {
-        // ignore
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : t.errors.completeFailed);
       }
     },
     [closeTaskIfHidden, load],
@@ -327,12 +379,13 @@ export default function TasksPage() {
 
   const cancel = useCallback(
     async (id: string) => {
+      setActionError(null);
       try {
         await tasksApi.cancel(id);
         closeTaskIfHidden(id, "CANCELED");
         await load();
-      } catch {
-        // ignore
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : t.errors.cancelFailed);
       }
     },
     [closeTaskIfHidden, load],
@@ -354,7 +407,7 @@ export default function TasksPage() {
         await load();
         setCardEditing(false);
       } catch (e) {
-        setCardError(e instanceof Error ? e.message : "Failed to update task");
+        setCardError(e instanceof Error ? e.message : t.errors.updateFailed);
       } finally {
         setCardSaving(false);
       }
@@ -395,14 +448,14 @@ export default function TasksPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="flex items-center gap-2 text-2xl font-semibold text-zinc-900">
           <ListTodo className="h-7 w-7 text-zinc-600" />
-          Tasks
+          {t.pageTitle}
         </h1>
         <button
           type="button"
           onClick={() => setShowAdd((v) => !v)}
           className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white"
         >
-          {showAdd ? "Cancel" : "+ Add task"}
+          {showAdd ? t.cancelAdd : t.addTask}
         </button>
       </div>
 
@@ -415,10 +468,10 @@ export default function TasksPage() {
           <input
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search by title, note, assignee, contact, company, lead, order…"
+            placeholder={t.searchPlaceholder}
             className="min-w-0 flex-1 bg-transparent text-sm outline-none"
             type="search"
-            aria-label="Search tasks"
+            aria-label={t.searchAriaLabel}
           />
         </form>
         <div className="flex flex-wrap items-center gap-2">
@@ -430,7 +483,7 @@ export default function TasksPage() {
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
           >
-            {PERIOD_OPTIONS.map((o) => (
+            {periodOptions.map((o) => (
               <option key={o.value || "all"} value={o.value}>
                 {o.label}
               </option>
@@ -444,7 +497,7 @@ export default function TasksPage() {
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
           >
-            {TASK_STATUS_OPTIONS.map((o) => (
+            {taskStatusOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
@@ -459,7 +512,7 @@ export default function TasksPage() {
               }}
               className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
             >
-              <option value="">All assignees</option>
+              <option value="">{t.allAssignees}</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.fullName}
@@ -479,7 +532,7 @@ export default function TasksPage() {
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
           >
-            {SORT_OPTIONS.map((o) => (
+            {sortOptions.map((o) => (
               <option key={`${o.sortBy}-${o.sortDir}`} value={`${o.sortBy}-${o.sortDir}`}>
                 {o.label}
               </option>
@@ -491,32 +544,32 @@ export default function TasksPage() {
               onClick={resetFilters}
               className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50"
             >
-              Reset filters
+              {t.actions.resetFilters}
             </button>
           )}
         </div>
         <p className="text-sm text-zinc-500">
-          Total: {total}
-          {totalPages > 1 ? ` · Page ${page} of ${totalPages}` : ""}
+          {interpolate(t.total, { total })}
+          {totalPages > 1 ? interpolate(t.pageOf, { page, totalPages }) : ""}
         </p>
       </div>
 
       {showAdd && (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-zinc-700">New task</h2>
+          <h2 className="mb-3 text-sm font-semibold text-zinc-700">{t.newTask}</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Title</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.fields.title}</label>
               <input
                 type="text"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Task title"
+                placeholder={t.fields.titlePlaceholder}
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Due</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.fields.due}</label>
               <input
                 type="datetime-local"
                 value={newDueAt}
@@ -525,13 +578,13 @@ export default function TasksPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Assignee</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.fields.assignee}</label>
               <select
                 value={newAssigneeId}
                 onChange={(e) => setNewAssigneeId(e.target.value)}
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
               >
-                {users.length === 0 && <option value="">No users available</option>}
+                {users.length === 0 && <option value="">{t.noUsers}</option>}
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.fullName}
@@ -540,17 +593,17 @@ export default function TasksPage() {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-zinc-600">Note</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.fields.note}</label>
               <textarea
                 value={newBody}
                 onChange={(e) => setNewBody(e.target.value)}
-                placeholder="Optional"
+                placeholder={t.fields.noteOptional}
                 rows={2}
                 className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Link to</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.fields.linkTo}</label>
               <div className="mt-1 flex gap-2">
                 <select
                   value={linkType}
@@ -562,16 +615,16 @@ export default function TasksPage() {
                   }}
                   className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
                 >
-                  <option value="contact">Contact</option>
-                  <option value="company">Company</option>
-                  <option value="lead">Lead</option>
-                  <option value="order">Order</option>
+                  <option value="contact">{t.linkedTo.contact}</option>
+                  <option value="company">{t.linkedTo.company}</option>
+                  <option value="lead">{t.linkedTo.lead}</option>
+                  <option value="order">{t.linkedTo.order}</option>
                 </select>
                 <input
                   type="text"
                   value={linkSearch}
                   onChange={(e) => setLinkSearch(e.target.value)}
-                  placeholder={`Search ${linkType}…`}
+                  placeholder={interpolate(t.fields.searchLink, { type: taskLinkedTypeLabel(linkType) })}
                   className="flex-1 rounded border border-zinc-200 px-2 py-1.5 text-sm"
                 />
               </div>
@@ -596,7 +649,7 @@ export default function TasksPage() {
                   ))}
                 </ul>
               )}
-              {linkSearching && <p className="mt-1 text-xs text-zinc-500">Searching…</p>}
+              {linkSearching && <p className="mt-1 text-xs text-zinc-500">{t.searching}</p>}
             </div>
           </div>
           {addError && (
@@ -609,17 +662,21 @@ export default function TasksPage() {
               disabled={saving}
               className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {saving ? "Creating…" : "Create task"}
+              {saving ? t.actions.creating : t.actions.create}
             </button>
           </div>
         </div>
       )}
 
+      {actionError && (
+        <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</p>
+      )}
+
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading tasks…</p>
+        <p className="text-sm text-zinc-500">{t.loading}</p>
       ) : items.length === 0 ? (
         <p className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-6 text-center text-sm text-zinc-500">
-          No tasks match the filter.
+          {t.empty.noMatch}
         </p>
       ) : (
         <>
@@ -627,13 +684,13 @@ export default function TasksPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50/80">
-                  <th className="px-4 py-3 font-medium text-zinc-700">Title</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Due</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Status</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Assignee</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Linked to</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Created</th>
-                  <th className="px-4 py-3 font-medium text-zinc-700">Actions</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.title}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.due}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.status}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.assignee}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.linkedTo}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.created}</th>
+                  <th className="px-4 py-3 font-medium text-zinc-700">{t.columns.actions}</th>
                 </tr>
               </thead>
               <tbody>
@@ -663,7 +720,7 @@ export default function TasksPage() {
                               : "bg-blue-100 text-blue-800"
                         }`}
                       >
-                        {task.status}
+                        {taskStatusLabel(task.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-zinc-600">{task.assignee?.fullName ?? "—"}</td>
@@ -679,14 +736,14 @@ export default function TasksPage() {
                             onClick={() => void complete(task.id)}
                             className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
                           >
-                            Complete
+                            {t.actions.complete}
                           </button>
                           <button
                             type="button"
                             onClick={() => void cancel(task.id)}
                             className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
                           >
-                            Cancel
+                            {t.actions.cancel}
                           </button>
                         </div>
                       )}
@@ -709,41 +766,39 @@ export default function TasksPage() {
                 <div className="border-b border-zinc-200 p-4">
                   {cardEditing ? (
                     <div className="space-y-3">
-                      <label className="block text-xs font-medium text-zinc-600">Title</label>
+                      <label className="block text-xs font-medium text-zinc-600">{t.fields.title}</label>
                       <input
                         type="text"
                         value={editTitle}
                         onChange={(e) => setEditTitle(e.target.value)}
                         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
                       />
-                      <label className="block text-xs font-medium text-zinc-600">Due</label>
+                      <label className="block text-xs font-medium text-zinc-600">{t.fields.due}</label>
                       <input
                         type="datetime-local"
                         value={editDueAt}
                         onChange={(e) => setEditDueAt(e.target.value)}
                         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
                       />
-                      <label className="block text-xs font-medium text-zinc-600">Status</label>
+                      <label className="block text-xs font-medium text-zinc-600">{t.columns.status}</label>
                       <select
                         value={editStatus}
                         onChange={(e) => setEditStatus(e.target.value as TaskStatus)}
                         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
                       >
-                        {TASK_STATUS_OPTIONS.filter(
-                          (o) => o.value !== "active" && o.value !== "all",
-                        ).map((o) => (
+                        {editStatusOptions.map((o) => (
                           <option key={o.value} value={o.value}>
                             {o.label}
                           </option>
                         ))}
                       </select>
-                      <label className="block text-xs font-medium text-zinc-600">Assignee</label>
+                      <label className="block text-xs font-medium text-zinc-600">{t.fields.assignee}</label>
                       <select
                         value={editAssigneeId}
                         onChange={(e) => setEditAssigneeId(e.target.value)}
                         className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm"
                       >
-                        {users.length === 0 && <option value="">No users available</option>}
+                        {users.length === 0 && <option value="">{t.noUsers}</option>}
                         {users.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.fullName}
@@ -755,7 +810,7 @@ export default function TasksPage() {
                     <>
                       <h3 className="text-lg font-semibold text-zinc-900">{selectedTask.title}</h3>
                       <p className="mt-1 text-sm text-zinc-500">
-                        Due: {formatDueAt(selectedTask.dueAt)} ·{" "}
+                        {t.dueLabel} {formatDueAt(selectedTask.dueAt)} ·{" "}
                         <span
                           className={`rounded px-1.5 py-0.5 text-xs ${
                             selectedTask.status === "DONE"
@@ -765,7 +820,7 @@ export default function TasksPage() {
                                 : "bg-blue-100 text-blue-800"
                           }`}
                         >
-                          {selectedTask.status}
+                          {taskStatusLabel(selectedTask.status)}
                         </span>
                       </p>
                     </>
@@ -773,7 +828,7 @@ export default function TasksPage() {
                 </div>
 
                 <div className="border-b border-zinc-100 p-4">
-                  <p className="text-xs font-medium text-zinc-500">Description</p>
+                  <p className="text-xs font-medium text-zinc-500">{t.fields.description}</p>
                   {cardEditing ? (
                     <textarea
                       value={editBody}
@@ -789,25 +844,33 @@ export default function TasksPage() {
                 </div>
 
                 <div className="border-b border-zinc-100 p-4">
-                  <p className="text-xs font-medium text-zinc-500">Assignee</p>
+                  <p className="text-xs font-medium text-zinc-500">{t.fields.assignee}</p>
                   <p className="mt-0.5 text-sm text-zinc-700">{selectedTask.assignee?.fullName ?? "—"}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Created by: {selectedTask.createdBy?.fullName ?? "—"}</p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {t.fields.createdBy}: {selectedTask.createdBy?.fullName ?? "—"}
+                  </p>
                 </div>
 
                 <div className="border-b border-zinc-100 p-4">
-                  <p className="text-xs font-medium text-zinc-500">Linked to</p>
+                  <p className="text-xs font-medium text-zinc-500">{t.columns.linkedTo}</p>
                   <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
                     <TaskLinkedTo task={selectedTask} />
                   </div>
                 </div>
 
                 <div className="border-b border-zinc-100 p-4">
-                  <p className="text-xs font-medium text-zinc-500">Dates</p>
+                  <p className="text-xs font-medium text-zinc-500">{t.fields.dates}</p>
                   <ul className="mt-1 space-y-0.5 text-sm text-zinc-700">
-                    <li>Created: {formatTaskDateCell(selectedTask.createdAt)}</li>
-                    <li>Updated: {formatTaskDateCell(selectedTask.updatedAt)}</li>
+                    <li>
+                      {t.fields.created}: {formatTaskDateCell(selectedTask.createdAt)}
+                    </li>
+                    <li>
+                      {t.fields.updated}: {formatTaskDateCell(selectedTask.updatedAt)}
+                    </li>
                     {selectedTask.completedAt && (
-                      <li>Completed: {formatTaskDateCell(selectedTask.completedAt)}</li>
+                      <li>
+                        {t.fields.completed}: {formatTaskDateCell(selectedTask.completedAt)}
+                      </li>
                     )}
                   </ul>
                 </div>
@@ -827,7 +890,7 @@ export default function TasksPage() {
                         disabled={cardSaving || !editTitle.trim()}
                         className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                       >
-                        {cardSaving ? "Saving…" : "Save"}
+                        {cardSaving ? t.actions.saving : t.actions.save}
                       </button>
                       <button
                         type="button"
@@ -835,7 +898,7 @@ export default function TasksPage() {
                         disabled={cardSaving}
                         className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                       >
-                        Cancel edit
+                        {t.actions.cancelEdit}
                       </button>
                     </>
                   ) : (
@@ -845,7 +908,7 @@ export default function TasksPage() {
                         onClick={() => setCardEditing(true)}
                         className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                       >
-                        Edit
+                        {t.actions.edit}
                       </button>
                       {(selectedTask.status === "OPEN" || selectedTask.status === "IN_PROGRESS") && (
                         <>
@@ -854,14 +917,14 @@ export default function TasksPage() {
                             onClick={() => void complete(selectedTask.id)}
                             className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
                           >
-                            Complete
+                            {t.actions.complete}
                           </button>
                           <button
                             type="button"
                             onClick={() => void cancel(selectedTask.id)}
                             className="rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                           >
-                            Cancel task
+                            {t.actions.cancelTask}
                           </button>
                         </>
                       )}
@@ -872,7 +935,7 @@ export default function TasksPage() {
                     onClick={() => setSelectedTaskId(null)}
                     className="ml-auto rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                   >
-                    Close
+                    {t.actions.close}
                   </button>
                 </div>
               </div>
@@ -881,9 +944,7 @@ export default function TasksPage() {
 
           {totalPages > 1 && (
             <div className="flex items-center justify-between text-sm text-zinc-600">
-              <span>
-                Page {page} of {totalPages} ({total} tasks)
-              </span>
+              <span>{interpolate(t.pagination, { page, totalPages, total })}</span>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -891,7 +952,7 @@ export default function TasksPage() {
                   disabled={page <= 1}
                   className="rounded border border-zinc-200 px-2 py-1 disabled:opacity-50"
                 >
-                  Previous
+                  {t.actions.previous}
                 </button>
                 <button
                   type="button"
@@ -899,7 +960,7 @@ export default function TasksPage() {
                   disabled={page >= totalPages}
                   className="rounded border border-zinc-200 px-2 py-1 disabled:opacity-50"
                 >
-                  Next
+                  {t.actions.next}
                 </button>
               </div>
             </div>

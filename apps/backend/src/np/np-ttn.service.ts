@@ -71,8 +71,32 @@ export class NpTtnService {
   // ======================
   // PUBLIC: TTN form defaults
   // ======================
-  async getTtnDefaults() {
-    return this.settings.resolveNovaPoshtaFinancialDefaults();
+  async getTtnDefaults(orderId?: string) {
+    const fin = await this.settings.resolveNovaPoshtaFinancialDefaults();
+    const codFeatureEnabled = await this.settings.resolveNovaPoshtaCodEnabled();
+    const base = { ...fin, codFeatureEnabled };
+    const oid = orderId?.trim();
+    if (!oid) return base;
+
+    if (!codFeatureEnabled) {
+      return {
+        ...base,
+        cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
+      };
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: oid },
+      select: { debtAmount: true, currency: true },
+    });
+    if (!order) {
+      return {
+        ...base,
+        cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
+      };
+    }
+    const cod = await this.resolveSuggestedCod(order);
+    return { ...base, cod };
   }
 
   // ======================
@@ -90,6 +114,8 @@ export class NpTtnService {
     });
 
     if (!order) throw new BadRequestException("order not found");
+
+    await this.assertCodAllowed(dto);
 
     // ✅ fallback: если contactId не задан — берём clientId
     const contactId = order.contactId ?? order.clientId ?? null;
@@ -230,7 +256,7 @@ export class NpTtnService {
     const npRefs = await this.ensureNpRecipientRefs(resolved);
 
     // 2) build payload
-    const declaredCost = await this.resolveDeclaredCost(dto, order);
+    const declaredCost = await this.resolveEffectiveDeclaredCost(dto, order);
     const payload = await this.buildInternetDocumentPayload({
       dto: { ...dto, declaredCost },
       resolved,
@@ -628,6 +654,61 @@ export class NpTtnService {
     return 200;
   }
 
+  private async resolveSuggestedCod(order: {
+    debtAmount: unknown;
+    currency: string | null;
+  }): Promise<{
+    enabled: boolean;
+    suggestedAmountUah: number;
+    debtAmount: number;
+    currency: string;
+  }> {
+    const codFeatureEnabled = await this.settings.resolveNovaPoshtaCodEnabled();
+    const debt = Math.max(0, Number(order.debtAmount ?? 0));
+    const currency = order.currency?.trim() || "UAH";
+    if (!codFeatureEnabled) {
+      return { enabled: false, suggestedAmountUah: 0, debtAmount: debt, currency };
+    }
+    let suggestedAmountUah = 0;
+    if (debt > 0.00001) {
+      const rates = await this.settings.getExchangeRates();
+      suggestedAmountUah = orderAmountToUah(debt, currency, rates);
+    }
+    return {
+      enabled: debt > 0.00001,
+      suggestedAmountUah,
+      debtAmount: debt,
+      currency,
+    };
+  }
+
+  private async resolveEffectiveDeclaredCost(
+    dto: CreateNpTtnDto,
+    order: { totalAmount: unknown; currency: string | null },
+  ): Promise<number> {
+    const base = await this.resolveDeclaredCost(dto, order);
+    const cod =
+      dto.afterpaymentOnGoodsCost != null && Number.isFinite(Number(dto.afterpaymentOnGoodsCost))
+        ? Number(dto.afterpaymentOnGoodsCost)
+        : 0;
+    if (cod > 0 && cod > base) return cod;
+    return base;
+  }
+
+  private async assertCodAllowed(dto: CreateNpTtnDto): Promise<void> {
+    const amount =
+      dto.afterpaymentOnGoodsCost != null && Number.isFinite(Number(dto.afterpaymentOnGoodsCost))
+        ? Number(dto.afterpaymentOnGoodsCost)
+        : 0;
+    if (amount <= 0) return;
+    const codFeatureEnabled = await this.settings.resolveNovaPoshtaCodEnabled();
+    if (!codFeatureEnabled) {
+      throw new BadRequestException(
+        "Наложений платіж вимкнено в налаштуваннях Nova Poshta (Settings → Nova Poshta).",
+      );
+    }
+  }
+
   private async buildInternetDocumentPayload(args: {
     dto: CreateNpTtnDto;
     resolved: { data: unknown };
@@ -700,6 +781,12 @@ export class NpTtnService {
     }
 
     const serviceType = isAddress ? "WarehouseDoors" : "WarehouseWarehouse";
+
+    const afterpayment =
+      dto.afterpaymentOnGoodsCost != null && Number.isFinite(Number(dto.afterpaymentOnGoodsCost))
+        ? Number(dto.afterpaymentOnGoodsCost)
+        : 0;
+
     // NP InternetDocument.save uses different payload shapes:
     // ADDRESS requires NewAddress + RecipientAddressName, but WAREHOUSE/POSTOMAT must be sent as SaveReq without them.
     return {
@@ -715,6 +802,7 @@ export class NpTtnService {
       Description: "мед. вироби",
       InfoRegClientBarcodes: orderNumber,
       Cost: String(dto.declaredCost ?? 200),
+      ...(afterpayment > 0 ? { AfterpaymentOnGoodsCost: String(afterpayment) } : {}),
 
       Weight: String(weight),
       VolumeGeneral: String(volumeGeneral),
@@ -1284,6 +1372,11 @@ export class NpTtnService {
         payerType:
           request.PayerType != null ? String(request.PayerType) : ("Recipient" as const),
         paymentMethod: request.PaymentMethod != null ? String(request.PaymentMethod) : null,
+        afterpaymentOnGoodsCost: (() => {
+          const raw = request.AfterpaymentOnGoodsCost;
+          const n = raw != null ? Number(raw) : 0;
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })(),
         recipient,
       },
     };
@@ -1321,6 +1414,8 @@ export class NpTtnService {
     });
     if (!order) throw new BadRequestException("order not found");
 
+    await this.assertCodAllowed(dto);
+
     const contactId = order.contactId ?? order.clientId ?? null;
     if (!contactId) {
       throw new BadRequestException("order.contactId or order.clientId is required");
@@ -1350,7 +1445,7 @@ export class NpTtnService {
     }
 
     const npRefs = await this.ensureNpRecipientRefs(resolved);
-    const declaredCost = await this.resolveDeclaredCost(dto, order);
+    const declaredCost = await this.resolveEffectiveDeclaredCost(dto, order);
     const payload = await this.buildInternetDocumentPayload({
       dto: { ...dto, declaredCost },
       resolved,

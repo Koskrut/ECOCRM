@@ -31,6 +31,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { tasksApi, type Task } from "@/lib/api/resources/tasks";
+import { strings } from "@/locales";
 import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
 import { dailyAgendaApi, type DailyAgendaPayload } from "@/lib/api/resources/daily-agenda";
 import { DayPlanPercentBadge, DayPlanWidget } from "@/components/day-plan/DayPlanWidget";
@@ -564,19 +565,19 @@ export default function DashboardPage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
             <ListTodo className="h-4 w-4" />
-            Upcoming tasks
+            {strings.dashboard.upcomingTasks}
           </h2>
           <Link
             href="/tasks"
             className="text-sm font-medium text-zinc-600 hover:text-zinc-900"
           >
-            View all
+            {strings.dashboard.viewAllTasks}
           </Link>
         </div>
         {tasksLoading ? (
           <PageLoading inline />
         ) : tasks.length === 0 ? (
-          <p className="text-sm text-zinc-500">No open tasks.</p>
+          <p className="text-sm text-zinc-500">{strings.dashboard.noOpenTasks}</p>
         ) : (
           <ul className="space-y-2">
             {tasks.map((task) => (
@@ -586,14 +587,16 @@ export default function DashboardPage() {
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-zinc-900">{task.title}</p>
-                  <p className="text-xs text-zinc-500">Due: {formatTaskDue(task.dueAt)}</p>
+                  <p className="text-xs text-zinc-500">
+                    {strings.tasks.dueLabel} {formatTaskDue(task.dueAt)}
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void completeTask(task.id)}
                   className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
                 >
-                  Complete
+                  {strings.tasks.actions.complete}
                 </button>
               </li>
             ))}

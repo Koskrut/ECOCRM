@@ -358,6 +358,8 @@ export type NovaPoshtaIntegrationConfig = {
   defaultPaymentMethod?: string;
   /** Declared value (Cost) on TTN when not overridden: fixed 200 UAH or order total in UAH. */
   declaredCostMode?: NovaPoshtaDeclaredCostMode;
+  /** Allow cash-on-delivery (наложений платіж) when creating TTN. */
+  codEnabled?: boolean;
 };
 
 function maskToken(value: string | undefined): string {
@@ -1223,6 +1225,7 @@ export class SettingsService {
         cfg.declaredCostMode === "order_total" || cfg.declaredCostMode === "minimum_200"
           ? cfg.declaredCostMode
           : undefined,
+      codEnabled: cfg.codEnabled === true,
       apiKeyMasked: maskToken(row?.apiToken ?? undefined),
       senderCityLabel,
       senderWarehouseLabel,
@@ -1314,6 +1317,10 @@ export class SettingsService {
               currentConfig.declaredCostMode === "minimum_200"
             ? currentConfig.declaredCostMode
             : undefined,
+      codEnabled:
+        body.codEnabled !== undefined
+          ? body.codEnabled === true
+          : currentConfig.codEnabled === true,
     };
 
     const isEnabled =
@@ -1417,6 +1424,14 @@ export class SettingsService {
     });
     const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
     return cfg.declaredCostMode === "order_total" ? "order_total" : "minimum_200";
+  }
+
+  async resolveNovaPoshtaCodEnabled(): Promise<boolean> {
+    const row = await this.prisma.integrationSetting.findFirst({
+      where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
+    });
+    const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
+    return cfg.codEnabled === true;
   }
 
   async getOutboundVoiceIntegrationConfig(): Promise<

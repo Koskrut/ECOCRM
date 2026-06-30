@@ -132,7 +132,7 @@ export function SearchableSelectLite({
         open={open}
         anchorRef={rootRef}
         panelRef={panelRef}
-        className="fixed z-[100] overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg"
+        className="z-[100] overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg"
       >
         <div className="p-2">
           <input

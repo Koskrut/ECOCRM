@@ -16,6 +16,12 @@ export class UsersController {
     return { items: await this.usersService.listUsers(req.user) };
   }
 
+  @Get(":id")
+  async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const user = await this.usersService.getUserById(id, req.user);
+    return { user };
+  }
+
   @Post()
   @Roles(UserRole.ADMIN)
   @RequirePermission(PermissionKeys.UsersManage)
@@ -28,7 +34,7 @@ export class UsersController {
       lastName: body.lastName != null ? String(body.lastName) : undefined,
       password: body.password != null ? String(body.password) : undefined,
       role: body.role != null ? String(body.role) : undefined,
-      isActive: body.isActive != null ? Boolean(body.isActive) : undefined,
+      isActive: body.isActive !== undefined ? Boolean(body.isActive) : undefined,
     });
 
     return { user };
@@ -65,7 +71,7 @@ export class UsersController {
           : String(body.password).trim() === ""
             ? undefined
             : String(body.password),
-      isActive: body.isActive != null ? Boolean(body.isActive) : undefined,
+      isActive: body.isActive !== undefined ? Boolean(body.isActive) : undefined,
       routeStartLat: numOrNull(body.routeStartLat),
       routeStartLng: numOrNull(body.routeStartLng),
       routeEndLat: numOrNull(body.routeEndLat),
@@ -89,6 +95,8 @@ export class UsersController {
             ? null
             : (numOrNull(body.fuelPricePerLiter) as number | null),
       vehicleLabel: strOrNull(body.vehicleLabel),
+      usePersonalCar:
+        body.usePersonalCar === undefined ? undefined : Boolean(body.usePersonalCar),
     });
 
     return { user };

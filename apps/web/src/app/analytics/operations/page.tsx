@@ -10,6 +10,11 @@ import {
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
+import { strings } from "@/locales";
+import { taskStatusLabel } from "@/lib/task-labels";
+import type { TaskStatus } from "@/lib/api/resources/tasks";
+
+const at = strings.analytics.tasks;
 
 type OperationsResponse = {
   createdTasks: number;
@@ -43,16 +48,25 @@ export default function AnalyticsOperationsPage() {
       />
       <AnalyticsState loading={loading} error={error}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KpiCard title="Created Tasks" value={formatNumber(data?.createdTasks)} />
-          <KpiCard title="Completed Tasks" value={formatNumber(data?.completedTasks)} />
-          <KpiCard title="Overdue Tasks" value={formatNumber(data?.overdueTasks)} />
-          <KpiCard title="Completion Rate" value={formatPercent(data?.completionRate)} />
+          <KpiCard title={at.createdTasks} value={formatNumber(data?.createdTasks)} />
+          <KpiCard title={at.completedTasks} value={formatNumber(data?.completedTasks)} />
+          <KpiCard title={at.overdueTasks} value={formatNumber(data?.overdueTasks)} />
+          <KpiCard title={at.completionRate} value={formatPercent(data?.completionRate)} />
         </div>
         <SimpleTable
           rows={data?.byStatus ?? []}
           columns={[
-            { key: "status", title: "Status", render: (row) => row.status },
-            { key: "count", title: "Count", render: (row) => formatNumber(row.count) },
+            {
+              key: "status",
+              title: at.statusColumn,
+              render: (row) => {
+                const s = row.status as TaskStatus;
+                return ["OPEN", "IN_PROGRESS", "DONE", "CANCELED"].includes(s)
+                  ? taskStatusLabel(s)
+                  : row.status;
+              },
+            },
+            { key: "count", title: at.countColumn, render: (row) => formatNumber(row.count) },
           ]}
         />
       </AnalyticsState>

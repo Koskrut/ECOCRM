@@ -3,9 +3,12 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from "react-native";
 
 import { TaskRow } from "@/components/TaskRow";
+import { TaskDueSection } from "@/components/task/TaskDueSection";
 import { Text } from "@/components/Themed";
+import { EmptyState } from "@/components/EmptyState";
 import { AppButton } from "@/components/ui/AppButton";
 import { Screen } from "@/components/ui/Screen";
+import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { tasksApi } from "@/lib/api/tasks";
 import { addDays } from "@/lib/date";
@@ -23,14 +26,26 @@ export default function TaskDetailScreen() {
 
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editDueAt, setEditDueAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !taskId) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const row = await tasksApi.getById(token, taskId);
       setTask(row);
+      setEditTitle(row.title);
+      setEditBody(row.body ?? "");
+      setEditDueAt(row.dueAt ?? null);
+    } catch (e) {
+      setTask(null);
+      setLoadError(e instanceof Error ? e.message : t("tasks.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -39,6 +54,10 @@ export default function TaskDetailScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleDueChange = useCallback((next: string | null) => {
+    setEditDueAt(next);
+  }, []);
 
   async function onComplete() {
     if (!token || !task) return;
@@ -97,7 +116,63 @@ export default function TaskDetailScreen() {
     }
   }
 
-  if (loading || !task) {
+  async function onSaveEdit() {
+    if (!token || !task) return;
+    if (!editTitle.trim()) {
+      Alert.alert(t("common.error"), t("tasks.titleRequired"));
+      return;
+    }
+    setBusy(true);
+    try {
+      await tasksApi.update(token, task.id, {
+        title: editTitle.trim(),
+        body: editBody.trim() || null,
+        dueAt: editDueAt,
+      });
+      setEditing(false);
+      await load();
+    } catch (e) {
+      if (isOfflineLikeError(e)) {
+        await enqueueOfflineJob("taskUpdate", {
+          taskId: task.id,
+          body: { title: editTitle.trim(), body: editBody.trim() || null, dueAt: editDueAt },
+        });
+        Alert.alert(t("common.done"), t("common.offlineQueued"));
+        setEditing(false);
+      } else {
+        Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onCancelTask() {
+    if (!token || !task) return;
+    Alert.alert(t("tasks.cancelConfirmTitle"), t("tasks.cancelConfirmBody"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("tasks.cancel"),
+        style: "destructive",
+        onPress: () => void confirmCancelTask(),
+      },
+    ]);
+  }
+
+  async function confirmCancelTask() {
+    if (!token || !task) return;
+    setBusy(true);
+    try {
+      await tasksApi.cancel(token, task.id);
+      await load();
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
     return (
       <Screen gradient={false} padded={false}>
         <View style={styles.centered}>
@@ -110,6 +185,19 @@ export default function TaskDetailScreen() {
     );
   }
 
+  if (!task) {
+    return (
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <EmptyState message={loadError ?? t("tasks.notFound")} onRetry={loadError ? () => void load() : undefined} />
+          <AppButton label={t("common.back")} onPress={() => router.back()} variant="ghost" />
+        </View>
+      </Screen>
+    );
+  }
+
+  const isOpen = task.status === "OPEN" || task.status === "IN_PROGRESS";
+
   return (
     <Screen padded={false}>
       <ScrollView
@@ -117,12 +205,67 @@ export default function TaskDetailScreen() {
           styles.scroll,
           { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxxl },
         ]}>
-        <TaskRow
-          task={task}
-          onComplete={() => void onComplete()}
-          onReschedule={onReschedule}
-          busy={busy}
-        />
+        {editing ? (
+          <View style={{ marginBottom: theme.spacing.lg }}>
+            <TextField
+              value={editTitle}
+              onChangeText={setEditTitle}
+              label={t("tasksForm.title")}
+              placeholder={t("tasksForm.titlePlaceholder")}
+            />
+            <TextField
+              value={editBody}
+              onChangeText={setEditBody}
+              placeholder={t("tasks.bodyOptional")}
+              multiline
+              style={{ minHeight: 100, textAlignVertical: "top" }}
+            />
+            <TaskDueSection dueAt={editDueAt} onChange={handleDueChange} />
+            <View style={styles.editActions}>
+              <AppButton
+                label={t("tasks.saveChanges")}
+                onPress={() => void onSaveEdit()}
+                loading={busy}
+              />
+              <AppButton
+                label={t("common.cancel")}
+                onPress={() => {
+                  setEditing(false);
+                  setEditTitle(task.title);
+                  setEditBody(task.body ?? "");
+                  setEditDueAt(task.dueAt ?? null);
+                }}
+                variant="ghost"
+              />
+            </View>
+          </View>
+        ) : (
+          <>
+            <TaskRow
+              task={task}
+              onComplete={isOpen ? () => void onComplete() : undefined}
+              onReschedule={isOpen ? onReschedule : undefined}
+              busy={busy}
+            />
+            {isOpen ? (
+              <View style={styles.rowActions}>
+                <AppButton
+                  label={t("tasks.edit")}
+                  onPress={() => setEditing(true)}
+                  variant="secondary"
+                  style={{ alignSelf: "flex-start" }}
+                />
+                <AppButton
+                  label={t("tasks.cancel")}
+                  onPress={onCancelTask}
+                  variant="ghost"
+                  style={{ alignSelf: "flex-start" }}
+                />
+              </View>
+            ) : null}
+          </>
+        )}
+
         {task.contact?.id ? (
           <AppButton
             label={t("tasks.openContact")}
@@ -132,7 +275,7 @@ export default function TaskDetailScreen() {
           />
         ) : null}
         <AppButton
-          label={t("common.cancel")}
+          label={t("common.back")}
           onPress={() => router.back()}
           variant="ghost"
           style={{ marginTop: theme.spacing.md, alignSelf: "center" }}
@@ -145,4 +288,6 @@ export default function TaskDetailScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   scroll: { paddingTop: 8 },
+  editActions: { gap: 8, marginTop: 8 },
+  rowActions: { gap: 8, marginTop: 12 },
 });

@@ -84,6 +84,7 @@ enum NotificationType {
   MISSED_CALL
   NEW_LEAD
   TASK_ASSIGNED
+  TELEGRAM_MESSAGE
 }
 
 enum AuditAction {

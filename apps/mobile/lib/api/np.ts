@@ -62,7 +62,22 @@ export type CreateNpTtnBody = {
   seatsAmount?: number;
   payerType?: string;
   paymentMethod?: string;
+  afterpaymentOnGoodsCost?: number;
   ignoreDuplicateCheck?: boolean;
+};
+
+export type NpTtnCodDefaults = {
+  enabled: boolean;
+  suggestedAmountUah: number;
+  debtAmount: number;
+  currency: string;
+};
+
+export type NpTtnDefaultsResponse = {
+  payerType?: string;
+  paymentMethod?: string;
+  codFeatureEnabled?: boolean;
+  cod?: NpTtnCodDefaults;
 };
 
 export type CreateNpTtnResponse = {
@@ -124,8 +139,8 @@ export const npApi = {
       { token },
     ),
 
-  ttnDefaults: (token: string) =>
-    apiFetch<Record<string, unknown>>("/np/ttn/defaults", { token }),
+  ttnDefaults: (token: string, orderId?: string) =>
+    apiFetch<NpTtnDefaultsResponse>(`/np/ttn/defaults${qs({ orderId })}`, { token }),
 
   getTtn: (token: string, orderId: string) =>
     apiFetch<NpTtnDetailsResponse>(`/np/ttn/${orderId}`, { token }),

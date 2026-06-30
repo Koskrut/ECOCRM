@@ -63,6 +63,13 @@ function formatRouteStat(distanceKm: number | null, durationMin: number | null):
   return t("map.routeStat", { km, min });
 }
 
+function routeSourceSuffix(source: string | undefined): string {
+  if (source === "google") return t("map.routeByRoads");
+  if (source === "fallback") return t("map.routeApprox");
+  if (source === "raw_gps") return t("map.routeRawGps");
+  return "";
+}
+
 export default function MapScreen() {
   const { token } = useAuth();
   const theme = useTheme();
@@ -105,9 +112,12 @@ export default function MapScreen() {
     setStaticImageError(false);
     try {
       const [geo, key] = await Promise.all([
-        apiFetch<unknown>(`/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`, {
+        apiFetch<unknown>(
+          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}&traffic=1`,
+          {
           token,
-        }),
+        },
+        ),
         resolveMapsApiKey(token),
       ]);
       setBundle(normalizeGeometryBundle(geo));
@@ -183,14 +193,18 @@ export default function MapScreen() {
       { key: "fact_gps", icon: "locate-outline", geometry: bundle.factGps },
       { key: "fact_visits", icon: "footsteps-outline", geometry: bundle.factVisits },
     ];
-    return tiles.map(({ key, icon, geometry }) => ({
-      key,
-      label: t(LAYER_LABELS[key]),
-      value: formatRouteStat(geometry.distanceKm, geometry.durationMin),
-      icon,
-      color: layerThemeColors[key],
-      bg: layerThemeBgs[key],
-    }));
+    return tiles.map(({ key, icon, geometry }) => {
+      const stat = formatRouteStat(geometry.distanceKm, geometry.durationMin);
+      const suffix = routeSourceSuffix(geometry.source);
+      return {
+        key,
+        label: t(LAYER_LABELS[key]),
+        value: suffix ? `${stat} · ${suffix}` : stat,
+        icon,
+        color: layerThemeColors[key],
+        bg: layerThemeBgs[key],
+      };
+    });
   }, [bundle, layerThemeColors, layerThemeBgs]);
 
   const gpsQuality = bundle?.factGps?.quality;

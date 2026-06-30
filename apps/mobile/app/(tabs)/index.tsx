@@ -17,6 +17,7 @@ import { ShiftStatusCard } from "@/components/today/ShiftStatusCard";
 import { StatTiles, type StatTile } from "@/components/today/StatTiles";
 import { TodayHeader } from "@/components/today/TodayHeader";
 import { TeamVisitFilter } from "@/components/visit/TeamVisitFilter";
+import { LogAdHocVisitSheet } from "@/components/visit/LogAdHocVisitSheet";
 import { VisitDayNavigator } from "@/components/visit/VisitDayNavigator";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
@@ -63,6 +64,7 @@ export default function TodayScreen() {
   const [fuelLabel, setFuelLabel] = useState<string | null>(null);
 
   const [dateKey, setDateKey] = useState(() => formatLocalDateKey());
+  const [logAdHocOpen, setLogAdHocOpen] = useState(false);
 
   const {
     isTeamLead,
@@ -115,7 +117,7 @@ export default function TodayScreen() {
           };
         }>(`/field/fuel/day?date=${encodeURIComponent(dateKey)}`, { token }).catch(() => null),
         apiFetch<RouteGeometryBundle>(
-          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`,
+          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}&traffic=1`,
           { token },
         ).catch(() => null),
         callsPromise,
@@ -268,6 +270,7 @@ export default function TodayScreen() {
           <Chip label={t("visits.calendar")} onPress={() => router.push(`/visits/schedule?date=${dateKey}`)} />
           <Chip label={t("today.backlog")} onPress={() => router.push("/visits/backlog")} />
           <Chip label={t("today.history")} onPress={() => router.push("/visits/history")} />
+          <Chip label={t("visit.logAdHoc.newClientChip")} onPress={() => setLogAdHocOpen(true)} />
         </View>
 
         {isTeamLead ? (
@@ -400,6 +403,12 @@ export default function TodayScreen() {
           {t("today.footerHint")}
         </Text>
       </ScrollView>
+
+      <LogAdHocVisitSheet
+        visible={logAdHocOpen}
+        onClose={() => setLogAdHocOpen(false)}
+        onSuccess={() => void reload()}
+      />
     </Screen>
   );
 }

@@ -4,7 +4,39 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.95**.)_
+_(планируемые изменения после **0.2.96**.)_
+
+## [0.2.96] — 2026-05-20
+
+### Summary
+
+Патч **0.2.96**: уведомления о **Telegram inbox**, **ad-hoc визит** с поля, маршрутизация multi-leg на карте визитов, **NP COD** в ТТН, рефакторинг **tasks** и i18n analytics.
+
+### Added
+
+- **Telegram inbox notifications**: `NotificationType.TELEGRAM_MESSAGE`, миграция **`20260630120000_add_telegram_message_notification`**, **`TelegramInboxNotifierService`**.
+- **Ad-hoc visit**: `POST /visits/log-ad-hoc` — визит без плана (контакт по телефону, outcome, GPS); web **`LogAdHocVisitModal`**, mobile **`LogAdHocVisitSheet`**.
+- **Route routing**: `route-routing.util` — concat/downsample multi-leg paths для **`VisitsRouteMap`**.
+- **NP TTN COD**: defaults по заказу (`debtAmount`), feature flag, валидация суммы НП.
+- **Web tasks**: расширенный список (фильтры, сортировка, i18n), **`task-labels`**, users/rbac API resources.
+- **Mobile**: task form components, ad-hoc visit, NP API.
+
+### Changed
+
+- **Analytics** pages — i18n (en/uk).
+- **Notifications** service, **NotificationBell**, settings/notifications.
+- **Users** API, **EmployeeModal**, **ContactModal**.
+- **Visits** map layers, **TtnModal** COD UX.
+
+### Fixed
+
+- **TtnModal**: locale keys под `orders.modal.*`.
+- **Tasks page**: `Suspense` для `useSearchParams` (web CI).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.96`**.
+- **Миграция:** **`20260630120000_add_telegram_message_notification`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
 
 ## [0.2.95] — 2026-05-20
 

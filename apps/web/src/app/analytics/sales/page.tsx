@@ -27,6 +27,9 @@ import {
 
 import Link from "next/link";
 import { deltaCountLine, deltaMoneyLine, deltaMoneyLineFine } from "../analytics-delta";
+import { strings } from "@/locales";
+
+const at = strings.analytics.tasks;
 
 type SalesKpi = {
   bookedRevenue: number;
@@ -462,7 +465,7 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="risk"
-              title="Overdue tasks (period)"
+              title={at.overduePeriod}
               subtitle="OPEN/IN_PROGRESS, dueAt у вибраному діапазоні"
               tooltip="Узгоджено з overview / managers / attention для того ж періоду."
               value={formatNumber(kpi?.overdueTasksCount)}
@@ -522,7 +525,7 @@ export default function AnalyticsSalesPage() {
                     align="right"
                   />
                   <SortableTh
-                    label="Overdue tasks (period)"
+                    label={at.overduePeriod}
                     active={sortKey === "overdueTasks"}
                     dir={sortDir}
                     onClick={() => toggleSort("overdueTasks")}
@@ -644,7 +647,7 @@ export default function AnalyticsSalesPage() {
                     <thead className="bg-zinc-50 text-left text-zinc-500">
                       <tr>
                         <th className="px-3 py-2 font-medium">Manager</th>
-                        <th className="px-3 py-2 font-medium text-right">Overdue tasks</th>
+                        <th className="px-3 py-2 font-medium text-right">{at.overdueColumn}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">

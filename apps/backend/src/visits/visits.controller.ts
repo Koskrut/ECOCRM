@@ -106,6 +106,37 @@ export class VisitsController {
     );
   }
 
+  @Post("log-ad-hoc")
+  async logAdHoc(
+    @Body()
+    body: {
+      phone: string;
+      firstName: string;
+      lastName: string;
+      outcome: string;
+      resultNote: string;
+      lat?: number;
+      lng?: number;
+      accuracyM?: number;
+      clientRecordedAt?: string;
+      permissionState?: string;
+      locationProvider?: string;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.visits.logAdHocVisit(
+      {
+        phone: body.phone,
+        firstName: body.firstName,
+        lastName: body.lastName,
+        outcome: body.outcome,
+        resultNote: body.resultNote,
+      },
+      req.user,
+      extractVisitGpsFromBody(body as unknown as Record<string, unknown>),
+    );
+  }
+
   @Get(":id")
   async getOne(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.visits.getById(id, req.user);

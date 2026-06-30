@@ -227,6 +227,17 @@ export const visitsApi = {
     const res = await apiHttp.post<Visit>(`/visits/${id}/complete`, body);
     return res.data;
   },
+
+  logAdHoc: async (body: {
+    phone: string;
+    firstName: string;
+    lastName: string;
+    outcome: string;
+    resultNote: string;
+  }): Promise<Visit> => {
+    const res = await apiHttp.post<Visit>("/visits/log-ad-hoc", body);
+    return res.data;
+  },
 };
 
 type RouteOwnerOpts = { ownerId?: string; traffic?: boolean };

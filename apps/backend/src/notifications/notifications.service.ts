@@ -46,7 +46,9 @@ export class NotificationsService {
     }
 
     const inAppEnabled = await this.isChannelEnabled(params.userId, params.type, "inApp");
-    if (!inAppEnabled) {
+    const browserEnabled = await this.isChannelEnabled(params.userId, params.type, "browser");
+    const telegramEnabled = await this.isChannelEnabled(params.userId, params.type, "telegram");
+    if (!inAppEnabled && !browserEnabled && !telegramEnabled) {
       return null;
     }
 
@@ -95,7 +97,9 @@ export class NotificationsService {
     }
 
     const inAppEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "inApp");
-    if (!inAppEnabled) {
+    const browserEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "browser");
+    const telegramEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "telegram");
+    if (!inAppEnabled && !browserEnabled && !telegramEnabled) {
       return null;
     }
 

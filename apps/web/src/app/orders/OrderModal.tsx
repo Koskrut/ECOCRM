@@ -6,6 +6,7 @@ import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
 import { FixedDropdownPortal } from "@/components/overlays/FixedDropdownPortal";
 import { apiHttp } from "@/lib/api/client";
+import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
@@ -15,7 +16,7 @@ import { OrderTimeline } from "./OrderTimeline";
 import { TtnModal } from "./TtnModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
-import { tasksApi } from "@/lib/api/resources/tasks";
+import { tasksApi, ACTIVE_TASK_STATUSES } from "@/lib/api/resources/tasks";
 import { ModuleIds } from "@/lib/modules/module-ids";
 import { useModules } from "@/lib/modules/useModules";
 import { useConfirm, useToast } from "@/components/feedback";
@@ -769,7 +770,7 @@ export function OrderModal({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
-  const [searchDropdownMaxWidth, setSearchDropdownMaxWidth] = useState<number | null>(null);
+  const isNarrowViewport = useMaxWidthMedia(767);
   const [qty, setQty] = useState(1);
   const [price, setPrice] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -780,30 +781,7 @@ export function OrderModal({
     value: string;
   } | null>(null);
 
-  useLayoutEffect(() => {
-    if (!showAddForm || selectedProduct || searchResults.length === 0) return;
-    const wrap = searchWrapRef.current;
-    const itemsCard = itemsCardRef.current;
-    if (!wrap) return;
-    const modal = wrap.closest("[role='dialog']") as HTMLElement | null;
-    const wrapRect = wrap.getBoundingClientRect();
-    const itemsCardRect = itemsCard?.getBoundingClientRect() ?? null;
-    const modalRect = modal?.getBoundingClientRect() ?? null;
-    const rightBoundary = Math.min(
-      itemsCardRect?.right ?? Number.POSITIVE_INFINITY,
-      modalRect?.right ?? Number.POSITIVE_INFINITY,
-      window.innerWidth - 8,
-    );
-    const computedMaxWidth = Math.max(
-      wrapRect.width,
-      Math.floor(rightBoundary - wrapRect.left - 4),
-    );
-    if (searchDropdownMaxWidth !== computedMaxWidth) {
-      setSearchDropdownMaxWidth(computedMaxWidth);
-    }
-  }, [searchDropdownMaxWidth, searchResults.length, selectedProduct, showAddForm]);
-
-  // Timeline
+  // product search debounce
   const [, setTimeline] = useState<TimelineItem[]>([]);
   const [, setTimelineLoading] = useState(false);
   const [, setTimelineError] = useState<string | null>(null);
@@ -1188,7 +1166,7 @@ export function OrderModal({
     }
     let cancelled = false;
     void tasksApi
-      .list({ orderId, pageSize: 1 })
+      .list({ orderId, pageSize: 1, status: ACTIVE_TASK_STATUSES })
       .then((r) => {
         if (!cancelled) setTasksTabCount(r.total);
       })
@@ -2463,8 +2441,17 @@ export function OrderModal({
                   </div>
                 ) : null}
                 {showAddForm ? (
-                  <div className="mb-3 flex min-w-0 flex-wrap items-end gap-2">
-                    <div ref={searchWrapRef} className="relative min-w-[8rem] flex-[1_1_12rem]">
+                  <div
+                    className={cx(
+                      "mb-3 flex min-w-0 gap-2",
+                      isNarrowViewport ? "flex-col" : "flex-wrap items-end",
+                    )}>
+                    <div
+                      ref={searchWrapRef}
+                      className={cx(
+                        "relative",
+                        isNarrowViewport ? "w-full" : "min-w-[8rem] flex-[1_1_12rem]",
+                      )}>
                       <input
                         ref={searchInputRef}
                         value={search}
@@ -2511,11 +2498,35 @@ export function OrderModal({
                       {searchError ? (
                         <div className="mt-0.5 text-[10px] text-red-600">{searchError}</div>
                       ) : null}
+                      {selectedProduct ? (
+                        <div className="min-w-0 w-full truncate text-[10px] text-zinc-600">
+                          {selectedProduct.sku
+                            ? `${selectedProduct.sku} ${selectedProduct.name}`
+                            : selectedProduct.name}
+                          {(stockAtWarehouse(selectedProduct, order?.warehouseId) ??
+                            selectedProduct.stock) !== undefined ? (
+                            <span className="ml-1 text-zinc-500">
+                              {t.stockLeft(
+                                stockAtWarehouse(selectedProduct, order?.warehouseId) ??
+                                  selectedProduct.stock ??
+                                  0,
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {submitError && isNarrowViewport ? (
+                        <span className="mt-0.5 block text-[10px] text-red-600">{submitError}</span>
+                      ) : null}
                     </div>
                     <div
-                      ref={qtyControlsWrapRef}
-                      className="flex h-[34px] shrink-0 items-stretch overflow-hidden rounded-md border border-zinc-300 bg-white"
-                    >
+                      className={cx(
+                        isNarrowViewport ? "flex flex-wrap items-end gap-2" : "contents",
+                      )}>
+                      <div
+                        ref={qtyControlsWrapRef}
+                        className="flex h-[34px] shrink-0 items-stretch overflow-hidden rounded-md border border-zinc-300 bg-white"
+                      >
                       <input
                         ref={qtyInputRef}
                         type="text"
@@ -2586,28 +2597,12 @@ export function OrderModal({
                     >
                       {submittingItem ? "…" : t.add}
                     </button>
-                    {selectedProduct ? (
-                      <div className="min-w-0 w-full truncate text-[10px] text-zinc-600">
-                        {selectedProduct.sku
-                          ? `${selectedProduct.sku} ${selectedProduct.name}`
-                          : selectedProduct.name}
-                        {(stockAtWarehouse(selectedProduct, order?.warehouseId) ??
-                          selectedProduct.stock) !== undefined ? (
-                          <span className="ml-1 text-zinc-500">
-                            {t.stockLeft(
-                              stockAtWarehouse(selectedProduct, order?.warehouseId) ??
-                                selectedProduct.stock ??
-                                0,
-                            )}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {submitError ? (
+                    {submitError && !isNarrowViewport ? (
                       <span className="w-full text-[10px] text-red-600 sm:w-auto">
                         {submitError}
                       </span>
                     ) : null}
+                    </div>
                   </div>
                 ) : null}
                 <ul className="divide-y divide-zinc-100 text-sm">
