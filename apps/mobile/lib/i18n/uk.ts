@@ -92,6 +92,10 @@ export const uk = {
     noCalls: "Черга дзвінків порожня",
     noReadyOrders: "Немає замовлень з готовим товаром",
     queuePending: "{count} в черзі",
+    shiftReminderTitle: "Почати зміну?",
+    shiftReminderBody: "Без зміни GPS-трек не збирається і паливо може рахуватися неточно.",
+    shiftReminderBanner: "Забули почати зміну? GPS не збирається.",
+    staleShiftAutoEnded: "Вчорашню зміну завершено автоматично.",
   },
   geofence: {
     atAddressTitle: "Ви біля адреси візиту",
@@ -319,6 +323,8 @@ export const uk = {
     durationMin: "{min} хв",
     visitsOnRoute: "Візити на маршруті: {count}",
     emptyRoute: "Немає точок для обраних шарів. Заплануйте візити або увімкніть GPS-зміну.",
+    interactiveFailed: "Інтерактивна карта недоступна на цьому пристрої.",
+    useStaticPreview: "Статичне превʼю",
   },
   more: {
     title: "Ще",
@@ -651,6 +657,7 @@ export const uk = {
     historyTitle: "Історія візитів",
     range7d: "7 днів",
     range30d: "30 днів",
+    openDayMap: "Маршрут на карті",
     stepClient: "Клієнт",
     stepSchedule: "Час і мета",
     modeToday: "На сьогодні",

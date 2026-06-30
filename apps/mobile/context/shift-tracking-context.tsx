@@ -147,11 +147,32 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     setLoading(true);
     try {
       const res = await apiFetch<{ shift: FieldShift | null }>("/field/shifts/active", { token });
-      setActiveShift(res.shift);
-      if (res.shift?.trackingEnabled !== undefined) {
-        setTrackingEnabled(res.shift.trackingEnabled);
+      let shift = res.shift;
+
+      const todayKey = formatLocalDateKey();
+      const shiftDateKey = shift?.date ? shift.date.slice(0, 10) : null;
+      const isStaleActiveShift =
+        !!shift && shift.status === "ACTIVE" && typeof shiftDateKey === "string" && shiftDateKey !== todayKey;
+
+      if (isStaleActiveShift) {
+        try {
+          await stopLocationTracking();
+          await apiFetch(`/field/shifts/${shift!.id}/end`, { method: "POST", token });
+          Alert.alert(t("common.done"), t("today.staleShiftAutoEnded"));
+        } catch {
+          // If closing fails, backend will still close via cron / next refresh.
+        }
+        shift = null;
+        setTrackingMode("none");
+        setTrackingHealthy(true);
+        setBackgroundTaskStarted(false);
       }
-      const mode = await resumeTrackingIfNeeded(res.shift);
+
+      setActiveShift(shift);
+      if (shift?.trackingEnabled !== undefined) {
+        setTrackingEnabled(shift.trackingEnabled);
+      }
+      const mode = await resumeTrackingIfNeeded(shift);
       setTrackingMode(mode);
       if (mode === "foreground" && !foregroundWarnedRef.current) {
         foregroundWarnedRef.current = true;

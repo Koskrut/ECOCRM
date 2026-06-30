@@ -8,6 +8,7 @@ import {
 } from "react-native";
 
 import { useTheme } from "@/lib/design/theme-context";
+import { useKeyboardHeight } from "@/lib/use-keyboard-height";
 
 type Props = ScrollViewProps & {
   extraBottomInset?: number;
@@ -29,7 +30,11 @@ export function KeyboardAwareScrollView({
   ...rest
 }: Props) {
   const theme = useTheme();
-  const bottomPadding = extraBottomInset + theme.spacing.xxxl;
+  const keyboardHeight = useKeyboardHeight();
+  const bottomPadding =
+    extraBottomInset +
+    theme.spacing.xxxl +
+    (Platform.OS === "android" ? keyboardHeight : 0);
 
   return (
     <ScrollView

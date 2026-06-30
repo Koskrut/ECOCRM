@@ -1,11 +1,14 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
 import { EmptyState } from "@/components/EmptyState";
 import { VisitCard } from "@/components/VisitCard";
 import { Text } from "@/components/Themed";
+import { AppButton } from "@/components/ui/AppButton";
+import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { Screen } from "@/components/ui/Screen";
 import { SkeletonCard } from "@/components/ui/Skeleton";
@@ -79,6 +82,34 @@ export default function TodayScreen() {
     if (!isTeamLead || !user?.id) return items;
     return items.filter((v) => visitOwnerId(v) === user.id);
   }, [items, isTeamLead, user?.id]);
+
+  const isOwnDayView = !isTeamLead || viewOwnerId === user?.id;
+  const isToday = formatLocalDateKey() === dateKey;
+  const shouldRemindStartShift =
+    !!token && visitsEnabled && isToday && isOwnDayView && !activeShift && !shiftLoading && items.length > 0;
+
+  useEffect(() => {
+    if (!shouldRemindStartShift) return;
+    let cancelled = false;
+    const key = `shift_reminder_${dateKey}`;
+    void (async () => {
+      try {
+        const shown = await AsyncStorage.getItem(key);
+        if (cancelled || shown === "1") return;
+        await AsyncStorage.setItem(key, "1");
+        if (cancelled) return;
+        Alert.alert(t("today.shiftReminderTitle"), t("today.shiftReminderBody"), [
+          { text: t("today.startShift"), onPress: () => void startShift() },
+          { text: t("common.later"), style: "cancel" },
+        ]);
+      } catch {
+        /* optional */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateKey, shouldRemindStartShift, startShift]);
 
   const nearest = useMemo(
     () => findNearestVisit(isTeamLead ? ownVisits : items),
@@ -281,6 +312,23 @@ export default function TodayScreen() {
             showTeamSections={showTeamSections}
             onViewOwnerIdChange={setViewOwnerId}
           />
+        ) : null}
+
+        {shouldRemindStartShift ? (
+          <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>
+            <View style={{ gap: theme.spacing.sm }}>
+              <Text style={[theme.typography.caption, { color: theme.colors.warningText }]}>
+                {t("today.shiftReminderBanner")}
+              </Text>
+              <AppButton
+                label={t("today.startShift")}
+                onPress={() => void startShift()}
+                loading={shiftLoading}
+                disabled={shiftLoading}
+                fullWidth
+              />
+            </View>
+          </Card>
         ) : null}
 
         <ShiftStatusCard

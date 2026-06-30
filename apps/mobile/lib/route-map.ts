@@ -1,3 +1,5 @@
+import type { Region } from "react-native-maps";
+
 export type LatLng = { lat: number; lng: number };
 
 export type RouteWaypoint = LatLng & {
@@ -158,6 +160,51 @@ export function layerPath(geometry: RouteGeometryResult | null | undefined): Lat
 export function layerWaypoints(geometry: RouteGeometryResult | null | undefined): RouteWaypoint[] {
   if (!geometry) return [];
   return sanitizeWaypoints(geometry.waypoints);
+}
+
+const DEFAULT_REGION: Region = {
+  latitude: 50.4501,
+  longitude: 30.5234,
+  latitudeDelta: 0.12,
+  longitudeDelta: 0.12,
+};
+
+/** Fit map region to a set of coordinates with padding. */
+export function computeMapRegion(points: LatLng[], paddingFactor = 1.35): Region {
+  const valid = sanitizePath(points);
+  if (valid.length === 0) return DEFAULT_REGION;
+
+  if (valid.length === 1) {
+    const p = valid[0]!;
+    return {
+      latitude: p.lat,
+      longitude: p.lng,
+      latitudeDelta: 0.02,
+      longitudeDelta: 0.02,
+    };
+  }
+
+  let minLat = valid[0]!.lat;
+  let maxLat = valid[0]!.lat;
+  let minLng = valid[0]!.lng;
+  let maxLng = valid[0]!.lng;
+
+  for (const p of valid) {
+    minLat = Math.min(minLat, p.lat);
+    maxLat = Math.max(maxLat, p.lat);
+    minLng = Math.min(minLng, p.lng);
+    maxLng = Math.max(maxLng, p.lng);
+  }
+
+  const latDelta = Math.max((maxLat - minLat) * paddingFactor, 0.01);
+  const lngDelta = Math.max((maxLng - minLng) * paddingFactor, 0.01);
+
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: latDelta,
+    longitudeDelta: lngDelta,
+  };
 }
 
 /** Google Static Maps path (max URL length — keep points sparse). */

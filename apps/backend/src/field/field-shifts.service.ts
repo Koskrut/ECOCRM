@@ -31,13 +31,52 @@ export class FieldShiftsService {
     return new Date(`${dateStr}T00:00:00.000Z`);
   }
 
+  private async closeShift(shiftId: string, ownerId: string, endedAt = new Date()) {
+    const updated = await this.prisma.fieldShift.update({
+      where: { id: shiftId },
+      data: { status: FieldShiftStatus.ENDED, endedAt },
+    });
+    const dateStr = updated.date.toISOString().slice(0, 10);
+    void this.eventEmitter.emitAsync(SHIFT_ENDED_EVENT, {
+      ownerId,
+      dateStr,
+    });
+    return updated;
+  }
+
+  async closeStaleActiveShifts(opts: { ownerId?: string } = {}) {
+    const todayKey = this.calendarDateKey(todayYmdKyiv());
+    const ownerFilter: Prisma.FieldShiftWhereInput["ownerId"] =
+      opts.ownerId != null ? opts.ownerId : undefined;
+
+    const stale = await this.prisma.fieldShift.findMany({
+      where: {
+        status: FieldShiftStatus.ACTIVE,
+        ...(ownerFilter ? { ownerId: ownerFilter } : {}),
+        date: { lt: todayKey },
+      },
+      select: { id: true, ownerId: true },
+      orderBy: { startedAt: "asc" },
+    });
+
+    if (stale.length === 0) return { closed: 0 };
+
+    await Promise.all(
+      stale.map((s) => this.closeShift(s.id, s.ownerId)),
+    );
+
+    return { closed: stale.length };
+  }
+
   async getActive(actor: AuthUser | undefined) {
     const ownerId = actor?.id;
     if (!ownerId) {
       throw new BadRequestException("User is required");
     }
+    await this.closeStaleActiveShifts({ ownerId });
+    const todayKey = this.calendarDateKey(todayYmdKyiv());
     return this.prisma.fieldShift.findFirst({
-      where: { ownerId, status: FieldShiftStatus.ACTIVE },
+      where: { ownerId, status: FieldShiftStatus.ACTIVE, date: todayKey },
       orderBy: [{ startedAt: "desc" }],
     });
   }
@@ -97,16 +136,7 @@ export class FieldShiftsService {
     if (shift.status === FieldShiftStatus.ENDED) {
       return shift;
     }
-    const updated = await this.prisma.fieldShift.update({
-      where: { id: shiftId },
-      data: { status: FieldShiftStatus.ENDED, endedAt: new Date() },
-    });
-    const dateStr = updated.date.toISOString().slice(0, 10);
-    void this.eventEmitter.emitAsync(SHIFT_ENDED_EVENT, {
-      ownerId: updated.ownerId,
-      dateStr,
-    });
-    return updated;
+    return this.closeShift(shiftId, shift.ownerId);
   }
 
   async appendSamples(

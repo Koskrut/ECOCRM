@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.97**.)_
+_(планируемые изменения после **0.2.98**.)_
+
+## [0.2.98] — 2026-05-20
+
+### Summary
+
+Патч **0.2.98**: авто-закрытие «зависших» field shifts, mobile day-route map (`/map/[date]`), история визитов по дням, Samsung GPS guide.
+
+### Added
+
+- **Field shifts**: `closeStaleActiveShifts` — закрытие ACTIVE-смен с датой &lt; сегодня (Kyiv); cron **`00:05`** Europe/Kyiv (`FieldShiftsCron`); при `getActive` — авто-cleanup для пользователя.
+- **Mobile map**: **`DayRouteMapPanel`**, экран **`/map/[date]`** (planned / fact_visits / fact_gps layers).
+- **Mobile visits history**: группировка по дням/владельцу — **`visit-history.ts`**.
+- **Docs**: **`docs/mobile-samsung-settings-uk.pdf`** / `.html` — настройки Samsung для фонового GPS.
+
+### Changed
+
+- **Mobile** tab map — рефакторинг на shared panel; today screen, visit detail, shift tracking context.
+- **`route-map.ts`**: static map URL, geometry bundle helpers.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.98`**.
+- **Новых миграций нет.**
+- Cron (опционально): `CRON_ENABLED=true` для nightly close stale shifts.
 
 ## [0.2.97] — 2026-05-20
 

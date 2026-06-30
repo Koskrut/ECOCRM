@@ -13,6 +13,7 @@ export type VisitSummary = {
   status: string;
   startsAt?: string | null;
   endsAt?: string | null;
+  completedAt?: string | null;
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;

@@ -58,3 +58,29 @@ describe("FieldShiftsService.getSamples validation", () => {
     );
   });
 });
+
+describe("FieldShiftsService.getActive stale shifts", () => {
+  it("closes stale active shifts for owner and returns null", async () => {
+    const closed: string[] = [];
+    const prisma = {
+      fieldShift: {
+        findMany: async () => [{ id: "s_old", ownerId: "u1" }],
+        update: async ({ where }: { where: { id: string } }) => {
+          closed.push(where.id);
+          return { id: where.id, ownerId: "u1", date: new Date("2026-06-29T00:00:00.000Z") };
+        },
+        findFirst: async () => null,
+      },
+    };
+    const routePlans = { snapGpsPathToRoads: async () => ({ path: [], source: "none" as const, distanceKm: null }) };
+    const emitted: unknown[] = [];
+    const eventEmitter = { emitAsync: async (_: string, payload: unknown) => emitted.push(payload) };
+
+    const svc = new FieldShiftsService(prisma as never, routePlans as never, eventEmitter as never);
+    const res = await svc.getActive(actor(UserRole.MANAGER, "u1"));
+
+    assert.equal(res, null);
+    assert.deepEqual(closed, ["s_old"]);
+    assert.equal(emitted.length, 1);
+  });
+});

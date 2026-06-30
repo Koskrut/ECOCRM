@@ -24,9 +24,9 @@ import { useAuth } from "@/context/auth-context";
 import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
 import { visitsApi } from "@/lib/api/visits";
-import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { captureGpsForVisitRequest } from "@/lib/gps-capture";
+import { visitDayKey } from "@/lib/visit-history";
 import {
   gpsVerificationLabel,
   visitOutcomeLabel,
@@ -36,16 +36,17 @@ import {
 import { enqueueOfflineJob, isOfflineLikeError } from "@/lib/offline-queue";
 import { t } from "@/lib/i18n";
 import { visitLabel, visitPhone } from "@/lib/visit-utils";
+import { useTabBarInset } from "@/lib/use-tab-bar-inset";
 import type { VisitSummary } from "@/types/crm";
 
 export default function VisitDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const tabBarInset = useTabBarInset();
   const raw = useLocalSearchParams<{ id?: string | string[] }>().id;
   const visitId = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
   const { token } = useAuth();
   const { setActiveVisit } = useActiveWork();
-  const dateKey = formatLocalDateKey();
 
   const [visit, setVisit] = useState<VisitSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -200,6 +201,7 @@ export default function VisitDetailScreen() {
   }
 
   const scheduled = visit.status === "SCHEDULED";
+  const visitDateKey = visitDayKey(visit);
   const active = visit.status === "IN_PROGRESS";
   const contactName = visit.contact
     ? [visit.contact.firstName, visit.contact.lastName].filter(Boolean).join(" ")
@@ -208,6 +210,7 @@ export default function VisitDetailScreen() {
   return (
     <Screen padded={false} edges={["left", "right", "bottom"]}>
       <KeyboardAwareScrollView
+        extraBottomInset={tabBarInset}
         contentContainerStyle={[
           styles.scroll,
           { paddingHorizontal: theme.spacing.lg, gap: theme.spacing.md },
@@ -236,7 +239,7 @@ export default function VisitDetailScreen() {
 
         <EntityActionBar
           token={token!}
-          date={dateKey}
+          date={visitDateKey}
           phone={visitPhone(visit)}
           visitId={visit.id}
           contactId={visit.contactId ?? visit.contact?.id}
@@ -265,7 +268,7 @@ export default function VisitDetailScreen() {
 
         <AppButton
           label={t("visit.mapDay")}
-          onPress={() => router.push("/map")}
+          onPress={() => router.push(`/map/${visitDateKey}`)}
           variant="secondary"
           fullWidth
         />

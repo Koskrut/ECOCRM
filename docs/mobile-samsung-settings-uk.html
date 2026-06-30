@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>CRM — налаштування Samsung</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 11.5pt;
+      line-height: 1.45;
+      color: #111;
+      max-width: 180mm;
+      margin: 0 auto;
+      padding: 12mm;
+    }
+    h1 {
+      font-size: 16pt;
+      margin: 0 0 4mm;
+      line-height: 1.2;
+    }
+    .sub {
+      font-size: 10pt;
+      color: #444;
+      margin-bottom: 8mm;
+    }
+    h2 {
+      font-size: 12pt;
+      margin: 5mm 0 2mm;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 1mm;
+    }
+    ol { margin: 0; padding-left: 6mm; }
+    li { margin-bottom: 3mm; }
+    .path { font-weight: 600; }
+    .note {
+      font-size: 10pt;
+      color: #333;
+      margin-top: 1mm;
+    }
+    .ok { color: #166534; font-weight: 600; }
+    .bad { color: #991b1b; }
+    .box {
+      border: 1px solid #d4d4d4;
+      border-radius: 4px;
+      padding: 4mm 5mm;
+      margin: 4mm 0;
+      background: #fafafa;
+    }
+    .footer {
+      margin-top: 8mm;
+      font-size: 9pt;
+      color: #666;
+      text-align: center;
+    }
+    @media print {
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>CRM — налаштування Samsung (мінімум)</h1>
+  <p class="sub">Перед зміною · офіційний APK CRM · не Expo Go</p>
+
+  <h2>0. Оновити Android до останньої версії</h2>
+  <div class="box">
+    <p><strong>Усі менеджери:</strong> перед налаштуванням CRM переконайтеся, що на телефоні встановлена <strong>найновіша доступна версія Android</strong> (One UI). Старі версії часто «убивають» GPS у фоні.</p>
+    <p class="path">Налаштування → Про телефон → <strong>Оновлення програмного забезпечення</strong> → Завантажити та встановити</p>
+    <p class="path">Або: Налаштування → <strong>Оновлення програмного забезпечення</strong> → Завантажити та встановити</p>
+    <p class="note">Підключіть Wi‑Fi, заряд ≥ 50%, дочекайтеся перезавантаження. Якщо оновлень немає — перевірте версію нижче.</p>
+    <p class="path" style="margin-top: 3mm;">Перевірити версію: Налаштування → Про телефон → Інформація про ПЗ → <strong>Версія Android</strong></p>
+    <p style="margin-top: 3mm;">
+      <span class="ok">Android 13–14+ (актуальний One UI)</span> — ціль для всіх.<br />
+      <span class="ok">Android 11–12</span> — допустимо, якщо оновлень більше немає; виконайте пункти 1–3.<br />
+      <span class="bad">Android 10 і нижче</span> — зверніться до IT: потрібен телефон з оновленням або заміна пристрою.
+    </p>
+  </div>
+
+  <h2>Обов’язково (3 пункти)</h2>
+  <ol>
+    <li>
+      <span class="path">Геолокація «Завжди»</span><br />
+      Налаштування → Додатки → CRM → Дозволи → Місцезнаходження → <strong>Завжди</strong>
+      <p class="note bad">Не «Лише під час використання»</p>
+    </li>
+    <li>
+      <span class="path">Батарея «Без обмежень»</span><br />
+      Налаштування → Додатки → CRM → Батарея → <strong>Без обмежень</strong>
+    </li>
+    <li>
+      <span class="path">Не «спати» у фоні</span><br />
+      Догляд за пристроєм → Батарея → Обмеження у фоні — CRM <strong>прибрати</strong> з «Сплячі» / «Глибоко сплячі»; за можливості додати в «Ніколи не засинають»
+    </li>
+  </ol>
+
+  <h2>Додатково</h2>
+  <ol start="4">
+    <li>
+      <span class="path">Сповіщення увімкнені</span> — під час зміни видно «CRM — зміна активна»
+    </li>
+    <li>
+      <span class="path">Щодня:</span> Сьогодні → Почати зміну → не «Примусово зупинити» CRM → Завершити зміну в кінці дня
+      <p class="note">Якщо забули завершити зміну — вона закриється автоматично вночі. Якщо забули почати — CRM нагадає на екрані «Сьогодні».</p>
+    </li>
+  </ol>
+
+  <h2>Перевірка (15 хв)</h2>
+  <p>Згорнути CRM на 15 хв → відкрити → <strong>Ще → Діагностика</strong>: Background task: <strong>yes</strong>, Режим: <strong>background</strong>.</p>
+
+  <p class="footer">CRM · полева зміна · GPS-трек</p>
+</body>
+</html>
