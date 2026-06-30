@@ -12,18 +12,28 @@ export class AnalyticsVisitsService {
     if (scope.orderScope.managerId) ownerFilter.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds !== undefined) ownerFilter.ownerId = { in: scope.orderScope.allowedOwnerIds };
 
+    const dateFilter = {
+      OR: [
+        { startsAt: { gte: period.from, lte: period.to } },
+        {
+          startsAt: null,
+          completedAt: { gte: period.from, lte: period.to },
+        },
+      ],
+    };
+
     const [total, byStatus, byManager] = await Promise.all([
       this.prisma.visit.count({
-        where: { ...ownerFilter, scheduledAt: { gte: period.from, lte: period.to } },
+        where: { ...ownerFilter, ...dateFilter },
       }),
       this.prisma.visit.groupBy({
         by: ["status"],
-        where: { ...ownerFilter, scheduledAt: { gte: period.from, lte: period.to } },
+        where: { ...ownerFilter, ...dateFilter },
         _count: { id: true },
       }),
       this.prisma.visit.groupBy({
         by: ["ownerId"],
-        where: { ...ownerFilter, scheduledAt: { gte: period.from, lte: period.to } },
+        where: { ...ownerFilter, ...dateFilter },
         _count: { id: true },
       }),
     ]);

@@ -42,6 +42,7 @@ export type UpdateVisitBody = Partial<{
   purpose: string | null;
   note: string | null;
   durationMin: number | null;
+  resultNote: string;
 }>;
 
 function normalizeVisitList(res: VisitSummary[] | { items?: VisitSummary[] }): VisitSummary[] {

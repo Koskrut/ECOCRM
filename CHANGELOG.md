@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.98**.)_
+_(планируемые изменения после **0.2.99**.)_
+
+## [0.2.99] — 2026-05-20
+
+### Summary
+
+Патч **0.2.99**: **Dashboard v2** (executive KPIs, team pulse, quality, attention), редактирование **resultNote** завершённого визита, mobile **перенос визита**.
+
+### Added
+
+- **Dashboard v2**: `GET /dashboard/v2` — KPIs, sales charts, team pulse, managers table, quality panel, attention, my work (day plan + daily agenda); web компоненты в **`components/dashboard/`**, proxy **`/api/dashboard/v2`**.
+- **Analytics quality**: `AnalyticsQualityService` — визиты без resultNote, GPS verified, day plan trend, overdue follow-ups.
+- **Visits**: PATCH **`resultNote`** на DONE-визитах + синк timeline activity.
+- **Mobile**: **`VisitRescheduleSheet`** — перенос визита с календарём.
+
+### Changed
+
+- **Dashboard** page — рефакторинг на v2 API и модульные секции.
+- **Analytics scope** — `resolveDashboardScope` для MANAGER/ADMIN/LEAD.
+- **Analytics visits** — фильтр по `startsAt` или `completedAt`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.99`**.
+- **Новых миграций нет.**
 
 ## [0.2.98] — 2026-05-20
 

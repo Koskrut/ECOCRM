@@ -227,6 +227,7 @@ export class VisitsController {
             : undefined,
         note: body.note !== undefined ? (body.note as string | null) : undefined,
         purpose: body.purpose !== undefined ? (body.purpose as string | null) : undefined,
+        resultNote: typeof body.resultNote === "string" ? body.resultNote : undefined,
       },
       req.user,
     );

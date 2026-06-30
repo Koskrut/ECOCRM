@@ -60,6 +60,7 @@ type UpdateVisitInput = {
   durationMin?: number | null;
   note?: string | null;
   purpose?: string | null;
+  resultNote?: string;
 };
 
 type CompleteVisitInput = {
@@ -506,6 +507,17 @@ export class VisitsService {
       data.purpose = body.purpose?.trim() ?? null;
     }
 
+    if (body.resultNote !== undefined) {
+      if (existing.status !== VisitStatusEnum.DONE) {
+        throw new BadRequestException("resultNote can only be updated on completed visits");
+      }
+      const trimmed = body.resultNote.trim();
+      if (!trimmed) {
+        throw new BadRequestException("resultNote is required");
+      }
+      data.resultNote = trimmed;
+    }
+
     // Determine next status and times
     let nextStatus = existing.status;
     if (body.status) {
@@ -603,6 +615,25 @@ export class VisitsService {
       where: { id },
       data,
     });
+
+    if (body.resultNote !== undefined && (existing.contactId || existing.companyId)) {
+      const outcome = existing.outcome ?? "SUCCESS";
+      const occurredAt = existing.completedAt ?? new Date();
+      try {
+        await this.syncVisitResultActivity(
+          existing,
+          { outcome, resultNote: body.resultNote.trim() },
+          occurredAt,
+          actor,
+          id,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to sync timeline activity after resultNote update for visit ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     return updated;
   }
 

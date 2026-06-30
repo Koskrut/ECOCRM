@@ -16,10 +16,15 @@ import {
   type DailyTeamActivityPayload,
   type DashboardStats,
 } from "./dashboard.service";
+import { DashboardV2Service } from "./dashboard-v2.service";
+import type { DashboardV2Response } from "./dashboard-v2.types";
 
 @Controller("dashboard")
 export class DashboardController {
-  constructor(private readonly dashboard: DashboardService) {}
+  constructor(
+    private readonly dashboard: DashboardService,
+    private readonly dashboardV2: DashboardV2Service,
+  ) {}
 
   /**
    * GET /dashboard/daily-team-activity?date=YYYY-MM-DD
@@ -36,6 +41,36 @@ export class DashboardController {
     }
     try {
       return await this.dashboard.getDailyTeamActivity(dateRaw, req.user);
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * GET /dashboard/v2?period=week|month&activityDate=YYYY-MM-DD&compare=true&managerId=
+   * Role-aware command center: sales, team pulse, my work, quality, attention.
+   */
+  @Get("v2")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  async getV2(
+    @Query("period") periodRaw?: string,
+    @Query("activityDate") activityDate?: string,
+    @Query("compare") compareRaw?: string,
+    @Query("managerId") managerId?: string,
+    @Req() req?: Request & { user?: AuthUser },
+  ): Promise<DashboardV2Response> {
+    if (!req?.user) {
+      throw new InternalServerErrorException("Missing user");
+    }
+    try {
+      return await this.dashboardV2.getV2(req.user, {
+        period: periodRaw,
+        activityDate,
+        compare: compareRaw === "true" || compareRaw === "1",
+        managerId,
+      });
     } catch (e) {
       if (e instanceof HttpException) throw e;
       const message = e instanceof Error ? e.message : String(e);

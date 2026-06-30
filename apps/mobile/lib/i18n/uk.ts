@@ -132,6 +132,12 @@ export const uk = {
     proximityOutside: "Далеко від адреси",
     proximityNoFix: "Очікуємо GPS…",
     rescheduled: "Візит перенесено",
+    rescheduleTitle: "Перенести візит",
+    pickDate: "Обрати дату",
+    scheduleAnother: "Запланувати ще",
+    editComment: "Редагувати коментар",
+    commentSaved: "Коментар збережено",
+    rescheduleSummary: "{date}, {time}",
     planFollowUp: "Запланувати наступну дію",
     reschedulePlaceholder: "2026-06-25T10:00:00",
     logAdHoc: {

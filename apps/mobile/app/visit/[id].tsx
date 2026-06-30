@@ -11,7 +11,6 @@ import {
 import { EntityActionBar } from "@/components/EntityActionBar";
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
-import { BottomSheet } from "@/components/ui/BottomSheet";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
@@ -20,6 +19,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { TextField } from "@/components/ui/TextField";
 import { VisitProximityCard } from "@/components/visit/VisitProximityCard";
 import { LogAdHocVisitSheet } from "@/components/visit/LogAdHocVisitSheet";
+import { VisitRescheduleSheet } from "@/components/visit/VisitRescheduleSheet";
 import { useAuth } from "@/context/auth-context";
 import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
@@ -52,7 +52,7 @@ export default function VisitDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [rescheduleAt, setRescheduleAt] = useState("");
+  const [editingComment, setEditingComment] = useState(false);
   const [outcome, setOutcome] = useState<VisitOutcome>("SUCCESS");
   const [resultNote, setResultNote] = useState("");
   const [nextActionEnabled, setNextActionEnabled] = useState(false);
@@ -69,6 +69,9 @@ export default function VisitDetailScreen() {
     try {
       const row = await apiFetch<VisitSummary>(`/visits/${visitId}`, { token });
       setVisit(row);
+      if (row.status === "DONE" && row.resultNote) {
+        setResultNote(row.resultNote);
+      }
       if (row.status === "IN_PROGRESS") {
         setActiveVisit(row.id, visitLabel(row));
       }
@@ -171,15 +174,33 @@ export default function VisitDetailScreen() {
     }
   }
 
-  async function onReschedule() {
-    if (!token || !visit || !rescheduleAt.trim()) return;
+  async function onReschedule(payload: { startsAt: string; endsAt: string; durationMin: number }) {
+    if (!token || !visit) return;
     setActionBusy(true);
     try {
-      const startsAt = new Date(rescheduleAt.trim()).toISOString();
-      const updated = await visitsApi.update(token, visit.id, { startsAt });
+      const updated = await visitsApi.update(token, visit.id, payload);
       setVisit(updated);
       setRescheduleOpen(false);
       Alert.alert(t("common.done"), t("visit.rescheduled"));
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function onSaveComment() {
+    if (!token || !visit) return;
+    if (!resultNote.trim()) {
+      Alert.alert(t("visit.sectionResult"), t("visit.commentRequired"));
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const updated = await visitsApi.update(token, visit.id, { resultNote: resultNote.trim() });
+      setVisit(updated);
+      setEditingComment(false);
+      Alert.alert(t("common.done"), t("visit.commentSaved"));
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
@@ -256,15 +277,25 @@ export default function VisitDetailScreen() {
           />
         ) : null}
 
-        <AppButton
-          label={t("tasks.reschedule")}
-          onPress={() => {
-            setRescheduleAt(visit.startsAt ?? "");
-            setRescheduleOpen(true);
-          }}
-          variant="secondary"
-          fullWidth
-        />
+        {scheduled ? (
+          <AppButton
+            label={t("tasks.reschedule")}
+            onPress={() => setRescheduleOpen(true)}
+            variant="secondary"
+            fullWidth
+          />
+        ) : visit.contactId ?? visit.contact?.id ? (
+          <AppButton
+            label={t("visit.scheduleAnother")}
+            onPress={() =>
+              router.push(
+                `/visits/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact!.id!)}`,
+              )
+            }
+            variant="secondary"
+            fullWidth
+          />
+        ) : null}
 
         <AppButton
           label={t("visit.mapDay")}
@@ -358,9 +389,51 @@ export default function VisitDetailScreen() {
           </>
         ) : visit.status === "DONE" ? (
           <>
-            <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
-              {t("visit.completed")}
-            </Text>
+            <SectionTitle title={t("visit.sectionResult")} />
+            {visit.outcome ? (
+              <View style={styles.row}>
+                <Chip label={visitOutcomeLabel(visit.outcome as VisitOutcome)} selected />
+              </View>
+            ) : null}
+            {editingComment ? (
+              <>
+                <TextField
+                  label={t("visit.comment")}
+                  value={resultNote}
+                  onChangeText={setResultNote}
+                  placeholder={t("visit.commentPlaceholder")}
+                  multiline
+                  style={{ minHeight: 100 }}
+                />
+                <AppButton
+                  label={t("common.save")}
+                  onPress={() => void onSaveComment()}
+                  loading={actionBusy}
+                  fullWidth
+                />
+                <AppButton
+                  label={t("common.cancel")}
+                  onPress={() => {
+                    setResultNote(visit.resultNote ?? "");
+                    setEditingComment(false);
+                  }}
+                  variant="ghost"
+                  fullWidth
+                />
+              </>
+            ) : (
+              <>
+                {visit.resultNote ? (
+                  <Text style={[theme.typography.body, { lineHeight: 22 }]}>{visit.resultNote}</Text>
+                ) : null}
+                <AppButton
+                  label={t("visit.editComment")}
+                  onPress={() => setEditingComment(true)}
+                  variant="secondary"
+                  fullWidth
+                />
+              </>
+            )}
             <AppButton
               label={t("orders.create")}
               onPress={() =>
@@ -384,29 +457,14 @@ export default function VisitDetailScreen() {
         ) : null}
       </KeyboardAwareScrollView>
 
-      <BottomSheet
+      <VisitRescheduleSheet
         visible={rescheduleOpen}
         onClose={() => setRescheduleOpen(false)}
-        title={t("tasks.rescheduleTitle")}>
-        <TextField
-          value={rescheduleAt}
-          onChangeText={setRescheduleAt}
-          placeholder={t("visit.reschedulePlaceholder")}
-        />
-        <AppButton
-          label={t("common.save")}
-          onPress={() => void onReschedule()}
-          loading={actionBusy}
-          fullWidth
-        />
-        <AppButton
-          label={t("common.cancel")}
-          onPress={() => setRescheduleOpen(false)}
-          variant="ghost"
-          fullWidth
-          style={{ marginTop: theme.spacing.sm }}
-        />
-      </BottomSheet>
+        initialStartsAt={visit.startsAt ?? null}
+        durationMin={visit.durationMin}
+        loading={actionBusy}
+        onSave={(payload) => void onReschedule(payload)}
+      />
 
       <LogAdHocVisitSheet
         visible={logAdHocOpen}

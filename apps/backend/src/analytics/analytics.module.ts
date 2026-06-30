@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { DayPlanModule } from "../day-plan/day-plan.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsModule } from "../settings/settings.module";
 import { AnalyticsController } from "./analytics.controller";
@@ -13,11 +14,12 @@ import { AnalyticsManagersService } from "./services/analytics-managers.service"
 import { AnalyticsOperationsService } from "./services/analytics-operations.service";
 import { AnalyticsOverviewService } from "./services/analytics-overview.service";
 import { AnalyticsProductsService } from "./services/analytics-products.service";
+import { AnalyticsQualityService } from "./services/analytics-quality.service";
 import { AnalyticsSalesService } from "./services/analytics-sales.service";
 import { AnalyticsVisitsService } from "./services/analytics-visits.service";
 
 @Module({
-  imports: [PrismaModule, SettingsModule],
+  imports: [PrismaModule, SettingsModule, DayPlanModule],
   controllers: [AnalyticsController],
   providers: [
     AnalyticsService,
@@ -31,8 +33,16 @@ import { AnalyticsVisitsService } from "./services/analytics-visits.service";
     AnalyticsClientsService,
     AnalyticsProductsService,
     AnalyticsVisitsService,
+    AnalyticsQualityService,
     AnalyticsOperationsService,
     AnalyticsDrilldownService,
+  ],
+  exports: [
+    AnalyticsScopeService,
+    AnalyticsOverviewService,
+    AnalyticsLeadsService,
+    AnalyticsManagersService,
+    AnalyticsQualityService,
   ],
 })
 export class AnalyticsModule {}

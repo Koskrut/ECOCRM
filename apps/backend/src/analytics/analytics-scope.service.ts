@@ -52,6 +52,30 @@ export class AnalyticsScopeService {
     throw new ForbiddenException("Analytics is not available for this role");
   }
 
+  /** Self-scoped dashboard for MANAGER; leadership scope for LEAD/ADMIN. */
+  async resolveDashboardScope(
+    actor: AuthUser,
+    opts?: { managerId?: string },
+  ): Promise<AnalyticsScope> {
+    if (actor.role === UserRole.MANAGER) {
+      return {
+        orderScope: { actor, managerId: actor.id },
+        allowedAssigneeIds: [actor.id],
+      };
+    }
+    if (actor.role === UserRole.LEAD) {
+      return this.resolveScope(actor, { managerId: opts?.managerId, allowLead: true });
+    }
+    if (actor.role === UserRole.ADMIN) {
+      return this.resolveScope(actor, { managerId: opts?.managerId, allowLead: false });
+    }
+    return {
+      orderScope: { actor, allowedOwnerIds: [] },
+      allowedAssigneeIds: [],
+      emptyTeam: true,
+    };
+  }
+
   private async getTeamMemberIds(leadId: string): Promise<string[]> {
     const rows = await this.prisma.user.findMany({
       where: { leadId },
