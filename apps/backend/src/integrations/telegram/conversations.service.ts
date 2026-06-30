@@ -4,9 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type { ConversationChannel, ConversationStatus, Prisma } from "@prisma/client";
-import { MessageDirection } from "@prisma/client";
-import { UserRole } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { ConversationChannel, ConversationStatus, MessageDirection, UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { normalizePagination } from "../../common/pagination";
 import { ContactsService } from "../../contacts/contacts.service";
@@ -143,6 +142,35 @@ export class ConversationsService {
       page,
       pageSize,
     };
+  }
+
+  /**
+   * OPEN Telegram conversations where the latest message is inbound (awaiting manager reply).
+   */
+  async unreadCount(actor: AuthUser | undefined): Promise<{ count: number }> {
+    const safeActor = this.requireActor(actor);
+    const where: Prisma.ConversationWhereInput = {
+      ...this.buildVisibilityWhere(safeActor),
+      status: ConversationStatus.OPEN,
+      channel: ConversationChannel.TELEGRAM,
+    };
+
+    const rows = await this.prisma.conversation.findMany({
+      where,
+      select: {
+        messages: {
+          orderBy: { sentAt: "desc" },
+          take: 1,
+          select: { direction: true },
+        },
+      },
+    });
+
+    const count = rows.filter(
+      (row) => row.messages[0]?.direction === MessageDirection.INBOUND,
+    ).length;
+
+    return { count };
   }
 
   async getMessages(conversationId: string, q: ListMessagesQueryDto, actor: AuthUser | undefined) {

@@ -29,6 +29,11 @@ export class ConversationsController {
     return this.conversations.list(q, req.user);
   }
 
+  @Get("unread-count")
+  unreadCount(@Req() req: Request & { user?: AuthUser }) {
+    return this.conversations.unreadCount(req.user);
+  }
+
   @Get(":id/suggest-replies")
   suggestReplies(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.suggestReplies(id, req.user);

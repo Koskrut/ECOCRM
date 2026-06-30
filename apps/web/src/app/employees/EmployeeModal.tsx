@@ -143,11 +143,17 @@ export function EmployeeModal({
 
   const initialSnapshotRef = useRef<string>("");
   const [dayPlanMounted, setDayPlanMounted] = useState(false);
+  const routeStartResetRef = useRef<(next: { label?: string; lat?: string; lng?: string }) => void>(() => {});
+  const routeEndResetRef = useRef<(next: { label?: string; lat?: string; lng?: string }) => void>(() => {});
+  const loadedUserIdRef = useRef<string | null>(null);
 
   const routeStart = useRouteAddressField(mapsApiKey, open);
   const routeEnd = useRouteAddressField(mapsApiKey, open);
 
-  const userId = mode === "edit" ? (loadedUser?.id ?? initial?.id) : null;
+  routeStartResetRef.current = routeStart.reset;
+  routeEndResetRef.current = routeEnd.reset;
+
+  const userId = mode === "edit" ? (initial?.id ?? loadedUser?.id) : null;
   const canDelete = mode === "edit" && !!userId;
   const showFieldTab = mode === "edit" && !!userId;
   const showDayPlanTab = mode === "edit" && !!userId && (actorRole === "ADMIN" || actorRole === "LEAD");
@@ -208,59 +214,56 @@ export function EmployeeModal({
     return JSON.stringify(currentSnapshot) !== initialSnapshotRef.current;
   }, [mode, email, fullName, username, password, role, currentSnapshot]);
 
-  const applyUserToForm = useCallback(
-    (user: Employee) => {
-      setEmail(user.email ?? "");
-      setFullName(user.fullName ?? "");
-      setUsername(user.username ?? "");
-      setRole(user.role ?? "USER");
-      setInitialRole(user.role ?? "USER");
-      setIsActive(user.isActive !== false);
-      setCreatedAt(user.createdAt ?? null);
-      setPassword("");
-      routeStart.reset({
+  const applyUserToForm = useCallback((user: Employee) => {
+    setEmail(user.email ?? "");
+    setFullName(user.fullName ?? "");
+    setUsername(user.username ?? "");
+    setRole(user.role ?? "USER");
+    setInitialRole(user.role ?? "USER");
+    setIsActive(user.isActive !== false);
+    setCreatedAt(user.createdAt ?? null);
+    setPassword("");
+    routeStartResetRef.current({
+      label: user.routeStartLabel ?? "",
+      lat: user.routeStartLat != null ? String(user.routeStartLat) : "",
+      lng: user.routeStartLng != null ? String(user.routeStartLng) : "",
+    });
+    routeEndResetRef.current({
+      label: user.routeEndLabel ?? "",
+      lat: user.routeEndLat != null ? String(user.routeEndLat) : "",
+      lng: user.routeEndLng != null ? String(user.routeEndLng) : "",
+    });
+    setLeadId(user.leadId ?? "");
+    const fp = user.fieldProfile;
+    setFuelLitersPer100km(fp?.fuelLitersPer100km != null ? String(fp.fuelLitersPer100km) : "8");
+    setFuelPricePerLiter(fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "");
+    setVehicleLabel(fp?.vehicleLabel ?? "");
+    setUsePersonalCar(fp?.usePersonalCar !== false);
+
+    const snap = snapshotFromForm(
+      user.email ?? "",
+      user.fullName ?? "",
+      user.username ?? "",
+      user.role ?? "USER",
+      user.isActive !== false,
+      user.leadId ?? "",
+      fp?.fuelLitersPer100km != null ? String(fp.fuelLitersPer100km) : "8",
+      fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "",
+      fp?.vehicleLabel ?? "",
+      fp?.usePersonalCar !== false,
+      {
         label: user.routeStartLabel ?? "",
         lat: user.routeStartLat != null ? String(user.routeStartLat) : "",
         lng: user.routeStartLng != null ? String(user.routeStartLng) : "",
-      });
-      routeEnd.reset({
+      },
+      {
         label: user.routeEndLabel ?? "",
         lat: user.routeEndLat != null ? String(user.routeEndLat) : "",
         lng: user.routeEndLng != null ? String(user.routeEndLng) : "",
-      });
-      setLeadId(user.leadId ?? "");
-      const fp = user.fieldProfile;
-      setFuelLitersPer100km(fp?.fuelLitersPer100km != null ? String(fp.fuelLitersPer100km) : "8");
-      setFuelPricePerLiter(fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "");
-      setVehicleLabel(fp?.vehicleLabel ?? "");
-      setUsePersonalCar(fp?.usePersonalCar !== false);
-
-      const snap = snapshotFromForm(
-        user.email ?? "",
-        user.fullName ?? "",
-        user.username ?? "",
-        user.role ?? "USER",
-        user.isActive !== false,
-        user.leadId ?? "",
-        fp?.fuelLitersPer100km != null ? String(fp.fuelLitersPer100km) : "8",
-        fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "",
-        fp?.vehicleLabel ?? "",
-        fp?.usePersonalCar !== false,
-        {
-          label: user.routeStartLabel ?? "",
-          lat: user.routeStartLat != null ? String(user.routeStartLat) : "",
-          lng: user.routeStartLng != null ? String(user.routeStartLng) : "",
-        },
-        {
-          label: user.routeEndLabel ?? "",
-          lat: user.routeEndLat != null ? String(user.routeEndLat) : "",
-          lng: user.routeEndLng != null ? String(user.routeEndLng) : "",
-        },
-      );
-      initialSnapshotRef.current = JSON.stringify(snap);
-    },
-    [routeStart, routeEnd],
-  );
+      },
+    );
+    initialSnapshotRef.current = JSON.stringify(snap);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -269,6 +272,7 @@ export function EmployeeModal({
     setDayPlanMounted(false);
 
     if (mode === "create") {
+      loadedUserIdRef.current = null;
       setLoadedUser(null);
       setEmail("");
       setFullName("");
@@ -278,37 +282,55 @@ export function EmployeeModal({
       setIsActive(true);
       setCreatedAt(null);
       setPassword("");
-      routeStart.reset({});
-      routeEnd.reset({});
+      routeStartResetRef.current({});
+      routeEndResetRef.current({});
       setLeadId("");
       setFuelLitersPer100km("8");
       setFuelPricePerLiter("");
       setVehicleLabel("");
       setUsePersonalCar(true);
       initialSnapshotRef.current = "";
+      setLoadingUser(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode]);
 
   useEffect(() => {
     if (!open || mode !== "edit" || !initial?.id) return;
+    if (loadedUserIdRef.current === initial.id) return;
+
+    loadedUserIdRef.current = initial.id;
+    setLoadedUser(initial);
+    applyUserToForm(initial);
+
+    let cancelled = false;
     setLoadingUser(true);
     setError(null);
     void usersApi
       .get(initial.id)
       .then((user) => {
+        if (cancelled) return;
         setLoadedUser(user);
         applyUserToForm(user);
       })
       .catch((e) => {
+        if (cancelled) return;
         setError(getUserFriendlyApiError(e, t.failed));
-        if (initial) {
-          setLoadedUser(initial);
-          applyUserToForm(initial);
-        }
       })
-      .finally(() => setLoadingUser(false));
-  }, [open, mode, initial?.id, applyUserToForm, initial]);
+      .finally(() => {
+        if (!cancelled) setLoadingUser(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, initial?.id, applyUserToForm]);
+
+  useEffect(() => {
+    if (!open) {
+      loadedUserIdRef.current = null;
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -812,7 +834,7 @@ export function EmployeeModal({
     ) : undefined;
 
   let tabBody: React.ReactNode;
-  if (loadingUser) {
+  if (loadingUser && mode === "edit" && !email) {
     tabBody = <PageLoading inline />;
   } else if (mode === "create" || activeTab === "account") {
     tabBody = accountSection;

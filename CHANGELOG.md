@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.99**.)_
+_(планируемые изменения после **0.2.100**.)_
+
+## [0.2.100] — 2026-05-20
+
+### Summary
+
+Патч **0.2.100**: badge непрочитанных **Telegram inbox**, UX заказов (клиент/1C code), фикс **EmployeeModal** route fields.
+
+### Added
+
+- **Telegram inbox**: `GET /conversations/unread-count` — OPEN чаты с последним inbound-сообщением; badge в **Sidebar** (`useInboxUnread`).
+
+### Changed
+
+- **Orders**: kanban/list — `contact.externalCode` в ответе; **OrderModal** — клиент первым, отображение 1C-кода.
+- **EmployeeModal**: стабильная загрузка route start/end (ref-based reset, без stale closure).
+- **Warehouse** work page — мелкие правки.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.100`**.
+- **Новых миграций нет.**
 
 ## [0.2.99] — 2026-05-20
 

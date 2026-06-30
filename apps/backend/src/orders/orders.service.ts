@@ -605,7 +605,8 @@ export class OrdersService {
     };
     if (withRelations) {
       include.company = true;
-      include.client = true;
+      include.client = { select: { id: true, firstName: true, lastName: true, externalCode: true } };
+      include.contact = { select: { id: true, firstName: true, lastName: true, externalCode: true } };
     }
 
     const [items, total] = await Promise.all([
@@ -746,8 +747,18 @@ export class OrdersService {
                   id: o.client.id,
                   firstName: o.client.firstName,
                   lastName: o.client.lastName,
+                  externalCode: o.client.externalCode ?? null,
                 }
               : null,
+            contact:
+              "contact" in o && o.contact
+                ? {
+                    id: o.contact.id,
+                    firstName: o.contact.firstName,
+                    lastName: o.contact.lastName,
+                    externalCode: o.contact.externalCode ?? null,
+                  }
+                : null,
           };
         }
         return base;

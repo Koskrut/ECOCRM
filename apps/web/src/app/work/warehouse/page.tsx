@@ -28,6 +28,14 @@ function deliveryMethodLabel(method: string | null | undefined): string {
   return method ?? "—";
 }
 
+function orderExternalCode(order: FulfillmentQueueOrder): string | null {
+  const fromContact = order.contact?.externalCode?.trim();
+  if (fromContact) return fromContact;
+  const fromClient = order.client?.externalCode?.trim();
+  if (fromClient) return fromClient;
+  return null;
+}
+
 function ttnSharedLabel(order: FulfillmentQueueOrder): string | null {
   if (!order.ttnSharedAcrossOrders) return null;
   const linked = order.ttnSharedWithOrders ?? [];
@@ -396,6 +404,14 @@ export default function WarehouseWorkPage() {
                   </div>
                   <div className="mt-0.5 font-medium text-zinc-900">
                     {deliveryMethodLabel(pickOrder.deliveryMethod)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Код 1С
+                  </div>
+                  <div className="mt-0.5 font-medium text-zinc-900">
+                    {orderExternalCode(pickOrder) ?? "—"}
                   </div>
                 </div>
                 <div>

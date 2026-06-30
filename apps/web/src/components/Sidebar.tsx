@@ -27,6 +27,8 @@ import { apiHttp } from "../lib/api/client";
 import { strings } from "@/locales";
 import { useModules } from "@/lib/modules/useModules";
 import { sidebarHrefModuleId } from "@/lib/modules/pathModuleGating";
+import { ModuleIds } from "@/lib/modules/module-ids";
+import { useInboxUnread } from "@/lib/use-inbox-unread";
 
 type MenuItem = {
   label: string;
@@ -37,6 +39,8 @@ type MenuItem = {
 };
 
 type MeResponse = { user?: { role?: string } };
+
+const INBOX_HREF = "/inbox/telegram";
 
 function buildMenuItems() {
   const t = strings.nav;
@@ -49,7 +53,7 @@ function buildMenuItems() {
     { label: t.tasks, icon: ListTodo, href: "/tasks" },
     { label: t.calls, icon: PhoneCall, href: "/work/calls", exact: true },
     { label: t.callsHistory, icon: Archive, href: "/work/calls/history" },
-    { label: t.inbox, icon: MessageCircle, href: "/inbox/telegram" },
+    { label: t.inbox, icon: MessageCircle, href: INBOX_HREF },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
     { label: t.planning, icon: BarChart3, href: "/planning" },
     { label: t.visits, icon: MapPin, href: "/visits", exact: true },
@@ -132,6 +136,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     });
   }, [menuItems, modulesStatus, moduleEffective]);
 
+  const inboxPollEnabled = useMemo(() => {
+    if (modulesStatus !== "ready") return false;
+    if (!moduleEffective(ModuleIds.IntegrationsTelegram)) return false;
+    if (role === "WAREHOUSE") return false;
+    return gatedMenuItems.some((it) => it.href === INBOX_HREF);
+  }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
+
+  const inboxHasUnread = useInboxUnread(inboxPollEnabled, pathname);
+
   useEffect(() => {
     apiHttp
       .get<MeResponse>("/auth/me")
@@ -192,6 +205,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     gatedMenuItems.map((item) => {
       const isActive = isHrefActive(pathname, item);
       const Icon = item.icon;
+      const showInboxDot = item.href === INBOX_HREF && inboxHasUnread;
       return (
         <Link
           key={item.href}
@@ -202,8 +216,26 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           }`}
           title={collapsed && !onNavigate ? item.label : undefined}
         >
-          <Icon className="size-5 shrink-0" aria-hidden />
-          {(!collapsed || onNavigate) && <span>{item.label}</span>}
+          <span className="relative shrink-0">
+            <Icon className="size-5" aria-hidden />
+            {showInboxDot && collapsed && !onNavigate && (
+              <span
+                className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-red-600 ring-2 ring-zinc-50"
+                aria-hidden
+              />
+            )}
+          </span>
+          {(!collapsed || onNavigate) && (
+            <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+              <span className="truncate">{item.label}</span>
+              {showInboxDot && (
+                <span
+                  className={`size-2 shrink-0 rounded-full bg-red-600 ${isActive ? "ring-2 ring-white/30" : ""}`}
+                  aria-label="Є необроблені повідомлення"
+                />
+              )}
+            </span>
+          )}
         </Link>
       );
     });

@@ -132,7 +132,20 @@ type OrderDetails = {
   ownerId?: string | null;
   deliveryData?: unknown;
   company?: { id: string; name: string };
-  client?: { id: string; firstName: string; lastName: string; phone: string };
+  client?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    externalCode?: string | null;
+  };
+  contact?: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+    externalCode?: string | null;
+  } | null;
 
   status: string;
   /** Phase 3: main axis for UI */
@@ -268,6 +281,16 @@ function formatContactOptionLabel(
     .filter(Boolean)
     .join(" · ");
   return `${c.lastName} ${c.firstName} — ${suffix}`;
+}
+
+function orderClientExternalCode(
+  order: Pick<OrderDetails, "client" | "contact">,
+): string | null {
+  const fromContact = order.contact?.externalCode?.trim();
+  if (fromContact) return fromContact;
+  const fromClient = order.client?.externalCode?.trim();
+  if (fromClient) return fromClient;
+  return null;
 }
 
 type TimelineItem = {
@@ -2201,25 +2224,7 @@ export function OrderModal({
           isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-medium text-zinc-600 mb-1">{t.company}</label>
-                  <SearchableSelectLite
-                    options={companies.map((c) => ({ id: c.id, label: c.name }))}
-                    value={companyId}
-                    onChange={(id) => {
-                      setCompanyId(id);
-                      setClientId(null);
-                      void fetchContacts(id);
-                    }}
-                    disabled={loadingCompanies}
-                    isLoading={loadingCompanies}
-                    placeholder={t.selectCompany}
-                    onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
-                    createLabel={t.createCompany}
-                  />
-                </div>
-
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-xs font-medium text-zinc-600 mb-1">{t.client}</label>
                   <SearchableSelectLite
                     options={contactOptions}
@@ -2238,6 +2243,24 @@ export function OrderModal({
                     createLabel={t.createContact}
                     onSearchQueryChange={onContactSearchQueryChange}
                     searchPlaceholder={t.searchClientBy1C}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-600 mb-1">{t.company}</label>
+                  <SearchableSelectLite
+                    options={companies.map((c) => ({ id: c.id, label: c.name }))}
+                    value={companyId}
+                    onChange={(id) => {
+                      setCompanyId(id);
+                      setClientId(null);
+                      void fetchContacts(id);
+                    }}
+                    disabled={loadingCompanies}
+                    isLoading={loadingCompanies}
+                    placeholder={t.selectCompany}
+                    onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
+                    createLabel={t.createCompany}
                   />
                 </div>
 
@@ -2826,7 +2849,7 @@ export function OrderModal({
               <EntitySection title={t.aboutOrder}>
                 <div className="overflow-hidden rounded-md border border-zinc-200 bg-white p-4">
                   <div className="grid grid-cols-1 gap-4 text-sm xl:grid-cols-2 xl:gap-4 [&>*]:min-w-0">
-                    <div className="min-w-0">
+                    <div className="min-w-0 xl:col-span-2">
                       <div className="text-xs text-zinc-500">{t.client}</div>
                       {editing === "client" ? (
                         <div className="mt-1">
@@ -2897,6 +2920,15 @@ export function OrderModal({
                         </button>
                       )}
                     </div>
+
+                    {isWarehouse ? (
+                      <div className="min-w-0">
+                        <div className="text-xs text-zinc-500">Код 1С</div>
+                        <div className="mt-1 min-h-9 font-medium text-zinc-900">
+                          {orderClientExternalCode(order) ?? "—"}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="min-w-0">
                       <div className="text-xs text-zinc-500">{t.orderSource}</div>

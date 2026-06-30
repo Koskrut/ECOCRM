@@ -20,7 +20,18 @@ export type FulfillmentQueueOrder = {
   createdAt: string;
   stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
-  client?: { id: string; firstName: string; lastName: string } | null;
+  client?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    externalCode?: string | null;
+  } | null;
+  contact?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    externalCode?: string | null;
+  } | null;
   items?: Array<{
     id: string;
     qty: number;

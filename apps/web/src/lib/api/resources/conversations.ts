@@ -159,4 +159,9 @@ export const conversationsApi = {
     );
     return res.data;
   },
+
+  unreadCount: async (): Promise<{ count: number }> => {
+    const res = await apiHttp.get<{ count: number }>("/conversations/unread-count");
+    return res.data;
+  },
 };
