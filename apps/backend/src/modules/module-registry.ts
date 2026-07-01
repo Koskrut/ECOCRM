@@ -121,6 +121,20 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  [ModuleIds.IntegrationsMetaMessaging]: defineModule({
+    id: ModuleIds.IntegrationsMetaMessaging,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "Meta Messaging Inbox",
+    description:
+      "Instagram Direct and Facebook Messenger inbox: webhooks, conversations, and replies from CRM.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.IntegrationsMetaMessaging,
+      bundleSelectable: true,
+    },
+  }),
   // RU: in_process; при NP_UPSTREAM_URL — np_worker и прокси /np, /store/np и regex под заказы/отгрузки. См. docs/np-module-prod.md.
   [ModuleIds.NovaPoshta]: defineModule({
     id: ModuleIds.NovaPoshta,

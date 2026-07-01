@@ -1,27 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { apiHttp } from "@/lib/api/client";
 import {
-  routePlansApi,
   visitsApi,
-  type RouteGeometryBundle,
   type VisitHistoryItem,
 } from "@/lib/api/resources/visits";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { RouteLayerControls, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
-import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
+import { DayRouteMapDialog } from "@/components/visits/DayRouteMapDialog";
+import { DayRouteMapPanel } from "@/components/visits/DayRouteMapPanel";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
-import { todayYmdInKyiv } from "@/lib/crmDatetime";
 import { VisitsSubNav } from "../VisitsSubNav";
 import {
   calendarCells,
   computeSummary,
   dayAccent,
   groupVisitsByDay,
+  groupVisitsIntoDayOwnerSections,
+  groupVisitsIntoDaySections,
   isInDisplayMonth,
   matchesOutcomeFilter,
   outcomeMeta,
@@ -30,12 +30,13 @@ import {
   visitSubtitle,
   type OutcomeFilter,
   type ViewMode,
+  type VisitHistoryListSection,
 } from "./visit-history-utils";
 
 type MeUser = { role?: string };
 type UserRow = { id: string; fullName: string; email: string; role: string };
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 100;
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
 
 function formatDateTime(value?: string | null) {
@@ -196,7 +197,29 @@ function HistoryCalendar({
   );
 }
 
+function HistoryDaySectionHeader({
+  section,
+  onOpenMap,
+}: {
+  section: VisitHistoryListSection;
+  onOpenMap: (section: VisitHistoryListSection) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 pb-2 pt-4">
+      <h2 className="text-sm font-semibold capitalize text-zinc-900">{section.title}</h2>
+      <button
+        type="button"
+        onClick={() => onOpenMap(section)}
+        className="text-xs font-medium text-emerald-700 hover:underline"
+      >
+        Маршрут на карте ›
+      </button>
+    </div>
+  );
+}
+
 export default function VisitsHistoryPage() {
+  const searchParams = useSearchParams();
   const [role, setRole] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [ownerId, setOwnerId] = useState("");
@@ -212,13 +235,17 @@ export default function VisitsHistoryPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
-  const [routeGeometryBundle, setRouteGeometryBundle] = useState<RouteGeometryBundle | null>(null);
-  const [routeGeometryLoading, setRouteGeometryLoading] = useState(false);
-  const [routeLayers, setRouteLayers] = useState<Record<RouteLayerKey, boolean>>({
-    planned: true,
-    fact_visits: true,
-    fact_gps: true,
-  });
+  const [mapDialog, setMapDialog] = useState<VisitHistoryListSection | null>(null);
+
+  useEffect(() => {
+    const spFrom = searchParams.get("from");
+    const spTo = searchParams.get("to");
+    const spOwner = searchParams.get("owner");
+    if (spFrom) setFrom(spFrom);
+    if (spTo) setTo(spTo);
+    if (spOwner) setOwnerId(spOwner);
+    if (spFrom && spFrom === spTo) setSelectedDay(spFrom);
+  }, [searchParams]);
 
   useEffect(() => {
     apiHttp
@@ -275,50 +302,36 @@ export default function VisitsHistoryPage() {
   }, [load]);
 
   const showOwnerFilter = role === "ADMIN" || role === "LEAD";
+  const splitByOwner = showOwnerFilter && !ownerId;
   const filteredItems = useMemo(
     () => items.filter((v) => matchesOutcomeFilter(v, outcomeFilter)),
     [items, outcomeFilter],
   );
+  const listSections = useMemo(() => {
+    if (splitByOwner && myUserId) {
+      return groupVisitsIntoDayOwnerSections(filteredItems, myUserId);
+    }
+    return groupVisitsIntoDaySections(filteredItems);
+  }, [filteredItems, splitByOwner, myUserId]);
   const summary = useMemo(() => computeSummary(items), [items]);
   const dayBuckets = useMemo(() => groupVisitsByDay(items), [items]);
   const monthAnchor = from || format(new Date(), "yyyy-MM-dd");
   const mapDateKey = from === to ? from : selectedDay;
-  const mapOwnerId = ownerId || myUserId || undefined;
+  const mapOwnerId = ownerId || myUserId || "";
+  const showInlineDayMap = Boolean(mapDateKey && mapOwnerId && !splitByOwner);
 
-  useEffect(() => {
-    setRouteGeometryBundle(null);
-    if (!mapDateKey || !mapOwnerId) return;
-    setRouteGeometryLoading(true);
-    void routePlansApi
-      .geometryBundle(mapDateKey, { ownerId: mapOwnerId })
-      .then((b) => setRouteGeometryBundle(b))
-      .catch(() => setRouteGeometryBundle(null))
-      .finally(() => setRouteGeometryLoading(false));
-  }, [mapDateKey, mapOwnerId]);
+  function resolveMapOwnerId(section: VisitHistoryListSection): string | null {
+    if (section.ownerId) return section.ownerId;
+    if (ownerId) return ownerId;
+    if (myUserId) return myUserId;
+    return null;
+  }
 
-  const routeCompareKpi = useMemo(() => {
-    if (!routeGeometryBundle) return null;
-    const plan = routeGeometryBundle.planned.distanceKm;
-    const factGps = routeGeometryBundle.factGps.distanceKm;
-    const factVisits = routeGeometryBundle.factVisits.distanceKm;
-    const fact =
-      routeGeometryBundle.compensationFactKind === "fact_gps" && factGps != null
-        ? factGps
-        : factVisits;
-    const deviationPct =
-      plan != null && fact != null && plan > 0
-        ? Math.round(((fact - plan) / plan) * 100)
-        : null;
-    return { plan, factGps, factVisits, deviationPct };
-  }, [routeGeometryBundle]);
-
-  const mapCenter = useMemo(() => {
-    const g = routeGeometryBundle?.planned;
-    if (g?.path?.[0]) return { lat: g.path[0].lat, lng: g.path[0].lng };
-    const g2 = routeGeometryBundle?.factVisits;
-    if (g2?.path?.[0]) return { lat: g2.path[0].lat, lng: g2.path[0].lng };
-    return { lat: 50.4501, lng: 30.5234 };
-  }, [routeGeometryBundle]);
+  function openDayMap(section: VisitHistoryListSection) {
+    const oid = resolveMapOwnerId(section);
+    if (!oid) return;
+    setMapDialog(section);
+  }
 
   const resetFilters = () => {
     const r = quickRange("30d");
@@ -505,71 +518,30 @@ export default function VisitsHistoryPage() {
           </div>
         ) : null}
 
-        {mapDateKey ? (
+        {showInlineDayMap && mapDateKey ? (
           <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-4">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-zinc-900">
-                  Маршрут за {mapDateKey}
-                </h2>
-                {showOwnerFilter &&
-                mapOwnerId &&
-                mapDateKey === todayYmdInKyiv() ? (
-                  <Link
-                    href={`/visits/team?owner=${mapOwnerId}`}
-                    className="mt-1 inline-block text-xs font-medium text-blue-700 hover:underline">
-                    Відкрити live-карту команди
-                  </Link>
-                ) : null}
-                {showOwnerFilter && !ownerId ? (
-                  <p className="mt-1 text-xs text-amber-700">
-                    Выберите менеджера, чтобы увидеть его маршрут.
-                  </p>
-                ) : routeCompareKpi ? (
-                  <p className="mt-1 text-xs text-zinc-600">
-                    План: {routeCompareKpi.plan ?? "—"} км · Факт GPS:{" "}
-                    {routeCompareKpi.factGps ?? "—"} км · Факт (визиты):{" "}
-                    {routeCompareKpi.factVisits ?? "—"} км
-                    {routeCompareKpi.deviationPct != null ? (
-                      <span className="ml-1 font-medium">
-                        · отклонение {routeCompareKpi.deviationPct > 0 ? "+" : ""}
-                        {routeCompareKpi.deviationPct}%
-                      </span>
-                    ) : null}
-                  </p>
-                ) : null}
-              </div>
-              <RouteLayerControls
-                layers={routeLayers}
-                onToggle={(key) => setRouteLayers((p) => ({ ...p, [key]: !p[key] }))}
-                disabled={routeGeometryLoading}
-              />
-            </div>
-            {showOwnerFilter && !ownerId ? null : (
-              <div className="h-[320px] overflow-hidden rounded-md border border-zinc-100">
-                {!mapsApiKey ? (
-                  <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-                    Карта недоступна (нет Google Maps API key)
-                  </div>
-                ) : routeGeometryLoading ? (
-                  <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-                    Загрузка маршрута…
-                  </div>
-                ) : (
-                  <VisitsRouteMap
-                    mapsApiKey={mapsApiKey}
-                    center={mapCenter}
-                    layers={routeLayers}
-                    geometries={{
-                      planned: routeGeometryBundle?.planned ?? null,
-                      fact_visits: routeGeometryBundle?.factVisits ?? null,
-                      fact_gps: routeGeometryBundle?.factGps ?? null,
-                    }}
-                  />
-                )}
-              </div>
-            )}
+            <h2 className="mb-3 text-sm font-semibold text-zinc-900">
+              Маршрут за {mapDateKey}
+            </h2>
+            <DayRouteMapPanel
+              dateKey={mapDateKey}
+              ownerId={mapOwnerId}
+              mapsApiKey={mapsApiKey}
+              showTeamLink={showOwnerFilter}
+            />
           </div>
+        ) : null}
+
+        {mapDialog && resolveMapOwnerId(mapDialog) ? (
+          <DayRouteMapDialog
+            open
+            dateKey={mapDialog.dateKey}
+            ownerId={resolveMapOwnerId(mapDialog)!}
+            title={mapDialog.title}
+            mapsApiKey={mapsApiKey}
+            showTeamLink={showOwnerFilter}
+            onClose={() => setMapDialog(null)}
+          />
         ) : null}
 
         {viewMode === "calendar" ? (
@@ -622,9 +594,16 @@ export default function VisitsHistoryPage() {
                 }
               />
             ) : (
-              <div className="space-y-3">
-                {filteredItems.map((v) => (
-                  <VisitHistoryCard key={v.id} v={v} showOwner={showOwnerFilter} />
+              <div className="space-y-6">
+                {listSections.map((section) => (
+                  <section key={section.key}>
+                    <HistoryDaySectionHeader section={section} onOpenMap={openDayMap} />
+                    <div className="space-y-3">
+                      {section.visits.map((v) => (
+                        <VisitHistoryCard key={v.id} v={v} showOwner={splitByOwner} />
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             )}

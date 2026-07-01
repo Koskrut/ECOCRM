@@ -85,6 +85,8 @@ enum NotificationType {
   NEW_LEAD
   TASK_ASSIGNED
   TELEGRAM_MESSAGE
+  META_INSTAGRAM_MESSAGE
+  META_FACEBOOK_MESSAGE
 }
 
 enum AuditAction {
@@ -269,6 +271,8 @@ enum PaymentRequestStatus {
 
 enum ConversationChannel {
   TELEGRAM
+  INSTAGRAM
+  FACEBOOK
 }
 
 enum ConversationStatus {
@@ -807,6 +811,7 @@ model Contact {
   clientBalances       ClientBalance[] @relation("ContactClientBalance")
   balanceTransactions  ClientBalanceTransaction[] @relation("ContactBalanceTransactions")
   telegramAccounts     TelegramAccount[]
+  metaParticipants     MetaParticipant[]
   conversations        Conversation[]
   tasks                Task[]
   customer             Customer?
@@ -1254,6 +1259,7 @@ model Lead {
   events               LeadEvent[]
   identities           LeadIdentity[]
   telegramAccounts     TelegramAccount[]
+  metaParticipants     MetaParticipant[]
   conversations        Conversation[]
   tasks                Task[]
   activities           Activity[]
@@ -2849,45 +2855,51 @@ model TelegramAccount {
 }
 
 model Conversation {
-  id               String              @id @default(cuid())
-  channel          ConversationChannel
-  telegramChatId   String              @unique
-  contactId        String?
-  leadId           String?
-  assignedToUserId String?
-  status           ConversationStatus  @default(OPEN)
-  lastMessageAt    DateTime?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id                String              @id @default(cuid())
+  channel           ConversationChannel
+  telegramChatId    String?             @unique
+  metaParticipantId String?
+  contactId         String?
+  leadId            String?
+  assignedToUserId  String?
+  status            ConversationStatus  @default(OPEN)
+  lastMessageAt     DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
-  contact    Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  assignedTo User?     @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
-  messages   Message[]
+  contact         Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead            Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo      User?            @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  metaParticipant MetaParticipant? @relation(fields: [metaParticipantId], references: [id], onDelete: SetNull)
+  messages        Message[]
 
+  @@unique([channel, metaParticipantId])
   @@index([channel])
   @@index([status])
   @@index([assignedToUserId])
   @@index([lastMessageAt])
+  @@index([metaParticipantId])
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  conversationId String
-  direction      MessageDirection
-  text           String?
-  tgMessageId    String?
-  authorUserId   String?
-  sentAt         DateTime
-  createdAt      DateTime         @default(now())
-  mediaType      String?
-  fileId         String?
-  fileUrl        String?
+  id                String           @id @default(cuid())
+  conversationId    String
+  direction         MessageDirection
+  text              String?
+  tgMessageId       String?
+  externalMessageId String?
+  authorUserId      String?
+  sentAt            DateTime
+  createdAt         DateTime         @default(now())
+  mediaType         String?
+  fileId            String?
+  fileUrl           String?
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   author       User?        @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
 
   @@unique([conversationId, tgMessageId])
+  @@unique([conversationId, externalMessageId])
   @@index([conversationId])
   @@index([sentAt])
 }
@@ -2900,6 +2912,34 @@ model TelegramInboundUpdate {
 
   @@index([createdAt])
   @@index([telegramChatId])
+}
+
+model MetaParticipant {
+  id            String              @id @default(cuid())
+  platform      ConversationChannel
+  participantId String
+  displayName   String?
+  profilePicUrl String?
+  contactId     String?
+  leadId        String?
+  linkedAt      DateTime            @default(now())
+  lastMessageAt DateTime?
+
+  contact       Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  lead          Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  conversations Conversation[]
+
+  @@unique([platform, participantId])
+  @@index([contactId])
+  @@index([leadId])
+}
+
+model MetaInboundEvent {
+  id        String   @id @default(cuid())
+  eventKey  String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Call {

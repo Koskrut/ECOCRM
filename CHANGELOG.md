@@ -4,7 +4,36 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.100**.)_
+_(планируемые изменения после **0.2.101**.)_
+
+## [0.2.101] — 2026-05-20
+
+### Summary
+
+Патч **0.2.101**: **Meta Messaging** (Instagram Direct / Facebook Messenger) в инбоксе, маршрут за день на **visit history**, unread badges для Meta.
+
+### Added
+
+- **Meta Messaging** (`int.integrations_meta_messaging`): webhook `/integrations/meta/webhook`, `MetaParticipant`, миграция **`20260701120000_add_meta_messaging_inbox`**; каналы **INSTAGRAM** / **FACEBOOK**; API **`/meta-conversations`**; Settings → **Meta Messaging**; web **`/inbox/instagram`**, **`/inbox/facebook`**; уведомления **`META_*_MESSAGE`**.
+- **Docs**: **`docs/META-MESSAGING.md`** — настройка Meta App и CRM.
+- **Visits history**: inline **`DayRouteMapPanel`** и **`DayRouteMapDialog`** — маршрут за выбранный день.
+
+### Changed
+
+- **Conversation** model — `metaParticipantId`, optional `telegramChatId`; **Message** — `externalMessageId`.
+- **Telegram conversations** — общая модель с Meta; unread-count расширен.
+- **Inbox layout**, **Sidebar** — Meta unread badges (`useMetaInboxUnread`).
+- **Notifications** settings — Meta message types.
+
+### Fixed
+
+- **Visits history** — TypeScript narrow для `mapDateKey` (web CI).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.101`**.
+- **Миграция:** **`20260701120000_add_meta_messaging_inbox`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- Meta: см. **`docs/META-MESSAGING.md`** (webhook URL, Page token, module license).
 
 ## [0.2.100] — 2026-05-20
 

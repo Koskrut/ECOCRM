@@ -9,6 +9,7 @@ const ModuleIds = {
   ProductionPlanning: "ext.production_planning",
   Store: "ext.store",
   IntegrationsTelegram: "int.integrations_telegram",
+  IntegrationsMetaMessaging: "int.integrations_meta_messaging",
   NovaPoshta: "int.nova_poshta",
   GoogleSheet: "int.google_sheet",
   Bitrix: "int.bitrix",

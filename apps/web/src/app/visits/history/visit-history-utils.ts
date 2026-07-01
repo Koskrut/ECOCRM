@@ -142,3 +142,110 @@ export function dayAccent(bucket: DayBucket | undefined): string {
 export function isInDisplayMonth(day: Date, monthAnchor: string): boolean {
   return isSameMonth(day, parseISO(`${monthAnchor}T12:00:00`));
 }
+
+export function visitDayKey(v: VisitHistoryItem): string {
+  const iso = v.completedAt ?? v.startsAt ?? v.endsAt;
+  if (!iso) return "unknown";
+  return format(new Date(iso), "yyyy-MM-dd");
+}
+
+function sortVisitsByCompletedDesc(visits: VisitHistoryItem[]): VisitHistoryItem[] {
+  return visits.slice().sort((a, b) => {
+    const ma = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+    const mb = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+    return mb - ma;
+  });
+}
+
+export function formatDaySectionTitle(dateKey: string): string {
+  return format(parseISO(`${dateKey}T12:00:00`), "EEEE, d MMMM yyyy");
+}
+
+export type VisitHistoryListSection = {
+  key: string;
+  dateKey: string;
+  ownerId?: string;
+  title: string;
+  visits: VisitHistoryItem[];
+};
+
+function visitOwnerId(v: VisitHistoryItem): string | null {
+  return v.owner?.id ?? v.ownerId ?? null;
+}
+
+function visitOwnerName(v: VisitHistoryItem): string | null {
+  return v.owner?.fullName?.trim() || v.owner?.email?.trim() || null;
+}
+
+/** List sections grouped by day, newest first. */
+export function groupVisitsIntoDaySections(visits: VisitHistoryItem[]): VisitHistoryListSection[] {
+  const byDay = new Map<string, VisitHistoryItem[]>();
+  for (const v of visits) {
+    const key = visitDayKey(v);
+    if (key === "unknown") continue;
+    const bucket = byDay.get(key);
+    if (bucket) bucket.push(v);
+    else byDay.set(key, [v]);
+  }
+
+  return [...byDay.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([dateKey, dayVisits]) => ({
+      key: dateKey,
+      dateKey,
+      title: formatDaySectionTitle(dateKey),
+      visits: sortVisitsByCompletedDesc(dayVisits),
+    }));
+}
+
+/** For team view without owner filter: sections per day + manager. */
+export function groupVisitsIntoDayOwnerSections(
+  visits: VisitHistoryItem[],
+  myUserId: string,
+): VisitHistoryListSection[] {
+  const byDay = new Map<string, VisitHistoryItem[]>();
+  for (const v of visits) {
+    const key = visitDayKey(v);
+    if (key === "unknown") continue;
+    const bucket = byDay.get(key);
+    if (bucket) bucket.push(v);
+    else byDay.set(key, [v]);
+  }
+
+  const sections: VisitHistoryListSection[] = [];
+  const sortedDays = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
+
+  for (const dateKey of sortedDays) {
+    const dayVisits = byDay.get(dateKey) ?? [];
+    const byOwner = new Map<string, VisitHistoryItem[]>();
+    const names = new Map<string, string>();
+
+    for (const v of dayVisits) {
+      const oid = visitOwnerId(v) ?? "unknown";
+      const bucket = byOwner.get(oid);
+      if (bucket) bucket.push(v);
+      else byOwner.set(oid, [v]);
+      names.set(oid, visitOwnerName(v) ?? oid);
+    }
+
+    const ownerIds = [...byOwner.keys()].sort((a, b) => {
+      if (a === myUserId) return -1;
+      if (b === myUserId) return 1;
+      return (names.get(a) ?? a).localeCompare(names.get(b) ?? b, "uk");
+    });
+
+    const dayLabel = formatDaySectionTitle(dateKey);
+    for (const oid of ownerIds) {
+      const isMe = oid === myUserId;
+      sections.push({
+        key: `${dateKey}:${oid}`,
+        dateKey,
+        ownerId: oid !== "unknown" ? oid : undefined,
+        title: isMe ? dayLabel : `${dayLabel} · ${names.get(oid) ?? oid}`,
+        visits: sortVisitsByCompletedDesc(byOwner.get(oid) ?? []),
+      });
+    }
+  }
+
+  return sections;
+}

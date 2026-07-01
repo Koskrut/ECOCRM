@@ -258,6 +258,9 @@ export class ConversationsService {
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
+    if (!conv.telegramChatId) {
+      throw new BadRequestException("Conversation has no Telegram chat");
+    }
 
     const sentAt = new Date();
     const { messageId } = await this.telegramService.sendMessageToChat(
@@ -296,6 +299,9 @@ export class ConversationsService {
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
+    if (!conv.telegramChatId) {
+      throw new BadRequestException("Conversation has no Telegram chat");
+    }
 
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
@@ -342,6 +348,9 @@ export class ConversationsService {
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
+    if (!conv.telegramChatId) {
+      throw new BadRequestException("Conversation has no Telegram chat");
+    }
     if (!conv.leadId || !conv.lead) {
       throw new BadRequestException("Conversation has no lead to create contact from");
     }

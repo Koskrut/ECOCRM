@@ -29,6 +29,7 @@ import { useModules } from "@/lib/modules/useModules";
 import { sidebarHrefModuleId } from "@/lib/modules/pathModuleGating";
 import { ModuleIds } from "@/lib/modules/module-ids";
 import { useInboxUnread } from "@/lib/use-inbox-unread";
+import { useMetaInboxUnread } from "@/lib/use-meta-inbox-unread";
 
 type MenuItem = {
   label: string;
@@ -40,7 +41,15 @@ type MenuItem = {
 
 type MeResponse = { user?: { role?: string } };
 
-const INBOX_HREF = "/inbox/telegram";
+const INBOX_TELEGRAM_HREF = "/inbox/telegram";
+const INBOX_INSTAGRAM_HREF = "/inbox/instagram";
+const INBOX_FACEBOOK_HREF = "/inbox/facebook";
+
+const INBOX_UNREAD_HREFS = new Set([
+  INBOX_TELEGRAM_HREF,
+  INBOX_INSTAGRAM_HREF,
+  INBOX_FACEBOOK_HREF,
+]);
 
 function buildMenuItems() {
   const t = strings.nav;
@@ -53,7 +62,9 @@ function buildMenuItems() {
     { label: t.tasks, icon: ListTodo, href: "/tasks" },
     { label: t.calls, icon: PhoneCall, href: "/work/calls", exact: true },
     { label: t.callsHistory, icon: Archive, href: "/work/calls/history" },
-    { label: t.inbox, icon: MessageCircle, href: INBOX_HREF },
+    { label: t.inbox, icon: MessageCircle, href: INBOX_TELEGRAM_HREF },
+    { label: t.inboxInstagram, icon: MessageCircle, href: INBOX_INSTAGRAM_HREF },
+    { label: t.inboxFacebook, icon: MessageCircle, href: INBOX_FACEBOOK_HREF },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
     { label: t.planning, icon: BarChart3, href: "/planning" },
     { label: t.visits, icon: MapPin, href: "/visits", exact: true },
@@ -136,14 +147,31 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     });
   }, [menuItems, modulesStatus, moduleEffective]);
 
-  const inboxPollEnabled = useMemo(() => {
+  const telegramInboxPollEnabled = useMemo(() => {
     if (modulesStatus !== "ready") return false;
     if (!moduleEffective(ModuleIds.IntegrationsTelegram)) return false;
     if (role === "WAREHOUSE") return false;
-    return gatedMenuItems.some((it) => it.href === INBOX_HREF);
+    return gatedMenuItems.some((it) => it.href === INBOX_TELEGRAM_HREF);
   }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
 
-  const inboxHasUnread = useInboxUnread(inboxPollEnabled, pathname);
+  const metaInboxPollEnabled = useMemo(() => {
+    if (modulesStatus !== "ready") return false;
+    if (!moduleEffective(ModuleIds.IntegrationsMetaMessaging)) return false;
+    if (role === "WAREHOUSE") return false;
+    return gatedMenuItems.some(
+      (it) => it.href === INBOX_INSTAGRAM_HREF || it.href === INBOX_FACEBOOK_HREF,
+    );
+  }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
+
+  const telegramInboxHasUnread = useInboxUnread(telegramInboxPollEnabled, pathname);
+  const instagramInboxHasUnread = useMetaInboxUnread("INSTAGRAM", metaInboxPollEnabled, pathname);
+  const facebookInboxHasUnread = useMetaInboxUnread("FACEBOOK", metaInboxPollEnabled, pathname);
+
+  const inboxUnreadByHref: Record<string, boolean> = {
+    [INBOX_TELEGRAM_HREF]: telegramInboxHasUnread,
+    [INBOX_INSTAGRAM_HREF]: instagramInboxHasUnread,
+    [INBOX_FACEBOOK_HREF]: facebookInboxHasUnread,
+  };
 
   useEffect(() => {
     apiHttp
@@ -205,7 +233,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     gatedMenuItems.map((item) => {
       const isActive = isHrefActive(pathname, item);
       const Icon = item.icon;
-      const showInboxDot = item.href === INBOX_HREF && inboxHasUnread;
+      const showInboxDot = INBOX_UNREAD_HREFS.has(item.href) && inboxUnreadByHref[item.href];
       return (
         <Link
           key={item.href}

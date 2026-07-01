@@ -73,6 +73,18 @@ export type MetaLeadAdsConfig = {
 
 const META_LEAD_ADS_KEY = "meta_lead_ads";
 
+export type MetaMessagingConfig = {
+  webhookVerifyToken?: string;
+  pageAccessToken?: string;
+  pageId?: string;
+  igBusinessAccountId?: string;
+  leadCompanyId?: string;
+  graphApiVersion?: string;
+  publicBaseUrl?: string;
+};
+
+const META_MESSAGING_KEY = "meta_messaging";
+
 export type GoogleMapsConfig = {
   mapsApiKey?: string;
 };
@@ -557,6 +569,121 @@ export class SettingsService {
     if (!raw) return { fbPixelId: null };
     if (!/^\d+$/.test(raw)) return { fbPixelId: null };
     return { fbPixelId: raw };
+  }
+
+  async getMetaMessagingConfig(): Promise<
+    MetaMessagingConfig & { pageAccessTokenMasked?: string }
+  > {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: META_MESSAGING_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return {};
+    }
+    const v = row.value as Record<string, unknown>;
+    const pageAccessToken = typeof v.pageAccessToken === "string" ? v.pageAccessToken : undefined;
+    return {
+      webhookVerifyToken:
+        typeof v.webhookVerifyToken === "string" ? v.webhookVerifyToken : undefined,
+      pageAccessTokenMasked: maskToken(pageAccessToken),
+      pageId: typeof v.pageId === "string" ? v.pageId : undefined,
+      igBusinessAccountId:
+        typeof v.igBusinessAccountId === "string" ? v.igBusinessAccountId : undefined,
+      leadCompanyId: typeof v.leadCompanyId === "string" ? v.leadCompanyId : undefined,
+      graphApiVersion: typeof v.graphApiVersion === "string" ? v.graphApiVersion : undefined,
+      publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined,
+    };
+  }
+
+  async getMetaMessagingSecrets(): Promise<{
+    webhookVerifyToken?: string;
+    pageAccessToken?: string;
+    pageId?: string;
+    igBusinessAccountId?: string;
+    leadCompanyId?: string;
+    graphApiVersion?: string;
+    publicBaseUrl?: string;
+  }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: META_MESSAGING_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return {};
+    }
+    const v = row.value as Record<string, unknown>;
+    const str = (key: string) => {
+      const raw = v[key];
+      return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+    };
+    return {
+      webhookVerifyToken: str("webhookVerifyToken"),
+      pageAccessToken: str("pageAccessToken"),
+      pageId: str("pageId"),
+      igBusinessAccountId: str("igBusinessAccountId"),
+      leadCompanyId: str("leadCompanyId"),
+      graphApiVersion: str("graphApiVersion"),
+      publicBaseUrl: str("publicBaseUrl"),
+    };
+  }
+
+  async setMetaMessagingConfig(
+    config: Partial<MetaMessagingConfig>,
+  ): Promise<MetaMessagingConfig & { pageAccessTokenMasked?: string }> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: META_MESSAGING_KEY },
+    });
+    const current = (row?.value as Record<string, unknown>) || {};
+    const next: Record<string, unknown> = {
+      webhookVerifyToken:
+        typeof config.webhookVerifyToken === "string"
+          ? config.webhookVerifyToken
+          : (current.webhookVerifyToken as string) ?? undefined,
+      pageAccessToken:
+        typeof config.pageAccessToken === "string"
+          ? config.pageAccessToken
+          : (current.pageAccessToken as string) ?? undefined,
+      pageId: typeof config.pageId === "string" ? config.pageId : (current.pageId as string) ?? undefined,
+      igBusinessAccountId:
+        typeof config.igBusinessAccountId === "string"
+          ? config.igBusinessAccountId
+          : (current.igBusinessAccountId as string) ?? undefined,
+      leadCompanyId:
+        typeof config.leadCompanyId === "string"
+          ? config.leadCompanyId
+          : (current.leadCompanyId as string) ?? undefined,
+      graphApiVersion:
+        typeof config.graphApiVersion === "string"
+          ? config.graphApiVersion
+          : (current.graphApiVersion as string) ?? undefined,
+      publicBaseUrl:
+        typeof config.publicBaseUrl === "string"
+          ? config.publicBaseUrl
+          : (current.publicBaseUrl as string) ?? undefined,
+    };
+    if (config.webhookVerifyToken === "") next.webhookVerifyToken = undefined;
+    if (config.pageAccessToken === "") next.pageAccessToken = undefined;
+    if (config.pageId === "") next.pageId = undefined;
+    if (config.igBusinessAccountId === "") next.igBusinessAccountId = undefined;
+    if (config.leadCompanyId === "") next.leadCompanyId = undefined;
+    if (config.graphApiVersion === "") next.graphApiVersion = undefined;
+    if (config.publicBaseUrl === "") next.publicBaseUrl = undefined;
+
+    await this.prisma.systemSetting.upsert({
+      where: { id: META_MESSAGING_KEY },
+      create: { id: META_MESSAGING_KEY, value: next as Prisma.InputJsonValue },
+      update: { value: next as Prisma.InputJsonValue },
+    });
+
+    const pageAccessToken = next.pageAccessToken as string | undefined;
+    return {
+      webhookVerifyToken: next.webhookVerifyToken as string | undefined,
+      pageAccessTokenMasked: maskToken(pageAccessToken),
+      pageId: next.pageId as string | undefined,
+      igBusinessAccountId: next.igBusinessAccountId as string | undefined,
+      leadCompanyId: next.leadCompanyId as string | undefined,
+      graphApiVersion: next.graphApiVersion as string | undefined,
+      publicBaseUrl: next.publicBaseUrl as string | undefined,
+    };
   }
 
   async getGoogleMapsConfig(): Promise<{ mapsApiKeyMasked?: string }> {

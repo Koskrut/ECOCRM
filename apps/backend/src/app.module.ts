@@ -31,6 +31,7 @@ import { VisitsModule } from "./visits/visits.module";
 import { TasksModule } from "./tasks/tasks.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
+import { MetaMessagingModule } from "./integrations/meta-messaging/meta-messaging.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
 import { KyivstarFmcModule } from "./integrations/kyivstar-fmc/kyivstar-fmc.module";
@@ -91,6 +92,7 @@ import { PresenceModule } from "./presence/presence.module";
     LeadsModule,
     UsersModule,
     TelegramModule,
+    MetaMessagingModule,
     Privat24Module,
     UpcModule,
     RingostatModule,

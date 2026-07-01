@@ -74,6 +74,7 @@ function allCards(): CardDescriptor[] {
     { href: "/settings/exchange-rates", title: t.exchangeRates.title, desc: t.exchangeRates.desc, group: "salesProcesses" },
     { href: "/settings/google-maps", title: t.googleMaps.title, desc: t.googleMaps.desc, group: "integrations" },
     { href: "/settings/meta-lead-ads", title: t.metaLeadAds.title, desc: t.metaLeadAds.desc, group: "integrations" },
+    { href: "/settings/meta-messaging", title: t.metaMessaging.title, desc: t.metaMessaging.desc, group: "integrations" },
     { href: "/settings/bank", title: t.bank.title, desc: t.bank.desc, group: "integrations" },
     { href: "/settings/privat24", title: t.privat24.title, desc: t.privat24.desc, group: "integrations" },
     { href: "/settings/upc", title: t.upc.title, desc: t.upc.desc, group: "integrations" },

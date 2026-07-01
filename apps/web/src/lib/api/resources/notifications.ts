@@ -7,7 +7,9 @@ export type NotificationType =
   | "MISSED_CALL"
   | "NEW_LEAD"
   | "TASK_ASSIGNED"
-  | "TELEGRAM_MESSAGE";
+  | "TELEGRAM_MESSAGE"
+  | "META_INSTAGRAM_MESSAGE"
+  | "META_FACEBOOK_MESSAGE";
 
 export type UserNotification = {
   id: string;

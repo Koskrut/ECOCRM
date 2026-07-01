@@ -9,6 +9,9 @@ export function sidebarHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/planning")) return ModuleIds.ProductionPlanning;
   if (href.startsWith("/payments")) return ModuleIds.Finance;
   if (href.startsWith("/inbox/telegram")) return ModuleIds.IntegrationsTelegram;
+  if (href.startsWith("/inbox/instagram") || href.startsWith("/inbox/facebook")) {
+    return ModuleIds.IntegrationsMetaMessaging;
+  }
   if (href.startsWith("/outbound")) return ModuleIds.VoiceOutbound;
   if (href.startsWith("/work/calls")) return ModuleIds.ManualCalling;
   if (href.startsWith("/visits")) return ModuleIds.Visits;
@@ -26,6 +29,7 @@ export function settingsHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/settings/nova-poshta")) return ModuleIds.NovaPoshta;
   if (href.startsWith("/settings/outbound-voice")) return ModuleIds.VoiceOutbound;
   if (href.startsWith("/settings/telegram")) return ModuleIds.IntegrationsTelegram;
+  if (href.startsWith("/settings/meta-messaging")) return ModuleIds.IntegrationsMetaMessaging;
   if (href.startsWith("/settings/store")) return ModuleIds.Store;
   return null;
 }

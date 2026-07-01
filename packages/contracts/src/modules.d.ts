@@ -7,6 +7,7 @@ export declare const ModuleIds: {
   readonly ProductionPlanning: "ext.production_planning";
   readonly Store: "ext.store";
   readonly IntegrationsTelegram: "int.integrations_telegram";
+  readonly IntegrationsMetaMessaging: "int.integrations_meta_messaging";
   readonly NovaPoshta: "int.nova_poshta";
   readonly GoogleSheet: "int.google_sheet";
   readonly Bitrix: "int.bitrix";

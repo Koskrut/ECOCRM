@@ -17,6 +17,8 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   NEW_LEAD: "Новий лід",
   TASK_ASSIGNED: "Нова задача",
   TELEGRAM_MESSAGE: "Повідомлення в Telegram Inbox",
+  META_INSTAGRAM_MESSAGE: "Повідомлення в Instagram Inbox",
+  META_FACEBOOK_MESSAGE: "Повідомлення в Facebook Messenger Inbox",
 };
 
 const ALL_TYPES: NotificationType[] = [
@@ -27,6 +29,8 @@ const ALL_TYPES: NotificationType[] = [
   "NEW_LEAD",
   "TASK_ASSIGNED",
   "TELEGRAM_MESSAGE",
+  "META_INSTAGRAM_MESSAGE",
+  "META_FACEBOOK_MESSAGE",
 ];
 
 function prefFor(

@@ -9,6 +9,7 @@ import type {
   GoogleMapsConfig,
   GoogleSheetConfig,
   MetaLeadAdsConfig,
+  MetaMessagingConfig,
   NovaPoshtaIntegrationConfig,
   OrderLineDiscountsConfig,
   StoreConfig,
@@ -59,6 +60,20 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setMetaLeadAdsConfig(@Body() body: Partial<MetaLeadAdsConfig>) {
     return this.settings.setMetaLeadAdsConfig(body);
+  }
+
+  @Get("meta-messaging")
+  @Roles(UserRole.ADMIN)
+  @RequireModule(ModuleIds.IntegrationsMetaMessaging)
+  getMetaMessagingConfig() {
+    return this.settings.getMetaMessagingConfig();
+  }
+
+  @Patch("meta-messaging")
+  @Roles(UserRole.ADMIN)
+  @RequireModule(ModuleIds.IntegrationsMetaMessaging)
+  setMetaMessagingConfig(@Body() body: Partial<MetaMessagingConfig>) {
+    return this.settings.setMetaMessagingConfig(body);
   }
 
   @Get("meta-lead-ads/public")
