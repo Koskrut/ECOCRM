@@ -145,6 +145,17 @@ enum FieldShiftStatus {
   ENDED
 }
 
+enum FieldTrackingEventType {
+  TRACKING_TASK_RESTARTED
+}
+
+enum FieldTrackingRestartReason {
+  OS_KILL
+  TIER_CHANGE
+  APPSTATE
+  WATCHDOG
+}
+
 enum FuelCompensationStatus {
   DRAFT
   SUBMITTED
@@ -552,6 +563,7 @@ model User {
   dataImportJobsCreated      DataImportJob[]           @relation("DataImportJobCreatedBy")
   fieldProfile               UserFieldProfile?
   fieldShifts                FieldShift[]
+  fieldTrackingEvents        FieldTrackingEvent[]
   fuelDayReports             FuelDayReport[]
   dayPlanOverride            UserDayPlanOverride?
   dayPlanOverridesUpdated    UserDayPlanOverride[] @relation("UserDayPlanOverrideUpdatedBy")
@@ -1107,9 +1119,28 @@ model FieldShift {
   owner        User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   samples      FieldLocationSample[]
   fuelReports  FuelDayReport[]
+  trackingEvents FieldTrackingEvent[]
 
   @@index([ownerId, date])
   @@index([ownerId, status])
+}
+
+model FieldTrackingEvent {
+  id               String                     @id @default(cuid())
+  shiftId          String
+  ownerId          String
+  type             FieldTrackingEventType
+  reason           FieldTrackingRestartReason?
+  clientRecordedAt DateTime
+  metadata         Json?
+  createdAt        DateTime                   @default(now())
+
+  shift FieldShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  owner User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([shiftId, clientRecordedAt])
+  @@index([ownerId, clientRecordedAt])
+  @@index([type, clientRecordedAt])
 }
 
 model FieldLocationSample {

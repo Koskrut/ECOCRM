@@ -30,6 +30,7 @@ export function orderItemsToDraftLines(items: OrderItem[]): DraftOrderLine[] {
     itemId: item.id,
     productId: item.productId ?? "",
     productName: item.productName ?? item.productNameSnapshot ?? t("orderCreate.productFallback"),
+    productSku: item.product?.sku ?? null,
     qty: item.qty,
     price: item.price,
     discountPercent: item.discountPercent ?? 0,

@@ -7,7 +7,7 @@ import { Text } from "@/components/Themed";
 import { useTheme } from "@/lib/design/theme-context";
 import { spacing } from "@/lib/design/tokens";
 import { t } from "@/lib/i18n";
-import type { Contact } from "@/types/crm";
+import type { Contact, ContactShippingProfile } from "@/types/crm";
 
 export type DeliveryMethod = "PICKUP" | "NOVA_POSHTA";
 
@@ -19,6 +19,7 @@ type Props = {
   onDeliveryMethodChange: (v: DeliveryMethod) => void;
   selectedProfileId: string | null;
   onSelectProfileId: (id: string | null) => void;
+  onProfilesChange?: (profiles: ContactShippingProfile[]) => void;
   comment: string;
   onCommentChange: (v: string) => void;
 };
@@ -31,6 +32,7 @@ export function DeliveryMethodSection({
   onDeliveryMethodChange,
   selectedProfileId,
   onSelectProfileId,
+  onProfilesChange,
   comment,
   onCommentChange,
 }: Props) {
@@ -91,6 +93,7 @@ export function DeliveryMethodSection({
             contact={contact}
             selectedProfileId={selectedProfileId}
             onSelectProfileId={onSelectProfileId}
+            onProfilesChange={onProfilesChange}
           />
         </Card>
       ) : null}

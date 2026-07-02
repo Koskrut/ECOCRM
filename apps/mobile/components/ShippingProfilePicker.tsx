@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { ShippingProfileSummary } from "@/components/ShippingProfileSummary";
 import { useTheme } from "@/lib/design/theme-context";
 import { npApi } from "@/lib/api/np";
 import { shippingProfilesApi } from "@/lib/api/shipping-profiles";
@@ -13,19 +14,12 @@ import type {
   NpDeliveryType,
 } from "@/types/crm";
 
-function profileSummary(p: ContactShippingProfile): string {
-  const parts: string[] = [];
-  if (p.cityName) parts.push(p.cityName);
-  if (p.warehouseNumber) parts.push(`№${p.warehouseNumber}`);
-  else if (p.streetName) parts.push(`${p.streetName}${p.building ? ` ${p.building}` : ""}`);
-  return parts.join(", ") || p.deliveryType;
-}
-
 type ShippingProfilePickerProps = {
   token: string;
   contact: Contact;
   selectedProfileId: string | null;
   onSelectProfileId: (id: string | null) => void;
+  onProfilesChange?: (profiles: ContactShippingProfile[]) => void;
 };
 
 export function ShippingProfilePicker({
@@ -33,6 +27,7 @@ export function ShippingProfilePicker({
   contact,
   selectedProfileId,
   onSelectProfileId,
+  onProfilesChange,
 }: ShippingProfilePickerProps) {
   const theme = useTheme();
   const styles = useMemo(
@@ -51,8 +46,6 @@ export function ShippingProfilePicker({
           borderColor: theme.colors.primary,
           backgroundColor: theme.colors.primaryMuted,
         },
-        profileLabel: { fontWeight: "700", fontSize: 15, color: theme.colors.text },
-        profileMeta: { marginTop: 4, opacity: 0.75, fontSize: 13, color: theme.colors.textMuted },
         linkBtn: { marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
         linkText: { color: theme.colors.primary, fontWeight: "600" },
         form: {
@@ -142,6 +135,7 @@ export function ShippingProfilePicker({
       const res = await shippingProfilesApi.list(token, contact.id);
       const items = res.items ?? [];
       setProfiles(items);
+      onProfilesChange?.(items);
       if (!selectedProfileId) {
         const def = items.find((p) => p.isDefault) ?? items[0];
         if (def) onSelectProfileId(def.id);
@@ -151,7 +145,9 @@ export function ShippingProfilePicker({
     } finally {
       setLoading(false);
     }
-  }, [token, contact.id, selectedProfileId, onSelectProfileId]);
+  }, [token, contact.id, selectedProfileId, onSelectProfileId, onProfilesChange]);
+
+  const selectedProfile = profiles.find((p) => p.id === selectedProfileId) ?? null;
 
   useEffect(() => {
     void reload();
@@ -259,10 +255,11 @@ export function ShippingProfilePicker({
             selectedProfileId === p.id && styles.profileRowSelected,
             pressed && { opacity: 0.75 },
           ]}>
-          <Text style={styles.profileLabel}>{p.label}</Text>
-          <Text style={styles.profileMeta}>{profileSummary(p)}</Text>
+          <ShippingProfileSummary profile={p} variant="row" />
         </Pressable>
       ))}
+
+      {selectedProfile ? <ShippingProfileSummary profile={selectedProfile} variant="preview" /> : null}
 
       <Pressable
         onPress={() => setShowForm((v) => !v)}

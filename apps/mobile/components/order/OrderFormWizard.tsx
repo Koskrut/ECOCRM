@@ -34,7 +34,7 @@ import {
   saveOrderFull,
   type OrderFormSnapshot,
 } from "@/lib/order-save";
-import type { Contact, DraftOrderLine, Product } from "@/types/crm";
+import type { Contact, ContactShippingProfile, DraftOrderLine, Product } from "@/types/crm";
 
 export type OrderFormWizardProps = {
   mode: "create" | "edit";
@@ -80,10 +80,15 @@ export function OrderFormWizard({
 
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>("PICKUP");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [shippingProfiles, setShippingProfiles] = useState<ContactShippingProfile[]>([]);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
 
   const total = useMemo(() => draftLinesTotal(lines), [lines]);
+  const selectedShippingProfile = useMemo(
+    () => shippingProfiles.find((p) => p.id === selectedProfileId) ?? null,
+    [shippingProfiles, selectedProfileId],
+  );
 
   const snapshot = useMemo<OrderFormSnapshot>(
     () => ({
@@ -205,6 +210,7 @@ export function OrderFormWizard({
               key: newDraftLineKey(),
               productId: product.id,
               productName: product.name ?? product.sku ?? t("orderCreate.productFallback"),
+              productSku: product.sku ?? null,
               qty: 1,
               price: product.basePrice ?? 0,
               discountPercent: 0,
@@ -261,6 +267,7 @@ export function OrderFormWizard({
         key: newDraftLineKey(),
         productId: product.id,
         productName: product.name ?? product.sku ?? t("orderCreate.productFallback"),
+        productSku: product.sku ?? null,
         qty: 1,
         price: product.basePrice ?? 0,
         discountPercent: 0,
@@ -449,6 +456,7 @@ export function OrderFormWizard({
               onDeliveryMethodChange={setDeliveryMethod}
               selectedProfileId={selectedProfileId}
               onSelectProfileId={setSelectedProfileId}
+              onProfilesChange={setShippingProfiles}
               comment={comment}
               onCommentChange={setComment}
             />
@@ -463,6 +471,7 @@ export function OrderFormWizard({
             discountAmount={discountAmount}
             paymentType={paymentType}
             deliveryMethod={deliveryMethod}
+            shippingProfile={deliveryMethod === "NOVA_POSHTA" ? selectedShippingProfile : null}
             comment={comment}
           />
         ) : null}

@@ -4,6 +4,7 @@ import { BadRequestException } from "@nestjs/common";
 import {
   assertPaymentClosedForCompletion,
   computeEffectiveDebt,
+  computePaymentStatus,
   isPaymentClosed,
 } from "../order-payment-guards";
 
@@ -52,6 +53,40 @@ describe("order-payment-guards", () => {
     assert.throws(
       () => assertPaymentClosedForCompletion({ debtAmount: 10 }),
       BadRequestException,
+    );
+  });
+
+  it("computePaymentStatus is PAID after FX write-off closes debt", () => {
+    assert.equal(
+      computePaymentStatus({
+        totalAmount: 16,
+        paidAmount: 15.82,
+        fxWriteOffAmount: 0.18,
+        debtAmount: 0,
+      }),
+      "PAID",
+    );
+  });
+
+  it("computePaymentStatus is PARTIALLY_PAID when debt remains", () => {
+    assert.equal(
+      computePaymentStatus({
+        totalAmount: 16,
+        paidAmount: 10,
+        debtAmount: 6,
+      }),
+      "PARTIALLY_PAID",
+    );
+  });
+
+  it("computePaymentStatus is OVERPAID when paid exceeds effective total", () => {
+    assert.equal(
+      computePaymentStatus({
+        totalAmount: 16,
+        paidAmount: 20,
+        debtAmount: 0,
+      }),
+      "OVERPAID",
     );
   });
 });

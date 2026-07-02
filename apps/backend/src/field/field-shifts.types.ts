@@ -19,6 +19,18 @@ export type FieldTeamDevicePresence = {
 
 export type FieldTeamGpsStatus = "ok" | "stale" | "none" | "disabled";
 
+export type FieldTeamTrackingRestartReason =
+  | "os_kill"
+  | "tier_change"
+  | "appstate"
+  | "watchdog";
+
+export type FieldTeamTrackingRestart = {
+  lastRestartAt: string | null;
+  restartCountToday: number;
+  lastRestartReason: FieldTeamTrackingRestartReason | null;
+};
+
 export type FieldShiftTeamItem = {
   shift: {
     id: string;
@@ -36,4 +48,5 @@ export type FieldShiftTeamItem = {
   currentVisit: FieldShiftCurrentVisit | null;
   device: FieldTeamDevicePresence | null;
   gpsStatus: FieldTeamGpsStatus;
+  trackingRestart: FieldTeamTrackingRestart | null;
 };

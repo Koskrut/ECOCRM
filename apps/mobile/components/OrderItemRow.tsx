@@ -66,7 +66,12 @@ export function OrderItemRow({ item, onChange, onRemove, discountPresets }: Orde
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.surfaceMuted }]}>
       <View style={styles.header}>
-        <Text style={[styles.name, { color: theme.colors.text }]}>{item.productName}</Text>
+        <View style={styles.nameBlock}>
+          {item.productSku ? (
+            <Text style={[styles.sku, { color: theme.colors.textMuted }]}>{item.productSku}</Text>
+          ) : null}
+          <Text style={[styles.name, { color: theme.colors.text }]}>{item.productName}</Text>
+        </View>
         <Pressable
           onPress={onRemove}
           accessibilityRole="button"
@@ -164,7 +169,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  name: { fontWeight: "600", fontSize: 15, flex: 1, marginRight: 8 },
+  nameBlock: { flex: 1, marginRight: 8 },
+  sku: { fontSize: 12, marginBottom: 2 },
+  name: { fontWeight: "600", fontSize: 15 },
   remove: { fontSize: 18, fontWeight: "700" },
   fields: { flexDirection: "row", gap: 8, marginTop: 10, alignItems: "flex-end" },
   qtyField: { flex: 1.2 },

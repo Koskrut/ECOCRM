@@ -58,6 +58,21 @@ function gpsStatusLabel(status: FieldTeamGpsStatus): string {
   }
 }
 
+function restartReasonLabel(reason: string | null | undefined): string {
+  switch (reason) {
+    case "os_kill":
+      return t.restartReasonOsKill;
+    case "tier_change":
+      return t.restartReasonTierChange;
+    case "appstate":
+      return t.restartReasonAppstate;
+    case "watchdog":
+      return t.restartReasonWatchdog;
+    default:
+      return t.restartReasonUnknown;
+  }
+}
+
 function gpsStatusClass(status: FieldTeamGpsStatus): string {
   switch (status) {
     case "ok":
@@ -103,6 +118,15 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
             : "";
         const heartbeatAgo = formatAgo(item.device?.lastSeenAt);
         const gpsAgo = formatAgo(item.lastSample?.clientRecordedAt);
+        const restartDetail =
+          item.trackingRestart && item.trackingRestart.restartCountToday > 0
+            ? t.trackingRestartDetail
+                .replace("{count}", String(item.trackingRestart.restartCountToday))
+                .replace(
+                  "{reason}",
+                  restartReasonLabel(item.trackingRestart.lastRestartReason),
+                )
+            : "";
 
         return (
           <li key={item.shift.id}>
@@ -153,6 +177,7 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                     .replace("{gps}", gpsAgo)
                     .replace("{samples}", samplesSuffix)}
                 </p>
+                {restartDetail ? <p className="text-amber-700">{restartDetail}</p> : null}
               </div>
             </button>
           </li>

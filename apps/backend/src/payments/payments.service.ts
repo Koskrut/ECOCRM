@@ -9,6 +9,11 @@ import { PaymentSourceType, PaymentStatus, Prisma, UserRole } from "@prisma/clie
 import type { AuthUser } from "../auth/auth.types";
 import { BankAccountsService } from "../bank/bank-accounts.service";
 import {
+  allocationExceedsTransaction,
+  lockBankTransactionForUpdate,
+  sumBankTransactionAllocations,
+} from "../bank/bank-allocation.util";
+import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
@@ -292,9 +297,6 @@ export class PaymentsService {
     });
     if (!tx) throw new NotFoundException("Transaction not found");
     await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
-    if ((tx.payments ?? []).length > 0) {
-      throw new BadRequestException("Transaction already allocated (use split or edit)");
-    }
 
     const order = await this.prisma.order.findUnique({
       where: { id: dto.orderId },
@@ -309,19 +311,36 @@ export class PaymentsService {
 
     const rates = await this.settings.getExchangeRates();
     const amountUsd = convertToUsd(amount, tx.currency, rates);
+    const txAmount = Number(tx.amount);
 
-    await this.prisma.payment.create({
-      data: {
-        orderId: dto.orderId,
-        sourceType: PaymentSourceType.BANK,
-        amount,
-        currency: tx.currency,
-        amountUsd,
-        paidAt: tx.bookedAt,
-        status: PaymentStatus.COMPLETED,
-        bankTransactionId: tx.id,
-        createdByUserId: actor?.id ?? null,
-      },
+    await this.prisma.$transaction(async (db) => {
+      await lockBankTransactionForUpdate(db, dto.transactionId);
+      const lockedTx = await db.bankTransaction.findUnique({
+        where: { id: dto.transactionId },
+        include: { payments: true },
+      });
+      if (!lockedTx) throw new NotFoundException("Transaction not found");
+      if ((lockedTx.payments ?? []).length > 0) {
+        throw new BadRequestException("Transaction already allocated (use split or edit)");
+      }
+      const allocated = sumBankTransactionAllocations(lockedTx.payments);
+      if (allocationExceedsTransaction(allocated, amount, txAmount)) {
+        throw new BadRequestException("Transaction amount would be exceeded");
+      }
+
+      await db.payment.create({
+        data: {
+          orderId: dto.orderId,
+          sourceType: PaymentSourceType.BANK,
+          amount,
+          currency: lockedTx.currency,
+          amountUsd,
+          paidAt: lockedTx.bookedAt,
+          status: PaymentStatus.COMPLETED,
+          bankTransactionId: lockedTx.id,
+          createdByUserId: actor?.id ?? null,
+        },
+      });
     });
 
     await this.recalcOrder(dto.orderId);
@@ -346,10 +365,6 @@ export class PaymentsService {
     });
     if (!tx) throw new NotFoundException("Transaction not found");
     await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
-    const allocatedTotal = (tx.payments ?? []).reduce((s, p) => s + Number(p.amount), 0);
-    if (allocatedTotal > 0) {
-      throw new BadRequestException("Transaction already has allocations");
-    }
     const txAmount = Number(tx.amount);
     const totalAlloc = dto.allocations.reduce((s, a) => s + Number(a.amount), 0);
     if (Math.abs(totalAlloc - txAmount) > 0.01) {
@@ -369,22 +384,42 @@ export class PaymentsService {
       }
     }
     const rates = await this.settings.getExchangeRates();
-    for (const a of dto.allocations) {
-      const amt = Number(a.amount);
-      const amountUsd = convertToUsd(amt, tx.currency, rates);
-      await this.prisma.payment.create({
-        data: {
-          orderId: a.orderId,
-          sourceType: PaymentSourceType.BANK,
-          amount: amt,
-          currency: tx.currency,
-          amountUsd,
-          paidAt: tx.bookedAt,
-          status: PaymentStatus.COMPLETED,
-          bankTransactionId: tx.id,
-          createdByUserId: actor?.id ?? null,
-        },
+
+    await this.prisma.$transaction(async (db) => {
+      await lockBankTransactionForUpdate(db, dto.transactionId);
+      const lockedTx = await db.bankTransaction.findUnique({
+        where: { id: dto.transactionId },
+        include: { payments: true },
       });
+      if (!lockedTx) throw new NotFoundException("Transaction not found");
+      const allocatedTotal = sumBankTransactionAllocations(lockedTx.payments ?? []);
+      if (allocatedTotal > 0) {
+        throw new BadRequestException("Transaction already has allocations");
+      }
+      if (allocationExceedsTransaction(allocatedTotal, totalAlloc, txAmount)) {
+        throw new BadRequestException("Transaction amount would be exceeded");
+      }
+
+      for (const a of dto.allocations) {
+        const amt = Number(a.amount);
+        const amountUsd = convertToUsd(amt, lockedTx.currency, rates);
+        await db.payment.create({
+          data: {
+            orderId: a.orderId,
+            sourceType: PaymentSourceType.BANK,
+            amount: amt,
+            currency: lockedTx.currency,
+            amountUsd,
+            paidAt: lockedTx.bookedAt,
+            status: PaymentStatus.COMPLETED,
+            bankTransactionId: lockedTx.id,
+            createdByUserId: actor?.id ?? null,
+          },
+        });
+      }
+    });
+
+    for (const a of dto.allocations) {
       await this.recalcOrder(a.orderId);
     }
     return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
@@ -536,28 +571,49 @@ export class PaymentsService {
 
     const orderIds = new Set<string>([payment.orderId, ...dto.allocations.map((a) => a.orderId)]);
 
-    await this.prisma.payment.delete({ where: { id } });
+    await this.prisma.$transaction(async (db) => {
+      await lockBankTransactionForUpdate(db, payment.bankTransactionId!);
+      const lockedPayment = await db.payment.findUnique({ where: { id } });
+      if (!lockedPayment) throw new NotFoundException("Payment not found");
 
-    for (const a of dto.allocations) {
-      const amount = Number(a.amount);
-      const amountUsd =
-        paymentAmountUsd != null && totalAmount > 0
-          ? (amount / totalAmount) * paymentAmountUsd
-          : undefined;
-      await this.prisma.payment.create({
-        data: {
-          orderId: a.orderId,
-          sourceType: PaymentSourceType.BANK,
-          amount,
-          currency,
-          amountUsd: amountUsd != null ? amountUsd : undefined,
-          paidAt,
-          status: PaymentStatus.COMPLETED,
-          bankTransactionId: payment.bankTransactionId,
-          createdByUserId: actor?.id ?? null,
-        },
+      const siblings = await db.payment.findMany({
+        where: { bankTransactionId: payment.bankTransactionId! },
       });
-    }
+      const bankTx = await db.bankTransaction.findUnique({
+        where: { id: payment.bankTransactionId! },
+      });
+      if (!bankTx) throw new NotFoundException("Transaction not found");
+
+      const otherAllocated = sumBankTransactionAllocations(
+        siblings.filter((s) => s.id !== id),
+      );
+      if (allocationExceedsTransaction(otherAllocated, totalAlloc, Number(bankTx.amount))) {
+        throw new BadRequestException("Transaction amount would be exceeded");
+      }
+
+      await db.payment.delete({ where: { id } });
+
+      for (const a of dto.allocations) {
+        const amount = Number(a.amount);
+        const amountUsd =
+          paymentAmountUsd != null && totalAmount > 0
+            ? (amount / totalAmount) * paymentAmountUsd
+            : undefined;
+        await db.payment.create({
+          data: {
+            orderId: a.orderId,
+            sourceType: PaymentSourceType.BANK,
+            amount,
+            currency,
+            amountUsd: amountUsd != null ? amountUsd : undefined,
+            paidAt,
+            status: PaymentStatus.COMPLETED,
+            bankTransactionId: payment.bankTransactionId,
+            createdByUserId: actor?.id ?? null,
+          },
+        });
+      }
+    });
 
     for (const oid of orderIds) {
       await this.recalcOrder(oid);

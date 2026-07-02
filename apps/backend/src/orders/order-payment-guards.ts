@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { OrderPaymentStatus } from "@prisma/client";
 
 /** Shared payment snapshot for stage / completion guards. */
 export type OrderPaymentContext = {
@@ -30,6 +31,20 @@ export function computeEffectiveDebt(ctx: OrderPaymentContext): number {
 
 export function isPaymentClosed(ctx: OrderPaymentContext): boolean {
   return computeEffectiveDebt(ctx) <= DEBT_EPSILON;
+}
+
+/** Payment badge status; accounts for returns, FX write-off, and persisted debt. */
+export function computePaymentStatus(ctx: OrderPaymentContext): OrderPaymentStatus {
+  const paid = Number(ctx.paidAmount ?? 0);
+  const effectiveTotal = computeEffectiveTotal(ctx);
+  const debt = computeEffectiveDebt(ctx);
+
+  if (paid <= DEBT_EPSILON) return OrderPaymentStatus.UNPAID;
+  if (debt <= DEBT_EPSILON) {
+    if (paid > effectiveTotal + DEBT_EPSILON) return OrderPaymentStatus.OVERPAID;
+    return OrderPaymentStatus.PAID;
+  }
+  return OrderPaymentStatus.PARTIALLY_PAID;
 }
 
 export function assertPaymentClosedForCompletion(ctx: OrderPaymentContext): void {

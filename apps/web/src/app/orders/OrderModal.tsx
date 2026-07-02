@@ -4064,7 +4064,8 @@ export function OrderModal({
                       0,
                       Number(order.totalAmount ?? 0) -
                         Number(order.returnAdjustmentAmount ?? 0) -
-                        Number(order.paidAmount ?? 0),
+                        Number(order.paidAmount ?? 0) -
+                        Number(order.fxWriteOffAmount ?? 0),
                     );
                   })()}
                   exchangeRate={order.exchangeRate ?? null}
@@ -4089,12 +4090,14 @@ export function OrderModal({
                       0,
                       Number(order.totalAmount ?? 0) -
                         Number(order.returnAdjustmentAmount ?? 0) -
-                        Number(order.paidAmount ?? 0),
+                        Number(order.paidAmount ?? 0) -
+                        Number(order.fxWriteOffAmount ?? 0),
                     );
                   })()}
                   paymentStatus={(order as { paymentStatus?: string }).paymentStatus}
                   currency={order.currency}
                   exchangeRate={order.exchangeRate ?? null}
+                  fxWriteOffAmount={Number(order.fxWriteOffAmount ?? 0)}
                   onSaved={async () => {
                     await refreshOrder();
                     onSaved?.();

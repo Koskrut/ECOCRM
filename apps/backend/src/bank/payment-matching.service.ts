@@ -2,6 +2,12 @@ import { Injectable } from "@nestjs/common";
 import { BankTransactionMatchStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { PaymentsService } from "../payments/payments.service";
+import {
+  allocationExceedsTransaction,
+  lockBankTransactionForUpdate,
+  sumBankTransactionAllocations,
+  withBankMatchAdvisoryLock,
+} from "./bank-allocation.util";
 import { extractOrderNumberFromDescription } from "./match-engine.utils";
 
 export type MatchCandidate = {
@@ -20,6 +26,10 @@ export class PaymentMatchingService {
   ) {}
 
   async run(): Promise<{ matched: number; needsReview: number }> {
+    return withBankMatchAdvisoryLock(this.prisma, () => this.runMatching());
+  }
+
+  private async runMatching(): Promise<{ matched: number; needsReview: number }> {
     const unmatched = await this.prisma.bankTransaction.findMany({
       where: {
         direction: "IN",
@@ -129,26 +139,39 @@ export class PaymentMatchingService {
   }
 
   async createPaymentFromTransaction(bankTransactionId: string, orderId: string): Promise<void> {
-    const tx = await this.prisma.bankTransaction.findUnique({
-      where: { id: bankTransactionId },
-      include: { payments: true },
-    });
-    if (!tx || tx.payments.length > 0) return;
+    const created = await this.prisma.$transaction(async (tx) => {
+      await lockBankTransactionForUpdate(tx, bankTransactionId);
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) return;
+      const bankTx = await tx.bankTransaction.findUnique({
+        where: { id: bankTransactionId },
+        include: { payments: true },
+      });
+      if (!bankTx) return false;
 
-    await this.prisma.payment.create({
-      data: {
-        orderId,
-        sourceType: "BANK",
-        amount: Number(tx.amount),
-        currency: tx.currency,
-        paidAt: tx.bookedAt,
-        status: "COMPLETED",
-        bankTransactionId: tx.id,
-      },
+      const order = await tx.order.findUnique({ where: { id: orderId } });
+      if (!order) return false;
+
+      const txAmount = Number(bankTx.amount);
+      const amount = txAmount;
+      const allocated = sumBankTransactionAllocations(bankTx.payments);
+      if (allocationExceedsTransaction(allocated, amount, txAmount)) return false;
+
+      await tx.payment.create({
+        data: {
+          orderId,
+          sourceType: "BANK",
+          amount,
+          currency: bankTx.currency,
+          paidAt: bankTx.bookedAt,
+          status: "COMPLETED",
+          bankTransactionId: bankTx.id,
+        },
+      });
+      return true;
     });
-    await this.paymentsService.recalcOrder(orderId);
+
+    if (created) {
+      await this.paymentsService.recalcOrder(orderId);
+    }
   }
 }

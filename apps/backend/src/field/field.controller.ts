@@ -94,6 +94,16 @@ export class FieldController {
     return this.shifts.appendSamples(req.user, id, items);
   }
 
+  @Post("shifts/:id/tracking-events")
+  async trackingEvents(
+    @Param("id") id: string,
+    @Body()
+    body: { type: string; reason?: string; clientRecordedAt: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.shifts.recordTrackingEvent(req.user, id, body);
+  }
+
   @Get("fuel/day")
   async fuelDay(
     @Query("date") date: string,

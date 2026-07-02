@@ -4,7 +4,36 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.101**.)_
+_(планируемые изменения после **0.2.102**.)_
+
+## [0.2.102] — 2026-05-20
+
+### Summary
+
+Патч **0.2.102**: телеметрия **перезапусков GPS-трекинга** (field shifts), безопасное **сопоставление банковских платежей**, корректный **payment status** с FX write-off и возвратами, mobile watchdog и UX заказов/доставки.
+
+### Added
+
+- **Field tracking events**: `FieldTrackingEvent`, enum `TRACKING_TASK_RESTARTED` и причины (`OS_KILL`, `TIER_CHANGE`, `APPSTATE`, `WATCHDOG`); миграция **`20260702120000_field_tracking_events`**; API **`POST /field/shifts/:id/tracking-events`**; team view — счётчик и причина последнего рестарта.
+- **Bank allocation**: advisory lock + `FOR UPDATE` при разнесении платежей; утилиты `bank-allocation.util.ts`, тесты.
+- **Mobile**: watchdog перезапуска трекинга, telemetry (`tracking-telemetry.ts`), battery optimization prompt, shipping profile summary/picker, улучшения order wizard.
+
+### Changed
+
+- **Orders / payments**: `computePaymentStatus` учитывает `fxWriteOffAmount` и `returnAdjustmentAmount`; web **OrderPaymentBlock** — отображение FX write-off в оплате.
+- **Team field list**: бейджи рестартов трекинга (web).
+- **Mobile**: adaptive location tracking, restart reason logging, order save flow.
+
+### Fixed
+
+- **Orders**: `mapToEntity` — корректное приведение сумм для `computePaymentStatus`.
+- **TeamFieldList**: синтаксис `restartReasonLabel` (web build).
+- **OrderModal**: убран лишний prop у `OrderClientBalancePanel` (debt уже с учётом FX).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.102`**.
+- **Миграция:** **`20260702120000_field_tracking_events`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
 
 ## [0.2.101] — 2026-05-20
 

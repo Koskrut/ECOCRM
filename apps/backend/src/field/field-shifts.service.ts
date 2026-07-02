@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { ClientPlatform, FieldShiftStatus, Prisma } from "@prisma/client";
+import {
+  ClientPlatform,
+  FieldShiftStatus,
+  FieldTrackingEventType,
+  FieldTrackingRestartReason,
+  Prisma,
+} from "@prisma/client";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
 import { todayYmdKyiv } from "../crm-timezone";
@@ -12,7 +18,7 @@ import {
 import { filterGpsSample, filterGpsTrack } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
 import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
-import type { FieldShiftTeamItem } from "./field-shifts.types";
+import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field-shifts.types";
 
 const MAX_SAMPLES_BATCH = 250;
 const MAX_SAMPLES_READ = 500;
@@ -270,8 +276,9 @@ export class FieldShiftsService {
 
     const shiftIds = shifts.map((s) => s.id);
     const ownerIds = [...new Set(shifts.map((s) => s.ownerId))];
+    const todayStart = this.calendarDateKey(todayYmdKyiv());
 
-    const [samples, sampleCounts, sessions, presenceSessions] = await Promise.all([
+    const [samples, sampleCounts, sessions, presenceSessions, restartEvents] = await Promise.all([
       this.prisma.fieldLocationSample.findMany({
         where: { shiftId: { in: shiftIds } },
         orderBy: [{ clientRecordedAt: "desc" }],
@@ -305,6 +312,19 @@ export class FieldShiftsService {
           trackingMode: true,
         },
       }),
+      this.prisma.fieldTrackingEvent.findMany({
+        where: {
+          shiftId: { in: shiftIds },
+          type: FieldTrackingEventType.TRACKING_TASK_RESTARTED,
+          clientRecordedAt: { gte: todayStart },
+        },
+        orderBy: { clientRecordedAt: "desc" },
+        select: {
+          shiftId: true,
+          clientRecordedAt: true,
+          reason: true,
+        },
+      }),
     ]);
 
     const lastByShift = new Map<string, (typeof samples)[number]>();
@@ -317,6 +337,24 @@ export class FieldShiftsService {
     const countByShift = new Map(
       sampleCounts.map((c) => [c.shiftId, c._count._all] as const),
     );
+
+    const restartCountByShift = new Map<string, number>();
+    const lastRestartByShift = new Map<
+      string,
+      { at: Date; reason: FieldTrackingRestartReason | null }
+    >();
+    for (const event of restartEvents) {
+      restartCountByShift.set(
+        event.shiftId,
+        (restartCountByShift.get(event.shiftId) ?? 0) + 1,
+      );
+      if (!lastRestartByShift.has(event.shiftId)) {
+        lastRestartByShift.set(event.shiftId, {
+          at: event.clientRecordedAt,
+          reason: event.reason,
+        });
+      }
+    }
 
     const visitIds = sessions
       .map((s) => s.currentVisitId)
@@ -350,6 +388,8 @@ export class FieldShiftsService {
       const session = sessionByOwner.get(shift.ownerId);
       const visit = session?.currentVisitId ? visitById.get(session.currentVisitId) : undefined;
       const presence = presenceByOwner.get(shift.ownerId);
+      const restartCount = restartCountByShift.get(shift.id) ?? 0;
+      const lastRestart = lastRestartByShift.get(shift.id);
       return {
         shift: {
           id: shift.id,
@@ -384,10 +424,100 @@ export class FieldShiftsService {
           last?.clientRecordedAt ?? null,
           nowMs,
         ),
+        trackingRestart:
+          restartCount > 0
+            ? {
+                lastRestartAt: lastRestart?.at.toISOString() ?? null,
+                restartCountToday: restartCount,
+                lastRestartReason: this.toApiRestartReason(lastRestart?.reason ?? null),
+              }
+            : null,
       };
     });
 
     return { items };
+  }
+
+  private toApiRestartReason(
+    reason: FieldTrackingRestartReason | null,
+  ): FieldTeamTrackingRestartReason | null {
+    switch (reason) {
+      case FieldTrackingRestartReason.OS_KILL:
+        return "os_kill";
+      case FieldTrackingRestartReason.TIER_CHANGE:
+        return "tier_change";
+      case FieldTrackingRestartReason.APPSTATE:
+        return "appstate";
+      case FieldTrackingRestartReason.WATCHDOG:
+        return "watchdog";
+      default:
+        return null;
+    }
+  }
+
+  private fromApiRestartReason(
+    reason: string | undefined,
+  ): FieldTrackingRestartReason | null {
+    switch (reason) {
+      case "os_kill":
+        return FieldTrackingRestartReason.OS_KILL;
+      case "tier_change":
+        return FieldTrackingRestartReason.TIER_CHANGE;
+      case "appstate":
+        return FieldTrackingRestartReason.APPSTATE;
+      case "watchdog":
+        return FieldTrackingRestartReason.WATCHDOG;
+      default:
+        return null;
+    }
+  }
+
+  async recordTrackingEvent(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    body: { type: string; reason?: string; clientRecordedAt: string },
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    if (body.type !== "tracking_task_restarted") {
+      throw new BadRequestException("Unsupported tracking event type");
+    }
+
+    const clientRecordedAt = new Date(body.clientRecordedAt);
+    if (Number.isNaN(clientRecordedAt.getTime())) {
+      throw new BadRequestException("Invalid clientRecordedAt");
+    }
+
+    const shift = await this.prisma.fieldShift.findFirst({
+      where: { id: shiftId, ownerId: actor.id },
+    });
+    if (!shift) {
+      throw new NotFoundException("Shift not found");
+    }
+    if (shift.status !== FieldShiftStatus.ACTIVE) {
+      throw new BadRequestException("Shift is not active");
+    }
+
+    const event = await this.prisma.fieldTrackingEvent.create({
+      data: {
+        shiftId,
+        ownerId: actor.id,
+        type: FieldTrackingEventType.TRACKING_TASK_RESTARTED,
+        reason: this.fromApiRestartReason(body.reason),
+        clientRecordedAt,
+      },
+    });
+
+    return {
+      ok: true,
+      event: {
+        id: event.id,
+        type: "tracking_task_restarted",
+        reason: this.toApiRestartReason(event.reason),
+        clientRecordedAt: event.clientRecordedAt.toISOString(),
+      },
+    };
   }
 
   async getSamples(

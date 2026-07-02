@@ -254,12 +254,41 @@ export default function MoreScreen() {
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugHealthy", { status: trackingDebug.healthy ? "yes" : "no" })}
                 </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugBatteryOpt", { status: trackingDebug.batteryOptimizationStatus })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugLastRestart", {
+                    at: trackingDebug.lastRestartAt
+                      ? new Date(trackingDebug.lastRestartAt).toLocaleString()
+                      : "—",
+                  })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugRestartCount", { count: trackingDebug.restartCountToday })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugRestartReason", {
+                    reason: trackingDebug.lastRestartReason ?? "—",
+                  })}
+                </Text>
               </>
             ) : null}
             {errorLog.slice(0, 5).map((e) => (
               <Text
                 key={`${e.at}-${e.message}`}
-                style={[theme.typography.caption, { color: theme.colors.dangerText, marginTop: theme.spacing.sm }]}>
+                style={[
+                  theme.typography.caption,
+                  {
+                    color:
+                      e.type === "error" || e.type === "rejection"
+                        ? theme.colors.dangerText
+                        : e.type === "warn"
+                          ? theme.colors.warningText
+                          : theme.colors.textMuted,
+                    marginTop: theme.spacing.sm,
+                  },
+                ]}>
                 {new Date(e.at).toLocaleString()} · {e.type}
                 {"\n"}
                 {e.message}

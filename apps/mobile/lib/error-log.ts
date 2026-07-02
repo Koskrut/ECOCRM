@@ -6,7 +6,7 @@ const MAX_ENTRIES = 5;
 export type ErrorLogEntry = {
   at: string;
   message: string;
-  type: "error" | "rejection";
+  type: "info" | "warn" | "error" | "rejection";
 };
 
 export async function appendErrorLog(

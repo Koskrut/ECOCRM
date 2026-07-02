@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
 
 import "@/lib/location-tracking-task";
+import "@/lib/location-tracking-watchdog";
 
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/auth-context";

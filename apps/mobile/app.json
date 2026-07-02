@@ -20,7 +20,8 @@
         "NSLocationWhenInUseUsageDescription": "CRM використовує геолокацію для перевірки візитів і треку маршруту під час зміни.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CRM збирає координати у фоні під час активної зміни, щоб керівник бачив маршрут менеджера.",
         "UIBackgroundModes": [
-          "location"
+          "location",
+          "fetch"
         ]
       }
     },
@@ -70,7 +71,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-background-fetch"
     ],
     "experiments": {
       "typedRoutes": true

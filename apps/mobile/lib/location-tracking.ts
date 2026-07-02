@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { AppState, Platform } from "react-native";
 
+import { readBatteryOptimizationStatus } from "./battery-optimization";
 import {
   appendPendingSample,
   flushPendingSamples,
@@ -18,6 +19,7 @@ import {
   backgroundOptionsForTier,
   getCurrentForegroundTier,
   locationOptionsForWatch,
+  restartBackgroundWatch,
   setCurrentForegroundTier,
   setForegroundSubscription,
 } from "./location-tracking-adaptive";
@@ -33,10 +35,24 @@ import {
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
 import { reconcileTrackingHealth } from "./location-tracking-health";
+import {
+  clearPendingAdaptiveTier,
+  getPendingAdaptiveTier,
+  getTrackingRestartDiagnostics,
+  mapRestartContextToReason,
+  recordRestartAttempt,
+  resetTrackingRestartDiagnostics,
+  setBatteryOptimizationStatus,
+  type TrackingRestartReason,
+} from "./location-tracking-restart";
+import { ensureFieldTrackingNotificationChannel } from "./tracking-notification-channel";
+import { sendTrackingRestartEvent } from "./tracking-telemetry";
 
 export { registerFieldLocationTask };
 export { requestTrackingPermissionsWithRationale as requestTrackingPermissions };
 export type { TrackingPermissionStatus };
+export { shouldMaintainOnAppState } from "./location-tracking-restart";
+export type { TrackingRestartReason } from "./location-tracking-restart";
 
 export { appendPendingSample, flushPendingSamples, getPendingCount, STORAGE_KEYS };
 export type { PendingLocationSample };
@@ -52,6 +68,10 @@ export type TrackingDiagnostics = {
   backgroundPermission: string | null;
   backgroundTaskStarted: boolean;
   healthy: boolean;
+  lastRestartAt: string | null;
+  restartCountToday: number;
+  lastRestartReason: TrackingRestartReason | null;
+  batteryOptimizationStatus: "restricted" | "unrestricted" | "unknown";
 };
 
 export type TrackingRuntimeHealth = TrackingDiagnostics & {
@@ -132,26 +152,70 @@ async function startForegroundWatch(tier: SamplingTier = DEFAULT_TIER): Promise<
 }
 
 async function stopForegroundWatch(): Promise<void> {
-  const { getForegroundSubscription, setForegroundSubscription } = await import(
+  const { getForegroundSubscription, setForegroundSubscription: setSub } = await import(
     "./location-tracking-adaptive"
   );
   const sub = getForegroundSubscription();
   if (sub) {
     sub.remove();
   }
-  setForegroundSubscription(null);
+  setSub(null);
 }
 
-async function startBackgroundUpdates(initialTier: SamplingTier): Promise<boolean> {
-  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK);
+async function startBackgroundUpdates(
+  initialTier: SamplingTier,
+  opts?: { forceRestart?: boolean },
+): Promise<boolean> {
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (started && !opts?.forceRestart) {
+    return true;
+  }
   if (started) {
     await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
   }
+  await ensureFieldTrackingNotificationChannel();
   await Location.startLocationUpdatesAsync(
     FIELD_LOCATION_TASK,
     backgroundOptionsForTier(initialTier),
   );
   return Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false);
+}
+
+async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
+  const pendingTier = await getPendingAdaptiveTier();
+  if (!pendingTier) return;
+
+  const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+  if (mode !== "background") {
+    await clearPendingAdaptiveTier();
+    return;
+  }
+
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (!started) {
+    await clearPendingAdaptiveTier();
+    return;
+  }
+
+  const attempt = await recordRestartAttempt("tier_change");
+  if (!attempt.allowed) return;
+
+  try {
+    await restartBackgroundWatch(pendingTier);
+    await clearPendingAdaptiveTier();
+    const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+    if (shiftId) {
+      void sendTrackingRestartEvent(shiftId, "tier_change");
+    }
+    void appendErrorLog("applyPendingAdaptiveTier: tier applied", "info");
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    void appendErrorLog(`applyPendingAdaptiveTier failed: ${message}`);
+  }
 }
 
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
@@ -216,6 +280,7 @@ export async function stopLocationTracking(): Promise<void> {
     }
     await AsyncStorage.multiRemove([STORAGE_KEYS.ACTIVE_SHIFT_ID, STORAGE_KEYS.TRACKING_MODE]);
     await resetLocationProcessorState();
+    await resetTrackingRestartDiagnostics();
   } catch {
     /* best-effort stop */
   }
@@ -275,12 +340,16 @@ export async function getTrackingState(): Promise<{
 }
 
 export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth> {
-  const [state, perms, activeShiftId, backgroundTaskStarted] = await Promise.all([
-    getTrackingState(),
-    getTrackingPermissionStatus(),
-    AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
-    Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
-  ]);
+  const [state, perms, activeShiftId, backgroundTaskStarted, restartDiagnostics, batteryStatus] =
+    await Promise.all([
+      getTrackingState(),
+      getTrackingPermissionStatus(),
+      AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
+      Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
+      getTrackingRestartDiagnostics(),
+      readBatteryOptimizationStatus(),
+    ]);
+  void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
   const foregroundWatchActive = !!getForegroundSubscription();
   const health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive);
@@ -297,6 +366,10 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     backgroundTaskStarted,
     foregroundWatchActive,
     healthy: health.healthy,
+    lastRestartAt: restartDiagnostics.lastRestartAt,
+    restartCountToday: restartDiagnostics.restartCountToday,
+    lastRestartReason: restartDiagnostics.lastRestartReason,
+    batteryOptimizationStatus: batteryStatus,
   };
 }
 
@@ -311,6 +384,10 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
     backgroundPermission: health.backgroundPermission,
     backgroundTaskStarted: health.backgroundTaskStarted,
     healthy: health.healthy,
+    lastRestartAt: health.lastRestartAt,
+    restartCountToday: health.restartCountToday,
+    lastRestartReason: health.lastRestartReason,
+    batteryOptimizationStatus: health.batteryOptimizationStatus,
   };
 }
 
@@ -352,9 +429,18 @@ async function ensureBackgroundTaskRunning(
     return "background";
   }
 
-  void appendErrorLog(`${context}: background task dead, restarting`);
+  const reason = mapRestartContextToReason(context);
+  const attempt = await recordRestartAttempt(reason);
+  if (!attempt.allowed) {
+    void appendErrorLog(`${context}: restart skipped (cooldown)`, "info");
+    return "background";
+  }
+
+  void appendErrorLog(`${context}: background task dead, restarting`, "warn");
   const result = await startLocationTracking(shiftId);
-  if (result !== "background") {
+  if (result === "background") {
+    void sendTrackingRestartEvent(shiftId, reason);
+  } else {
     void appendErrorLog(`${context}: restart failed → ${result}`);
   }
   return result;
@@ -362,6 +448,8 @@ async function ensureBackgroundTaskRunning(
 
 /** Keep foreground watch or background task alive after resume / screen unlock. */
 export async function ensureTrackingContinuity(): Promise<TrackingMode> {
+  await applyPendingAdaptiveTierIfNeeded();
+
   const upgraded = await maybeUpgradeToBackgroundTracking();
   if (upgraded === "background") {
     startFlushTimer();
@@ -410,6 +498,17 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   }
 
   return mode ?? "none";
+}
+
+/** Health-only restart used by background fetch watchdog. */
+export async function runBackgroundTrackingWatchdog(): Promise<void> {
+  const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (!shiftId) return;
+
+  const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+  if (mode !== "background") return;
+
+  await ensureBackgroundTaskRunning(shiftId, "backgroundWatchdog");
 }
 
 /** @deprecated Use maintainBackgroundTracking on background and maybeUpgradeToBackgroundTracking on active. */

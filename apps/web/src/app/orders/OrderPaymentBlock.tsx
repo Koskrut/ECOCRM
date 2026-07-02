@@ -92,6 +92,8 @@ export type OrderPaymentBlockProps = {
   currency: string;
   /** UAH per 1 USD — fixed at order creation; used to show amount in UAH next to USD. */
   exchangeRate?: number | null;
+  /** FX variance written off in order currency (USD/EUR). */
+  fxWriteOffAmount?: number;
   /** Called after payment added/updated; can be async. Parent should refetch order and optionally refresh list. */
   onSaved?: () => void | Promise<void>;
 };
@@ -106,6 +108,7 @@ export function OrderPaymentBlock({
   paymentStatus,
   currency,
   exchangeRate,
+  fxWriteOffAmount = 0,
   onSaved,
 }: OrderPaymentBlockProps) {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
@@ -164,6 +167,7 @@ export function OrderPaymentBlock({
   }, [fetchPaymentRequests]);
 
   const statusLabel = paymentStatus ? PAYMENT_STATUS_LABELS[paymentStatus] ?? paymentStatus : null;
+  const effectivePaid = paidAmount + Math.max(0, fxWriteOffAmount);
 
   return (
     <div className="space-y-3">
@@ -175,8 +179,13 @@ export function OrderPaymentBlock({
           <span className="font-medium text-zinc-900">{statusLabel ?? pt.payment}</span>
           {" · "}
           <span>
-            {formatOrderAmount(paidAmount, currency, exchangeRate)} / {formatOrderAmount(totalAmount, currency, exchangeRate)}
+            {formatOrderAmount(effectivePaid, currency, exchangeRate)} / {formatOrderAmount(totalAmount, currency, exchangeRate)}
           </span>
+          {fxWriteOffAmount > 0 ? (
+            <span className="block text-xs text-zinc-500">
+              з них {formatOrderAmount(fxWriteOffAmount, currency, exchangeRate)} — списання курсової різниці
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

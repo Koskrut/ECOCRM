@@ -22,15 +22,25 @@ Run on a **dev / standalone build** (not Expo Go) before each mobile release.
 ## 4. Android
 
 - [ ] Persistent notification **«CRM — зміна активна»** while shift is active
+- [ ] Notification channel importance is low (no sound/vibration spam)
 - [ ] Battery optimization set to **Unrestricted** / «Без обмежень»
-- [ ] After revoking battery exemption: app prompts again when background task is dead
+- [ ] Diagnostics show `Battery optimization: unrestricted/restricted`
+- [ ] After repeated background task deaths (`restartCountToday > 2`): app prompts to disable battery optimization
 
 ## 5. Recovery
 
 - [ ] Force-stop app → reopen → background task restarts (`resumeTrackingIfNeeded`)
 - [ ] Reboot phone → open app → active shift restores tracking
+- [ ] `inactive` AppState (notification shade / app switcher) does **not** spam restart logs
 
 ## 6. Failure modes
 
 - [ ] If background task fails to start: Shift card shows red warning (not «Збір локацій активний»)
 - [ ] Foreground-only permission: warning «GPS тільки поки додаток відкритий»
+- [ ] Successful restarts log as info/warn, not error; only failed restarts appear as error
+- [ ] Diagnostics show `lastRestartAt`, `restartCountToday`, `lastRestartReason`
+
+## 7. Background watchdog
+
+- [ ] After 15+ minutes in background with task killed by OS, watchdog may restart tracking
+- [ ] Web `/visits/team` shows restart count/reason when telemetry is sent

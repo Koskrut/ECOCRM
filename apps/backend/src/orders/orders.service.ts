@@ -19,6 +19,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { computePaymentStatus, isPaymentClosed } from "./order-payment-guards";
 import {
   assertWarehouseOrderItemQtyUpdate,
   assertWarehouseOrderMutation,
@@ -700,8 +701,20 @@ export class OrdersService {
           paidAmount: o.paidAmount,
           debtAmount: o.debtAmount,
           exchangeRate: o.exchangeRate ?? null,
-          paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
-          isPaid: paidAmount >= totalAmount && totalAmount > 0,
+          paymentStatus: computePaymentStatus({
+            totalAmount: o.totalAmount,
+            paidAmount: o.paidAmount,
+            debtAmount: o.debtAmount,
+            returnAdjustmentAmount: o.returnAdjustmentAmount,
+            fxWriteOffAmount: o.fxWriteOffAmount,
+          }),
+          isPaid: isPaymentClosed({
+            totalAmount: o.totalAmount,
+            paidAmount: o.paidAmount,
+            debtAmount: o.debtAmount,
+            returnAdjustmentAmount: o.returnAdjustmentAmount,
+            fxWriteOffAmount: o.fxWriteOffAmount,
+          }) && paidAmount > 0,
           currency: o.currency,
           paymentType: o.paymentType,
           paymentMethod: o.paymentMethod ?? null,
@@ -1855,14 +1868,6 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
-  private calcPaymentStatus(paidAmount: number, totalAmount: number): OrderPaymentStatus {
-    const paid = Number(paidAmount) || 0;
-    const total = Number(totalAmount) || 0;
-    if (paid <= 0) return OrderPaymentStatus.UNPAID;
-    if (paid >= total) return paid > total ? OrderPaymentStatus.OVERPAID : OrderPaymentStatus.PAID;
-    return OrderPaymentStatus.PARTIALLY_PAID;
-  }
-
   private mapToEntity(o: Record<string, unknown>) {
     const items = (o.items as Array<Record<string, unknown>> | undefined) ?? [];
     const paidAmount = Number(o.paidAmount) ?? 0;
@@ -1894,7 +1899,14 @@ export class OrdersService {
       totalAmount: o.totalAmount,
       paidAmount: o.paidAmount,
       debtAmount: o.debtAmount,
-      paymentStatus: this.calcPaymentStatus(paidAmount, totalAmount),
+      paymentStatus: computePaymentStatus({
+        totalAmount: Number(o.totalAmount) || 0,
+        paidAmount: Number(o.paidAmount) || 0,
+        debtAmount: o.debtAmount != null ? Number(o.debtAmount) : null,
+        returnAdjustmentAmount:
+          o.returnAdjustmentAmount != null ? Number(o.returnAdjustmentAmount) : null,
+        fxWriteOffAmount: o.fxWriteOffAmount != null ? Number(o.fxWriteOffAmount) : null,
+      }),
       comment: o.comment ?? null,
       deliveryMethod: o.deliveryMethod ?? null,
       paymentMethod: o.paymentMethod ?? null,

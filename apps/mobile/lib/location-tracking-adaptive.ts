@@ -9,6 +9,7 @@ import {
   type SamplingTier,
   type WatchOptions,
 } from "./location-tracking-config";
+import { setPendingAdaptiveTier } from "./location-tracking-restart";
 
 let currentForegroundTier: SamplingTier = DEFAULT_TIER;
 let foregroundSubscription: Location.LocationSubscription | null = null;
@@ -52,6 +53,7 @@ export function backgroundOptionsForTier(tier: SamplingTier): Location.LocationT
   };
 }
 
+/** Foreground-controlled stop/start for tier changes only. */
 export async function restartBackgroundWatch(tier: SamplingTier): Promise<void> {
   const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
@@ -71,8 +73,10 @@ export async function applyAdaptiveTier(
     | "none"
     | null;
   if (mode === "background") {
-    await restartBackgroundWatch(tier);
-  } else if (mode === "foreground" && tier !== currentForegroundTier) {
+    await setPendingAdaptiveTier(tier);
+    return;
+  }
+  if (mode === "foreground" && tier !== currentForegroundTier) {
     currentForegroundTier = tier;
     if (foregroundSubscription) {
       foregroundSubscription.remove();

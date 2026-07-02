@@ -275,6 +275,7 @@ export type DraftOrderLine = {
   itemId?: string;
   productId: string;
   productName: string;
+  productSku?: string | null;
   qty: number;
   price: number;
   discountPercent: number;

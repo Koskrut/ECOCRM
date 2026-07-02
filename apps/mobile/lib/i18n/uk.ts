@@ -363,6 +363,10 @@ export const uk = {
     debugBgPerm: "Background: {status}",
     debugTaskStarted: "Background task: {status}",
     debugHealthy: "Tracking healthy: {status}",
+    debugBatteryOpt: "Battery optimization: {status}",
+    debugLastRestart: "Останній restart: {at}",
+    debugRestartCount: "Restart сьогодні: {count}",
+    debugRestartReason: "Причина restart: {reason}",
     apiLabel: "API: {url}",
   },
   orderStage: {
@@ -429,6 +433,7 @@ export const uk = {
     selectClientFooter: "Оберіть клієнта",
     companyContext: "Компанія",
     reviewCompany: "Компанія",
+    reviewDeliveryProfile: "Адреса доставки",
     createContactForCompany: "Створити контакт у компанії",
   },
   fuel: {
@@ -742,6 +747,12 @@ export const uk = {
     warehousePlaceholder: "Відділення (номер або адреса)",
     saveProfile: "Зберегти профіль",
     noProfiles: "Немає збережених адрес. Додайте профіль доставки.",
+    recipient: "Отримувач",
+    company: "Компанія",
+    default: "Основна",
+    preview: "Попередній перегляд",
+    addressCourier: "Кур'єрська доставка",
+    flatShort: "кв.",
   },
 } as const;
 
