@@ -105,6 +105,11 @@ export class ConvertLeadDto {
   @IsString()
   contactId?: string;
 
+  /** Owner for the created conversion order; falls back to lead owner, then actor. */
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => ConvertLeadContactDto)

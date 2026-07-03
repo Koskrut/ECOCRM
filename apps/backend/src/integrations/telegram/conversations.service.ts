@@ -5,7 +5,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
-import { ConversationChannel, ConversationStatus, MessageDirection, UserRole } from "@prisma/client";
+import {
+  ConversationChannel,
+  ConversationStatus,
+  MessageDirection,
+  MessageStatus,
+  UserRole,
+} from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { normalizePagination } from "../../common/pagination";
 import { ContactsService } from "../../contacts/contacts.service";
@@ -245,6 +251,40 @@ export class ConversationsService {
     });
   }
 
+  async assign(conversationId: string, userId: string | null, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    // Managers may only claim a conversation for themselves or release it; leads
+    // and admins can assign it to anyone.
+    if (safeActor.role === UserRole.MANAGER && userId && userId !== safeActor.id) {
+      throw new ForbiddenException("Managers can only assign conversations to themselves");
+    }
+
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!user) throw new NotFoundException("User not found");
+    }
+
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { assignedToUserId: userId },
+      include: {
+        contact: { select: { id: true, firstName: true, lastName: true } },
+        lead: { select: { id: true, fullName: true } },
+        assignedTo: { select: { id: true, fullName: true } },
+      },
+    });
+  }
+
   async sendMessage(conversationId: string, text: string, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
     const normalizedText = String(text ?? "").trim();
@@ -263,20 +303,37 @@ export class ConversationsService {
     }
 
     const sentAt = new Date();
-    const { messageId } = await this.telegramService.sendMessageToChat(
-      conv.telegramChatId,
-      normalizedText,
-    );
 
-    const message = await this.prisma.message.create({
+    // Outbox pattern: persist the outbound message as PENDING before calling the
+    // Bot API, so a message that reaches Telegram is never missing from the CRM
+    // even if a later DB write fails. On send failure we mark it FAILED.
+    const pending = await this.prisma.message.create({
       data: {
         conversationId: conv.id,
         direction: MessageDirection.OUTBOUND,
         text: normalizedText,
-        tgMessageId: String(messageId),
         authorUserId: safeActor.id,
         sentAt,
+        status: MessageStatus.PENDING,
       },
+    });
+
+    let messageId: number;
+    try {
+      ({ messageId } = await this.telegramService.sendMessageToChat(
+        conv.telegramChatId,
+        normalizedText,
+      ));
+    } catch (error) {
+      await this.prisma.message
+        .update({ where: { id: pending.id }, data: { status: MessageStatus.FAILED } })
+        .catch(() => {});
+      throw error;
+    }
+
+    const message = await this.prisma.message.update({
+      where: { id: pending.id },
+      data: { tgMessageId: String(messageId), status: MessageStatus.SENT },
       include: {
         author: { select: { id: true, fullName: true, email: true } },
       },

@@ -25,6 +25,8 @@ export class BankTransactionsController {
       {
         unmatched: Boolean(q.unmatched),
         bankAccountId: q.bankAccountId,
+        q: q.q,
+        suggest: Boolean(q.suggest),
         from: q.from,
         to: q.to,
         ...pagination,

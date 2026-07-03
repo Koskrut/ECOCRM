@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
@@ -56,6 +56,15 @@ type BankTransaction = {
   counterpartyIban: string | null;
   paymentId: string | null;
   orderId: string | null;
+  suggestion?: {
+    orderId: string;
+    orderNumber: string;
+    contactLabel: string;
+    debtAmount: number;
+    currency: string;
+    expectedAmountUah: number | null;
+    score: number;
+  } | null;
 };
 
 type OrderOption = {
@@ -79,19 +88,6 @@ type BankPaymentGroup = {
   totalAmountUsd: number;
   primary: PaymentItem;
 };
-
-function getBankPaymentGroupSearchText(group: BankPaymentGroup): string {
-  return group.payments
-    .flatMap((p) => [
-      p.orderNumber,
-      p.contactLabel,
-      ...(p.sameTransactionOrderNumbers ?? []),
-      p.bankTransaction?.counterpartyName,
-      p.note,
-    ])
-    .filter(Boolean)
-    .join(" ");
-}
 
 function getGroupContactLabel(group: BankPaymentGroup): string {
   const labels = group.payments
@@ -197,6 +193,7 @@ function PaymentsContent() {
   const searchParams = useSearchParams();
   const viewParam = searchParams.get("view");
   const bankAccountId = searchParams.get("bankAccountId") ?? "";
+  const urlSearch = searchParams.get("search") ?? "";
   const [mode, setMode] = useState<"cash" | "fop">("fop");
   const initialView: PaymentsView =
     viewParam === "payments"
@@ -207,7 +204,8 @@ function PaymentsContent() {
   const [view, setView] = useState<PaymentsView>(initialView);
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(urlSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(urlSearch);
 
   const setBankAccountId = useCallback(
     (value: string) => {
@@ -223,6 +221,7 @@ function PaymentsContent() {
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [paymentsTotal, setPaymentsTotal] = useState(0);
   const [unmatched, setUnmatched] = useState<BankTransaction[]>([]);
+  const [unmatchedTotal, setUnmatchedTotal] = useState(0);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [unmatchedLoading, setUnmatchedLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -295,8 +294,6 @@ function PaymentsContent() {
   const [splitContactsLoading, setSplitContactsLoading] = useState(false);
   const [splitClientOrders, setSplitClientOrders] = useState<OrderOption[]>([]);
   const [splitClientOrdersLoading, setSplitClientOrdersLoading] = useState(false);
-  const defaultFopAppliedRef = useRef(false);
-  const [defaultBankFromApi, setDefaultBankFromApi] = useState<string | null>(null);
   const [expandedSplitKeys, setExpandedSplitKeys] = useState<Set<string>>(new Set());
   const [fxQueue, setFxQueue] = useState<FxVarianceQueueItem[]>([]);
   const [fxQueueTotal, setFxQueueTotal] = useState(0);
@@ -332,25 +329,15 @@ function PaymentsContent() {
       const d = r.data;
       if (Array.isArray(d)) {
         setAccounts(d);
-        setDefaultBankFromApi(null);
       } else {
         setAccounts(Array.isArray(d?.accounts) ? d.accounts : []);
-        setDefaultBankFromApi(d?.defaultBankAccountId ?? null);
       }
     } catch {
       setAccounts([]);
-      setDefaultBankFromApi(null);
     }
   }, []);
 
-  useEffect(() => {
-    if (defaultFopAppliedRef.current) return;
-    if (bankAccountId !== "") return;
-    if (!defaultBankFromApi) return;
-    if (!accounts.some((a) => a.id === defaultBankFromApi)) return;
-    defaultFopAppliedRef.current = true;
-    setBankAccountId(defaultBankFromApi);
-  }, [bankAccountId, defaultBankFromApi, accounts, setBankAccountId]);
+  // Default stays «Усі» — do not auto-apply user FOP filter (payments were hidden on wrong account).
 
   const fetchPayments = useCallback(
     async (bankIdOverride?: string) => {
@@ -360,6 +347,8 @@ function PaymentsContent() {
         const params = new URLSearchParams({ page: "1", pageSize: "500" });
         const bid = bankIdOverride !== undefined ? bankIdOverride : bankAccountId;
         if (bid) params.set("bankAccountId", bid);
+        const q = debouncedSearch.trim();
+        if (q) params.set("q", q);
         const r = await apiHttp.get<{ items: PaymentItem[]; total: number }>(
           `/payments?${params.toString()}`,
         );
@@ -368,33 +357,39 @@ function PaymentsContent() {
         setPaymentsTotal(r.data?.total ?? 0);
       } catch (e) {
         setError(e instanceof Error ? e.message : t.payments.errors.loadPayments);
-        // Keep previous payments so the list does not disappear on transient 500
-        // setPayments([]);
-        // setPaymentsTotal(0);
       } finally {
         setPaymentsLoading(false);
       }
     },
-    [bankAccountId],
+    [bankAccountId, debouncedSearch],
   );
 
   const fetchUnmatched = useCallback(async () => {
     setUnmatchedLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ unmatched: "true", page: "1", pageSize: "500" });
+      const params = new URLSearchParams({
+        unmatched: "true",
+        suggest: "true",
+        page: "1",
+        pageSize: "500",
+      });
       if (bankAccountId) params.set("bankAccountId", bankAccountId);
+      const q = debouncedSearch.trim();
+      if (q) params.set("q", q);
       const r = await apiHttp.get<{ items: BankTransaction[]; total: number }>(
         `/bank/transactions?${params.toString()}`,
       );
       setUnmatched(r.data?.items ?? []);
+      setUnmatchedTotal(r.data?.total ?? 0);
     } catch (e) {
       setError(e instanceof Error ? e.message : t.payments.errors.load);
       setUnmatched([]);
+      setUnmatchedTotal(0);
     } finally {
       setUnmatchedLoading(false);
     }
-  }, [bankAccountId]);
+  }, [bankAccountId, debouncedSearch]);
 
   const fetchFxVariance = useCallback(async () => {
     setFxQueueLoading(true);
@@ -448,7 +443,8 @@ function PaymentsContent() {
         } else {
           setError(null);
         }
-        setSearch("");
+        setSearchInput("");
+        setDebouncedSearch("");
         await fetchPayments(undefined);
         await fetchUnmatched();
         await fetchAccounts();
@@ -464,6 +460,32 @@ function PaymentsContent() {
   useEffect(() => {
     fetchAccounts();
   }, [fetchAccounts]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("search") ?? "";
+    if (fromUrl !== searchInput) {
+      setSearchInput(fromUrl);
+      setDebouncedSearch(fromUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when URL search param changes externally
+  }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const trimmed = debouncedSearch.trim();
+    if (trimmed) params.set("search", trimmed);
+    else params.delete("search");
+    if (/^\d+$/.test(trimmed)) params.delete("bankAccountId");
+    const q = params.toString();
+    const next = q ? `${pathname}?${q}` : pathname;
+    const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    if (next !== current) router.replace(next, { scroll: false });
+  }, [debouncedSearch, pathname, router, searchParams]);
 
   useEffect(() => {
     if (mode === "cash" || (mode === "fop" && view === "payments")) {
@@ -488,12 +510,8 @@ function PaymentsContent() {
   }, [mode]);
 
   const cashPayments = useMemo(
-    () => filterBySearch(
-      payments.filter((p) => p.sourceType === "CASH"),
-      search,
-      (p) => [p.orderNumber, p.contactLabel, p.note].filter(Boolean).join(" "),
-    ),
-    [payments, search],
+    () => payments.filter((p) => p.sourceType === "CASH"),
+    [payments],
   );
   const allBankPayments = useMemo(
     () => payments.filter((p) => String(p.sourceType ?? "").toUpperCase() === "BANK"),
@@ -526,31 +544,7 @@ function PaymentsContent() {
         (a, b) => new Date(b.primary.paidAt).getTime() - new Date(a.primary.paidAt).getTime(),
       );
   }, [allBankPayments]);
-  const bankPaymentGroups = useMemo(
-    () => filterBySearch(bankPaymentGroupsAll, search, getBankPaymentGroupSearchText),
-    [bankPaymentGroupsAll, search],
-  );
-  const filteredPayments = useMemo(
-    () =>
-      filterBySearch(
-        payments,
-        search,
-        (p) =>
-          [p.orderNumber, p.contactLabel, p.bankTransaction?.counterpartyName, p.note]
-            .filter(Boolean)
-            .join(" "),
-      ),
-    [payments, search],
-  );
-  const filteredUnmatched = useMemo(
-    () =>
-      filterBySearch(
-        unmatched,
-        search,
-        (t) => [t.description, t.counterpartyName, t.bankAccount?.name].filter(Boolean).join(" "),
-      ),
-    [unmatched, search],
-  );
+  const bankPaymentGroups = bankPaymentGroupsAll;
 
   const submitImport = async () => {
     if (!selectedAccountId || !importFile) return;
@@ -943,6 +937,20 @@ function PaymentsContent() {
     setOrderSearch("");
   }, []);
 
+  const submitQuickAllocate = async (transactionId: string, orderId: string) => {
+    setAllocating(transactionId);
+    try {
+      await apiHttp.post("/payments/allocate", { transactionId, orderId });
+      await fetchUnmatched();
+      setViewWithUrl("payments");
+      await fetchPayments();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
+    } finally {
+      setAllocating(null);
+    }
+  };
+
   const submitAllocate = async () => {
     if (!allocateTxId || !selectedOrderId) return;
     setAllocating(allocateTxId);
@@ -1122,7 +1130,7 @@ function PaymentsContent() {
           : paymentsLoading;
 
   const fxQueueFiltered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     if (!q) return fxQueue;
     return fxQueue.filter((row) => {
       const contact =
@@ -1136,7 +1144,7 @@ function PaymentsContent() {
         contact.toLowerCase().includes(q)
       );
     });
-  }, [fxQueue, search]);
+  }, [fxQueue, debouncedSearch]);
 
   return (
     <div className="space-y-4">
@@ -1257,10 +1265,10 @@ function PaymentsContent() {
             )}
             <input
               type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t.common.search}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none w-40"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={t.payments.searchPlaceholder}
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none w-56"
             />
           </div>
         </div>
@@ -1337,8 +1345,13 @@ function PaymentsContent() {
           <>
             <p className="px-4 py-2 text-sm text-zinc-600">
               {t.payments.bankLinkedIntro(bankPaymentGroups.length)}
-              {search.trim() ? t.payments.bankLinkedSearch(search.trim()) : ""}
+              {debouncedSearch.trim() ? t.payments.bankLinkedSearch(debouncedSearch.trim()) : ""}
             </p>
+            {paymentsTotal > payments.length && (
+              <div className="mx-4 mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {t.payments.partialListWarning(payments.length, paymentsTotal)}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
@@ -1511,7 +1524,7 @@ function PaymentsContent() {
                   {bankPaymentGroups.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-zinc-500">
-                        {search.trim() && bankPaymentGroupsAll.length > 0
+                        {debouncedSearch.trim()
                           ? t.payments.noBankMatchSearch
                           : t.payments.noBankPayments}
                       </td>
@@ -1521,90 +1534,6 @@ function PaymentsContent() {
               </table>
             </div>
 
-            {filteredUnmatched.length > 0 && (
-              <>
-                <p className="px-4 pt-4 text-sm text-zinc-600">
-                  {t.payments.unmatchedIntro(filteredUnmatched.length)}
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3">{t.payments.date}</th>
-                        <th className="px-4 py-3">{t.payments.fopCol}</th>
-                        <th className="px-4 py-3 text-right">{t.payments.amount}</th>
-                        <th className="px-4 py-3">{t.payments.description}</th>
-                        <th className="px-4 py-3">{t.payments.counterparty}</th>
-                        <th className="px-4 py-3 w-32">{t.payments.action}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUnmatched.map((tx) => (
-                        <tr
-                          key={tx.id}
-                          className="border-t border-zinc-100 hover:bg-zinc-50"
-                        >
-                          <td className="px-4 py-3 text-zinc-600">
-                            {formatDate(tx.bookedAt)}
-                          </td>
-                          <td className="px-4 py-3">
-                            {tx.bankAccount?.name ?? tx.bankAccountId}
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium">
-                            +{tx.amount.toFixed(2)} {tx.currency}
-                          </td>
-                          <td
-                            className="px-4 py-3 max-w-xs truncate"
-                            title={tx.description ?? ""}
-                          >
-                            {tx.description ?? t.payments.dash}
-                          </td>
-                          <td className="px-4 py-3">
-                            {tx.counterpartyName ?? t.payments.dash}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex flex-wrap gap-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAllocateTxId(tx.id);
-                                  setAllocateTx(tx);
-                                  setAllocateContactSearch("");
-                                  setAllocateContactId(null);
-                                  setAllocateContactName("");
-                                  setAllocateOrders([]);
-                                  setSelectedOrderId(null);
-                                  setAllocateOrderNumber("");
-                                  setOrderSearch("");
-                                }}
-                                className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-                              >
-                                {t.payments.allocateToOrder}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  resetSplitContactState();
-                                  setSplitTx(tx);
-                                  setSplitRows([
-                                    { orderId: "", orderNumber: "", amount: "" },
-                                  ]);
-                                  setSplitOrderSearch("");
-                                  setSplitOrderForRowIndex(null);
-                                }}
-                                className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
-                              >
-                                {t.payments.distribute}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
           </>
         )}
 
@@ -1696,6 +1625,14 @@ function PaymentsContent() {
 
         {!loading && mode === "fop" && view === "unmatched" && (
           <div className="overflow-x-auto">
+            <p className="px-4 py-2 text-sm text-zinc-600">
+              {t.payments.unmatchedIntro(unmatched.length)}
+            </p>
+            {unmatchedTotal > unmatched.length && (
+              <div className="mx-4 mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {t.payments.partialListWarning(unmatched.length, unmatchedTotal)}
+              </div>
+            )}
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
@@ -1708,7 +1645,7 @@ function PaymentsContent() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUnmatched.map((tx) => (
+                {unmatched.map((tx) => (
                   <tr key={tx.id} className="border-t border-zinc-100 hover:bg-zinc-50">
                     <td className="px-4 py-3 text-zinc-600">
                       {formatDate(tx.bookedAt)}
@@ -1717,8 +1654,32 @@ function PaymentsContent() {
                     <td className="px-4 py-3 text-right font-medium">
                       +{tx.amount.toFixed(2)} {tx.currency}
                     </td>
-                    <td className="px-4 py-3 max-w-xs truncate" title={tx.description ?? ""}>
-                      {tx.description ?? t.payments.dash}
+                    <td className="px-4 py-3 max-w-xs" title={tx.description ?? ""}>
+                      <div className="truncate">{tx.description ?? t.payments.dash}</div>
+                      {tx.suggestion ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-emerald-800">
+                          <span>
+                            {t.payments.possibleMatch(
+                              tx.suggestion.orderNumber,
+                              tx.suggestion.contactLabel || t.payments.dash,
+                              tx.suggestion.debtAmount.toFixed(2),
+                              (tx.suggestion.expectedAmountUah ?? tx.amount).toFixed(2),
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={allocating === tx.id}
+                            onClick={() =>
+                              void submitQuickAllocate(tx.id, tx.suggestion!.orderId)
+                            }
+                            className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium hover:bg-emerald-100 disabled:opacity-50"
+                          >
+                            {allocating === tx.id
+                              ? t.payments.allocating
+                              : t.payments.linkSuggestion}
+                          </button>
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">{tx.counterpartyName ?? t.payments.dash}</td>
                     <td className="px-4 py-3">
@@ -1757,7 +1718,7 @@ function PaymentsContent() {
                     </td>
                   </tr>
                 ))}
-                {filteredUnmatched.length === 0 && (
+                {unmatched.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
                       {t.payments.noUnmatched}
@@ -1774,7 +1735,7 @@ function PaymentsContent() {
             {t.payments.cashCount(
               cashPayments.length,
               payments.filter((p) => p.sourceType === "CASH").length,
-              !!search.trim(),
+              !!debouncedSearch.trim(),
             )}
           </p>
         )}
@@ -1782,14 +1743,18 @@ function PaymentsContent() {
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
             {t.payments.bankCount(
               bankPaymentGroups.length,
-              bankPaymentGroupsAll.length,
-              !!search.trim(),
+              paymentsTotal,
+              !!debouncedSearch.trim(),
             )}
           </p>
         )}
         {!loading && mode === "fop" && view === "unmatched" && (
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
-            {t.payments.unmatchedCount(filteredUnmatched.length, unmatched.length, !!search.trim())}
+            {t.payments.unmatchedCount(
+              unmatched.length,
+              unmatchedTotal || unmatched.length,
+              !!debouncedSearch.trim(),
+            )}
           </p>
         )}
       </section>

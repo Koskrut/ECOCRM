@@ -206,6 +206,7 @@ enum LeadEventType {
   CONTACTED
   STATUS_CHANGED
   DUPLICATE_MERGED
+  CONVERTED
 }
 
 enum LeadIdentityType {
@@ -295,6 +296,12 @@ enum ConversationStatus {
 enum MessageDirection {
   INBOUND
   OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
 }
 
 enum TaskStatus {
@@ -2925,6 +2932,7 @@ model Message {
   mediaType         String?
   fileId            String?
   fileUrl           String?
+  status            MessageStatus    @default(SENT)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   author       User?        @relation(fields: [authorUserId], references: [id], onDelete: SetNull)
@@ -2936,10 +2944,12 @@ model Message {
 }
 
 model TelegramInboundUpdate {
-  id             String   @id @default(cuid())
-  updateId       String   @unique
-  telegramChatId String?
-  createdAt      DateTime @default(now())
+  id              String    @id @default(cuid())
+  updateId        String    @unique
+  telegramChatId  String?
+  createdAt       DateTime  @default(now())
+  processedAt     DateTime?
+  processingError String?
 
   @@index([createdAt])
   @@index([telegramChatId])

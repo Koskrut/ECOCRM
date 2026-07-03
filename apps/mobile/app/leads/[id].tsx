@@ -73,7 +73,10 @@ export default function LeadDetailScreen() {
     if (!token || !lead) return;
     setBusy(true);
     try {
-      const res = await leadsApi.convert(token, lead.id, { contactMode: "create" });
+      const res = await leadsApi.convert(token, lead.id, {
+        contactMode: "create",
+        createDeal: false,
+      });
       Alert.alert(t("common.done"), t("leads.converted"), [
         {
           text: t("common.ok"),

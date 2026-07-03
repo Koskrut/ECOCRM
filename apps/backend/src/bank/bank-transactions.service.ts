@@ -2,11 +2,15 @@ import { ForbiddenException, Injectable } from "@nestjs/common";
 import { Prisma, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { buildBankTransactionSearchWhere } from "../payments/payment-search.util";
 import { BankAccountsService } from "./bank-accounts.service";
+import { PaymentMatchingService, type MatchSuggestion } from "./payment-matching.service";
 
 type ListParams = {
   unmatched?: boolean;
   bankAccountId?: string;
+  q?: string;
+  suggest?: boolean;
   from?: string;
   to?: string;
   page: number;
@@ -20,10 +24,11 @@ export class BankTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bankAccounts: BankAccountsService,
+    private readonly matching: PaymentMatchingService,
   ) {}
 
   async list(params: ListParams, actor?: AuthUser) {
-    const where: Prisma.BankTransactionWhereInput = {};
+    let where: Prisma.BankTransactionWhereInput = {};
     if (actor && actor.role !== UserRole.ADMIN) {
       const visibleIds = await this.bankAccounts.getVisibleBankAccountIds(actor.id);
       if (params.bankAccountId) {
@@ -43,6 +48,13 @@ export class BankTransactionsService {
     if (params.to) bookedAt.lte = new Date(params.to);
     if (params.from || params.to) where.bookedAt = bookedAt;
 
+    const searchQ = params.q?.trim();
+    if (searchQ) {
+      const searchWhere = buildBankTransactionSearchWhere(searchQ);
+      where =
+        Object.keys(where).length === 0 ? searchWhere : { AND: [where, searchWhere] };
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.bankTransaction.findMany({
         where,
@@ -57,8 +69,24 @@ export class BankTransactionsService {
       this.prisma.bankTransaction.count({ where }),
     ]);
 
+    const suggestions = params.suggest
+      ? await Promise.all(
+          items.map(async (t) => {
+            if ((t.payments ?? []).length > 0) return null;
+            return this.matching.getSuggestion({
+              id: t.id,
+              description: t.description,
+              amount: t.amount,
+              currency: t.currency,
+              bookedAt: t.bookedAt,
+              counterpartyName: t.counterpartyName,
+            });
+          }),
+        )
+      : null;
+
     return {
-      items: items.map((t) => ({
+      items: items.map((t, i) => ({
         id: t.id,
         bankAccountId: t.bankAccountId,
         bankAccount: t.bankAccount,
@@ -75,6 +103,7 @@ export class BankTransactionsService {
         matchStatus: t.matchStatus,
         matchScore: t.matchScore,
         suggestedOrderId: t.suggestedOrderId,
+        suggestion: suggestions ? (suggestions[i] as MatchSuggestion | null) : undefined,
       })),
       total,
       page: params.page,

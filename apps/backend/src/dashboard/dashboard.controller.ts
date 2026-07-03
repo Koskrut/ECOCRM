@@ -18,12 +18,18 @@ import {
 } from "./dashboard.service";
 import { DashboardV2Service } from "./dashboard-v2.service";
 import type { DashboardV2Response } from "./dashboard-v2.types";
+import { ManagerDashboardService } from "./manager-dashboard.service";
+import type {
+  ManagerInboxResponse,
+  ManagerScorecardResponse,
+} from "./manager-dashboard.types";
 
 @Controller("dashboard")
 export class DashboardController {
   constructor(
     private readonly dashboard: DashboardService,
     private readonly dashboardV2: DashboardV2Service,
+    private readonly managerDashboard: ManagerDashboardService,
   ) {}
 
   /**
@@ -70,6 +76,55 @@ export class DashboardController {
         activityDate,
         compare: compareRaw === "true" || compareRaw === "1",
         managerId,
+      });
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * GET /dashboard/manager-inbox?period=week|month
+   * Action-first inbox for the manager desk: attention tiles, grouped tasks,
+   * lead pipeline counts and hot leads. Self-scoped for MANAGER.
+   */
+  @Get("manager-inbox")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  async getManagerInbox(
+    @Query("period") periodRaw?: string,
+    @Req() req?: Request & { user?: AuthUser },
+  ): Promise<ManagerInboxResponse> {
+    if (!req?.user) {
+      throw new InternalServerErrorException("Missing user");
+    }
+    try {
+      return await this.managerDashboard.getInbox(req.user, { period: periodRaw });
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  /**
+   * GET /dashboard/manager-scorecard?period=week|month&compare=true
+   * Activity + outcome metrics for the manager, with optional prior-period compare.
+   */
+  @Get("manager-scorecard")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  async getManagerScorecard(
+    @Query("period") periodRaw?: string,
+    @Query("compare") compareRaw?: string,
+    @Req() req?: Request & { user?: AuthUser },
+  ): Promise<ManagerScorecardResponse> {
+    if (!req?.user) {
+      throw new InternalServerErrorException("Missing user");
+    }
+    try {
+      return await this.managerDashboard.getScorecard(req.user, {
+        period: periodRaw,
+        compare: compareRaw === "true" || compareRaw === "1",
       });
     } catch (e) {
       if (e instanceof HttpException) throw e;

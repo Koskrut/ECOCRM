@@ -24,6 +24,12 @@ function leadClientLine(lead: Lead): string {
   return lead.phone || "—";
 }
 
+function scoreTone(score: number): string {
+  if (score >= 70) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-zinc-200 bg-zinc-100 text-zinc-600";
+}
+
 export function LeadCard({
   lead,
   onOpen,
@@ -34,7 +40,7 @@ export function LeadCard({
   onOpenContact?: (contactId: string) => void;
 }) {
   const title = leadDisplayName(lead);
-  const scoreText = typeof lead.score === "number" ? String(lead.score) : "—";
+  const hasScore = typeof lead.score === "number";
 
   return (
     <button
@@ -66,38 +72,44 @@ export function LeadCard({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StatusBadge variant="lead" status={lead.status} />
-      </div>
-
-      <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Бал</div>
-      <div className="text-sm font-medium text-zinc-900">{scoreText}</div>
-
-      <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Клієнт</div>
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="truncate text-sm text-zinc-900">{leadClientLine(lead)}</span>
-        {lead.contactId && onOpenContact && (
+        {hasScore && (
           <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenContact(lead.contactId!);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onOpenContact(lead.contactId!);
-              }
-            }}
-            className="shrink-0 text-xs font-medium text-blue-600 underline"
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${scoreTone(lead.score as number)}`}
           >
-            контакт
+            Бал {lead.score}
           </span>
         )}
       </div>
 
-      <div className="mt-3 text-xs font-medium uppercase text-zinc-500">Відповідальний</div>
-      <div className="mt-1 text-sm text-zinc-900">{lead.owner?.fullName ?? "—"}</div>
+      <div className="mt-3 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
+        <span className="text-xs font-medium uppercase text-zinc-400">Клієнт</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-zinc-900">{leadClientLine(lead)}</span>
+          {lead.contactId && onOpenContact && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenContact(lead.contactId!);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenContact(lead.contactId!);
+                }
+              }}
+              className="shrink-0 text-xs font-medium text-blue-600 underline"
+            >
+              контакт
+            </span>
+          )}
+        </div>
+
+        <span className="text-xs font-medium uppercase text-zinc-400">Відповідальний</span>
+        <span className="truncate text-zinc-900">{lead.owner?.fullName ?? "—"}</span>
+      </div>
     </button>
   );
 }

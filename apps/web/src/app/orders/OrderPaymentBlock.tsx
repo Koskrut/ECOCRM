@@ -332,8 +332,16 @@ export function OrderPaymentBlock({
                           ? ` · Orders: ${p.sameTransactionOrderNumbers.join(", ")}`
                           : ""}
                       </span>
-                      <span className="shrink-0 font-medium text-zinc-900">
-                        {formatPaymentAmount(p)}
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-medium text-zinc-900">
+                          {formatPaymentAmount(p)}
+                        </span>
+                        <Link
+                          href={`/payments?view=payments&search=${encodeURIComponent(orderNumber)}`}
+                          className="text-xs font-medium text-emerald-700 hover:underline"
+                        >
+                          {pt.inRegistry}
+                        </Link>
                       </span>
                     </li>
                   ))}

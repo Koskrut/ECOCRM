@@ -136,18 +136,18 @@ export class AuthService {
       try {
         await this.integrations.sendMessageToChat(
           account.telegramChatId,
-          `Код для сброса пароля CRM: ${codeStr}\nДействует ${RESET_CODE_TTL_MINUTES} мин.`,
+          `Код для скидання пароля CRM: ${codeStr}\nДіє ${RESET_CODE_TTL_MINUTES} хв.`,
         );
         return {
           sentVia: "telegram",
           suggestConnectTelegram: false,
-          message: "Код отправлен в Telegram.",
+          message: "Код надіслано в Telegram.",
         };
       } catch {
         return {
           sentVia: null,
           suggestConnectTelegram: true,
-          message: "Не удалось отправить код в Telegram. Подключите Telegram в настройках CRM.",
+          message: "Не вдалося надіслати код у Telegram. Підключіть Telegram у налаштуваннях CRM.",
         };
       }
     }
@@ -156,7 +156,7 @@ export class AuthService {
       sentVia: null,
       suggestConnectTelegram: true,
       message:
-        "К этому аккаунту не привязан Telegram. Подключите Telegram в настройках CRM (войдите с помощью коллеги или администратора), чтобы получать коды сброса пароля.",
+        "До цього акаунта не прив'язано Telegram. Підключіть Telegram у налаштуваннях CRM (увійдіть за допомогою колеги або адміністратора), щоб отримувати коди для скидання пароля.",
     };
   }
 
@@ -173,7 +173,7 @@ export class AuthService {
 
     const account = await this.findUserByLoginRaw(trimmed);
     if (!account) {
-      throw new UnauthorizedException("Неверный или устаревший код");
+      throw new UnauthorizedException("Недійсний або застарілий код");
     }
     const normalized = account.email.toLowerCase();
 
@@ -181,10 +181,10 @@ export class AuthService {
       where: { email: normalized, code: code.trim() },
       orderBy: { createdAt: "desc" },
     });
-    if (!row) throw new UnauthorizedException("Неверный или устаревший код");
+    if (!row) throw new UnauthorizedException("Недійсний або застарілий код");
     if (row.expiresAt < new Date()) {
       await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });
-      throw new UnauthorizedException("Код истёк. Запросите новый.");
+      throw new UnauthorizedException("Код прострочено. Запитайте новий.");
     }
 
     await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });

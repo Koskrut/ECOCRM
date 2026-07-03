@@ -34,9 +34,22 @@
 - Діагностика: `GET /system/control-plane` (ADMIN) і блок `controlPlane` на `/settings/health`.
 - CP update status contract: `GET /api/installations/:installationId/updates/status` with `{ latestVersion, targetVersion }` (see `docs/control-plane-update-contract.md`).
 
+## Telegram (in-process на core)
+
+- Модуль `int.integrations_telegram` доставляется **in-process** внутри `AppModuleCore`: webhook
+  (`POST /integrations/telegram/webhook`), inbox `/conversations/*` и доставка кодов сброса пароля
+  через `IntegrationPortsService.sendMessageToChat` работают на **core**. Отдельного
+  `TELEGRAM_UPSTREAM_URL` / sidecar нет — прокси в `module-upstream-proxy.setup.ts` для Telegram не добавлять.
+- `OUTBOUND_UPSTREAM_URL` влияет только на признак reachability Telegram в Control Plane UI
+  (`module-state.service.ts`), а не на наличие роутов на core.
+- Webhook помечен `@Public()` + `@SkipModuleGating()`: при выключенном модуле он отвечает `200 OK`,
+  чтобы Telegram не уходил в retry-шторм; inbox/settings остаются под gating.
+- Регистрация webhook: Settings → Telegram → «Register webhook» (`setWebhook` + `getWebhookInfo`).
+
 ## E2E / smoke
 
 - Чеклист: `docs/e2e-core-smoke.md`.
+- Telegram smoke: `docs/telegram-smoke.md`.
 - Security / onboarding: `docs/security-compliance-baseline.md`, `docs/customer-success-onboarding.md`.
 
 ## UI smoke (core-only)

@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.102**.)_
+_(планируемые изменения после **0.2.103**.)_
+
+## [0.2.103] — 2026-07-03
+
+### Summary
+
+Патч **0.2.103**: **Manager dashboard** (inbox рабочей очереди + scorecard), надёжный **Telegram inbound** (идемпотентная обработка, статусы сообщений, назначение чата, webhook self-service), поиск на **payments/bank**, событие **CONVERTED** в истории лида.
+
+### Added
+
+- **Manager dashboard**: `GET /dashboard/manager-inbox` и `GET /dashboard/manager-scorecard` — рабочая очередь (лиды без касания, просроченные задачи/оплаты, долговой контроль), pipeline counts, hot leads, activity/outcome метрики с compare-периодом; `ManagerDashboardService`, web `components/dashboard/manager/*`, proxy `/api/dashboard/manager-inbox`, `/api/dashboard/manager-scorecard`.
+- **Telegram**: идемпотентная обработка inbound (`TelegramInboundUpdate.processedAt`/`processingError`, миграция **`20260703120000_telegram_inbound_processed_at`**); статус доставки сообщения (`Message.status`: `PENDING`/`SENT`/`FAILED`, миграция **`20260703121000_message_status_outbox`**); назначение чата менеджеру — `POST /conversations/:id/assign` + proxy `/api/conversations/[id]/assign`; self-service webhook — `/api/settings/telegram/register-webhook`, `/webhook-info`.
+- **Payments/Bank**: поиск по номеру заказа, имени/телефону клиента, описанию/контрагенту транзакции и примечанию (`payment-search.util.ts`); фильтр на страницах payments и bank transactions.
+- **Leads**: событие **`CONVERTED`** в `LeadEventType` (миграция **`20260703140000_lead_event_converted`**) для трассировки конвертации.
+- **Module gating**: декоратор **`@SkipModuleGating()`** — публичные webhook-и всегда отвечают ack.
+- **Orders**: ручная строка заказа (non-product line) с пересчётом суммы.
+
+### Changed
+
+- **Telegram conversations** — модель назначения (`assignedUserId`), контроллер/сервис; inbox web UI.
+- **Dashboard** page/module — подключение manager-секций.
+- **Bank transactions / payments** — DTO списков с `search`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.103`**.
+- **Миграции** (до `up`, `prisma migrate deploy` / **`backend-migrate`**): **`20260703120000_telegram_inbound_processed_at`**, **`20260703121000_message_status_outbox`**, **`20260703140000_lead_event_converted`**.
 
 ## [0.2.102] — 2026-05-20
 

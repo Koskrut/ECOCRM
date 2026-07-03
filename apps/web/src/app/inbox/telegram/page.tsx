@@ -9,6 +9,7 @@ import {
   type Contact,
   type MessageItem,
 } from "@/lib/api";
+import { authApi } from "@/lib/api/resources/auth";
 import { isTextSelected } from "@/lib/dom";
 import { Link2, MessageCircle, Send, Sparkles, User, UserPlus } from "lucide-react";
 import { DateTime } from "luxon";
@@ -49,7 +50,7 @@ function conversationTitle(c: ConversationItem): string {
       c.lead.fullName ||
       [c.lead.lastName, c.lead.firstName].filter(Boolean).join(" ") ||
       c.lead.phone ||
-      "Лид"
+      "Лід"
     );
   }
   return `Чат ${c.telegramChatId}`;
@@ -92,8 +93,17 @@ function InboxTelegramContent() {
   const linkSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  const [meId, setMeId] = useState<string | null>(null);
+  const [assignLoading, setAssignLoading] = useState(false);
 
   const selected = conversations.find((c) => c.id === selectedId);
+
+  useEffect(() => {
+    authApi
+      .me()
+      .then((r) => setMeId(r.user?.id ?? null))
+      .catch(() => setMeId(null));
+  }, []);
 
   const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setConversationsLoading(true);
@@ -266,6 +276,26 @@ function InboxTelegramContent() {
       setCreateContactLoading(false);
     }
   }, [selectedId, createContactLoading, loadConversations]);
+
+  const handleAssign = useCallback(
+    async (userId: string | null) => {
+      if (!selectedId || assignLoading) return;
+      setAssignLoading(true);
+      try {
+        const updated = await conversationsApi.assign(selectedId, userId);
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedId ? { ...c, assignedTo: updated.assignedTo } : c,
+          ),
+        );
+      } catch {
+        // keep UI as is
+      } finally {
+        setAssignLoading(false);
+      }
+    },
+    [selectedId, assignLoading],
+  );
 
   const handleSuggestReplies = useCallback(async () => {
     if (!selectedId || suggestLoading) return;
@@ -476,6 +506,7 @@ function InboxTelegramContent() {
                         >
                           {formatTime(m.sentAt)}
                           {m.direction === "OUTBOUND" && m.author && ` · ${m.author.fullName}`}
+                          {m.direction === "OUTBOUND" && m.status === "FAILED" && " · ⚠ не доставлено"}
                         </p>
                       </div>
                     </div>
@@ -564,6 +595,34 @@ function InboxTelegramContent() {
         ) : (
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-zinc-700">Картка</h4>
+            <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
+              <p className="text-xs text-zinc-500">Відповідальний</p>
+              <p className="mt-0.5 font-medium text-zinc-900">
+                {selected.assignedTo?.fullName ?? "Не призначено"}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selected.assignedTo?.id !== meId && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAssign(meId)}
+                    disabled={assignLoading || !meId}
+                    className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Взяти собі
+                  </button>
+                )}
+                {selected.assignedTo && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAssign(null)}
+                    disabled={assignLoading}
+                    className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    Зняти
+                  </button>
+                )}
+              </div>
+            </div>
             {selected.contact && (
               <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
                 <p className="font-medium text-zinc-900">
@@ -585,7 +644,7 @@ function InboxTelegramContent() {
                     [selected.lead.lastName, selected.lead.firstName]
                       .filter(Boolean)
                       .join(" ") ||
-                    "Лид"}
+                    "Лід"}
                 </p>
                 {selected.lead.phone && (
                   <p className="mt-1 text-zinc-600">{selected.lead.phone}</p>

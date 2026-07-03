@@ -4,6 +4,7 @@ import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { Roles } from "../../auth/roles.decorator";
 import { ConversationsService } from "./conversations.service";
+import { AssignConversationDto } from "./dto/assign-conversation.dto";
 import { LinkContactDto } from "./dto/link-contact.dto";
 import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
@@ -12,6 +13,7 @@ import { UpdateConversationStatusDto } from "./dto/update-conversation-status.dt
 import { RequireModule } from "../../modules/gating/require-module.decorator";
 import { ModuleIds } from "../../modules/module-ids";
 
+void AssignConversationDto;
 void LinkContactDto;
 void ListConversationsQueryDto;
 void ListMessagesQueryDto;
@@ -64,6 +66,15 @@ export class ConversationsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.conversations.sendMessage(id, dto.text, req.user);
+  }
+
+  @Patch(":id/assign")
+  assign(
+    @Param("id") id: string,
+    @Body() dto: AssignConversationDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.assign(id, dto.userId ?? null, req.user);
   }
 
   @Post(":id/link-contact")

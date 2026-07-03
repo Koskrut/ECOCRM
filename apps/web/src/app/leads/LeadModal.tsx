@@ -199,7 +199,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [newContactMiddleName, setNewContactMiddleName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
-  const [newContactCompanyName, setNewContactCompanyName] = useState("");
 
   const [createDeal, setCreateDeal] = useState(true);
   const [dealTitle, setDealTitle] = useState("");
@@ -211,6 +210,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [converting, setConverting] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  /** Reorder flow: WON lead already has a contact; create an additional order only. */
+  const [reorderMode, setReorderMode] = useState(false);
+  /** Owner selected for the conversion order (defaults to lead owner). */
+  const [convertOwnerId, setConvertOwnerId] = useState<string | null>(null);
+  /** Success state after a conversion that created no order. */
+  const [convertDoneNoOrder, setConvertDoneNoOrder] = useState(false);
 
   // Lead items (local list for editing)
   type EditItem = { productId: string; productName?: string; qty: number; price: number };
@@ -332,7 +337,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setNewContactMiddleName(data.middleName ?? "");
       setNewContactPhone(data.phone ? formatPhoneDisplay(data.phone) : "");
       setNewContactEmail(data.email ?? "");
-      setNewContactCompanyName(data.companyName ?? "");
     } catch (e) {
       const raw =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -855,7 +859,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           middleName: newContactMiddleName.trim() || "",
           phone: normalizePhone(newContactPhone) ?? (newContactPhone.trim() || lead.phone),
           email: newContactEmail.trim() || lead.email,
-          companyName: newContactCompanyName.trim() || lead.companyName,
           region: lead.region ?? undefined,
           city: lead.city ?? undefined,
           address: lead.address ?? undefined,
@@ -863,6 +866,10 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           lng: lead.lng ?? undefined,
           googlePlaceId: lead.googlePlaceId ?? undefined,
         };
+      }
+
+      if (convertOwnerId) {
+        payload.ownerId = convertOwnerId;
       }
 
       if (createDeal) {
@@ -880,10 +887,15 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       const dealId = res.data?.deal && typeof res.data.deal === "object" && "id" in res.data.deal
         ? String((res.data.deal as { id: string }).id)
         : null;
-      if (dealId) setCreatedOrderId(dealId);
+      if (dealId) {
+        setCreatedOrderId(dealId);
+      } else {
+        setConvertDoneNoOrder(true);
+      }
       await loadLead();
       onUpdated();
-      setShowConvertWizard(false);
+      // Keep the wizard open on success without an order so the confirmation is visible.
+      if (dealId) setShowConvertWizard(false);
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -894,9 +906,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     }
   };
 
-  const isInProgress = lead?.status === "NEW" || lead?.status === "IN_PROGRESS";
-  const canShowCompleteButton = isInProgress;
-  const canConvert = lead?.status === "WON";
+  // WON lead without a conversion order: offer to create an (additional) order.
+  const canCreateOrderFromWon =
+    lead?.status === "WON" && !lead?.convertedOrderId && !lead?.convertedOrder;
 
   useEffect(() => {
     if (!leadHeaderMenuOpen) return;
@@ -935,41 +947,54 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
 
   const openConvertWizard = (preset?: "company_contact_deal" | "contact_deal" | "contact") => {
     setShowCompleteOutcomeDialog(false);
-    setConvertPreset(preset ?? null);
+    // Reorder: WON lead already linked to a contact — only create an extra order.
+    const isReorder = lead?.status === "WON" && Boolean(lead?.contactId);
+    setReorderMode(isReorder);
+    setConvertPreset(isReorder ? "contact_deal" : (preset ?? null));
     setNewContactFirstName(lead?.firstName ?? lead?.name ?? "");
     setNewContactLastName(lead?.lastName ?? "");
     setNewContactMiddleName(lead?.middleName ?? "");
     setNewContactPhone(lead?.phone ? formatPhoneDisplay(lead.phone) : "");
     setNewContactEmail(lead?.email ?? "");
-    setNewContactCompanyName(lead?.companyName ?? "");
     setDealTitle(title);
-    setSelectedContactId(null);
     setContactSearchHits([]);
     setSelectedCompanyId(null);
     setCompanyOptions([]);
-    if (preset === "company_contact_deal") {
+    setConvertOwnerId(lead?.ownerId ?? null);
+    if (isReorder) {
+      setCompanyMode("link");
+      setCreateContact(false);
+      setCreateDeal(true);
+      setNewCompanyName("");
+      setSelectedContactId(lead?.contactId ?? null);
+    } else if (preset === "company_contact_deal") {
       setCompanyMode("link");
       setCreateContact(true);
       setCreateDeal(true);
       setNewCompanyName(lead?.companyName ?? "");
+      setSelectedContactId(null);
     } else if (preset === "contact_deal") {
       setCompanyMode("link");
       setCreateContact(false);
       setCreateDeal(true);
       setNewCompanyName("");
+      setSelectedContactId(null);
     } else if (preset === "contact") {
       setCompanyMode("link");
       setCreateContact(false);
       setCreateDeal(false);
       setNewCompanyName("");
+      setSelectedContactId(null);
     } else {
       setCompanyMode("link");
       setNewCompanyName("");
+      setSelectedContactId(null);
     }
     setShowConvertWizard(true);
     setCreatedOrderId(null);
+    setConvertDoneNoOrder(false);
     setConvertError(null);
-    void loadSuggestions();
+    if (!isReorder) void loadSuggestions();
   };
 
   const markAsPoorQuality = async () => {
@@ -1054,7 +1079,23 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   }, [users, lead?.owner]);
 
   const leftContent = loading ? (
-    <div className="text-sm text-zinc-500">Завантаження…</div>
+    <div className="space-y-6" aria-hidden>
+      <div className="space-y-3">
+        <div className="h-3 w-24 animate-pulse rounded bg-zinc-100" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="h-3 w-16 animate-pulse rounded bg-zinc-100" />
+              <div className="h-9 w-full animate-pulse rounded-md bg-zinc-100" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-3">
+        <div className="h-3 w-32 animate-pulse rounded bg-zinc-100" />
+        <div className="h-24 w-full animate-pulse rounded-md bg-zinc-100" />
+      </div>
+    </div>
   ) : err ? (
     <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div>
   ) : !lead ? (
@@ -1565,11 +1606,19 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             ) : null}
           </div>
           {lead.score != null ? (
-            <div className="flex flex-wrap gap-4 sm:col-span-2">
-              <div className="flex items-baseline gap-2">
-                <span className="text-xs text-zinc-500">Оцінка:</span>
-                <span className="text-sm font-medium text-zinc-900">{lead.score}</span>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+              <span className="text-xs text-zinc-500">Оцінка:</span>
+              <span
+                className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${
+                  lead.score >= 70
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : lead.score >= 40
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-zinc-200 bg-zinc-100 text-zinc-600"
+                }`}
+              >
+                {lead.score}
+              </span>
             </div>
           ) : null}
         </div>
@@ -1704,6 +1753,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   )}
                 </div>
               )}
+              {reorderMode && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                  Лід уже конвертовано. Замовлення буде привʼязане до наявного контакту ліда.
+                </div>
+              )}
+              {!reorderMode && (
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-zinc-900">
@@ -1856,27 +1911,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                         onChange={(e) => setNewContactEmail(e.target.value)}
                       />
                     </div>
-                    {convertPreset !== "company_contact_deal" && (
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-zinc-600">
-                          Компанія (текст)
-                        </label>
-                        <input
-                          className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs outline-none focus:border-zinc-400"
-                          value={newContactCompanyName}
-                          onChange={(e) => setNewContactCompanyName(e.target.value)}
-                        />
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
+              )}
 
               {convertPreset !== "contact" && (
               <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm">
                 <div className="flex items-center justify-between">
                   <div className="font-medium text-zinc-900">
-                    {convertPreset === "company_contact_deal" ? "Крок 3. Угода" : "Крок 2. Угода"}
+                    {reorderMode
+                      ? "Замовлення"
+                      : convertPreset === "company_contact_deal"
+                        ? "Крок 3. Угода"
+                        : "Крок 2. Угода"}
                   </div>
                   <label className="flex items-center gap-2 text-xs text-zinc-700">
                     <input
@@ -1934,17 +1982,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       </label>
                       <div className="mt-1" id="lead-owner-convert">
                         <SearchableSelectLite
-                          value={lead?.ownerId ?? ""}
+                          value={convertOwnerId ?? ""}
                           options={responsibleOptions}
                           placeholder="Оберіть відповідального…"
                           disabled={converting || loadingUsers}
                           isLoading={loadingUsers}
-                          onChange={async (id) => {
-                            if (!lead) return;
-                            const next = id || null;
-                            if (next === (lead.ownerId ?? null)) return;
-                            await patchLead({ ownerId: next });
-                          }}
+                          onChange={(id) => setConvertOwnerId(id || null)}
                         />
                       </div>
                     </div>
@@ -1962,6 +2005,22 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   >
                     Відкрити замовлення →
                   </a>
+                </div>
+              )}
+
+              {convertDoneNoOrder && !createdOrderId && (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                  Лід завершено. Контакт{" "}
+                  {lead?.contactId ? (
+                    <a
+                      href={`/contacts?contactId=${lead.contactId}`}
+                      className="font-medium underline hover:no-underline"
+                    >
+                      відкрити картку контакту →
+                    </a>
+                  ) : (
+                    "збережено."
+                  )}
                 </div>
               )}
 
@@ -2085,7 +2144,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               role="menu"
             >
               <div className="max-h-[min(70vh,28rem)] space-y-3 overflow-auto p-3">
-                {canConvert ? (
+                {canCreateOrderFromWon ? (
                   <button
                     type="button"
                     role="menuitem"
@@ -2095,7 +2154,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                     }}
                     className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50"
                   >
-                    Конвертувати
+                    Створити замовлення з ліда
                   </button>
                 ) : null}
                 {effectiveRole === "MANAGER" ||
@@ -2144,7 +2203,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                         } catch (e) {
                           const msg =
                             (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                            (e instanceof Error ? e.message : "Не удалось удалить лид");
+                            (e instanceof Error ? e.message : "Не вдалося видалити лід");
                           setErr(msg);
                         } finally {
                           setDeleting(false);

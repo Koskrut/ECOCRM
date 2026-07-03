@@ -58,6 +58,7 @@ export type MessageItem = {
   mediaType: string | null;
   fileId: string | null;
   fileUrl: string | null;
+  status?: "PENDING" | "SENT" | "FAILED";
 };
 
 export type MessagesListResponse = {
@@ -127,6 +128,17 @@ export const conversationsApi = {
     const res = await apiHttp.patch<ConversationItem>(
       `/conversations/${conversationId}`,
       { status },
+    );
+    return res.data;
+  },
+
+  assign: async (
+    conversationId: string,
+    userId: string | null,
+  ): Promise<ConversationItem> => {
+    const res = await apiHttp.patch<ConversationItem>(
+      `/conversations/${conversationId}/assign`,
+      { userId },
     );
     return res.data;
   },

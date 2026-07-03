@@ -16,6 +16,14 @@ type TelegramConfig = {
   aiModel?: string;
 };
 
+type WebhookInfo = {
+  url: string;
+  pendingUpdateCount: number;
+  lastErrorDate?: number;
+  lastErrorMessage?: string;
+  allowedUpdates?: string[];
+};
+
 function getApiErrorMessage(e: unknown, fallback: string) {
   return getUserFriendlyApiError(e, fallback);
 }
@@ -37,6 +45,10 @@ export default function TelegramSettingsPage() {
   const [linkBotUsername, setLinkBotUsername] = useState<string>("");
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  const [webhookBusy, setWebhookBusy] = useState(false);
+  const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
+  const [webhookInfo, setWebhookInfo] = useState<WebhookInfo | null>(null);
 
   async function load() {
     setLoading(true);
@@ -110,6 +122,35 @@ export default function TelegramSettingsPage() {
     }
   }
 
+  async function registerWebhook() {
+    setWebhookBusy(true);
+    setWebhookMsg(null);
+    try {
+      const res = await apiHttp.post<{ ok: boolean; url: string }>(
+        "/settings/telegram/register-webhook",
+      );
+      setWebhookMsg(`Webhook зареєстровано: ${res.data?.url ?? ""}`);
+      await loadWebhookInfo();
+    } catch (e) {
+      setWebhookMsg(getApiErrorMessage(e, "Не вдалося зареєструвати webhook."));
+    } finally {
+      setWebhookBusy(false);
+    }
+  }
+
+  async function loadWebhookInfo() {
+    setWebhookBusy(true);
+    setWebhookMsg(null);
+    try {
+      const res = await apiHttp.get<WebhookInfo>("/settings/telegram/webhook-info");
+      setWebhookInfo(res.data ?? null);
+    } catch (e) {
+      setWebhookMsg(getApiErrorMessage(e, "Не вдалося отримати статус webhook."));
+    } finally {
+      setWebhookBusy(false);
+    }
+  }
+
   const webhookUrl =
     (publicBaseUrl || config.publicBaseUrl || "").replace(/\/+$/, "") +
     "/integrations/telegram/webhook";
@@ -177,6 +218,48 @@ export default function TelegramSettingsPage() {
                 Webhook URL: {webhookUrl}
               </div>
             )}
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void registerWebhook()}
+                  disabled={webhookBusy}
+                  className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {webhookBusy ? "…" : "Register webhook"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void loadWebhookInfo()}
+                  disabled={webhookBusy}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                >
+                  Check status
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">
+                Registers the webhook in Telegram (setWebhook) with the secret token, then shows
+                getWebhookInfo status. Save the token, secret and public URL first.
+              </p>
+              {webhookMsg && <p className="mt-2 text-xs text-zinc-700">{webhookMsg}</p>}
+              {webhookInfo && (
+                <dl className="mt-2 space-y-0.5 text-xs text-zinc-600">
+                  <div className="break-all">
+                    <span className="font-medium">URL:</span> {webhookInfo.url || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Pending updates:</span>{" "}
+                    {webhookInfo.pendingUpdateCount}
+                  </div>
+                  {webhookInfo.lastErrorMessage && (
+                    <div className="text-red-600 break-all">
+                      <span className="font-medium">Last error:</span>{" "}
+                      {webhookInfo.lastErrorMessage}
+                    </div>
+                  )}
+                </dl>
+              )}
+            </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700">
                 Default company ID (optional)
@@ -250,20 +333,20 @@ export default function TelegramSettingsPage() {
 
           <div className="mt-8 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-zinc-800">
-              Подключить Telegram для входа в CRM
+              Підключити Telegram для входу в CRM
             </h3>
             <p className="mt-1 text-xs text-zinc-500">
-              После привязки можно входить через виджет «Вход через Telegram» на странице входа и
-              получать коды сброса пароля в Telegram.
+              Після прив&apos;язки можна входити через віджет «Вхід через Telegram» на сторінці входу
+              та отримувати коди для скидання пароля в Telegram.
             </p>
             {linkError && <p className="mt-2 text-sm text-red-600">{linkError}</p>}
             {linkToken ? (
               <div className="mt-3 rounded bg-zinc-100 p-3 text-sm">
-                <p className="text-zinc-700">Отправьте боту {linkBotUsername} команду:</p>
+                <p className="text-zinc-700">Надішліть боту {linkBotUsername} команду:</p>
                 <p className="mt-1 font-mono text-zinc-900">/link {linkToken}</p>
                 <p className="mt-2 text-xs text-zinc-500">
-                  Ссылка действует 10 минут. После отправки команды Telegram будет привязан к вашему
-                  аккаунту.
+                  Посилання діє 10 хвилин. Після надсилання команди Telegram буде прив&apos;язано до
+                  вашого акаунта.
                 </p>
               </div>
             ) : (
@@ -273,7 +356,7 @@ export default function TelegramSettingsPage() {
                 disabled={linkLoading}
                 className="mt-3 rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                {linkLoading ? "Запрос…" : "Получить ссылку для привязки"}
+                {linkLoading ? "Запит…" : "Отримати посилання для прив'язки"}
               </button>
             )}
           </div>

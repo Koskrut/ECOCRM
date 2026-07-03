@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Search } from "lucide-react";
+import { Filter, Inbox, Search } from "lucide-react";
 import {
   leadsApi,
   type Lead,
@@ -59,6 +59,42 @@ const CHANNEL_OPTIONS: { value: string; label: string }[] = [
   { value: "IG_DM", label: "IG DM" },
 ];
 
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  SOURCE_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label]),
+);
+const CHANNEL_LABELS: Record<string, string> = Object.fromEntries(
+  CHANNEL_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label]),
+);
+
+function sourceLabel(source?: string | null): string {
+  if (!source) return "—";
+  return SOURCE_LABELS[source] ?? source;
+}
+
+function channelLabel(channel?: string | null): string | null {
+  if (!channel) return null;
+  return CHANNEL_LABELS[channel] ?? channel;
+}
+
+function scoreTone(score: number): string {
+  if (score >= 70) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-zinc-200 bg-zinc-100 text-zinc-600";
+}
+
+function ScoreBadge({ score }: { score?: number | null }) {
+  if (typeof score !== "number") {
+    return <span className="text-zinc-400">—</span>;
+  }
+  return (
+    <span
+      className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone(score)}`}
+    >
+      {score}
+    </span>
+  );
+}
+
 function LeadsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
@@ -98,6 +134,7 @@ function LeadsPageContent() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
   const { extraColumns, customValues, loadValuesFor } = useListColumns("LEAD");
+  const colCount = 8 + extraColumns.length;
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -259,15 +296,15 @@ function LeadsPageContent() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Leads</h1>
-          <p className="text-sm text-zinc-500">Incoming inquiries and potential customers</p>
+          <h1 className="text-2xl font-bold">Ліди</h1>
+          <p className="text-sm text-zinc-500">Вхідні звернення та потенційні клієнти</p>
         </div>
         <button
           type="button"
           onClick={() => setCreateOpen(true)}
           className="btn-primary"
         >
-          + Lead
+          + Лід
         </button>
       </div>
 
@@ -282,10 +319,10 @@ function LeadsPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="Search by name, phone, email, company, message, address/city"
+                placeholder="Пошук за ім'ям, телефоном, email, компанією, містом…"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
-                aria-label="Search leads"
+                aria-label="Пошук лідів"
               />
               <button
                 type="button"
@@ -293,7 +330,7 @@ function LeadsPageContent() {
                 className={`relative flex shrink-0 items-center justify-center rounded p-1 hover:bg-zinc-200/50 ${
                   filtersActive ? "text-accent-600" : "text-zinc-500 hover:text-zinc-700"
                 }`}
-                aria-label="Open filters"
+                aria-label="Відкрити фільтри"
               >
                 <Filter className="h-4 w-4" />
                 {filtersActive ? (
@@ -316,7 +353,7 @@ function LeadsPageContent() {
           />
         </div>
         <div className="mt-2 text-sm text-zinc-500">
-          Total: {total} | Page {page} of {totalPages}
+          Усього: {total} · Сторінка {page} з {totalPages}
         </div>
       </div>
 
@@ -349,15 +386,46 @@ function LeadsPageContent() {
             </thead>
             <tbody className="divide-y divide-zinc-100">
               {loading ? (
-                <tr>
-                  <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
-                    Завантаження лідів...
-                  </td>
-                </tr>
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    {Array.from({ length: colCount }).map((__, c) => (
+                      <td key={c} className="px-4 py-4">
+                        <div className="h-4 w-3/4 animate-pulse rounded bg-zinc-100" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={8 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
-                    Лідів не знайдено
+                  <td colSpan={colCount} className="px-6 py-16">
+                    <div className="flex flex-col items-center justify-center gap-3 text-center">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-400">
+                        <Inbox className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-zinc-700">
+                          {filtersActive || q.trim() ? "Нічого не знайдено" : "Лідів поки немає"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {filtersActive || q.trim()
+                            ? "Спробуйте змінити фільтри або пошуковий запит"
+                            : "Створіть перший лід, щоб почати роботу"}
+                        </p>
+                      </div>
+                      {filtersActive || q.trim() ? (
+                        <button
+                          type="button"
+                          onClick={resetAllFilters}
+                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Скинути фільтри
+                        </button>
+                      ) : (
+                        <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
+                          + Лід
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -378,13 +446,17 @@ function LeadsPageContent() {
                         {l.phone || "—"}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-zinc-600">{l.city ?? "—"}</td>
-                    <td className="px-4 py-4 text-zinc-700">
-                      {l.source}
-                      {l.channel ? ` / ${l.channel}` : ""}
+                    <td className="px-4 py-4 text-zinc-600">{l.city || "—"}</td>
+                    <td className="px-4 py-4">
+                      <span className="text-zinc-700">{sourceLabel(l.source)}</span>
+                      {channelLabel(l.channel) ? (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                          {channelLabel(l.channel)}
+                        </span>
+                      ) : null}
                     </td>
-                    <td className="px-4 py-4 text-zinc-600">
-                      {typeof l.score === "number" ? l.score : "—"}
+                    <td className="px-4 py-4">
+                      <ScoreBadge score={l.score} />
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge variant="lead" status={l.status} />
@@ -439,7 +511,7 @@ function LeadsPageContent() {
                 onClick={() => setPage((p) => p + 1)}
                 className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
               >
-                Вперёд
+                Вперед
               </button>
             </div>
           </div>
@@ -448,12 +520,44 @@ function LeadsPageContent() {
         {/* Mobile: card list */}
         <div className="sm:hidden space-y-4">
           {loading ? (
-            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
-              Завантаження лідів...
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={`skc-${i}`} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="h-4 w-1/2 animate-pulse rounded bg-zinc-100" />
+                  <div className="mt-2 h-3 w-1/3 animate-pulse rounded bg-zinc-100" />
+                  <div className="mt-4 h-5 w-20 animate-pulse rounded-full bg-zinc-100" />
+                  <div className="mt-4 h-3 w-2/3 animate-pulse rounded bg-zinc-100" />
+                </div>
+              ))}
             </div>
           ) : items.length === 0 ? (
-            <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
-              Лідів не знайдено
+            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-zinc-200 bg-white p-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-400">
+                <Inbox className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-700">
+                  {filtersActive || q.trim() ? "Нічого не знайдено" : "Лідів поки немає"}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {filtersActive || q.trim()
+                    ? "Спробуйте змінити фільтри або пошук"
+                    : "Створіть перший лід, щоб почати"}
+                </p>
+              </div>
+              {filtersActive || q.trim() ? (
+                <button
+                  type="button"
+                  onClick={resetAllFilters}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Скинути фільтри
+                </button>
+              ) : (
+                <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
+                  + Лід
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -481,7 +585,7 @@ function LeadsPageContent() {
                     onClick={() => setPage((p) => p + 1)}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                   >
-                    Вперёд
+                    Вперед
                   </button>
                 </div>
               </div>

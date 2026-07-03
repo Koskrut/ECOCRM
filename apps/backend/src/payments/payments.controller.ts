@@ -40,6 +40,7 @@ export class PaymentsController {
     return this.service.list(
       {
         bankAccountId: q.bankAccountId,
+        q: q.q,
         ...pagination,
       },
       req.user,

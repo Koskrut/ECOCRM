@@ -14,6 +14,7 @@ import { DashboardMyWorkSection } from "@/components/dashboard/DashboardMyWorkSe
 import { DashboardQualityPanel } from "@/components/dashboard/DashboardQualityPanel";
 import { DashboardSalesCharts } from "@/components/dashboard/DashboardSalesCharts";
 import { DashboardTeamPulse } from "@/components/dashboard/DashboardTeamPulse";
+import { ManagerDashboardView } from "@/components/dashboard/manager/ManagerDashboardView";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import type { BaseCurrency } from "@/lib/base-currency";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
@@ -29,14 +30,23 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [roleLoaded, setRoleLoaded] = useState(false);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [morningOpen, setMorningOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    void apiGet<{ user?: { role?: string } }>("/auth/me")
-      .then((me) => setUserRole(me.user?.role ?? null))
-      .catch(() => setUserRole(null));
+    void apiGet<{ user?: { role?: string; name?: string } }>("/auth/me")
+      .then((me) => {
+        setUserRole(me.user?.role ?? null);
+        setUserName(me.user?.name ?? null);
+      })
+      .catch(() => {
+        setUserRole(null);
+        setUserName(null);
+      })
+      .finally(() => setRoleLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -57,6 +67,10 @@ export default function DashboardPage() {
   }, [userRole]);
 
   const load = useCallback(async () => {
+    if (userRole === "MANAGER") {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -74,7 +88,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [period, activityDate, compare, managerId, refreshKey]);
+  }, [period, activityDate, compare, managerId, refreshKey, userRole]);
 
   useEffect(() => {
     void load();
@@ -121,6 +135,14 @@ export default function DashboardPage() {
     );
   }, [isLeadership, managerId, managers]);
 
+  if (!roleLoaded) {
+    return <PageLoading />;
+  }
+
+  if (userRole === "MANAGER") {
+    return <ManagerDashboardView userName={userName} userRole={userRole} />;
+  }
+
   if (loading && !data) {
     return <PageLoading />;
   }
@@ -161,17 +183,6 @@ export default function DashboardPage() {
           </label>
         </div>
       </div>
-
-      {userRole === "MANAGER" ? (
-        <DashboardMyWorkSection
-          myWork={data.myWork}
-          userRole={userRole}
-          morningOpen={morningOpen}
-          onMorningOpenChange={setMorningOpen}
-          onAgendaUpdated={handleAgendaUpdated}
-          onTaskCompleted={handleTaskCompleted}
-        />
-      ) : null}
 
       <DashboardExecutiveKpis
         sales={data.sales}

@@ -112,6 +112,97 @@ export type DashboardV2Query = {
   managerId?: string;
 };
 
+export type ManagerInboxTiles = {
+  leadsWithoutTouch: number;
+  neverContactedNewLeads: number;
+  staleInProgressLeads: number;
+  overdueFollowupContacts: number;
+  newNoFirstContactContacts: number;
+  overdueTasks: number;
+  overduePayments: number;
+  debtControlContacts: number;
+};
+
+export type ManagerInboxTask = {
+  id: string;
+  title: string;
+  dueAt: string | null;
+  status: string;
+  leadId: string | null;
+  contactId: string | null;
+  assigneeName: string | null;
+};
+
+export type ManagerInboxTasks = {
+  overdue: ManagerInboxTask[];
+  today: ManagerInboxTask[];
+  tomorrow: ManagerInboxTask[];
+};
+
+export type ManagerPipelineCounts = {
+  NEW: number;
+  IN_PROGRESS: number;
+  WON: number;
+  LOST: number;
+};
+
+export type ManagerHotLead = {
+  id: string;
+  name: string;
+  source: string | null;
+  daysSinceActivity: number | null;
+  hasOverdueTask: boolean;
+};
+
+export type ManagerInboxResponse = {
+  tiles: ManagerInboxTiles;
+  tasks: ManagerInboxTasks;
+  pipelineCounts: ManagerPipelineCounts;
+  hotLeads: ManagerHotLead[];
+  totalInQueue: number;
+  computedAt: string;
+};
+
+export type ManagerActivityMetrics = {
+  callsInbound: number;
+  callsOutbound: number;
+  visits: number;
+  ordersCount: number;
+  ordersAmount: number;
+  paymentsAmount: number;
+};
+
+export type ManagerScorecardResponse = {
+  currency: string;
+  period: { from: string; to: string };
+  comparePeriod?: { from: string; to: string };
+  activity: {
+    today: ManagerActivityMetrics;
+    period: ManagerActivityMetrics;
+    compare?: ManagerActivityMetrics;
+  };
+  outcomes: {
+    leadsCreated: number;
+    leadsWon: number;
+    leadsLost: number;
+    wonShare: number;
+    exactConversion: number | null;
+    bookedRevenue: number;
+    collectedPayments: number;
+    avgCheck: number;
+    activeClientsInQueue: number;
+    compare?: {
+      leadsCreated: number;
+      leadsWon: number;
+      leadsLost: number;
+      wonShare: number;
+      bookedRevenue: number;
+      collectedPayments: number;
+      avgCheck: number;
+    };
+  };
+};
+
 export const dashboardApi = {
   getV2(query: DashboardV2Query = {}) {
     const params: Record<string, string> = {};
@@ -120,5 +211,16 @@ export const dashboardApi = {
     if (query.compare) params.compare = "true";
     if (query.managerId) params.managerId = query.managerId;
     return apiGet<DashboardV2Response>("/dashboard/v2", params);
+  },
+  getManagerInbox(query: { period?: "week" | "month" } = {}) {
+    const params: Record<string, string> = {};
+    if (query.period) params.period = query.period;
+    return apiGet<ManagerInboxResponse>("/dashboard/manager-inbox", params);
+  },
+  getManagerScorecard(query: { period?: "week" | "month"; compare?: boolean } = {}) {
+    const params: Record<string, string> = {};
+    if (query.period) params.period = query.period;
+    if (query.compare) params.compare = "true";
+    return apiGet<ManagerScorecardResponse>("/dashboard/manager-scorecard", params);
   },
 };

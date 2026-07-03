@@ -27,6 +27,7 @@ import type { SplitPaymentDto } from "./dto/split-payment.dto";
 import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
+import { buildPaymentSearchWhere } from "./payment-search.util";
 
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
   return toUsd(amount, currency, rates);
@@ -50,6 +51,7 @@ function formatOrderContactLabel(order: {
 
 type ListPaymentsParams = {
   bankAccountId?: string;
+  q?: string;
   page: number;
   pageSize: number;
   offset: number;
@@ -110,6 +112,13 @@ export class PaymentsService {
       where = { OR: [bankBranch, cashBranch] };
     } else if (params.bankAccountId) {
       where = { bankTransaction: { bankAccountId: params.bankAccountId } };
+    }
+
+    const searchQ = params.q?.trim();
+    if (searchQ) {
+      const searchWhere = buildPaymentSearchWhere(searchQ);
+      where =
+        Object.keys(where).length === 0 ? searchWhere : { AND: [where, searchWhere] };
     }
 
     try {
@@ -232,7 +241,13 @@ export class PaymentsService {
       orderBy: { paidAt: "desc" },
       include: {
         bankTransaction: {
-          select: { id: true, bookedAt: true, description: true, counterpartyName: true },
+          select: {
+            id: true,
+            bankAccountId: true,
+            bookedAt: true,
+            description: true,
+            counterpartyName: true,
+          },
         },
         createdBy: { select: { id: true, fullName: true } },
       },

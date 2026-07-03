@@ -33,7 +33,45 @@ describe("extractOrderNumberFromDescription", () => {
     assert.strictEqual(extractOrderNumberFromDescription("pay 1111 2222"), null);
   });
 
+  it("prefers a labeled number even amid other bank digits", () => {
+    assert.strictEqual(
+      extractOrderNumberFromDescription("заказ 9336, рахунок 12345678"),
+      "9336",
+    );
+    assert.strictEqual(
+      extractOrderNumberFromDescription("Оплата #9329 МФО 305299"),
+      "9329",
+    );
+  });
+
   it("returns null when no digits", () => {
     assert.strictEqual(extractOrderNumberFromDescription("no numbers here"), null);
+  });
+});
+
+describe("extractPersonNameFromDescription", () => {
+  const { extractPersonNameFromDescription, amountsMatchWithinTolerance, expectedPaymentAmountInCurrency } = require("../match-engine.utils");
+
+  it("extracts name after comma in bank description", () => {
+    const name = extractPersonNameFromDescription(
+      "Сплата за ....медматериалы, Сидоренко Микола Васильович",
+    );
+    assert.deepStrictEqual(name, {
+      lastName: "Сидоренко",
+      firstName: "Микола",
+      middleName: "Васильович",
+    });
+  });
+
+  it("returns null when no cyrillic name", () => {
+    assert.strictEqual(extractPersonNameFromDescription("payment for goods"), null);
+  });
+
+  it("matches amount within 1% tolerance using exchange rate", () => {
+    const expected = expectedPaymentAmountInCurrency(56, "USD", "UAH", 45);
+    assert.strictEqual(expected, 2520);
+    assert.strictEqual(amountsMatchWithinTolerance(2520, 2520), true);
+    assert.strictEqual(amountsMatchWithinTolerance(2520, 2510), true);
+    assert.strictEqual(amountsMatchWithinTolerance(2520, 2400), false);
   });
 });

@@ -114,15 +114,17 @@ export class ContactsService {
   private async isPhoneTakenByOtherContact(
     phoneNorm: string,
     excludeContactId?: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<boolean> {
+    const db = tx ?? this.prisma;
     const candidates = this.getPhoneCandidatesForUniqueness(phoneNorm);
     for (const c of candidates) {
-      const contactByPrimary = await this.prisma.contact.findUnique({
+      const contactByPrimary = await db.contact.findUnique({
         where: { phoneNormalized: c },
         select: { id: true },
       });
       if (contactByPrimary && contactByPrimary.id !== excludeContactId) return true;
-      const contactPhone = await this.prisma.contactPhone.findFirst({
+      const contactPhone = await db.contactPhone.findFirst({
         where: { phoneNormalized: c },
         select: { contactId: true },
       });
@@ -449,6 +451,7 @@ export class ContactsService {
       status?: string | null;
     },
     actor?: AuthUser,
+    tx?: Prisma.TransactionClient,
   ) {
     if (!data.firstName || !data.lastName) {
       throw new BadRequestException("firstName/lastName required");
@@ -459,7 +462,7 @@ export class ContactsService {
     const phoneNormalized = getPhoneNormalizedDigits(data.phone);
     if (!phoneNormalized) throw new BadRequestException("phone must contain digits");
 
-    if (await this.isPhoneTakenByOtherContact(phoneNormalized)) {
+    if (await this.isPhoneTakenByOtherContact(phoneNormalized, undefined, tx)) {
       throw new ConflictException("Контакт з таким номером телефону вже існує");
     }
 
@@ -467,7 +470,8 @@ export class ContactsService {
       data.ownerId ?? (actor?.role === UserRole.MANAGER ? actor.id : (actor?.id ?? null));
 
     const phoneCanonical = normalizePhoneToE164(data.phone) ?? data.phone.trim();
-    const contact = await this.prisma.contact.create({
+    const db = tx ?? this.prisma;
+    const contact = await db.contact.create({
       data: {
         ownerId,
         companyId: data.companyId ?? null,
@@ -495,11 +499,14 @@ export class ContactsService {
     });
 
     const created = this.mapToEntity(contact);
-    this.workflowEmitter.emitRecordCreated(
-      CustomFieldEntityType.CONTACT,
-      contact.id,
-      created as unknown as Record<string, unknown>,
-    );
+    // Defer workflow emit to the caller (post-commit) when running inside a transaction.
+    if (!tx) {
+      this.workflowEmitter.emitRecordCreated(
+        CustomFieldEntityType.CONTACT,
+        contact.id,
+        created as unknown as Record<string, unknown>,
+      );
+    }
     return created;
   }
 

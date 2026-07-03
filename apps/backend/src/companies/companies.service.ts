@@ -43,14 +43,19 @@ export class CompaniesService {
     @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
   ) {}
 
-  public async create(dto: CreateCompanyDto, actor?: AuthUser): Promise<Company> {
+  public async create(
+    dto: CreateCompanyDto,
+    actor?: AuthUser,
+    tx?: Prisma.TransactionClient,
+  ): Promise<Company> {
     const companyPhone =
       dto.phone != null
         ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null))
         : null;
     const ownerId = dto.ownerId ?? actor?.id ?? null;
+    const db = tx ?? this.prisma;
     try {
-      const company = await this.prisma.company.create({
+      const company = await db.company.create({
         data: {
           name: dto.name,
           edrpou: dto.edrpou ?? null,
@@ -64,15 +69,18 @@ export class CompaniesService {
         },
       });
 
-      this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.COMPANY, company.id, {
-        id: company.id,
-        name: company.name,
-        edrpou: company.edrpou,
-        taxId: company.taxId,
-        phone: company.phone,
-        address: company.address,
-        ownerId: company.ownerId,
-      });
+      // Defer workflow emit to the caller (post-commit) when running inside a transaction.
+      if (!tx) {
+        this.workflowEmitter?.emitRecordCreated(CustomFieldEntityType.COMPANY, company.id, {
+          id: company.id,
+          name: company.name,
+          edrpou: company.edrpou,
+          taxId: company.taxId,
+          phone: company.phone,
+          address: company.address,
+          ownerId: company.ownerId,
+        });
+      }
 
       return {
         ...company,

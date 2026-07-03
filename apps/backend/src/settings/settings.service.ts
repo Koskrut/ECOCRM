@@ -1032,14 +1032,18 @@ export class SettingsService {
       where: { id: TELEGRAM_KEY },
     });
     if (!row || !row.value || typeof row.value !== "object") {
-      return { enabled: false, openaiApiKey: null, model: "gpt-4o-mini" };
+      return {
+        enabled: false,
+        openaiApiKey: process.env.OPENAI_API_KEY?.trim() || null,
+        model: "gpt-4o-mini",
+      };
     }
     const v = row.value as Record<string, unknown>;
     const enabled = v.aiEnabled === true;
     const openaiApiKey =
       typeof v.aiOpenaiApiKey === "string" && v.aiOpenaiApiKey
         ? v.aiOpenaiApiKey
-        : null;
+        : process.env.OPENAI_API_KEY?.trim() || null;
     const model = typeof v.aiModel === "string" && v.aiModel ? v.aiModel : "gpt-4o-mini";
     return { enabled, openaiApiKey, model };
   }

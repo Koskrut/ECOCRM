@@ -71,7 +71,9 @@ Workflow в текущей версии поддерживает изменен�
 - `PUBLIC_BASE_URL` — публичный URL backend для установки webhook (например `https://api.example.com`)
 - `TELEGRAM_LEAD_COMPANY_ID` (опционально) — id компании для новых лидов из Telegram; если не задан, берётся первая компания в БД
 
-**Установка webhook:** после деплоя вызвать Telegram API:
+**Установка webhook (рекомендуемый способ):** в CRM открыть Настройки → Telegram, сохранить токен бота, webhook secret и public base URL, затем нажать «Register webhook». Кнопка «Check status» показывает `getWebhookInfo` (URL, pending updates, последняя ошибка) для диагностики.
+
+**Установка webhook вручную (альтернатива):** вызвать Telegram API напрямую:
 
 ```http
 POST https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook
@@ -221,7 +223,7 @@ docker compose \
 
 ### Compatibility window
 
-Текущая линия поставки registry: **`0.2.x`**. Для продакшена рекомендуется актуальный patch (**`0.2.102`**; см. `CHANGELOG.md`). Линия **`0.1.x`** остаётся для уже развёрнутых клиентов до перехода на `0.2.x`.
+Текущая линия поставки registry: **`0.2.x`**. Для продакшена рекомендуется актуальный patch (**`0.2.103`**; см. `CHANGELOG.md`). Линия **`0.1.x`** остаётся для уже развёрнутых клиентов до перехода на `0.2.x`.
 
 | Component | Compatible versions |
 | --- | --- |

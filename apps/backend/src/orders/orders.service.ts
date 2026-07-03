@@ -310,8 +310,12 @@ export class OrdersService {
     return { subtotal: s, discount: d, total, paid: p, debt };
   }
 
-  private async syncActiveReservationsForOrder(orderId: string): Promise<void> {
-    const order = await this.prisma.order.findUnique({
+  private async syncActiveReservationsForOrder(
+    orderId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = tx ?? this.prisma;
+    const order = await db.order.findUnique({
       where: { id: orderId },
       select: {
         id: true,
@@ -330,7 +334,7 @@ export class OrdersService {
     const stage = order.orderStage ?? "NEW";
     const shouldKeepActive = OrdersService.STAGES_WITH_ACTIVE_RESERVATION.has(stage);
 
-    await this.prisma.materialReservation.updateMany({
+    await db.materialReservation.updateMany({
       where: { orderId, status: ReservationStatus.ACTIVE },
       data: {
         status: shouldKeepActive ? ReservationStatus.RELEASED : ReservationStatus.CONSUMED,
@@ -348,7 +352,7 @@ export class OrdersService {
     }
     if (qtyByProduct.size === 0) return;
 
-    await this.prisma.materialReservation.createMany({
+    await db.materialReservation.createMany({
       data: Array.from(qtyByProduct.entries()).map(([productId, qty]) => ({
         productId,
         warehouseId: order.warehouseId ?? null,
@@ -861,7 +865,7 @@ export class OrdersService {
     return { items: result.items, total: result.total, counts };
   }
 
-  async create(dto: CreateOrderDto, actor?: AuthUser) {
+  async create(dto: CreateOrderDto, actor?: AuthUser, tx?: Prisma.TransactionClient) {
     assertWarehouseOrderMutation(actor, "create order");
     // When authenticated, use current user as owner; otherwise require body (e.g. API).
     const ownerId = actor?.id ?? dto.ownerId ?? undefined;
@@ -883,62 +887,71 @@ export class OrdersService {
       this.logger.warn(`getExchangeRates failed at order create, exchangeRate will be null: ${e}`);
     }
 
-    try {
-      const order = await this.prisma.$transaction(async (tx) => {
-        const rows = await tx.$queryRaw<[{ assigned: number }]>`
-          UPDATE "OrderNumberSeq" SET "nextValue" = "nextValue" + 1
-          RETURNING "nextValue" - 1 AS assigned
-        `;
-        const row = rows[0];
-        if (!row) throw new InternalServerErrorException("OrderNumberSeq not initialized");
-        const orderNumber = String(row.assigned);
+    const createCore = async (client: Prisma.TransactionClient) => {
+      const rows = await client.$queryRaw<[{ assigned: number }]>`
+        UPDATE "OrderNumberSeq" SET "nextValue" = "nextValue" + 1
+        RETURNING "nextValue" - 1 AS assigned
+      `;
+      const row = rows[0];
+      if (!row) throw new InternalServerErrorException("OrderNumberSeq not initialized");
+      const orderNumber = String(row.assigned);
 
-        const financialStatus = computeFinancialStatusFromOrder({
+      const financialStatus = computeFinancialStatusFromOrder({
+        totalAmount: a.total,
+        paidAmount: a.paid,
+        debtAmount: a.debt,
+        paymentType: dto.paymentType ?? null,
+        orderStage: "NEW",
+      });
+      return client.order.create({
+        data: {
+          orderNumber,
+          companyId: dto.companyId ?? null,
+          clientId: dto.clientId ?? null,
+          contactId: dto.contactId ?? null,
+          ownerId,
+          orderSource,
+          currency,
+          subtotalAmount: a.subtotal,
+          discountAmount: a.discount,
           totalAmount: a.total,
           paidAmount: a.paid,
           debtAmount: a.debt,
+          comment: dto.comment ?? null,
+          deliveryMethod: dto.deliveryMethod ?? null,
+          paymentMethod: dto.paymentMethod ?? null,
+          bankAccountId: dto.bankAccountId ?? null,
+          warehouseId: warehouseId ?? null,
+          documentsRequested: dto.documentsRequested ?? null,
           paymentType: dto.paymentType ?? null,
+          deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
           orderStage: "NEW",
-        });
-        return tx.order.create({
-          data: {
-            orderNumber,
-            companyId: dto.companyId ?? null,
-            clientId: dto.clientId ?? null,
-            contactId: dto.contactId ?? null,
-            ownerId,
-            orderSource,
-            currency,
-            subtotalAmount: a.subtotal,
-            discountAmount: a.discount,
-            totalAmount: a.total,
-            paidAmount: a.paid,
-            debtAmount: a.debt,
-            comment: dto.comment ?? null,
-            deliveryMethod: dto.deliveryMethod ?? null,
-            paymentMethod: dto.paymentMethod ?? null,
-            bankAccountId: dto.bankAccountId ?? null,
-            warehouseId: warehouseId ?? null,
-            documentsRequested: dto.documentsRequested ?? null,
-            paymentType: dto.paymentType ?? null,
-            deliveryData: (dto.deliveryData ?? undefined) as Prisma.InputJsonValue | undefined,
-            orderStage: "NEW",
-            deliveryStatus: "NOT_SHIPPED",
-            financialStatus,
-            exchangeRate,
-          },
-          include: ORDER_INCLUDE,
-        });
+          deliveryStatus: "NOT_SHIPPED",
+          financialStatus,
+          exchangeRate,
+        },
+        include: ORDER_INCLUDE,
       });
+    };
+
+    try {
+      // When a transaction client is provided, run inside the caller's transaction
+      // (no nested $transaction) and defer the workflow emit to the caller (post-commit).
+      const order = tx
+        ? await createCore(tx)
+        : await this.prisma.$transaction((client) => createCore(client));
 
       const mapped = this.mapToEntity(order as unknown as Record<string, unknown>);
-      this.workflowEmitter.emitRecordCreated(
-        CustomFieldEntityType.ORDER,
-        order.id,
-        mapped as unknown as Record<string, unknown>,
-      );
+      if (!tx) {
+        this.workflowEmitter.emitRecordCreated(
+          CustomFieldEntityType.ORDER,
+          order.id,
+          mapped as unknown as Record<string, unknown>,
+        );
+      }
       return mapped;
     } catch (err: unknown) {
+      if (tx) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       throw new InternalServerErrorException(`Order create failed: ${msg}`);
     }
@@ -1087,9 +1100,15 @@ export class OrdersService {
     return next;
   }
 
-  async addItem(orderId: string, dto: AddOrderItemDto, actor?: AuthUser) {
+  async addItem(
+    orderId: string,
+    dto: AddOrderItemDto,
+    actor?: AuthUser,
+    tx?: Prisma.TransactionClient,
+  ) {
     assertWarehouseOrderMutation(actor, "add order item");
-    const order = await this.prisma.order.findUnique({
+    const db = tx ?? this.prisma;
+    const order = await db.order.findUnique({
       where: { id: orderId },
       select: { id: true, ownerId: true, currency: true },
     });
@@ -1102,14 +1121,14 @@ export class OrdersService {
     const discountPercent = Math.max(0, Math.trunc(dto.discountPercent ?? 0));
     await this.assertAllowedDiscountPercent(discountPercent);
 
-    const existing = await this.prisma.orderItem.findUnique({
+    const existing = await db.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },
     });
 
     if (existing) {
       const nextQty = existing.qty + qty;
       const nextDiscount = dto.discountPercent != null ? discountPercent : existing.discountPercent;
-      await this.prisma.orderItem.update({
+      await db.orderItem.update({
         where: { id: existing.id },
         data: {
           qty: nextQty,
@@ -1119,7 +1138,7 @@ export class OrdersService {
         },
       });
     } else {
-      await this.prisma.orderItem.create({
+      await db.orderItem.create({
         data: {
           orderId,
           productId,
@@ -1131,8 +1150,45 @@ export class OrdersService {
       });
     }
 
-    await this.syncActiveReservationsForOrder(orderId);
-    return this.recalcAndReturn(orderId);
+    await this.syncActiveReservationsForOrder(orderId, tx);
+    return this.recalcAndReturn(orderId, tx);
+  }
+
+  /**
+   * Adds a non-product ("service") line to an order, used when a deal amount comes
+   * from a source without a catalog product (e.g. lead convert with a manual sum).
+   * Mirrors the Bitrix null-productId line pattern.
+   */
+  async addManualLine(
+    orderId: string,
+    dto: { name: string; qty: number; price: number },
+    actor?: AuthUser,
+    tx?: Prisma.TransactionClient,
+  ) {
+    assertWarehouseOrderMutation(actor, "add order item");
+    const db = tx ?? this.prisma;
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) await this.assertOrderAccess(order, actor);
+
+    const qty = Math.max(1, Math.trunc(dto.qty));
+    const price = dto.price;
+    await db.orderItem.create({
+      data: {
+        orderId,
+        productId: null,
+        productNameSnapshot: dto.name,
+        qty,
+        price,
+        discountPercent: 0,
+        lineTotal: computeLineTotal(qty, price, 0),
+      },
+    });
+
+    return this.recalcAndReturn(orderId, tx);
   }
 
   async updateItem(
@@ -1832,8 +1888,9 @@ export class OrdersService {
     return { items };
   }
 
-  private async recalcAndReturn(orderId: string) {
-    const order = await this.prisma.order.findUnique({
+  private async recalcAndReturn(orderId: string, tx?: Prisma.TransactionClient) {
+    const db = tx ?? this.prisma;
+    const order = await db.order.findUnique({
       where: { id: orderId },
       include: ORDER_INCLUDE,
     });
@@ -1854,7 +1911,7 @@ export class OrdersService {
       orderStage: order.orderStage ?? undefined,
     });
 
-    const updated = await this.prisma.order.update({
+    const updated = await db.order.update({
       where: { id: orderId },
       data: {
         subtotalAmount: a.subtotal,

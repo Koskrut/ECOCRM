@@ -651,9 +651,52 @@ export class LeadsService {
     const chunks: string[] = [];
     if (deal.title) chunks.push(deal.title);
     if (deal.comment) chunks.push(deal.comment);
-    if (typeof deal.amount === "number") chunks.push(`Сумма лида: ${deal.amount}`);
     if (chunks.length === 0) return null;
     return chunks.join(" • ");
+  }
+
+  /**
+   * Moves lead-scoped relations onto the converted contact so the contact timeline
+   * keeps full history. Runs inside the convert transaction.
+   */
+  private async migrateLeadRelationsToContact(
+    tx: Prisma.TransactionClient,
+    leadId: string,
+    contactId: string,
+  ): Promise<void> {
+    await tx.activity.updateMany({
+      where: { leadId, contactId: null },
+      data: { contactId },
+    });
+    await tx.telegramAccount.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    await tx.conversation.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    await tx.task.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    await tx.call.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    await tx.callQueueItem.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    await tx.manualCallSession.updateMany({
+      where: { leadId },
+      data: { contactId, leadId: null },
+    });
+    // MaterialReservation has no contactId; just detach from the lead.
+    await tx.materialReservation.updateMany({
+      where: { leadId },
+      data: { leadId: null },
+    });
   }
 
   async convert(id: string, dto: ConvertLeadDto, actor?: AuthUser) {
@@ -668,19 +711,30 @@ export class LeadsService {
     if (!lead) throw new NotFoundException("Lead not found");
     await this.assertLeadAccess(lead, actor);
 
-    const createDeal = dto.createDeal !== false;
+    // Order creation is opt-in: callers must explicitly request it.
+    const createDeal = dto.createDeal === true;
+
+    // ===== Idempotency guards =====
     if (createDeal && lead.convertedOrderId) {
       throw new ConflictException("Lead already has a conversion order");
     }
+    const alreadyConverted = lead.status === LeadStatusEnum.WON && Boolean(lead.contactId);
+    if (alreadyConverted && !createDeal && lead.convertedOrderId) {
+      throw new ConflictException("Lead already converted");
+    }
+    if (dto.contactMode === "create" && lead.contactId) {
+      throw new BadRequestException("Lead already has a contact; use link mode");
+    }
 
-    const explicitCompanyOverride = Boolean(
-      dto.companyId?.trim() || dto.createCompany?.name?.trim(),
-    );
     if (dto.companyId?.trim() && dto.createCompany?.name?.trim()) {
       throw new BadRequestException("Cannot specify both companyId and createCompany");
     }
+    const explicitCompanyOverride = Boolean(
+      dto.companyId?.trim() || dto.createCompany?.name?.trim(),
+    );
 
-    let companyId: string | null = null;
+    // ===== Validation / reads (outside the transaction) =====
+    let resolvedExistingCompanyId: string | null = null;
     if (dto.companyId?.trim()) {
       const company = await this.prisma.company.findUnique({
         where: { id: dto.companyId.trim() },
@@ -690,44 +744,42 @@ export class LeadsService {
       if (actor.role === UserRole.MANAGER && company.ownerId && company.ownerId !== actor.id) {
         throw new ForbiddenException("You can only use companies assigned to you");
       }
-      companyId = company.id;
-    } else if (dto.createCompany?.name?.trim()) {
-      const company = await this.companiesService.create({
-        name: dto.createCompany.name.trim(),
-      });
-      companyId = company.id;
+      resolvedExistingCompanyId = company.id;
     }
+    const createCompanyName = dto.createCompany?.name?.trim() || null;
 
-    let contactId: string;
+    // Resolve contact (link) or build contact create data (create); no writes yet.
+    let linkContactId: string | null = null;
+    let linkContactCompanyId: string | null = null;
+    let contactCreateData: Parameters<ContactsService["create"]>[0] | null = null;
 
     if (dto.contactMode === "link") {
       if (!dto.contactId) {
         throw new BadRequestException("contactId is required when contactMode='link'");
       }
-
       const contact = await this.prisma.contact.findUnique({
         where: { id: dto.contactId },
         select: { id: true, ownerId: true, companyId: true },
       });
       if (!contact) throw new NotFoundException("Contact not found");
-
       if (actor.role === UserRole.MANAGER && contact.ownerId && contact.ownerId !== actor.id) {
         throw new ForbiddenException("You can only use contacts assigned to you");
       }
-
-      if (!explicitCompanyOverride && contact.companyId) {
-        companyId = contact.companyId;
+      if (contact.companyId) {
+        if (resolvedExistingCompanyId && contact.companyId !== resolvedExistingCompanyId) {
+          throw new BadRequestException("Contact belongs to a different company");
+        }
+        if (createCompanyName) {
+          throw new BadRequestException("Contact belongs to a different company");
+        }
       }
-
-      if (contact.companyId && companyId && contact.companyId !== companyId) {
-        throw new BadRequestException("Contact belongs to a different company");
-      }
-
-      contactId = contact.id;
+      linkContactId = contact.id;
+      linkContactCompanyId = contact.companyId ?? null;
     } else if (dto.contactMode === "create") {
       const nameSource = this.pickNonEmpty(dto.contact?.firstName, lead.firstName, lead.name);
       const baseName = this.parseName(nameSource ?? null);
-      const firstName = this.pickNonEmpty(dto.contact?.firstName, lead.firstName, baseName.firstName) ?? "Лід";
+      const firstName =
+        this.pickNonEmpty(dto.contact?.firstName, lead.firstName, baseName.firstName) ?? "Лід";
       const lastName =
         this.pickNonEmpty(dto.contact?.lastName, lead.lastName, baseName.lastName, lead.companyName) ??
         "—";
@@ -737,106 +789,206 @@ export class LeadsService {
       if (!phone) {
         throw new BadRequestException("phone is required to create contact from lead");
       }
-
       const region = this.pickNonEmpty(dto.contact?.region, lead.region);
       if (!region) {
         throw new BadRequestException("region is required to create contact from lead");
       }
 
-      const created = await this.contactsService.create(
-        {
-          companyId: companyId ?? undefined,
-          firstName,
-          lastName,
-          middleName,
-          phone,
-          email: dto.contact?.email ?? lead.email ?? null,
-          region,
-          city: dto.contact?.city ?? lead.city ?? null,
-          address: dto.contact?.address ?? lead.address ?? null,
-          lat: dto.contact?.lat ?? lead.lat ?? null,
-          lng: dto.contact?.lng ?? lead.lng ?? null,
-          googlePlaceId: dto.contact?.googlePlaceId ?? lead.googlePlaceId ?? null,
-          position: null,
-          isPrimary: false,
-        },
-        actor,
-      );
-
-      contactId = created.id;
+      contactCreateData = {
+        firstName,
+        lastName,
+        middleName,
+        phone,
+        email: dto.contact?.email ?? lead.email ?? null,
+        region,
+        city: dto.contact?.city ?? lead.city ?? null,
+        address: dto.contact?.address ?? lead.address ?? null,
+        lat: dto.contact?.lat ?? lead.lat ?? null,
+        lng: dto.contact?.lng ?? lead.lng ?? null,
+        googlePlaceId: dto.contact?.googlePlaceId ?? lead.googlePlaceId ?? null,
+        position: null,
+        isPrimary: false,
+      };
     } else {
       throw new BadRequestException("Unsupported contactMode");
     }
 
-    let deal: unknown = null;
-    let conversionOrderId: string | null = null;
-
-    if (createDeal) {
-      const comment = this.buildOrderComment(dto.deal);
-      const orderDto: CreateOrderDto = {
-        ownerId: actor.id,
-        companyId: companyId ?? undefined,
-        clientId: contactId,
-        contactId,
-        comment: comment ?? undefined,
-        discountAmount: 0,
-      };
-
-      deal = await this.ordersService.create(orderDto, actor);
-      const orderId = (deal as { id: string }).id;
-      conversionOrderId = orderId;
-      const leadItems =
-        (lead as { items: Array<{ productId: string; qty: number; price: number }> }).items ?? [];
-      for (const it of leadItems) {
-        await this.ordersService.addItem(
-          orderId,
-          { productId: it.productId, qty: it.qty, price: it.price },
-          actor,
-        );
-      }
+    // Order owner: explicit > lead owner > actor. Managers can only own their own orders.
+    let orderOwnerId = dto.ownerId?.trim() || lead.ownerId || actor.id;
+    if (actor.role === UserRole.MANAGER && orderOwnerId !== actor.id) {
+      orderOwnerId = actor.id;
     }
 
-    const updatedLead = await this.prisma.lead.update({
-      where: { id },
-      data: {
-        contact: { connect: { id: contactId } },
-        status: LeadStatusEnum.WON,
-        lastActivityAt: new Date(),
-        ...(conversionOrderId
-          ? { convertedOrder: { connect: { id: conversionOrderId } } }
-          : {}),
-      },
-      include: {
-        convertedOrder: { select: { id: true, orderNumber: true } },
-      },
+    const leadItems =
+      (lead.items as Array<{ productId: string; qty: number; price: number }>) ?? [];
+    const comment = this.buildOrderComment(dto.deal);
+
+    // ===== Atomic writes =====
+    const result = await this.prisma.$transaction(async (tx) => {
+      let companyId: string | null = resolvedExistingCompanyId;
+      let createdCompany: { id: string } | null = null;
+      if (createCompanyName) {
+        createdCompany = await this.companiesService.create({ name: createCompanyName }, actor, tx);
+        companyId = createdCompany.id;
+      }
+
+      let contactId: string;
+      let createdContact: { id: string } | null = null;
+      if (linkContactId) {
+        contactId = linkContactId;
+        if (!explicitCompanyOverride && linkContactCompanyId) {
+          companyId = linkContactCompanyId;
+        }
+        // Attach the (new or selected) company to a contact that had none.
+        if (companyId && !linkContactCompanyId) {
+          await tx.contact.update({ where: { id: contactId }, data: { companyId } });
+        }
+      } else {
+        const created = await this.contactsService.create(
+          { ...contactCreateData!, companyId: companyId ?? undefined },
+          actor,
+          tx,
+        );
+        contactId = created.id;
+        createdContact = created;
+      }
+
+      let deal: unknown = null;
+      let conversionOrderId: string | null = null;
+      if (createDeal) {
+        const orderDto: CreateOrderDto = {
+          companyId: companyId ?? undefined,
+          clientId: contactId,
+          contactId,
+          comment: comment ?? undefined,
+          discountAmount: 0,
+        };
+        deal = await this.ordersService.create(orderDto, actor, tx);
+        const orderId = (deal as { id: string }).id;
+        conversionOrderId = orderId;
+        if (orderOwnerId !== actor.id) {
+          await tx.order.update({
+            where: { id: orderId },
+            data: { owner: { connect: { id: orderOwnerId } } },
+          });
+        }
+        for (const it of leadItems) {
+          deal = await this.ordersService.addItem(
+            orderId,
+            { productId: it.productId, qty: it.qty, price: it.price },
+            actor,
+            tx,
+          );
+        }
+        if (
+          leadItems.length === 0 &&
+          typeof dto.deal?.amount === "number" &&
+          dto.deal.amount > 0
+        ) {
+          deal = await this.ordersService.addManualLine(
+            orderId,
+            { name: dto.deal.title?.trim() || "Послуга з ліда", qty: 1, price: dto.deal.amount },
+            actor,
+            tx,
+          );
+        }
+      }
+
+      const updatedLead = await tx.lead.update({
+        where: { id },
+        data: {
+          contact: { connect: { id: contactId } },
+          status: LeadStatusEnum.WON,
+          lastActivityAt: new Date(),
+          ...(conversionOrderId
+            ? { convertedOrder: { connect: { id: conversionOrderId } } }
+            : {}),
+        },
+        include: {
+          convertedOrder: { select: { id: true, orderNumber: true } },
+        },
+      });
+
+      await this.migrateLeadRelationsToContact(tx, id, contactId);
+
+      await tx.leadEvent.create({
+        data: {
+          leadId: id,
+          type: LeadEventType.CONVERTED,
+          message: createDeal ? "Converted → contact + order" : "Converted → contact",
+          payload: {
+            from: lead.status,
+            to: LeadStatusEnum.WON,
+            contactId,
+            contactMode: dto.contactMode,
+            companyId: companyId ?? null,
+            createDeal,
+            orderId: conversionOrderId,
+            orderNumber:
+              (updatedLead as { convertedOrder?: { orderNumber: string } | null }).convertedOrder
+                ?.orderNumber ?? null,
+            convertedBy: actor.id,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      const contact = await tx.contact.findUnique({ where: { id: contactId } });
+
+      return {
+        updatedLead,
+        contact,
+        deal,
+        contactId,
+        conversionOrderId,
+        createdCompany,
+        createdContact,
+      };
     });
 
-    // Migrate activities from Lead to Contact
-    await this.prisma.activity.updateMany({
-      where: { leadId: id, contactId: null },
-      data: { contactId },
-    });
-
-    // Migrate telegram accounts from Lead to Contact
-    await this.prisma.telegramAccount.updateMany({
-      where: { leadId: id },
-      data: { contactId, leadId: null },
-    });
-
-    // Migrate conversations from Lead to Contact
-    await this.prisma.conversation.updateMany({
-      where: { leadId: id },
-      data: { contactId, leadId: null },
-    });
-
-    const contact = await this.prisma.contact.findUnique({
-      where: { id: contactId },
-    });
+    // ===== Post-commit side effects (workflow triggers) =====
+    if (result.createdCompany) {
+      this.workflowEmitter?.emitRecordCreated(
+        CustomFieldEntityType.COMPANY,
+        result.createdCompany.id,
+        result.createdCompany as unknown as Record<string, unknown>,
+      );
+    }
+    if (result.createdContact) {
+      this.workflowEmitter?.emitRecordCreated(
+        CustomFieldEntityType.CONTACT,
+        result.createdContact.id,
+        result.createdContact as unknown as Record<string, unknown>,
+      );
+    }
+    if (result.deal && result.conversionOrderId) {
+      this.workflowEmitter?.emitRecordCreated(
+        CustomFieldEntityType.ORDER,
+        result.conversionOrderId,
+        result.deal as Record<string, unknown>,
+      );
+    }
+    const next = this.mapToEntity(result.updatedLead);
+    const changes: Record<string, { previous?: unknown; current?: unknown }> = {
+      status: { previous: lead.status, current: LeadStatusEnum.WON },
+      contactId: { previous: lead.contactId ?? null, current: result.contactId },
+    };
+    if (result.conversionOrderId) {
+      changes.convertedOrderId = {
+        previous: lead.convertedOrderId ?? null,
+        current: result.conversionOrderId,
+      };
+    }
+    this.workflowEmitter?.emitRecordUpdated(
+      CustomFieldEntityType.LEAD,
+      id,
+      next as unknown as Record<string, unknown>,
+      changes,
+    );
 
     return {
-      lead: this.mapToEntity(updatedLead),
-      contact,
-      deal,
+      lead: next,
+      contact: result.contact,
+      deal: result.deal,
     };
   }
 
@@ -855,9 +1007,12 @@ export class LeadsService {
     };
 
     if (lead.phone) {
-      (where.OR as Prisma.ContactWhereInput[]).push({
-        phone: lead.phone,
-      });
+      const phoneNorm = getPhoneNormalizedDigits(lead.phone);
+      if (phoneNorm) {
+        (where.OR as Prisma.ContactWhereInput[]).push({ phoneNormalized: phoneNorm });
+      }
+      // Fallback for legacy contacts without a normalized phone.
+      (where.OR as Prisma.ContactWhereInput[]).push({ phone: lead.phone });
     }
     if (lead.email) {
       (where.OR as Prisma.ContactWhereInput[]).push({
