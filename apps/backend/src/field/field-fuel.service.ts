@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   StreamableFile,
+  forwardRef,
 } from "@nestjs/common";
 import { FuelCompensationStatus, Prisma, UserRole, VisitStatus } from "@prisma/client";
 import * as XLSX from "xlsx";
@@ -11,6 +13,8 @@ import { kyivDayBounds } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
+import type { FuelRefuelTotals } from "./field-fuel-refuels.types";
+import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
 import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner-scope";
 
@@ -21,6 +25,8 @@ export class FieldFuelService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly routePlans: RoutePlansService,
+    @Inject(forwardRef(() => FieldFuelRefuelsService))
+    private readonly refuels: FieldFuelRefuelsService,
   ) {}
 
   parseUtcDay(dateStr: string): Date {
@@ -285,6 +291,7 @@ export class FieldFuelService {
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source === "none") {
       warnings.push("gps_track_unavailable");
     }
+    const refuelData = await this.refuels.listForDay(actor, dateStr, ownerId);
     return {
       report,
       profile,
@@ -296,6 +303,8 @@ export class FieldFuelService {
       factGpsMetrics,
       compensationFactKind,
       routeAnchors: snapshot.routeAnchors,
+      refuels: refuelData.items,
+      refuelTotals: refuelData.totals,
     };
   }
 
@@ -367,6 +376,7 @@ export class FieldFuelService {
       warnings.push("report_stale");
     }
 
+    const refuelData = await this.refuels.listForDay(actor, dateStr, ownerId);
     return {
       report,
       profile,
@@ -378,6 +388,8 @@ export class FieldFuelService {
       factGpsMetrics,
       compensationFactKind: geometryBundle.compensationFactKind,
       routeAnchors: routeAnchorsSnapshot,
+      refuels: refuelData.items,
+      refuelTotals: refuelData.totals,
     };
   }
 
@@ -485,12 +497,15 @@ export class FieldFuelService {
       orderBy: [{ submittedAt: "desc" }, { date: "desc" }],
     });
 
+    const refuelTotals = await this.refuels.getTotalsByReportIds(reports.map((r) => r.id));
+
     return {
       from: fromStr,
       to: toStr,
       items: reports.map((r) => ({
         report: r,
         owner: r.owner,
+        refuelTotals: refuelTotals.get(r.id) ?? { count: 0, liters: 0, amount: 0 },
       })),
     };
   }
@@ -557,11 +572,20 @@ export class FieldFuelService {
       if (r.amountEstimated != null) totalAmount += Number(r.amountEstimated);
       if (r.compensationStatus === FuelCompensationStatus.DRAFT) daysDraft += 1;
 
+      const refuelTotals: FuelRefuelTotals = item.refuelTotals ?? {
+        count: 0,
+        liters: 0,
+        amount: 0,
+      };
+
       return {
         date: r.date.toISOString().slice(0, 10),
         report: r,
         breakdown: item.breakdown,
         warnings: item.warnings,
+        refuelCount: refuelTotals.count,
+        refuelLitersTotal: refuelTotals.liters,
+        refuelAmountTotal: refuelTotals.amount,
       };
     });
 
@@ -609,6 +633,9 @@ export class FieldFuelService {
       "Compensation km": d.report.compensationKm ?? "",
       Liters: d.report.litersEstimated ?? "",
       "Amount UAH": d.report.amountEstimated != null ? Number(d.report.amountEstimated) : "",
+      "Refuel count": d.refuelCount ?? 0,
+      "Refuel liters": d.refuelLitersTotal ?? 0,
+      "Refuel amount UAH": d.refuelAmountTotal ?? 0,
       Status: d.report.compensationStatus,
       Vehicle: vehicle,
       Note: d.report.managerNote ?? "",

@@ -1,6 +1,7 @@
 import { LeadChannel, LeadSource, LeadStatus } from "@prisma/client";
 import { Type } from "class-transformer";
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { LEAD_ATTENTION_PRESETS } from "../leads-attention.util";
 
 export class ListLeadsQueryDto {
   @IsOptional()
@@ -51,5 +52,19 @@ export class ListLeadsQueryDto {
   @IsOptional()
   @IsString()
   sortOrder?: "asc" | "desc";
+
+  /** Inbox / analytics attention preset — list matches dashboard tile counts. */
+  @IsOptional()
+  @IsIn([...LEAD_ATTENTION_PRESETS])
+  attention?: (typeof LEAD_ATTENTION_PRESETS)[number];
+
+  @IsOptional()
+  @IsIn(["week", "month"])
+  attentionPeriod?: "week" | "month";
+
+  /** Comma-separated lead ids (e.g. from daily agenda plan). */
+  @IsOptional()
+  @IsString()
+  ids?: string;
 }
 

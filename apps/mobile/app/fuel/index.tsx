@@ -38,6 +38,8 @@ type FuelRangeResponse = {
   };
   days: Array<{
     date: string;
+    refuelCount?: number;
+    refuelAmountTotal?: number;
     report: {
       compensationKm: number | null;
       litersEstimated: number | null;
@@ -172,6 +174,12 @@ export default function FuelMonthScreen() {
                     visits: d.report.visitCount ?? 0,
                     km: d.report.compensationKm ?? "—",
                   })}
+                  {d.refuelCount && d.refuelCount > 0
+                    ? ` · ${t("fuel.refuelBadge", {
+                        count: d.refuelCount,
+                        amount: d.refuelAmountTotal ?? 0,
+                      })}`
+                    : ""}
                 </Text>
               </View>
               <View style={styles.dayEnd}>

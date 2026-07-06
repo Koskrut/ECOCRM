@@ -94,6 +94,8 @@ export type LeadsResponse = {
   pageSize: number;
 };
 
+export type LeadAttentionPreset = "without-touch" | "never-contacted-new" | "stale-in-progress";
+
 export type ListLeadsParams = {
   page?: number;
   pageSize?: number;
@@ -106,6 +108,9 @@ export type ListLeadsParams = {
   q?: string;
   sortBy?: "createdAt" | "score";
   sortOrder?: "asc" | "desc";
+  attention?: LeadAttentionPreset;
+  attentionPeriod?: "week" | "month";
+  ids?: string;
 };
 
 export type MetaSyncFormResult = {

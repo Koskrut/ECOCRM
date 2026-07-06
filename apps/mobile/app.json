@@ -19,6 +19,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CRM використовує геолокацію для перевірки візитів і треку маршруту під час зміни.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CRM збирає координати у фоні під час активної зміни, щоб керівник бачив маршрут менеджера.",
+        "NSCameraUsageDescription": "CRM використовує камеру для фото чека заправки.",
+        "NSPhotoLibraryUsageDescription": "CRM використовує галерею для фото чека заправки.",
         "UIBackgroundModes": [
           "location",
           "fetch"
@@ -42,7 +44,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA"
       ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
@@ -72,7 +75,14 @@
       ],
       "expo-secure-store",
       "expo-font",
-      "expo-background-fetch"
+      "expo-background-fetch",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CRM використовує галерею для фото чека заправки.",
+          "cameraPermission": "CRM використовує камеру для фото чека заправки."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

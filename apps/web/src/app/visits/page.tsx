@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DateTime } from "luxon";
 import {
   visitsApi,
@@ -195,12 +196,32 @@ function findNearestAvailableSlot(
   return null;
 }
 
+function parseVisitDateFromUrl(raw: string | null): Date {
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const dt = DateTime.fromISO(raw, { zone: CRM_TIME_ZONE }).startOf("day");
+    if (dt.isValid) return dt.toJSDate();
+  }
+  return DateTime.now().setZone(CRM_TIME_ZONE).startOf("day").toJSDate();
+}
+
 export default function VisitsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-500">Завантаження візитів…</div>}>
+      <VisitsPageContent />
+    </Suspense>
+  );
+}
+
+function VisitsPageContent() {
+  const searchParams = useSearchParams();
   const { pushToast } = useToast();
   const { confirm } = useConfirm();
-  const [date, setDate] = useState<Date>(() =>
-    DateTime.now().setZone(CRM_TIME_ZONE).startOf("day").toJSDate(),
-  );
+  const [date, setDate] = useState<Date>(() => parseVisitDateFromUrl(searchParams.get("date")));
+  const highlightVisitIds = useMemo(() => {
+    const raw = searchParams.get("ids");
+    if (!raw) return new Set<string>();
+    return new Set(raw.split(",").map((id) => id.trim()).filter(Boolean));
+  }, [searchParams]);
   const [backlog, setBacklog] = useState<Visit[]>([]);
   const [dayVisits, setDayVisits] = useState<Visit[]>([]);
   const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
@@ -302,6 +323,14 @@ export default function VisitsPage() {
   const [viewOwnerId, setViewOwnerId] = useState("");
 
   const dateParam = useMemo(() => jsDateToYmdKyiv(date), [date]);
+
+  useEffect(() => {
+    if (highlightVisitIds.size === 0 || loading) return;
+    const firstId = [...highlightVisitIds].find((id) => dayVisits.some((v) => v.id === id));
+    if (!firstId) return;
+    const el = document.querySelector(`[data-visit-id="${firstId}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [dayVisits, highlightVisitIds, loading]);
   const showOwnerFilter = role === "ADMIN" || role === "LEAD";
   const planOwnerOpts = useMemo(() => {
     if (viewOwnerId) return { ownerId: viewOwnerId };
@@ -1906,11 +1935,14 @@ export default function VisitsPage() {
                         const isDragging = dragVisitId === v.id;
                         const isExpanded = isHovered && !isDragging;
                         const minH = isExpanded ? Math.max(heightPx, 112) : 28;
+                        const isHighlighted = highlightVisitIds.has(v.id);
                         return (
                           <div
                             key={v.id}
+                            data-visit-id={v.id}
                             className={[
                               "group absolute rounded-md border px-2 py-1 text-xs shadow-sm transition-[min-height,box-shadow] duration-150",
+                              isHighlighted ? "ring-2 ring-sky-400 ring-offset-1" : "",
                               isConflict
                                 ? "border-amber-400 bg-amber-50"
                                 : v.status === "DONE" &&
@@ -2071,9 +2103,9 @@ export default function VisitsPage() {
                 onToggle={toggleRouteLayer}
                 disabled={routeGeometryLoading}
               />
-              {routeGeometryBundle?.factGps.quality.degraded ? (
+              {routeGeometryBundle?.factGps.quality?.degraded ? (
                 <p className="text-[10px] text-amber-700">
-                  GPS-трек слабый ({routeGeometryBundle.factGps.quality.sampleCount} точек) — для
+                  GPS-трек слабый ({routeGeometryBundle.factGps.quality?.sampleCount} точек) — для
                   топлива используется факт по визитам.
                 </p>
               ) : null}

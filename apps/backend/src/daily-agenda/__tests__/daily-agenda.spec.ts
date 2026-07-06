@@ -1,7 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildDefaultProposal, mergeRecommitItems } from "../daily-agenda.proposal";
-import { buildSuggestions } from "../daily-agenda.suggestions";
+import {
+  buildDefaultProposal,
+  buildSmartDefaultProposal,
+  mergeRecommitItems,
+} from "../daily-agenda.proposal";
+import {
+  buildSuggestions,
+  groupSuggestions,
+  pickSeedSuggestions,
+} from "../daily-agenda.suggestions";
 import { computeCompletion, shouldAutoCompleteItem } from "../daily-agenda.completion";
 
 describe("daily-agenda.proposal", () => {
@@ -28,6 +36,10 @@ describe("daily-agenda.proposal", () => {
           status: "OPEN",
           contactId: null,
           leadId: null,
+          contactName: null,
+          companyName: null,
+          leadName: null,
+          daysOverdue: null,
         },
       ],
       contactActions: [
@@ -38,13 +50,55 @@ describe("daily-agenda.proposal", () => {
           nextActionAt: "2026-06-24T14:00:00.000Z",
           nextActionNote: null,
           phone: "+380",
+          companyName: "ACME",
+          clientStage: "ACTIVE_CLIENT",
         },
       ],
+      dateYmd: "2026-06-24",
     });
     assert.equal(proposal.length, 3);
     assert.equal(proposal[0].kind, "VISIT");
     assert.equal(proposal[1].kind, "TASK");
     assert.equal(proposal[2].kind, "CONTACT_ACTION");
+    assert.ok(proposal[2].title.includes("Petro"));
+    assert.ok(proposal[2].metadata?.entityHref?.includes("c2"));
+  });
+
+  it("smart proposal seeds from suggestions when scheduled empty", () => {
+    const suggestions = buildSuggestions({
+      profile: "office",
+      visits: [],
+      tasks: [],
+      contactActions: [],
+      backlogVisits: [],
+      overdueTasks: [
+        {
+          id: "t1",
+          title: "Передзвонить",
+          dueAt: "2026-06-20T12:00:00.000Z",
+          status: "OPEN",
+          contactId: "c1",
+          leadId: null,
+          contactName: "Ivan",
+          companyName: "Clinic",
+          leadName: null,
+          daysOverdue: 4,
+        },
+      ],
+      queueContacts: [],
+      hotLeads: [],
+      newLeads: [],
+      overdueOrders: [],
+      callQueueItems: [],
+      debtContacts: [],
+      missedCalls: [],
+      planKeys: new Set(),
+    });
+    const seeds = pickSeedSuggestions({ profile: "office", suggestions });
+    const proposal = buildSmartDefaultProposal({ scheduled: [], seedSuggestions: seeds });
+    assert.ok(proposal.length > 0);
+    assert.equal(proposal[0].kind, "TASK");
+    assert.ok(proposal[0].subtitle?.includes("Clinic"));
   });
 
   it("re-commit preserves DONE and adds new PLANNED", () => {
@@ -87,14 +141,77 @@ describe("daily-agenda.suggestions", () => {
           nextActionAt: "2026-06-24T10:00:00.000Z",
           nextActionNote: null,
           phone: null,
+          companyName: null,
+          clientStage: null,
         },
       ],
       backlogVisits: [],
       overdueTasks: [],
       queueContacts: [],
+      hotLeads: [],
+      newLeads: [],
+      overdueOrders: [],
+      callQueueItems: [],
+      debtContacts: [],
+      missedCalls: [],
       planKeys: new Set(),
     });
     assert.ok(suggestions.some((s) => s.suggestionKey.startsWith("meeting-no-visit:")));
+  });
+
+  it("groups suggestions by category", () => {
+    const suggestions = buildSuggestions({
+      profile: "office",
+      visits: [],
+      tasks: [],
+      contactActions: [],
+      backlogVisits: [],
+      overdueTasks: [
+        {
+          id: "t1",
+          title: "Task",
+          dueAt: null,
+          status: "OPEN",
+          contactId: null,
+          leadId: null,
+          contactName: null,
+          companyName: null,
+          leadName: null,
+          daysOverdue: 2,
+        },
+      ],
+      queueContacts: [],
+      hotLeads: [
+        {
+          id: "l1",
+          name: "Lead One",
+          source: "web",
+          daysSinceActivity: 5,
+          status: "IN_PROGRESS",
+          companyName: null,
+        },
+      ],
+      newLeads: [],
+      overdueOrders: [
+        {
+          id: "o1",
+          orderNumber: "ORD-1",
+          debtAmount: 1000,
+          currency: "UAH",
+          contactName: "Client",
+          companyName: null,
+          daysOverdue: 3,
+        },
+      ],
+      callQueueItems: [],
+      debtContacts: [],
+      missedCalls: [],
+      planKeys: new Set(),
+    });
+    const grouped = groupSuggestions(suggestions);
+    assert.ok((grouped.overdue?.length ?? 0) >= 1);
+    assert.ok((grouped.leads?.length ?? 0) >= 1);
+    assert.ok((grouped.orders?.length ?? 0) >= 1);
   });
 });
 
@@ -120,6 +237,7 @@ describe("daily-agenda.completion", () => {
       doneVisitContactIds: new Set(),
       contactNextActionChanged: new Set(),
       processedLeadIds: new Set(),
+      paidOrderIds: new Set(),
     };
     assert.equal(
       shouldAutoCompleteItem(
@@ -131,6 +249,33 @@ describe("daily-agenda.completion", () => {
           contactId: null,
           leadId: null,
           metadata: {},
+        },
+        facts,
+      ),
+      true,
+    );
+  });
+
+  it("order payment auto-closes suggestion", () => {
+    const facts = {
+      doneVisitIds: new Set(),
+      doneTaskIds: new Set(),
+      calledContactIds: new Set(),
+      doneVisitContactIds: new Set(),
+      contactNextActionChanged: new Set(),
+      processedLeadIds: new Set(),
+      paidOrderIds: new Set(["o1"]),
+    };
+    assert.equal(
+      shouldAutoCompleteItem(
+        {
+          kind: "SUGGESTION",
+          status: "PLANNED",
+          visitId: null,
+          taskId: null,
+          contactId: null,
+          leadId: null,
+          metadata: { orderId: "o1" },
         },
         facts,
       ),

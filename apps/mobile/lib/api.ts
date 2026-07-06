@@ -56,3 +56,45 @@ export async function apiFetch<T>(
 
   return body as T;
 }
+
+/** Multipart upload (do not set Content-Type — fetch adds boundary). */
+export async function apiUploadForm<T>(
+  path: string,
+  formData: FormData,
+  init?: { token?: string | null; method?: string },
+): Promise<T> {
+  const { token, method = "POST" } = init ?? {};
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const res = await fetch(joinPath(getApiBaseUrl(), path), {
+    method,
+    headers,
+    body: formData,
+  });
+
+  const text = await res.text();
+  let body: unknown = null;
+  if (text.length) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      body = text;
+    }
+  }
+
+  if (!res.ok) {
+    let message = `${res.status}`;
+    if (body && typeof body === "object" && body !== null && "message" in body) {
+      const m = (body as { message: unknown }).message;
+      message = typeof m === "string" ? m : Array.isArray(m) ? m.join(", ") : JSON.stringify(body);
+    } else if (typeof body === "string") {
+      message = body;
+    }
+    throw new ApiError(res.status, message);
+  }
+
+  return body as T;
+}

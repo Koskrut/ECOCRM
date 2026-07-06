@@ -5,10 +5,16 @@ import { SettingsService, type ExchangeRates } from "../../settings/settings.ser
 import type { AnalyticsScope } from "../analytics-scope.service";
 import {
   buildLeadPeriodWhere,
-  buildOverdueTaskWhereForPeriod,
   buildPaymentPeriodWhere,
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
+import { buildTaskOverdueWhere } from "../../tasks/tasks-attention.util";
+import {
+  buildOrderOverduePaymentsWhere,
+  buildStuckOrdersBaseWhere,
+  filterStuckOrders,
+  STUCK_ORDERS_CANDIDATE_CAP,
+} from "../../orders/orders-attention.util";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
@@ -123,7 +129,14 @@ export class AnalyticsOverviewService {
   ): Promise<OverviewPayload> {
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
     const periodDebtWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
-    const overdueWhere: Prisma.OrderWhereInput = { ...periodDebtWhere, financialStatus: "OVERDUE" };
+    const overduePaymentsWhere = buildOrderOverduePaymentsWhere({
+      managerId: scope.orderScope.managerId,
+      allowedOwnerIds: scope.orderScope.allowedOwnerIds,
+    });
+    const overdueTaskWhere = buildTaskOverdueWhere({
+      managerId: scope.orderScope.managerId,
+      allowedAssigneeIds: scope.allowedAssigneeIds,
+    });
 
     const orderOwnerPrismaWhere: Prisma.OrderWhereInput = {};
     if (scope.orderScope.managerId) orderOwnerPrismaWhere.ownerId = scope.orderScope.managerId;
@@ -153,7 +166,6 @@ export class AnalyticsOverviewService {
       stuckCount,
       leadsNoTouchCount,
       overdueOrdersCount,
-      overdueDebtAmountOrders,
     ] = await Promise.all([
       this.prisma.order.findMany({
         where: orderWhere,
@@ -170,22 +182,16 @@ export class AnalyticsOverviewService {
         _count: { id: true },
       }),
       this.prisma.order.findMany({ where: periodDebtWhere, select: { debtAmount: true, currency: true } }),
-      this.prisma.order.findMany({ where: overdueWhere, select: { debtAmount: true, currency: true } }),
-      this.prisma.lead.count({ where: leadWhere }),
-      this.prisma.lead.count({ where: { ...leadWhere, status: "WON" } }),
-      this.prisma.task.count({
-        where: buildOverdueTaskWhereForPeriod(period.from, period.to, {
-          managerId: scope.orderScope.managerId,
-          allowedAssigneeIds: scope.allowedAssigneeIds,
-        }),
-      }),
-      this.countStuckOrders(scope, period),
-      this.countLeadsWithoutTouch(scope, period),
-      this.prisma.order.count({ where: { ...overdueWhere, debtAmount: { gt: 0 } } }),
       this.prisma.order.findMany({
-        where: { ...overdueWhere, debtAmount: { gt: 0 } },
+        where: overduePaymentsWhere,
         select: { debtAmount: true, currency: true },
       }),
+      this.prisma.lead.count({ where: leadWhere }),
+      this.prisma.lead.count({ where: { ...leadWhere, status: "WON" } }),
+      this.prisma.task.count({ where: overdueTaskWhere }),
+      this.countStuckOrders(scope, period),
+      this.countLeadsWithoutTouch(scope, period),
+      this.prisma.order.count({ where: overduePaymentsWhere }),
     ]);
 
     let bookedRevenue = 0;
@@ -212,10 +218,7 @@ export class AnalyticsOverviewService {
     for (const o of debtOrders) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     let overdueDebt = 0;
     for (const o of overdueDebtOrders) overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-    let overdueDebtAmount = 0;
-    for (const o of overdueDebtAmountOrders) {
-      overdueDebtAmount += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-    }
+    const overdueDebtAmount = overdueDebt;
 
     const charts: OverviewCharts = {
       bookedRevenueByDay: this.buildBookedRevenueByDay(ordersForRevenue, rates),
@@ -308,36 +311,24 @@ export class AnalyticsOverviewService {
   }
 
   private async countStuckOrders(scope: AnalyticsScope, period: ResolvedPeriod): Promise<number> {
-    const asOf = period.to;
-    const cutoff = new Date(asOf);
-    cutoff.setDate(cutoff.getDate() - 3);
-    const where: Prisma.OrderWhereInput = {
-      OR: [{ orderStage: null }, { orderStage: { notIn: ["CANCELED", "REFUSED", "COMPLETED"] } }],
-      createdAt: { gte: period.from, lte: period.to },
-    };
-    if (scope.orderScope.managerId) where.ownerId = scope.orderScope.managerId;
-    else if (scope.orderScope.allowedOwnerIds !== undefined) {
-      where.ownerId = { in: scope.orderScope.allowedOwnerIds };
-    }
+    const where = buildStuckOrdersBaseWhere(period, {
+      managerId: scope.orderScope.managerId,
+      allowedOwnerIds: scope.orderScope.allowedOwnerIds,
+    });
     const orders = await this.prisma.order.findMany({
       where,
-      take: 600,
+      take: STUCK_ORDERS_CANDIDATE_CAP,
       select: {
         id: true,
-        orderStage: true,
         updatedAt: true,
         statusHistory: {
           orderBy: { createdAt: "desc" },
           take: 1,
-          select: { createdAt: true, toOrderStage: true },
+          select: { createdAt: true },
         },
       },
     });
-    return orders.filter((o) => {
-      const last = o.statusHistory[0];
-      const since = last?.createdAt ?? o.updatedAt;
-      return since < cutoff;
-    }).length;
+    return filterStuckOrders(orders, period.to).length;
   }
 
   private async countLeadsWithoutTouch(scope: AnalyticsScope, period: ResolvedPeriod): Promise<number> {

@@ -7,13 +7,17 @@ import { apiHttp } from "@/lib/api/client";
 import { fieldFuelApi } from "@/lib/api/resources/field-fuel";
 import {
   fieldShiftsApi,
-  type FieldLocationSampleRow,
   type FieldShiftTeamItem,
 } from "@/lib/api/resources/field-shifts";
+import {
+  routePlansApi,
+  type RouteGeometryBundle,
+} from "@/lib/api/resources/visits";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
 import { TeamFieldList } from "@/components/visits/TeamFieldList";
 import { TeamFieldMap } from "@/components/visits/TeamFieldMap";
+import type { RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsSubNav } from "../VisitsSubNav";
 
 const POLL_MS = 30_000;
@@ -25,18 +29,31 @@ export default function VisitsTeamPage() {
   const [role, setRole] = useState<string | null>(null);
   const [items, setItems] = useState<FieldShiftTeamItem[]>([]);
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
-  const [trackSamples, setTrackSamples] = useState<FieldLocationSampleRow[]>([]);
-  const [trackRoadPath, setTrackRoadPath] = useState<Array<{ lat: number; lng: number }>>([]);
-  const [trackRouteSource, setTrackRouteSource] = useState<"google" | "fallback" | "none" | null>(
+  const [routeBundle, setRouteBundle] = useState<RouteGeometryBundle | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [shiftOnly, setShiftOnly] = useState(false);
+  const [shiftOnlyPath, setShiftOnlyPath] = useState<Array<{ lat: number; lng: number }> | null>(
     null,
   );
-  const [trackGeometryLoading, setTrackGeometryLoading] = useState(false);
+  const [layers, setLayers] = useState<Record<RouteLayerKey, boolean>>({
+    planned: false,
+    fact_visits: false,
+    fact_gps: true,
+  });
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [pendingFuel, setPendingFuel] = useState<
-    Array<{ report: { date: string; compensationKm: number | null }; owner: { id: string; fullName: string } }>
+    Array<{
+      report: { date: string; compensationKm: number | null };
+      owner: { id: string; fullName: string };
+      refuelTotals?: { count: number; liters: number; amount: number };
+    }>
   >([]);
+
+  function reportDateKey(date: string): string {
+    return date.slice(0, 10);
+  }
 
   const today = todayYmdInKyiv();
 
@@ -97,61 +114,55 @@ export default function VisitsTeamPage() {
     [items, selectedOwnerId],
   );
 
-  const loadTrack = useCallback(async () => {
+  const loadRouteBundle = useCallback(async () => {
     if (!selectedItem) {
-      setTrackSamples([]);
+      setRouteBundle(null);
       return;
     }
+    setRouteLoading(true);
     try {
-      const res = await fieldShiftsApi.getSamples(selectedItem.shift.id, { limit: 500 });
-      setTrackSamples(res.items);
+      const bundle = await routePlansApi.geometryBundle(today, {
+        ownerId: selectedItem.owner.id,
+        traffic: true,
+      });
+      setRouteBundle(bundle);
     } catch {
-      setTrackSamples([]);
+      setRouteBundle(null);
+    } finally {
+      setRouteLoading(false);
     }
-  }, [selectedItem]);
+  }, [selectedItem, today]);
 
   useEffect(() => {
-    void loadTrack();
+    void loadRouteBundle();
     if (!selectedItem) return;
     const id = setInterval(() => {
-      void loadTrack();
+      void loadRouteBundle();
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [loadTrack, selectedItem]);
+  }, [loadRouteBundle, selectedItem]);
 
-  const trackPath = useMemo(
-    () => trackSamples.map((s) => ({ lat: s.lat, lng: s.lng })),
-    [trackSamples],
-  );
-
-  const loadTrackGeometry = useCallback(async () => {
-    if (!selectedItem || trackSamples.length < 2) {
-      setTrackRoadPath([]);
-      setTrackRouteSource(null);
+  const loadShiftOnlyTrack = useCallback(async () => {
+    if (!shiftOnly || !selectedItem) {
+      setShiftOnlyPath(null);
       return;
     }
-    const rawPath = trackSamples.map((s) => ({ lat: s.lat, lng: s.lng }));
-    setTrackGeometryLoading(true);
     try {
       const res = await fieldShiftsApi.getTrackGeometry(selectedItem.shift.id);
-      if (res.path.length >= 2) {
-        setTrackRoadPath(res.path);
-        setTrackRouteSource(res.source);
-      } else {
-        setTrackRoadPath(rawPath);
-        setTrackRouteSource("fallback");
-      }
+      setShiftOnlyPath(res.path.length >= 2 ? res.path : null);
     } catch {
-      setTrackRoadPath(rawPath);
-      setTrackRouteSource("fallback");
-    } finally {
-      setTrackGeometryLoading(false);
+      setShiftOnlyPath(null);
     }
-  }, [selectedItem, trackSamples]);
+  }, [shiftOnly, selectedItem]);
 
   useEffect(() => {
-    void loadTrackGeometry();
-  }, [loadTrackGeometry]);
+    void loadShiftOnlyTrack();
+    if (!shiftOnly || !selectedItem) return;
+    const id = setInterval(() => {
+      void loadShiftOnlyTrack();
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [loadShiftOnlyTrack, shiftOnly, selectedItem]);
 
   async function reviewFuel(ownerId: string, date: string, status: "APPROVED" | "REJECTED") {
     await fieldFuelApi.review(date, ownerId, status);
@@ -194,7 +205,10 @@ export default function VisitsTeamPage() {
                 key={`${row.owner.id}-${row.report.date}`}
                 className="flex flex-wrap items-center justify-between gap-2 text-sm">
                 <span>
-                  {row.owner.fullName} · {row.report.date} · {row.report.compensationKm ?? "—"} км
+                  {row.owner.fullName} · {reportDateKey(row.report.date)} · {row.report.compensationKm ?? "—"} км
+                  {row.refuelTotals && row.refuelTotals.count > 0
+                    ? ` · ⛽ ${row.refuelTotals.count} (${row.refuelTotals.amount.toLocaleString("uk-UA")} грн)`
+                    : ""}
                 </span>
                 <span className="flex gap-2">
                   <button
@@ -210,7 +224,7 @@ export default function VisitsTeamPage() {
                     Відхилити
                   </button>
                   <Link
-                    href={`/visits/fuel?owner=${row.owner.id}`}
+                    href={`/visits/fuel?owner=${row.owner.id}&date=${reportDateKey(row.report.date)}`}
                     className="rounded border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-white">
                     Деталі
                   </Link>
@@ -233,12 +247,21 @@ export default function VisitsTeamPage() {
             />
           )}
           {selectedItem ? (
-            <div className="mt-3 text-xs text-zinc-500">
+            <div className="mt-3 space-y-2">
               <Link
                 href={`/visits/history?owner=${selectedItem.owner.id}&from=${today}&to=${today}`}
-                className="font-medium text-blue-700 hover:underline">
+                className="block text-xs font-medium text-blue-700 hover:underline">
                 Історія за сьогодні
               </Link>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600">
+                <input
+                  type="checkbox"
+                  checked={shiftOnly}
+                  onChange={(e) => setShiftOnly(e.target.checked)}
+                  className="rounded border-zinc-300"
+                />
+                {strings.visitsTeam.shiftOnlyTrack}
+              </label>
             </div>
           ) : null}
         </div>
@@ -249,9 +272,16 @@ export default function VisitsTeamPage() {
               mapsApiKey={mapsApiKey}
               items={items}
               selectedOwnerId={selectedOwnerId}
-              trackPath={trackRoadPath.length >= 2 ? trackRoadPath : trackPath}
-              routeSource={trackRouteSource}
-              routeLoading={trackGeometryLoading}
+              layers={layers}
+              geometries={{
+                planned: routeBundle?.planned ?? null,
+                fact_visits: routeBundle?.factVisits ?? null,
+                fact_gps: routeBundle?.factGps ?? null,
+              }}
+              shiftOnlyPath={shiftOnly ? shiftOnlyPath : null}
+              routeLoading={routeLoading}
+              distanceKm={routeBundle?.factGps.distanceKm ?? null}
+              onToggleLayer={(key) => setLayers((prev) => ({ ...prev, [key]: !prev[key] }))}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-zinc-500">

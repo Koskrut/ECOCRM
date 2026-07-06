@@ -23,13 +23,13 @@ type Props = {
 type TileKey = keyof ManagerInboxTiles;
 
 const TILE_ORDER: { key: TileKey; href: string; icon: LucideIcon }[] = [
-  { key: "leadsWithoutTouch", href: "/leads?status=IN_PROGRESS", icon: Users },
-  { key: "neverContactedNewLeads", href: "/leads?status=NEW", icon: UserPlus },
-  { key: "staleInProgressLeads", href: "/leads?status=IN_PROGRESS", icon: Hourglass },
+  { key: "leadsWithoutTouch", href: "/leads?attention=without-touch", icon: Users },
+  { key: "neverContactedNewLeads", href: "/leads?attention=never-contacted-new", icon: UserPlus },
+  { key: "staleInProgressLeads", href: "/leads?attention=stale-in-progress", icon: Hourglass },
   { key: "overdueFollowupContacts", href: "/contacts?workPreset=overdue", icon: AlarmClock },
   { key: "newNoFirstContactContacts", href: "/contacts?workPreset=new-no-first-contact", icon: PhoneMissed },
-  { key: "overdueTasks", href: "/tasks", icon: ListTodo },
-  { key: "overduePayments", href: "/orders?financialStatus=OVERDUE", icon: CreditCard },
+  { key: "overdueTasks", href: "/tasks?attention=overdue", icon: ListTodo },
+  { key: "overduePayments", href: "/orders?attention=overdue-payments", icon: CreditCard },
   { key: "debtControlContacts", href: "/contacts?workPreset=debt-control", icon: Wallet },
 ];
 

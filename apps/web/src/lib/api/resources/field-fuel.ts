@@ -59,6 +59,27 @@ export type FuelRouteAnchors = {
 
 export type CompensationFactKind = "fact_gps" | "fact_visits";
 
+export type FuelRefuelEntry = {
+  id: string;
+  ownerId: string;
+  date: string;
+  fuelDayReportId: string;
+  liters: number;
+  amount: number;
+  currency: string;
+  receiptFileName: string;
+  receiptMimeType: string;
+  receiptSizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FuelRefuelTotals = {
+  count: number;
+  liters: number;
+  amount: number;
+};
+
 export type FuelDayResponse = {
   report: FuelDayReport;
   profile: UserFieldProfile;
@@ -71,6 +92,8 @@ export type FuelDayResponse = {
   factGpsMetrics?: RouteMetrics;
   compensationFactKind?: CompensationFactKind;
   routeAnchors?: FuelRouteAnchors;
+  refuels?: FuelRefuelEntry[];
+  refuelTotals?: FuelRefuelTotals;
 };
 
 export type FuelRangeDay = {
@@ -78,6 +101,9 @@ export type FuelRangeDay = {
   report: FuelDayReport;
   breakdown: FuelVisitBreakdownRow[];
   warnings: string[];
+  refuelCount?: number;
+  refuelLitersTotal?: number;
+  refuelAmountTotal?: number;
 };
 
 export type FuelRangeResponse = {
@@ -145,7 +171,11 @@ export const fieldFuelApi = {
   ): Promise<{
     from: string;
     to: string;
-    items: Array<{ report: FuelDayReport; owner: { id: string; fullName: string; email: string } }>;
+    items: Array<{
+      report: FuelDayReport;
+      owner: { id: string; fullName: string; email: string };
+      refuelTotals?: FuelRefuelTotals;
+    }>;
   }> => {
     const res = await apiHttp.get("/field/fuel/pending", { params: { from, to } } as never);
     return res.data;
@@ -189,4 +219,44 @@ export const fieldFuelApi = {
     a.remove();
     URL.revokeObjectURL(url);
   },
+
+  listRefuels: async (
+    date: string,
+    ownerId?: string,
+  ): Promise<{ items: FuelRefuelEntry[]; totals: FuelRefuelTotals }> => {
+    const res = await apiHttp.get<{ items: FuelRefuelEntry[]; totals: FuelRefuelTotals }>(
+      "/field/fuel/refuels",
+      { params: { date, ...(ownerId ? { ownerId } : {}) } } as never,
+    );
+    return res.data;
+  },
+
+  createRefuel: async (
+    date: string,
+    body: { liters: number; amount: number; file: File },
+    ownerId?: string,
+  ): Promise<{ item: FuelRefuelEntry }> => {
+    const formData = new FormData();
+    formData.append("liters", String(body.liters));
+    formData.append("amount", String(body.amount));
+    formData.append("file", body.file);
+    const qs = new URLSearchParams({ date, ...(ownerId ? { ownerId } : {}) });
+    const r = await fetch(`/api/field/fuel/refuels?${qs.toString()}`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!r.ok) {
+      const err = (await r.json().catch(() => ({}))) as { message?: string };
+      throw new Error(err.message ?? `Upload failed (${r.status})`);
+    }
+    return r.json() as Promise<{ item: FuelRefuelEntry }>;
+  },
+
+  deleteRefuel: async (id: string): Promise<{ ok: true }> => {
+    const res = await apiHttp.delete<{ ok: true }>(`/field/fuel/refuels/${id}`);
+    return res.data;
+  },
+
+  refuelReceiptUrl: (id: string): string => `/api/field/fuel/refuels/${id}/receipt`,
 };

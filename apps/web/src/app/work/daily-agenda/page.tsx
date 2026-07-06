@@ -8,12 +8,21 @@ import {
   type AgendaPlanItem,
   type DailyAgendaPayload,
 } from "@/lib/api/resources/daily-agenda";
-import { DailyAgendaEditor, DailyAgendaProgressBar } from "@/components/daily-agenda/DailyAgendaEditor";
+import { AgendaItemCard } from "@/components/daily-agenda/AgendaItemCard";
+import { AgendaSummaryStrip } from "@/components/daily-agenda/AgendaSummaryStrip";
+import { buildAgendaSummaryLinks } from "@/components/daily-agenda/agendaSummaryLinks";
+import { DailyAgendaEditor } from "@/components/daily-agenda/DailyAgendaEditor";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
 
 const t = strings.dailyAgenda;
+
+const EMPTY_SUMMARY: DailyAgendaPayload["summary"] = {
+  scheduled: { visits: 0, tasks: 0, contactActions: 0 },
+  suggestions: {},
+  plan: { total: 0, visits: 0, calls: 0, tasks: 0, leads: 0, orders: 0 },
+};
 
 type MeResponse = { user?: { role?: string } };
 
@@ -55,6 +64,12 @@ function DailyAgendaContent() {
       .catch(() => setRole(null));
   }, [load]);
 
+  useEffect(() => {
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [load]);
+
   async function saveDraft(items: Parameters<typeof dailyAgendaApi.saveDraft>[0]["items"]) {
     setSaving(true);
     try {
@@ -77,11 +92,11 @@ function DailyAgendaContent() {
     }
   }
 
-  async function markDone(item: AgendaPlanItem) {
+  async function patchItem(item: AgendaPlanItem, status: "DONE" | "DISMISSED") {
     if (!item.id) return;
     setSaving(true);
     try {
-      const data = await dailyAgendaApi.patchItem(item.id, { status: "DONE" });
+      const data = await dailyAgendaApi.patchItem(item.id, { status });
       setAgenda(data);
     } finally {
       setSaving(false);
@@ -92,7 +107,7 @@ function DailyAgendaContent() {
 
   if (error || !agenda) {
     return (
-      <div className="mx-auto max-w-3xl p-4">
+      <div className="mx-auto max-w-5xl p-4">
         <ErrorPanel message={error ?? t.loadFailed} onRetry={() => void load()} />
       </div>
     );
@@ -104,15 +119,27 @@ function DailyAgendaContent() {
     [];
 
   const committed = agenda.plan?.status === "COMMITTED";
+  const summary = agenda.summary ?? EMPTY_SUMMARY;
+  const groupedSuggestions = agenda.groupedSuggestions ?? {};
+  const canManage = role === "MANAGER";
+
+  const activeItems =
+    agenda.plan?.items.filter((i) => i.status === "PLANNED") ?? [];
+  const doneItems =
+    agenda.plan?.items.filter((i) => i.status === "DONE") ?? [];
+
+  const summaryLinks = buildAgendaSummaryLinks({
+    date,
+    profile: agenda.profile,
+    items: agenda.plan?.items ?? initialItems,
+    groupedSuggestions,
+  });
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
+    <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900">{t.pageTitle}</h1>
-          <p className="text-sm text-zinc-500">
-            {date} · {agenda.profile === "field" ? t.profileField : t.profileOffice}
-          </p>
         </div>
         <Link href="/dashboard" className="text-sm text-zinc-600 hover:text-zinc-900">
           {t.backDashboard}
@@ -121,7 +148,13 @@ function DailyAgendaContent() {
 
       {committed && agenda.completion && !editing ? (
         <div className="mb-6 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <DailyAgendaProgressBar completion={agenda.completion} />
+          <AgendaSummaryStrip
+            summary={summary}
+            profile={agenda.profile}
+            date={date}
+            completion={agenda.completion}
+            links={summaryLinks}
+          />
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" onClick={() => setEditing(true)} className="btn-primary text-sm">
               {t.editPlan}
@@ -145,56 +178,53 @@ function DailyAgendaContent() {
             date={date}
             profile={agenda.profile}
             initialItems={initialItems}
-            availableSuggestions={agenda.availableSuggestions}
+            groupedSuggestions={groupedSuggestions}
+            summary={summary}
             committedItems={agenda.plan?.items}
+            completion={agenda.completion}
             saving={saving}
+            layout="split"
             onSaveDraft={saveDraft}
             onCommit={commit}
           />
         </div>
       ) : committed ? (
-        <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 bg-white shadow-sm">
-          {agenda.plan?.items
-            .filter((i) => i.status !== "DISMISSED")
-            .map((item) => (
-              <li key={item.id} className="flex items-start justify-between gap-3 px-4 py-3 text-sm">
-                <div>
-                  <div className="font-medium text-zinc-900">{item.title}</div>
-                  {item.subtitle ? <div className="text-xs text-zinc-500">{item.subtitle}</div> : null}
-                  <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                    <span
-                      className={
-                        item.status === "DONE"
-                          ? "rounded bg-emerald-100 px-2 py-0.5 text-emerald-800"
-                          : "rounded bg-zinc-100 px-2 py-0.5 text-zinc-700"
-                      }
-                    >
-                      {item.status === "DONE"
-                        ? item.completedBy === "AUTO"
-                          ? t.doneAuto
-                          : t.done
-                        : t.planned}
-                    </span>
-                    {item.metadata?.actionHref ? (
-                      <Link href={item.metadata.actionHref} className="text-sky-700 hover:underline">
-                        {t.go}
-                      </Link>
-                    ) : null}
-                  </div>
-                </div>
-                {item.status === "PLANNED" && role === "MANAGER" ? (
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void markDone(item)}
-                    className="shrink-0 rounded-md border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50"
-                  >
-                    {t.markDone}
-                  </button>
-                ) : null}
-              </li>
-            ))}
-        </ul>
+        <div className="space-y-6">
+          {activeItems.length > 0 ? (
+            <section>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {t.activeSection} ({activeItems.length})
+              </h2>
+              <ul className="space-y-2">
+                {activeItems.map((item) => (
+                  <li key={item.id}>
+                    <AgendaItemCard
+                      item={item}
+                      saving={saving}
+                      onMarkDone={canManage ? () => void patchItem(item, "DONE") : undefined}
+                      onDismiss={canManage ? () => void patchItem(item, "DISMISSED") : undefined}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {doneItems.length > 0 ? (
+            <section>
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {t.doneSection} ({doneItems.length})
+              </h2>
+              <ul className="space-y-2 opacity-80">
+                {doneItems.map((item) => (
+                  <li key={item.id}>
+                    <AgendaItemCard item={item} isDone />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       ) : null}
 
       <p className="mt-4 text-xs text-zinc-500">

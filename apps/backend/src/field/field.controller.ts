@@ -2,18 +2,24 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
   Post,
   Query,
   Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
-import type { Request } from "express";
+import type { Request, Response } from "express";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { FuelCompensationStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
+import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { FieldFuelService } from "./field-fuel.service";
 import { FieldShiftsService } from "./field-shifts.service";
 
@@ -23,6 +29,7 @@ export class FieldController {
   constructor(
     private readonly shifts: FieldShiftsService,
     private readonly fuel: FieldFuelService,
+    private readonly refuels: FieldFuelRefuelsService,
   ) {}
 
   @Get("shifts/active")
@@ -187,6 +194,51 @@ export class FieldController {
     }
     const fmt = format === "xlsx" ? "xlsx" : "csv";
     return this.fuel.exportReport(req.user, from, to, fmt, ownerId);
+  }
+
+  @Get("fuel/refuels")
+  async fuelRefuelsList(
+    @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!date) {
+      throw new BadRequestException("date is required");
+    }
+    return this.refuels.listForDay(req.user, date, ownerId);
+  }
+
+  @Post("fuel/refuels")
+  @UseInterceptors(FileInterceptor("file"))
+  async fuelRefuelsCreate(
+    @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Body() body: { liters?: string; amount?: string },
+    @UploadedFile() file: { buffer?: Buffer; originalname?: string; mimetype?: string; size?: number },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!date) {
+      throw new BadRequestException("date is required");
+    }
+    const entry = await this.refuels.create(req.user, date, body, file, ownerId);
+    return { item: entry };
+  }
+
+  @Delete("fuel/refuels/:id")
+  async fuelRefuelsDelete(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.refuels.delete(req.user, id);
+  }
+
+  @Get("fuel/refuels/:id/receipt")
+  async fuelRefuelReceipt(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+    @Res() res: Response,
+  ): Promise<void> {
+    await this.refuels.streamReceipt(req.user, id, res);
   }
 
   @Get("profile")

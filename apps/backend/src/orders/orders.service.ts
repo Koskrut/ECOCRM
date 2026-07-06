@@ -36,6 +36,14 @@ import { WarehousesService } from "../warehouses/warehouses.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
 import type { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
+import {
+  buildOrderOverduePaymentsWhere,
+  buildStuckOrdersBaseWhere,
+  filterStuckOrders,
+  isOrderAttentionPreset,
+  resolveOrderAttentionPeriod,
+  STUCK_ORDERS_CANDIDATE_CAP,
+} from "./orders-attention.util";
 import type { UpdateOrderDto } from "./dto/update-order.dto";
 import {
   computeFinancialStatusFromOrder,
@@ -369,8 +377,33 @@ export class OrdersService {
     const pageSize = Math.min(100, Math.max(1, this.num(q?.pageSize, 50)));
     const skip = (page - 1) * pageSize;
 
+    const idList = q?.ids
+      ?.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+
+    let stuckTotalOverride: number | undefined;
+    let effectiveIdList = idList;
+
+    if (q?.attention === "stuck" && isOrderAttentionPreset(q.attention) && (!idList || idList.length === 0)) {
+      const stuckIds = await this.resolveStuckOrderIds(q, actor);
+      stuckTotalOverride = stuckIds.length;
+      effectiveIdList = stuckIds.slice(skip, skip + pageSize);
+      if (effectiveIdList.length === 0) {
+        return { items: [], total: stuckTotalOverride, page, pageSize };
+      }
+    }
+
     const where: Prisma.OrderWhereInput = {};
     const andWhere: Prisma.OrderWhereInput[] = [];
+
+    if (effectiveIdList && effectiveIdList.length > 0) {
+      andWhere.push({ id: { in: effectiveIdList } });
+    } else if (q?.attention === "overdue-payments" && isOrderAttentionPreset(q.attention)) {
+      andWhere.push(buildOrderOverduePaymentsWhere({}));
+    }
+
     if (q?.companyId) where.companyId = String(q.companyId);
     if (q?.clientId) where.clientId = String(q.clientId);
     if (q?.contactId) where.contactId = String(q.contactId);
@@ -410,7 +443,7 @@ export class OrdersService {
     } else if (q?.orderStage) {
       where.orderStage = q.orderStage as OrderStage;
     }
-    if (q?.financialStatus) {
+    if (q?.financialStatus && !q?.attention) {
       andWhere.push(financialStatusListWhere(q.financialStatus as OrderFinancialStatus));
     }
     if (q?.overdue === true) andWhere.push(financialOverdueWhere());
@@ -614,16 +647,25 @@ export class OrdersService {
       include.contact = { select: { id: true, firstName: true, lastName: true, externalCode: true } };
     }
 
-    const [items, total] = await Promise.all([
+    const [fetchedItems, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
         orderBy: { [sortBy]: sortDir },
-        skip,
+        skip: stuckTotalOverride != null ? 0 : skip,
         take: pageSize,
         include,
       }),
-      this.prisma.order.count({ where }),
+      stuckTotalOverride != null
+        ? Promise.resolve(stuckTotalOverride)
+        : this.prisma.order.count({ where }),
     ]);
+
+    const items =
+      stuckTotalOverride != null && effectiveIdList
+        ? effectiveIdList
+            .map((id) => fetchedItems.find((row) => row.id === id))
+            .filter((row): row is (typeof fetchedItems)[number] => Boolean(row))
+        : fetchedItems;
 
     const ownerIds = Array.from(new Set(items.map((o) => o.ownerId).filter(Boolean)));
     const owners =
@@ -784,6 +826,37 @@ export class OrdersService {
       page,
       pageSize,
     };
+  }
+
+  private async resolveStuckOrderIds(q: ListOrdersQueryDto, actor: AuthUser | undefined): Promise<string[]> {
+    const period = resolveOrderAttentionPeriod(q.attentionPeriod === "week" ? "week" : "month");
+    const ownerScope =
+      actor?.role === UserRole.MANAGER ? { managerId: actor.id } : {};
+    const baseWhere = buildStuckOrdersBaseWhere(period, ownerScope);
+    const candidateWhere: Prisma.OrderWhereInput =
+      actor?.role === UserRole.MANAGER
+        ? { AND: [baseWhere, this.managerOrderVisibilityWhere(actor.id)] }
+        : baseWhere;
+
+    const candidates = await this.prisma.order.findMany({
+      where: candidateWhere,
+      take: STUCK_ORDERS_CANDIDATE_CAP,
+      select: {
+        id: true,
+        updatedAt: true,
+        createdAt: true,
+        statusHistory: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { createdAt: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return filterStuckOrders(candidates, period.to)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((o) => o.id);
   }
 
   async getById(id: string, actor?: AuthUser) {

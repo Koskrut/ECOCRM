@@ -53,6 +53,8 @@ type ContactSuggestion = {
   lastName: string;
   phone: string;
   email?: string | null;
+  companyId?: string | null;
+  company?: { name?: string | null } | null;
 };
 
 type ContactSearchHit = {
@@ -65,7 +67,7 @@ type ContactSearchHit = {
   company?: { name?: string | null } | null;
 };
 
-function formatConvertContactLabel(c: ContactSearchHit): string {
+function formatConvertContactLabel(c: ContactSearchHit | ContactSuggestion): string {
   const name = [c.lastName, c.firstName].filter(Boolean).join(" ").trim() || "—";
   const parts = [formatPhoneDisplay(c.phone), c.email?.trim() || null, c.company?.name?.trim() || null].filter(
     Boolean,
@@ -472,16 +474,20 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     }
   }, [lead]);
 
-  const loadSuggestions = useCallback(async () => {
+  const loadSuggestions = useCallback(async (companyId?: string | null) => {
     setSuggestionsLoading(true);
     setSuggestions([]);
     try {
+      const params = companyId ? `?companyId=${encodeURIComponent(companyId)}` : "";
       const r = await apiHttp.get<{ items: ContactSuggestion[] }>(
-        `/leads/${leadId}/suggest-contact`,
+        `/leads/${leadId}/suggest-contact${params}`,
       );
-      setSuggestions(Array.isArray(r.data?.items) ? r.data.items : []);
+      const items = Array.isArray(r.data?.items) ? r.data.items : [];
+      setSuggestions(items);
+      return items;
     } catch {
       setSuggestions([]);
+      return [];
     } finally {
       setSuggestionsLoading(false);
     }
@@ -579,6 +585,26 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       }
     },
     [],
+  );
+
+  const refreshCompanyContactMatches = useCallback(
+    async (companyId: string) => {
+      const items = await loadSuggestions(companyId);
+      const phoneQuery = lead?.phone?.trim() || lead?.email?.trim() || "";
+      if (phoneQuery) {
+        await searchContacts(phoneQuery, companyId);
+      }
+      if (items.length === 1) {
+        selectExistingContact(items[0]!.id, items[0]);
+        setCreateContact(false);
+      } else if (items.length > 0) {
+        setCreateContact(false);
+      } else {
+        setCreateContact(true);
+      }
+      return items;
+    },
+    [loadSuggestions, lead?.phone, lead?.email, searchContacts, selectExistingContact],
   );
 
   useEffect(() => {
@@ -900,7 +926,16 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Конвертація не вдалася");
-      setConvertError(msg);
+      if (typeof msg === "string" && msg.includes("вже існує")) {
+        setConvertError("Контакт з таким телефоном вже є — оберіть його зі списку збігів");
+        if (selectedCompanyId) {
+          void refreshCompanyContactMatches(selectedCompanyId);
+        } else {
+          void loadSuggestions();
+        }
+      } else {
+        setConvertError(msg);
+      }
     } finally {
       setConverting(false);
     }
@@ -969,7 +1004,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setSelectedContactId(lead?.contactId ?? null);
     } else if (preset === "company_contact_deal") {
       setCompanyMode("link");
-      setCreateContact(true);
+      setCreateContact(false);
       setCreateDeal(true);
       setNewCompanyName(lead?.companyName ?? "");
       setSelectedContactId(null);
@@ -1736,6 +1771,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                             setSelectedCompanyId(id);
                             setSelectedContactId(null);
                             setContactSearchHits([]);
+                            if (id) {
+                              void refreshCompanyContactMatches(id);
+                            } else {
+                              setCreateContact(false);
+                              void loadSuggestions();
+                            }
                           }}
                         />
                       </div>
@@ -1766,7 +1807,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   </div>
                   <button
                     type="button"
-                    onClick={() => void loadSuggestions()}
+                    onClick={() => void loadSuggestions(selectedCompanyId)}
                     className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-700 hover:bg-white"
                   >
                     Оновити пошук
@@ -1804,6 +1845,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                               </div>
                               <div className="text-xs text-zinc-500">
                                 {formatPhoneDisplay(c.phone)} {c.email ? `• ${c.email}` : ""}
+                                {c.company?.name ? ` • ${c.company.name}` : ""}
                               </div>
                             </button>
                           );
@@ -1855,7 +1897,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   </div>
                 )}
 
-                {(createContact || convertPreset === "company_contact_deal") && !selectedContactId && (
+                {createContact && !selectedContactId && (
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <div>
                       <label className="block text-xs font-medium text-zinc-600">

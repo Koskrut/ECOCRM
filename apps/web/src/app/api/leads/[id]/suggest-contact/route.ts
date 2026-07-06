@@ -18,8 +18,12 @@ export async function GET(
   const url = new URL(req.url);
   const segments = url.pathname.split("/").filter(Boolean);
   const derivedId = params.id ?? segments[segments.length - 2] ?? "";
+  const query = url.searchParams.toString();
+  const backendUrl = query
+    ? `${API_URL}/leads/${derivedId}/suggest-contact?${query}`
+    : `${API_URL}/leads/${derivedId}/suggest-contact`;
 
-  const r = await fetch(`${API_URL}/leads/${derivedId}/suggest-contact`, {
+  const r = await fetch(backendUrl, {
     method: "GET",
     headers,
     cache: "no-store",

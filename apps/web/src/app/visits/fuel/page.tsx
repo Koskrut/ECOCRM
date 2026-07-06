@@ -14,6 +14,7 @@ import {
 import { CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
+import { FuelRefuelList, FuelRefuelModal } from "@/components/visits/FuelRefuelPanel";
 import { VisitsSubNav } from "../VisitsSubNav";
 
 type MeUser = { role?: string };
@@ -179,6 +180,7 @@ function DayDetailPanel({
   const [submitting, setSubmitting] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [note, setNote] = useState("");
+  const [refuelModalOpen, setRefuelModalOpen] = useState(false);
   const canReview = reviewerRole === "ADMIN" || reviewerRole === "LEAD";
 
   const load = useCallback(async () => {
@@ -240,6 +242,8 @@ function DayDetailPanel({
   };
 
   const r = data?.report;
+  const canManageRefuels =
+    !ownerId && r?.compensationStatus != null && r.compensationStatus !== "PAID";
   const warnings = (data?.warnings ?? [])
     .map(warningText)
     .filter((x): x is string => Boolean(x));
@@ -403,9 +407,50 @@ function DayDetailPanel({
             </p>
           ) : null}
 
-          <h3 className="mb-2 text-sm font-semibold text-zinc-800">Маршрут за фактом (порядок завершення)</h3>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-800">Заправки</h3>
+              {data.refuelTotals ? (
+                <p className="text-xs text-zinc-500">
+                  {data.refuelTotals.count} заправок · {data.refuelTotals.liters} л ·{" "}
+                  {formatMoney(data.refuelTotals.amount)}
+                </p>
+              ) : null}
+            </div>
+            {canManageRefuels ? (
+              <button
+                type="button"
+                onClick={() => setRefuelModalOpen(true)}
+                className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
+                Заправка
+              </button>
+            ) : null}
+          </div>
+          <FuelRefuelList
+            items={data.refuels ?? []}
+            canDelete={canManageRefuels}
+            onDelete={async (id) => {
+              await fieldFuelApi.deleteRefuel(id);
+              await load();
+              onRefreshMonth();
+            }}
+          />
+
+          <h3 className="mb-2 mt-6 text-sm font-semibold text-zinc-800">Маршрут за фактом (порядок завершення)</h3>
           <VisitBreakdownList rows={data.breakdown} />
         </>
+      ) : null}
+
+      {refuelModalOpen ? (
+        <FuelRefuelModal
+          date={date}
+          ownerId={ownerId}
+          onClose={() => setRefuelModalOpen(false)}
+          onCreated={() => {
+            void load();
+            onRefreshMonth();
+          }}
+        />
       ) : null}
     </div>
   );
@@ -707,6 +752,7 @@ export default function VisitsFuelPage() {
                 <th className="px-3 py-2">Факт км</th>
                 <th className="px-3 py-2">Літри</th>
                 <th className="px-3 py-2">Сума</th>
+                <th className="px-3 py-2">Заправки</th>
                 <th className="px-3 py-2">Статус</th>
               </tr>
             </thead>
@@ -723,6 +769,18 @@ export default function VisitsFuelPage() {
                   <td className="px-3 py-2">{d.report.compensationKm ?? "—"}</td>
                   <td className="px-3 py-2">{d.report.litersEstimated ?? "—"}</td>
                   <td className="px-3 py-2">{formatMoney(d.report.amountEstimated)}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-600">
+                    {d.refuelCount ? (
+                      <>
+                        ⛽ {d.refuelCount}
+                        {d.refuelAmountTotal != null && d.refuelAmountTotal > 0
+                          ? ` · ${d.refuelAmountTotal.toLocaleString("uk-UA")} грн`
+                          : ""}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     {STATUS_LABELS[d.report.compensationStatus] ?? d.report.compensationStatus}
                   </td>

@@ -31,6 +31,7 @@ export type CompletionFacts = {
   doneVisitContactIds: Set<string>;
   contactNextActionChanged: Set<string>;
   processedLeadIds: Set<string>;
+  paidOrderIds: Set<string>;
 };
 
 export function shouldAutoCompleteItem(
@@ -55,7 +56,7 @@ export function shouldAutoCompleteItem(
     return facts.processedLeadIds.has(item.leadId);
   }
   if (item.kind === "CONTACT_ACTION" && item.contactId) {
-    if (nextActionType === "CALL") {
+    if (nextActionType === "CALL" || nextActionType === "CONTROL_PAYMENT") {
       return facts.calledContactIds.has(item.contactId);
     }
     if (nextActionType === "MEETING") {
@@ -66,8 +67,10 @@ export function shouldAutoCompleteItem(
     }
     return facts.calledContactIds.has(item.contactId);
   }
-  if (item.kind === "SUGGESTION" && item.contactId) {
-    return facts.calledContactIds.has(item.contactId);
+  if (item.kind === "SUGGESTION") {
+    if (meta.orderId) return facts.paidOrderIds.has(meta.orderId);
+    if (item.contactId) return facts.calledContactIds.has(item.contactId);
+    if (item.leadId) return facts.processedLeadIds.has(item.leadId);
   }
 
   return false;

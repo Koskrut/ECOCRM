@@ -748,8 +748,8 @@ describe("LeadsService.convert — lead → order traceability", () => {
 });
 
 describe("LeadsService.suggestContact", () => {
-  it("matches candidates by normalized phone", async () => {
-    let capturedWhere: { OR?: Array<Record<string, unknown>> } | null = null;
+  it("matches candidates by normalized phone and additional phones", async () => {
+    let capturedWhere: { AND?: Array<{ OR?: Array<Record<string, unknown>> }> } | null = null;
     const prisma = {
       lead: {
         findUnique: async () => ({
@@ -760,7 +760,7 @@ describe("LeadsService.suggestContact", () => {
         }),
       },
       contact: {
-        findMany: async (args: { where: { OR?: Array<Record<string, unknown>> } }) => {
+        findMany: async (args: { where: { AND?: Array<{ OR?: Array<Record<string, unknown>> }> } }) => {
           capturedWhere = args.where;
           return [];
         },
@@ -771,10 +771,50 @@ describe("LeadsService.suggestContact", () => {
     await svc.suggestContact("lead-1", actor);
 
     assert.ok(capturedWhere);
-    const or = capturedWhere!.OR ?? [];
+    const matchOr = capturedWhere!.AND?.[0]?.OR ?? [];
     assert.ok(
-      or.some((clause) => "phoneNormalized" in clause && clause.phoneNormalized === "380501112233"),
+      matchOr.some(
+        (clause) => "phoneNormalized" in clause && clause.phoneNormalized === "380501112233",
+      ),
       "should search by normalized phone digits",
+    );
+    assert.ok(
+      matchOr.some(
+        (clause) =>
+          "phones" in clause &&
+          (clause.phones as { some?: { phoneNormalized?: string } })?.some?.phoneNormalized ===
+            "380501112233",
+      ),
+      "should search additional phones",
+    );
+  });
+
+  it("filters by companyId when provided", async () => {
+    let capturedWhere: { AND?: Array<Record<string, unknown>> } | null = null;
+    const prisma = {
+      lead: {
+        findUnique: async () => ({
+          id: "lead-1",
+          ownerId: "user-1",
+          phone: "+380501112233",
+          email: null,
+        }),
+      },
+      contact: {
+        findMany: async (args: { where: { AND?: Array<Record<string, unknown>> } }) => {
+          capturedWhere = args.where;
+          return [];
+        },
+      },
+    } as unknown as PrismaService;
+
+    const svc = makeService(prisma);
+    await svc.suggestContact("lead-1", actor, { companyId: "comp-client" });
+
+    assert.ok(capturedWhere);
+    assert.ok(
+      capturedWhere!.AND?.some((part) => part.companyId === "comp-client"),
+      "should filter contacts by company",
     );
   });
 });

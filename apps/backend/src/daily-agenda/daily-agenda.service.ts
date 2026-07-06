@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  CallQueueItemStatus,
   DailyWorkPlanItemKind,
   DailyWorkPlanItemStatus,
   DailyWorkPlanStatus,
@@ -23,12 +24,21 @@ import {
   shouldAutoCompleteItem,
   type CompletionFacts,
 } from "./daily-agenda.completion";
+import { daysBetween, leadDisplayName } from "./daily-agenda.helpers";
 import {
   buildDefaultProposal,
+  buildSmartDefaultProposal,
   itemSourceKey,
   mergeRecommitItems,
 } from "./daily-agenda.proposal";
-import { buildSuggestions, planKeysFromItems } from "./daily-agenda.suggestions";
+import {
+  buildAgendaSummary,
+  buildSuggestions,
+  groupSuggestions,
+  pickSeedSuggestions,
+  planKeysFromItems,
+} from "./daily-agenda.suggestions";
+import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 import type {
   AgendaPlanItem,
   AgendaPlanItemInput,
@@ -77,11 +87,18 @@ export class DailyAgendaService {
     const planItems = plan?.items ?? [];
     const planKeys = planKeysFromItems(planItems);
 
-    const [overdueTasks, backlogVisits, queueContacts] = await Promise.all([
-      this.loadOverdueTasks(userId, dateYmd),
-      profile === "field" ? this.loadBacklogVisits(userId) : Promise.resolve([]),
-      profile === "office" ? this.loadQueueContacts(actor) : Promise.resolve([]),
-    ]);
+    const [overdueTasks, backlogVisits, queueContacts, hotLeads, newLeads, overdueOrders, callQueueItems, debtContacts, missedCalls] =
+      await Promise.all([
+        this.loadOverdueTasks(userId, dateYmd),
+        profile === "field" ? this.loadBacklogVisits(userId) : Promise.resolve([]),
+        profile === "office" ? this.loadQueueContacts(actor) : Promise.resolve([]),
+        profile === "office" ? this.loadHotLeads(userId) : Promise.resolve([]),
+        profile === "office" ? this.loadNewLeads(userId) : Promise.resolve([]),
+        this.loadOverdueOrders(userId),
+        profile === "office" ? this.loadCallQueueItems(userId) : Promise.resolve([]),
+        profile === "office" ? this.loadDebtContacts(actor) : Promise.resolve([]),
+        profile === "office" ? this.loadMissedCalls(userId, dateYmd) : Promise.resolve([]),
+      ]);
 
     const availableSuggestions = buildSuggestions({
       profile,
@@ -91,15 +108,32 @@ export class DailyAgendaService {
       backlogVisits,
       overdueTasks,
       queueContacts,
+      hotLeads,
+      newLeads,
+      overdueOrders,
+      callQueueItems,
+      debtContacts,
+      missedCalls,
       planKeys,
     });
 
-    const defaultProposal =
+    const groupedSuggestions = groupSuggestions(availableSuggestions);
+
+    const scheduledProposal =
       plan == null
         ? buildDefaultProposal({
             visits: scheduled.visits,
             tasks: scheduled.tasks,
             contactActions: scheduled.contactActions,
+            dateYmd,
+          })
+        : [];
+
+    const defaultProposal =
+      plan == null
+        ? buildSmartDefaultProposal({
+            scheduled: scheduledProposal,
+            seedSuggestions: pickSeedSuggestions({ profile, suggestions: availableSuggestions }),
           })
         : null;
 
@@ -121,6 +155,17 @@ export class DailyAgendaService {
         ? computeCompletion(plan.items)
         : null;
 
+    const planItemsForSummary =
+      mappedPlan?.items.map(({ id: _id, completedAt: _c, completedBy: _b, ...rest }) => rest) ??
+      defaultProposal ??
+      [];
+
+    const summary = buildAgendaSummary({
+      scheduled,
+      suggestions: availableSuggestions,
+      planItems: planItemsForSummary,
+    });
+
     return {
       date: dateYmd,
       userId,
@@ -130,6 +175,8 @@ export class DailyAgendaService {
       defaultProposal,
       scheduled,
       availableSuggestions,
+      groupedSuggestions,
+      summary,
     };
   }
 
@@ -302,7 +349,7 @@ export class DailyAgendaService {
     const { from, to } = kyivDayBounds(dateYmd);
     const dayStart = from;
 
-    const [doneVisits, doneTasks, outboundCalls, contactsWithActions, leadEvents] =
+    const [doneVisits, doneTasks, outboundCalls, contactsWithActions, leadEvents, paymentsToday] =
       await Promise.all([
         this.prisma.visit.findMany({
           where: {
@@ -340,6 +387,13 @@ export class DailyAgendaService {
             lead: { ownerId: userId },
           },
           select: { leadId: true },
+        }),
+        this.prisma.payment.findMany({
+          where: {
+            order: { ownerId: userId },
+            createdAt: { gte: from, lte: to },
+          },
+          select: { orderId: true },
         }),
       ]);
 
@@ -379,6 +433,7 @@ export class DailyAgendaService {
         ...leadEvents.map((e) => e.leadId),
         ...processedLeads.map((l) => l.id),
       ]),
+      paidOrderIds: new Set(paymentsToday.map((p) => p.orderId)),
     };
   }
 
@@ -408,6 +463,20 @@ export class DailyAgendaService {
           dueAt: { gte: from, lte: to },
         },
         orderBy: { dueAt: "asc" },
+        include: {
+          contact: { select: { firstName: true, lastName: true } },
+          company: { select: { name: true } },
+          lead: {
+            select: {
+              firstName: true,
+              lastName: true,
+              middleName: true,
+              companyName: true,
+              fullName: true,
+              name: true,
+            },
+          },
+        },
       }),
       this.prisma.contact.findMany({
         where: {
@@ -416,6 +485,7 @@ export class DailyAgendaService {
           nextActionType: { not: "NO_ACTION" },
         },
         orderBy: { nextActionAt: "asc" },
+        include: { company: { select: { name: true } } },
       }),
     ]);
 
@@ -435,16 +505,7 @@ export class DailyAgendaService {
           purpose: v.purpose,
         }),
       ),
-      tasks: tasks.map(
-        (t): ScheduledTask => ({
-          id: t.id,
-          title: t.title,
-          dueAt: t.dueAt?.toISOString() ?? null,
-          status: t.status,
-          contactId: t.contactId,
-          leadId: t.leadId,
-        }),
-      ),
+      tasks: tasks.map((t) => this.mapTaskRow(t, from)),
       contactActions: contacts.map(
         (c): ScheduledContactAction => ({
           contactId: c.id,
@@ -453,8 +514,47 @@ export class DailyAgendaService {
           nextActionAt: c.nextActionAt?.toISOString() ?? null,
           nextActionNote: c.nextActionNote,
           phone: c.phone,
+          companyName: c.company?.name ?? null,
+          clientStage: c.clientStage,
         }),
       ),
+    };
+  }
+
+  private mapTaskRow(
+    t: {
+      id: string;
+      title: string;
+      dueAt: Date | null;
+      status: string;
+      contactId: string | null;
+      leadId: string | null;
+      contact: { firstName: string; lastName: string } | null;
+      company: { name: string } | null;
+      lead: {
+        firstName: string | null;
+        lastName: string | null;
+        middleName: string | null;
+        companyName: string | null;
+        fullName: string | null;
+        name: string | null;
+      } | null;
+    },
+    dayStart: Date,
+  ): ScheduledTask {
+    return {
+      id: t.id,
+      title: t.title,
+      dueAt: t.dueAt?.toISOString() ?? null,
+      status: t.status,
+      contactId: t.contactId,
+      leadId: t.leadId,
+      contactName: t.contact
+        ? `${t.contact.firstName} ${t.contact.lastName}`.trim()
+        : null,
+      companyName: t.company?.name ?? null,
+      leadName: t.lead ? leadDisplayName(t.lead) : null,
+      daysOverdue: daysBetween(t.dueAt?.toISOString() ?? null, dayStart),
     };
   }
 
@@ -468,15 +568,22 @@ export class DailyAgendaService {
       },
       orderBy: { dueAt: "asc" },
       take: 10,
+      include: {
+        contact: { select: { firstName: true, lastName: true } },
+        company: { select: { name: true } },
+        lead: {
+          select: {
+            firstName: true,
+            lastName: true,
+            middleName: true,
+            companyName: true,
+            fullName: true,
+            name: true,
+          },
+        },
+      },
     });
-    return rows.map((t) => ({
-      id: t.id,
-      title: t.title,
-      dueAt: t.dueAt?.toISOString() ?? null,
-      status: t.status,
-      contactId: t.contactId,
-      leadId: t.leadId,
-    }));
+    return rows.map((t) => this.mapTaskRow(t, from));
   }
 
   private async loadBacklogVisits(userId: string): Promise<ScheduledVisit[]> {
@@ -505,23 +612,251 @@ export class DailyAgendaService {
     }));
   }
 
-  private async loadQueueContacts(
-    actor: AuthUser,
-  ): Promise<Array<{ contactId: string; fullName: string; phone: string | null }>> {
+  private async loadQueueContacts(actor: AuthUser) {
     try {
       const result = await this.workQueue.getWorkQueue(
-        { preset: "attention", page: 1, pageSize: 5, ownerId: actor.id },
+        { preset: "attention", page: 1, pageSize: 10, ownerId: actor.id },
         actor,
       );
       const items = Array.isArray(result.items) ? result.items : [];
-      return items.map((row: { contact: { id: string; fullName: string; phone: string | null } }) => ({
-        contactId: row.contact.id,
-        fullName: row.contact.fullName,
-        phone: row.contact.phone,
-      }));
+      return items.map(
+        (row: {
+          contact: {
+            id: string;
+            fullName: string;
+            phone: string | null;
+            companyName: string | null;
+          };
+          priorityScore: number;
+          priorityReasons: string[];
+        }) => ({
+          contactId: row.contact.id,
+          fullName: row.contact.fullName,
+          phone: row.contact.phone,
+          companyName: row.contact.companyName,
+          priorityScore: row.priorityScore,
+          priorityReasons: row.priorityReasons,
+        }),
+      );
     } catch {
       return [];
     }
+  }
+
+  private async loadHotLeads(ownerId: string) {
+    const now = new Date();
+    const rows = await this.prisma.lead.findMany({
+      where: { ownerId, status: LeadStatus.IN_PROGRESS },
+      orderBy: [{ lastActivityAt: "asc" }, { updatedAt: "asc" }],
+      take: 3,
+      select: {
+        id: true,
+        status: true,
+        source: true,
+        companyName: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        fullName: true,
+        createdAt: true,
+        lastActivityAt: true,
+      },
+    });
+    return rows.map((lead) => {
+      const reference = lead.lastActivityAt ?? lead.createdAt;
+      const daysSinceActivity = reference
+        ? Math.max(0, Math.floor((now.getTime() - reference.getTime()) / 86400000))
+        : null;
+      return {
+        id: lead.id,
+        name: leadDisplayName(lead),
+        source: lead.source ?? null,
+        daysSinceActivity,
+        status: lead.status,
+        companyName: lead.companyName ?? null,
+      };
+    });
+  }
+
+  private async loadNewLeads(ownerId: string) {
+    const rows = await this.prisma.lead.findMany({
+      where: { ownerId, status: LeadStatus.NEW },
+      orderBy: { createdAt: "asc" },
+      take: 3,
+      select: {
+        id: true,
+        status: true,
+        source: true,
+        companyName: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        middleName: true,
+        fullName: true,
+        createdAt: true,
+        lastActivityAt: true,
+      },
+    });
+    return rows.map((lead) => ({
+      id: lead.id,
+      name: leadDisplayName(lead),
+      source: lead.source ?? null,
+      daysSinceActivity: null,
+      status: lead.status,
+      companyName: lead.companyName ?? null,
+    }));
+  }
+
+  private async loadOverdueOrders(ownerId: string) {
+    const rows = await this.prisma.order.findMany({
+      where: { ownerId, ...financialOverdueWhere() },
+      orderBy: { paymentDueDate: "asc" },
+      take: 5,
+      select: {
+        id: true,
+        orderNumber: true,
+        debtAmount: true,
+        currency: true,
+        paymentDueDate: true,
+        company: { select: { name: true } },
+        client: { select: { firstName: true, lastName: true } },
+      },
+    });
+    const now = new Date();
+    return rows.map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      debtAmount: o.debtAmount,
+      currency: o.currency,
+      contactName: o.client ? `${o.client.firstName} ${o.client.lastName}`.trim() : null,
+      companyName: o.company?.name ?? null,
+      daysOverdue: o.paymentDueDate
+        ? Math.max(1, Math.floor((now.getTime() - o.paymentDueDate.getTime()) / 86400000))
+        : null,
+    }));
+  }
+
+  private async loadCallQueueItems(assigneeId: string) {
+    const rows = await this.prisma.callQueueItem.findMany({
+      where: { assigneeId, status: CallQueueItemStatus.PENDING },
+      orderBy: { sortOrder: "asc" },
+      take: 5,
+      include: {
+        contact: { select: { firstName: true, lastName: true, phone: true } },
+        lead: {
+          select: {
+            firstName: true,
+            lastName: true,
+            middleName: true,
+            companyName: true,
+            fullName: true,
+            name: true,
+            phone: true,
+          },
+        },
+        company: { select: { name: true } },
+      },
+    });
+    return rows.map((item) => ({
+      queueItemId: item.id,
+      contactId: item.contactId,
+      leadId: item.leadId,
+      contactName: item.contact
+        ? `${item.contact.firstName} ${item.contact.lastName}`.trim()
+        : null,
+      leadName: item.lead ? leadDisplayName(item.lead) : null,
+      phone: item.contact?.phone ?? item.lead?.phone ?? null,
+      companyName: item.company?.name ?? item.lead?.companyName ?? null,
+    }));
+  }
+
+  private async loadDebtContacts(actor: AuthUser) {
+    try {
+      const result = await this.workQueue.getWorkQueue(
+        { preset: "debt-control", page: 1, pageSize: 5, ownerId: actor.id },
+        actor,
+      );
+      const items = Array.isArray(result.items) ? result.items : [];
+      return items.map(
+        (row: {
+          contact: { id: string; fullName: string; phone: string | null; companyName: string | null };
+          priorityScore: number;
+          metrics: { debtAmount: number };
+        }) => ({
+          contactId: row.contact.id,
+          fullName: row.contact.fullName,
+          phone: row.contact.phone,
+          companyName: row.contact.companyName,
+          debtAmount: row.metrics.debtAmount,
+          priorityScore: row.priorityScore,
+        }),
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  private async loadMissedCalls(userId: string, dateYmd: string) {
+    const { from, to } = kyivDayBounds(dateYmd);
+    const rows = await this.prisma.call.findMany({
+      where: {
+        managerUserId: userId,
+        direction: { equals: "INBOUND", mode: "insensitive" },
+        startedAt: { gte: from, lte: to },
+        OR: [
+          { status: { contains: "missed", mode: "insensitive" } },
+          { status: { contains: "noanswer", mode: "insensitive" } },
+        ],
+        contactId: { not: null },
+      },
+      orderBy: { startedAt: "desc" },
+      take: 5,
+      select: {
+        id: true,
+        contactId: true,
+        leadId: true,
+        from: true,
+      },
+    });
+
+    const contactIds = rows.map((c) => c.contactId).filter((id): id is string => id != null);
+    const contacts =
+      contactIds.length > 0
+        ? await this.prisma.contact.findMany({
+            where: { id: { in: contactIds } },
+            select: { id: true, firstName: true, lastName: true, phone: true },
+          })
+        : [];
+    const contactById = new Map(contacts.map((c) => [c.id, c]));
+
+    const outboundToday = await this.prisma.call.findMany({
+      where: {
+        managerUserId: userId,
+        direction: { equals: "OUTBOUND", mode: "insensitive" },
+        startedAt: { gte: from, lte: to },
+        contactId: { not: null },
+      },
+      select: { contactId: true },
+    });
+    const calledBack = new Set(
+      outboundToday.map((c) => c.contactId).filter((id): id is string => id != null),
+    );
+
+    return rows
+      .filter((c) => c.contactId && !calledBack.has(c.contactId))
+      .map((c) => {
+        const contact = c.contactId ? contactById.get(c.contactId) : undefined;
+        return {
+          callId: c.id,
+          contactId: c.contactId,
+          leadId: c.leadId,
+          contactName: contact
+            ? `${contact.firstName} ${contact.lastName}`.trim()
+            : null,
+          phone: contact?.phone ?? c.from,
+        };
+      });
   }
 
   private async validateItems(userId: string, items: AgendaPlanItemInput[]): Promise<void> {

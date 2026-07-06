@@ -572,6 +572,7 @@ model User {
   fieldShifts                FieldShift[]
   fieldTrackingEvents        FieldTrackingEvent[]
   fuelDayReports             FuelDayReport[]
+  fuelRefuelEntries          FuelRefuelEntry[]
   dayPlanOverride            UserDayPlanOverride?
   dayPlanOverridesUpdated    UserDayPlanOverride[] @relation("UserDayPlanOverrideUpdatedBy")
   dailyWorkPlans             DailyWorkPlan[]
@@ -1186,12 +1187,36 @@ model FuelDayReport {
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
 
-  owner User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  shift FieldShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  owner  User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  shift  FieldShift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  refuels FuelRefuelEntry[]
 
   @@unique([ownerId, date])
   @@index([shiftId])
   @@index([ownerId, date, compensationStatus])
+}
+
+/// Заправка менеджера с обязательным фото чека.
+model FuelRefuelEntry {
+  id                String   @id @default(cuid())
+  ownerId           String
+  date              DateTime
+  fuelDayReportId   String
+  liters            Decimal  @db.Decimal(10, 3)
+  amount            Decimal  @db.Decimal(14, 2)
+  currency          String   @default("UAH")
+  receiptStorageKey String
+  receiptFileName   String
+  receiptMimeType   String
+  receiptSizeBytes  Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  fuelDayReport FuelDayReport @relation(fields: [fuelDayReportId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, date])
+  @@index([fuelDayReportId])
 }
 
 model RoutePlan {

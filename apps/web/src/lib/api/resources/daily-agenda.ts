@@ -13,11 +13,40 @@ export type DailyAgendaPlanStatus = "DRAFT" | "COMMITTED";
 
 export type DailyAgendaCompletionStatus = "green" | "yellow" | "red";
 
+export type AgendaSuggestionCategory =
+  | "scheduled"
+  | "overdue"
+  | "leads"
+  | "orders"
+  | "queue"
+  | "route"
+  | "calls"
+  | "debt";
+
+export type AgendaEntitySnapshot = {
+  contactName?: string;
+  companyName?: string;
+  phone?: string;
+  leadName?: string;
+  orderNumber?: string;
+  orderId?: string;
+  amount?: number;
+  currency?: string;
+  priorityScore?: number;
+  daysOverdue?: number;
+  clientStage?: string;
+  leadStatus?: string;
+};
+
 export type DailyAgendaItemMetadata = {
   nextActionType?: string;
   actionHref?: string;
   reason?: string;
   suggestionKey?: string;
+  orderId?: string;
+  entitySnapshot?: AgendaEntitySnapshot;
+  suggestionCategory?: AgendaSuggestionCategory;
+  entityHref?: string;
 };
 
 export type AgendaSuggestion = {
@@ -63,6 +92,12 @@ export type AgendaCompletion = {
   dismissedCount: number;
 };
 
+export type AgendaSummary = {
+  scheduled: { visits: number; tasks: number; contactActions: number };
+  suggestions: Partial<Record<AgendaSuggestionCategory, number>>;
+  plan: { total: number; visits: number; calls: number; tasks: number; leads: number; orders: number };
+};
+
 export type DailyAgendaPayload = {
   date: string;
   userId: string;
@@ -82,17 +117,30 @@ export type DailyAgendaPayload = {
       status: string;
       startsAt: string | null;
       contactName: string | null;
+      companyName: string | null;
       purpose: string | null;
     }>;
-    tasks: Array<{ id: string; title: string; dueAt: string | null; status: string }>;
+    tasks: Array<{
+      id: string;
+      title: string;
+      dueAt: string | null;
+      status: string;
+      contactName: string | null;
+      companyName: string | null;
+      daysOverdue: number | null;
+    }>;
     contactActions: Array<{
       contactId: string;
       fullName: string;
       nextActionType: string;
       nextActionAt: string | null;
+      companyName: string | null;
+      phone: string | null;
     }>;
   };
   availableSuggestions: AgendaSuggestion[];
+  groupedSuggestions: Partial<Record<AgendaSuggestionCategory, AgendaSuggestion[]>>;
+  summary: AgendaSummary;
 };
 
 export const dailyAgendaApi = {
@@ -143,15 +191,18 @@ export function itemSourceKey(item: {
   taskId?: string | null;
   contactId?: string | null;
   leadId?: string | null;
-  title?: string;
+  metadata?: { suggestionKey?: string; orderId?: string } | null;
 }): string {
+  const meta = item.metadata;
+  if (meta?.suggestionKey) return meta.suggestionKey;
   if (item.kind === "VISIT" && item.visitId) return `VISIT:${item.visitId}`;
   if (item.kind === "TASK" && item.taskId) return `TASK:${item.taskId}`;
   if (item.kind === "CONTACT_ACTION" && item.contactId) return `CONTACT_ACTION:${item.contactId}`;
   if (item.kind === "LEAD" && item.leadId) return `LEAD:${item.leadId}`;
+  if (item.kind === "SUGGESTION" && meta?.orderId) return `overdue-order:${meta.orderId}`;
   if (item.kind === "SUGGESTION" && item.contactId) return `SUGGESTION:contact:${item.contactId}`;
   if (item.kind === "SUGGESTION" && item.leadId) return `SUGGESTION:lead:${item.leadId}`;
   if (item.kind === "SUGGESTION" && item.visitId) return `SUGGESTION:visit:${item.visitId}`;
   if (item.kind === "SUGGESTION" && item.taskId) return `SUGGESTION:task:${item.taskId}`;
-  return `${item.kind}:${item.title ?? "unknown"}`;
+  return `${item.kind}:unknown`;
 }

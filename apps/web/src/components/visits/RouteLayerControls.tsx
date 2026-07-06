@@ -1,6 +1,6 @@
 "use client";
 
-import type { RouteGeometryResult } from "@/lib/api/resources/visits";
+import type { RouteGeometryLayer, RouteGeometryResult } from "@/lib/api/resources/visits";
 
 export type RouteLayerKey = "planned" | "fact_visits" | "fact_gps";
 
@@ -76,7 +76,7 @@ const DASHED_LINE_ICONS: google.maps.PolylineOptions["icons"] = [
 
 /** Polyline style from geometry source: solid for roads, dashed for straight-line fallback. */
 export function routePolylineOptions(
-  geom: RouteGeometryResult | null | undefined,
+  geom: RouteGeometryResult | RouteGeometryLayer | null | undefined,
   layer: RouteLayerKey,
 ): google.maps.PolylineOptions {
   const base = ROUTE_LAYER_STYLES[layer];

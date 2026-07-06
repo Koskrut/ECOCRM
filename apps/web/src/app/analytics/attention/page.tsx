@@ -104,7 +104,7 @@ export default function AnalyticsAttentionPage() {
       <section id="overdue-tasks" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">{at.overdueTitle}</h2>
         <p className="text-xs text-zinc-500">
-          OPEN/IN_PROGRESS, дедлайн (dueAt) у вибраному періоді.
+          OPEN/IN_PROGRESS, дедлайн до сьогодні (календар Kyiv).
         </p>
         <SimpleTable
           rows={data?.crm.overdueTasks ?? []}
@@ -146,7 +146,7 @@ export default function AnalyticsAttentionPage() {
       <section id="finance-overdue" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">Прострочені оплати (замовлення)</h2>
         <p className="text-xs text-zinc-500">
-          Замовлення з createdAt у періоді; OVERDUE + debt &gt; 0.
+          Борг &gt; 0 і paymentDueDate у минулому (календар Kyiv).
         </p>
         <SimpleTable
           rows={data?.finance.overdueOrders ?? []}

@@ -2,6 +2,8 @@ import type { TaskStatus } from "@prisma/client";
 
 export type TaskSortField = "dueAt" | "createdAt" | "updatedAt";
 
+export type TaskAttentionPreset = "overdue";
+
 export type ListTasksQueryDto = {
   assigneeId?: string;
   contactId?: string;
@@ -11,6 +13,8 @@ export type ListTasksQueryDto = {
   status?: TaskStatus | TaskStatus[];
   dueFrom?: string; // ISO date
   dueTo?: string;   // ISO date
+  attention?: TaskAttentionPreset;
+  ids?: string;
   q?: string;
   sortBy?: TaskSortField;
   sortDir?: "asc" | "desc";

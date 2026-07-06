@@ -3,9 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import {
-  buildOverdueTaskWhereForPeriod,
-  buildPeriodOrderWhere,
-} from "../utils/analytics-filter.builder";
+  buildOrderOverduePaymentsWhere,
+  buildStuckOrdersBaseWhere,
+  filterStuckOrders,
+} from "../../orders/orders-attention.util";
+import { buildTaskOverdueWhere } from "../../tasks/tasks-attention.util";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
 
 @Injectable()
@@ -17,18 +19,18 @@ export class AnalyticsAttentionService {
       return { crm: { overdueTasks: [], stuckOrders: [], leadsWithoutTouch: [] }, finance: { overdueOrders: [] } };
     }
 
-    const overdueOrderWhere: Prisma.OrderWhereInput = {
-      ...buildPeriodOrderWhere(period.from, period.to, scope.orderScope),
-      financialStatus: "OVERDUE",
-      debtAmount: { gt: 0 },
-    };
+    const overdueOrderWhere = buildOrderOverduePaymentsWhere({
+      managerId: scope.orderScope.managerId,
+      allowedOwnerIds: scope.orderScope.allowedOwnerIds,
+    });
+    const overdueTaskWhere = buildTaskOverdueWhere({
+      managerId: scope.orderScope.managerId,
+      allowedAssigneeIds: scope.allowedAssigneeIds,
+    });
 
     const [overdueTasks, stuckOrders, leadsWithoutTouch, overdueOrders] = await Promise.all([
       this.prisma.task.findMany({
-        where: buildOverdueTaskWhereForPeriod(period.from, period.to, {
-          managerId: scope.orderScope.managerId,
-          allowedAssigneeIds: scope.allowedAssigneeIds,
-        }),
+        where: overdueTaskWhere,
         orderBy: { dueAt: "asc" },
         take: 50,
         select: {
@@ -83,15 +85,10 @@ export class AnalyticsAttentionService {
   }
 
   private async fetchStuckOrders(scope: AnalyticsScope, period: ResolvedPeriod) {
-    const asOf = period.to;
-    const cutoff = new Date(asOf);
-    cutoff.setDate(cutoff.getDate() - 3);
-    const where: Prisma.OrderWhereInput = {
-      OR: [{ orderStage: null }, { orderStage: { notIn: ["CANCELED", "REFUSED", "COMPLETED"] } }],
-      createdAt: { gte: period.from, lte: period.to },
-    };
-    if (scope.orderScope.managerId) where.ownerId = scope.orderScope.managerId;
-    else if (scope.orderScope.allowedOwnerIds !== undefined) where.ownerId = { in: scope.orderScope.allowedOwnerIds };
+    const where = buildStuckOrdersBaseWhere(period, {
+      managerId: scope.orderScope.managerId,
+      allowedOwnerIds: scope.orderScope.allowedOwnerIds,
+    });
     const rows = await this.prisma.order.findMany({
       where,
       take: 50,
@@ -108,16 +105,13 @@ export class AnalyticsAttentionService {
         },
       },
     });
-    return rows
-      .map((o) => ({ ...o, stuckSinceDate: (o.statusHistory[0]?.createdAt ?? o.updatedAt) }))
-      .filter((o) => o.stuckSinceDate < cutoff)
-      .map((o) => ({
-        id: o.id,
-        orderNumber: o.orderNumber,
-        orderStage: o.orderStage,
-        stuckSinceDate: o.stuckSinceDate.toISOString(),
-        ownerName: o.owner?.fullName ?? null,
-      }));
+    return filterStuckOrders(rows, period.to).map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      orderStage: o.orderStage,
+      stuckSinceDate: (o.statusHistory[0]?.createdAt ?? o.updatedAt).toISOString(),
+      ownerName: o.owner?.fullName ?? null,
+    }));
   }
 
   private async fetchLeadsWithoutTouch(scope: AnalyticsScope, period: ResolvedPeriod) {

@@ -1,9 +1,14 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Modal,
+  Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
@@ -17,7 +22,8 @@ import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView
 import { Screen } from "@/components/ui/Screen";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUploadForm } from "@/lib/api";
+import { refuelReceiptUrl, type FuelRefuelEntry, type FuelRefuelTotals } from "@/lib/fuel-refuels";
 import { useTheme } from "@/lib/design/theme-context";
 import { gpsVerificationLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
@@ -45,7 +51,23 @@ type FuelDayResponse = {
   breakdown: BreakdownRow[];
   warnings: string[];
   factMetrics: { source: string };
+  refuels?: FuelRefuelEntry[];
+  refuelTotals?: FuelRefuelTotals;
 };
+
+function RefuelReceiptThumb({ id, token }: { id: string; token: string | null }) {
+  if (!token) return null;
+  return (
+    <Image
+      source={{
+        uri: refuelReceiptUrl(id),
+        headers: { Authorization: `Bearer ${token}` },
+      }}
+      style={styles.receiptThumb}
+      resizeMode="cover"
+    />
+  );
+}
 
 export default function FuelDayScreen() {
   const raw = useLocalSearchParams<{ date?: string | string[] }>().date;
@@ -58,6 +80,10 @@ export default function FuelDayScreen() {
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [refuelOpen, setRefuelOpen] = useState(false);
+  const [refuelLiters, setRefuelLiters] = useState("");
+  const [refuelAmount, setRefuelAmount] = useState("");
+  const [refuelPhoto, setRefuelPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
 
   function formatFallback(): string {
     return new Date().toISOString().slice(0, 10);
@@ -85,6 +111,87 @@ export default function FuelDayScreen() {
       void reload();
     }, [reload]),
   );
+
+  const canManageRefuels =
+    data?.report.compensationStatus != null && data.report.compensationStatus !== "PAID";
+
+  const canSubmitRefuel = useMemo(() => {
+    const l = Number(refuelLiters.replace(",", "."));
+    const a = Number(refuelAmount.replace(",", "."));
+    return Boolean(refuelPhoto) && Number.isFinite(l) && l > 0 && Number.isFinite(a) && a > 0;
+  }, [refuelLiters, refuelAmount, refuelPhoto]);
+
+  const pickPhoto = async (useCamera: boolean) => {
+    const perm = useCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(t("common.error"), t("fuel.refuelPhotoDenied"));
+      return;
+    }
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false });
+    if (!result.canceled && result.assets[0]) {
+      setRefuelPhoto(result.assets[0]);
+    }
+  };
+
+  const submitRefuel = async () => {
+    if (!token || !refuelPhoto || !canSubmitRefuel) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("liters", refuelLiters.replace(",", "."));
+      form.append("amount", refuelAmount.replace(",", "."));
+      const name = refuelPhoto.fileName ?? `receipt-${Date.now()}.jpg`;
+      const type = refuelPhoto.mimeType ?? "image/jpeg";
+      form.append("file", {
+        uri: refuelPhoto.uri,
+        name,
+        type,
+      } as unknown as Blob);
+      await apiUploadForm<{ item: FuelRefuelEntry }>(
+        `/field/fuel/refuels?date=${encodeURIComponent(date)}`,
+        form,
+        { token },
+      );
+      setRefuelOpen(false);
+      setRefuelLiters("");
+      setRefuelAmount("");
+      setRefuelPhoto(null);
+      await reload();
+      Alert.alert(t("common.done"), t("fuel.refuelSaved"));
+    } catch (e) {
+      Alert.alert(t("common.error"), String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteRefuel = (id: string) => {
+    Alert.alert(t("fuel.refuelDeleteTitle"), t("fuel.refuelDeleteConfirm"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("common.delete"),
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            if (!token) return;
+            setBusy(true);
+            try {
+              await apiFetch(`/field/fuel/refuels/${id}`, { method: "DELETE", token });
+              await reload();
+            } catch (e) {
+              Alert.alert(t("common.error"), String(e));
+            } finally {
+              setBusy(false);
+            }
+          })();
+        },
+      },
+    ]);
+  };
 
   const recalc = async () => {
     if (!token) return;
@@ -163,6 +270,51 @@ export default function FuelDayScreen() {
               </Card>
             </View>
 
+            <View style={styles.refuelHeader}>
+              <View style={styles.flex}>
+                <Text style={theme.typography.section}>{t("fuel.refuelsTitle")}</Text>
+                {data.refuelTotals ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                    {t("fuel.refuelsTotals", {
+                      count: data.refuelTotals.count,
+                      liters: data.refuelTotals.liters,
+                      amount: data.refuelTotals.amount,
+                    })}
+                  </Text>
+                ) : null}
+              </View>
+              {canManageRefuels ? (
+                <AppButton
+                  label={t("fuel.refuelAction")}
+                  onPress={() => setRefuelOpen(true)}
+                />
+              ) : null}
+            </View>
+
+            {(data.refuels ?? []).length === 0 ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 12 }]}>
+                {t("fuel.refuelsEmpty")}
+              </Text>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                {(data.refuels ?? []).map((item) => (
+                  <Card key={item.id} style={styles.refuelCard}>
+                    <RefuelReceiptThumb id={item.id} token={token} />
+                    <Text style={[theme.typography.bodyMedium, { marginTop: 8 }]}>
+                      {item.liters} л · {item.amount} {t("common.currency")}
+                    </Text>
+                    {canManageRefuels ? (
+                      <Pressable onPress={() => deleteRefuel(item.id)} hitSlop={8}>
+                        <Text style={[theme.typography.caption, { color: theme.colors.danger, marginTop: 4 }]}>
+                          {t("common.delete")}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </Card>
+                ))}
+              </ScrollView>
+            )}
+
             {(data?.warnings ?? []).includes("insufficient_completed_visits") ? (
               <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginBottom: 12 }]}>
                 {t("fuel.insufficientVisits")}
@@ -235,6 +387,47 @@ export default function FuelDayScreen() {
           style={{ marginTop: theme.spacing.lg, alignSelf: "flex-start" }}
         />
       </KeyboardAwareScrollView>
+
+      <Modal visible={refuelOpen} animationType="slide" transparent onRequestClose={() => setRefuelOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.colors.surface }]}>
+            <Text style={theme.typography.title}>{t("fuel.refuelAction")}</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+              {t("fuel.refuelPhotoRequired")}
+            </Text>
+            <TextField
+              value={refuelLiters}
+              onChangeText={setRefuelLiters}
+              placeholder={t("fuel.refuelLiters")}
+              keyboardType="decimal-pad"
+              style={{ marginTop: 16 }}
+            />
+            <TextField
+              value={refuelAmount}
+              onChangeText={setRefuelAmount}
+              placeholder={t("fuel.refuelAmount")}
+              keyboardType="decimal-pad"
+              style={{ marginTop: 8 }}
+            />
+            <View style={styles.refuelPhotoRow}>
+              <AppButton label={t("fuel.refuelCamera")} onPress={() => void pickPhoto(true)} variant="secondary" />
+              <AppButton label={t("fuel.refuelGallery")} onPress={() => void pickPhoto(false)} variant="secondary" />
+            </View>
+            {refuelPhoto ? (
+              <Image source={{ uri: refuelPhoto.uri }} style={styles.refuelPreview} resizeMode="contain" />
+            ) : null}
+            <View style={styles.refuelActions}>
+              <AppButton label={t("common.cancel")} onPress={() => setRefuelOpen(false)} variant="ghost" />
+              <AppButton
+                label={t("fuel.refuelSubmit")}
+                onPress={() => void submitRefuel()}
+                disabled={!canSubmitRefuel || busy}
+                loading={busy}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -244,4 +437,12 @@ const styles = StyleSheet.create({
   cards: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
   metricCard: { flex: 1, minWidth: 100 },
   visitRow: { flexDirection: "row", gap: 8 },
+  refuelHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  refuelCard: { width: 140, marginRight: 8 },
+  receiptThumb: { width: "100%", height: 80, borderRadius: 8 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  modalCard: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 32 },
+  refuelPhotoRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  refuelPreview: { width: "100%", height: 160, marginTop: 12, borderRadius: 8 },
+  refuelActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 16 },
 });

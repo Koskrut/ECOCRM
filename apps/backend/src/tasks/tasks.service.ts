@@ -13,6 +13,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateTaskDto } from "./dto/create-task.dto";
 import type { ListTasksQueryDto } from "./dto/list-tasks-query.dto";
+import { buildTaskOverdueWhere, isTaskAttentionPreset } from "./tasks-attention.util";
 import type { UpdateTaskDto } from "./dto/update-task.dto";
 
 @Injectable()
@@ -176,6 +177,17 @@ export class TasksService {
     const where: Prisma.TaskWhereInput = {};
     const andParts: Prisma.TaskWhereInput[] = [];
 
+    const idList = query.ids
+      ?.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    if (idList && idList.length > 0) {
+      andParts.push({ id: { in: idList } });
+    } else if (query.attention && isTaskAttentionPreset(query.attention)) {
+      andParts.push(buildTaskOverdueWhere({}));
+    }
+
     if (actor.role === UserRole.MANAGER) {
       andParts.push({ OR: [{ assigneeId: actor.id }, { createdById: actor.id }] });
     } else if (query.assigneeId) {
@@ -185,14 +197,14 @@ export class TasksService {
     if (query.companyId) where.companyId = query.companyId;
     if (query.leadId) where.leadId = query.leadId;
     if (query.orderId) where.orderId = query.orderId;
-    if (query.status != null) {
+    if (query.status != null && !query.attention && !idList?.length) {
       if (Array.isArray(query.status)) {
         where.status = { in: query.status };
       } else {
         where.status = query.status as TaskStatus;
       }
     }
-    if (query.dueFrom || query.dueTo) {
+    if (!query.attention && !idList?.length && (query.dueFrom || query.dueTo)) {
       where.dueAt = {};
       if (query.dueFrom) {
         (where.dueAt as Prisma.DateTimeNullableFilter).gte = new Date(query.dueFrom);

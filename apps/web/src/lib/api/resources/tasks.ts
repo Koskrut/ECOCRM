@@ -42,6 +42,8 @@ export type Task = {
 
 export type TaskSortField = "dueAt" | "createdAt" | "updatedAt";
 
+export type TaskAttentionPreset = "overdue";
+
 export type ListTasksQuery = {
   assigneeId?: string;
   contactId?: string;
@@ -51,6 +53,8 @@ export type ListTasksQuery = {
   status?: TaskStatus | TaskStatus[];
   dueFrom?: string;
   dueTo?: string;
+  attention?: TaskAttentionPreset;
+  ids?: string;
   q?: string;
   sortBy?: TaskSortField;
   sortDir?: "asc" | "desc";
@@ -98,6 +102,8 @@ export const tasksApi = {
     }
     if (query.dueFrom) params.dueFrom = query.dueFrom;
     if (query.dueTo) params.dueTo = query.dueTo;
+    if (query.attention) params.attention = query.attention;
+    if (query.ids) params.ids = query.ids;
     if (query.q?.trim()) params.q = query.q.trim();
     if (query.sortBy) params.sortBy = query.sortBy;
     if (query.sortDir) params.sortDir = query.sortDir;

@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ListTodo, Search } from "lucide-react";
 import {
   tasksApi,
@@ -26,6 +26,10 @@ import {
 } from "@/lib/task-labels";
 
 const t = strings.tasks;
+
+const ATTENTION_LABELS: Record<"overdue", string> = {
+  overdue: "Прострочені завдання",
+};
 
 function getTaskStatusOptions(): { value: TaskStatusFilter; label: string }[] {
   return (
@@ -133,6 +137,8 @@ export default function TasksPage() {
 
 function TasksPageContent() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const taskStatusOptions = useMemo(() => getTaskStatusOptions(), []);
   const periodOptions = useMemo(() => getPeriodOptions(), []);
   const sortOptions = useMemo(() => getSortOptions(), []);
@@ -145,7 +151,18 @@ function TasksPageContent() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("active");
-  const [periodFilter, setPeriodFilter] = useState<"" | "week" | "overdue">("");
+  const [periodFilter, setPeriodFilter] = useState<"" | "week" | "overdue">(() => {
+    const raw = searchParams.get("period");
+    if (raw === "week") return "week";
+    if (raw === "overdue" || searchParams.get("attention") === "overdue") return "overdue";
+    return "";
+  });
+  const [attention, setAttention] = useState<"" | "overdue">(() => {
+    if (searchParams.get("attention") === "overdue") return "overdue";
+    if (searchParams.get("period") === "overdue") return "overdue";
+    return "";
+  });
+  const [taskIdsFilter, setTaskIdsFilter] = useState(() => searchParams.get("ids") ?? "");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [q, setQ] = useState("");
   const [qInput, setQInput] = useState("");
@@ -212,6 +229,24 @@ function TasksPageContent() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    if (attention) params.set("attention", attention);
+    else if (periodFilter === "overdue") params.set("period", "overdue");
+    else if (periodFilter === "week") params.set("period", "week");
+    if (taskIdsFilter) params.set("ids", taskIdsFilter);
+    if (q) params.set("q", q);
+    const taskId = searchParams.get("taskId");
+    if (taskId) params.set("taskId", taskId);
+
+    const next = params.toString();
+    const current = searchParams.toString();
+    if (next !== current) {
+      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+    }
+  }, [attention, page, pathname, periodFilter, q, router, searchParams, taskIdsFilter]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       const nextQ = qInput.trim();
       setPage(1);
@@ -223,11 +258,16 @@ function TasksPageContent() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const period = getPeriodBounds(periodFilter);
+      const period = attention || taskIdsFilter ? { dueFrom: undefined, dueTo: undefined, status: undefined } : getPeriodBounds(periodFilter);
       const res = await tasksApi.list({
         assigneeId: assigneeFilter || undefined,
         q: q.trim() || undefined,
-        status: resolveTaskListStatus(statusFilter, period.status),
+        attention: attention === "overdue" ? "overdue" : undefined,
+        ids: taskIdsFilter || undefined,
+        status:
+          attention || taskIdsFilter
+            ? undefined
+            : resolveTaskListStatus(statusFilter, period.status),
         dueFrom: period.dueFrom,
         dueTo: period.dueTo,
         sortBy,
@@ -243,7 +283,7 @@ function TasksPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [assigneeFilter, q, statusFilter, periodFilter, sortBy, sortDir, page]);
+  }, [assigneeFilter, attention, q, statusFilter, periodFilter, sortBy, sortDir, page, taskIdsFilter]);
 
   useEffect(() => {
     void load();
@@ -427,6 +467,8 @@ function TasksPageContent() {
   const resetFilters = () => {
     setStatusFilter("active");
     setPeriodFilter("");
+    setAttention("");
+    setTaskIdsFilter("");
     setAssigneeFilter("");
     setSortBy("dueAt");
     setSortDir("asc");
@@ -438,10 +480,14 @@ function TasksPageContent() {
   const filtersActive =
     statusFilter !== "active" ||
     periodFilter !== "" ||
+    attention !== "" ||
+    taskIdsFilter !== "" ||
     assigneeFilter !== "" ||
     sortBy !== "dueAt" ||
     sortDir !== "asc" ||
     q.trim() !== "";
+
+  const attentionLabel = attention ? ATTENTION_LABELS[attention] : null;
 
   return (
     <div className="space-y-6">
@@ -478,7 +524,10 @@ function TasksPageContent() {
           <select
             value={periodFilter}
             onChange={(e) => {
-              setPeriodFilter(e.target.value as "" | "week" | "overdue");
+              const next = e.target.value as "" | "week" | "overdue";
+              setPeriodFilter(next);
+              setAttention(next === "overdue" ? "overdue" : "");
+              setTaskIdsFilter("");
               setPage(1);
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
@@ -548,6 +597,20 @@ function TasksPageContent() {
             </button>
           )}
         </div>
+        {(attentionLabel || taskIdsFilter) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {attentionLabel ? (
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                {attentionLabel}
+              </span>
+            ) : null}
+            {taskIdsFilter ? (
+              <span className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-900">
+                План дня ({taskIdsFilter.split(",").filter(Boolean).length})
+              </span>
+            ) : null}
+          </div>
+        )}
         <p className="text-sm text-zinc-500">
           {interpolate(t.total, { total })}
           {totalPages > 1 ? interpolate(t.pageOf, { page, totalPages }) : ""}

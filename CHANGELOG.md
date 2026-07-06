@@ -4,7 +4,34 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.103**.)_
+_(планируемые изменения после **0.2.104**.)_
+
+## [0.2.104] — 2026-07-06
+
+### Summary
+
+Патч **0.2.104**: **заправки с чеками** (fuel refuels), единые **attention-фильтры** для dashboard/analytics/списков, рефакторинг **daily agenda** (suggestion keys, summary strip, drill-down ссылки), mobile fuel refuels.
+
+### Added
+
+- **Fuel refuels**: `FuelRefuelEntry` + миграция **`20260706120000_fuel_refuel_entries`**; API **`GET/POST/DELETE /field/fuel/refuels`**, **`GET …/receipt`**; хранение чеков (`FUEL_RECEIPTS_DIR`, volume `fuel_receipts` в `compose.client.yml`); web **`FuelRefuelPanel`** на `/visits/fuel`; mobile экраны fuel + `fuel-refuels.ts`.
+- **Attention filters**: общие пресеты для tasks (`attention=overdue`), orders (`overdue-payments`, `stuck`), leads (`without-touch`, `never-contacted-new`, `stale-in-progress`); утилиты `*-attention.util.ts`; синхронизация dashboard tiles, analytics attention и list API; docs **`docs/attention-filters.md`**.
+- **Daily agenda**: `suggestion-keys`, `suggestion-mapper`, `helpers`; web **`AgendaItemCard`**, **`AgendaSuggestionGroup`**, **`AgendaSummaryStrip`**, `agendaKindConfig` / `agendaSummaryLinks` — summary strip и кликабельные ссылки на списки.
+- **List drill-down**: `?ids=` на tasks/orders; `?attention=` query на leads/tasks/orders pages.
+
+### Changed
+
+- **Analytics attention** — использует те же пресеты, что и списки.
+- **Daily agenda** service/completion/proposal — стабильные suggestion keys, меньше дублей.
+- **Manager inbox / dashboard attention** — ссылки на attention-фильтры.
+- **Visits** team map / route layers — мелкие правки.
+- **Leads** — `suggest-contact` proxy, LeadModal/LeadCard.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.104`**.
+- **Миграция:** **`20260706120000_fuel_refuel_entries`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- Опционально: **`FUEL_RECEIPTS_DIR`** / volume **`fuel_receipts`** для фото чеков (см. `.env.base.example`, `compose.client.yml`).
 
 ## [0.2.103] — 2026-07-03
 

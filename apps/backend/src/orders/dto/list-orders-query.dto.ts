@@ -35,6 +35,18 @@ export class ListOrdersQueryDto {
 
   @IsOptional()
   @IsString()
+  ids?: string;
+
+  @IsOptional()
+  @IsString()
+  attention?: string;
+
+  @IsOptional()
+  @IsString()
+  attentionPeriod?: string;
+
+  @IsOptional()
+  @IsString()
   companyId?: string;
 
   @IsOptional()

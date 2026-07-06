@@ -2,26 +2,21 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Minus, Plus } from "lucide-react";
 import type {
   AgendaPlanItem,
   AgendaPlanItemInput,
   AgendaSuggestion,
+  AgendaSuggestionCategory,
   DailyAgendaPayload,
 } from "@/lib/api/resources/daily-agenda";
 import { itemSourceKey, suggestionToPlanItem } from "@/lib/api/resources/daily-agenda";
+import { AgendaItemCard } from "./AgendaItemCard";
+import { AgendaProfileSidebar, AgendaSummaryStrip } from "./AgendaSummaryStrip";
+import { AgendaSuggestionGroups } from "./AgendaSuggestionGroup";
+import { buildAgendaSummaryLinks } from "./agendaSummaryLinks";
 import { strings } from "@/locales";
 
 const t = strings.dailyAgenda;
-
-function formatTime(iso: string | null | undefined): string {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
 
 type EditorItem = AgendaPlanItemInput & { localKey: string };
 
@@ -37,24 +32,30 @@ export type DailyAgendaEditorProps = {
   date: string;
   profile: DailyAgendaPayload["profile"];
   initialItems: AgendaPlanItemInput[];
-  availableSuggestions: AgendaSuggestion[];
+  groupedSuggestions: Partial<Record<AgendaSuggestionCategory, AgendaSuggestion[]>>;
+  summary: DailyAgendaPayload["summary"];
   committedItems?: AgendaPlanItem[];
+  completion?: DailyAgendaPayload["completion"];
   onSaveDraft: (items: AgendaPlanItemInput[]) => Promise<void>;
   onCommit: (items: AgendaPlanItemInput[]) => Promise<void>;
   onLater?: (items: AgendaPlanItemInput[]) => Promise<void>;
   saving?: boolean;
+  layout?: "stacked" | "split";
 };
 
 export function DailyAgendaEditor({
   date,
   profile,
   initialItems,
-  availableSuggestions,
+  groupedSuggestions,
+  summary,
   committedItems = [],
+  completion,
   onSaveDraft,
   onCommit,
   onLater,
   saving = false,
+  layout = "stacked",
 }: DailyAgendaEditorProps) {
   const doneKeys = useMemo(
     () => new Set(committedItems.filter((i) => i.status === "DONE").map((i) => itemSourceKey(i))),
@@ -64,12 +65,45 @@ export function DailyAgendaEditor({
   const [items, setItems] = useState<EditorItem[]>(() => toEditorItems(initialItems));
   const [error, setError] = useState<string | null>(null);
 
-  const usedKeys = useMemo(() => new Set(items.map((i) => i.localKey)), [items]);
+  const usedKeys = useMemo(() => {
+    const keys = new Set(items.map((i) => i.localKey));
+    for (const item of items) {
+      if (item.metadata?.suggestionKey) keys.add(item.metadata.suggestionKey);
+    }
+    return keys;
+  }, [items]);
 
-  const addableSuggestions = availableSuggestions.filter((s) => {
-    const key = itemSourceKey(suggestionToPlanItem(s, 0));
-    return !usedKeys.has(key);
-  });
+  const liveSummary = useMemo(
+    () => ({
+      ...summary,
+      plan: {
+        ...summary.plan,
+        total: items.length,
+        visits: items.filter((i) => i.kind === "VISIT").length,
+        tasks: items.filter((i) => i.kind === "TASK").length,
+        leads: items.filter((i) => i.kind === "LEAD").length,
+        orders: items.filter((i) => i.metadata?.orderId).length,
+        calls:
+          items.filter(
+            (i) =>
+              i.kind === "CONTACT_ACTION" ||
+              (i.kind === "SUGGESTION" && i.metadata?.suggestionCategory === "calls"),
+          ).length,
+      },
+    }),
+    [items, summary],
+  );
+
+  const summaryLinks = useMemo(
+    () =>
+      buildAgendaSummaryLinks({
+        date,
+        profile,
+        items,
+        groupedSuggestions,
+      }),
+    [date, profile, items, groupedSuggestions],
+  );
 
   const stripItems = useCallback((): AgendaPlanItemInput[] => {
     return items
@@ -122,6 +156,18 @@ export function DailyAgendaEditor({
     });
   }
 
+  function addSuggestions(list: AgendaSuggestion[]) {
+    setItems((prev) => {
+      const existing = new Set(prev.map((i) => i.localKey));
+      const toAdd = list.filter((s) => !existing.has(s.suggestionKey));
+      const next = [
+        ...prev.map(({ localKey: _, ...rest }) => rest),
+        ...toAdd.map((s, idx) => suggestionToPlanItem(s, prev.length + idx)),
+      ];
+      return toEditorItems(next);
+    });
+  }
+
   function moveItem(key: string, dir: -1 | 1) {
     setItems((prev) => {
       const idx = prev.findIndex((i) => i.localKey === key);
@@ -153,138 +199,117 @@ export function DailyAgendaEditor({
     }
   }
 
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-zinc-600">
-        {t.planCount(items.length)} · {profile === "field" ? t.profileField : t.profileOffice} · {date}
-      </p>
-
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t.myPlan}</h3>
-        {items.length === 0 ? (
-          <p className="text-sm text-zinc-500">{t.emptyPlan}</p>
-        ) : (
-          <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-            {items.map((item, idx) => {
-              const isDone = doneKeys.has(item.localKey);
-              return (
-                <li key={item.localKey} className="flex items-start gap-2 px-3 py-2 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-zinc-900">{item.title}</div>
-                    {item.subtitle ? (
-                      <div className="text-xs text-zinc-500">{item.subtitle}</div>
-                    ) : null}
-                    <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-zinc-400">
-                      <span>{item.kind}</span>
-                      {item.scheduledAt ? <span>{formatTime(item.scheduledAt)}</span> : null}
-                      {isDone ? (
-                        <span className="rounded bg-emerald-100 px-1.5 text-emerald-800">{t.done}</span>
-                      ) : null}
-                    </div>
-                  </div>
-                  {!isDone ? (
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => moveItem(item.localKey, -1)}
-                        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:opacity-30"
-                        aria-label={t.moveUp}
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === items.length - 1}
-                        onClick={() => moveItem(item.localKey, 1)}
-                        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:opacity-30"
-                        aria-label={t.moveDown}
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.localKey)}
-                        className="rounded p-1 text-red-600 hover:bg-red-50"
-                        aria-label={t.remove}
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      {addableSuggestions.length > 0 ? (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t.addToPlan}</h3>
-          <ul className="space-y-1">
-            {addableSuggestions.map((s) => (
-              <li
-                key={s.suggestionKey}
-                className="flex items-center justify-between gap-2 rounded-md border border-dashed border-zinc-200 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="font-medium text-zinc-800">{s.title}</div>
-                  <div className="text-xs text-zinc-500">{s.reason}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => addSuggestion(s)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-zinc-900 px-2 py-1 text-xs text-white hover:bg-zinc-800"
-                >
-                  <Plus className="h-3 w-3" />
-                  {t.add}
-                </button>
+  const planList = (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t.myPlan}</h3>
+      {items.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-zinc-200 py-8 text-center text-sm text-zinc-500">
+          {t.emptyPlan}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item, idx) => {
+            const isDone = doneKeys.has(item.localKey);
+            return (
+              <li key={item.localKey}>
+                <AgendaItemCard
+                  item={item}
+                  isDone={isDone}
+                  showReorder={!isDone}
+                  disableMoveUp={idx === 0}
+                  disableMoveDown={idx === items.length - 1}
+                  onMoveUp={() => moveItem(item.localKey, -1)}
+                  onMoveDown={() => moveItem(item.localKey, 1)}
+                  onRemove={() => removeItem(item.localKey)}
+                />
               </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
 
-      <div className="flex flex-wrap gap-2 border-t border-zinc-200 pt-3">
+  const suggestionsPanel = (
+    <AgendaSuggestionGroups
+      grouped={groupedSuggestions}
+      usedKeys={usedKeys}
+      onAdd={addSuggestion}
+      onAddAll={addSuggestions}
+      profile={profile}
+    />
+  );
+
+  const footer = (
+    <div className="flex flex-wrap gap-2 border-t border-zinc-200 pt-3">
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void handleDraft()}
+        className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+      >
+        {saving ? t.saving : t.saveDraft}
+      </button>
+      <button
+        type="button"
+        disabled={saving || items.length === 0}
+        onClick={() => void handleCommit()}
+        className="btn-primary text-sm disabled:opacity-50"
+      >
+        {saving ? t.saving : t.confirmPlan}
+      </button>
+      {onLater ? (
         <button
           type="button"
           disabled={saving}
-          onClick={() => void handleDraft()}
-          className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          onClick={() => void onLater(mergeWithDone())}
+          className="text-sm text-zinc-600 hover:text-zinc-900"
         >
-          {saving ? t.saving : t.saveDraft}
+          {t.later}
         </button>
-        <button
-          type="button"
-          disabled={saving || items.length === 0}
-          onClick={() => void handleCommit()}
-          className="btn-primary text-sm disabled:opacity-50"
-        >
-          {saving ? t.saving : t.confirmPlan}
-        </button>
-        {onLater ? (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => void onLater(mergeWithDone())}
-            className="text-sm text-zinc-600 hover:text-zinc-900"
-          >
-            {t.later}
-          </button>
-        ) : null}
-        {profile === "field" ? (
-          <Link href={`/visits?date=${date}`} className="text-sm text-zinc-600 hover:text-zinc-900">
-            {t.openRoute}
-          </Link>
-        ) : (
-          <Link href="/work/calls/queue" className="text-sm text-zinc-600 hover:text-zinc-900">
-            {t.openQueue}
-          </Link>
-        )}
-      </div>
+      ) : null}
+      {profile === "field" ? (
+        <Link href={`/visits?date=${date}`} className="text-sm text-zinc-600 hover:text-zinc-900">
+          {t.openRoute}
+        </Link>
+      ) : (
+        <Link href="/work/calls/queue" className="text-sm text-zinc-600 hover:text-zinc-900">
+          {t.openQueue}
+        </Link>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <AgendaSummaryStrip
+        summary={liveSummary}
+        profile={profile}
+        date={date}
+        completion={completion}
+        links={summaryLinks}
+      />
+
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+
+      {layout === "split" ? (
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="space-y-4 lg:col-span-3">
+            {planList}
+            {footer}
+          </div>
+          <div className="space-y-4 lg:col-span-2">
+            <AgendaProfileSidebar profile={profile} date={date} summary={liveSummary} />
+            {suggestionsPanel}
+          </div>
+        </div>
+      ) : (
+        <>
+          {planList}
+          {suggestionsPanel}
+          {footer}
+        </>
+      )}
     </div>
   );
 }

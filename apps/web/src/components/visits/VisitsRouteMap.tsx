@@ -2,25 +2,41 @@
 
 import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
 import { useMemo } from "react";
-import type { RouteGeometryResult } from "@/lib/api/resources/visits";
+import type { RouteGeometryLayer, RouteGeometryResult } from "@/lib/api/resources/visits";
 import { routePolylineOptions, type RouteLayerKey } from "./RouteLayerControls";
+
+export type VisitsRouteMapOverlayMarker = {
+  lat: number;
+  lng: number;
+  label?: string;
+  title?: string;
+  selected?: boolean;
+};
+
+export type VisitsRouteMapExtraPath = {
+  path: Array<{ lat: number; lng: number }>;
+  options: google.maps.PolylineOptions;
+};
 
 export type VisitsRouteMapProps = {
   mapsApiKey: string;
   center: { lat: number; lng: number };
   layers: Record<RouteLayerKey, boolean>;
   geometries: {
-    planned?: RouteGeometryResult | null;
-    fact_visits?: RouteGeometryResult | null;
-    fact_gps?: RouteGeometryResult | null;
+    planned?: RouteGeometryLayer | null;
+    fact_visits?: RouteGeometryLayer | null;
+    fact_gps?: RouteGeometryLayer | null;
   };
   markers?: Array<{ lat: number; lng: number; label?: string }>;
+  overlayMarkers?: VisitsRouteMapOverlayMarker[];
+  extraPaths?: VisitsRouteMapExtraPath[];
   routeAnchors?: { start?: { lat: number; lng: number }; end?: { lat: number; lng: number } };
   onMarkerDragEnd?: (index: number, e: google.maps.MapMouseEvent) => void;
   draggableMarkers?: boolean;
+  loadingLabel?: string;
 };
 
-function layerPath(geom: RouteGeometryResult | null | undefined): google.maps.LatLngLiteral[] {
+function layerPath(geom: RouteGeometryLayer | null | undefined): google.maps.LatLngLiteral[] {
   if (!geom?.path?.length) return [];
   return geom.path.map((p) => ({ lat: p.lat, lng: p.lng }));
 }
@@ -31,9 +47,12 @@ export function VisitsRouteMap({
   layers,
   geometries,
   markers = [],
+  overlayMarkers = [],
+  extraPaths = [],
   routeAnchors,
   onMarkerDragEnd,
   draggableMarkers,
+  loadingLabel = "Загрузка карты…",
 }: VisitsRouteMapProps) {
   const { isLoaded, loadError } = useLoadScript({
     id: "google-map-script-visits-route",
@@ -48,10 +67,12 @@ export function VisitsRouteMap({
       if (g?.path) pts.push(...g.path.map((p) => ({ lat: p.lat, lng: p.lng })));
     }
     for (const m of markers) pts.push({ lat: m.lat, lng: m.lng });
+    for (const m of overlayMarkers) pts.push({ lat: m.lat, lng: m.lng });
+    for (const extra of extraPaths) pts.push(...extra.path);
     if (routeAnchors?.start) pts.push(routeAnchors.start);
     if (routeAnchors?.end) pts.push(routeAnchors.end);
     return pts;
-  }, [geometries, layers, markers, routeAnchors]);
+  }, [geometries, layers, markers, overlayMarkers, extraPaths, routeAnchors]);
 
   if (loadError) {
     return (
@@ -64,7 +85,7 @@ export function VisitsRouteMap({
   if (!isLoaded) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-        Загрузка карты…
+        {loadingLabel}
       </div>
     );
   }
@@ -112,6 +133,33 @@ export function VisitsRouteMap({
           options={routePolylineOptions(geometries.fact_gps, "fact_gps")}
         />
       ) : null}
+
+      {extraPaths.map((extra, idx) =>
+        extra.path.length > 1 ? (
+          <Polyline key={`extra-${idx}`} path={extra.path} options={extra.options} />
+        ) : null,
+      )}
+
+      {overlayMarkers.map((m) => (
+        <Marker
+          key={`overlay-${m.lat}-${m.lng}-${m.label ?? ""}`}
+          position={{ lat: m.lat, lng: m.lng }}
+          label={m.label}
+          title={m.title}
+          icon={
+            m.selected
+              ? {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 10,
+                  fillColor: "#2563eb",
+                  fillOpacity: 1,
+                  strokeColor: "#fff",
+                  strokeWeight: 2,
+                }
+              : undefined
+          }
+        />
+      ))}
 
       {markers.map((m, idx) => (
         <Marker

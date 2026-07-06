@@ -6,6 +6,7 @@ import { Filter, Inbox, Search } from "lucide-react";
 import {
   leadsApi,
   type Lead,
+  type LeadAttentionPreset,
   type LeadsResponse,
   type LeadStatus,
   type LeadSource,
@@ -21,6 +22,14 @@ import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
+
+const ATTENTION_LABELS: Record<LeadAttentionPreset, string> = {
+  "without-touch": "Ліди без дотику",
+  "never-contacted-new": "Нові без першого контакту",
+  "stale-in-progress": "Завислі в роботі",
+};
+
+const ATTENTION_PRESETS = new Set<string>(Object.keys(ATTENTION_LABELS));
 
 function leadPrimaryLabel(lead: Lead): string {
   const personName = [lead.lastName, lead.firstName, lead.middleName]
@@ -127,6 +136,11 @@ function LeadsPageContent() {
   const [sortOrder, setSortOrder] = useState(
     () => searchParams.get("sortOrder") ?? DEFAULT_LEADS_FILTERS.sortOrder,
   );
+  const [attention, setAttention] = useState(() => {
+    const raw = searchParams.get("attention");
+    return raw && ATTENTION_PRESETS.has(raw) ? (raw as LeadAttentionPreset) : "";
+  });
+  const [leadIdsFilter, setLeadIdsFilter] = useState(() => searchParams.get("ids") ?? "");
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -153,6 +167,8 @@ function LeadsPageContent() {
     if (dateTo) params.set("dateTo", dateTo);
     if (sortBy && sortBy !== DEFAULT_LEADS_FILTERS.sortBy) params.set("sortBy", sortBy);
     if (sortOrder && sortOrder !== DEFAULT_LEADS_FILTERS.sortOrder) params.set("sortOrder", sortOrder);
+    if (attention) params.set("attention", attention);
+    if (leadIdsFilter) params.set("ids", leadIdsFilter);
     if (q) params.set("q", q);
 
     const next = params.toString();
@@ -160,7 +176,7 @@ function LeadsPageContent() {
     if (next !== current) {
       router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
     }
-  }, [channel, dateFrom, dateTo, leadId, ownerId, page, pathname, q, router, searchParams, sortBy, sortOrder, source, status]);
+  }, [attention, channel, dateFrom, dateTo, leadId, leadIdsFilter, ownerId, page, pathname, q, router, searchParams, sortBy, sortOrder, source, status]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -184,15 +200,17 @@ function LeadsPageContent() {
           page: effectivePage,
           pageSize,
         };
-        if (status) params.status = status as LeadStatus;
+        if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
+        if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
+        if (attention) params.attention = attention as LeadAttentionPreset;
+        if (leadIdsFilter) params.ids = leadIdsFilter;
+        if (q.trim()) params.q = q.trim();
+        if (!attention && !leadIdsFilter && status) params.status = status as LeadStatus;
         if (source) params.source = source as LeadSource;
         if (channel) params.channel = channel as LeadChannel;
         if (ownerId) params.ownerId = ownerId;
         if (dateFrom) params.dateFrom = dateFrom;
         if (dateTo) params.dateTo = dateTo;
-        if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
-        if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
-        if (q.trim()) params.q = q.trim();
 
         const res: LeadsResponse = await leadsApi.list(params);
         setItems(res.items);
@@ -207,7 +225,7 @@ function LeadsPageContent() {
         setLoading(false);
       }
     },
-    [channel, dateFrom, dateTo, ownerId, page, pageSize, q, sortBy, sortOrder, source, status],
+    [attention, channel, dateFrom, dateTo, leadIdsFilter, ownerId, page, pageSize, q, sortBy, sortOrder, source, status],
   );
 
   useEffect(() => {
@@ -262,6 +280,8 @@ function LeadsPageContent() {
     setDateTo(next.dateTo);
     setSortBy(next.sortBy);
     setSortOrder(next.sortOrder);
+    setAttention("");
+    setLeadIdsFilter("");
     setPage(1);
   };
 
@@ -274,6 +294,8 @@ function LeadsPageContent() {
     setDateTo("");
     setSortBy(DEFAULT_LEADS_FILTERS.sortBy);
     setSortOrder(DEFAULT_LEADS_FILTERS.sortOrder);
+    setAttention("");
+    setLeadIdsFilter("");
     setQInput("");
     setQ("");
     setPage(1);
@@ -290,7 +312,8 @@ function LeadsPageContent() {
     sortOrder,
   };
 
-  const filtersActive = isActiveFilterState(filtersState);
+  const filtersActive = isActiveFilterState(filtersState) || Boolean(attention) || Boolean(leadIdsFilter);
+  const attentionLabel = attention ? ATTENTION_LABELS[attention as LeadAttentionPreset] : null;
 
   return (
     <div className="space-y-4">
@@ -354,6 +377,16 @@ function LeadsPageContent() {
         </div>
         <div className="mt-2 text-sm text-zinc-500">
           Усього: {total} · Сторінка {page} з {totalPages}
+          {attentionLabel ? (
+            <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+              {attentionLabel}
+            </span>
+          ) : null}
+          {leadIdsFilter ? (
+            <span className="ml-2 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800">
+              Обрані з плану
+            </span>
+          ) : null}
         </div>
       </div>
 

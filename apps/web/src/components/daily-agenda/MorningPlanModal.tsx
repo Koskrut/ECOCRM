@@ -26,6 +26,13 @@ export function MorningPlanModal({ open, agenda, onClose, onUpdated }: MorningPl
     agenda.defaultProposal ??
     [];
 
+  const summary = agenda.summary ?? {
+    scheduled: { visits: 0, tasks: 0, contactActions: 0 },
+    suggestions: {},
+    plan: { total: initialItems.length, visits: 0, calls: 0, tasks: 0, leads: 0, orders: 0 },
+  };
+  const groupedSuggestions = agenda.groupedSuggestions ?? {};
+
   async function saveDraft(items: Parameters<typeof dailyAgendaApi.saveDraft>[0]["items"]) {
     setSaving(true);
     try {
@@ -60,9 +67,12 @@ export function MorningPlanModal({ open, agenda, onClose, onUpdated }: MorningPl
           date={agenda.date}
           profile={agenda.profile}
           initialItems={initialItems}
-          availableSuggestions={agenda.availableSuggestions}
+          groupedSuggestions={groupedSuggestions}
+          summary={summary}
           committedItems={agenda.plan?.items}
+          completion={agenda.completion}
           saving={saving}
+          layout="split"
           onSaveDraft={saveDraft}
           onCommit={commit}
           onLater={saveDraft}

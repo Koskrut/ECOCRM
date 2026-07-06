@@ -20,7 +20,15 @@ import {
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
-import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../common/phone.utils";
+import {
+  getPhoneCandidatesForLookup,
+  getPhoneNormalizedDigits,
+  normalizePhoneToE164,
+} from "../common/phone.utils";
+import {
+  buildLeadAttentionWhere,
+  isLeadAttentionPreset,
+} from "./leads-attention.util";
 import type { ListLeadsQueryDto } from "./dto/list-leads-query.dto";
 import type { CreateLeadDto } from "./dto/create-lead.dto";
 import type { UpdateLeadDto } from "./dto/update-lead.dto";
@@ -161,7 +169,16 @@ export class LeadsService {
     const where: Prisma.LeadWhereInput = {};
     const andParts: Prisma.LeadWhereInput[] = [];
 
-    if (q.status) {
+    const idList = q.ids
+      ?.split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    if (idList && idList.length > 0) {
+      andParts.push({ id: { in: idList } });
+    } else if (q.attention && isLeadAttentionPreset(q.attention)) {
+      andParts.push(buildLeadAttentionWhere(q.attention, q.attentionPeriod ?? "month"));
+    } else if (q.status) {
       where.status = q.status as LeadStatus;
     } else {
       andParts.push({ status: { in: [...ACTIVE_LEAD_STATUSES] } });
@@ -994,7 +1011,7 @@ export class LeadsService {
 
   // ===== SUGGEST CONTACT =====
 
-  async suggestContact(id: string, actor?: AuthUser) {
+  async suggestContact(id: string, actor?: AuthUser, opts?: { companyId?: string }) {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
       select: { id: true, ownerId: true, phone: true, email: true },
@@ -1002,32 +1019,50 @@ export class LeadsService {
     if (!lead) throw new NotFoundException("Lead not found");
     if (actor) await this.assertLeadAccess(lead, actor);
 
-    const where: Prisma.ContactWhereInput = {
-      OR: [],
-    };
+    const matchOr: Prisma.ContactWhereInput[] = [];
 
     if (lead.phone) {
       const phoneNorm = getPhoneNormalizedDigits(lead.phone);
       if (phoneNorm) {
-        (where.OR as Prisma.ContactWhereInput[]).push({ phoneNormalized: phoneNorm });
+        for (const candidate of getPhoneCandidatesForLookup(phoneNorm)) {
+          matchOr.push({ phoneNormalized: candidate });
+          matchOr.push({ phones: { some: { phoneNormalized: candidate } } });
+        }
       }
       // Fallback for legacy contacts without a normalized phone.
-      (where.OR as Prisma.ContactWhereInput[]).push({ phone: lead.phone });
+      matchOr.push({ phone: lead.phone });
     }
-    if (lead.email) {
-      (where.OR as Prisma.ContactWhereInput[]).push({
-        email: lead.email,
-      });
+    const email = lead.email?.trim();
+    if (email) {
+      matchOr.push({ email });
     }
 
-    if (!where.OR || (Array.isArray(where.OR) && where.OR.length === 0)) {
+    if (matchOr.length === 0) {
       return { items: [] };
     }
 
+    const andParts: Prisma.ContactWhereInput[] = [{ OR: matchOr }];
+    if (actor?.role === UserRole.MANAGER) {
+      andParts.push({ OR: [{ ownerId: actor.id }, { ownerId: null }] });
+    }
+    const companyId = opts?.companyId?.trim();
+    if (companyId) {
+      andParts.push({ companyId });
+    }
+
     const items = await this.prisma.contact.findMany({
-      where,
-      take: 3,
+      where: { AND: andParts },
+      take: 5,
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        email: true,
+        companyId: true,
+        company: { select: { name: true } },
+      },
     });
 
     return { items };

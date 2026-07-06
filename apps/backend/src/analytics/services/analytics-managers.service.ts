@@ -4,10 +4,10 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type { AnalyticsScope } from "../analytics-scope.service";
 import {
-  buildOverdueTaskWhereForPeriod,
   buildPaymentPeriodWhere,
   buildPeriodOrderWhere,
 } from "../utils/analytics-filter.builder";
+import { buildTaskOverdueWhere } from "../../tasks/tasks-attention.util";
 import type { ResolvedPeriod } from "../utils/analytics-date.util";
 import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 
@@ -95,7 +95,7 @@ export class AnalyticsManagersService {
     }
 
     const managerIds = [...byOwner.keys()];
-    const overdueTaskBase = buildOverdueTaskWhereForPeriod(period.from, period.to, {
+    const overdueTaskBase = buildTaskOverdueWhere({
       managerId: scope.orderScope.managerId,
       allowedAssigneeIds: scope.allowedAssigneeIds,
     });

@@ -103,16 +103,29 @@ export type RouteOptimizeResponse = {
   source: "google" | "fallback";
 };
 
+export type RouteGeometryPoint = { lat: number; lng: number };
+
 export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps";
 
 export type RouteGeometrySource = "google" | "fallback" | "raw_gps" | "none";
 
-export type RouteGeometryResult = {
+export type RouteGeometryLayer = {
   kind: RouteGeometryKind;
   source: RouteGeometrySource;
   distanceKm: number | null;
   durationMin: number | null;
-  path: Array<{ lat: number; lng: number }>;
+  path: RouteGeometryPoint[];
+  encodedPolyline?: string | null;
+  waypoints?: Array<{ lat: number; lng: number; label?: string | null; visitId?: string | null }>;
+  quality?: {
+    sampleCount?: number;
+    coverageRatio?: number | null;
+    degraded?: boolean;
+    degradedReason?: string | null;
+  };
+};
+
+export type RouteGeometryResult = RouteGeometryLayer & {
   encodedPolyline: string | null;
   waypoints: Array<{ lat: number; lng: number; label?: string | null; visitId?: string | null }>;
   quality: {
@@ -126,10 +139,10 @@ export type RouteGeometryResult = {
 export type RouteGeometryBundle = {
   date: string;
   ownerId: string;
-  planned: RouteGeometryResult;
-  factVisits: RouteGeometryResult;
-  factGps: RouteGeometryResult;
   compensationFactKind: "fact_gps" | "fact_visits";
+  planned: RouteGeometryLayer;
+  factVisits: RouteGeometryLayer;
+  factGps: RouteGeometryLayer;
 };
 
 export type VisitHistoryItem = Visit & {

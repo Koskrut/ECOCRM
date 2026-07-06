@@ -101,7 +101,33 @@
 
 ### `GET /field/fuel/export?from=&to=&format=csv|xlsx`
 
-Файл выгрузки (CSV или XLSX с листами «По дням» и «Визиты»).
+Файл выгрузки (CSV или XLSX с листами «По дням» и «Визиты»). В сводке по дням добавлены колонки `Refuel count`, `Refuel liters`, `Refuel amount UAH`.
+
+## Fuel: заправки с фото чека
+
+### `GET /field/fuel/refuels?date=YYYY-MM-DD`
+
+Список заправок за день: `{ items: FuelRefuelEntry[], totals: { count, liters, amount } }`.
+
+Опционально `ownerId` — для ADMIN/LEAD.
+
+### `POST /field/fuel/refuels?date=YYYY-MM-DD`
+
+Multipart: поле **`file`** (обязательно), поля формы **`liters`**, **`amount`**.
+
+Без фото чека заправку создать нельзя (`400`). Лимиты: до 10 заправок/день, фото до 5 MB (`image/jpeg`, `image/png`, `image/webp`, `image/heic`).
+
+Ответ: `{ item: FuelRefuelEntry }`.
+
+### `DELETE /field/fuel/refuels/:id`
+
+Удаление заправки и файла чека. Владелец или ADMIN; нельзя после статуса отчёта `PAID`.
+
+### `GET /field/fuel/refuels/:id/receipt`
+
+Поток изображения чека (требуется авторизация).
+
+`GET /field/fuel/day` и `GET /field/fuel/range` дополнительно возвращают `refuels` / `refuelTotals` и `refuelCount` / `refuelAmountTotal` по дням.
 
 ## Профиль авто менеджера
 

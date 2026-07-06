@@ -79,11 +79,13 @@ services:
       WORKFLOW_EXTERNAL_ACTION_BACKOFF_MS: ${WORKFLOW_EXTERNAL_ACTION_BACKOFF_MS:-5000}
       WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS: ${WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS:-30000}
       WORKFLOW_EXTERNAL_ACTION_CONCURRENCY: ${WORKFLOW_EXTERNAL_ACTION_CONCURRENCY:-5}
+      FUEL_RECEIPTS_DIR: ${FUEL_RECEIPTS_DIR:-/data/fuel-receipts}
     volumes:
       # Default /dev/null = no real license file → only core modules are "licensed". Set
       # LICENSE_FILE_PATH_HOST to a host path with a real issued license.json (payload.modules includes ext.finance).
       - ${LICENSE_FILE_PATH_HOST:-/dev/null}:${LICENSE_FILE_PATH:-/run/secrets/license.json}:ro
       - license_cache:/data
+      - fuel_receipts:/data/fuel-receipts
     ports:
       - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-3001}:3001"
 
@@ -116,3 +118,5 @@ volumes:
     name: ${POSTGRES_DATA_VOLUME:-crm_postgres_data}
   license_cache:
     name: ${LICENSE_CACHE_VOLUME:-crm_license_cache}
+  fuel_receipts:
+    name: ${FUEL_RECEIPTS_VOLUME:-crm_fuel_receipts}

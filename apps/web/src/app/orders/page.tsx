@@ -102,6 +102,15 @@ const FINANCIAL_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "CLOSED", label: "Закрито" },
 ];
 
+type OrderAttentionPreset = "overdue-payments" | "stuck";
+
+const ORDER_ATTENTION_LABELS: Record<OrderAttentionPreset, string> = {
+  "overdue-payments": "Прострочені оплати",
+  stuck: "Завислі угоди",
+};
+
+const ORDER_ATTENTION_PRESETS = new Set<string>(Object.keys(ORDER_ATTENTION_LABELS));
+
 function getErrMessage(e: unknown, fallback: string) {
   const anyErr = e as {
     response?: { data?: { message?: string; error?: string } };
@@ -150,6 +159,16 @@ function OrdersPageContent() {
   const [financialStatusFilter, setFinancialStatusFilter] = useState<string>(
     () => searchParams.get("financialStatus") ?? "",
   );
+  const [attention, setAttention] = useState<OrderAttentionPreset | "">(() => {
+    const raw = searchParams.get("attention");
+    if (raw && ORDER_ATTENTION_PRESETS.has(raw)) return raw as OrderAttentionPreset;
+    if (searchParams.get("financialStatus") === "OVERDUE") return "overdue-payments";
+    return "";
+  });
+  const [attentionPeriod, setAttentionPeriod] = useState<"week" | "month">(() =>
+    searchParams.get("attentionPeriod") === "week" ? "week" : "month",
+  );
+  const [orderIdsFilter, setOrderIdsFilter] = useState(() => searchParams.get("ids") ?? "");
   const [financialOverdue, setFinancialOverdue] = useState<boolean>(
     () => searchParams.get("financialOverdue") === "true",
   );
@@ -211,7 +230,12 @@ function OrdersPageContent() {
     const params = new URLSearchParams();
     if (orderIdFromUrl) params.set("orderId", orderIdFromUrl);
     if (view !== "list") params.set("view", view);
-    if (financialStatusFilter) params.set("financialStatus", financialStatusFilter);
+    if (attention) params.set("attention", attention);
+    if (attention === "stuck" && attentionPeriod !== "month") {
+      params.set("attentionPeriod", attentionPeriod);
+    }
+    if (orderIdsFilter) params.set("ids", orderIdsFilter);
+    if (financialStatusFilter && !attention) params.set("financialStatus", financialStatusFilter);
     if (financialOverdue) params.set("financialOverdue", "true");
     if (financialDueSoon) params.set("financialDueSoon", "true");
     if (financialHasDebt) params.set("financialHasDebt", "true");
@@ -261,6 +285,9 @@ function OrdersPageContent() {
     financialDueSoon,
     financialHasDebt,
     financialHasDueDate,
+    attention,
+    attentionPeriod,
+    orderIdsFilter,
   ]);
 
   useEffect(() => {
@@ -326,6 +353,12 @@ function OrdersPageContent() {
         pageSize,
         withCompanyClient: true,
       };
+      if (attention) params.attention = attention;
+      if (attention === "stuck") params.attentionPeriod = attentionPeriod;
+      if (orderIdsFilter) params.ids = orderIdsFilter;
+      if (!attention && !orderIdsFilter && financialStatusFilter) {
+        params.financialStatus = financialStatusFilter;
+      }
       if (orderStageFilter) params.orderStage = orderStageFilter;
       if (ownerIdFilter) params.ownerId = ownerIdFilter;
       if (paymentTypeFilter) params.paymentType = paymentTypeFilter;
@@ -378,6 +411,10 @@ function OrdersPageContent() {
     sortBy,
     sortDir,
     orderStageFilter,
+    attention,
+    attentionPeriod,
+    orderIdsFilter,
+    financialStatusFilter,
   ]);
 
   useEffect(() => {
@@ -540,6 +577,21 @@ function OrdersPageContent() {
             {error}
           </div>
         )}
+
+        {(attention || orderIdsFilter) && view === "list" ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {attention ? (
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                {ORDER_ATTENTION_LABELS[attention]}
+              </span>
+            ) : null}
+            {orderIdsFilter ? (
+              <span className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-900">
+                План дня ({orderIdsFilter.split(",").filter(Boolean).length})
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mb-4">
           <div className="relative">

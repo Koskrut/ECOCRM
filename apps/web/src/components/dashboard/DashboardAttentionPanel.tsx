@@ -36,25 +36,25 @@ export function DashboardAttentionPanel({ attention, currency, showAnalyticsLink
         <AttentionTile
           title="Прострочені завдання"
           count={attention.crm.overdueTasksCount}
-          href="/tasks"
+          href="/tasks?attention=overdue"
           hint="Завдання з минулим дедлайном"
         />
         <AttentionTile
           title="Завислі угоди"
           count={attention.crm.stuckOrdersCount}
-          href="/orders"
+          href="/orders?attention=stuck"
           hint="Без руху стадії > 3 дні"
         />
         <AttentionTile
           title="Ліди без дотику"
           count={attention.crm.leadsWithoutTouchCount}
-          href="/leads"
+          href="/leads?attention=without-touch"
           hint="NEW / IN_PROGRESS без активності"
         />
         <AttentionTile
           title="Прострочені оплати"
           count={attention.finance.overdueOrdersCount}
-          href="/payments"
+          href="/orders?attention=overdue-payments"
           hint="OVERDUE + debt > 0"
         />
       </div>

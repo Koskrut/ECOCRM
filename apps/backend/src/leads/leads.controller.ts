@@ -149,8 +149,12 @@ export class LeadsController {
   }
 
   @Get(":id/suggest-contact")
-  suggestContact(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.leads.suggestContact(id, req.user);
+  suggestContact(
+    @Param("id") id: string,
+    @Query("companyId") companyId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.leads.suggestContact(id, req.user, { companyId });
   }
 
   @Post(":id/note")

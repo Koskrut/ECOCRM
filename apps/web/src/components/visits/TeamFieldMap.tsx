@@ -1,9 +1,11 @@
 "use client";
 
-import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
 import { useMemo } from "react";
 import type { FieldShiftTeamItem } from "@/lib/api/resources/field-shifts";
+import type { RouteGeometryLayer } from "@/lib/api/resources/visits";
 import { teamMarkerTitle } from "@/components/visits/TeamFieldList";
+import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
+import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { strings } from "@/locales";
 
 const t = strings.visitsTeam;
@@ -12,31 +14,34 @@ type TeamFieldMapProps = {
   mapsApiKey: string;
   items: FieldShiftTeamItem[];
   selectedOwnerId: string | null;
-  trackPath: Array<{ lat: number; lng: number }>;
-  routeSource?: "google" | "fallback" | "none" | null;
+  layers: Record<RouteLayerKey, boolean>;
+  geometries: {
+    planned?: RouteGeometryLayer | null;
+    fact_visits?: RouteGeometryLayer | null;
+    fact_gps?: RouteGeometryLayer | null;
+  };
+  shiftOnlyPath?: Array<{ lat: number; lng: number }> | null;
   routeLoading?: boolean;
+  distanceKm?: number | null;
+  onToggleLayer?: (key: RouteLayerKey) => void;
 };
 
 export function TeamFieldMap({
   mapsApiKey,
   items,
   selectedOwnerId,
-  trackPath,
-  routeSource,
+  layers,
+  geometries,
+  shiftOnlyPath,
   routeLoading,
+  distanceKm,
+  onToggleLayer,
 }: TeamFieldMapProps) {
-  const { isLoaded, loadError } = useLoadScript({
-    id: "google-map-script-team-field",
-    googleMapsApiKey: mapsApiKey,
-  });
-
-  const markers = useMemo(
+  const overlayMarkers = useMemo(
     () =>
       items
         .filter((i) => i.lastSample)
         .map((i) => ({
-          id: i.owner.id,
-          item: i,
           lat: i.lastSample!.lat,
           lng: i.lastSample!.lng,
           label: i.owner.fullName.charAt(0).toUpperCase(),
@@ -47,101 +52,80 @@ export function TeamFieldMap({
   );
 
   const center = useMemo(() => {
-    if (trackPath.length > 0) {
-      return trackPath[trackPath.length - 1]!;
-    }
-    if (markers.length > 0) {
-      return { lat: markers[0]!.lat, lng: markers[0]!.lng };
-    }
+    const selected = overlayMarkers.find((m) => m.selected);
+    if (selected) return { lat: selected.lat, lng: selected.lng };
+    const gpsPath = geometries.fact_gps?.path;
+    if (gpsPath?.length) return gpsPath[gpsPath.length - 1]!;
+    if (overlayMarkers[0]) return { lat: overlayMarkers[0].lat, lng: overlayMarkers[0].lng };
     return { lat: 50.4501, lng: 30.5234 };
-  }, [trackPath, markers]);
+  }, [geometries.fact_gps, overlayMarkers]);
 
-  const boundsPts = useMemo(() => {
-    const pts = [...trackPath, ...markers.map((m) => ({ lat: m.lat, lng: m.lng }))];
-    return pts;
-  }, [trackPath, markers]);
+  const extraPaths = useMemo(() => {
+    if (!shiftOnlyPath || shiftOnlyPath.length < 2) return [];
+    return [
+      {
+        path: shiftOnlyPath,
+        options: {
+          strokeColor: "#7c3aed",
+          strokeOpacity: 0.85,
+          strokeWeight: 3,
+          icons: [
+            {
+              icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+              offset: "0",
+              repeat: "10px",
+            },
+          ],
+        },
+      },
+    ];
+  }, [shiftOnlyPath]);
 
-  if (loadError) {
-    return (
-      <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
-        Не вдалося завантажити Google Maps
-      </div>
-    );
-  }
-
-  if (!isLoaded) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-        {routeLoading ? "Будуємо маршрут по вулицях…" : "Завантаження карти…"}
-      </div>
-    );
-  }
+  const factGpsSource = geometries.fact_gps?.source;
+  const showFallbackBanner =
+    layers.fact_gps &&
+    factGpsSource != null &&
+    factGpsSource !== "google" &&
+    (geometries.fact_gps?.path?.length ?? 0) > 1;
 
   return (
-    <div className="relative h-full w-full">
-      <GoogleMap
-        mapContainerStyle={{ width: "100%", height: "100%" }}
-        center={center}
-        zoom={11}
-        onLoad={(map) => {
-          if (boundsPts.length > 1) {
-            const b = new google.maps.LatLngBounds();
-            for (const p of boundsPts) b.extend(p);
-            map.fitBounds(b, 48);
-          }
-        }}
-        options={{
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
-        }}>
-        {trackPath.length > 1 ? (
-          <Polyline
-            path={trackPath}
-            options={{
-              strokeColor: routeSource === "google" ? "#d97706" : "#f59e0b",
-              strokeOpacity: routeSource === "google" ? 0.95 : 0.65,
-              strokeWeight: routeSource === "google" ? 4 : 3,
-              ...(routeSource !== "google"
-                ? {
-                    icons: [
-                      {
-                        icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
-                        offset: "0",
-                        repeat: "12px",
-                      },
-                    ],
-                  }
-                : {}),
-            }}
-          />
-        ) : null}
-        {markers.map((m) => (
-          <Marker
-            key={m.id}
-            position={{ lat: m.lat, lng: m.lng }}
-            label={m.label}
-            title={m.title}
-            icon={
-              m.selected
-                ? {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 10,
-                    fillColor: "#2563eb",
-                    fillOpacity: 1,
-                    strokeColor: "#fff",
-                    strokeWeight: 2,
-                  }
-                : undefined
-            }
-          />
-        ))}
-      </GoogleMap>
-      {trackPath.length > 1 && routeSource != null && routeSource !== "google" ? (
-        <p className="pointer-events-none absolute bottom-2 left-2 right-2 rounded bg-white/90 px-2 py-1 text-center text-xs text-amber-800 shadow-sm">
-          {t.routeGpsFallback}
+    <div className="relative flex h-full flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+        <p className="text-xs text-zinc-600">
+          {distanceKm != null ? (
+            <>
+              GPS за день: <span className="font-medium text-zinc-900">{distanceKm} км</span>
+              {factGpsSource ? (
+                <span className="text-zinc-400"> · {routeSourceLabel(factGpsSource) ?? factGpsSource}</span>
+              ) : null}
+            </>
+          ) : routeLoading ? (
+            "Завантаження маршруту…"
+          ) : (
+            "Немає GPS-треку за сьогодні"
+          )}
         </p>
-      ) : null}
+        {onToggleLayer ? (
+          <RouteLayerControls layers={layers} onToggle={onToggleLayer} disabled={routeLoading} />
+        ) : null}
+      </div>
+
+      <div className="relative min-h-0 flex-1">
+        <VisitsRouteMap
+          mapsApiKey={mapsApiKey}
+          center={center}
+          layers={layers}
+          geometries={geometries}
+          overlayMarkers={overlayMarkers}
+          extraPaths={extraPaths}
+          loadingLabel={routeLoading ? "Будуємо маршрут…" : "Завантаження карти…"}
+        />
+        {showFallbackBanner ? (
+          <p className="pointer-events-none absolute bottom-2 left-2 right-2 rounded bg-white/90 px-2 py-1 text-center text-xs text-amber-800 shadow-sm">
+            {t.routeGpsFallback}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
