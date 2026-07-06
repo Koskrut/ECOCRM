@@ -30,6 +30,7 @@ import { sidebarHrefModuleId } from "@/lib/modules/pathModuleGating";
 import { ModuleIds } from "@/lib/modules/module-ids";
 import { useInboxUnread } from "@/lib/use-inbox-unread";
 import { useMetaInboxUnread } from "@/lib/use-meta-inbox-unread";
+import { useActiveLeadsCount } from "@/lib/use-active-leads-count";
 
 type MenuItem = {
   label: string;
@@ -44,6 +45,7 @@ type MeResponse = { user?: { role?: string } };
 const INBOX_TELEGRAM_HREF = "/inbox/telegram";
 const INBOX_INSTAGRAM_HREF = "/inbox/instagram";
 const INBOX_FACEBOOK_HREF = "/inbox/facebook";
+const LEADS_HREF = "/leads";
 
 const INBOX_UNREAD_HREFS = new Set([
   INBOX_TELEGRAM_HREF,
@@ -93,6 +95,53 @@ function isHrefActive(pathname: string, item: MenuItem): boolean {
   if (item.exact) return pathname === item.href;
   if (item.href === "/") return pathname === "/";
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}
+
+function formatCountBadge(count: number): string | null {
+  if (count <= 0) return null;
+  return count > 99 ? "99+" : String(count);
+}
+
+function NavCountBadge({
+  badge,
+  ariaLabel,
+  overlay,
+  active,
+}: {
+  badge: string;
+  ariaLabel: string;
+  overlay?: boolean;
+  active?: boolean;
+}) {
+  return (
+    <span
+      className={
+        overlay
+          ? "absolute -right-1 -top-1 flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-zinc-50"
+          : `flex min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none text-white ${active ? "ring-2 ring-white/30" : ""}`
+      }
+      aria-label={ariaLabel}
+    >
+      {badge}
+    </span>
+  );
+}
+
+function NavInboxDot({ active, overlay }: { active?: boolean; overlay?: boolean }) {
+  if (overlay) {
+    return (
+      <span
+        className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-red-600 ring-2 ring-zinc-50"
+        aria-hidden
+      />
+    );
+  }
+  return (
+    <span
+      className={`size-2 shrink-0 rounded-full bg-red-600 ${active ? "ring-2 ring-white/30" : ""}`}
+      aria-label="Є необроблені повідомлення"
+    />
+  );
 }
 
 type SidebarProps = {
@@ -163,9 +212,15 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     );
   }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
 
+  const leadsPollEnabled = useMemo(() => {
+    if (role === "WAREHOUSE") return false;
+    return gatedMenuItems.some((it) => it.href === LEADS_HREF);
+  }, [gatedMenuItems, role]);
+
   const telegramInboxHasUnread = useInboxUnread(telegramInboxPollEnabled, pathname);
   const instagramInboxHasUnread = useMetaInboxUnread("INSTAGRAM", metaInboxPollEnabled, pathname);
   const facebookInboxHasUnread = useMetaInboxUnread("FACEBOOK", metaInboxPollEnabled, pathname);
+  const activeLeadsCount = useActiveLeadsCount(leadsPollEnabled, pathname);
 
   const inboxUnreadByHref: Record<string, boolean> = {
     [INBOX_TELEGRAM_HREF]: telegramInboxHasUnread,
@@ -234,6 +289,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       const isActive = isHrefActive(pathname, item);
       const Icon = item.icon;
       const showInboxDot = INBOX_UNREAD_HREFS.has(item.href) && inboxUnreadByHref[item.href];
+      const leadsBadge =
+        item.href === LEADS_HREF ? formatCountBadge(activeLeadsCount) : null;
+      const leadsBadgeAriaLabel = leadsBadge
+        ? strings.nav.activeLeadsCount.replace("{count}", String(activeLeadsCount))
+        : null;
+      const showIconOverlay = collapsed && !onNavigate && (showInboxDot || !!leadsBadge);
       return (
         <Link
           key={item.href}
@@ -246,21 +307,17 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         >
           <span className="relative shrink-0">
             <Icon className="size-5" aria-hidden />
-            {showInboxDot && collapsed && !onNavigate && (
-              <span
-                className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-red-600 ring-2 ring-zinc-50"
-                aria-hidden
-              />
+            {showIconOverlay && showInboxDot && <NavInboxDot overlay />}
+            {showIconOverlay && leadsBadge && leadsBadgeAriaLabel && (
+              <NavCountBadge badge={leadsBadge} ariaLabel={leadsBadgeAriaLabel} overlay />
             )}
           </span>
           {(!collapsed || onNavigate) && (
             <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
               <span className="truncate">{item.label}</span>
-              {showInboxDot && (
-                <span
-                  className={`size-2 shrink-0 rounded-full bg-red-600 ${isActive ? "ring-2 ring-white/30" : ""}`}
-                  aria-label="Є необроблені повідомлення"
-                />
+              {showInboxDot && <NavInboxDot active={isActive} />}
+              {leadsBadge && leadsBadgeAriaLabel && (
+                <NavCountBadge badge={leadsBadge} ariaLabel={leadsBadgeAriaLabel} active={isActive} />
               )}
             </span>
           )}

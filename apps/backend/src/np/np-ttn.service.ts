@@ -26,6 +26,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
 import { orderAmountToUah } from "../common/currency.util";
+import { resolveNpFinancialFields } from "./np-financial.util";
 
 type SenderCache = {
   senderCityRef: string;
@@ -74,29 +75,42 @@ export class NpTtnService {
   async getTtnDefaults(orderId?: string) {
     const fin = await this.settings.resolveNovaPoshtaFinancialDefaults();
     const codFeatureEnabled = await this.settings.resolveNovaPoshtaCodEnabled();
-    const base = { ...fin, codFeatureEnabled };
     const oid = orderId?.trim();
-    if (!oid) return base;
 
-    if (!codFeatureEnabled) {
-      return {
-        ...base,
-        cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
-      };
+    let orderPaymentMethod: string | null = null;
+    if (oid) {
+      const orderRow = await this.prisma.order.findUnique({
+        where: { id: oid },
+        select: { paymentMethod: true, debtAmount: true, currency: true },
+      });
+      orderPaymentMethod = orderRow?.paymentMethod ?? null;
+
+      const resolvedFin = resolveNpFinancialFields({
+        orderPaymentMethod,
+        settingsPayerType: fin.payerType,
+        settingsPaymentMethod: fin.paymentMethod,
+      });
+      const base = { ...resolvedFin, codFeatureEnabled };
+
+      if (!orderRow) {
+        return {
+          ...base,
+          cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
+        };
+      }
+
+      if (!codFeatureEnabled) {
+        return {
+          ...base,
+          cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
+        };
+      }
+
+      const cod = await this.resolveSuggestedCod(orderRow);
+      return { ...base, cod };
     }
 
-    const order = await this.prisma.order.findUnique({
-      where: { id: oid },
-      select: { debtAmount: true, currency: true },
-    });
-    if (!order) {
-      return {
-        ...base,
-        cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
-      };
-    }
-    const cod = await this.resolveSuggestedCod(order);
-    return { ...base, cod };
+    return { ...fin, codFeatureEnabled };
   }
 
   // ======================
@@ -262,6 +276,7 @@ export class NpTtnService {
       resolved,
       npRefs,
       orderNumber: order.orderNumber,
+      orderPaymentMethod: order.paymentMethod,
     });
 
     // 3) create document
@@ -714,10 +729,12 @@ export class NpTtnService {
     resolved: { data: unknown };
     npRefs: Record<string, unknown>;
     orderNumber: string;
+    orderPaymentMethod?: string | null;
     documentRef?: string | null;
     documentNumber?: string | null;
   }) {
-    const { dto, resolved, npRefs, orderNumber, documentRef, documentNumber } = args;
+    const { dto, resolved, npRefs, orderNumber, orderPaymentMethod, documentRef, documentNumber } =
+      args;
     const d = resolved.data as Record<string, unknown>;
     const sender = await this.getSenderRefsFromEnv();
     const isPerson = d.recipientType === NpRecipientType.PERSON;
@@ -735,8 +752,13 @@ export class NpTtnService {
     const volumeGeneral = totals.volume > 0 ? totals.volume : defaultVolume;
 
     const fin = await this.settings.resolveNovaPoshtaFinancialDefaults();
-    const payerType = dto.payerType ?? fin.payerType;
-    const paymentMethod = dto.paymentMethod ?? fin.paymentMethod;
+    const { payerType, paymentMethod } = resolveNpFinancialFields({
+      dtoPayerType: dto.payerType,
+      dtoPaymentMethod: dto.paymentMethod,
+      orderPaymentMethod,
+      settingsPayerType: fin.payerType,
+      settingsPaymentMethod: fin.paymentMethod,
+    });
 
     const isAddress = d.deliveryType === NpDeliveryType.ADDRESS;
     const recipientAddress = isAddress ? npRefs.addressRef : d.warehouseRef;
@@ -1451,6 +1473,7 @@ export class NpTtnService {
       resolved,
       npRefs,
       orderNumber: order.orderNumber,
+      orderPaymentMethod: order.paymentMethod,
       documentRef: existing.documentRef,
       documentNumber: existing.documentNumber,
     });

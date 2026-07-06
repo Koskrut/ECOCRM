@@ -248,7 +248,14 @@ export default function CallWorkspacePage() {
                       : "border-zinc-100 hover:bg-zinc-50"
                   }`}
                 >
-                  <div className="font-medium text-zinc-900">{it.target?.displayName ?? "—"}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-zinc-900">{it.target?.displayName ?? "—"}</span>
+                    {it.source === "MISSED_CALL" && (
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-700">
+                        Пропущений
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-zinc-500">
                     {it.status} · {it.target?.phone ?? "без телефону"}
                   </div>

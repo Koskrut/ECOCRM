@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PrismaService } from "../../prisma/prisma.service";
 import type { PhoneEntityLookupService } from "../../../common/phone-entity-lookup.service";
+import type { MissedCallQueueService } from "../../../manual-calling/missed-call-queue.service";
 import { KyivstarFmcIngestService } from "../kyivstar-fmc-ingest.service";
+
+function mockMissedCallQueue(): MissedCallQueueService {
+  return {
+    enqueueFromMissedCall: async () => {},
+    resolveOnConversation: async () => {},
+  } as unknown as MissedCallQueueService;
+}
 
 describe("KyivstarFmcIngestService", () => {
   const prisma = {
@@ -12,7 +20,7 @@ describe("KyivstarFmcIngestService", () => {
     findContactByNormalizedKeys: async () => null,
     findCompanyIdByNormalizedKeys: async () => null,
   } as unknown as PhoneEntityLookupService;
-  const service = new KyivstarFmcIngestService(prisma, phoneLookup);
+  const service = new KyivstarFmcIngestService(prisma, phoneLookup, mockMissedCallQueue());
 
   it("normalizes UA phone numbers", () => {
     const normalize = (s: string | undefined) =>

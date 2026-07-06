@@ -28,10 +28,13 @@ export type QueueItemTarget =
       companyName: string | null;
     };
 
+export type QueueItemSource = "MANUAL" | "MISSED_CALL";
+
 export type QueueItemResponse = {
   id: string;
   status: string;
   sortOrder: number;
+  source?: QueueItemSource;
   target: QueueItemTarget | null;
   openSessionId: string | null;
   createdAt: string;

@@ -11,6 +11,9 @@ import { useToast } from "@/components/feedback";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
+import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
+
+const PAGE_SIZE = 50;
 
 type PaymentsView = "payments" | "unmatched" | "fxVariance";
 
@@ -103,6 +106,15 @@ function filterBySearch<T>(items: T[], search: string, getText: (t: T) => string
   const q = search.trim().toLowerCase();
   if (!q) return items;
   return items.filter((t) => getText(t).toLowerCase().includes(q));
+}
+
+function dedupeById<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
 }
 
 function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: number }): string {
@@ -220,10 +232,16 @@ function PaymentsContent() {
 
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [paymentsTotal, setPaymentsTotal] = useState(0);
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [paymentsHasMore, setPaymentsHasMore] = useState(false);
   const [unmatched, setUnmatched] = useState<BankTransaction[]>([]);
   const [unmatchedTotal, setUnmatchedTotal] = useState(0);
+  const [unmatchedPage, setUnmatchedPage] = useState(1);
+  const [unmatchedHasMore, setUnmatchedHasMore] = useState(false);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
+  const [paymentsLoadingMore, setPaymentsLoadingMore] = useState(false);
   const [unmatchedLoading, setUnmatchedLoading] = useState(false);
+  const [unmatchedLoadingMore, setUnmatchedLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [showAddStatement, setShowAddStatement] = useState(false);
@@ -340,12 +358,24 @@ function PaymentsContent() {
   // Default stays «Усі» — do not auto-apply user FOP filter (payments were hidden on wrong account).
 
   const fetchPayments = useCallback(
-    async (bankIdOverride?: string) => {
-      setPaymentsLoading(true);
+    async (opts?: { page?: number; append?: boolean; bankIdOverride?: string }) => {
+      const page = opts?.page ?? 1;
+      const append = opts?.append ?? false;
+      const sourceType = mode === "cash" ? "CASH" : "BANK";
+
+      if (append) {
+        setPaymentsLoadingMore(true);
+      } else {
+        setPaymentsLoading(true);
+      }
       setError(null);
       try {
-        const params = new URLSearchParams({ page: "1", pageSize: "500" });
-        const bid = bankIdOverride !== undefined ? bankIdOverride : bankAccountId;
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+          sourceType,
+        });
+        const bid = opts?.bankIdOverride !== undefined ? opts.bankIdOverride : bankAccountId;
         if (bid) params.set("bankAccountId", bid);
         const q = debouncedSearch.trim();
         if (q) params.set("q", q);
@@ -353,43 +383,80 @@ function PaymentsContent() {
           `/payments?${params.toString()}`,
         );
         const items = Array.isArray(r.data?.items) ? r.data.items : [];
-        setPayments(items);
-        setPaymentsTotal(r.data?.total ?? 0);
+        const total = r.data?.total ?? 0;
+        setPayments((prev) => {
+          const merged = append ? dedupeById([...prev, ...items]) : items;
+          setPaymentsHasMore(merged.length < total);
+          return merged;
+        });
+        setPaymentsTotal(total);
+        setPaymentsPage(page);
       } catch (e) {
         setError(e instanceof Error ? e.message : t.payments.errors.loadPayments);
       } finally {
         setPaymentsLoading(false);
+        setPaymentsLoadingMore(false);
+      }
+    },
+    [bankAccountId, debouncedSearch, mode],
+  );
+
+  const fetchUnmatched = useCallback(
+    async (opts?: { page?: number; append?: boolean }) => {
+      const page = opts?.page ?? 1;
+      const append = opts?.append ?? false;
+
+      if (append) {
+        setUnmatchedLoadingMore(true);
+      } else {
+        setUnmatchedLoading(true);
+      }
+      setError(null);
+      try {
+        const params = new URLSearchParams({
+          unmatched: "true",
+          suggest: "true",
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+        });
+        if (bankAccountId) params.set("bankAccountId", bankAccountId);
+        const q = debouncedSearch.trim();
+        if (q) params.set("q", q);
+        const r = await apiHttp.get<{ items: BankTransaction[]; total: number }>(
+          `/bank/transactions?${params.toString()}`,
+        );
+        const items = r.data?.items ?? [];
+        const total = r.data?.total ?? 0;
+        setUnmatched((prev) => {
+          const merged = append ? dedupeById([...prev, ...items]) : items;
+          setUnmatchedHasMore(merged.length < total);
+          return merged;
+        });
+        setUnmatchedTotal(total);
+        setUnmatchedPage(page);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t.payments.errors.load);
+        if (!append) {
+          setUnmatched([]);
+          setUnmatchedTotal(0);
+        }
+      } finally {
+        setUnmatchedLoading(false);
+        setUnmatchedLoadingMore(false);
       }
     },
     [bankAccountId, debouncedSearch],
   );
 
-  const fetchUnmatched = useCallback(async () => {
-    setUnmatchedLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        unmatched: "true",
-        suggest: "true",
-        page: "1",
-        pageSize: "500",
-      });
-      if (bankAccountId) params.set("bankAccountId", bankAccountId);
-      const q = debouncedSearch.trim();
-      if (q) params.set("q", q);
-      const r = await apiHttp.get<{ items: BankTransaction[]; total: number }>(
-        `/bank/transactions?${params.toString()}`,
-      );
-      setUnmatched(r.data?.items ?? []);
-      setUnmatchedTotal(r.data?.total ?? 0);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t.payments.errors.load);
-      setUnmatched([]);
-      setUnmatchedTotal(0);
-    } finally {
-      setUnmatchedLoading(false);
-    }
-  }, [bankAccountId, debouncedSearch]);
+  const loadMorePayments = useCallback(() => {
+    if (paymentsLoading || paymentsLoadingMore || !paymentsHasMore) return;
+    void fetchPayments({ page: paymentsPage + 1, append: true });
+  }, [paymentsLoading, paymentsLoadingMore, paymentsHasMore, paymentsPage, fetchPayments]);
+
+  const loadMoreUnmatched = useCallback(() => {
+    if (unmatchedLoading || unmatchedLoadingMore || !unmatchedHasMore) return;
+    void fetchUnmatched({ page: unmatchedPage + 1, append: true });
+  }, [unmatchedLoading, unmatchedLoadingMore, unmatchedHasMore, unmatchedPage, fetchUnmatched]);
 
   const fetchFxVariance = useCallback(async () => {
     setFxQueueLoading(true);
@@ -445,7 +512,7 @@ function PaymentsContent() {
         }
         setSearchInput("");
         setDebouncedSearch("");
-        await fetchPayments(undefined);
+        await fetchPayments({ bankIdOverride: undefined });
         await fetchUnmatched();
         await fetchAccounts();
       } catch (e) {
@@ -489,7 +556,7 @@ function PaymentsContent() {
 
   useEffect(() => {
     if (mode === "cash" || (mode === "fop" && view === "payments")) {
-      fetchPayments(mode === "cash" ? "" : undefined);
+      fetchPayments(mode === "cash" ? { bankIdOverride: "" } : undefined);
     }
   }, [mode, view, fetchPayments]);
 
@@ -829,7 +896,7 @@ function PaymentsContent() {
       setAddCashAmount("");
       setAddCashCurrency("UAH");
       setAddCashNote("");
-      await fetchPayments("");
+      await fetchPayments({ bankIdOverride: "" });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.addPaymentFailed, "error");
     } finally {
@@ -1338,6 +1405,13 @@ function PaymentsContent() {
                 )}
               </tbody>
             </table>
+            {paymentsLoadingMore && (
+              <p className="px-4 py-3 text-center text-sm text-zinc-500">{t.common.loading}</p>
+            )}
+            <InfiniteScrollSentinel
+              onVisible={loadMorePayments}
+              disabled={paymentsLoading || paymentsLoadingMore || !paymentsHasMore}
+            />
           </div>
         )}
 
@@ -1347,11 +1421,6 @@ function PaymentsContent() {
               {t.payments.bankLinkedIntro(bankPaymentGroups.length)}
               {debouncedSearch.trim() ? t.payments.bankLinkedSearch(debouncedSearch.trim()) : ""}
             </p>
-            {paymentsTotal > payments.length && (
-              <div className="mx-4 mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                {t.payments.partialListWarning(payments.length, paymentsTotal)}
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
@@ -1533,6 +1602,13 @@ function PaymentsContent() {
                 </tbody>
               </table>
             </div>
+            {paymentsLoadingMore && (
+              <p className="px-4 py-3 text-center text-sm text-zinc-500">{t.common.loading}</p>
+            )}
+            <InfiniteScrollSentinel
+              onVisible={loadMorePayments}
+              disabled={paymentsLoading || paymentsLoadingMore || !paymentsHasMore}
+            />
 
           </>
         )}
@@ -1626,13 +1702,8 @@ function PaymentsContent() {
         {!loading && mode === "fop" && view === "unmatched" && (
           <div className="overflow-x-auto">
             <p className="px-4 py-2 text-sm text-zinc-600">
-              {t.payments.unmatchedIntro(unmatched.length)}
+              {t.payments.unmatchedIntro(unmatchedTotal || unmatched.length)}
             </p>
-            {unmatchedTotal > unmatched.length && (
-              <div className="mx-4 mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                {t.payments.partialListWarning(unmatched.length, unmatchedTotal)}
-              </div>
-            )}
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
@@ -1727,6 +1798,13 @@ function PaymentsContent() {
                 )}
               </tbody>
             </table>
+            {unmatchedLoadingMore && (
+              <p className="px-4 py-3 text-center text-sm text-zinc-500">{t.common.loading}</p>
+            )}
+            <InfiniteScrollSentinel
+              onVisible={loadMoreUnmatched}
+              disabled={unmatchedLoading || unmatchedLoadingMore || !unmatchedHasMore}
+            />
           </div>
         )}
 
@@ -1734,7 +1812,7 @@ function PaymentsContent() {
           <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
             {t.payments.cashCount(
               cashPayments.length,
-              payments.filter((p) => p.sourceType === "CASH").length,
+              paymentsTotal,
               !!debouncedSearch.trim(),
             )}
           </p>

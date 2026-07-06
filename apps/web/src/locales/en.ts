@@ -37,6 +37,7 @@ export const en = {
     planning: "Planning",
     warehouseWork: "Warehouse",
     monitoring: "Monitoring",
+    activeLeadsCount: "{count} active leads",
   },
   metaInbox: {
     instagramTitle: "Instagram Inbox",

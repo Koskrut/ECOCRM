@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ManualCallingModule } from "../../manual-calling/manual-calling.module";
 import { NotificationsModule } from "../../notifications/notifications.module";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { PrismaModule } from "../../prisma/prisma.module";
@@ -12,7 +13,7 @@ import { KyivstarFmcSettingsController } from "./kyivstar-fmc-settings.controlle
 import { KyivstarFmcWorkspaceService } from "./kyivstar-fmc-workspace.service";
 
 @Module({
-  imports: [PrismaModule, SettingsServiceModule, SystemModule, NotificationsModule],
+  imports: [PrismaModule, SettingsServiceModule, SystemModule, NotificationsModule, ManualCallingModule],
   controllers: [KyivstarFmcController, KyivstarFmcSettingsController],
   providers: [
     PhoneEntityLookupService,

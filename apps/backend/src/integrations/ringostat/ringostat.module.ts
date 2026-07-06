@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { ManualCallingModule } from "../../manual-calling/manual-calling.module";
 import { NotificationsModule } from "../../notifications/notifications.module";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
 import { PrismaModule } from "../../prisma/prisma.module";
@@ -15,7 +16,7 @@ import { RingostatLeadsRetrofitService } from "./ringostat-leads-retrofit.servic
 import { RingostatSettingsController } from "./ringostat-settings.controller";
 
 @Module({
-  imports: [PrismaModule, SettingsServiceModule, SystemModule, NotificationsModule],
+  imports: [PrismaModule, SettingsServiceModule, SystemModule, NotificationsModule, ManualCallingModule],
   controllers: [RingostatController, RingostatSettingsController],
   providers: [
     PhoneEntityLookupService,

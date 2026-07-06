@@ -2,6 +2,8 @@ import { Injectable, Logger, Optional, UnauthorizedException } from "@nestjs/com
 import { ActivityType, LeadSource, LeadStatus } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
+import { MissedCallQueueService } from "../../manual-calling/missed-call-queue.service";
+import { isConversation } from "../../manual-calling/call-conversation.util";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { RINGOSTAT_PROVIDER } from "./ringostat.constants";
@@ -65,6 +67,7 @@ export class RingostatIngestService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly phoneEntityLookup: PhoneEntityLookupService,
+    private readonly missedCallQueue: MissedCallQueueService,
     @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
@@ -402,6 +405,28 @@ export class RingostatIngestService {
             customerPhoneNormalized,
             managerUserId,
             startedAt,
+          });
+        }
+
+        if (
+          this.isMissed(status) &&
+          direction === "INBOUND" &&
+          managerUserId &&
+          (call.contactId || call.leadId)
+        ) {
+          await this.missedCallQueue.enqueueFromMissedCall(tx, {
+            callId: call.id,
+            assigneeId: managerUserId,
+            contactId: call.contactId,
+            leadId: call.leadId,
+            companyId: call.companyId,
+          });
+        }
+
+        if (isConversation(status, talkSec, durationSec) && (call.contactId || call.leadId)) {
+          await this.missedCallQueue.resolveOnConversation(tx, {
+            contactId: call.contactId,
+            leadId: call.leadId,
           });
         }
       });

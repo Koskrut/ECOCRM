@@ -14,6 +14,10 @@ import { RINGOSTAT_PROVIDER } from "../integrations/ringostat/ringostat.constant
 import { KYIVSTAR_FMC_PROVIDER } from "../integrations/kyivstar-fmc/kyivstar-fmc.constants";
 import { OUTBOUND_VOICE_PROVIDER } from "../outbound/outbound.constants";
 import { NOVA_POSHTA_INTEGRATION_PROVIDER } from "../np/np.constants";
+import {
+  normalizeNpPayerType,
+  normalizeNpPaymentMethod,
+} from "../np/np-financial.util";
 import { getBaseCurrency, normalizeBaseCurrency } from "../common/currency.util";
 
 export type BaseCurrency = "USD" | "EUR";
@@ -1429,15 +1433,15 @@ export class SettingsService {
             : undefined,
       defaultPayerType:
         body.defaultPayerType !== undefined
-          ? String(body.defaultPayerType).trim() || undefined
+          ? normalizeNpPayerType(String(body.defaultPayerType).trim()) ?? undefined
           : typeof currentConfig.defaultPayerType === "string"
-            ? currentConfig.defaultPayerType
+            ? normalizeNpPayerType(currentConfig.defaultPayerType) ?? undefined
             : undefined,
       defaultPaymentMethod:
         body.defaultPaymentMethod !== undefined
-          ? String(body.defaultPaymentMethod).trim() || undefined
+          ? normalizeNpPaymentMethod(String(body.defaultPaymentMethod).trim()) ?? undefined
           : typeof currentConfig.defaultPaymentMethod === "string"
-            ? currentConfig.defaultPaymentMethod
+            ? normalizeNpPaymentMethod(currentConfig.defaultPaymentMethod) ?? undefined
             : undefined,
       declaredCostMode:
         body.declaredCostMode !== undefined
@@ -1538,15 +1542,18 @@ export class SettingsService {
       where: { provider: NOVA_POSHTA_INTEGRATION_PROVIDER },
     });
     const cfg = (row?.config ?? {}) as NovaPoshtaIntegrationConfig;
-    const payerType =
+    const rawPayerType =
       (typeof cfg.defaultPayerType === "string" && cfg.defaultPayerType.trim()
         ? cfg.defaultPayerType.trim()
         : String(process.env.NP_DEFAULT_PAYER_TYPE ?? "").trim()) || "Recipient";
-    const paymentMethod =
+    const rawPaymentMethod =
       (typeof cfg.defaultPaymentMethod === "string" && cfg.defaultPaymentMethod.trim()
         ? cfg.defaultPaymentMethod.trim()
         : String(process.env.NP_DEFAULT_PAYMENT_METHOD ?? "").trim()) || "Cash";
-    return { payerType, paymentMethod };
+    return {
+      payerType: normalizeNpPayerType(rawPayerType) ?? "Recipient",
+      paymentMethod: normalizeNpPaymentMethod(rawPaymentMethod) ?? "Cash",
+    };
   }
 
   async resolveNovaPoshtaDeclaredCostMode(): Promise<NovaPoshtaDeclaredCostMode> {

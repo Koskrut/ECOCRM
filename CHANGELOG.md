@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.104**.)_
+_(планируемые изменения после **0.2.105**.)_
+
+## [0.2.105] — 2026-07-06
+
+### Summary
+
+Патч **0.2.105**: автоматическая **очередь пропущенных звонков** (Ringostat/Kyivstar FMC), корректные **NP payer/payment** при создании ТТН, infinite scroll на **payments**, badge активных лидов в sidebar.
+
+### Added
+
+- **Missed call queue**: `CallQueueItem.callId` (уникальный FK на `Call`), миграция **`20260706143000_call_queue_item_missed_call`**; `MissedCallQueueService` — enqueue при inbound MISSED, auto-cancel при ответе; интеграция в **Ringostat** и **Kyivstar FMC** ingest; `isConversation()` util; backfill-скрипт **`backfill-missed-call-queue.ts`**; env **`MISSED_CALL_QUEUE_DISABLED`**.
+- **NP financial mapping**: `np-financial.util.ts` — `resolveNpFinancialFields` (payerType/paymentMethod из DTO, заказа, settings); используется в `np-ttn.service`.
+- **Web**: `InfiniteScrollSentinel` — подгрузка на странице payments; `useActiveLeadsCount` — badge в **Sidebar**; улучшения **work/calls** queue UI.
+- **Mobile**: обновления **CallsQueuePanel** / **CallQueueRow**.
+
+### Changed
+
+- **Ringostat / Kyivstar FMC ingest** — пропущенные звонки попадают в call queue вместо дублирующих задач (где применимо).
+- **Manual calling** — resolve queue item при разговоре с контактом/лидом.
+- **Payments** — offset/limit list API для infinite scroll.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.105`**.
+- **Миграция:** **`20260706143000_call_queue_item_missed_call`** — `prisma migrate deploy` / **`backend-migrate`** до **`up`**.
+- Опционально: backfill очереди — `npx ts-node scripts/backfill-missed-call-queue.ts --days=14` (из `apps/backend`).
 
 ## [0.2.104] — 2026-07-06
 

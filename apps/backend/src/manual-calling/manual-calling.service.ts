@@ -564,6 +564,7 @@ export class ManualCallingService {
     id: string;
     status: CallQueueItemStatus;
     sortOrder: number;
+    callId: string | null;
     leadId: string | null;
     contactId: string | null;
     companyId: string | null;
@@ -613,6 +614,7 @@ export class ManualCallingService {
       id: it.id,
       status: it.status,
       sortOrder: it.sortOrder,
+      source: it.callId ? ("MISSED_CALL" as const) : ("MANUAL" as const),
       target,
       openSessionId: it.sessions[0]?.id ?? null,
       createdAt: it.createdAt.toISOString(),

@@ -6,6 +6,24 @@ import { ModuleIds } from "../modules/module-ids";
 import { NpTtnService } from "./np-ttn.service";
 import type { CreateNpTtnDto } from "./dto/create-np-ttn.dto";
 
+function restoreNpFinancialFieldsFromRaw(dto: CreateNpTtnDto, raw: Record<string, unknown>) {
+  const dtoRec = dto as Record<string, unknown>;
+  if (
+    (!dto.payerType || typeof dto.payerType !== "string" || !dto.payerType.trim()) &&
+    typeof raw?.payerType === "string" &&
+    raw.payerType.trim()
+  ) {
+    dtoRec.payerType = raw.payerType.trim();
+  }
+  if (
+    (!dto.paymentMethod || typeof dto.paymentMethod !== "string" || !dto.paymentMethod.trim()) &&
+    typeof raw?.paymentMethod === "string" &&
+    raw.paymentMethod.trim()
+  ) {
+    dtoRec.paymentMethod = raw.paymentMethod.trim();
+  }
+}
+
 @Controller("np")
 @RequireModule(ModuleIds.NovaPoshta)
 export class NpTtnController {
@@ -59,6 +77,7 @@ export class NpTtnController {
     ) {
       (dto as Record<string, unknown>).profileId = rawProfileId.trim();
     }
+    restoreNpFinancialFieldsFromRaw(dto, raw);
     return this.ttn.updateTtnFromOrder(orderId, dto, { shipmentId, ttnId });
   }
 
@@ -86,6 +105,7 @@ export class NpTtnController {
     ) {
       (dto as Record<string, unknown>).ignoreDuplicateCheck = rawIgnoreDuplicateCheck;
     }
+    restoreNpFinancialFieldsFromRaw(dto, raw);
     try {
       return await this.ttn.createFromOrder(orderId, dto);
     } catch (err: unknown) {

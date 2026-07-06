@@ -62,6 +62,9 @@ function CallQueueCard({
               <Text style={[theme.typography.bodyMedium, { flex: 1 }]} numberOfLines={1}>
                 {name}
               </Text>
+              {item.source === "MISSED_CALL" ? (
+                <StatusPill label="Пропущений" tone="danger" />
+              ) : null}
               <StatusPill label={`#${item.sortOrder}`} tone="warning" />
             </View>
             {phone ? (

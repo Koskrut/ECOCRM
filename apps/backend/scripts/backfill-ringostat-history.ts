@@ -112,8 +112,13 @@ async function main() {
   const adapter = new PrismaPg(pool as any);
   const prisma = new PrismaClient({ adapter });
   const phoneLookup = new PhoneEntityLookupService(prisma as unknown as PrismaService);
+  const { MissedCallQueueService } = require("../src/manual-calling/missed-call-queue.service");
   // RingostatIngestService is typed for Nest DI (PrismaService); script uses a plain PrismaClient + adapter.
-  const ingest = new RingostatIngestService(prisma as unknown as PrismaService, phoneLookup);
+  const ingest = new RingostatIngestService(
+    prisma as unknown as PrismaService,
+    phoneLookup,
+    new MissedCallQueueService(),
+  );
 
   try {
     const setting = await prisma.integrationSetting.findFirst({

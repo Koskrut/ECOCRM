@@ -11,7 +11,7 @@ import {
   Req,
 } from "@nestjs/common";
 import type { Request } from "express";
-import { UserRole } from "@prisma/client";
+import { UserRole, PaymentSourceType } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
 import { normalizePagination } from "../common/pagination";
@@ -41,6 +41,12 @@ export class PaymentsController {
       {
         bankAccountId: q.bankAccountId,
         q: q.q,
+        sourceType:
+          q.sourceType === "CASH"
+            ? PaymentSourceType.CASH
+            : q.sourceType === "BANK"
+              ? PaymentSourceType.BANK
+              : undefined,
         ...pagination,
       },
       req.user,

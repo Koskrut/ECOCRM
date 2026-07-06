@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PrismaService } from "../../prisma/prisma.service";
 import type { PhoneEntityLookupService } from "../../../common/phone-entity-lookup.service";
+import type { MissedCallQueueService } from "../../../manual-calling/missed-call-queue.service";
+import { MissedCallQueueService as MissedCallQueueServiceImpl } from "../../../manual-calling/missed-call-queue.service";
 import { RingostatIngestService } from "../ringostat-ingest.service";
+
+function mockMissedCallQueue(): MissedCallQueueService {
+  return {
+    enqueueFromMissedCall: async () => {},
+    resolveOnConversation: async () => {},
+  } as unknown as MissedCallQueueService;
+}
 
 describe("RingostatIngestService", () => {
   const prisma = {
@@ -14,7 +23,7 @@ describe("RingostatIngestService", () => {
     findContactByNormalizedKeys: async () => null,
     findCompanyIdByNormalizedKeys: async () => null,
   } as unknown as PhoneEntityLookupService;
-  const service = new RingostatIngestService(prisma, phoneLookup);
+  const service = new RingostatIngestService(prisma, phoneLookup, mockMissedCallQueue());
 
   it("normalizes UA phone numbers to E.164-like format", () => {
     const normalize = (s: string | undefined) =>
@@ -344,6 +353,7 @@ describe("RingostatIngestService", () => {
   it("missed calls create at most one callback task (idempotent via callId upsert)", async () => {
     const calls: unknown[] = [];
     const tasks: unknown[] = [];
+    const queueUpserts: unknown[] = [];
 
     const tx = {
       call: {
@@ -370,6 +380,14 @@ describe("RingostatIngestService", () => {
           return null;
         },
       },
+      callQueueItem: {
+        findFirst: async () => null,
+        upsert: async (args: unknown) => {
+          queueUpserts.push(args);
+          return null;
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
     };
 
     const prismaMock = {
@@ -389,7 +407,11 @@ describe("RingostatIngestService", () => {
       findCompanyIdByNormalizedKeys: async () => null,
     } as unknown as PhoneEntityLookupService;
 
-    const svc = new RingostatIngestService(prismaMock, phoneLookupMock);
+    const svc = new RingostatIngestService(
+      prismaMock,
+      phoneLookupMock,
+      new MissedCallQueueServiceImpl(),
+    );
 
     const raw = {
       uniqueid: "u1",
@@ -414,5 +436,7 @@ describe("RingostatIngestService", () => {
     const where1 = (tasks[1] as any).where;
     assert.equal(where0.callId, "call_1");
     assert.equal(where1.callId, "call_1");
+    assert.equal(queueUpserts.length, 2, "callQueueItem.upsert called for each inbound missed ingest");
+    assert.equal((queueUpserts[0] as { where: { callId: string } }).where.callId, "call_1");
   });
 });

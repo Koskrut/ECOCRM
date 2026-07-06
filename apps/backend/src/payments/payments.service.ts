@@ -52,6 +52,7 @@ function formatOrderContactLabel(order: {
 type ListPaymentsParams = {
   bankAccountId?: string;
   q?: string;
+  sourceType?: PaymentSourceType;
   page: number;
   pageSize: number;
   offset: number;
@@ -119,6 +120,12 @@ export class PaymentsService {
       const searchWhere = buildPaymentSearchWhere(searchQ);
       where =
         Object.keys(where).length === 0 ? searchWhere : { AND: [where, searchWhere] };
+    }
+
+    if (params.sourceType) {
+      const sourceFilter: Prisma.PaymentWhereInput = { sourceType: params.sourceType };
+      where =
+        Object.keys(where).length === 0 ? sourceFilter : { AND: [where, sourceFilter] };
     }
 
     try {

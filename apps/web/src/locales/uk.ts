@@ -38,6 +38,7 @@ export const uk = {
     planning: "Планування",
     warehouseWork: "Склад",
     monitoring: "Моніторинг",
+    activeLeadsCount: "{count} активних лідів",
   },
   metaInbox: {
     instagramTitle: "Instagram Inbox",

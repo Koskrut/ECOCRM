@@ -25,7 +25,10 @@ export function CallQueueRow({ item, index = 0 }: Props) {
         onPress={() => router.push("/calls/queue")}
         variant="elevated"
         style={{ marginBottom: theme.spacing.sm }}>
-        <Text style={theme.typography.bodyMedium}>{name}</Text>
+        <Text style={theme.typography.bodyMedium}>
+          {name}
+          {item.source === "MISSED_CALL" ? " · Пропущений" : ""}
+        </Text>
         {sub ? (
           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
             {sub}

@@ -3039,6 +3039,7 @@ model Call {
   outboundCallAttempt OutboundCallAttempt?
   manualCallSessions  ManualCallSession[]
   missedCallTask      Task?                @relation("MissedCallTask")
+  missedCallQueueItem CallQueueItem?
 
   @@unique([provider, externalId])
   @@index([fromNormalized])
@@ -3154,6 +3155,10 @@ model CallQueueItem {
   leadId     String?
   contactId  String?
   companyId  String?
+  /**
+   * Пропущений вхідний дзвінок, з якого створено елемент очереди (ідемпотентність re-ingest).
+   */
+  callId     String?             @unique
   status     CallQueueItemStatus @default(PENDING)
   sortOrder  Int                 @default(0)
   createdAt  DateTime            @default(now())
@@ -3163,10 +3168,13 @@ model CallQueueItem {
   lead     Lead?               @relation(fields: [leadId], references: [id], onDelete: Cascade)
   contact  Contact?            @relation(fields: [contactId], references: [id], onDelete: Cascade)
   company  Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  call     Call?               @relation(fields: [callId], references: [id], onDelete: SetNull)
   sessions ManualCallSession[]
 
   @@index([assigneeId, status, sortOrder])
   @@index([assigneeId, status])
+  @@index([assigneeId, contactId, status])
+  @@index([assigneeId, leadId, status])
 }
 
 model ManualCallSession {
