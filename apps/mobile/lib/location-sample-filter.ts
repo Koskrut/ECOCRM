@@ -1,6 +1,6 @@
 import {
   MAX_IMPLAUSIBLE_SPEED_KMH,
-  MIN_TIME_DELTA_S,
+  MIN_DISTANCE_DEDUP_M,
   TRACK_MAX_ACCURACY_M,
 } from "./location-tracking-config";
 import { haversineDistanceM } from "./geo-utils";
@@ -40,22 +40,20 @@ export function filterLocationSample(
     return { accept: true };
   }
 
-  const prevAt = toTimeMs(prev.clientRecordedAt);
-  const nextAt = toTimeMs(next.clientRecordedAt);
-  if (!Number.isFinite(prevAt) || !Number.isFinite(nextAt)) {
-    return { accept: true };
-  }
-
-  const dtS = (nextAt - prevAt) / 1000;
-  if (dtS >= 0 && dtS < MIN_TIME_DELTA_S) {
+  const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
+  if (distM < MIN_DISTANCE_DEDUP_M) {
     return { accept: false, reason: "duplicate" };
   }
 
-  if (dtS > 0) {
-    const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
-    const speedKmh = (distM / 1000 / dtS) * 3600;
-    if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
-      return { accept: false, reason: "teleport" };
+  const prevAt = toTimeMs(prev.clientRecordedAt);
+  const nextAt = toTimeMs(next.clientRecordedAt);
+  if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
+    const dtS = (nextAt - prevAt) / 1000;
+    if (dtS > 0) {
+      const speedKmh = (distM / 1000 / dtS) * 3600;
+      if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
+        return { accept: false, reason: "teleport" };
+      }
     }
   }
 

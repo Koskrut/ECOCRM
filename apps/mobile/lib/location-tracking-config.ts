@@ -3,9 +3,9 @@ import * as Location from "expo-location";
 export const FIELD_LOCATION_TASK = "FIELD_LOCATION_TASK";
 
 /** Keep in sync with apps/backend/src/field/gps-sample-filter.ts */
-export const TRACK_MAX_ACCURACY_M = 100;
-export const MAX_IMPLAUSIBLE_SPEED_KMH = 180;
-export const MIN_TIME_DELTA_S = 5;
+export const TRACK_MAX_ACCURACY_M = 150;
+export const MAX_IMPLAUSIBLE_SPEED_KMH = 150;
+export const MIN_DISTANCE_DEDUP_M = 15;
 
 export type SamplingTier = "moving" | "city" | "idle";
 

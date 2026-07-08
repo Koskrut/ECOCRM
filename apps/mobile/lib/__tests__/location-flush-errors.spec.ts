@@ -17,9 +17,9 @@ describe("classifyFlushHttpStatus", () => {
     assert.equal(classifyFlushHttpStatus(404), "discard_all");
   });
 
-  it("discards batch on other 4xx", () => {
-    assert.equal(classifyFlushHttpStatus(400), "discard_batch");
-    assert.equal(classifyFlushHttpStatus(403), "discard_batch");
+  it("enqueues offline on other 4xx", () => {
+    assert.equal(classifyFlushHttpStatus(400), "enqueue_offline");
+    assert.equal(classifyFlushHttpStatus(403), "enqueue_offline");
   });
 
   it("retries on 408 and 429", () => {
@@ -29,7 +29,7 @@ describe("classifyFlushHttpStatus", () => {
 });
 
 describe("classifyFlushThrownError", () => {
-  it("always retries network errors", () => {
-    assert.equal(classifyFlushThrownError(), "retry");
+  it("enqueues offline on network errors", () => {
+    assert.equal(classifyFlushThrownError(), "enqueue_offline");
   });
 });

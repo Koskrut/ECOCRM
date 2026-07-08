@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.105**.)_
+_(планируемые изменения после **0.2.106**.)_
+
+## [0.2.106] — 2026-07-08
+
+### Summary
+
+Патч **0.2.106**: **fuel compensation v2** — выплата по GPS-треку при eligibility (≥ 2 сэмпла, ≥ 0.5 км), иначе маршрут по визитам; ужесточённый GPS-фильтр; snapshot `trackKm` / `visitRouteKm`; mobile flush/offline UX.
+
+### Added
+
+- **Track compensation eligibility**: `isTrackEligibleForCompensation` (`MIN_TRACK_COMPENSATION_KM=0.5`, `MIN_TRACK_COMPENSATION_SAMPLES=2`); `compensationFactKind` в geometry bundle / fuel snapshot.
+- **Fuel snapshot**: `trackKm`, `visitRouteKm`, `trackMetricsSource` (`track` / `track_fallback` / `none`); warnings `gps_track_too_short` / `gps_track_ineligible`.
+- **Docs**: API notes — batch samples (250), track-geometry, fuel recalculate priority GPS → visits.
+
+### Changed
+
+- **GPS sample filter**: accuracy ≤ 150 м (как visit GPS), дедуп по дистанции 15 м, анти-glitch 150 км/ч (sync mobile/backend).
+- **Fuel recalculate**: приоритет GPS-трек → маршрут по завершённым визитам → `none`.
+- **Mobile**: location flush/offline-queue errors, fuel day UI; web fuel page labels.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.106`**.
+- **Новых миграций нет.**
 
 ## [0.2.105] — 2026-07-06
 

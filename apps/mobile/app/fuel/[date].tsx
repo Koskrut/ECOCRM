@@ -38,6 +38,11 @@ type BreakdownRow = {
   includedInRoute: boolean;
 };
 
+type RouteMetrics = {
+  distanceKm: number | null;
+  source: string;
+};
+
 type FuelDayResponse = {
   report: {
     plannedKm: number | null;
@@ -47,10 +52,14 @@ type FuelDayResponse = {
     amountEstimated: string | number | null;
     compensationStatus: string;
     managerNote: string | null;
+    metricsSource?: string | null;
   };
   breakdown: BreakdownRow[];
   warnings: string[];
-  factMetrics: { source: string };
+  factMetrics: RouteMetrics;
+  factGpsMetrics?: RouteMetrics;
+  factVisitsMetrics?: RouteMetrics;
+  compensationFactKind?: "fact_gps" | "fact_visits";
   refuels?: FuelRefuelEntry[];
   refuelTotals?: FuelRefuelTotals;
 };
@@ -245,13 +254,41 @@ export default function FuelDayScreen() {
         {r ? (
           <>
             <View style={styles.cards}>
+              <Card style={[styles.metricCard, { backgroundColor: theme.colors.primaryMuted, borderColor: theme.colors.primary }]}>
+                <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{t("fuel.payout")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4, color: theme.colors.primaryText }]}>
+                  {r.compensationKm ?? "—"} {t("common.km")}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.primaryText, marginTop: 2 }]}>
+                  {r.litersEstimated ?? "—"} л
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.primaryText, marginTop: 2 }]}>
+                  {data?.compensationFactKind === "fact_gps"
+                    ? t("fuel.payoutSourceGps")
+                    : t("fuel.payoutSourceVisits")}
+                  {r.metricsSource ? ` · ${r.metricsSource}` : ""}
+                </Text>
+              </Card>
               <Card style={styles.metricCard}>
-                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.fact")}</Text>
+                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.trackGps")}</Text>
                 <Text style={[theme.typography.title, { marginTop: 4 }]}>
-                  {r.actualKm ?? "—"} {t("common.km")}
+                  {data?.factGpsMetrics?.distanceKm ?? "—"} {t("common.km")}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
-                  {r.litersEstimated ?? "—"} л
+                  {t("fuel.trackGpsRef")}
+                  {data?.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
+                    ? ` · ${data.factGpsMetrics.source}`
+                    : ""}
+                </Text>
+              </Card>
+              <Card style={styles.metricCard}>
+                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.visitRoute")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4 }]}>
+                  {data?.factVisitsMetrics?.distanceKm ?? data?.factMetrics?.distanceKm ?? "—"}{" "}
+                  {t("common.km")}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                  {t("fuel.visitRouteRef")}
                 </Text>
               </Card>
               <Card style={styles.metricCard}>
@@ -260,9 +297,9 @@ export default function FuelDayScreen() {
                   {r.plannedKm ?? "—"} {t("common.km")}
                 </Text>
               </Card>
-              <Card style={[styles.metricCard, { backgroundColor: theme.colors.primaryMuted, borderColor: theme.colors.primary }]}>
-                <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{t("fuel.amount")}</Text>
-                <Text style={[theme.typography.title, { marginTop: 4, color: theme.colors.primaryText }]}>
+              <Card style={[styles.metricCard, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.amount")}</Text>
+                <Text style={[theme.typography.title, { marginTop: 4 }]}>
                   {r.amountEstimated != null
                     ? `${Number(r.amountEstimated)} ${t("common.currency")}`
                     : "—"}

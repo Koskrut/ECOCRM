@@ -11,6 +11,10 @@ export type RouteGeometryQuality = {
   coverageRatio: number | null;
   degraded: boolean;
   degradedReason: string | null;
+  /** Raw filtered polyline distance before road snap (km). */
+  rawDistanceKm?: number | null;
+  /** Day had at least one shift with trackingEnabled. */
+  hasTrackingEnabledShift?: boolean;
 };
 
 export type RouteGeometryWaypoint = LatLng & {

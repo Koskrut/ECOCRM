@@ -8,6 +8,7 @@ import {
   assessGpsTrackQuality,
   concatPaths,
   downsamplePathUniform,
+  isTrackEligibleForCompensation,
   MAX_INTERMEDIATES_PER_LEG,
   splitRouteLegs,
   sumLegMetrics,
@@ -1104,7 +1105,10 @@ export class RoutePlansService {
       select: { id: true, startedAt: true, endedAt: true, trackingEnabled: true },
     });
 
-    if (shifts.length === 0) {
+    const trackingShifts = shifts.filter((s) => s.trackingEnabled);
+    const hasTrackingEnabledShift = trackingShifts.length > 0;
+
+    if (!hasTrackingEnabledShift) {
       return {
         path: [] as LatLng[],
         fullPath: [] as LatLng[],
@@ -1112,10 +1116,11 @@ export class RoutePlansService {
         sampleCount: 0,
         coverageRatio: null as number | null,
         shiftDurationMin: null as number | null,
+        hasTrackingEnabledShift: false,
       };
     }
 
-    const shiftIds = shifts.map((s) => s.id);
+    const shiftIds = trackingShifts.map((s) => s.id);
     const samples = await this.prisma.fieldLocationSample.findMany({
       where: { shiftId: { in: shiftIds } },
       orderBy: { clientRecordedAt: "asc" },
@@ -1124,8 +1129,8 @@ export class RoutePlansService {
 
     const filtered = filterGpsTrack(samples);
     const fullPath: LatLng[] = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
-    const firstShift = shifts[0]!;
-    const lastShift = shifts[shifts.length - 1]!;
+    const firstShift = trackingShifts[0]!;
+    const lastShift = trackingShifts[trackingShifts.length - 1]!;
     const spanStart = firstShift.startedAt.getTime();
     const spanEnd = (lastShift.endedAt ?? new Date()).getTime();
     const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
@@ -1149,6 +1154,7 @@ export class RoutePlansService {
       sampleCount: filtered.length,
       coverageRatio,
       shiftDurationMin,
+      hasTrackingEnabledShift: true,
     };
   }
 
@@ -1231,6 +1237,8 @@ export class RoutePlansService {
         coverageRatio: gps.coverageRatio,
         degraded,
         degradedReason,
+        rawDistanceKm: gps.distanceKm,
+        hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
       },
     };
   }
@@ -1269,10 +1277,14 @@ export class RoutePlansService {
       this.getRouteGeometry(dateStr, "fact_gps", actor, opts),
     ]);
 
+    const eligibility = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
+      filteredSampleCount: factGps.quality.sampleCount,
+      rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
+    });
+
     const compensationFactKind: RouteGeometryBundle["compensationFactKind"] =
-      factGps.source !== "none" && !factGps.quality.degraded && factGps.path.length >= 2
-        ? "fact_gps"
-        : "fact_visits";
+      eligibility.eligible ? "fact_gps" : "fact_visits";
 
     return {
       date: dateStr,

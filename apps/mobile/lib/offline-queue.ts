@@ -7,7 +7,8 @@ export type OfflineJobKind =
   | "visitComplete"
   | "visitLogAdHoc"
   | "taskComplete"
-  | "taskUpdate";
+  | "taskUpdate"
+  | "shiftSamplesBatch";
 
 export type OfflineJob = {
   id: string;
@@ -121,6 +122,17 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       await apiFetch(`/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         body: JSON.stringify(body),
+        token,
+      });
+      return;
+    }
+    case "shiftSamplesBatch": {
+      const shiftId = String(job.payload.shiftId ?? "");
+      const items = job.payload.items;
+      const clientMutationId = String(job.payload.clientMutationId ?? job.id);
+      await apiFetch(`/field/shifts/${encodeURIComponent(shiftId)}/samples`, {
+        method: "POST",
+        body: JSON.stringify({ items, clientMutationId }),
         token,
       });
       return;

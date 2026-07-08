@@ -597,9 +597,19 @@ export class FieldShiftsService {
     }
     await assertCanAccessOwner(this.prisma, actor, shift.ownerId);
 
-    const { items } = await this.getSamples(actor, shiftId, { limit: MAX_SAMPLES_READ });
+    const rows = await this.prisma.fieldLocationSample.findMany({
+      where: { shiftId },
+      orderBy: { clientRecordedAt: "asc" },
+      select: {
+        lat: true,
+        lng: true,
+        accuracyM: true,
+        clientRecordedAt: true,
+      },
+    });
+
     const filtered = filterGpsTrack(
-      items.map((s) => ({
+      rows.map((s) => ({
         lat: s.lat,
         lng: s.lng,
         accuracyM: s.accuracyM,

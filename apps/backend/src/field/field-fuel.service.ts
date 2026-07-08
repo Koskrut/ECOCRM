@@ -13,6 +13,7 @@ import { kyivDayBounds } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
+import { resolveTrackMetricsSource } from "./field-fuel.types";
 import type { FuelRefuelTotals } from "./field-fuel-refuels.types";
 import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
@@ -224,9 +225,7 @@ export class FieldFuelService {
     const plannedKm = plannedMetrics.distanceKm;
     const factMetrics = factVisitsMetrics;
     const metricsSource =
-      compensationFactKind === "fact_gps" && factGpsMetrics.source !== "none"
-        ? factGpsMetrics.source
-        : factVisitsMetrics.source;
+      compensationFactKind === "fact_gps" ? "track" : factVisitsMetrics.source;
     const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
@@ -235,6 +234,9 @@ export class FieldFuelService {
     snapshot.factVisitsMetricsSource = factVisitsMetrics.source;
     snapshot.factGpsMetricsSource = factGpsMetrics.source;
     snapshot.compensationFactKind = compensationFactKind;
+    snapshot.trackKm = factGpsMetrics.distanceKm;
+    snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
+    snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
     snapshot.routeAnchors = {
       startLabel: routeAnchors.startLabel,
       endLabel: routeAnchors.endLabel,
@@ -285,8 +287,19 @@ export class FieldFuelService {
     if (geometryBundle.factGps.quality.degradedReason === "gps_partial_coverage") {
       warnings.push("gps_partial_coverage");
     }
-    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.quality.degraded) {
-      warnings.push("gps_track_degraded");
+    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source !== "none") {
+      const eligibility = geometryBundle.factGps.quality;
+      if (
+        eligibility.sampleCount >= 2 &&
+        eligibility.rawDistanceKm != null &&
+        eligibility.rawDistanceKm < 0.5
+      ) {
+        warnings.push("gps_track_too_short");
+      } else if (geometryBundle.factGps.quality.degraded) {
+        warnings.push("gps_track_degraded");
+      } else {
+        warnings.push("gps_track_ineligible");
+      }
     }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source === "none") {
       warnings.push("gps_track_unavailable");

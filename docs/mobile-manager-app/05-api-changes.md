@@ -69,15 +69,37 @@
       "accuracyM": 18,
       "clientRecordedAt": "2026-05-15T08:05:00.000Z"
     }
-  ]
+  ],
+  "clientMutationId": "optional-uuid-for-offline-retry"
 }
 ```
 
-Лимит разумного размера батча валидируется в сервисе.
+Лимит: до **250** точек за запрос. Смена должна быть `ACTIVE` и `trackingEnabled: true`. Сервер фильтрует сэмплы (accuracy ≤ 150 м, дедуп &lt; 15 м, анти-glitch &gt; 150 км/ч).
+
+Ответ: `{ "created": number, "rejected": number }`.
+
+### `GET /field/shifts/:id/samples`
+
+Список сохранённых точек (`since`, `limit`, `hasMore`). Лимит чтения — 500 за запрос.
+
+### `GET /field/shifts/:id/track-geometry`
+
+Геометрия трека смены для карты (snap к дорогам где возможно):
+
+```json
+{
+  "sampleCount": 42,
+  "path": [{ "lat": 50.45, "lng": 30.52 }],
+  "source": "google",
+  "distanceKm": 12.3
+}
+```
+
+`source`: `"google"` | `"fallback"` | `"none"`.
 
 ### `GET /field/shifts/active`
 
-Активная смена текущего пользователя или `null`.
+Активная смена текущего пользователя или `null`. С `?scope=team` — активные смены команды (для карты руководителя).
 
 ## Fuel: дневной отчёт
 
@@ -89,7 +111,13 @@
 
 ### `POST /field/fuel/day/recalculate?date=YYYY-MM-DD`
 
-Пересчёт: плановые км из `RoutePlan`, фактические из завершённых визитов (`getFactRouteMetrics`), компенсация = факт, литры/сумма из `UserFieldProfile`.
+Пересчёт: плановые км из `RoutePlan`, **компенсация** по приоритету:
+
+1. **GPS-трек** (`track`) — если за день есть смена с `trackingEnabled`, ≥ 2 отфильтрованных сэмпла, длина полилинии ≥ 0.5 км
+2. **Маршрут по завершённым визитам** (`google` / `fallback`) — если трек недостаточен
+3. **`none`** — недостаточно данных
+
+В `calculationSnapshot` сохраняются `trackKm`, `visitRouteKm`, `trackMetricsSource`, `compensationFactKind`.
 
 ### `PATCH /field/fuel/day?date=YYYY-MM-DD`
 
@@ -151,3 +179,9 @@ Multipart: поле **`file`** (обязательно), поля формы **`
 3. При конфликте статуса визита — сервер отвечает `409`; клиент перезагружает визит.
 
 Детальный SDK sync — во **второй** версии; контракт полей уже совместим с буферизацией.
+
+## Геометрия маршрута (web / mobile карты)
+
+### `GET /route-plans/geometry/bundle?date=YYYY-MM-DD&ownerId=...&traffic=1`
+
+Возвращает `planned`, `fact_visits`, `fact_gps` и `compensationFactKind` — какой источник используется для выплаты топлива.

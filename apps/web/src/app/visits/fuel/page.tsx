@@ -49,6 +49,12 @@ function warningText(code: string): string | null {
   if (code === "gps_track_degraded") {
     return "GPS-трек слабкий — для виплати використано факт по завершених візитах.";
   }
+  if (code === "gps_track_too_short") {
+    return "GPS-трек коротший за 0.5 км — для виплати використано маршрут по візитах.";
+  }
+  if (code === "gps_track_ineligible") {
+    return "GPS-трек недостатній для виплати — використано маршрут по візитах.";
+  }
   if (code === "gps_track_unavailable") {
     return "GPS-трек відсутній — для виплати використано факт по завершених візитах.";
   }
@@ -315,7 +321,7 @@ function DayDetailPanel({
           <p className="mb-3 text-xs text-zinc-600">
             План — збережений маршрут. До виплати —{" "}
             {data.compensationFactKind === "fact_gps"
-              ? "фактичний GPS-трек (якщо якість достатня)"
+              ? "фактичний GPS-трек (≥ 0.5 км, ≥ 2 точки)"
               : "факт по порядку завершених візитів"}
             .
           </p>
@@ -749,7 +755,7 @@ export default function VisitsFuelPage() {
               <tr>
                 <th className="px-3 py-2">Дата</th>
                 <th className="px-3 py-2">Візити</th>
-                <th className="px-3 py-2">Факт км</th>
+                <th className="px-3 py-2">Виплата км</th>
                 <th className="px-3 py-2">Літри</th>
                 <th className="px-3 py-2">Сума</th>
                 <th className="px-3 py-2">Заправки</th>

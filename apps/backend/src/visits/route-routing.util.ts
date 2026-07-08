@@ -86,7 +86,39 @@ export function sumLegMetrics(
   };
 }
 
-/** GPS track quality for fuel compensation and snap decisions. */
+/** Minimum polyline length (km) to use GPS track for fuel compensation. */
+export const MIN_TRACK_COMPENSATION_KM = 0.5;
+
+/** Minimum filtered samples to use GPS track for fuel compensation. */
+export const MIN_TRACK_COMPENSATION_SAMPLES = 2;
+
+export type TrackCompensationEligibility = {
+  eligible: boolean;
+  reason: string | null;
+};
+
+/** Whether a day's GPS track qualifies for payout (v2 policy). */
+export function isTrackEligibleForCompensation(opts: {
+  hasTrackingEnabledShift: boolean;
+  filteredSampleCount: number;
+  rawPolylineDistanceKm: number | null;
+}): TrackCompensationEligibility {
+  if (!opts.hasTrackingEnabledShift) {
+    return { eligible: false, reason: "no_tracking_shift" };
+  }
+  if (opts.filteredSampleCount < MIN_TRACK_COMPENSATION_SAMPLES) {
+    return { eligible: false, reason: "insufficient_gps_samples" };
+  }
+  if (
+    opts.rawPolylineDistanceKm == null ||
+    opts.rawPolylineDistanceKm < MIN_TRACK_COMPENSATION_KM
+  ) {
+    return { eligible: false, reason: "track_too_short" };
+  }
+  return { eligible: true, reason: null };
+}
+
+/** GPS track quality for UI warnings (partial coverage); not used for payout blocking. */
 export function assessGpsTrackQuality(
   sampleCount: number,
   coverageRatio: number | null,

@@ -9,8 +9,9 @@ import {
   classifyFlushThrownError,
   type FlushErrorAction,
 } from "./location-flush-errors";
+import { enqueueOfflineJob } from "./offline-queue";
 
-const MAX_BATCH = 30;
+const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
 
 export const STORAGE_KEYS = {
@@ -36,6 +37,10 @@ function withBufferLock<T>(fn: () => Promise<T>): Promise<T> {
     () => undefined,
   );
   return run;
+}
+
+function newMutationId(): string {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 async function readPending(): Promise<PendingLocationSample[]> {
@@ -66,6 +71,7 @@ async function applyFlushFailure(
   action: FlushErrorAction,
   pending: PendingLocationSample[],
   batch: PendingLocationSample[],
+  shiftId: string,
   message: string,
 ): Promise<void> {
   if (action === "retry") {
@@ -77,8 +83,13 @@ async function applyFlushFailure(
     return;
   }
   const rest = pending.slice(batch.length);
+  await enqueueOfflineJob("shiftSamplesBatch", {
+    shiftId,
+    clientMutationId: newMutationId(),
+    items: batch,
+  });
   await writePending(rest);
-  void appendErrorLog(`flush samples discarded batch: ${message}`);
+  void appendErrorLog(`flush samples enqueued offline (${batch.length}): ${message}`);
 }
 
 export async function appendPendingSample(sample: PendingLocationSample): Promise<number> {
@@ -126,10 +137,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const text = await res.text();
           const message = text || `Upload failed (${res.status})`;
           const action = classifyFlushHttpStatus(res.status);
-          await applyFlushFailure(action, pending, batch, message);
-          if (action === "discard_batch") {
-            uploaded += batch.length;
-          }
+          await applyFlushFailure(action, pending, batch, sid, message);
           break;
         }
 
@@ -140,7 +148,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
         if (rest.length === 0) break;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        await applyFlushFailure(classifyFlushThrownError(), pending, batch, message);
+        await applyFlushFailure(classifyFlushThrownError(), pending, batch, sid, message);
         break;
       }
     }

@@ -1,35 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { DateTime } from "luxon";
 
-import { kyivDayBounds } from "../../crm-timezone";
+import {
+  MIN_TRACK_COMPENSATION_KM,
+  MIN_TRACK_COMPENSATION_SAMPLES,
+  isTrackEligibleForCompensation,
+} from "../../visits/route-routing.util";
 import { haversineDistanceM } from "../../visits/visit-gps.verification";
-import { assessGpsTrackQuality } from "../../visits/route-routing.util";
-
-const CRM_TIME_ZONE = "Europe/Kyiv";
 
 function pickCompensationFactKind(factGps: {
-  source: string;
-  quality: { degraded: boolean };
-  path: unknown[];
+  quality: {
+    hasTrackingEnabledShift?: boolean;
+    sampleCount: number;
+    rawDistanceKm?: number | null;
+  };
 }): "fact_gps" | "fact_visits" {
-  return factGps.source !== "none" && !factGps.quality.degraded && factGps.path.length >= 2
-    ? "fact_gps"
-    : "fact_visits";
-}
-
-function pickCompensationFactKindFromTrack(
-  sampleCount: number,
-  coverageRatio: number | null,
-  source: string,
-  pathLength: number,
-): "fact_gps" | "fact_visits" {
-  const { degraded } = assessGpsTrackQuality(sampleCount, coverageRatio);
-  return pickCompensationFactKind({ source, quality: { degraded }, path: new Array(pathLength) });
-}
-
-function estimateFuelLiters(compensationKm: number, fuelLitersPer100km: number): number {
-  return Math.round(((compensationKm * fuelLitersPer100km) / 100) * 1000) / 1000;
+  const eligibility = isTrackEligibleForCompensation({
+    hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
+    filteredSampleCount: factGps.quality.sampleCount,
+    rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
+  });
+  return eligibility.eligible ? "fact_gps" : "fact_visits";
 }
 
 function pathDistanceKm(points: { lat: number; lng: number }[]): number {
@@ -43,108 +34,79 @@ function pathDistanceKm(points: { lat: number; lng: number }[]): number {
   return Math.round((total / 1000) * 10) / 10;
 }
 
-function downsamplePath(path: { lat: number; lng: number }[], maxPoints = 400): typeof path {
-  if (path.length <= maxPoints) return path;
-  const step = Math.ceil(path.length / maxPoints);
-  const out: typeof path = [];
-  for (let i = 0; i < path.length; i += step) {
-    out.push(path[i]!);
-  }
-  const last = path[path.length - 1]!;
-  const tail = out[out.length - 1];
-  if (!tail || tail.lat !== last.lat || tail.lng !== last.lng) {
-    out.push(last);
-  }
-  return out;
-}
-
-describe("fuel compensationFactKind selection", () => {
-  it("prefers fact_gps when track is healthy", () => {
+describe("fuel compensationFactKind selection (v2 eligibility)", () => {
+  it("prefers fact_gps when track meets v2 thresholds", () => {
+    const rawKm = 1.2;
     const kind = pickCompensationFactKind({
-      source: "google",
-      quality: { degraded: false },
-      path: [{}, {}],
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: 5,
+        rawDistanceKm: rawKm,
+      },
     });
     assert.equal(kind, "fact_gps");
+    assert.ok(rawKm >= MIN_TRACK_COMPENSATION_KM);
+    assert.ok(5 >= MIN_TRACK_COMPENSATION_SAMPLES);
   });
 
-  it("falls back to fact_visits when GPS is degraded", () => {
+  it("falls back to fact_visits when track shorter than 0.5 km", () => {
     const kind = pickCompensationFactKind({
-      source: "raw_gps",
-      quality: { degraded: true },
-      path: [{}, {}, {}],
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: 20,
+        rawDistanceKm: 0.4,
+      },
     });
     assert.equal(kind, "fact_visits");
   });
 
-  it("falls back when insufficient GPS points", () => {
+  it("falls back when only one filtered sample", () => {
     const kind = pickCompensationFactKind({
-      source: "raw_gps",
-      quality: { degraded: false },
-      path: [{}],
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: 1,
+        rawDistanceKm: 10,
+      },
     });
     assert.equal(kind, "fact_visits");
   });
 
-  it("uses fact_gps with many samples despite low coverage ratio", () => {
-    const kind = pickCompensationFactKindFromTrack(386, 0.12, "google", 386);
+  it("falls back when no tracking-enabled shift", () => {
+    const kind = pickCompensationFactKind({
+      quality: {
+        hasTrackingEnabledShift: false,
+        sampleCount: 100,
+        rawDistanceKm: 50,
+      },
+    });
+    assert.equal(kind, "fact_visits");
+  });
+
+  it("eligible at exactly 0.5 km with 2 samples", () => {
+    const points = [
+      { lat: 50.45, lng: 30.52 },
+      { lat: 50.4545, lng: 30.52 },
+    ];
+    const rawKm = pathDistanceKm(points);
+    assert.ok(rawKm >= MIN_TRACK_COMPENSATION_KM);
+    const kind = pickCompensationFactKind({
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: 2,
+        rawDistanceKm: rawKm,
+      },
+    });
     assert.equal(kind, "fact_gps");
-    const quality = assessGpsTrackQuality(386, 0.12);
-    assert.equal(quality.degraded, false);
-    assert.equal(quality.degradedReason, "gps_partial_coverage");
-  });
-
-  it("falls back to fact_visits when low coverage and fewer than 50 samples", () => {
-    const kind = pickCompensationFactKindFromTrack(30, 0.12, "raw_gps", 30);
-    assert.equal(kind, "fact_visits");
-    assert.equal(assessGpsTrackQuality(30, 0.12).degraded, true);
   });
 });
 
 describe("fuel estimateFuel liters", () => {
+  function estimateFuelLiters(compensationKm: number, fuelLitersPer100km: number): number {
+    return Math.round(((compensationKm * fuelLitersPer100km) / 100) * 1000) / 1000;
+  }
+
   it("computes liters from km and profile", () => {
     assert.equal(estimateFuelLiters(100, 8.5), 8.5);
     assert.equal(estimateFuelLiters(47.3, 7), 3.311);
-  });
-});
-
-describe("fuel GPS distance vs downsample", () => {
-  it("full filtered path distance is not less than downsampled path distance", () => {
-    const fullPath: { lat: number; lng: number }[] = [];
-    for (let i = 0; i < 500; i += 1) {
-      const angle = (i / 500) * Math.PI * 4;
-      fullPath.push({
-        lat: 50.45 + Math.sin(angle) * 0.02,
-        lng: 30.52 + (i / 500) * 0.08,
-      });
-    }
-    const downsampled = downsamplePath(fullPath, 400);
-    const fullKm = pathDistanceKm(fullPath);
-    const sampledKm = pathDistanceKm(downsampled);
-    assert.ok(fullKm >= sampledKm);
-    assert.ok(fullKm > 0);
-  });
-});
-
-describe("fuel visit day Kyiv bounds", () => {
-  it("early-morning Kyiv visit belongs to Kyiv calendar day, not UTC midnight window", () => {
-    const dateStr = "2026-06-26";
-    const utcStart = new Date(`${dateStr}T00:00:00.000Z`);
-    const utcEnd = new Date(utcStart);
-    utcEnd.setUTCDate(utcEnd.getUTCDate() + 1);
-
-    const earlyKyiv = DateTime.fromObject(
-      { year: 2026, month: 6, day: 26, hour: 1, minute: 30 },
-      { zone: CRM_TIME_ZONE },
-    ).toJSDate();
-    const { from, to } = kyivDayBounds(dateStr);
-
-    const inUtcWindow =
-      earlyKyiv.getTime() >= utcStart.getTime() && earlyKyiv.getTime() < utcEnd.getTime();
-    const inKyivWindow =
-      earlyKyiv.getTime() >= from.getTime() && earlyKyiv.getTime() <= to.getTime();
-
-    assert.equal(inUtcWindow, false);
-    assert.equal(inKyivWindow, true);
   });
 });

@@ -1,13 +1,16 @@
-import { haversineDistanceM } from "../visits/visit-gps.verification";
+import {
+  VISIT_GPS_MAX_ACCURACY_M,
+  haversineDistanceM,
+} from "../visits/visit-gps.verification";
 
-/** Max horizontal accuracy for shift track samples (stricter than visit check). */
-export const TRACK_MAX_ACCURACY_M = 100;
+/** Max horizontal accuracy for shift track samples (same as visit GPS policy). */
+export const TRACK_MAX_ACCURACY_M = VISIT_GPS_MAX_ACCURACY_M;
 
 /** Reject jumps implying faster travel than this (km/h). */
-export const MAX_IMPLAUSIBLE_SPEED_KMH = 180;
+export const MAX_IMPLAUSIBLE_SPEED_KMH = 150;
 
-/** Ignore consecutive samples closer than this in time (seconds). */
-export const MIN_TIME_DELTA_S = 5;
+/** Skip consecutive samples closer than this (metres). */
+export const MIN_DISTANCE_DEDUP_M = 15;
 
 export type GpsSamplePoint = {
   lat: number;
@@ -44,22 +47,20 @@ export function filterGpsSample(
     return { accept: true };
   }
 
-  const prevAt = toTimeMs(prev.clientRecordedAt);
-  const nextAt = toTimeMs(next.clientRecordedAt);
-  if (!Number.isFinite(prevAt) || !Number.isFinite(nextAt)) {
-    return { accept: true };
-  }
-
-  const dtS = (nextAt - prevAt) / 1000;
-  if (dtS >= 0 && dtS < MIN_TIME_DELTA_S) {
+  const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
+  if (distM < MIN_DISTANCE_DEDUP_M) {
     return { accept: false, reason: "duplicate" };
   }
 
-  if (dtS > 0) {
-    const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
-    const speedKmh = (distM / 1000 / dtS) * 3600;
-    if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
-      return { accept: false, reason: "teleport" };
+  const prevAt = toTimeMs(prev.clientRecordedAt);
+  const nextAt = toTimeMs(next.clientRecordedAt);
+  if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
+    const dtS = (nextAt - prevAt) / 1000;
+    if (dtS > 0) {
+      const speedKmh = (distM / 1000 / dtS) * 3600;
+      if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
+        return { accept: false, reason: "teleport" };
+      }
     }
   }
 
