@@ -18,12 +18,15 @@ import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { TextField } from "@/components/ui/TextField";
 import { VisitProximityCard } from "@/components/visit/VisitProximityCard";
+import { VisitLocationSheet } from "@/components/visit/VisitLocationSheet";
 import { LogAdHocVisitSheet } from "@/components/visit/LogAdHocVisitSheet";
 import { VisitRescheduleSheet } from "@/components/visit/VisitRescheduleSheet";
 import { useAuth } from "@/context/auth-context";
 import { useActiveWork } from "@/context/active-work-context";
 import { apiFetch } from "@/lib/api";
 import { visitsApi } from "@/lib/api/visits";
+import { contactsApi } from "@/lib/api/contacts";
+import { resolveMapsApiKey } from "@/lib/maps-config";
 import { useTheme } from "@/lib/design/theme-context";
 import { captureGpsForVisitRequest } from "@/lib/gps-capture";
 import { visitDayKey } from "@/lib/visit-history";
@@ -37,7 +40,7 @@ import { enqueueOfflineJob, isOfflineLikeError } from "@/lib/offline-queue";
 import { t } from "@/lib/i18n";
 import { visitLabel, visitPhone } from "@/lib/visit-utils";
 import { useTabBarInset } from "@/lib/use-tab-bar-inset";
-import type { VisitSummary } from "@/types/crm";
+import type { Contact, VisitSummary } from "@/types/crm";
 
 export default function VisitDetailScreen() {
   const router = useRouter();
@@ -58,6 +61,9 @@ export default function VisitDetailScreen() {
   const [nextActionEnabled, setNextActionEnabled] = useState(false);
   const [nextActionNote, setNextActionNote] = useState("");
   const [logAdHocOpen, setLogAdHocOpen] = useState(false);
+  const [locationSheetOpen, setLocationSheetOpen] = useState(false);
+  const [contact, setContact] = useState<Contact | null>(null);
+  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !visitId) {
@@ -69,6 +75,16 @@ export default function VisitDetailScreen() {
     try {
       const row = await apiFetch<VisitSummary>(`/visits/${visitId}`, { token });
       setVisit(row);
+      if (row.contactId) {
+        try {
+          const c = await contactsApi.getById(token, row.contactId);
+          setContact(c);
+        } catch {
+          setContact(null);
+        }
+      } else {
+        setContact(null);
+      }
       if (row.status === "DONE" && row.resultNote) {
         setResultNote(row.resultNote);
       }
@@ -82,7 +98,8 @@ export default function VisitDetailScreen() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    if (token) void resolveMapsApiKey(token).then(setMapsApiKey);
+  }, [load, token]);
 
   async function gpsPayloadForRequest(): Promise<Record<string, unknown> | undefined> {
     return captureGpsForVisitRequest();
@@ -182,6 +199,23 @@ export default function VisitDetailScreen() {
       setVisit(updated);
       setRescheduleOpen(false);
       Alert.alert(t("common.done"), t("visit.rescheduled"));
+    } catch (e) {
+      Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function onSaveLocation(
+    payload: Parameters<typeof visitsApi.update>[2],
+  ) {
+    if (!token || !visit) return;
+    setActionBusy(true);
+    try {
+      const updated = await visitsApi.update(token, visit.id, payload);
+      setVisit(updated);
+      setLocationSheetOpen(false);
+      Alert.alert(t("common.done"), t("visitLocation.saveLocation"));
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
@@ -292,6 +326,15 @@ export default function VisitDetailScreen() {
                 `/visits/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact!.id!)}`,
               )
             }
+            variant="secondary"
+            fullWidth
+          />
+        ) : null}
+
+        {(visit.status === "PLANNED_UNASSIGNED" || visit.status === "SCHEDULED") && contact ? (
+          <AppButton
+            label={t("visitLocation.changeLocation")}
+            onPress={() => setLocationSheetOpen(true)}
             variant="secondary"
             fullWidth
           />
@@ -471,6 +514,19 @@ export default function VisitDetailScreen() {
         onClose={() => setLogAdHocOpen(false)}
         onSuccess={() => void load()}
       />
+
+      {visit && contact ? (
+        <VisitLocationSheet
+          visible={locationSheetOpen}
+          token={token!}
+          visit={visit}
+          contact={contact}
+          mapsApiKey={mapsApiKey}
+          loading={actionBusy}
+          onClose={() => setLocationSheetOpen(false)}
+          onSave={(payload) => void onSaveLocation(payload)}
+        />
+      ) : null}
     </Screen>
   );
 }

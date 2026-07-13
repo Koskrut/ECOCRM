@@ -51,6 +51,16 @@ sudo nginx -t && sudo systemctl reload nginx
 
 Образ **web** с релиза, где в прокси вычищаются hop-by-hop заголовки (`connection`, `upgrade`, …), снижает риск даже при старом nginx, но **исправление nginx всё равно рекомендуется**.
 
+### Лимит размера загрузок (`client_max_body_size`)
+
+В шаблоне для CRM, store и API задано `client_max_body_size 10M;` — иначе nginx по умолчанию режет тело запроса на **~1 MB** и мобильные фото чеков (заправка, импорты) падают с **413 Request Entity Too Large** ещё до Next.js/backend.
+
+После обновления конфига на сервере продублируйте эту директиву и в HTTPS-блоках, которые certbot добавил вручную (`listen 443 ssl`), если их там нет:
+
+```nginx
+client_max_body_size 10M;
+```
+
 ## 4. Получить SSL-сертификаты
 
 ```bash

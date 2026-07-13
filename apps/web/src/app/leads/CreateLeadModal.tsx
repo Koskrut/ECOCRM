@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import type { LeadSource, Lead } from "@/lib/api";
 
 type EditItem = { productId: string; productName?: string; qty: number; price: number };
@@ -119,11 +120,19 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     }
   };
 
+  const requestClose = () => {
+    if (canClose) scheduleModalClose(onClose);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
       role="presentation"
-      onClick={() => canClose && onClose()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
+      }}
     >
       <div
         className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
@@ -134,7 +143,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
           <div className="text-base font-semibold text-zinc-900">Новий лід</div>
           <button
             type="button"
-            onClick={() => canClose && onClose()}
+            onClick={requestClose}
             className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
           >
             ✕

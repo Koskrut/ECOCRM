@@ -63,6 +63,7 @@ export class VisitsController {
         addressText: body.addressText != null ? String(body.addressText) : null,
         lat: typeof body.lat === "number" ? body.lat : body.lat != null ? Number(body.lat) : null,
         lng: typeof body.lng === "number" ? body.lng : body.lng != null ? Number(body.lng) : null,
+        locationSource: body.locationSource as LocationSource | undefined,
         purpose: body.purpose != null ? String(body.purpose) : null,
       },
       req.user,

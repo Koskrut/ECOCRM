@@ -427,6 +427,7 @@ function CompaniesPageContent() {
             router.replace(`${pathname}?${params.toString()}`, { scroll: false });
           }}
           userRole={userRole}
+          zIndex={60}
         />
       )}
     </div>

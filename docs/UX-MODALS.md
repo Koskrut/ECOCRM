@@ -16,11 +16,19 @@ All entity modals (lead, contact, company, order) follow a single **entity modal
 
 File: `apps/web/src/components/modals/EntityModalShell.tsx`
 
-- **Props**: `title`, `subtitle?`, `headerActions?` (ReactNode), `left`, `right`, `footer?`, `canClose`, `onClose`, `onEscape?`, `size?` (`default` | `compact`), `tabsUnderHeader?`.
+- **Props**: `title`, `subtitle?`, `headerActions?` (ReactNode), `left`, `right`, `footer?`, `canClose`, `onClose`, `onEscape?`, `size?` (`default` | `compact`), `tabsUnderHeader?`, `zIndex?` (default `50`).
 - **`size`**: `default` uses `sm:max-w-5xl` (full entity card). `compact` uses `sm:max-w-xl` for short create flows.
-- **Overlay**: clicking the dimmed background calls `onClose` only when `canClose === true`.
+- **`zIndex`**: use `60` (or higher) for modals opened on top of another entity modal (nested order, sibling company/contact, TTN dialog, etc.).
+- **Overlay**: clicking the dimmed background or ✕ first calls `onEscape` (same as ESC). If it returns `true`, the modal stays open. Otherwise, when `canClose`, `onClose` is scheduled via `scheduleModalClose` so the click event finishes before unmount (prevents click-through to the parent modal underneath).
 - **ESC**: if `onEscape` is provided, it is called first; if it returns `true`, the modal does not close. Otherwise, when `canClose`, `onClose` is called. This gives priority: nested state (e.g. open order inside contact) closes first, then the modal itself.
 - **Height**: `max-h-[90vh]`; scrolling only inside the left and right columns.
+
+### scheduleModalClose
+
+File: `apps/web/src/lib/modal/scheduleModalClose.ts`
+
+- Defers `onClose` to the next microtask (`queueMicrotask`).
+- Use in custom overlay modals (TtnModal, FxWriteOffModal, confirm dialogs, etc.) when closing on backdrop click, so the parent entity modal does not receive the same click.
 
 ### FeedTabsScaffold
 
@@ -47,7 +55,7 @@ File: `apps/web/src/components/inputs/SearchableSelectLite.tsx`
 
 1. **No API changes**: all endpoints, DTOs, and business logic stay as-is; only UI/UX and component refactors.
 2. **Single UI language**: English for labels and messages; data and enums unchanged.
-3. **Nested modals**: when opening an order from contact/company, ESC and overlay first handle the nested modal (via `onEscape` in the shell), then the parent.
+3. **Nested modals**: when opening an order from contact/company, ESC and overlay first handle the nested modal (via `onEscape` in the parent shell, or by closing the child modal with `scheduleModalClose`). Child modals use a higher `zIndex` (typically `60`). Custom overlays on top of entity modals must also use `scheduleModalClose` on backdrop close.
 4. **New entities**: for a new entity modal use `EntityModalShell`, pass `left` (card + list blocks if needed) and `right` (feed/timeline). Set header actions and footer via `headerActions` and `footer`. Use `SearchableSelectLite` for relation pickers.
 
 ## Adding a new entity modal
@@ -55,5 +63,6 @@ File: `apps/web/src/components/inputs/SearchableSelectLite.tsx`
 1. Import `EntityModalShell` from `@/components/modals/EntityModalShell`.
 2. Build left column content (form/details + tables/lists as needed).
 3. Build right column content (timeline or equivalent; optionally wrap in `FeedTabsScaffold`).
-4. Pass to the shell: `title`, `subtitle?`, `headerActions`, `left`, `right`, `footer?`, `canClose`, `onClose`; for nested modals pass `onEscape` (return `true` when nested state is closed).
+4. Pass to the shell: `title`, `subtitle?`, `headerActions`, `left`, `right`, `footer?`, `canClose`, `onClose`; for nested modals pass `onEscape` (return `true` when nested state is closed) and `zIndex` when stacked over another modal.
 5. Use `SearchableSelectLite` from `@/components/inputs/SearchableSelectLite` for searchable selects.
+6. For custom `fixed inset-0` overlays, import `scheduleModalClose` and call it from backdrop/✕ handlers; stop propagation on `mousedown`/`click` for the backdrop.

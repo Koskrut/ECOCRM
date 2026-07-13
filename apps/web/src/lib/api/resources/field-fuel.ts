@@ -247,6 +247,9 @@ export const fieldFuelApi = {
       credentials: "include",
     });
     if (!r.ok) {
+      if (r.status === 413) {
+        throw new Error("Фото занадто велике. Спробуйте інше зображення або зробіть фото ближче.");
+      }
       const err = (await r.json().catch(() => ({}))) as { message?: string };
       throw new Error(err.message ?? `Upload failed (${r.status})`);
     }

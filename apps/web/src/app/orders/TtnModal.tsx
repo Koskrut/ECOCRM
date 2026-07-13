@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { strings as t } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import {
@@ -850,11 +851,17 @@ export function TtnModal({
 
   const inputClass = "mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none";
 
+  const requestClose = () => {
+    if (canClose) scheduleModalClose(onClose);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
-      onClick={() => {
-        if (canClose) onClose();
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
       }}
       role="presentation"
     >
@@ -879,9 +886,7 @@ export function TtnModal({
           </div>
           <button
             type="button"
-            onClick={() => {
-              if (canClose) onClose();
-            }}
+            onClick={requestClose}
             className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
             disabled={!canClose}
           >

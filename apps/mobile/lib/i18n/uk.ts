@@ -729,6 +729,17 @@ export const uk = {
     backlogEmpty: "Беклог порожній",
     backlogHint: "Візити без дати — заплануйте їх пізніше з календаря або при створенні оберіть «У беклог».",
   },
+  visitLocation: {
+    meetingPlace: "Місце зустрічі",
+    clientAddress: "Адреса клієнта",
+    otherPlace: "Інше місце",
+    searchPlaceholder: "Заправка, парковка, кафе…",
+    coordsRequired: "Оберіть місце з координатами або знайдіть адресу.",
+    geocodeFailed: "Не вдалося визначити місце.",
+    mapsKeyRequired: "Для пошуку місць потрібен Google Maps API key.",
+    changeLocation: "Змінити місце",
+    saveLocation: "Зберегти місце",
+  },
   contacts: {
     new: "Новий контакт",
     noteNew: "Нотатка",

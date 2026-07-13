@@ -42,6 +42,7 @@ type CreateVisitInput = {
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;
+  locationSource?: LocationSource | null;
   purpose?: string | null;
 };
 
@@ -92,6 +93,31 @@ export class VisitsService {
 
   private async assertVisitAccess(visit: { ownerId: string }, actor: AuthUser): Promise<void> {
     await assertCanAccessOwner(this.prisma, actor, visit.ownerId);
+  }
+
+  /** Visit has an explicit meeting point that must not be overwritten from the client card. */
+  private visitHasCustomLocation(visit: {
+    locationSource: LocationSource;
+    contactAddressId?: string | null;
+    companyAddressId?: string | null;
+    addressText?: string | null;
+    lat?: number | null;
+    lng?: number | null;
+  }): boolean {
+    if (
+      visit.locationSource === LocationSourceEnum.GEOCODED ||
+      visit.locationSource === LocationSourceEnum.PIN_ADJUSTED ||
+      visit.locationSource === LocationSourceEnum.GPS_SET
+    ) {
+      return true;
+    }
+    if (visit.lat != null && visit.lng != null && !visit.contactAddressId && !visit.companyAddressId) {
+      return true;
+    }
+    if (visit.addressText?.trim() && !visit.contactAddressId && !visit.companyAddressId) {
+      return true;
+    }
+    return false;
   }
 
   private normalizeClientRecordedAt(v: VisitGpsPayloadInput["clientRecordedAt"]): Date | null {
@@ -360,6 +386,9 @@ export class VisitsService {
     ) {
       locationSource = LocationSourceEnum.FROM_CONTACT;
     }
+    if (body.locationSource) {
+      locationSource = body.locationSource;
+    }
 
     const data: Prisma.VisitCreateInput = {
       owner: { connect: { id: ownerId } },
@@ -495,6 +524,56 @@ export class VisitsService {
       data.locationSource = body.locationSource;
     }
 
+    if (body.contactAddressId !== undefined) {
+      if (body.contactAddressId === null) {
+        data.contactAddress = { disconnect: true };
+      } else {
+        if (!existing.contactId) {
+          throw new BadRequestException("contactAddressId requires contactId on visit");
+        }
+        const contactAddress = await this.prisma.contactAddress.findFirst({
+          where: { id: body.contactAddressId, contactId: existing.contactId },
+        });
+        if (!contactAddress) {
+          throw new NotFoundException("Contact address not found");
+        }
+        data.contactAddress = { connect: { id: contactAddress.id } };
+        if (body.addressText === undefined && contactAddress.lat != null && contactAddress.lng != null) {
+          data.addressText = formatEntityAddressLine(contactAddress.city, contactAddress.addressText);
+          data.lat = contactAddress.lat;
+          data.lng = contactAddress.lng;
+        }
+        if (body.locationSource === undefined) {
+          data.locationSource = LocationSourceEnum.FROM_CONTACT;
+        }
+      }
+    }
+
+    if (body.companyAddressId !== undefined) {
+      if (body.companyAddressId === null) {
+        data.companyAddress = { disconnect: true };
+      } else {
+        if (!existing.companyId) {
+          throw new BadRequestException("companyAddressId requires companyId on visit");
+        }
+        const companyAddress = await this.prisma.companyAddress.findFirst({
+          where: { id: body.companyAddressId, companyId: existing.companyId },
+        });
+        if (!companyAddress) {
+          throw new NotFoundException("Company address not found");
+        }
+        data.companyAddress = { connect: { id: companyAddress.id } };
+        if (body.addressText === undefined && companyAddress.lat != null && companyAddress.lng != null) {
+          data.addressText = formatEntityAddressLine(companyAddress.city, companyAddress.addressText);
+          data.lat = companyAddress.lat;
+          data.lng = companyAddress.lng;
+        }
+        if (body.locationSource === undefined) {
+          data.locationSource = LocationSourceEnum.FROM_CONTACT;
+        }
+      }
+    }
+
     if (body.durationMin !== undefined && body.durationMin !== null) {
       const value = Math.max(5, Math.trunc(body.durationMin));
       data.durationMin = value;
@@ -555,7 +634,15 @@ export class VisitsService {
     const hasCoordsInPayload = body.lat !== undefined || body.lng !== undefined;
     const hasExistingCoords = existing.lat != null && existing.lng != null;
 
-    if (isBecomingScheduled && !hasCoordsInPayload && !hasExistingCoords && existing.contactId) {
+    const skipCardAutofill = this.visitHasCustomLocation(existing);
+
+    if (
+      isBecomingScheduled &&
+      !hasCoordsInPayload &&
+      !hasExistingCoords &&
+      !skipCardAutofill &&
+      existing.contactId
+    ) {
       const contact = await this.prisma.contact.findUnique({
         where: { id: existing.contactId },
         select: { lat: true, lng: true, address: true },
@@ -572,7 +659,13 @@ export class VisitsService {
       }
     }
 
-    if (isBecomingScheduled && !hasCoordsInPayload && !hasExistingCoords && existing.companyId) {
+    if (
+      isBecomingScheduled &&
+      !hasCoordsInPayload &&
+      !hasExistingCoords &&
+      !skipCardAutofill &&
+      existing.companyId
+    ) {
       const company = await this.prisma.company.findUnique({
         where: { id: existing.companyId },
         select: { lat: true, lng: true, address: true },

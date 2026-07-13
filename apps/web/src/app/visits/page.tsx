@@ -23,6 +23,17 @@ import { useConfirm, useToast } from "@/components/feedback";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { VisitsSubNav } from "./VisitsSubNav";
 import { LogAdHocVisitModal } from "@/components/visits/LogAdHocVisitModal";
+import { VisitLocationPicker } from "@/components/visits/VisitLocationPicker";
+import { pickVisitReadyAddresses } from "@/components/EntityAddressesSection";
+import { entityAddressesApi, type EntityAddress } from "@/lib/api/resources/entity-addresses";
+import { geocodeText } from "@/lib/googlePlacesNew";
+import {
+  buildVisitLocationUpdatePayload,
+  defaultVisitLocationFromAddresses,
+  visitLocationFromVisit,
+  visitLocationHasCoords,
+  type VisitLocationValue,
+} from "@/lib/visits/visit-location.types";
 import { strings } from "@/locales";
 
 function formatHmKyiv(iso: string): string {
@@ -305,6 +316,15 @@ function VisitsPageContent() {
   const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
   const [logAdHocModalOpen, setLogAdHocModalOpen] = useState(false);
+
+  const [locationEditVisit, setLocationEditVisit] = useState<Visit | null>(null);
+  const [locationEditEntityType, setLocationEditEntityType] = useState<"contact" | "company">(
+    "contact",
+  );
+  const [locationEditAddresses, setLocationEditAddresses] = useState<EntityAddress[]>([]);
+  const [locationEditValue, setLocationEditValue] = useState<VisitLocationValue | null>(null);
+  const [locationEditSaving, setLocationEditSaving] = useState(false);
+  const [locationEditError, setLocationEditError] = useState(false);
 
   const [role, setRole] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -869,14 +889,72 @@ function VisitsPageContent() {
     const lat = e.latLng.lat();
     const lng = e.latLng.lng();
     try {
+      let addressText = visit.addressText ?? undefined;
+      if (mapsApiKey) {
+        const geo = await geocodeText(mapsApiKey, `${lat},${lng}`, { regionCode: "UA" });
+        if (geo?.formattedAddress) {
+          addressText = geo.formattedAddress;
+        }
+      }
       const updated = await visitsApi.update(visit.id, {
         lat,
         lng,
+        addressText: addressText ?? null,
         locationSource: "PIN_ADJUSTED",
+        contactAddressId: null,
+        companyAddressId: null,
       });
       setDayVisits((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
+      setBacklog((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
     } catch (err) {
       pushToast(err instanceof Error ? err.message : "Failed to update coordinates", "error");
+    }
+  };
+
+  const openLocationEdit = async (visit: Visit) => {
+    const entityType: "contact" | "company" = visit.contactId ? "contact" : "company";
+    const entityId = visit.contactId ?? visit.companyId;
+    if (!entityId) {
+      pushToast("Визит не привязан к карточке клиента.", "error");
+      return;
+    }
+    try {
+      const items = await entityAddressesApi.list(entityType, entityId);
+      const ready = pickVisitReadyAddresses(items);
+      const value =
+        visitLocationFromVisit(visit, entityType, items) ??
+        defaultVisitLocationFromAddresses(ready);
+      setLocationEditEntityType(entityType);
+      setLocationEditAddresses(items);
+      setLocationEditValue(value);
+      setLocationEditError(false);
+      setLocationEditVisit(visit);
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : "Failed to load addresses", "error");
+    }
+  };
+
+  const saveLocationEdit = async () => {
+    if (!locationEditVisit) return;
+    if (!locationEditValue || !visitLocationHasCoords(locationEditValue)) {
+      setLocationEditError(true);
+      return;
+    }
+    setLocationEditSaving(true);
+    try {
+      const updated = await visitsApi.update(
+        locationEditVisit.id,
+        buildVisitLocationUpdatePayload(locationEditValue, locationEditEntityType),
+      );
+      setDayVisits((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+      setBacklog((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+      setLocationEditVisit(null);
+      setLocationEditValue(null);
+      pushToast(strings.visitLocation.saveLocation, "success");
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : "Failed to update location", "error");
+    } finally {
+      setLocationEditSaving(false);
     }
   };
 
@@ -1515,6 +1593,18 @@ function VisitsPageContent() {
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation();
+                              void openLocationEdit(v);
+                            }}
+                            className="min-h-[28px] rounded-md px-1.5 py-1 text-[10px] font-medium leading-none text-zinc-600 hover:bg-zinc-200"
+                            title={strings.visitLocation.changeLocation}
+                          >
+                            📍
+                          </button>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
                               const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
                               if (!slot) {
                                 pushToast(
@@ -2010,6 +2100,13 @@ function VisitsPageContent() {
                                 <button
                                   type="button"
                                   className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
+                                  onClick={() => void openLocationEdit(v)}
+                                >
+                                  {strings.visitLocation.changeLocation}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded border border-zinc-200 px-1 py-0.5 hover:bg-zinc-100"
                                   onClick={() => void handleMoveOnTimeline(v, -SLOT_MINUTES)}
                                 >
                                   ↑ earlier
@@ -2286,6 +2383,54 @@ function VisitsPageContent() {
                 className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
               >
                 В план
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {locationEditVisit ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-zinc-900">{strings.visitLocation.changeLocation}</h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {locationEditVisit.title ||
+                locationEditVisit.addressText ||
+                strings.visitLocation.meetingPlace}
+            </p>
+            <div className="mt-3">
+              <VisitLocationPicker
+                entityType={locationEditEntityType}
+                addresses={locationEditAddresses}
+                value={locationEditValue}
+                onChange={(next) => {
+                  setLocationEditValue(next);
+                  setLocationEditError(false);
+                }}
+                mapsApiKey={mapsApiKey}
+                error={locationEditError}
+                disabled={locationEditSaving}
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLocationEditVisit(null);
+                  setLocationEditValue(null);
+                  setLocationEditError(false);
+                }}
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                {strings.common.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={locationEditSaving}
+                onClick={() => void saveLocationEdit()}
+                className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {locationEditSaving ? strings.common.loading : strings.visitLocation.saveLocation}
               </button>
             </div>
           </div>

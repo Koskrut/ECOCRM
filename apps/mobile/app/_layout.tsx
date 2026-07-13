@@ -12,6 +12,7 @@ import "@/lib/location-tracking-watchdog";
 
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { AuthProvider, useAuth } from "@/context/auth-context";
+import { PushNotificationsProvider } from "@/context/push-notifications-context";
 import { PresenceHeartbeatProvider } from "@/context/presence-context";
 import { ActiveWorkProvider } from "@/context/active-work-context";
 import { ModulesProvider } from "@/context/modules-context";
@@ -62,6 +63,7 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         <AppThemeProvider>
         <AuthProvider>
+          <PushNotificationsProvider>
           <PresenceHeartbeatProvider>
           <ModulesProvider>
             <ActiveWorkProvider>
@@ -77,6 +79,7 @@ export default function RootLayout() {
             </ActiveWorkProvider>
           </ModulesProvider>
           </PresenceHeartbeatProvider>
+          </PushNotificationsProvider>
         </AuthProvider>
       </AppThemeProvider>
       </SafeAreaProvider>

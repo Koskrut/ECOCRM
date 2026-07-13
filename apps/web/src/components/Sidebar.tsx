@@ -21,6 +21,7 @@ import {
   PhoneCall,
   Archive,
   Activity,
+  Receipt,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -76,8 +77,9 @@ function buildMenuItems() {
   const analytics: MenuItem = { label: t.analytics, icon: BarChart3, href: "/analytics" };
   const monitoring: MenuItem = { label: t.monitoring, icon: Activity, href: "/monitoring" };
   const payments: MenuItem = { label: t.payments, icon: Wallet, href: "/payments" };
+  const receivables: MenuItem = { label: t.receivables, icon: Receipt, href: "/receivables" };
   const settingsItem: MenuItem = { label: t.settings, icon: Settings, href: "/settings" };
-  return { base, analytics, monitoring, payments, settingsItem };
+  return { base, analytics, monitoring, payments, receivables, settingsItem };
 }
 
 const managerHiddenHrefs = new Set(["/planning", "/visits/history", "/outbound/campaigns"]);
@@ -165,25 +167,25 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const { base, analytics, monitoring, payments, settingsItem } = useMemo(() => buildMenuItems(), []);
+  const { base, analytics, monitoring, payments, receivables, settingsItem } = useMemo(() => buildMenuItems(), []);
 
   const managerMenuItems = useMemo(
-    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(payments),
-    [base, payments],
+    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(payments, receivables),
+    [base, payments, receivables],
   );
 
   const leadMenuItems = useMemo(
-    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(analytics, payments),
-    [base, analytics, payments],
+    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(analytics, payments, receivables),
+    [base, analytics, payments, receivables],
   );
 
   const menuItems = useMemo(() => {
-    if (role === "ADMIN") return [...base, analytics, monitoring, payments, settingsItem];
+    if (role === "ADMIN") return [...base, analytics, monitoring, payments, receivables, settingsItem];
     if (role === "WAREHOUSE") return warehouseMenuItems(base);
     if (role === "LEAD") return leadMenuItems;
     if (role === "MANAGER") return managerMenuItems;
     return base;
-  }, [role, base, analytics, monitoring, payments, settingsItem, leadMenuItems, managerMenuItems]);
+  }, [role, base, analytics, monitoring, payments, receivables, settingsItem, leadMenuItems, managerMenuItems]);
 
   // Fail-closed gating: hide gated entries while loading and on API error;
   // show only when the module is explicitly effective. Non-gated entries always render.

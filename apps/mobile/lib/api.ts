@@ -87,10 +87,12 @@ export async function apiUploadForm<T>(
 
   if (!res.ok) {
     let message = `${res.status}`;
-    if (body && typeof body === "object" && body !== null && "message" in body) {
+    if (res.status === 413) {
+      message = "Фото занадто велике. Спробуйте інше зображення або зробіть фото ближче.";
+    } else if (body && typeof body === "object" && body !== null && "message" in body) {
       const m = (body as { message: unknown }).message;
       message = typeof m === "string" ? m : Array.isArray(m) ? m.join(", ") : JSON.stringify(body);
-    } else if (typeof body === "string") {
+    } else if (typeof body === "string" && !body.includes("<html")) {
       message = body;
     }
     throw new ApiError(res.status, message);

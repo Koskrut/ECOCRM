@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import type { NotificationType, Prisma, UserNotification } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { NotificationsDeliveryService } from "./notifications-delivery.service";
@@ -48,7 +48,8 @@ export class NotificationsService {
     const inAppEnabled = await this.isChannelEnabled(params.userId, params.type, "inApp");
     const browserEnabled = await this.isChannelEnabled(params.userId, params.type, "browser");
     const telegramEnabled = await this.isChannelEnabled(params.userId, params.type, "telegram");
-    if (!inAppEnabled && !browserEnabled && !telegramEnabled) {
+    const mobileEnabled = await this.isChannelEnabled(params.userId, params.type, "mobile");
+    if (!inAppEnabled && !browserEnabled && !telegramEnabled && !mobileEnabled) {
       return null;
     }
 
@@ -99,7 +100,8 @@ export class NotificationsService {
     const inAppEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "inApp");
     const browserEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "browser");
     const telegramEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "telegram");
-    if (!inAppEnabled && !browserEnabled && !telegramEnabled) {
+    const mobileEnabled = await this.isChannelEnabled(params.userId, "ORDER_QTY_CHANGED", "mobile");
+    if (!inAppEnabled && !browserEnabled && !telegramEnabled && !mobileEnabled) {
       return null;
     }
 
@@ -316,6 +318,7 @@ export class NotificationsService {
         inApp?: boolean;
         browser?: boolean;
         telegram?: boolean;
+        mobile?: boolean;
       }>;
     },
   ) {
@@ -336,11 +339,13 @@ export class NotificationsService {
             inApp: row.inApp ?? true,
             browser: row.browser ?? false,
             telegram: row.telegram ?? false,
+            mobile: row.mobile ?? false,
           },
           update: {
             ...(row.inApp !== undefined ? { inApp: row.inApp } : {}),
             ...(row.browser !== undefined ? { browser: row.browser } : {}),
             ...(row.telegram !== undefined ? { telegram: row.telegram } : {}),
+            ...(row.mobile !== undefined ? { mobile: row.mobile } : {}),
           },
         });
       }
@@ -352,7 +357,7 @@ export class NotificationsService {
   private async isChannelEnabled(
     userId: string,
     type: NotificationType,
-    channel: "inApp" | "browser" | "telegram",
+    channel: "inApp" | "browser" | "telegram" | "mobile",
   ): Promise<boolean> {
     const pref = await this.prisma.userNotificationPreference.findUnique({
       where: { userId_type: { userId, type } },
@@ -365,6 +370,44 @@ export class NotificationsService {
 
   async deliverExternalChannels(notification: UserNotification): Promise<void> {
     await this.delivery?.afterCreate(notification);
+  }
+
+  async registerPushDevice(
+    userId: string,
+    body: { token: string; platform: string; deviceId?: string | null },
+  ) {
+    const token = body.token.trim();
+    if (!token.startsWith("ExponentPushToken[") || !token.endsWith("]")) {
+      throw new BadRequestException("Invalid Expo push token");
+    }
+    const platform = body.platform.trim().toLowerCase();
+    if (!platform) {
+      throw new BadRequestException("platform is required");
+    }
+
+    return this.prisma.userPushDevice.upsert({
+      where: { token },
+      create: {
+        userId,
+        token,
+        platform,
+        deviceId: body.deviceId?.trim() || null,
+      },
+      update: {
+        userId,
+        platform,
+        deviceId: body.deviceId?.trim() || null,
+        lastSeenAt: new Date(),
+      },
+    });
+  }
+
+  async unregisterPushDevice(userId: string, token: string): Promise<{ deleted: boolean }> {
+    const normalized = decodeURIComponent(token).trim();
+    const result = await this.prisma.userPushDevice.deleteMany({
+      where: { userId, token: normalized },
+    });
+    return { deleted: result.count > 0 };
   }
 
   async notifyTaskAssigned(params: {

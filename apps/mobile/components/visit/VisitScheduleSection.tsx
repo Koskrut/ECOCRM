@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
 import { View } from "react-native";
 
@@ -14,7 +13,6 @@ import { t } from "@/lib/i18n";
 import {
   DEFAULT_VISIT_DURATION_MIN,
   VISIT_PURPOSE_KEYS,
-  contactHasCoords,
   formatTimeHm,
   parseTodayTime,
   slotAtHour,
@@ -106,8 +104,6 @@ export function VisitScheduleSection({
   onChangeContact,
 }: Props) {
   const theme = useTheme();
-  const router = useRouter();
-  const hasCoords = contactHasCoords(contact);
   const startsAt = useMemo(
     () => (mode === "today" ? resolveVisitStartsAt(timeSlot, customTime) : null),
     [mode, timeSlot, customTime],
@@ -138,20 +134,6 @@ export function VisitScheduleSection({
           style={{ marginTop: theme.spacing.sm, alignSelf: "flex-start" }}
         />
       </Card>
-
-      {!hasCoords ? (
-        <Card style={{ marginBottom: theme.spacing.md, borderColor: theme.colors.warning }}>
-          <Text style={[theme.typography.caption, { color: theme.colors.warning }]}>
-            {t("visits.noCoords")}
-          </Text>
-          <AppButton
-            label={t("clients.edit")}
-            onPress={() => router.push(`/contact/${contact.id}/edit`)}
-            variant="ghost"
-            style={{ marginTop: theme.spacing.xs, alignSelf: "flex-start" }}
-          />
-        </Card>
-      ) : null}
 
       {backlogVisitId && mode === "backlog" ? (
         <Card style={{ marginBottom: theme.spacing.md, borderColor: theme.colors.warning }}>

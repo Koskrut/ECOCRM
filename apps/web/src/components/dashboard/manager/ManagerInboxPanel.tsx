@@ -29,8 +29,8 @@ const TILE_ORDER: { key: TileKey; href: string; icon: LucideIcon }[] = [
   { key: "overdueFollowupContacts", href: "/contacts?workPreset=overdue", icon: AlarmClock },
   { key: "newNoFirstContactContacts", href: "/contacts?workPreset=new-no-first-contact", icon: PhoneMissed },
   { key: "overdueTasks", href: "/tasks?attention=overdue", icon: ListTodo },
-  { key: "overduePayments", href: "/orders?attention=overdue-payments", icon: CreditCard },
-  { key: "debtControlContacts", href: "/contacts?workPreset=debt-control", icon: Wallet },
+  { key: "overduePayments", href: "/receivables?tab=work&view=orders&overdue=true", icon: CreditCard },
+  { key: "debtControlContacts", href: "/receivables?tab=work&view=clients", icon: Wallet },
 ];
 
 export function ManagerInboxPanel({ tiles }: Props) {

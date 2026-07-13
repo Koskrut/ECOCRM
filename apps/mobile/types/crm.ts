@@ -17,6 +17,7 @@ export type VisitSummary = {
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;
+  locationSource?: string | null;
   purpose?: string | null;
   radiusM?: number;
   outcome?: string | null;
@@ -24,6 +25,8 @@ export type VisitSummary = {
   startGpsVerification?: string | null;
   completeGpsVerification?: string | null;
   contactId?: string | null;
+  contactAddressId?: string | null;
+  companyAddressId?: string | null;
   companyId?: string | null;
   contact?: {
     id: string;

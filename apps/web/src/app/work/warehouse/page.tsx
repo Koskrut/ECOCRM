@@ -9,6 +9,7 @@ import { listWarehouses, type WarehouseItem } from "@/lib/api/resources/warehous
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 
 const WORKSPACE_STAGE = "CONFIRMED";
 const NEXT_STAGE = "READY_TO_SHIP";
@@ -191,6 +192,11 @@ export default function WarehouseWorkPage() {
     void loadQueue();
   };
 
+  const requestClosePickModal = () => {
+    if (advancing || splitting) return;
+    scheduleModalClose(closePickModal);
+  };
+
   const advanceStage = async () => {
     if (!pickOrder) return;
     setAdvancing(true);
@@ -347,7 +353,11 @@ export default function WarehouseWorkPage() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
           role="presentation"
-          onClick={closePickModal}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            requestClosePickModal();
+          }}
         >
           <div
             role="dialog"
@@ -563,6 +573,7 @@ export default function WarehouseWorkPage() {
         <OrderModal
           apiBaseUrl="/api"
           orderId={pickOrder.id}
+          zIndex={60}
           onClose={() => {
             setOrderModalOpen(false);
             void loadQueue();

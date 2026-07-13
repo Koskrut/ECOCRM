@@ -30,6 +30,11 @@ export const contactsApi = {
   getById: (token: string, id: string) =>
     apiFetch<Contact>(`/contacts/${id}`, { token }),
 
+  listAddresses: (token: string, id: string) =>
+    apiFetch<{ items: import("@/types/crm").CompanyAddress[] }>(`/contacts/${id}/addresses`, {
+      token,
+    }).then((res) => res.items),
+
   getPhones: (token: string, id: string) =>
     apiFetch<ContactPhonesResponse>(`/contacts/${id}/phones`, { token }),
 

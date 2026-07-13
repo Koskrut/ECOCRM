@@ -4,7 +4,37 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.106**.)_
+_(планируемые изменения после **0.2.107**.)_
+
+## [0.2.107] — 2026-07-13
+
+### Summary
+
+Патч **0.2.107**: **дебіторка** (receivables snapshots из 1C Excel + сверка с CRM), **Expo push** на mobile, **кастомная локация визита** (Google Places), UX вложенных модалок.
+
+### Added
+
+- **Receivables**: `ReceivablesSnapshot` / `ReceivablesSnapshotLine`, миграция **`20260711120000_receivables_snapshots`**; загрузка Excel из 1C, reconcile с долгом CRM по `externalCode`; API **`/receivables`** (snapshots, lines, upload, overdue); web **`/receivables`**, proxy `/api/receivables/*`; модуль Finance.
+- **Expo push**: `UserPushDevice`, канал **`mobile`** в `UserNotificationPreference` (миграция **`20260711140000_add_push_devices`**); `ExpoPushService`, `POST/DELETE /notifications/push-devices`; mobile `push-notifications-context`, deep-link navigation.
+- **Visit location**: `VisitLocationPicker` (web, Google Places), `VisitLocationSection` / `VisitLocationSheet` (mobile); сохранение GEOCODED-локации при переносе визита; geofence watcher updates.
+- **Modal UX**: `scheduleModalClose` — защита от click-through при закрытии вложенных модалок; `EntityModalShell` `zIndex`; docs **`UX-MODALS.md`**.
+
+### Changed
+
+- **Notifications** delivery — mobile push channel; settings page mobile toggle.
+- **Web modals** — leads/contacts/companies/orders/TTN/FX write-off: единый shell и ESC/overlay behavior.
+- **Visits** — create/edit с выбором места встречи; fuel receipt image compress.
+- **Sidebar** — пункт «Дебіторка»; nginx proxy notes.
+
+### Fixed
+
+- **Receivables** — `todayYmdKyiv()` вместо несуществующего `kyivTodayYmd` (backend build).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.107`**.
+- **Миграции** (до `up`): **`20260711120000_receivables_snapshots`**, **`20260711140000_add_push_devices`**.
+- Mobile push: собрать новый Expo build с push permissions; зарегистрировать device через API после логина.
 
 ## [0.2.106] — 2026-07-08
 

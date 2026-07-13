@@ -139,8 +139,8 @@ export default function FuelDayScreen() {
       return;
     }
     const result = useCamera
-      ? await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: false })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: false });
+      ? await ImagePicker.launchCameraAsync({ quality: 0.5, allowsEditing: false })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.5, allowsEditing: false });
     if (!result.canceled && result.assets[0]) {
       setRefuelPhoto(result.assets[0]);
     }

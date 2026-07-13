@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { InlineEditableField } from "@/components/fields/InlineEditableField";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
@@ -33,10 +34,16 @@ import { ContactKpiStrip } from "./card/ContactKpiStrip";
 import { formatContactClientStage } from "./contact-formatters";
 import {
   EntityAddressesSection,
-  formatAddressOptionLabel,
   pickVisitReadyAddresses,
 } from "@/components/EntityAddressesSection";
+import { VisitLocationPicker } from "@/components/visits/VisitLocationPicker";
 import type { EntityAddress } from "@/lib/api/resources/entity-addresses";
+import {
+  buildVisitLocationCreatePayload,
+  defaultVisitLocationFromAddresses,
+  visitLocationHasCoords,
+  type VisitLocationValue,
+} from "@/lib/visits/visit-location.types";
 import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
 import { ContactCrmHint } from "./card/ContactCrmHint";
@@ -273,11 +280,17 @@ function AddShippingProfileModal({
     }
   };
 
+  const requestClose = () => scheduleModalClose(onClose);
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 py-4 backdrop-blur-sm"
       role="presentation"
-      onClick={onClose}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
+      }}
     >
       <div
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
@@ -292,7 +305,7 @@ function AddShippingProfileModal({
             </h3>
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
             >
               ✕
@@ -681,6 +694,8 @@ type Props = {
   onOpenCompany?: (id: string) => void;
   /** Role from parent (/auth/me); used for manual calling queue button. */
   userRole?: string | null;
+  /** Stacking order when opened over another entity modal (default 50). */
+  zIndex?: number;
 };
 
 export function ContactModal({
@@ -692,6 +707,7 @@ export function ContactModal({
   initialCreate,
   onOpenCompany,
   userRole: userRoleProp,
+  zIndex,
 }: Props) {
   const [savedContactId, setSavedContactId] = useState<string | null>(null);
   const [justSavedBanner, setJustSavedBanner] = useState(false);
@@ -711,7 +727,8 @@ export function ContactModal({
   const [email, setEmail] = useState("");
   const [position, setPosition] = useState("");
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
-  const [selectedVisitAddressId, setSelectedVisitAddressId] = useState<string>("");
+  const [visitLocation, setVisitLocation] = useState<VisitLocationValue | null>(null);
+  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [externalCode, setExternalCode] = useState("");
@@ -758,6 +775,12 @@ export function ContactModal({
       resetPasswordResult.setPasswordToken,
     );
   }, [resetPasswordResult, resetPasswordPublicStoreBase]);
+
+  const closeResetPasswordDialog = useCallback(() => {
+    setResetPasswordError(null);
+    setResetPasswordResult(null);
+    setResetPasswordPublicStoreBase(null);
+  }, []);
 
   type LeftTabId =
     | "overview"
@@ -806,14 +829,21 @@ export function ContactModal({
   );
 
   useEffect(() => {
-    if (visitReadyAddresses.length === 0) {
-      setSelectedVisitAddressId("");
-      return;
-    }
-    setSelectedVisitAddressId((prev) => {
-      if (prev && visitReadyAddresses.some((a) => a.id === prev)) return prev;
-      const def = visitReadyAddresses.find((a) => a.isDefault) ?? visitReadyAddresses[0];
-      return def?.id ?? "";
+    void apiHttp
+      .get<{ mapsApiKey?: string | null }>("/settings/google-maps/public")
+      .then((res) => setMapsApiKey(res.data?.mapsApiKey ?? null))
+      .catch(() => setMapsApiKey(null));
+  }, []);
+
+  useEffect(() => {
+    setVisitLocation((prev) => {
+      if (prev && visitLocationHasCoords(prev)) {
+        if (prev.mode === "entity" && visitReadyAddresses.some((a) => a.id === prev.addressId)) {
+          return prev;
+        }
+        if (prev.mode === "other") return prev;
+      }
+      return defaultVisitLocationFromAddresses(visitReadyAddresses);
     });
   }, [visitReadyAddresses]);
 
@@ -1160,13 +1190,9 @@ export function ContactModal({
       alert("Спочатку збережіть контакт.");
       return;
     }
-    const selected =
-      visitReadyAddresses.find((a) => a.id === selectedVisitAddressId) ??
-      visitReadyAddresses[0] ??
-      null;
-    if (!selected || selected.lat == null || selected.lng == null) {
+    if (!visitLocation || !visitLocationHasCoords(visitLocation)) {
       setAddressRequiredForVisit(true);
-      alert("Оберіть адресу з координатами або привʼяжіть адрес на карті.");
+      alert(strings.visitLocation.coordsRequired);
       return;
     }
     setAddressRequiredForVisit(false);
@@ -1174,12 +1200,9 @@ export function ContactModal({
       await visitsApi.create({
         contactId: contact.id,
         companyId: contact.companyId ?? undefined,
-        contactAddressId: selected.id,
         title: `${contact.lastName} ${contact.firstName}`.trim() || "Visit",
         phone: contact.phone ?? undefined,
-        addressText: selected.displayLine,
-        lat: selected.lat,
-        lng: selected.lng,
+        ...buildVisitLocationCreatePayload(visitLocation, "contact"),
       });
       alert("Visit added to planned backlog.");
     } catch (e) {
@@ -1395,30 +1418,18 @@ export function ContactModal({
 
     return (
       <div className="space-y-3">
-        {visitReadyAddresses.length > 0 ? (
-          <label className="block space-y-1 py-1">
-            <span className="text-sm text-zinc-500">Адреса для візиту</span>
-            <select
-              className={`w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-zinc-400 ${
-                addressRequiredForVisit ? "border-red-500 ring-1 ring-red-500" : "border-zinc-200"
-              }`}
-              value={selectedVisitAddressId}
-              onChange={(e) => {
-                setSelectedVisitAddressId(e.target.value);
-                setAddressRequiredForVisit(false);
-              }}
-              disabled={saving}
-            >
-              {visitReadyAddresses.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {formatAddressOptionLabel(a)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : addressRequiredForVisit ? (
-          <p className="text-sm text-red-600">Додайте адресу з координатами для планування візитів</p>
-        ) : null}
+        <VisitLocationPicker
+          entityType="contact"
+          addresses={contact.addresses ?? []}
+          value={visitLocation}
+          onChange={(next) => {
+            setVisitLocation(next);
+            setAddressRequiredForVisit(false);
+          }}
+          mapsApiKey={mapsApiKey}
+          error={addressRequiredForVisit}
+          disabled={saving}
+        />
         <div className="flex items-center justify-between gap-4 py-1">
           <span className="text-sm text-zinc-500">Останній візит</span>
           <div className="flex items-center gap-3">
@@ -1665,7 +1676,8 @@ export function ContactModal({
     email,
     position,
     addressRequiredForVisit,
-    selectedVisitAddressId,
+    visitLocation,
+    mapsApiKey,
     visitReadyAddresses,
     companyId,
     companyOptions,
@@ -2231,12 +2243,14 @@ export function ContactModal({
         canClose={canClose}
         onClose={isCreate ? handleCloseCreate : onClose}
         onEscape={handleEscape}
+        zIndex={zIndex}
       />
 
       {orderId ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
+          zIndex={60}
           prefill={{
             clientId: effectiveContactId,
             companyId: contact?.companyId ?? null,
@@ -2251,8 +2265,21 @@ export function ContactModal({
       ) : null}
 
       {(resetPasswordResult !== null || resetPasswordError !== null) ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            scheduleModalClose(closeResetPasswordDialog);
+          }}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal
+          >
             <h3 className="text-sm font-semibold text-zinc-900">Сброс пароля магазина</h3>
             {resetPasswordError ? (
               <>
@@ -2260,11 +2287,7 @@ export function ContactModal({
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => {
-                      setResetPasswordError(null);
-                      setResetPasswordResult(null);
-                      setResetPasswordPublicStoreBase(null);
-                    }}
+                    onClick={() => scheduleModalClose(closeResetPasswordDialog)}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
                     Закрыть
@@ -2353,11 +2376,7 @@ export function ContactModal({
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => {
-                      setResetPasswordError(null);
-                      setResetPasswordResult(null);
-                      setResetPasswordPublicStoreBase(null);
-                    }}
+                    onClick={() => scheduleModalClose(closeResetPasswordDialog)}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
                     Закрыть

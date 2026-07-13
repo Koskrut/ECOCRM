@@ -39,6 +39,21 @@ npm run dev:mobile
 cd apps/mobile && npx expo start
 ```
 
+## Push-сповіщення (Android)
+
+Remote push працює лише в **EAS build** (не в Expo Go). Потрібні FCM V1 credentials:
+
+1. Firebase Console → проєкт → додати Android-додаток з package `dental.suprex.crm.manager`
+2. Завантажити service account key (FCM V1) в EAS:
+   ```bash
+   cd apps/mobile && npx eas credentials
+   ```
+   або Expo dashboard → Project → Credentials → Android → FCM V1
+3. Перезібрати APK/AAB (`preview` / `production`)
+4. На бекенді (опційно): `EXPO_ACCESS_TOKEN` для Expo Push API у production
+
+Після логіну застосунок реєструє Expo Push Token на `POST /notifications/push-devices`. Канал **Мобільний push** увімкнюється в веб-налаштуваннях сповіщень (`/settings/notifications`).
+
 ## Збірка APK (production / preview)
 
 ```bash
@@ -64,6 +79,7 @@ EAS_NO_VCS=1 EAS_PROJECT_ROOT=$(pwd) npx eas-cli build --profile preview --platf
    - вкладка «Карта» (статична карта за замовчуванням)
    - створення замовлення з позиціями
    - старт/завершення зміни (якщо увімкнено `ext.visits`)
+   - **push**: логін → увімкнути «Мобільний push» у веб-налаштуваннях → тригер події (наприклад нова задача) → сповіщення на телефоні → tap відкриває відповідний екран
 
 **Не змінювати без native rebuild:** `babel.config.js` (Reanimated plugin), `newArchEnabled: true` в `app.json`.
 

@@ -21,6 +21,7 @@ import { UsersModule } from "./users/users.module";
 import { BankModule } from "./bank/bank.module";
 import { NpModule } from "./np/np.module";
 import { PaymentsModule } from "./payments/payments.module";
+import { ReceivablesModule } from "./receivables/receivables.module";
 import { ClientBalancesModule } from "./client-balances/client-balances.module";
 import { PermissionsGuard } from "./rbac/permissions.guard";
 import { RbacModule } from "./rbac/rbac.module";
@@ -71,6 +72,7 @@ import { PresenceModule } from "./presence/presence.module";
     BankModule,
     NpModule,
     PaymentsModule,
+    ReceivablesModule,
     ClientBalancesModule,
     RbacModule,
     AuthModule,

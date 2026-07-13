@@ -155,6 +155,45 @@ describe("NotificationsService", () => {
     assert.equal(delivered, true);
   });
 
+  it("creates notification when only mobile channel is enabled", async () => {
+    let created = false;
+    let delivered = false;
+    const prisma = makePrisma({
+      userNotificationPreference: {
+        findUnique: async () => ({
+          userId: "u1",
+          type: "TASK_ASSIGNED",
+          inApp: false,
+          browser: false,
+          telegram: false,
+          mobile: true,
+        }),
+      },
+      userNotification: {
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          created = true;
+          return { id: "n1", ...data, readAt: null, createdAt: new Date() };
+        },
+        findFirst: async () => null,
+        count: async () => 0,
+      },
+    });
+    const delivery = {
+      afterCreate: async () => {
+        delivered = true;
+      },
+    };
+    const service = new NotificationsService(prisma, delivery as never);
+    const result = await service.create({
+      userId: "u1",
+      type: "TASK_ASSIGNED",
+      title: "Нова задача",
+    });
+    assert.ok(result);
+    assert.equal(created, true);
+    assert.equal(delivered, true);
+  });
+
   it("skips notification when all channels disabled", async () => {
     let created = false;
     const prisma = makePrisma({
@@ -165,6 +204,7 @@ describe("NotificationsService", () => {
           inApp: false,
           browser: false,
           telegram: false,
+          mobile: false,
         }),
       },
       userNotification: {

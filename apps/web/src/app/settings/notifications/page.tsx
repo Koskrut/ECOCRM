@@ -36,12 +36,13 @@ const ALL_TYPES: NotificationType[] = [
 function prefFor(
   prefs: NotificationPreferencesResponse,
   type: NotificationType,
-): { inApp: boolean; browser: boolean; telegram: boolean } {
+): { inApp: boolean; browser: boolean; telegram: boolean; mobile: boolean } {
   const row = prefs.types.find((t) => t.type === type);
   return {
     inApp: row?.inApp ?? true,
     browser: row?.browser ?? false,
     telegram: row?.telegram ?? false,
+    mobile: row?.mobile ?? false,
   };
 }
 
@@ -74,7 +75,7 @@ export default function NotificationSettingsPage() {
 
   const updateType = async (
     type: NotificationType,
-    patch: Partial<{ inApp: boolean; browser: boolean; telegram: boolean }>,
+    patch: Partial<{ inApp: boolean; browser: boolean; telegram: boolean; mobile: boolean }>,
   ) => {
     if (!prefs) return;
     setSaving(true);
@@ -194,6 +195,15 @@ export default function NotificationSettingsPage() {
                       onChange={(e) => void updateType(type, { telegram: e.target.checked })}
                     />
                     Telegram
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={p.mobile}
+                      disabled={saving}
+                      onChange={(e) => void updateType(type, { mobile: e.target.checked })}
+                    />
+                    Мобільний push
                   </label>
                 </div>
               </li>

@@ -4,12 +4,12 @@ import { Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ContactPickerPanel } from "@/components/visit/ContactPickerPanel";
-import {
-  VisitScheduleSection,
+import { VisitScheduleSection,
   resolveVisitPurpose,
   resolveVisitStartsAt,
   type TimeSlotKey,
 } from "@/components/visit/VisitScheduleSection";
+import { VisitLocationSection } from "@/components/visit/VisitLocationSection";
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
@@ -23,13 +23,19 @@ import { parseDateKey } from "@/lib/date";
 import {
   DEFAULT_VISIT_DURATION_MIN,
   buildEndsAt,
-  contactHasCoords,
   formatTimeHm,
   suggestNextSlot,
   type VisitPurposeKey,
   type VisitScheduleMode,
 } from "@/lib/visit-create-utils";
-import type { Contact } from "@/types/crm";
+import {
+  buildVisitLocationCreatePayload,
+  defaultVisitLocationFromAddresses,
+  visitLocationHasCoords,
+  type VisitLocationValue,
+} from "@/lib/visit-location.types";
+import { resolveMapsApiKey } from "@/lib/maps-config";
+import type { CompanyAddress, Contact } from "@/types/crm";
 
 type Step = 1 | 2;
 
@@ -58,6 +64,8 @@ export default function NewVisitScreen() {
   const [customPurpose, setCustomPurpose] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [visitLocation, setVisitLocation] = useState<VisitLocationValue | null>(null);
+  const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
 
   const backlogVisitId = contact ? backlogByContact[contact.id] ?? null : null;
 
@@ -89,7 +97,48 @@ export default function NewVisitScreen() {
   useEffect(() => {
     void loadPreselected();
     void loadBacklog();
-  }, [loadPreselected, loadBacklog]);
+    if (token) void resolveMapsApiKey(token).then(setMapsApiKey);
+  }, [loadPreselected, loadBacklog, token]);
+
+  useEffect(() => {
+    if (!contact || !token) return;
+    let cancelled = false;
+    void contactsApi
+      .listAddresses(token, contact.id)
+      .then((items: CompanyAddress[]) => {
+        if (cancelled) return;
+        setVisitLocation((prev) => {
+          if (prev && visitLocationHasCoords(prev)) return prev;
+          const ready = items.filter((a) => a.hasCoordinates && a.lat != null && a.lng != null);
+          if (ready.length > 0) return defaultVisitLocationFromAddresses(ready);
+          if (contact.lat != null && contact.lng != null && contact.address?.trim()) {
+            return {
+              mode: "entity",
+              addressId: "__legacy__",
+              addressText: contact.address,
+              lat: contact.lat,
+              lng: contact.lng,
+            };
+          }
+          return null;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        if (contact.lat != null && contact.lng != null && contact.address?.trim()) {
+          setVisitLocation({
+            mode: "entity",
+            addressId: "__legacy__",
+            addressText: contact.address,
+            lat: contact.lat,
+            lng: contact.lng,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contact, token]);
 
   const scheduleBase = useMemo(
     () => (scheduleDateKey ? parseDateKey(scheduleDateKey) : new Date()),
@@ -109,12 +158,10 @@ export default function NewVisitScreen() {
   const canSubmit = useMemo(() => {
     if (!contact || busy) return false;
     if (mode === "backlog" && backlogVisitId) return false;
-    if (mode === "today") {
-      if (!contactHasCoords(contact)) return false;
-      if (!startsAt) return false;
-    }
+    if (!visitLocation || !visitLocationHasCoords(visitLocation)) return false;
+    if (mode === "today" && !startsAt) return false;
     return true;
-  }, [contact, busy, mode, backlogVisitId, startsAt]);
+  }, [contact, busy, mode, backlogVisitId, startsAt, visitLocation]);
 
   const footerSummary = useMemo(() => {
     if (!contact) return "";
@@ -136,10 +183,8 @@ export default function NewVisitScreen() {
         contactId: contact.id,
         title: title.trim() || null,
         phone: contact.phone || null,
-        addressText: contact.address ?? null,
-        lat: contact.lat ?? null,
-        lng: contact.lng ?? null,
         purpose,
+        ...buildVisitLocationCreatePayload(visitLocation!),
       };
 
       let visitId: string;
@@ -222,26 +267,37 @@ export default function NewVisitScreen() {
             <ContactPickerPanel token={token} onSelect={onSelectContact} />
           ) : null
         ) : contact ? (
-          <VisitScheduleSection
-            contact={contact}
-            mode={mode}
-            onModeChange={setMode}
-            timeSlot={timeSlot}
-            onTimeSlotChange={setTimeSlot}
-            customTime={customTime}
-            onCustomTimeChange={setCustomTime}
-            purposeKey={purposeKey}
-            onPurposeKeyChange={setPurposeKey}
-            customPurpose={customPurpose}
-            onCustomPurposeChange={setCustomPurpose}
-            title={title}
-            onTitleChange={setTitle}
-            backlogVisitId={backlogVisitId}
-            onChangeContact={() => {
-              setContact(null);
-              setStep(1);
-            }}
-          />
+          <>
+            <VisitLocationSection
+              token={token!}
+              contact={contact}
+              value={visitLocation}
+              onChange={setVisitLocation}
+              mapsApiKey={mapsApiKey}
+              disabled={busy}
+            />
+            <VisitScheduleSection
+              contact={contact}
+              mode={mode}
+              onModeChange={setMode}
+              timeSlot={timeSlot}
+              onTimeSlotChange={setTimeSlot}
+              customTime={customTime}
+              onCustomTimeChange={setCustomTime}
+              purposeKey={purposeKey}
+              onPurposeKeyChange={setPurposeKey}
+              customPurpose={customPurpose}
+              onCustomPurposeChange={setCustomPurpose}
+              title={title}
+              onTitleChange={setTitle}
+              backlogVisitId={backlogVisitId}
+              onChangeContact={() => {
+                setContact(null);
+                setVisitLocation(null);
+                setStep(1);
+              }}
+            />
+          </>
         ) : null}
       </KeyboardAwareScrollView>
 

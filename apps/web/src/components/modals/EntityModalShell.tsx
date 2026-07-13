@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 
 export type EntityModalShellProps = {
   title: React.ReactNode;
@@ -14,10 +15,12 @@ export type EntityModalShellProps = {
   footer?: React.ReactNode | null;
   canClose: boolean;
   onClose: () => void;
-  /** If provided, ESC first calls this. Return true if a nested state was closed (then we do not call onClose). */
+  /** If provided, ESC and overlay close first call this. Return true if a nested state was closed (then we do not call onClose). */
   onEscape?: () => boolean;
   /** Modal width on sm+ viewports. `compact` for create flows; `default` for full entity cards. */
   size?: "default" | "compact";
+  /** Stacking order for nested modals (default 50; use 60+ for child modals). */
+  zIndex?: number;
 };
 
 const SIZE_CLASS: Record<NonNullable<EntityModalShellProps["size"]>, string> = {
@@ -27,7 +30,7 @@ const SIZE_CLASS: Record<NonNullable<EntityModalShellProps["size"]>, string> = {
 
 /**
  * Entity modal standard: header (title + subtitle + actions), 2-column body (left 7/12, right 5/12), optional footer.
- * Overlay click -> onClose only if canClose.
+ * Overlay click -> onEscape first, then deferred onClose if canClose.
  * ESC -> onEscape?.() first; if it returns true, stop; else if canClose call onClose.
  * Max height 90vh, body scrolls, left and right columns scroll independently.
  */
@@ -43,7 +46,14 @@ export function EntityModalShell({
   onClose,
   onEscape,
   size = "default",
+  zIndex = 50,
 }: EntityModalShellProps) {
+  const requestClose = useCallback(() => {
+    if (!canClose) return;
+    if (onEscape?.()) return;
+    scheduleModalClose(onClose);
+  }, [canClose, onClose, onEscape]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -56,9 +66,14 @@ export function EntityModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-0 backdrop-blur-sm sm:px-4"
+      className="fixed inset-0 flex items-center justify-center bg-black/30 px-0 backdrop-blur-sm sm:px-4"
+      style={{ zIndex }}
       role="presentation"
-      onClick={() => canClose && onClose()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
+      }}
     >
       <div
         className={`flex h-[100dvh] flex-col overflow-hidden rounded-none bg-white shadow-xl sm:h-auto sm:max-h-[90vh] sm:rounded-2xl ${SIZE_CLASS[size]}`}
@@ -78,7 +93,7 @@ export function EntityModalShell({
             {headerActions}
             <button
               type="button"
-              onClick={() => canClose && onClose()}
+              onClick={requestClose}
               disabled={!canClose}
               className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
             >

@@ -39,6 +39,7 @@ export type NotificationPreferencesResponse = {
     inApp: boolean;
     browser: boolean;
     telegram: boolean;
+    mobile: boolean;
   }>;
 };
 
@@ -83,6 +84,7 @@ export const notificationsApi = {
       inApp?: boolean;
       browser?: boolean;
       telegram?: boolean;
+      mobile?: boolean;
     }>;
   }): Promise<NotificationPreferencesResponse> => {
     const res = await apiHttp.patch<NotificationPreferencesResponse>("/notifications/preferences", body);

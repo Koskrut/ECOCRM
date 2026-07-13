@@ -1,21 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
 
+import { ensureNotificationHandler } from "./push-notifications";
 import { haversineDistanceM, VISIT_GPS_MAX_ACCURACY_M } from "./geo-utils";
 import { STORAGE_KEYS_EXTRA } from "./location-tracking-config";
 import type { ProcessLocationResult } from "./location-tracking-processor";
 import { t } from "./i18n";
 import type { VisitSummary } from "@/types/crm";
+import * as Notifications from "expo-notifications";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+ensureNotificationHandler();
 
 type GeofenceState = {
   dateKey: string;

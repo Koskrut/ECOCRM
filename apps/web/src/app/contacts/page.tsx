@@ -1252,6 +1252,7 @@ function ContactsPageContent() {
           companyId={companyId}
           onClose={closeCompanyModal}
           onUpdate={() => {}}
+          zIndex={60}
         />
       )}
     </div>

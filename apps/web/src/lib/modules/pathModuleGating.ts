@@ -8,6 +8,7 @@ import { ModuleIds } from "./module-ids";
 export function sidebarHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/planning")) return ModuleIds.ProductionPlanning;
   if (href.startsWith("/payments")) return ModuleIds.Finance;
+  if (href.startsWith("/receivables")) return ModuleIds.Finance;
   if (href.startsWith("/inbox/telegram")) return ModuleIds.IntegrationsTelegram;
   if (href.startsWith("/inbox/instagram") || href.startsWith("/inbox/facebook")) {
     return ModuleIds.IntegrationsMetaMessaging;

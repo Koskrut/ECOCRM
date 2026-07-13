@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { SearchableSelect } from "../../components/SearchableSelect";
 import { apiHttp } from "../../lib/api/client";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { listBankAccountsForOrder } from "../../lib/api/resources/bank";
 import { listWarehouses, type WarehouseItem } from "../../lib/api/resources/warehouses";
 import { ModuleIds } from "@/lib/modules/module-ids";
@@ -179,10 +180,19 @@ export function CreateOrderModal({
     }
   };
 
+  const requestClose = () => {
+    if (!submitting) scheduleModalClose(onClose);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
-      onClick={() => !submitting && onClose()}
+      role="presentation"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
+      }}
     >
       <div
         className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
@@ -191,7 +201,7 @@ export function CreateOrderModal({
         <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-zinc-900">Нове замовлення</h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             disabled={submitting}
             className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
           >

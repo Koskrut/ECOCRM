@@ -11,9 +11,15 @@ import { companiesApi, type Company } from "@/lib/api/resources/companies";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import {
   EntityAddressesSection,
-  formatAddressOptionLabel,
   pickVisitReadyAddresses,
 } from "@/components/EntityAddressesSection";
+import { VisitLocationPicker } from "@/components/visits/VisitLocationPicker";
+import {
+  buildVisitLocationCreatePayload,
+  defaultVisitLocationFromAddresses,
+  visitLocationHasCoords,
+  type VisitLocationValue,
+} from "@/lib/visits/visit-location.types";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
@@ -57,9 +63,11 @@ type Props = {
   onClose: () => void;
   onUpdate: () => void;
   onOpenContact?: (id: string) => void;
+  /** Stacking order when opened over another entity modal (default 50). */
+  zIndex?: number;
 };
 
-export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenContact }: Props) {
+export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenContact, zIndex }: Props) {
   const isCreate = companyId === "new";
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -106,7 +114,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [addressError, setAddressError] = useState<string | null>(null);
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
-  const [selectedVisitAddressId, setSelectedVisitAddressId] = useState("");
+  const [visitLocation, setVisitLocation] = useState<VisitLocationValue | null>(null);
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
   const [googleLoadError, setGoogleLoadError] = useState<Error | undefined>(undefined);
   const addressBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -167,14 +175,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   );
 
   useEffect(() => {
-    if (visitReadyAddresses.length === 0) {
-      setSelectedVisitAddressId("");
-      return;
-    }
-    setSelectedVisitAddressId((prev) => {
-      if (prev && visitReadyAddresses.some((a) => a.id === prev)) return prev;
-      const def = visitReadyAddresses.find((a) => a.isDefault) ?? visitReadyAddresses[0];
-      return def?.id ?? "";
+    setVisitLocation((prev) => {
+      if (prev && visitLocationHasCoords(prev)) {
+        if (prev.mode === "entity" && visitReadyAddresses.some((a) => a.id === prev.addressId)) {
+          return prev;
+        }
+        if (prev.mode === "other") return prev;
+      }
+      return defaultVisitLocationFromAddresses(visitReadyAddresses);
     });
   }, [visitReadyAddresses]);
 
@@ -392,13 +400,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
   const scheduleVisit = async () => {
     if (!company || isCreate) return;
-    const selected =
-      visitReadyAddresses.find((a) => a.id === selectedVisitAddressId) ??
-      visitReadyAddresses[0] ??
-      null;
-    if (!selected || selected.lat == null || selected.lng == null) {
+    if (!visitLocation || !visitLocationHasCoords(visitLocation)) {
       setAddressRequiredForVisit(true);
-      setVisitPlanError("Оберіть адресу з координатами або привʼяжіть адрес на карті.");
+      setVisitPlanError(strings.visitLocation.coordsRequired);
       setVisitPlanSuccess(null);
       return;
     }
@@ -415,12 +419,9 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setAddressRequiredForVisit(false);
       const visit = await visitsApi.create({
         companyId: company.id,
-        companyAddressId: selected.id,
         title: company.name || "Візит",
-        addressText: selected.displayLine,
-        lat: selected.lat,
-        lng: selected.lng,
         purpose: visitPurpose.trim(),
+        ...buildVisitLocationCreatePayload(visitLocation, "company"),
       });
       if (visitStartsAt) {
         const startsAt = new Date(visitStartsAt);
@@ -933,28 +934,20 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               {visitReadyAddresses.length > 0 ? "Координаты готовы" : "Нужно добавить адрес"}
             </div>
           </div>
-          {visitReadyAddresses.length > 0 ? (
-            <label className="mt-4 flex flex-col gap-1">
-              <span className={labelClass}>Адреса для візиту</span>
-              <select
-                className={`w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
-                  addressRequiredForVisit ? "border-red-500" : "border-zinc-200"
-                }`}
-                value={selectedVisitAddressId}
-                onChange={(e) => {
-                  setSelectedVisitAddressId(e.target.value);
-                  setAddressRequiredForVisit(false);
-                }}
-                disabled={saving || planningVisit}
-              >
-                {visitReadyAddresses.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {formatAddressOptionLabel(a)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
+          <div className="mt-4">
+            <VisitLocationPicker
+              entityType="company"
+              addresses={company?.addresses ?? []}
+              value={visitLocation}
+              onChange={(next) => {
+                setVisitLocation(next);
+                setAddressRequiredForVisit(false);
+              }}
+              mapsApiKey={mapsApiKey}
+              error={addressRequiredForVisit}
+              disabled={saving || planningVisit}
+            />
+          </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1">
               <span className={labelClass}>Цель встречи</span>
@@ -1327,12 +1320,14 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         canClose={canClose}
         onClose={onClose}
         onEscape={handleEscape}
+        zIndex={zIndex}
       />
 
       {orderId ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
+          zIndex={60}
           onClose={() => setOrderId(null)}
           onSaved={() => {
             setOrderId(null);

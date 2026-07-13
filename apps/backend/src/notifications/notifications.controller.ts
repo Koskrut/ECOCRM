@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -69,6 +70,7 @@ export class NotificationsController {
             inApp: r.inApp !== undefined ? Boolean(r.inApp) : undefined,
             browser: r.browser !== undefined ? Boolean(r.browser) : undefined,
             telegram: r.telegram !== undefined ? Boolean(r.telegram) : undefined,
+            mobile: r.mobile !== undefined ? Boolean(r.mobile) : undefined,
           };
         })
       : undefined;
@@ -80,6 +82,32 @@ export class NotificationsController {
           : undefined,
       types,
     });
+  }
+
+  @Post("push-devices")
+  registerPushDevice(
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) {
+      throw new BadRequestException("User is required");
+    }
+    return this.notifications.registerPushDevice(req.user.id, {
+      token: String(body.token ?? ""),
+      platform: String(body.platform ?? ""),
+      deviceId: body.deviceId != null ? String(body.deviceId) : undefined,
+    });
+  }
+
+  @Delete("push-devices/:token")
+  unregisterPushDevice(
+    @Param("token") token: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) {
+      throw new BadRequestException("User is required");
+    }
+    return this.notifications.unregisterPushDevice(req.user.id, token);
   }
 
   @Patch(":id/read")

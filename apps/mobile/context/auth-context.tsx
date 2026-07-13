@@ -10,6 +10,7 @@ import React, {
 
 import { apiFetch } from "@/lib/api";
 import { endPresenceSession } from "@/lib/presence-heartbeat";
+import { getCachedPushToken, unregisterPushToken } from "@/lib/push-notifications";
 import type { AuthUserBrief, LoginResponse } from "@/types/crm";
 
 const TOKEN_KEY = "crm_manager_jwt";
@@ -92,12 +93,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    const pushToken = getCachedPushToken();
     if (token) {
+      try {
+        await unregisterPushToken(token, pushToken);
+      } catch {
+        /* proceed with logout */
+      }
       try {
         await endPresenceSession(token);
       } catch {
         /* proceed with logout */
       }
+    } else {
+      await unregisterPushToken(null, pushToken);
     }
     try {
       await SecureStore.deleteItemAsync(TOKEN_KEY);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { LeadStepper, leadStatusToUiStage, type LeadStepperStepDef } from "./LeadStepper";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
@@ -2277,7 +2278,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           role="dialog"
           aria-modal="true"
           aria-labelledby="complete-outcome-title"
-          onClick={() => setShowCompleteOutcomeDialog(false)}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            scheduleModalClose(() => setShowCompleteOutcomeDialog(false));
+          }}
         >
           <div
             className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"

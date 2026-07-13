@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { strings } from "@/locales";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 
 type ConfirmOptions = {
   title?: string;
@@ -77,7 +78,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           <div
             className="fixed inset-0 z-[110] bg-black/40"
             role="presentation"
-            onClick={() => resolve(false)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              scheduleModalClose(() => resolve(false));
+            }}
           />
           <div className="fixed inset-0 z-[111] flex items-center justify-center p-4">
             <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">

@@ -5,6 +5,7 @@ import {
   fieldFuelApi,
   type FuelRefuelEntry,
 } from "@/lib/api/resources/field-fuel";
+import { compressReceiptImage } from "@/lib/image/compress-receipt-image";
 
 type FuelRefuelListProps = {
   items: FuelRefuelEntry[];
@@ -108,12 +109,13 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
     setSaving(true);
     setErr(null);
     try {
+      const prepared = await compressReceiptImage(file);
       await fieldFuelApi.createRefuel(
         date,
         {
           liters: Number(liters.replace(",", ".")),
           amount: Number(amount.replace(",", ".")),
-          file,
+          file: prepared,
         },
         ownerId,
       );

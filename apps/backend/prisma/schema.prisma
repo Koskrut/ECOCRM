@@ -476,6 +476,14 @@ enum InventorySnapshotStatus {
   VOID
 }
 
+enum ReceivablesReconcileStatus {
+  ALIGNED
+  DELTA_1C_MORE
+  DELTA_CRM_MORE
+  ONLY_1C
+  ONLY_CRM
+}
+
 enum ReservationHardness {
   HARD
   SOFT
@@ -564,6 +572,7 @@ model User {
   companies                  Company[]
   importedInventorySnapshots InventorySnapshot[] @relation("InventorySnapshotImportedBy")
   postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
+  importedReceivablesSnapshots ReceivablesSnapshot[] @relation("ReceivablesSnapshotImportedBy")
   callQueueItems             CallQueueItem[]
   manualCallSessions         ManualCallSession[]
   rbacAssignments            RbacUserRoleAssignment[]
@@ -584,6 +593,7 @@ model User {
   teamNotificationsEnabled   Boolean @default(false)
   notifications              UserNotification[]
   notificationPreferences    UserNotificationPreference[]
+  pushDevices                UserPushDevice[]
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -841,6 +851,7 @@ model Contact {
   changeHistory        ContactChangeHistory[]
   callQueueItems       CallQueueItem[]
   manualCallSessions   ManualCallSession[]
+  receivablesSnapshotLines ReceivablesSnapshotLine[]
 
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
@@ -2069,10 +2080,25 @@ model UserNotificationPreference {
   inApp    Boolean @default(true)
   browser  Boolean @default(false)
   telegram Boolean @default(false)
+  mobile   Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, type])
+}
+
+model UserPushDevice {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  platform   String
+  deviceId   String?
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Task {
@@ -2538,6 +2564,47 @@ model InventorySnapshotLine {
   @@index([warehouseId])
   @@index([productId])
   @@index([skuRaw])
+}
+
+model ReceivablesSnapshot {
+  id           String   @id @default(cuid())
+  snapshotDate DateTime
+  importedAt   DateTime @default(now())
+  importedById String
+  note         String?
+  total1C      Float    @default(0)
+  totalCRM     Float    @default(0)
+  deltaCount   Int      @default(0)
+  alignedCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  importedBy User                      @relation("ReceivablesSnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  lines      ReceivablesSnapshotLine[]
+
+  @@index([snapshotDate])
+  @@index([importedAt])
+  @@index([importedById])
+}
+
+model ReceivablesSnapshotLine {
+  id                 String                     @id @default(cuid())
+  snapshotId         String
+  counterpartyCode1C String
+  amount1C           Float                      @default(0)
+  amountCRM          Float                      @default(0)
+  delta              Float                      @default(0)
+  contactId          String?
+  status             ReceivablesReconcileStatus
+  createdAt          DateTime                   @default(now())
+
+  snapshot ReceivablesSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  contact  Contact?              @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId])
+  @@index([counterpartyCode1C])
+  @@index([contactId])
+  @@index([status])
 }
 
 model ProductionStage {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ordersApi } from "@/lib/api/resources/orders";
 import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
 import { strings as t } from "@/locales";
+import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 
 export type FxWriteOffModalOrder = {
   id: string;
@@ -41,7 +42,7 @@ export function FxWriteOffModal({ order, open, onClose, onSuccess }: Props) {
         autoComplete,
       });
       onSuccess();
-      onClose();
+      scheduleModalClose(onClose);
     } catch (e) {
       setError(e instanceof Error ? e.message : t.payments.fxVariance.errors.writeOffFailed);
     } finally {
@@ -49,9 +50,26 @@ export function FxWriteOffModal({ order, open, onClose, onSuccess }: Props) {
     }
   };
 
+  const requestClose = () => {
+    if (!submitting) scheduleModalClose(onClose);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      role="presentation"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        requestClose();
+      }}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal
+      >
         <h2 className="text-lg font-semibold text-zinc-900">
           {t.payments.fxVariance.modalTitle}
         </h2>
@@ -110,7 +128,7 @@ export function FxWriteOffModal({ order, open, onClose, onSuccess }: Props) {
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={submitting}
             className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
           >

@@ -27,6 +27,7 @@ export type CreateVisitBody = {
   addressText?: string | null;
   lat?: number | null;
   lng?: number | null;
+  locationSource?: string | null;
   purpose?: string | null;
 };
 
@@ -39,6 +40,9 @@ export type UpdateVisitBody = Partial<{
   addressText: string | null;
   lat: number | null;
   lng: number | null;
+  contactAddressId?: string | null;
+  companyAddressId?: string | null;
+  locationSource?: string | null;
   purpose: string | null;
   note: string | null;
   durationMin: number | null;

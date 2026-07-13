@@ -16,6 +16,8 @@ export type Visit = {
   id: string;
   companyId?: string | null;
   contactId?: string | null;
+  contactAddressId?: string | null;
+  companyAddressId?: string | null;
   ownerId: string;
   owner?: VisitOwnerSnippet;
   contact?: VisitContactSnippet | null;
@@ -178,6 +180,7 @@ export const visitsApi = {
     addressText?: string;
     lat?: number;
     lng?: number;
+    locationSource?: string;
     purpose?: string;
   }): Promise<Visit> => {
     const res = await apiHttp.post<Visit>("/visits", body);
@@ -216,6 +219,8 @@ export const visitsApi = {
       lat: number | null;
       lng: number | null;
       locationSource: string;
+      contactAddressId?: string | null;
+      companyAddressId?: string | null;
       status: Visit["status"];
       startsAt: string;
       endsAt: string;

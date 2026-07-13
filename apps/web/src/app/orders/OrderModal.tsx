@@ -318,6 +318,8 @@ type OrderModalProps = {
   userRole?: string | null;
   /** Open another order in the same host (e.g. child after split). */
   onOpenOrder?: (orderId: string) => void;
+  /** Stacking order for nested modals (default 50; use 60+ when opened over another entity modal). */
+  zIndex?: number;
 };
 
 // =====================
@@ -737,6 +739,7 @@ export function OrderModal({
   onOpenContact,
   userRole: userRoleProp,
   onOpenOrder,
+  zIndex = 50,
 }: OrderModalProps) {
   const { pushToast } = useToast();
   const { confirm } = useConfirm();
@@ -1414,23 +1417,21 @@ export function OrderModal({
       });
   }, [isCreate, orderId]);
 
-  // ESC
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (editingItem) {
-        setEditingItem(null);
-        return;
-      }
-      if (editing) {
-        setEditing(null);
-        return;
-      }
-      if (canClose) onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editing, editingItem, canClose, onClose]);
+  const handleEscape = useCallback(() => {
+    if (editingItem) {
+      setEditingItem(null);
+      return true;
+    }
+    if (editing) {
+      setEditing(null);
+      return true;
+    }
+    if (returnsDocsMenuOpen) {
+      setReturnsDocsMenuOpen(false);
+      return true;
+    }
+    return false;
+  }, [editing, editingItem, returnsDocsMenuOpen]);
 
   const patchOrderItem = useCallback(
     async (itemId: string, payload: { qty?: number; price?: number; discountPercent?: number }) => {
@@ -2213,13 +2214,8 @@ export function OrderModal({
         subtitle={!isCreate && order ? formatDt(order.createdAt) : undefined}
         headerActions={orderHeaderActions}
         tabsUnderHeader={tabsUnderHeader}
-        onEscape={() => {
-          if (returnsDocsMenuOpen) {
-            setReturnsDocsMenuOpen(false);
-            return true;
-          }
-          return false;
-        }}
+        onEscape={handleEscape}
+        zIndex={zIndex}
         left={
           isCreate ? (
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
