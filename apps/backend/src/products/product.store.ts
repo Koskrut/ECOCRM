@@ -1,4 +1,4 @@
-import { CustomFieldEntityType, Prisma, ReservationHardness, ReservationStatus } from "@prisma/client";
+import { CustomFieldEntityType, Prisma, ProductKind, ReservationHardness, ReservationStatus } from "@prisma/client";
 import { BadRequestException, ConflictException, Injectable, Optional } from "@nestjs/common";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import type { Pagination } from "../common/pagination";
@@ -28,6 +28,7 @@ type ProductListItem = Pick<
   | "unit"
   | "basePrice"
   | "stock"
+  | "kind"
   | "showOnStore"
   | "primaryImageUrl"
   | "primaryImageId"
@@ -62,6 +63,7 @@ type PrismaProduct = {
   unit: string;
   basePrice: number;
   stock: number;
+  kind: ProductKind;
   isActive: boolean;
   showOnStore: boolean;
   characteristics: Prisma.JsonValue | null;
@@ -165,6 +167,7 @@ export class ProductStore {
       unit: row.unit,
       basePrice: row.basePrice,
       stock: row.stock,
+      kind: row.kind,
       isActive: row.isActive,
       showOnStore: row.showOnStore,
       characteristics: parseCharacteristicsJson(row.characteristics),
@@ -859,11 +862,12 @@ export class ProductStore {
             unit: string;
             basePrice: number;
             stock: number;
+            kind: ProductKind;
             showOnStore: boolean;
             characteristics: Prisma.JsonValue | null;
           }>
         >`
-          SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", characteristics
+          SELECT id, sku, name, unit, "basePrice", stock, kind, "showOnStore", characteristics
           FROM "Product"
           WHERE "isActive" = true AND "showOnStore" = true
             ${skuCond}
@@ -911,6 +915,7 @@ export class ProductStore {
             unit: true,
             basePrice: true,
             stock: true,
+            kind: true,
             showOnStore: true,
             characteristics: true,
           },
@@ -941,11 +946,12 @@ export class ProductStore {
         unit: string;
         basePrice: number;
         stock: number;
+        kind: ProductKind;
         showOnStore: boolean;
         characteristics: Prisma.JsonValue | null;
       }>
     >`
-      SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", characteristics
+      SELECT id, sku, name, unit, "basePrice", stock, kind, "showOnStore", characteristics
       FROM "Product"
       WHERE "isActive" = true AND "showOnStore" = true
         ${skuPrefixCond}
@@ -1081,13 +1087,18 @@ export class ProductStore {
       unit: string;
       basePrice: number;
       stock: number;
+      kind: ProductKind;
       showOnStore: boolean;
       characteristics?: Prisma.JsonValue | null;
       isActive?: boolean;
     }>;
     let total: number;
     if (!hasSearch) {
-      const where: Prisma.ProductWhereInput = { isActive: true };
+      const where: Prisma.ProductWhereInput = {
+        isActive: true,
+        // Sales/CRM catalog is kits (and legacy OTHER) — BOM packaging lives as PART.
+        kind: { not: ProductKind.PART },
+      };
       const [totalCount, rowsResult] = await Promise.all([
         this.prisma.product.count({ where }),
         this.prisma.product.findMany({
@@ -1102,6 +1113,7 @@ export class ProductStore {
             unit: true,
             basePrice: true,
             stock: true,
+            kind: true,
             showOnStore: true,
             characteristics: true,
           },
@@ -1120,14 +1132,16 @@ export class ProductStore {
           unit: string;
           basePrice: number;
           stock: number;
+          kind: ProductKind;
           showOnStore: boolean;
           isActive: boolean;
           characteristics: Prisma.JsonValue | null;
         }>
       >`
-        SELECT id, sku, name, unit, "basePrice", stock, "showOnStore", "isActive", characteristics
+        SELECT id, sku, name, unit, "basePrice", stock, kind, "showOnStore", "isActive", characteristics
         FROM "Product"
-        WHERE (
+        WHERE kind <> 'PART'::"ProductKind"
+          AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
@@ -1138,7 +1152,8 @@ export class ProductStore {
       const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*)::int AS count
         FROM "Product"
-        WHERE (
+        WHERE kind <> 'PART'::"ProductKind"
+          AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
@@ -1147,6 +1162,67 @@ export class ProductStore {
       rows = rowsResult;
       total = Number(count);
     }
+    const itemsWithImages = await this.enrichWithPrimaryImage(rows);
+    const productIds = itemsWithImages.map((i) => i.id);
+    const stockByWarehouseMap = await this.getStocksByWarehouseForProductIds(productIds);
+    const itemsBase = itemsWithImages.map((item) => ({
+      ...item,
+      characteristics: parseCharacteristicsJson(
+        (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+      ),
+      stockByWarehouse: stockByWarehouseMap.get(item.id) ?? [],
+    }));
+    const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+      itemsBase.map((item) => item.id),
+    );
+    const items: ProductListItemWithStockByWarehouse[] = this.attachAvailableStock(
+      itemsBase,
+      hardReservedByProductId,
+    );
+    return { items, total };
+  }
+
+  /** BOM/factory materials — not part of the sales catalog. */
+  public async listParts(
+    search: string | undefined,
+    pagination: Pagination,
+  ): Promise<ProductListResultWithStockByWarehouse> {
+    const hasSearch = search && search.trim().length > 0;
+    const baseWhere: Prisma.ProductWhereInput = {
+      isActive: true,
+      kind: ProductKind.PART,
+    };
+    if (hasSearch) {
+      const term = search!.trim();
+      baseWhere.AND = [
+        {
+          OR: [
+            { sku: { contains: term, mode: "insensitive" } },
+            { name: { contains: term, mode: "insensitive" } },
+          ],
+        },
+      ];
+    }
+    const [total, rows] = await Promise.all([
+      this.prisma.product.count({ where: baseWhere }),
+      this.prisma.product.findMany({
+        where: baseWhere,
+        orderBy: { name: "asc" },
+        skip: pagination.offset,
+        take: pagination.limit,
+        select: {
+          id: true,
+          sku: true,
+          name: true,
+          unit: true,
+          basePrice: true,
+          stock: true,
+          kind: true,
+          showOnStore: true,
+          characteristics: true,
+        },
+      }),
+    ]);
     const itemsWithImages = await this.enrichWithPrimaryImage(rows);
     const productIds = itemsWithImages.map((i) => i.id);
     const stockByWarehouseMap = await this.getStocksByWarehouseForProductIds(productIds);

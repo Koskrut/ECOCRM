@@ -36,6 +36,8 @@ type ProductsQuery = {
   page?: string;
   pageSize?: string;
   catalog?: string;
+  /** PART = BOM/factory materials (outside sales catalog). */
+  kind?: string;
 };
 
 @Controller("/products")
@@ -58,9 +60,13 @@ export class ProductsController {
     });
 
     const useCatalog = query.catalog === "1" || query.catalog === "true";
-    const { items, total } = useCatalog
-      ? await this.productStore.listCatalog(query.search, pagination)
-      : await this.productStore.listActive(query.search, undefined, pagination);
+    const kind = query.kind?.trim().toUpperCase();
+    const { items, total } =
+      kind === "PART"
+        ? await this.productStore.listParts(query.search, pagination)
+        : useCatalog
+          ? await this.productStore.listCatalog(query.search, pagination)
+          : await this.productStore.listActive(query.search, undefined, pagination);
 
     return {
       items,

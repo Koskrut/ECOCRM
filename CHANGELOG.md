@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.110**.)_
+_(планируемые изменения после **0.2.111**.)_
+
+## [0.2.111] — 2026-07-16
+
+### Summary
+
+Патч **0.2.111**: **BOM import** создаёт/связывает **PART** (упаковка/комплектующие вне витрины); каталог продаж не смешивается с PART; UI planning показывает созданные parts.
+
+### Added
+
+- **`bom-part.util`**: SKU для packaging (`PKG:…`), article parts, uniquify; auto-create PART на miss при import.
+- **Products**: `listParts` API; catalog list excludes `kind=PART`; entity/API `kind` на list items.
+- **Planning web**: отображение `createdPartCount` / `createdParts` после BOM import.
+
+### Changed
+
+- **BOM import**: kits из sales catalog (Bitrix-style SKU); components — только PART/OTHER, не sellable KIT.
+- **Product store** selects/queryRaw — поле `kind` для list types.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.111`**.
+- **Новых миграций нет.**
 
 ## [0.2.110] — 2026-07-16
 

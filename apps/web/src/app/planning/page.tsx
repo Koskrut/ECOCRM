@@ -141,11 +141,41 @@ export default function PlanningPage() {
     [products, selectedKitId],
   );
 
+  const kitProducts = useMemo(
+    () => products.filter((item) => item.kind !== "PART"),
+    [products],
+  );
+  const partProducts = useMemo(() => {
+    const byId = new Map<string, ProductCatalogItem>();
+    for (const item of products) {
+      if (item.kind === "PART") byId.set(item.id, item);
+    }
+    // Keep current BOM components visible even if they fall outside the parts page.
+    for (const line of bom?.lines ?? []) {
+      const c = line.component;
+      if (!c || byId.has(c.id)) continue;
+      byId.set(c.id, {
+        id: c.id,
+        sku: c.sku,
+        name: c.name,
+        unit: "pcs",
+        basePrice: 0,
+        stock: 0,
+        kind: (c.kind as ProductCatalogItem["kind"]) ?? "PART",
+        showOnStore: false,
+        primaryImageUrl: null,
+        primaryImageId: null,
+      });
+    }
+    return Array.from(byId.values());
+  }, [products, bom]);
+
   const productNameById = useMemo(() => {
     const map = new Map<string, ProductCatalogItem>();
     products.forEach((item) => map.set(item.id, item));
+    partProducts.forEach((item) => map.set(item.id, item));
     return map;
-  }, [products]);
+  }, [products, partProducts]);
 
   const stageLabel = useCallback(
     (code: string | null | undefined) => {
@@ -163,8 +193,13 @@ export default function PlanningPage() {
   const loadProducts = useCallback(async (search = "") => {
     setProductsLoading(true);
     try {
-      const res = await productsApi.listCatalog({ search, pageSize: 100, page: 1 });
-      setProducts(res.items);
+      const [kits, parts] = await Promise.all([
+        productsApi.listCatalog({ search, pageSize: 100, page: 1 }),
+        productsApi.listParts({ search, pageSize: 200, page: 1 }),
+      ]);
+      const byId = new Map<string, ProductCatalogItem>();
+      for (const item of [...kits.items, ...parts.items]) byId.set(item.id, item);
+      setProducts(Array.from(byId.values()));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.loadProducts);
     } finally {
@@ -361,6 +396,7 @@ export default function PlanningPage() {
       const result = await planningApi.importBomFile(bomImportFile);
       setBomImportResult(result);
       setBomImportFile(null);
+      await loadProducts(kitSearch);
       if (selectedKitId) {
         await loadBomDetails(selectedKitId);
       }
@@ -547,7 +583,7 @@ export default function PlanningPage() {
                 <ProductLookup
                   query={kitSearch}
                   onQueryChange={setKitSearch}
-                  products={products}
+                  products={kitProducts}
                   loading={productsLoading}
                   selectedId={selectedKitId}
                   onSelect={setSelectedKitId}
@@ -719,6 +755,10 @@ export default function PlanningPage() {
                       <StatCard title={t.labels.importedKits} value={String(bomImportResult.importedKitCount)} />
                       <StatCard title={t.labels.components} value={String(bomImportResult.importedLineCount)} />
                       <StatCard
+                        title={t.labels.createdParts}
+                        value={String(bomImportResult.createdPartCount ?? 0)}
+                      />
+                      <StatCard
                         title={t.labels.unresolvedKitSku}
                         value={String(bomImportResult.unresolvedKitSku.length)}
                       />
@@ -772,7 +812,7 @@ export default function PlanningPage() {
                 <ProductLookup
                   query={kitSearch}
                   onQueryChange={setKitSearch}
-                  products={products}
+                  products={kitProducts}
                   loading={productsLoading}
                   selectedId={selectedKitId}
                   onSelect={setSelectedKitId}
@@ -809,7 +849,7 @@ export default function PlanningPage() {
                         className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                       >
                         <option value="">{t.actions.selectProduct}</option>
-                        {products.map((product) => (
+                        {partProducts.map((product) => (
                           <option key={product.id} value={product.id}>
                             {product.sku} - {product.name}
                           </option>
@@ -888,7 +928,7 @@ export default function PlanningPage() {
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   >
                     <option value="">{t.actions.selectProduct}</option>
-                    {products.map((product) => (
+                    {kitProducts.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.sku} - {product.name}
                       </option>

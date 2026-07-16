@@ -1,6 +1,18 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { ProductKind } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  buildStockSkuIndex,
+  registerProductInStockIndex,
+  resolveStockSkuToProduct,
+} from "../products/stock-sku-normalizer";
+import {
+  buildArticlePartSku,
+  buildPackagingPartSku,
+  buildPartDisplayName,
+  uniquifyPartSku,
+} from "./bom-part.util";
 import {
   isSuprexWorkbook,
   normalizeProductName,
@@ -240,51 +252,117 @@ export class BomImportService {
       throw new BadRequestException("No valid BOM rows found");
     }
 
-    const skuSet = new Set<string>();
-    rows.forEach((row) => {
-      skuSet.add(row.kitSku);
-      if (!row.componentName) skuSet.add(row.componentSku);
+    // Kits resolve from the sales catalog (non-PART products, Bitrix-style SKUs supported).
+    // Components/packaging are PART master data — not catalog items — and are auto-created on miss.
+    const products = await this.prisma.product.findMany({
+      select: { id: true, sku: true, name: true, isActive: true, kind: true, showOnStore: true },
     });
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const skuIndex = buildStockSkuIndex(products);
+    const takenSkus = new Set(products.map((product) => product.sku));
 
-    const needsNameLookup = format === "suprex" && rows.some((row) => row.componentName);
-    const [skuProducts, nameProducts] = await Promise.all([
-      this.prisma.product.findMany({
-        where: { sku: { in: Array.from(skuSet) } },
-        select: { id: true, sku: true, name: true },
-      }),
-      needsNameLookup
-        ? this.prisma.product.findMany({
-            where: { isActive: true },
-            select: { id: true, sku: true, name: true },
-          })
-        : Promise.resolve([]),
-    ]);
-    const productsById = new Map<string, (typeof skuProducts)[number]>();
-    for (const product of [...skuProducts, ...nameProducts]) {
-      productsById.set(product.id, product);
-    }
-    const products = Array.from(productsById.values());
-    const productBySku = new Map(products.map((product) => [product.sku, product.id]));
-    const nameIndex = needsNameLookup
-      ? buildProductNameIndex(products)
-      : { exact: new Map<string, string>(), loose: new Map<string, string | null>() };
+    // Name lookup only among parts (packaging must not resolve to sellable kits).
+    const nameIndex = buildProductNameIndex(
+      products.filter(
+        (product) =>
+          product.isActive &&
+          (product.kind === ProductKind.PART || product.kind === ProductKind.OTHER),
+      ),
+    );
 
-    const resolveComponentProductId = (
+    const resolveCatalogKitId = (sku: string): string | undefined => {
+      const hit = resolveStockSkuToProduct(sku, skuIndex);
+      if (!hit) return undefined;
+      const product = productById.get(hit.id);
+      if (!product || product.kind === ProductKind.PART) return undefined;
+      return hit.id;
+    };
+
+    const registerName = (product: { id: string; name: string }) => {
+      const exactKey = normalizeProductName(product.name, false);
+      if (exactKey && !nameIndex.exact.has(exactKey)) nameIndex.exact.set(exactKey, product.id);
+      const looseKey = normalizeProductName(product.name, true);
+      if (!looseKey) return;
+      if (!nameIndex.loose.has(looseKey)) nameIndex.loose.set(looseKey, product.id);
+      else if (nameIndex.loose.get(looseKey) !== product.id) nameIndex.loose.set(looseKey, null);
+    };
+
+    const markAsPartOutsideCatalog = async (productId: string) => {
+      const current = productById.get(productId);
+      if (!current || current.kind === ProductKind.KIT) return;
+      if (current.kind === ProductKind.PART && !current.showOnStore) return;
+      const updated = await this.prisma.product.update({
+        where: { id: productId },
+        data: { kind: ProductKind.PART, showOnStore: false },
+        select: { id: true, sku: true, name: true, isActive: true, kind: true, showOnStore: true },
+      });
+      productById.set(updated.id, updated);
+    };
+
+    const createdParts: Array<{ sku: string; name: string; id: string }> = [];
+
+    const ensureComponentProductId = async (
       row: ParsedBomRow,
-    ): { productId?: string; ambiguous?: boolean } => {
-      const bySku = productBySku.get(row.componentSku);
-      if (bySku) return { productId: bySku };
+    ): Promise<{ productId?: string; ambiguous?: boolean; created?: boolean }> => {
+      const trySku = (sku: string): string | undefined => {
+        const hit = resolveStockSkuToProduct(sku, skuIndex);
+        if (!hit) return undefined;
+        const product = productById.get(hit.id);
+        // Never attach a sellable kit as a BOM component — parts are separate master data.
+        if (!product || product.kind === ProductKind.KIT) return undefined;
+        return hit.id;
+      };
 
-      const lookupName = row.componentName ?? row.componentSkuRaw;
-      if (!lookupName) return {};
+      let productId =
+        trySku(row.componentSku) ??
+        (row.componentSkuRaw !== row.componentSku ? trySku(row.componentSkuRaw) : undefined);
 
-      const exactId = nameIndex.exact.get(normalizeProductName(lookupName, false));
-      if (exactId) return { productId: exactId };
+      if (!productId) {
+        const lookupName = row.componentName ?? row.componentSkuRaw;
+        if (lookupName) {
+          const exactId = nameIndex.exact.get(normalizeProductName(lookupName, false));
+          if (exactId) productId = exactId;
+          else {
+            const looseId = nameIndex.loose.get(normalizeProductName(lookupName, true));
+            if (looseId === null) return { ambiguous: true };
+            if (looseId) productId = looseId;
+          }
+        }
+      }
 
-      const looseId = nameIndex.loose.get(normalizeProductName(lookupName, true));
-      if (looseId === null) return { ambiguous: true };
-      if (looseId) return { productId: looseId };
-      return {};
+      if (productId) {
+        await markAsPartOutsideCatalog(productId);
+        return { productId };
+      }
+
+      const displayName = buildPartDisplayName(row);
+      if (!displayName) return {};
+
+      const preferredSku = row.componentName
+        ? buildPackagingPartSku(displayName)
+        : buildArticlePartSku(row.componentSku || row.componentSkuRaw);
+      const sku = uniquifyPartSku(preferredSku, displayName, takenSkus);
+
+      const created = await this.prisma.product.create({
+        data: {
+          sku,
+          name: displayName,
+          unit: "pcs",
+          basePrice: 0,
+          stock: 0,
+          kind: ProductKind.PART,
+          isActive: true,
+          showOnStore: false,
+        },
+        select: { id: true, sku: true, name: true, isActive: true, kind: true, showOnStore: true },
+      });
+
+      takenSkus.add(created.sku);
+      productById.set(created.id, created);
+      registerProductInStockIndex(skuIndex, created);
+      registerName(created);
+      createdParts.push({ id: created.id, sku: created.sku, name: created.name });
+      return { productId: created.id, created: true };
     };
 
     const grouped = new Map<string, ParsedBomRow[]>();
@@ -301,7 +379,7 @@ export class BomImportService {
     let importedLineCount = 0;
 
     for (const [kitSku, kitRows] of grouped.entries()) {
-      const kitProductId = productBySku.get(kitSku);
+      const kitProductId = resolveCatalogKitId(kitSku);
       if (!kitProductId) {
         unresolvedKitSku.add(kitSku);
         for (const row of kitRows) {
@@ -328,7 +406,7 @@ export class BomImportService {
       let hasErrors = false;
 
       for (const row of kitRows) {
-        const resolved = resolveComponentProductId(row);
+        const resolved = await ensureComponentProductId(row);
         if (resolved.ambiguous) {
           unresolvedComponentSku.add(row.componentSkuRaw);
           kitUnresolved.push(row.componentSkuRaw);
@@ -337,7 +415,7 @@ export class BomImportService {
             sheetName: row.sheetName,
             kitSku,
             componentSku: row.componentSkuRaw,
-            reason: "Ambiguous component name match in catalog",
+            reason: "Ambiguous component name among existing parts",
           });
           hasErrors = true;
           continue;
@@ -351,9 +429,7 @@ export class BomImportService {
             sheetName: row.sheetName,
             kitSku,
             componentSku: row.componentSkuRaw,
-            reason: row.componentName
-              ? "Component not found in catalog (by name)"
-              : "Component SKU not found in catalog",
+            reason: "Component identity is empty",
           });
           hasErrors = true;
           continue;
@@ -411,6 +487,8 @@ export class BomImportService {
       importedKitCount: importedKits.length,
       importedLineCount,
       importedKits,
+      createdPartCount: createdParts.length,
+      createdParts: createdParts.slice(0, 100),
       skippedKitCount: skippedKits.length,
       skippedKits: skippedKits.slice(0, 100),
       unresolvedKitSku: Array.from(unresolvedKitSku),

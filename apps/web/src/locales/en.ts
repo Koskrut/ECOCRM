@@ -561,6 +561,7 @@ export const en = {
       row: "Row",
       rowsWithErrors: "Rows with errors",
       importedKits: "Imported kits",
+      createdParts: "Parts created",
       skippedKits: "Skipped kits",
       createdAt: "Created at",
       oneWeek: "1 week",
@@ -633,7 +634,7 @@ export const en = {
         `File rows: ${rowsInFile}. Kept: ${kept} (of ${relevant} planning SKUs). Skipped irrelevant: ${skipped}.`,
       bomHint: "Each new save creates a fresh active BOM revision for the selected kit.",
       bomUploadHint:
-        "Supports the Suprex specification workbook (all kit sheets) or a flat Excel/CSV with kitSku, componentSku and qtyPerKit. Components without SKU are matched by catalog name.",
+        "Supports the Suprex specification workbook (all kit sheets) or a flat Excel/CSV with kitSku, componentSku and qtyPerKit. Kits resolve from the catalog; components/packaging are stored separately as PART (not in the sales catalog).",
       bomImportSummary: (
         format: string,
         parsed: number,

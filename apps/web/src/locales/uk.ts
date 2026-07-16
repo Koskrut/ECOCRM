@@ -562,6 +562,7 @@ export const uk = {
       row: "Рядок",
       rowsWithErrors: "Рядки з помилками",
       importedKits: "Імпортовано комплектів",
+      createdParts: "Створено комплектуючих",
       skippedKits: "Пропущено комплектів",
       createdAt: "Створено",
       oneWeek: "1 тиждень",
@@ -634,7 +635,7 @@ export const uk = {
         `Рядків у файлі: ${rowsInFile}. Залишено: ${kept} (з ${relevant} planning SKU). Відкинуто зайвих: ${skipped}.`,
       bomHint: "Кожне збереження створює нову активну ревізію BOM для обраного комплекту.",
       bomUploadHint:
-        "Підтримується файл специфікації Suprex (усі вкладки з комплектами) або плоский Excel/CSV: kitSku, componentSku, qtyPerKit. Комплектуючі без артикулу шукаються за назвою в каталозі.",
+        "Підтримується файл специфікації Suprex (усі вкладки з комплектами) або плоский Excel/CSV: kitSku, componentSku, qtyPerKit. Комплекти шукаються в каталозі; комплектуючі/упаковка створюються окремо як PART (не в каталозі продажів).",
       bomImportSummary: (
         format: string,
         parsed: number,

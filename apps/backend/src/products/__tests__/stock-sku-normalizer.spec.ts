@@ -41,4 +41,13 @@ describe("stock-sku-normalizer", () => {
     assert.ok(index.byArticle.has("10.046"));
     assert.strictEqual(index.byArticle.get("10.046")?.id, "p-1046");
   });
+
+  it("matches Suprex BOM articles to Bitrix-style catalog SKUs", () => {
+    const index = buildStockSkuIndex([
+      { id: "kit", sku: "01.06312B | Analog kit" },
+      { id: "comp", sku: "ST-RC-AN | Laboratory analog" },
+    ]);
+    assert.strictEqual(resolveStockSkuToProduct("01.06312B", index)?.id, "kit");
+    assert.strictEqual(resolveStockSkuToProduct("ST-RC-AN", index)?.id, "comp");
+  });
 });

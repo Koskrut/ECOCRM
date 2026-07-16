@@ -15,6 +15,7 @@ export type ProductCatalogItem = {
   basePrice: number;
   stock: number;
   availableStock?: number;
+  kind?: "KIT" | "PART" | "OTHER";
   showOnStore: boolean;
   primaryImageUrl: string | null;
   primaryImageId: string | null;
@@ -146,6 +147,23 @@ export const productsApi = {
   }): Promise<ProductsCatalogResponse> => {
     const qs = new URLSearchParams();
     qs.set("catalog", "1");
+    if (params.search != null && params.search !== "") qs.set("search", params.search);
+    if (params.page != null) qs.set("page", String(params.page));
+    if (params.pageSize != null) qs.set("pageSize", String(params.pageSize));
+    const res = await apiHttp.get<ProductsCatalogResponse>(
+      `/products?${qs.toString()}`,
+    );
+    return res.data;
+  },
+
+  /** BOM/factory materials (Product.kind=PART), outside sales catalog. */
+  listParts: async (params: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<ProductsCatalogResponse> => {
+    const qs = new URLSearchParams();
+    qs.set("kind", "PART");
     if (params.search != null && params.search !== "") qs.set("search", params.search);
     if (params.page != null) qs.set("page", String(params.page));
     if (params.pageSize != null) qs.set("pageSize", String(params.pageSize));
