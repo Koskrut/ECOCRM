@@ -20,7 +20,7 @@ export class OsrmRoutingService {
   private readonly logger = new Logger(OsrmRoutingService.name);
 
   resolveBaseUrl(): string {
-    const raw = process.env.OSRM_BASE_URL?.trim() || "http://127.0.0.1:5000";
+    const raw = process.env.OSRM_BASE_URL?.trim() || "http://osrm:5000";
     return raw.replace(/\/$/, "");
   }
 

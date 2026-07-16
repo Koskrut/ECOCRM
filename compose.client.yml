@@ -80,6 +80,10 @@ services:
       WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS: ${WORKFLOW_EXTERNAL_ACTION_TIMEOUT_MS:-30000}
       WORKFLOW_EXTERNAL_ACTION_CONCURRENCY: ${WORKFLOW_EXTERNAL_ACTION_CONCURRENCY:-5}
       FUEL_RECEIPTS_DIR: ${FUEL_RECEIPTS_DIR:-/data/fuel-receipts}
+
+      # Self-hosted OSRM (visit km / polylines / GPS snap). Without the sidecar, routes fall back to haversine.
+      OSRM_BASE_URL: ${OSRM_BASE_URL:-http://osrm:5000}
+      ROUTING_PROFILE: ${ROUTING_PROFILE:-car}
     volumes:
       # Default /dev/null = no real license file → only core modules are "licensed". Set
       # LICENSE_FILE_PATH_HOST to a host path with a real issued license.json (payload.modules includes ext.finance).
@@ -92,6 +96,18 @@ services:
   web:
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+
+  # Road routing for visits / fuel (Ukraine graph). Populate host dir before first start — see deploy/osrm/README.md.
+  # Backend does not hard-depend on this service: if OSRM is down, geometry falls back to haversine.
+  osrm:
+    image: ${OSRM_IMAGE:-osrm/osrm-backend:latest}
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld /data/ukraine.osrm
+    volumes:
+      - ${OSRM_DATA_HOST:-/opt/crm/osrm-data}:/data:ro
+    expose:
+      - "5000"
+    # Internal only — do not publish 5000 to the host/internet.
 
   # Runs docker compose pull/up for one-click updates from Settings → Health.
   updater:

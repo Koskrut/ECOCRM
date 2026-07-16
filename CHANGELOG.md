@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.109**.)_
+_(планируемые изменения после **0.2.110**.)_
+
+## [0.2.110] — 2026-07-16
+
+### Summary
+
+Патч **0.2.110**: **OSRM в SUPREX compose** — сервис `osrm` + `OSRM_BASE_URL` в `compose.client.yml` (раньше был только в `docker-compose.prod.yml`, поэтому на клиентах оставался haversine).
+
+### Fixed
+
+- **Deploy**: `compose.client.yml` — сервис **`osrm`**, bind **`OSRM_DATA_HOST`** (default `/opt/crm/osrm-data`), env backend **`OSRM_BASE_URL=http://osrm:5000`**, **`ROUTING_PROFILE=car`**.
+- **OsrmRoutingService**: default base URL `http://osrm:5000` (не `127.0.0.1`) для Docker-сети.
+- **Docs**: `deploy/osrm/README.md` — инструкция для SUPREX / install bundle.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.110`**.
+- **Новых миграций нет.**
+- На сервере: положить граф UA в **`/opt/crm/osrm-data/`** (`ukraine.osrm*`), sync compose, `up -d osrm` (+ restart backend). См. **`deploy/osrm/README.md`**. Без графа контейнер OSRM будет рестартиться; маршруты останутся fallback до появления данных.
 
 ## [0.2.109] — 2026-07-16
 
