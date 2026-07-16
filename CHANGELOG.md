@@ -4,7 +4,22 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.108**.)_
+_(планируемые изменения после **0.2.109**.)_
+
+## [0.2.109] — 2026-07-16
+
+### Summary
+
+Hotfix **0.2.109**: catch-all BFF **`/api/planning/[...path]`** — factory / packing / forecast / dashboard / settings из web доходят до backend.
+
+### Fixed
+
+- **Planning web**: в **0.2.108** не хватало catch-all proxy; dedicated routes покрывали только inventory/boms/queues/batches. Добавлен **`apps/web/src/app/api/planning/[...path]/route.ts`** (GET/POST/PATCH/PUT/DELETE).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.109`**.
+- **Новых миграций нет.**
 
 ## [0.2.108] — 2026-07-16
 
