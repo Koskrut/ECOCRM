@@ -4,7 +4,7 @@ import { TelegramService } from "../integrations/telegram/telegram.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ExpoPushService } from "./expo-push.service";
 
-const MOBILE_PUSH_CHANNEL_ID = "crm-alerts";
+const MOBILE_PUSH_CHANNEL_ID = "crm-alerts-v2";
 
 @Injectable()
 export class NotificationsDeliveryService {

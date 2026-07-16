@@ -97,19 +97,19 @@ export type NavigationUrlResponse = {
 export type RouteMetricsResponse = {
   distanceKm: number | null;
   durationMin: number | null;
-  source: "google" | "fallback" | "none";
+  source: "osrm" | "fallback" | "none";
 };
 
 export type RouteOptimizeResponse = {
   visitIds: string[];
-  source: "google" | "fallback";
+  source: "fallback";
 };
 
 export type RouteGeometryPoint = { lat: number; lng: number };
 
 export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps";
 
-export type RouteGeometrySource = "google" | "fallback" | "raw_gps" | "none";
+export type RouteGeometrySource = "osrm" | "fallback" | "raw_gps" | "none";
 
 export type RouteGeometryLayer = {
   kind: RouteGeometryKind;

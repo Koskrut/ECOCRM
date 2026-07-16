@@ -37,8 +37,10 @@ export function defaultVisitLocationFromAddresses(
 
 export function buildVisitLocationCreatePayload(
   value: VisitLocationValue,
+  entityType: "contact" | "company" = "contact",
 ): {
   contactAddressId?: string;
+  companyAddressId?: string;
   addressText: string;
   lat: number;
   lng: number;
@@ -46,7 +48,9 @@ export function buildVisitLocationCreatePayload(
 } {
   if (value.mode === "entity" && !value.addressId.startsWith("__legacy__")) {
     return {
-      contactAddressId: value.addressId,
+      ...(entityType === "contact"
+        ? { contactAddressId: value.addressId }
+        : { companyAddressId: value.addressId }),
       addressText: value.addressText,
       lat: value.lat,
       lng: value.lng,
@@ -69,6 +73,7 @@ export function buildVisitLocationCreatePayload(
 
 export function buildVisitLocationUpdatePayload(
   value: VisitLocationValue,
+  entityType: "contact" | "company" = "contact",
 ): {
   contactAddressId?: string | null;
   companyAddressId?: string | null;
@@ -79,8 +84,9 @@ export function buildVisitLocationUpdatePayload(
 } {
   if (value.mode === "entity" && !value.addressId.startsWith("__legacy__")) {
     return {
-      contactAddressId: value.addressId,
-      companyAddressId: null,
+      ...(entityType === "contact"
+        ? { contactAddressId: value.addressId, companyAddressId: null }
+        : { companyAddressId: value.addressId, contactAddressId: null }),
       addressText: value.addressText,
       lat: value.lat,
       lng: value.lng,

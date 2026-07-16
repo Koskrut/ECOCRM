@@ -1,25 +1,49 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { InventorySnapshotSource, InventorySnapshotStatus } from "@prisma/client";
+import {
+  InventorySnapshotSource,
+  InventorySnapshotStatus,
+  ProductKind,
+} from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  isOneCStockPivotSheet,
+  normalizeSnapshotSku,
+  parseOneCStockPivotSheet,
+  parseSnapshotQty,
+} from "./inventory-snapshot-1c.util";
+
+export { normalizeSnapshotSku } from "./inventory-snapshot-1c.util";
 
 type SnapshotEntry = {
   skuRaw: string;
+  skuNormalized: string;
   qty: number;
   warehouseRaw?: string | null;
 };
 
-function parseNumber(v: unknown): number {
-  if (typeof v === "number" && !Number.isNaN(v)) return Math.floor(v);
-  if (typeof v === "string") {
-    const n = parseFloat(v.replace(/\s/g, "").replace(",", "."));
-    if (!Number.isNaN(n)) return Math.floor(n);
-  }
-  return 0;
-}
-
 function normalizeHeader(v: unknown): string {
   return String(v ?? "").trim().toLowerCase();
+}
+
+/**
+ * Keep only rows whose SKU is a planning kit or an active-BOM component (semi-finished).
+ * Irrelevant 1C stock lines are dropped.
+ */
+export function filterPlanningRelevantEntries<T extends { skuNormalized: string }>(
+  entries: T[],
+  relevantSkus: Set<string>,
+): { kept: T[]; skippedIrrelevant: number } {
+  const kept: T[] = [];
+  let skippedIrrelevant = 0;
+  for (const entry of entries) {
+    if (relevantSkus.has(entry.skuNormalized)) {
+      kept.push(entry);
+    } else {
+      skippedIrrelevant += 1;
+    }
+  }
+  return { kept, skippedIrrelevant };
 }
 
 @Injectable()
@@ -33,13 +57,34 @@ export class InventorySnapshotService {
     const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[first], {
       header: 1,
       defval: "",
-      raw: false,
+      raw: true,
     }) as unknown[][];
     if (rows.length < 2) return [];
+
+    if (isOneCStockPivotSheet(rows)) {
+      return parseOneCStockPivotSheet(rows);
+    }
+
+    return this.parseFlatSheet(rows);
+  }
+
+  private parseFlatSheet(rows: unknown[][]): SnapshotEntry[] {
     const headers = rows[0].map(normalizeHeader);
-    const skuIdx = headers.findIndex((h) => h === "артикул" || h === "sku" || h === "article");
+    const skuIdx = headers.findIndex(
+      (h) =>
+        h === "артикул" ||
+        h === "sku" ||
+        h === "article" ||
+        h.includes("номенклатура.артикул"),
+    );
     const qtyIdx = headers.findIndex(
-      (h) => h === "остаток" || h === "qty" || h === "quantity" || h === "stock",
+      (h) =>
+        h === "остаток" ||
+        h === "qty" ||
+        h === "quantity" ||
+        h === "stock" ||
+        h.includes("кількість") ||
+        h.includes("количество"),
     );
     const whIdx = headers.findIndex(
       (h) =>
@@ -50,19 +95,49 @@ export class InventorySnapshotService {
         h === "warehouse name",
     );
     if (skuIdx < 0 || qtyIdx < 0) {
-      throw new BadRequestException("Expected columns: SKU + qty/stock");
+      throw new BadRequestException(
+        "Expected 1C stock report (SKU × warehouses) or flat columns: SKU + qty/stock",
+      );
     }
     const out: SnapshotEntry[] = [];
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
       if (!Array.isArray(row)) continue;
       const skuRaw = String(row[skuIdx] ?? "").trim();
-      if (!skuRaw) continue;
-      const qty = Math.max(0, parseNumber(row[qtyIdx]));
-      const warehouseRaw = whIdx >= 0 ? String(row[whIdx] ?? "").trim() : null;
-      out.push({ skuRaw, qty, warehouseRaw });
+      const skuNormalized = normalizeSnapshotSku(skuRaw);
+      if (!skuNormalized) continue;
+      const qty = parseSnapshotQty(row[qtyIdx]);
+      if (qty <= 0) continue;
+      const warehouseRaw = whIdx >= 0 ? String(row[whIdx] ?? "").trim() || null : null;
+      out.push({ skuRaw, skuNormalized, qty, warehouseRaw });
     }
     return out;
+  }
+
+  /**
+   * SKUs used by planning: active kits + components of active BOMs (полуфабрикаты).
+   */
+  async getPlanningRelevantSkus(): Promise<Set<string>> {
+    const [kits, bomLines] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { kind: ProductKind.KIT, isActive: true },
+        select: { sku: true },
+      }),
+      this.prisma.kitBomLine.findMany({
+        where: { bom: { isActive: true } },
+        select: { component: { select: { sku: true } } },
+      }),
+    ]);
+    const relevant = new Set<string>();
+    for (const kit of kits) {
+      const sku = normalizeSnapshotSku(kit.sku);
+      if (sku) relevant.add(sku);
+    }
+    for (const line of bomLines) {
+      const sku = normalizeSnapshotSku(line.component.sku);
+      if (sku) relevant.add(sku);
+    }
+    return relevant;
   }
 
   async createStagedFromFile(params: {
@@ -70,15 +145,50 @@ export class InventorySnapshotService {
     importedById: string;
     note?: string;
   }) {
-    const entries = this.parseFile(params.fileBuffer);
-    if (entries.length === 0) throw new BadRequestException("No valid rows found");
+    const allEntries = this.parseFile(params.fileBuffer);
+    if (allEntries.length === 0) throw new BadRequestException("No valid rows found");
 
-    const skuSet = Array.from(new Set(entries.map((e) => e.skuRaw)));
+    const relevantSkus = await this.getPlanningRelevantSkus();
+    if (relevantSkus.size === 0) {
+      throw new BadRequestException(
+        "No planning SKUs configured. Import kit BOMs first (kits + component parts).",
+      );
+    }
+
+    const { kept: filteredEntries, skippedIrrelevant } = filterPlanningRelevantEntries(
+      allEntries,
+      relevantSkus,
+    );
+    if (filteredEntries.length === 0) {
+      throw new BadRequestException(
+        `File has ${allEntries.length} rows, but none match planning kits or BOM components. Check BOM and product kinds.`,
+      );
+    }
+
+    // Merge duplicate (sku, warehouse) cells so availability sums stay correct.
+    const merged = new Map<string, SnapshotEntry>();
+    for (const entry of filteredEntries) {
+      const key = `${entry.skuNormalized}||${entry.warehouseRaw?.trim() ?? ""}`;
+      const prev = merged.get(key);
+      if (prev) {
+        prev.qty += entry.qty;
+      } else {
+        merged.set(key, {
+          ...entry,
+          warehouseRaw: entry.warehouseRaw?.trim() || null,
+        });
+      }
+    }
+    const entries = Array.from(merged.values());
+
+    const skuSet = Array.from(new Set(entries.map((e) => e.skuNormalized)));
     const products = await this.prisma.product.findMany({
       where: { sku: { in: skuSet } },
       select: { id: true, sku: true },
     });
-    const productBySku = new Map(products.map((p) => [p.sku, p.id]));
+    const productBySku = new Map(
+      products.map((p) => [normalizeSnapshotSku(p.sku), p.id]),
+    );
 
     const whRawSet = Array.from(
       new Set(
@@ -87,19 +197,19 @@ export class InventorySnapshotService {
           .filter((v) => v.length > 0),
       ),
     );
-    const warehouses = await this.prisma.warehouse.findMany({
-      where: {
-        OR: [
-          { name: { in: whRawSet } },
-          { externalCode: { in: whRawSet } },
-        ],
-      },
-      select: { id: true, name: true, externalCode: true },
-    });
+    const warehouses =
+      whRawSet.length > 0
+        ? await this.prisma.warehouse.findMany({
+            where: {
+              OR: [{ name: { in: whRawSet } }, { externalCode: { in: whRawSet } }],
+            },
+            select: { id: true, name: true, externalCode: true },
+          })
+        : [];
     const warehouseByRaw = new Map<string, string>();
     for (const wh of warehouses) {
-      warehouseByRaw.set(wh.name, wh.id);
-      if (wh.externalCode) warehouseByRaw.set(wh.externalCode, wh.id);
+      warehouseByRaw.set(wh.name.trim(), wh.id);
+      if (wh.externalCode) warehouseByRaw.set(wh.externalCode.trim(), wh.id);
     }
 
     const snapshot = await this.prisma.inventorySnapshot.create({
@@ -109,24 +219,37 @@ export class InventorySnapshotService {
         importedById: params.importedById,
         note: params.note ?? null,
         lines: {
-          create: entries.map((e) => ({
-            skuRaw: e.skuRaw,
-            qty: e.qty,
-            productId: productBySku.get(e.skuRaw) ?? null,
-            warehouseRaw: e.warehouseRaw ?? null,
-            warehouseId: e.warehouseRaw ? (warehouseByRaw.get(e.warehouseRaw) ?? null) : null,
-          })),
+          create: entries.map((e) => {
+            const warehouseRaw = e.warehouseRaw?.trim() || null;
+            return {
+              skuRaw: e.skuNormalized,
+              qty: e.qty,
+              productId: productBySku.get(e.skuNormalized) ?? null,
+              warehouseRaw,
+              warehouseId: warehouseRaw ? (warehouseByRaw.get(warehouseRaw) ?? null) : null,
+            };
+          }),
         },
       },
       include: { lines: true },
     });
 
-    const unresolvedSku = entries.filter((e) => !productBySku.has(e.skuRaw)).map((e) => e.skuRaw);
+    const unresolvedSku = entries
+      .filter((e) => !productBySku.has(e.skuNormalized))
+      .map((e) => e.skuNormalized);
     const unresolvedWarehouses = entries
-      .filter((e) => e.warehouseRaw && !warehouseByRaw.has(e.warehouseRaw))
-      .map((e) => e.warehouseRaw as string);
+      .filter((e) => {
+        const wh = e.warehouseRaw?.trim();
+        return Boolean(wh && !warehouseByRaw.has(wh));
+      })
+      .map((e) => e.warehouseRaw!.trim());
+
     return {
       snapshot,
+      rowsInFile: allEntries.length,
+      keptRows: entries.length,
+      skippedIrrelevant,
+      relevantSkuCount: relevantSkus.size,
       unresolvedSku: Array.from(new Set(unresolvedSku)),
       unresolvedWarehouses: Array.from(new Set(unresolvedWarehouses)),
     };
@@ -170,4 +293,3 @@ export class InventorySnapshotService {
     });
   }
 }
-

@@ -48,6 +48,9 @@ import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
 import { ContactCrmHint } from "./card/ContactCrmHint";
 import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
+import { ContactReceivablesTab } from "./card/ContactReceivablesTab";
+import { useModules } from "@/lib/modules/useModules";
+import { ModuleIds } from "@/lib/modules/module-ids";
 import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
 import { ContactCardLayoutPanel } from "@/components/metadata/ContactCardLayoutPanel";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
@@ -728,6 +731,12 @@ export function ContactModal({
   const [position, setPosition] = useState("");
   const [addressRequiredForVisit, setAddressRequiredForVisit] = useState(false);
   const [visitLocation, setVisitLocation] = useState<VisitLocationValue | null>(null);
+  const [visitPurpose, setVisitPurpose] = useState("");
+  const [visitStartsAt, setVisitStartsAt] = useState("");
+  const [visitDurationMin, setVisitDurationMin] = useState("60");
+  const [planningVisit, setPlanningVisit] = useState(false);
+  const [visitPlanError, setVisitPlanError] = useState<string | null>(null);
+  const [visitPlanSuccess, setVisitPlanSuccess] = useState<string | null>(null);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -787,10 +796,21 @@ export function ContactModal({
     | "analytics"
     | "timeline"
     | "orders"
+    | "receivables"
     | "delivery-profiles"
     | "tasks"
     | "change-history";
   const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
+
+  const { status: modulesStatus, effective: moduleEffective } = useModules();
+  const financeModuleEnabled =
+    modulesStatus === "ready" && moduleEffective(ModuleIds.Finance);
+
+  useEffect(() => {
+    if (!financeModuleEnabled && leftTab === "receivables") {
+      setLeftTab("overview");
+    }
+  }, [financeModuleEnabled, leftTab]);
 
   const phoneDuplicate = useContactPhoneDuplicateCheck(phone, isCreate);
 
@@ -1192,24 +1212,49 @@ export function ContactModal({
     }
     if (!visitLocation || !visitLocationHasCoords(visitLocation)) {
       setAddressRequiredForVisit(true);
-      alert(strings.visitLocation.coordsRequired);
+      setVisitPlanError(strings.visitLocation.coordsRequired);
+      setVisitPlanSuccess(null);
       return;
     }
     setAddressRequiredForVisit(false);
+    setPlanningVisit(true);
+    setVisitPlanError(null);
+    setVisitPlanSuccess(null);
     try {
-      await visitsApi.create({
+      const visit = await visitsApi.create({
         contactId: contact.id,
         companyId: contact.companyId ?? undefined,
         title: `${contact.lastName} ${contact.firstName}`.trim() || "Visit",
         phone: contact.phone ?? undefined,
+        purpose: visitPurpose.trim() || undefined,
         ...buildVisitLocationCreatePayload(visitLocation, "contact"),
       });
-      alert("Visit added to planned backlog.");
+      if (visitStartsAt) {
+        const durationMin = Math.max(15, Number.parseInt(visitDurationMin, 10) || 60);
+        const startsAt = new Date(visitStartsAt);
+        const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
+        await visitsApi.update(visit.id, {
+          status: "SCHEDULED",
+          startsAt: startsAt.toISOString(),
+          endsAt: endsAt.toISOString(),
+          durationMin,
+          purpose: visitPurpose.trim() || undefined,
+        });
+        setVisitPlanSuccess("Зустріч заплановано на обрану дату.");
+      } else {
+        setVisitPlanSuccess("Visit added to planned backlog.");
+      }
+      setVisitPurpose("");
+      setVisitStartsAt("");
+      setVisitDurationMin("60");
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Не вдалося запланувати візит");
-      alert(msg);
+      setVisitPlanError(msg);
+      setVisitPlanSuccess(null);
+    } finally {
+      setPlanningVisit(false);
     }
   };
 
@@ -1428,25 +1473,80 @@ export function ContactModal({
           }}
           mapsApiKey={mapsApiKey}
           error={addressRequiredForVisit}
-          disabled={saving}
+          disabled={saving || planningVisit}
         />
-        <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Останній візит</span>
-          <div className="flex items-center gap-3">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 space-y-3">
+          <div className="text-sm font-semibold text-zinc-900">Планування візиту</div>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Цель встречи</span>
+            <input
+              value={visitPurpose}
+              onChange={(e) => setVisitPurpose(e.target.value)}
+              disabled={saving || planningVisit}
+              placeholder="Например: презентация, оплата…"
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-zinc-600">Дата и время</span>
+              <input
+                type="datetime-local"
+                value={visitStartsAt}
+                onChange={(e) => setVisitStartsAt(e.target.value)}
+                disabled={saving || planningVisit}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-zinc-600">Тривалість, хв</span>
+              <select
+                value={visitDurationMin}
+                onChange={(e) => setVisitDurationMin(e.target.value)}
+                disabled={saving || planningVisit}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="30">30</option>
+                <option value="45">45</option>
+                <option value="60">60</option>
+                <option value="90">90</option>
+                <option value="120">120</option>
+              </select>
+            </label>
+          </div>
+          {visitPlanError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {visitPlanError}
+            </div>
+          ) : null}
+          {visitPlanSuccess ? (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {visitPlanSuccess}
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-zinc-500">Останній візит</span>
             <span className="text-sm text-zinc-900">
               {contact.lastVisitAt
                 ? formatDateTime(contact.lastVisitAt)
                 : <span className="font-normal text-zinc-400">Немає візитів</span>}
             </span>
-            <button
-              type="button"
-              onClick={() => void scheduleVisit()}
-              disabled={saving}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-            >
-              Запланировать встречу
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={() => void scheduleVisit()}
+            disabled={saving || planningVisit}
+            className="btn-primary"
+          >
+            {planningVisit
+              ? "Зберігаємо…"
+              : visitStartsAt
+                ? "Запланувати на дату"
+                : "Добавить в backlog"}
+          </button>
+          <p className="text-xs text-zinc-500">
+            Если дату не указывать, встреча создастся без времени и появится в backlog визитов.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 py-2">
           {contact.telegramLinked ? (
@@ -1677,7 +1777,14 @@ export function ContactModal({
     position,
     addressRequiredForVisit,
     visitLocation,
+    visitPurpose,
+    visitStartsAt,
+    visitDurationMin,
+    planningVisit,
+    visitPlanError,
+    visitPlanSuccess,
     mapsApiKey,
+    scheduleVisit,
     visitReadyAddresses,
     companyId,
     companyOptions,
@@ -1714,7 +1821,16 @@ export function ContactModal({
   const tabsUnderHeader = (
     <div className="flex gap-1 overflow-x-auto py-2 whitespace-nowrap">
       {(
-        ["overview", "analytics", "timeline", "orders", "delivery-profiles", "tasks", "change-history"] as const
+        [
+          "overview",
+          "analytics",
+          "timeline",
+          "orders",
+          ...(financeModuleEnabled ? (["receivables"] as const) : []),
+          "delivery-profiles",
+          "tasks",
+          "change-history",
+        ] as const
       ).map((tab) => (
         <button
           key={tab}
@@ -1732,6 +1848,8 @@ export function ContactModal({
               ? "Таймлайн"
             : tab === "orders"
               ? "Замовлення"
+              : tab === "receivables"
+                ? strings.receivables.contactTab
               : tab === "delivery-profiles"
                 ? "Профілі доставки"
                 : tab === "tasks"
@@ -2014,6 +2132,24 @@ export function ContactModal({
             )}
           </>
         )}
+
+        {leftTab === "receivables" && financeModuleEnabled ? (
+          <>
+            {isCreate ? (
+              <p className="text-sm text-zinc-500">
+                Спочатку збережіть контакт, щоб переглянути дебіторку.
+              </p>
+            ) : (
+              <EntitySection title={strings.receivables.contactTab}>
+                <ContactReceivablesTab
+                  contactId={effectiveContactId}
+                  financeRestricted={cardSummary.data?.insights.financeRestricted}
+                  onOpenOrder={(id) => setOrderId(id)}
+                />
+              </EntitySection>
+            )}
+          </>
+        ) : null}
 
         {leftTab === "tasks" && (
           <>

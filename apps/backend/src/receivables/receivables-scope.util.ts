@@ -3,7 +3,16 @@ import type { AnalyticsScope } from "../analytics/analytics-scope.service";
 import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics/analytics.constants";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 
-export function buildReceivablesDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+export const RECEIVABLES_EXCLUDED_LEGACY_SOURCES = ["bitrix"] as const;
+
+/** CRM operational debt: exclude Bitrix legacy imports from reconciliation. */
+export function excludeBitrixLegacyWhere(): Prisma.OrderWhereInput {
+  return {
+    OR: [{ legacySource: null }, { legacySource: { not: "bitrix" } }],
+  };
+}
+
+function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhereInput {
   const where: Prisma.OrderWhereInput = {
     debtAmount: { gt: 0 },
     clientId: { not: null },
@@ -20,6 +29,18 @@ export function buildReceivablesDebtOrderWhere(scope: AnalyticsScope): Prisma.Or
   }
 
   return where;
+}
+
+export function buildReceivablesDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  return {
+    AND: [buildReceivablesDebtOrderBase(scope), excludeBitrixLegacyWhere()],
+  };
+}
+
+export function buildBitrixLegacyDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  return {
+    AND: [buildReceivablesDebtOrderBase(scope), { legacySource: "bitrix" }],
+  };
 }
 
 export function buildReceivablesContactWhere(scope: AnalyticsScope): Prisma.ContactWhereInput {
@@ -54,5 +75,11 @@ export function isReceivablesDeltaStatus(status: ReceivablesReconcileStatus): bo
 export function buildOverdueDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
   return {
     AND: [buildReceivablesDebtOrderWhere(scope), financialOverdueWhere()],
+  };
+}
+
+export function buildBitrixLegacyOverdueDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  return {
+    AND: [buildBitrixLegacyDebtOrderWhere(scope), financialOverdueWhere()],
   };
 }

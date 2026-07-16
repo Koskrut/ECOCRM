@@ -1,7 +1,10 @@
 import type { LatLng } from "./route-geometry";
 
-/** Google Routes API v2: max intermediate waypoints per computeRoutes call. */
-export const MAX_INTERMEDIATES_PER_LEG = 25;
+/**
+ * Max intermediate waypoints per OSRM route leg (overlap stitching via splitRouteLegs).
+ * OSRM default allows ~100 coordinates; 90 leaves headroom.
+ */
+export const MAX_INTERMEDIATES_PER_LEG = 90;
 
 export type RouteLeg = {
   origin: LatLng;

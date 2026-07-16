@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
 import { View } from "react-native";
 
@@ -20,12 +21,13 @@ import {
   type VisitPurposeKey,
   type VisitScheduleMode,
 } from "@/lib/visit-create-utils";
-import type { Contact } from "@/types/crm";
+import type { Company, Contact } from "@/types/crm";
 
 export type TimeSlotKey = "next" | "10" | "14" | "16" | "custom";
 
 type Props = {
-  contact: Contact;
+  contact?: Contact | null;
+  company?: Company | null;
   mode: VisitScheduleMode;
   onModeChange: (mode: VisitScheduleMode) => void;
   timeSlot: TimeSlotKey;
@@ -39,7 +41,7 @@ type Props = {
   title: string;
   onTitleChange: (value: string) => void;
   backlogVisitId: string | null;
-  onChangeContact: () => void;
+  onChangeEntity: () => void;
 };
 
 function purposeLabel(key: VisitPurposeKey): string {
@@ -88,6 +90,7 @@ export function resolveVisitPurpose(
 
 export function VisitScheduleSection({
   contact,
+  company,
   mode,
   onModeChange,
   timeSlot,
@@ -101,9 +104,10 @@ export function VisitScheduleSection({
   title,
   onTitleChange,
   backlogVisitId,
-  onChangeContact,
+  onChangeEntity,
 }: Props) {
   const theme = useTheme();
+  const router = useRouter();
   const startsAt = useMemo(
     () => (mode === "today" ? resolveVisitStartsAt(timeSlot, customTime) : null),
     [mode, timeSlot, customTime],
@@ -120,16 +124,25 @@ export function VisitScheduleSection({
     ];
   }, []);
 
+  const entityTitle = company ? company.name : contact ? contactDisplayName(contact) : "";
+  const entitySub = company
+    ? company.address ?? company.phone ?? ""
+    : contact
+      ? (contact.company?.name ?? contact.address ?? contact.phone ?? "")
+      : "";
+
   return (
     <View>
       <Card style={{ marginBottom: theme.spacing.md }}>
-        <Text style={theme.typography.bodyMedium}>{contactDisplayName(contact)}</Text>
-        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-          {contact.company?.name ?? contact.address ?? contact.phone ?? ""}
-        </Text>
+        <Text style={theme.typography.bodyMedium}>{entityTitle}</Text>
+        {entitySub ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+            {entitySub}
+          </Text>
+        ) : null}
         <AppButton
           label={t("common.change")}
-          onPress={onChangeContact}
+          onPress={onChangeEntity}
           variant="ghost"
           style={{ marginTop: theme.spacing.sm, alignSelf: "flex-start" }}
         />

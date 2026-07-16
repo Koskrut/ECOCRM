@@ -91,7 +91,7 @@ export function routePolylineOptions(
 }
 
 export function routeSourceLabel(source: RouteGeometryResult["source"] | undefined): string | null {
-  if (source === "google") return "по дорогах";
+  if (source === "osrm") return "по дорогах";
   if (source === "fallback") return "приблизно";
   if (source === "raw_gps") return "GPS без доріг";
   return null;

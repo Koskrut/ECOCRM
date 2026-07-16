@@ -3,6 +3,7 @@ import { UserRole } from "@prisma/client";
 import type { Request } from "express";
 import { Roles } from "../auth/roles.decorator";
 import type { AuthUser } from "../auth/auth.types";
+import { OsrmRoutingService } from "../routing/osrm-routing.service";
 import { LicenseStateProvider } from "../modules/license/license-state.provider";
 import { ModuleStateService } from "../modules/module-state.service";
 import type { SystemLicenseStatusDto } from "./dto/system-license-status.dto";
@@ -26,6 +27,7 @@ export class SystemController {
     @Inject(SystemUpdateService) private readonly updateService: SystemUpdateService,
     @Inject(SystemVersionService) private readonly versionService: SystemVersionService,
     @Inject(ControlPlanePhoneHomeService) private readonly controlPlanePhoneHome: ControlPlanePhoneHomeService,
+    @Inject(OsrmRoutingService) private readonly osrmRouting: OsrmRoutingService,
   ) {}
 
   @Get("modules")
@@ -77,6 +79,25 @@ export class SystemController {
   @Roles(UserRole.ADMIN)
   backendVariant(): { variant: string } {
     return { variant: process.env.BACKEND_VARIANT ?? "full" };
+  }
+
+  @Get("routing-health")
+  @Roles(UserRole.ADMIN)
+  async routingHealth(): Promise<{
+    provider: "osrm";
+    baseUrl: string;
+    profile: string;
+    ok: boolean;
+    latencyMs: number | null;
+    error?: string;
+  }> {
+    const check = await this.osrmRouting.healthCheck();
+    return {
+      provider: "osrm",
+      baseUrl: this.osrmRouting.resolveBaseUrl(),
+      profile: this.osrmRouting.resolveProfile(),
+      ...check,
+    };
   }
 
   @Get("control-plane")

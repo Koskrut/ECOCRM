@@ -23,6 +23,8 @@ import {
 import { formatPhoneDisplay } from "@/lib/formatPhone";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
+import { manualCallingApi } from "@/lib/api/resources/manual-calling";
+import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { CompanyTimeline } from "./CompanyTimeline";
 import { OrderModal } from "../orders/OrderModal";
@@ -37,6 +39,7 @@ import {
   type PlaceSuggestion,
 } from "@/lib/googlePlacesNew";
 import { strings } from "@/locales";
+import { useToast } from "@/components/feedback";
 
 type GoogleMapsPublicConfig = { mapsApiKey: string | null };
 
@@ -134,6 +137,8 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [visitPlanError, setVisitPlanError] = useState<string | null>(null);
   const [visitPlanSuccess, setVisitPlanSuccess] = useState<string | null>(null);
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
+  const [queueingDialer, setQueueingDialer] = useState(false);
+  const { pushToast } = useToast();
 
   // Contacts linked to this company
   const [companyContacts, setCompanyContacts] = useState<{ id: string; firstName: string; lastName: string; phone: string }[]>([]);
@@ -451,6 +456,27 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
       setPlanningVisit(false);
     }
   };
+
+  const enqueueDialer = useCallback(async () => {
+    if (!company || isCreate) return;
+    const phoneValue = (editPhone.trim() || company.phone || "").trim();
+    if (!phoneValue) {
+      pushToast("Укажите телефон компании.", "error");
+      return;
+    }
+    setQueueingDialer(true);
+    try {
+      await manualCallingApi.enqueue({ companyId: company.id });
+      pushToast("Добавлено в очередь прозвона.", "success");
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не удалось добавить в очередь");
+      pushToast(msg, "error");
+    } finally {
+      setQueueingDialer(false);
+    }
+  }, [company, isCreate, editPhone, pushToast]);
 
   const handleSelectAddressSuggestion = useCallback(
     async (suggestion: PlaceSuggestion, forCreate: boolean) => {
@@ -872,6 +898,29 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                 }}
                 disabled={saving}
               />
+              {(editPhone.trim() || company!.phone) ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <KyivstarDialButton
+                    phone={(editPhone.trim() || company!.phone)!}
+                    size="md"
+                    label="Click2Dial Kyivstar"
+                  />
+                  <a
+                    href={`tel:${editPhone.trim() || company!.phone}`}
+                    className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+                  >
+                    або звичайний tel:
+                  </a>
+                  <button
+                    type="button"
+                    disabled={queueingDialer || saving}
+                    onClick={() => void enqueueDialer()}
+                    className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {queueingDialer ? "Добавляем…" : "В очередь прозвона"}
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Відповідальний</label>
@@ -922,7 +971,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             </button>
           </div>
         </div>
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+        <div id="company-visit-plan" className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Планування зустрічі</div>
@@ -1078,6 +1127,8 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     editLat,
     editLng,
     editGooglePlaceId,
+    queueingDialer,
+    enqueueDialer,
     onClose,
     save,
     patchCompany,
@@ -1303,14 +1354,39 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         subtitle={company?.name}
         headerActions={
           !isCreate ? (
-            <button
-              type="button"
-              disabled={loading || !!err || creatingOrder}
-              onClick={() => void createOrder()}
-              className="btn-primary py-1.5"
-            >
-              {creatingOrder ? "Creating…" : "+ Order"}
-            </button>
+            <div className="flex items-center gap-2">
+              {(editPhone.trim() || company?.phone) ? (
+                <KyivstarDialButton
+                  phone={(editPhone.trim() || company?.phone)!}
+                  size="md"
+                  label="Позвонить"
+                />
+              ) : null}
+              <button
+                type="button"
+                disabled={loading || !!err || planningVisit}
+                onClick={() => {
+                  setLeftTab("main");
+                  window.setTimeout(() => {
+                    document.getElementById("company-visit-plan")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    });
+                  }, 50);
+                }}
+                className="rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+              >
+                + Visit
+              </button>
+              <button
+                type="button"
+                disabled={loading || !!err || creatingOrder}
+                onClick={() => void createOrder()}
+                className="btn-primary py-1.5"
+              >
+                {creatingOrder ? "Creating…" : "+ Order"}
+              </button>
+            </div>
           ) : null
         }
         tabsUnderHeader={tabsUnderHeader}

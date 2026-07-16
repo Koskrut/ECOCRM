@@ -3,7 +3,7 @@ import type { LatLng } from "./route-geometry";
 /** Canonical route line kinds for plan vs fact comparison. */
 export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps";
 
-export type RouteGeometrySource = "google" | "fallback" | "raw_gps" | "none";
+export type RouteGeometrySource = "osrm" | "fallback" | "raw_gps" | "none";
 
 export type RouteGeometryQuality = {
   sampleCount: number;
@@ -29,7 +29,7 @@ export type RouteGeometryResult = {
   durationMin: number | null;
   /** Decoded path for map rendering (always present when source !== none). */
   path: LatLng[];
-  /** Google encoded polyline when source is google. */
+  /** Legacy Google encoded polyline — unused with OSRM (path is always decoded). */
   encodedPolyline: string | null;
   waypoints: RouteGeometryWaypoint[];
   quality: RouteGeometryQuality;

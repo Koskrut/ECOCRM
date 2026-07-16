@@ -27,3 +27,26 @@ test("resolveDashboardScope: ADMIN without filter is company-wide", async () => 
   assert.equal(scope.orderScope.managerId, undefined);
   assert.equal(scope.orderScope.allowedOwnerIds, undefined);
 });
+
+function lead(): AuthUser {
+  return { id: "lead-1", email: "l@test.local", fullName: "Lead", role: UserRole.LEAD };
+}
+
+test("resolveDashboardScope: LEAD includes self and team", async () => {
+  const prisma = {
+    user: {
+      findMany: async () => [{ id: "mgr-1" }, { id: "mgr-2" }],
+    },
+  };
+  const service = new AnalyticsScopeService(prisma as never);
+  const scope = await service.resolveDashboardScope(lead());
+  assert.deepEqual(scope.orderScope.allowedOwnerIds, ["lead-1", "mgr-1", "mgr-2"]);
+});
+
+test("resolveDashboardScope: LEAD without team still includes self", async () => {
+  const prisma = { user: { findMany: async () => [] } };
+  const service = new AnalyticsScopeService(prisma as never);
+  const scope = await service.resolveDashboardScope(lead());
+  assert.deepEqual(scope.orderScope.allowedOwnerIds, ["lead-1"]);
+  assert.equal(scope.emptyTeam, undefined);
+});

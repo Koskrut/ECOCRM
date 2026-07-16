@@ -2,14 +2,15 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
+import { OsrmRoutingService } from "../routing/osrm-routing.service";
+import { RouteResultCache } from "../routing/route-result-cache";
 import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./route-geometry";
-import { decodeEncodedPolyline, pathFromWaypoints } from "./polyline.util";
+import { pathFromWaypoints } from "./polyline.util";
 import {
   assessGpsTrackQuality,
   concatPaths,
   downsamplePathUniform,
   isTrackEligibleForCompensation,
-  MAX_INTERMEDIATES_PER_LEG,
   splitRouteLegs,
   sumLegMetrics,
 } from "./route-routing.util";
@@ -24,27 +25,93 @@ import { resolveSingleOwnerId } from "./visits-owner-scope";
 import { filterGpsTrack } from "../field/gps-sample-filter";
 import { kyivDayBounds } from "../crm-timezone";
 
-export type RoutePlanScopeOpts = { traffic?: boolean; ownerId?: string };
+export type RoutePlanScopeOpts = {
+  /** @deprecated Ignored — legacy Google traffic flag. */
+  traffic?: boolean;
+  ownerId?: string;
+  /** Skip OSRM (preview / unsaved order) — haversine only. */
+  fallbackOnly?: boolean;
+};
+
+type RoutedMultiLegResult = {
+  distanceKm: number | null;
+  durationMin: number | null;
+  path: LatLng[];
+  source: "osrm" | "fallback";
+};
 
 @Injectable()
 export class RoutePlansService {
   private readonly logger = new Logger(RoutePlansService.name);
+  private readonly routeCache = new RouteResultCache<RoutedMultiLegResult>(10 * 60 * 1000);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly osrm: OsrmRoutingService,
+  ) {}
 
   private async resolveOwner(actor: AuthUser, requestedOwnerId?: string): Promise<string> {
     return resolveSingleOwnerId(this.prisma, actor, requestedOwnerId);
   }
 
-  private async getGoogleMapsApiKey(): Promise<string | null> {
-    const row = await this.prisma.systemSetting.findUnique({
-      where: { id: "google_maps" },
-      select: { value: true },
-    });
-    if (!row?.value || typeof row.value !== "object") return null;
-    const v = row.value as Record<string, unknown>;
-    const key = typeof v.mapsApiKey === "string" ? v.mapsApiKey.trim() : "";
-    return key || null;
+  private routeLegCacheKey(origin: LatLng, destination: LatLng, intermediates: LatLng[]): string {
+    const fmt = (p: LatLng) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+    return [fmt(origin), ...intermediates.map(fmt), fmt(destination)].join("|");
+  }
+
+  /** Road-following route via one or more OSRM legs. */
+  private async computeRouteMultiLeg(opts: {
+    origin: LatLng;
+    destination: LatLng;
+    intermediates: LatLng[];
+  }): Promise<RoutedMultiLegResult | null> {
+    const { origin, destination, intermediates } = opts;
+    const cacheKey = this.routeLegCacheKey(origin, destination, intermediates);
+    const cached = this.routeCache.get(cacheKey);
+    if (cached) return cached;
+
+    const legs = splitRouteLegs(origin, intermediates, destination);
+    if (legs.length === 0) return null;
+
+    const decodedPaths: LatLng[][] = [];
+    const metrics: Array<{ distanceKm: number | null; durationMin: number | null }> = [];
+
+    for (const leg of legs) {
+      const routed = await this.osrm.routeLeg({
+        origin: leg.origin,
+        destination: leg.destination,
+        intermediates: leg.intermediates,
+      });
+      if (!routed || routed.source !== "osrm" || routed.path.length < 2) {
+        const km = this.haversineKm(
+          origin.lat,
+          origin.lng,
+          intermediates,
+          destination.lat,
+          destination.lng,
+        );
+        const fallback: RoutedMultiLegResult = {
+          distanceKm: Math.round(km * 10) / 10,
+          durationMin: null,
+          path: pathFromWaypoints(origin, intermediates, destination),
+          source: "fallback",
+        };
+        this.routeCache.set(cacheKey, fallback);
+        return fallback;
+      }
+      decodedPaths.push(routed.path);
+      metrics.push({ distanceKm: routed.distanceKm, durationMin: routed.durationMin });
+    }
+
+    const summed = sumLegMetrics(metrics);
+    const result: RoutedMultiLegResult = {
+      distanceKm: summed.distanceKm,
+      durationMin: summed.durationMin,
+      path: concatPaths(decodedPaths),
+      source: "osrm",
+    };
+    this.routeCache.set(cacheKey, result);
+    return result;
   }
 
   /** Start/end anchors from user profile (Сотрудники → «Маршрут визитов»). */
@@ -91,173 +158,11 @@ export class RoutePlansService {
     };
   }
 
-  private buildRoutingPreference(traffic: boolean): "TRAFFIC_AWARE" | "TRAFFIC_UNAWARE" {
-    return traffic ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE";
-  }
-
-  private async computeRouteByGoogle(opts: {
-    origin: { lat: number; lng: number };
-    destination: { lat: number; lng: number };
-    intermediates: Array<{ lat: number; lng: number }>;
-    traffic: boolean;
-    optimize?: boolean;
-  }  ): Promise<
-    | {
-        distanceKm: number | null;
-        durationMin: number | null;
-        encodedPolyline?: string | null;
-        optimizedIntermediateIndexes?: number[];
-      }
-    | null
-  > {
-    const key = await this.getGoogleMapsApiKey();
-    if (!key) return null;
-    const res = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask":
-          "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.optimizedIntermediateWaypointIndex",
-      },
-      body: JSON.stringify({
-        origin: { location: { latLng: { latitude: opts.origin.lat, longitude: opts.origin.lng } } },
-        destination: {
-          location: { latLng: { latitude: opts.destination.lat, longitude: opts.destination.lng } },
-        },
-        intermediates: opts.intermediates.map((p) => ({
-          location: { latLng: { latitude: p.lat, longitude: p.lng } },
-        })),
-        travelMode: "DRIVE",
-        routingPreference: this.buildRoutingPreference(opts.traffic),
-        polylineQuality: "HIGH_QUALITY",
-        computeAlternativeRoutes: false,
-        ...(opts.optimize ? { optimizeWaypointOrder: true } : {}),
-      }),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      this.logger.warn(
-        `Google Routes API ${res.status}: ${errBody.slice(0, 400)}`,
-      );
-      return null;
-    }
-    const data = (await res.json()) as {
-      routes?: Array<{
-        distanceMeters?: number;
-        duration?: string;
-        polyline?: { encodedPolyline?: string };
-        optimizedIntermediateWaypointIndex?: number[];
-      }>;
-    };
-    const r = data.routes?.[0];
-    const distM = typeof r?.distanceMeters === "number" ? r.distanceMeters : null;
-    const dur = typeof r?.duration === "string" ? r.duration : null; // "1234s"
-    const durationSec = dur && /^\d+s$/.test(dur) ? Number(dur.replace("s", "")) : null;
-    const encoded =
-      typeof r?.polyline?.encodedPolyline === "string" ? r.polyline.encodedPolyline : null;
-    const optimized =
-      Array.isArray(r?.optimizedIntermediateWaypointIndex) &&
-      r!.optimizedIntermediateWaypointIndex!.every((x) => typeof x === "number")
-        ? (r!.optimizedIntermediateWaypointIndex as number[])
-        : undefined;
-    return {
-      distanceKm: distM != null ? Math.round((distM / 1000) * 10) / 10 : null,
-      durationMin: durationSec != null ? Math.round(durationSec / 60) : null,
-      encodedPolyline: encoded,
-      ...(optimized ? { optimizedIntermediateIndexes: optimized } : {}),
-    };
-  }
-
-  /** Road-following route via one or more Google Routes legs (handles >25 waypoints). */
-  private async computeRouteMultiLeg(opts: {
-    origin: LatLng;
-    destination: LatLng;
-    intermediates: LatLng[];
-    traffic: boolean;
-    optimize?: boolean;
-  }): Promise<{
-    distanceKm: number | null;
-    durationMin: number | null;
-    path: LatLng[];
-    encodedPolyline: string | null;
-    source: "google" | "fallback";
-    optimizedIntermediateIndexes?: number[];
-  } | null> {
-    const { origin, destination, intermediates, traffic, optimize } = opts;
-
-    if (optimize && intermediates.length <= MAX_INTERMEDIATES_PER_LEG) {
-      const google = await this.computeRouteByGoogle({
-        origin,
-        destination,
-        intermediates,
-        traffic,
-        optimize: true,
-      });
-      if (!google) return null;
-      const path = google.encodedPolyline
-        ? decodeEncodedPolyline(google.encodedPolyline)
-        : pathFromWaypoints(origin, intermediates, destination);
-      return {
-        distanceKm: google.distanceKm,
-        durationMin: google.durationMin,
-        path,
-        encodedPolyline: google.encodedPolyline ?? null,
-        source: google.encodedPolyline ? "google" : "fallback",
-        ...(google.optimizedIntermediateIndexes
-          ? { optimizedIntermediateIndexes: google.optimizedIntermediateIndexes }
-          : {}),
-      };
-    }
-
-    const legs = splitRouteLegs(origin, intermediates, destination);
-    if (legs.length === 0) return null;
-
-    const decodedPaths: LatLng[][] = [];
-    const metrics: Array<{ distanceKm: number | null; durationMin: number | null }> = [];
-
-    for (const leg of legs) {
-      const google = await this.computeRouteByGoogle({
-        origin: leg.origin,
-        destination: leg.destination,
-        intermediates: leg.intermediates,
-        traffic,
-      });
-      if (!google?.encodedPolyline) {
-        const km = this.haversineKm(
-          origin.lat,
-          origin.lng,
-          intermediates,
-          destination.lat,
-          destination.lng,
-        );
-        return {
-          distanceKm: Math.round(km * 10) / 10,
-          durationMin: null,
-          path: pathFromWaypoints(origin, intermediates, destination),
-          encodedPolyline: null,
-          source: "fallback",
-        };
-      }
-      decodedPaths.push(decodeEncodedPolyline(google.encodedPolyline));
-      metrics.push({ distanceKm: google.distanceKm, durationMin: google.durationMin });
-    }
-
-    const summed = sumLegMetrics(metrics);
-    return {
-      distanceKm: summed.distanceKm,
-      durationMin: summed.durationMin,
-      path: concatPaths(decodedPaths),
-      encodedPolyline: null,
-      source: "google",
-    };
-  }
-
   async getRouteMetrics(
     dateStr: string,
     actor: AuthUser | undefined,
     opts?: RoutePlanScopeOpts,
-  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
+  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "osrm" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
@@ -298,20 +203,19 @@ export class RoutePlansService {
         origin,
         destination,
         intermediates,
-        traffic: opts?.traffic === true,
       });
-      if (routed?.source === "google") {
+      if (routed?.source === "osrm") {
         return {
           distanceKm: routed.distanceKm,
           durationMin: routed.durationMin,
-          source: "google",
+          source: "osrm",
         };
       }
     } catch {
       // fall through
     }
 
-    // Fallback: straight-line sum (useful when API key is missing/restricted)
+    // Fallback: straight-line sum when OSRM is unavailable
     const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
     return { distanceKm: Math.round(km * 10) / 10, durationMin: null, source: "fallback" };
   }
@@ -351,7 +255,7 @@ export class RoutePlansService {
     visitIds: string[],
     actor: AuthUser | undefined,
     opts?: RoutePlanScopeOpts,
-  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
+  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "osrm" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
@@ -388,30 +292,20 @@ export class RoutePlansService {
     const visitPoints = ordered.map((v) => v.coords);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
-    try {
-      const routed = await this.computeRouteMultiLeg({
-        origin,
-        destination,
-        intermediates,
-        traffic: opts?.traffic === true,
-      });
-      if (routed?.source === "google") {
-        return { distanceKm: routed.distanceKm, durationMin: routed.durationMin, source: "google" };
-      }
-    } catch {
-      // fall through
-    }
-
+    // Preview must not call OSRM — haversine only while dragging/reordering.
     const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
     return { distanceKm: Math.round(km * 10) / 10, durationMin: null, source: "fallback" };
   }
 
+  /**
+   * Local nearest-neighbor order. Does not call Google (optimizeWaypointOrder = Pro SKU).
+   */
   async optimizeRouteOrder(
     dateStr: string,
     visitIds: string[],
     actor: AuthUser | undefined,
     opts?: RoutePlanScopeOpts,
-  ): Promise<{ visitIds: string[]; source: "google" | "fallback" }> {
+  ): Promise<{ visitIds: string[]; source: "fallback" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
@@ -444,31 +338,11 @@ export class RoutePlansService {
 
     const anchors = await this.getRouteAnchors(ownerId);
     const visitPoints = ordered.map((v) => v.coords);
-    const { origin, destination, usesSettingsAnchors } = resolveRouteGeometry(visitPoints, anchors);
+    const { usesSettingsAnchors } = resolveRouteGeometry(visitPoints, anchors);
 
     const intermediatesForOptimize = usesSettingsAnchors
       ? ordered
       : ordered.slice(1, -1);
-
-    try {
-      const google = await this.computeRouteByGoogle({
-        origin,
-        destination,
-        intermediates: intermediatesForOptimize.map((v) => v.coords),
-        traffic: opts?.traffic === true,
-        optimize: true,
-      });
-      if (google?.optimizedIntermediateIndexes) {
-        const perm = google.optimizedIntermediateIndexes;
-        const reordered = perm.map((i) => intermediatesForOptimize[i]).filter(Boolean) as typeof ordered;
-        const result = usesSettingsAnchors
-          ? reordered.map((v) => v.id)
-          : [ordered[0]!.id, ...reordered.map((v) => v.id), ordered[ordered.length - 1]!.id];
-        return { visitIds: result, source: "google" };
-      }
-    } catch {
-      // fall back
-    }
 
     const start = usesSettingsAnchors ? intermediatesForOptimize[0]! : ordered[0]!;
     const fixedLast = usesSettingsAnchors ? null : ordered[ordered.length - 1]!;
@@ -512,7 +386,7 @@ export class RoutePlansService {
     dateStr: string,
     actor: AuthUser | undefined,
     opts?: RoutePlanScopeOpts,
-  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "google" | "fallback" | "none" }> {
+  ): Promise<{ distanceKm: number | null; durationMin: number | null; source: "osrm" | "fallback" | "none" }> {
     if (!actor) throw new BadRequestException("User is required");
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
@@ -551,10 +425,9 @@ export class RoutePlansService {
         origin,
         destination,
         intermediates,
-        traffic: opts?.traffic === true,
       });
-      if (routed?.source === "google") {
-        return { distanceKm: routed.distanceKm, durationMin: routed.durationMin, source: "google" };
+      if (routed?.source === "osrm") {
+        return { distanceKm: routed.distanceKm, durationMin: routed.durationMin, source: "osrm" };
       }
     } catch {
       // fall through
@@ -816,24 +689,13 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Chronological GPS track → drivable path (Google Routes, multi-leg). */
+  /** Chronological GPS track → drivable path (OSRM, multi-leg). */
   async snapGpsPathToRoads(
     points: LatLng[],
-    opts?: { traffic?: boolean },
-  ): Promise<{ path: LatLng[]; source: "google" | "fallback" | "none"; distanceKm: number | null }> {
+  ): Promise<{ path: LatLng[]; source: "osrm" | "fallback" | "none"; distanceKm: number | null }> {
     if (points.length < 2) {
       this.logger.warn("snapGpsPathToRoads: insufficient_points");
       return { path: [], source: "none", distanceKm: null };
-    }
-
-    const apiKey = await this.getGoogleMapsApiKey();
-    if (!apiKey) {
-      this.logger.warn("snapGpsPathToRoads: no_api_key");
-      return {
-        path: points,
-        source: "fallback",
-        distanceKm: this.pathDistanceKm(points),
-      };
     }
 
     const sampled = downsamplePathUniform(points, 100);
@@ -851,12 +713,11 @@ export class RoutePlansService {
         origin,
         destination,
         intermediates,
-        traffic: opts?.traffic === true,
       });
-      if (routed?.source === "google" && routed.path.length >= 2) {
+      if (routed?.source === "osrm" && routed.path.length >= 2) {
         return {
           path: routed.path,
-          source: "google",
+          source: "osrm",
           distanceKm: routed.distanceKm,
         };
       }
@@ -885,9 +746,10 @@ export class RoutePlansService {
     visitPoints: LatLng[];
     waypoints: RouteGeometryWaypoint[];
     ownerId: string;
-    traffic: boolean;
+    /** When true, skip OSRM (preview / drag) — haversine only. */
+    fallbackOnly?: boolean;
   }): Promise<RouteGeometryResult> {
-    const { kind, visitPoints, waypoints, ownerId, traffic } = opts;
+    const { kind, visitPoints, waypoints, ownerId, fallbackOnly } = opts;
     if (visitPoints.length === 0) {
       return this.emptyGeometry(kind, "no_points");
     }
@@ -895,32 +757,33 @@ export class RoutePlansService {
     const anchors = await this.getRouteAnchors(ownerId);
     const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
 
-    try {
-      const routed = await this.computeRouteMultiLeg({
-        origin,
-        destination,
-        intermediates,
-        traffic,
-      });
-      if (routed?.source === "google" && routed.path.length >= 2) {
-        return {
-          kind,
-          source: "google",
-          distanceKm: routed.distanceKm,
-          durationMin: routed.durationMin,
-          path: routed.path,
-          encodedPolyline: routed.encodedPolyline,
-          waypoints,
-          quality: {
-            sampleCount: waypoints.length,
-            coverageRatio: null,
-            degraded: false,
-            degradedReason: null,
-          },
-        };
+    if (!fallbackOnly) {
+      try {
+        const routed = await this.computeRouteMultiLeg({
+          origin,
+          destination,
+          intermediates,
+        });
+        if (routed?.source === "osrm" && routed.path.length >= 2) {
+          return {
+            kind,
+            source: "osrm",
+            distanceKm: routed.distanceKm,
+            durationMin: routed.durationMin,
+            path: routed.path,
+            encodedPolyline: null,
+            waypoints,
+            quality: {
+              sampleCount: waypoints.length,
+              coverageRatio: null,
+              degraded: false,
+              degradedReason: null,
+            },
+          };
+        }
+      } catch {
+        // fall through
       }
-    } catch {
-      // fall through
     }
 
     const km = this.haversineKm(origin.lat, origin.lng, intermediates, destination.lat, destination.lng);
@@ -1179,7 +1042,7 @@ export class RoutePlansService {
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const date = this.parseDate(dateStr);
-    const traffic = opts?.traffic === true;
+    const fallbackOnly = opts?.fallbackOnly === true;
 
     if (kind === "planned") {
       const { points, waypoints } = await this.loadPlannedVisitPoints(
@@ -1188,13 +1051,13 @@ export class RoutePlansService {
         opts?.visitIds,
       );
       if (points.length === 0) return this.emptyGeometry(kind, "no_planned_stops");
-      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, traffic });
+      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, fallbackOnly });
     }
 
     if (kind === "fact_visits") {
       const { points, waypoints } = await this.loadFactVisitPoints(ownerId, date);
       if (points.length < 2) return this.emptyGeometry(kind, "insufficient_completed_visits");
-      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, traffic });
+      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, fallbackOnly });
     }
 
     const gps = await this.loadGpsTrack(ownerId, date);
@@ -1211,13 +1074,15 @@ export class RoutePlansService {
     let path = gps.path;
     let source: RouteGeometryResult["source"] = "raw_gps";
 
-    const snapped = await this.snapGpsPathToRoads(gps.fullPath, { traffic });
-    if (snapped.source !== "none" && snapped.distanceKm != null) {
-      distanceKm = snapped.distanceKm;
-      if (snapped.path.length >= 2) {
-        path = snapped.path;
+    if (!fallbackOnly) {
+      const snapped = await this.snapGpsPathToRoads(gps.fullPath);
+      if (snapped.source !== "none" && snapped.distanceKm != null) {
+        distanceKm = snapped.distanceKm;
+        if (snapped.path.length >= 2) {
+          path = snapped.path;
+        }
+        source = snapped.source === "osrm" ? "osrm" : "raw_gps";
       }
-      source = snapped.source === "google" ? "google" : "raw_gps";
     }
 
     if (distanceKm == null) {
@@ -1250,7 +1115,7 @@ export class RoutePlansService {
   ): Promise<{
     distanceKm: number | null;
     durationMin: number | null;
-    source: "google" | "fallback" | "raw_gps" | "none";
+    source: "osrm" | "fallback" | "raw_gps" | "none";
   }> {
     const geom = await this.getRouteGeometry(dateStr, "fact_gps", actor, opts);
     if (geom.source === "none" || geom.path.length < 2) {
@@ -1305,6 +1170,7 @@ export class RoutePlansService {
     return this.getRouteGeometry(dateStr, "planned", actor, {
       ...opts,
       visitIds,
+      fallbackOnly: true,
     });
   }
 }

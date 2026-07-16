@@ -11,6 +11,10 @@ import {
   type UserNotification,
 } from "@/lib/api/resources/notifications";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import {
+  ensureNotificationSoundListeners,
+  playNotificationSound,
+} from "@/lib/notification-sound";
 import { useToast } from "@/components/feedback";
 
 const POLL_MS = 10_000;
@@ -57,6 +61,8 @@ export function NotificationBell() {
       });
   }, []);
 
+  useEffect(() => ensureNotificationSoundListeners(), []);
+
   const notifyNewItems = useCallback(
     async (prevCount: number, nextCount: number) => {
       if (nextCount <= prevCount) return;
@@ -76,6 +82,8 @@ export function NotificationBell() {
           ? "У вас 1 непрочитане сповіщення"
           : `У вас ${nextCount} непрочитаних сповіщень`);
 
+      playNotificationSound();
+
       if (!openRef.current) {
         pushToast(title, "info");
       }
@@ -88,6 +96,7 @@ export function NotificationBell() {
         new Notification(title, {
           body,
           tag: "crm-notifications",
+          silent: false,
         });
       }
     },

@@ -195,10 +195,17 @@ export default function VisitDetailScreen() {
     if (!token || !visit) return;
     setActionBusy(true);
     try {
-      const updated = await visitsApi.update(token, visit.id, payload);
+      const fromBacklog = visit.status === "PLANNED_UNASSIGNED";
+      const updated = await visitsApi.update(token, visit.id, {
+        ...payload,
+        ...(fromBacklog ? { status: "SCHEDULED" } : {}),
+      });
       setVisit(updated);
       setRescheduleOpen(false);
-      Alert.alert(t("common.done"), t("visit.rescheduled"));
+      Alert.alert(
+        t("common.done"),
+        fromBacklog ? t("visit.scheduledFromBacklog") : t("visit.rescheduled"),
+      );
     } catch (e) {
       Alert.alert(t("common.error"), e instanceof Error ? e.message : String(e));
     } finally {
@@ -256,6 +263,7 @@ export default function VisitDetailScreen() {
   }
 
   const scheduled = visit.status === "SCHEDULED";
+  const unassigned = visit.status === "PLANNED_UNASSIGNED";
   const visitDateKey = visitDayKey(visit);
   const active = visit.status === "IN_PROGRESS";
   const contactName = visit.contact
@@ -318,12 +326,30 @@ export default function VisitDetailScreen() {
             variant="secondary"
             fullWidth
           />
+        ) : unassigned ? (
+          <AppButton
+            label={t("visit.scheduleFromBacklog")}
+            onPress={() => setRescheduleOpen(true)}
+            variant="secondary"
+            fullWidth
+          />
         ) : visit.contactId ?? visit.contact?.id ? (
           <AppButton
             label={t("visit.scheduleAnother")}
             onPress={() =>
               router.push(
                 `/visits/new?contactId=${encodeURIComponent(visit.contactId ?? visit.contact!.id!)}`,
+              )
+            }
+            variant="secondary"
+            fullWidth
+          />
+        ) : visit.companyId ?? visit.company?.id ? (
+          <AppButton
+            label={t("visit.scheduleAnother")}
+            onPress={() =>
+              router.push(
+                `/visits/new?companyId=${encodeURIComponent(visit.companyId ?? visit.company!.id!)}`,
               )
             }
             variant="secondary"
@@ -506,6 +532,7 @@ export default function VisitDetailScreen() {
         initialStartsAt={visit.startsAt ?? null}
         durationMin={visit.durationMin}
         loading={actionBusy}
+        title={unassigned ? t("visit.scheduleFromBacklogTitle") : undefined}
         onSave={(payload) => void onReschedule(payload)}
       />
 

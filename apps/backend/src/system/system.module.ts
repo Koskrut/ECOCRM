@@ -6,6 +6,7 @@ import { FileLicenseStateProvider } from "../modules/license/file-license-state.
 import { LicenseStateProvider } from "../modules/license/license-state.provider";
 import { ModuleHealthService } from "../modules/module-health.service";
 import { ModuleStateService } from "../modules/module-state.service";
+import { RoutingModule } from "../routing/routing.module";
 import { ControlPlanePhoneHomeService } from "./control-plane-phone-home.service";
 import { SystemController } from "./system.controller";
 import { SystemReleaseService } from "./system-release.service";
@@ -16,7 +17,7 @@ import { SystemVersionService } from "./system-version.service";
 const activeLicenseProviderClass = FileLicenseStateProvider;
 
 @Module({
-  imports: [ScheduleModule.forRoot()],
+  imports: [ScheduleModule.forRoot(), RoutingModule],
   controllers: [SystemController],
   providers: [
     ModuleHealthService,

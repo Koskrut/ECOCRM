@@ -5,6 +5,7 @@ import { Text } from "@/components/Themed";
 import { Chip } from "@/components/ui/Chip";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TextField } from "@/components/ui/TextField";
+import { companiesApi } from "@/lib/api/companies";
 import { contactsApi } from "@/lib/api/contacts";
 import { autocompleteAddress, geocodePlace } from "@/lib/google-places";
 import { useTheme } from "@/lib/design/theme-context";
@@ -13,31 +14,36 @@ import {
   defaultVisitLocationFromAddresses,
   type VisitLocationValue,
 } from "@/lib/visit-location.types";
-import type { CompanyAddress, Contact } from "@/types/crm";
+import type { Company, CompanyAddress, Contact } from "@/types/crm";
 
 const LEGACY_ADDRESS_ID = "__legacy__";
 
 type Props = {
   token: string;
-  contact: Contact;
+  contact?: Contact | null;
+  company?: Company | null;
   value: VisitLocationValue | null;
   onChange: (value: VisitLocationValue) => void;
   mapsApiKey: string | null;
   disabled?: boolean;
 };
 
-function legacyContactAddress(contact: Contact): CompanyAddress | null {
-  if (contact.lat == null || contact.lng == null || !contact.address?.trim()) return null;
+function legacyEntityAddress(entity: {
+  lat?: number | null;
+  lng?: number | null;
+  address?: string | null;
+}): CompanyAddress | null {
+  if (entity.lat == null || entity.lng == null || !entity.address?.trim()) return null;
   return {
     id: LEGACY_ADDRESS_ID,
     label: null,
     city: null,
-    addressText: contact.address,
-    lat: contact.lat,
-    lng: contact.lng,
+    addressText: entity.address,
+    lat: entity.lat,
+    lng: entity.lng,
     googlePlaceId: null,
     isDefault: true,
-    displayLine: contact.address,
+    displayLine: entity.address,
     hasCoordinates: true,
     createdAt: "",
     updatedAt: "",
@@ -47,12 +53,15 @@ function legacyContactAddress(contact: Contact): CompanyAddress | null {
 export function VisitLocationSection({
   token,
   contact,
+  company,
   value,
   onChange,
   mapsApiKey,
   disabled = false,
 }: Props) {
   const theme = useTheme();
+  const entityType = company ? "company" : "contact";
+  const entityKey = company?.id ?? contact?.id ?? "";
   const [mode, setMode] = useState<"entity" | "other">(value?.mode ?? "entity");
   const [addresses, setAddresses] = useState<CompanyAddress[]>([]);
   const [loadingAddresses, setLoadingAddresses] = useState(true);
@@ -65,15 +74,23 @@ export function VisitLocationSection({
   const readyAddresses = useMemo(() => {
     const fromApi = addresses.filter((a) => a.hasCoordinates && a.lat != null && a.lng != null);
     if (fromApi.length > 0) return fromApi;
-    const legacy = legacyContactAddress(contact);
+    const legacy = legacyEntityAddress(company ?? contact ?? {});
     return legacy ? [legacy] : [];
-  }, [addresses, contact]);
+  }, [addresses, contact, company]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!entityKey) {
+      setAddresses([]);
+      setLoadingAddresses(false);
+      return;
+    }
     setLoadingAddresses(true);
-    void contactsApi
-      .listAddresses(token, contact.id)
+    const load =
+      entityType === "company"
+        ? companiesApi.getAddresses(token, entityKey).then((res) => res.items ?? [])
+        : contactsApi.listAddresses(token, entityKey);
+    void load
       .then((items) => {
         if (!cancelled) setAddresses(items);
       })
@@ -86,7 +103,7 @@ export function VisitLocationSection({
     return () => {
       cancelled = true;
     };
-  }, [token, contact.id]);
+  }, [token, entityKey, entityType]);
 
   useEffect(() => {
     if (value?.mode === "other") {
@@ -197,60 +214,51 @@ export function VisitLocationSection({
             {readyAddresses.map((addr) => (
               <Chip
                 key={addr.id}
-                label={addr.displayLine}
+                label={addr.displayLine || addr.addressText}
                 selected={entityAddressId === addr.id}
-                onPress={disabled ? undefined : () => selectEntityAddress(addr.id)}
+                onPress={() => !disabled && selectEntityAddress(addr.id)}
               />
             ))}
           </View>
         ) : (
-          <Text style={[theme.typography.caption, { color: theme.colors.warning, marginTop: 8 }]}>
-            {t("visitLocation.coordsRequired")}
+          <Text style={[theme.typography.caption, { color: theme.colors.warning, marginTop: theme.spacing.md }]}>
+            {t("visits.noCoords")}
           </Text>
         )
       ) : (
         <View style={{ marginTop: theme.spacing.md }}>
           <TextField
             value={searchText}
-            onChangeText={(text) => {
-              setSearchText(text);
-              setPlaceError(null);
-            }}
+            onChangeText={setSearchText}
             placeholder={t("visitLocation.searchPlaceholder")}
-            editable={!disabled && !!mapsApiKey}
+            editable={!disabled && !geocodeLoading}
           />
-          {!mapsApiKey ? (
-            <Text style={[theme.typography.caption, { color: theme.colors.warning, marginTop: 6 }]}>
-              {t("visitLocation.mapsKeyRequired")}
-            </Text>
-          ) : null}
           {lookupLoading || geocodeLoading ? (
-            <ActivityIndicator style={{ marginTop: 8 }} color={theme.colors.primary} />
+            <ActivityIndicator style={{ marginTop: theme.spacing.sm }} color={theme.colors.primary} />
           ) : null}
           {placeError ? (
-            <Text style={[theme.typography.caption, { color: theme.colors.danger, marginTop: 6 }]}>
+            <Text style={[theme.typography.caption, { color: theme.colors.danger, marginTop: 8 }]}>
               {placeError}
             </Text>
           ) : null}
           {suggestions.length > 0 ? (
             <ScrollView
-              style={{
-                marginTop: 8,
-                maxHeight: 180,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                borderRadius: theme.radius.md,
-              }}
-              keyboardShouldPersistTaps="handled">
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: 180, marginTop: theme.spacing.sm }}>
               {suggestions.map((s) => (
                 <Pressable
                   key={s.placeId}
                   onPress={() => void handleSelectSuggestion(s.placeId, s.description)}
-                  style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+                  style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
                   <Text style={theme.typography.body}>{s.description}</Text>
                 </Pressable>
               ))}
             </ScrollView>
+          ) : null}
+          {!mapsApiKey ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 8 }]}>
+              {t("visitLocation.mapsKeyRequired")}
+            </Text>
           ) : null}
         </View>
       )}

@@ -140,7 +140,7 @@ export class CompaniesService {
       this.prisma.company.count({ where }),
       this.prisma.company.findMany({
         where,
-        orderBy: { name: "asc" },
+        orderBy: { createdAt: "desc" },
         skip: pagination.offset,
         take: pagination.limit,
         include: { owner: { select: { id: true, fullName: true } } },

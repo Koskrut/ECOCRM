@@ -4,7 +4,37 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.107**.)_
+_(планируемые изменения после **0.2.108**.)_
+
+## [0.2.108] — 2026-07-16
+
+### Summary
+
+Патч **0.2.108**: **production planning** (packing lists, factory orders, forecast, 1C sales/inventory), **OSRM** вместо Google Routes для км/полилиний, сверка дебіторки (Bitrix legacy debt = 0), mobile visit UX, звук уведомлений.
+
+### Added
+
+- **Planning pack/factory**: миграция **`20260715160000_planning_pack_factory`** — `KitDemandForecast`, `SalesHistoryLine`, `PackingList`/`PackingListLine`, `FactoryOrder`/`FactoryOrderLine`; сервисы forecast, packing-list, factory-order, planning-settings; demand-mix / BOM / snapshot freshness utils; web **`PlanningOpsPanels`** на `/planning`.
+- **OSRM routing**: модуль `apps/backend/src/routing` (`OsrmRoutingService`, cache); `deploy/osrm/` + `docker-compose.prod.yml` service `osrm`; env `OSRM_BASE_URL` / `ROUTING_PROFILE`; source геометрії **`osrm`** (замість google).
+- **Receivables**: вкладка дебіторки в **ContactModal** (`ContactReceivablesTab`); миграция **`20260713140000_zero_bitrix_legacy_debt`** — обнулення фантомного боргу на закритих Bitrix-угодах.
+- **Web**: `notification-sound.ts` + NotificationBell; route `traffic` query на geometry bundle.
+- **Mobile**: `VisitEntityPickerPanel`, покращення visit location / reschedule / geofence / login.
+
+### Changed
+
+- **Route geometry** — backend/web типи джерела: `osrm` | `fallback` | `raw_gps` | `none`.
+- **Receivables** parser/scope/constants — уточнення звірки з CRM.
+- **Store checkout**, companies, orders, tasks, analytics scope — супутні правки.
+
+### Fixed
+
+- **Web CI**: `RouteOwnerOpts.traffic`; `routeSourceLabel` без застарілого `"google"`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.108`**.
+- **Миграции** (до `up`): **`20260713140000_zero_bitrix_legacy_debt`**, **`20260715160000_planning_pack_factory`**.
+- **OSRM** (опційно для точних км): зібрати граф UA (`deploy/osrm/README.md`), volume `osrm_data`, `OSRM_BASE_URL=http://osrm:5000`. Без OSRM маршрути падають у fallback.
 
 ## [0.2.107] — 2026-07-13
 

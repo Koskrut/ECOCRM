@@ -1,18 +1,24 @@
 import { Injectable } from "@nestjs/common";
 import {
+  FactoryOrderStatus,
   InventorySnapshotStatus,
+  PackingListStatus,
+  ProductKind,
   ProductionBatchStatus,
   ReservationHardness,
   ReservationStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { DemandRulesService } from "./demand-rules.service";
+import { PlanningSettingsService } from "./planning-settings.service";
+import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
 
 @Injectable()
 export class PlanningCalculationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly demandRules: DemandRulesService,
+    private readonly settings: PlanningSettingsService,
   ) {}
 
   async getAvailability(productId: string, warehouseId?: string) {
@@ -22,8 +28,22 @@ export class PlanningCalculationService {
       select: { id: true, postedAt: true },
     });
 
+    if (!postedSnapshot?.id) {
+      return {
+        asOfSnapshotId: null,
+        asOfSnapshotDate: null,
+        productId,
+        warehouseId: warehouseId ?? null,
+        physical: 0,
+        hardReserved: 0,
+        softReserved: 0,
+        available: 0,
+        expectedOutput: 0,
+      };
+    }
+
     const lineWhere = {
-      snapshotId: postedSnapshot?.id,
+      snapshotId: postedSnapshot.id,
       productId,
       ...(warehouseId ? { warehouseId } : {}),
     };
@@ -66,8 +86,8 @@ export class PlanningCalculationService {
     const expectedOutput = Math.max(0, (wipAgg._sum.qtyPlanned ?? 0) - (wipAgg._sum.qtyGood ?? 0));
 
     return {
-      asOfSnapshotId: postedSnapshot?.id ?? null,
-      asOfSnapshotDate: postedSnapshot?.postedAt ?? null,
+      asOfSnapshotId: postedSnapshot.id,
+      asOfSnapshotDate: postedSnapshot.postedAt ?? null,
       productId,
       warehouseId: warehouseId ?? null,
       physical,
@@ -126,6 +146,39 @@ export class PlanningCalculationService {
     };
   }
 
+  async getDemandByProduct(): Promise<Map<string, { hard: number; soft: number }>> {
+    const rules = await this.demandRules.getRules();
+    const stages = [...new Set([...rules.hardStages, ...rules.softStages])];
+    const demandRows = await this.prisma.orderItem.findMany({
+      where: {
+        productId: { not: null },
+        order: {
+          orderStage: {
+            in: stages,
+            notIn: ["CANCELED", "REFUSED", "COMPLETED"],
+          },
+        },
+      },
+      include: { order: { select: { orderStage: true } } },
+    });
+    const map = new Map<string, { hard: number; soft: number }>();
+    for (const row of demandRows) {
+      if (!row.productId) continue;
+      const remaining = Math.max(0, row.qty - row.qtyShipped);
+      const current = map.get(row.productId) ?? { hard: 0, soft: 0 };
+      const isHard = row.order.orderStage && rules.hardStages.includes(row.order.orderStage);
+      if (isHard) current.hard += remaining;
+      else current.soft += remaining;
+      map.set(row.productId, current);
+    }
+    return map;
+  }
+
+  async getHardDemandByProduct(): Promise<Map<string, number>> {
+    const demand = await this.getDemandByProduct();
+    return new Map([...demand.entries()].map(([id, v]) => [id, v.hard]));
+  }
+
   async getLaunchRecommendations(horizonWeeks = 1) {
     const rules = await this.demandRules.getRules();
     const now = new Date();
@@ -175,7 +228,7 @@ export class PlanningCalculationService {
           expectedOutput: availability.expectedOutput,
           deficit,
           suggestedLaunchQty: deficit,
-          reason: "Hard demand exceeds available stock + expected output",
+          reason: "Legacy WIP: hard demand exceeds stock + expected output (prefer Factory / Packing tabs)",
           horizonWeeks,
         });
       }
@@ -198,6 +251,222 @@ export class PlanningCalculationService {
         product: recById.get(r.productId) ?? null,
       })),
     };
+  }
+
+  async getSnapshotFreshness() {
+    const settings = await this.settings.getSettings();
+    const posted = await this.prisma.inventorySnapshot.findFirst({
+      where: { status: InventorySnapshotStatus.POSTED },
+      orderBy: { postedAt: "desc" },
+    });
+    return evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
+  }
+
+  async getDashboardSummary() {
+    const settings = await this.settings.getSettings();
+    const freshness = await this.getSnapshotFreshness();
+    const [forecast14, forecast30, hardDemand, kits, draftPack, approvedPack, openFactory] =
+      await Promise.all([
+        this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 14 } }),
+        this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 30 } }),
+        this.getHardDemandByProduct(),
+        this.prisma.product.findMany({
+          where: { kind: ProductKind.KIT, isActive: true },
+          select: { id: true, sku: true, name: true },
+        }),
+        this.prisma.packingList.findFirst({
+          where: { status: PackingListStatus.DRAFT },
+          orderBy: { cycleStart: "desc" },
+          include: { _count: { select: { lines: true } } },
+        }),
+        this.prisma.packingList.findFirst({
+          where: { status: PackingListStatus.APPROVED },
+          orderBy: { cycleStart: "desc" },
+          include: { _count: { select: { lines: true } } },
+        }),
+        this.prisma.factoryOrder.count({
+          where: { status: { in: [FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] } },
+        }),
+      ]);
+
+    const forecast14Map = new Map(forecast14.map((f) => [f.productId, f.qty]));
+    const forecast30Map = new Map(forecast30.map((f) => [f.productId, f.qty]));
+
+    let totalKitStock = 0;
+    let totalWeeklyDemand = 0;
+    let bottleneckRisks = 0;
+    const coverRows: Array<{
+      productId: string;
+      sku: string;
+      name: string;
+      stock: number;
+      weeklyDemand: number;
+      daysOfCover: number | null;
+      maxBuildNow: number;
+      bottleneckComponentId: string | null;
+    }> = [];
+
+    for (const kit of kits) {
+      const avail = await this.getAvailability(kit.id);
+      const weekly =
+        (forecast14Map.get(kit.id) ?? 0) / 2 ||
+        (forecast30Map.get(kit.id) ?? 0) / (30 / 7) ||
+        (hardDemand.get(kit.id) ?? 0) / 2;
+      totalKitStock += avail.available;
+      totalWeeklyDemand += weekly;
+      const daysOfCover = weekly > 0 ? Math.round((avail.available / weekly) * 7 * 10) / 10 : null;
+      const capacity = await this.getKitCapacity(kit.id);
+      if (capacity.maxBuildNow === 0 && (hardDemand.get(kit.id) ?? 0) > 0) bottleneckRisks += 1;
+      coverRows.push({
+        productId: kit.id,
+        sku: kit.sku,
+        name: kit.name,
+        stock: avail.available,
+        weeklyDemand: Math.round(weekly * 10) / 10,
+        daysOfCover,
+        maxBuildNow: capacity.maxBuildNow,
+        bottleneckComponentId: capacity.bottleneckComponentId,
+      });
+    }
+
+    coverRows.sort((a, b) => (a.daysOfCover ?? 9999) - (b.daysOfCover ?? 9999));
+    const overallDaysOfCover =
+      totalWeeklyDemand > 0 ? Math.round((totalKitStock / totalWeeklyDemand) * 7 * 10) / 10 : null;
+
+    return {
+      settings,
+      freshness,
+      overallDaysOfCover,
+      packCycleDays: settings.packCycleDays,
+      packCapacityPerCycle: settings.packCapacityPerCycle,
+      latestDraftPacking: draftPack,
+      latestApprovedPacking: approvedPack,
+      openFactoryOrders: openFactory,
+      bottleneckRiskCount: bottleneckRisks,
+      kitCoverage: coverRows.slice(0, 50),
+    };
+  }
+
+  /**
+   * Deterministic projection: apply approved packing (kits↑ parts↓) and open factory PO (parts↑ at lead week),
+   * then burn weekly kit forecast only (parts already consumed at pack time — no second BOM explode).
+   */
+  async getStockProjection(weeks: number[] = [2, 4, 8, 12]) {
+    const settings = await this.settings.getSettings();
+    const freshness = await this.getSnapshotFreshness();
+    const forecast14 = await this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 14 } });
+    const weeklyKitDemand = new Map(forecast14.map((f) => [f.productId, f.qty / 2]));
+
+    const kits = await this.prisma.product.findMany({
+      where: { kind: ProductKind.KIT, isActive: true },
+      select: { id: true },
+    });
+    const parts = await this.prisma.product.findMany({
+      where: { kind: ProductKind.PART, isActive: true },
+      select: { id: true },
+    });
+
+    const kitStock = new Map<string, number>();
+    const partStock = new Map<string, number>();
+    for (const kit of kits) {
+      kitStock.set(kit.id, (await this.getAvailability(kit.id)).available);
+    }
+    for (const part of parts) {
+      partStock.set(part.id, (await this.getAvailability(part.id)).available);
+    }
+
+    const postedSnapshot = await this.prisma.inventorySnapshot.findFirst({
+      where: { status: InventorySnapshotStatus.POSTED },
+      orderBy: { postedAt: "desc" },
+      select: { postedAt: true },
+    });
+
+    const approvedPack = await this.prisma.packingList.findMany({
+      where: {
+        status: PackingListStatus.APPROVED,
+        // Only packs approved after the posted snapshot still need projection —
+        // older packs should already be reflected in 1C stock.
+        ...(postedSnapshot?.postedAt
+          ? {
+              OR: [
+                { approvedAt: { gt: postedSnapshot.postedAt } },
+                { approvedAt: null, createdAt: { gt: postedSnapshot.postedAt } },
+              ],
+            }
+          : {}),
+      },
+      include: { lines: true },
+    });
+    for (const list of approvedPack) {
+      for (const line of list.lines) {
+        kitStock.set(line.kitProductId, (kitStock.get(line.kitProductId) ?? 0) + line.qtyApproved);
+        const bom = await this.prisma.kitBom.findFirst({
+          where: { kitProductId: line.kitProductId, isActive: true },
+          include: { lines: true },
+        });
+        if (!bom) continue;
+        for (const bl of bom.lines) {
+          const use = line.qtyApproved * bl.qtyPerKit.toNumber();
+          partStock.set(bl.componentProductId, (partStock.get(bl.componentProductId) ?? 0) - use);
+        }
+      }
+    }
+
+    const openPo = await this.prisma.factoryOrderLine.findMany({
+      where: {
+        factoryOrder: {
+          status: { in: [FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] },
+        },
+      },
+    });
+    const inboundByPart = new Map<string, number>();
+    for (const line of openPo) {
+      inboundByPart.set(
+        line.partProductId,
+        (inboundByPart.get(line.partProductId) ?? 0) + Math.max(0, line.qtyOrdered - line.qtyReceived),
+      );
+    }
+
+    const receiptWeek = Math.max(1, Math.floor(settings.factoryLeadTimeDays / 7));
+    const maxWeek = Math.max(...weeks, 0);
+    const points: Array<{
+      week: number;
+      kitsTotal: number;
+      partsTotal: number;
+      kitDaysOfCover: number | null;
+    }> = [];
+
+    const weeklyDemandTotal = [...weeklyKitDemand.values()].reduce((a, b) => a + b, 0);
+
+    for (let w = 1; w <= maxWeek; w += 1) {
+      for (const [kitId, weekly] of weeklyKitDemand.entries()) {
+        kitStock.set(kitId, (kitStock.get(kitId) ?? 0) - weekly);
+      }
+      if (w === receiptWeek) {
+        for (const [partId, qty] of inboundByPart.entries()) {
+          partStock.set(partId, (partStock.get(partId) ?? 0) + qty);
+        }
+      }
+      if (weeks.includes(w)) {
+        const kitsTotal = Math.round(
+          [...kitStock.values()].reduce((a, b) => a + Math.max(0, b), 0),
+        );
+        const partsTotal = Math.round(
+          [...partStock.values()].reduce((a, b) => a + Math.max(0, b), 0),
+        );
+        points.push({
+          week: w,
+          kitsTotal,
+          partsTotal,
+          kitDaysOfCover:
+            weeklyDemandTotal > 0
+              ? Math.round((kitsTotal / weeklyDemandTotal) * 7 * 10) / 10
+              : null,
+        });
+      }
+    }
+
+    return { freshness, receiptWeek, points };
   }
 }
 

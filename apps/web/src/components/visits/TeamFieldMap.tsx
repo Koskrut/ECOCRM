@@ -85,7 +85,7 @@ export function TeamFieldMap({
   const showFallbackBanner =
     layers.fact_gps &&
     factGpsSource != null &&
-    factGpsSource !== "google" &&
+    factGpsSource !== "osrm" &&
     (geometries.fact_gps?.path?.length ?? 0) > 1;
 
   return (

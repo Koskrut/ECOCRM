@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Req,
@@ -39,7 +40,7 @@ export class ReceivablesController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   uploadSnapshot(
     @UploadedFile() file: { buffer?: Buffer } | undefined,
-    @Body() body: { snapshotDate?: string; note?: string },
+    @Body() body: { snapshotDate?: string; note?: string; currency?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!file?.buffer) throw new BadRequestException("File is required");
@@ -48,6 +49,7 @@ export class ReceivablesController {
       fileBuffer: file.buffer,
       snapshotDate: body.snapshotDate,
       note: body.note,
+      currency: body.currency,
     });
   }
 
@@ -121,6 +123,16 @@ export class ReceivablesController {
       ownerId,
       overdue: overdue === "true" || overdue === "1",
     });
+  }
+
+  @Get("contacts/:contactId")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  contactReceivables(
+    @Param("contactId") contactId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.getContactReceivables(this.requireUser(req), contactId.trim());
   }
 
   @Get("work/orders")

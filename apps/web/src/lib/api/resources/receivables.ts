@@ -58,6 +58,29 @@ export type WorkOrderRow = {
   clientName: string | null;
   externalCode: string | null;
   ownerName: string | null;
+  legacySource?: string | null;
+};
+
+export type ContactReceivablesResponse = {
+  currency: string;
+  externalCode: string | null;
+  kpi: {
+    debtTotal: number;
+    overdueDebt: number;
+    ordersWithDebtCount: number;
+    bitrixLegacyDebt: number;
+  };
+  reconciliation: {
+    snapshotId: string;
+    snapshotDate: string;
+    counterpartyCode1C: string;
+    amount1C: number;
+    amountCRM: number;
+    delta: number;
+    status: ReceivablesReconcileStatus;
+  } | null;
+  orders: WorkOrderRow[];
+  ordersTotal: number;
 };
 
 export const receivablesApi = {
@@ -142,6 +165,8 @@ export const receivablesApi = {
         overdueDebt: number;
         clientsWithDebtCount: number;
         ordersWithDebtCount: number;
+        bitrixLegacyDebt: number;
+        bitrixLegacyOrdersCount: number;
       };
     }>("/receivables/work/summary", { params: { ownerId: ownerId || undefined } });
   },
@@ -177,5 +202,9 @@ export const receivablesApi = {
       page: number;
       pageSize: number;
     }>("/receivables/work/orders", { params });
+  },
+
+  contactReceivables(contactId: string) {
+    return apiHttp.get<ContactReceivablesResponse>(`/receivables/contacts/${contactId}`);
   },
 };

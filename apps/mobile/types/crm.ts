@@ -20,6 +20,7 @@ export type VisitSummary = {
   locationSource?: string | null;
   purpose?: string | null;
   radiusM?: number;
+  durationMin?: number | null;
   outcome?: string | null;
   resultNote?: string | null;
   startGpsVerification?: string | null;

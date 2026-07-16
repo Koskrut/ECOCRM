@@ -100,7 +100,7 @@ export function notificationHref(n: UserNotification): string | null {
     case "LEAD":
       return `/leads?leadId=${encodeURIComponent(n.entityId)}`;
     case "TASK":
-      return "/tasks";
+      return `/tasks?taskId=${encodeURIComponent(n.entityId)}`;
     case "CONTACT":
       return `/contacts?contactId=${encodeURIComponent(n.entityId)}`;
     case "CONVERSATION":

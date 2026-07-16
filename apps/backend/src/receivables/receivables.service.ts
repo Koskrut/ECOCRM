@@ -18,8 +18,10 @@ import { todayYmdKyiv } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import {
+  RECEIVABLES_1C_ALLOWED_CURRENCIES,
   RECEIVABLES_1C_AMOUNT_CURRENCY,
   RECEIVABLES_DELTA_TOLERANCE,
+  type Receivables1CCurrency,
 } from "./receivables.constants";
 import {
   aggregateReceivablesRows,
@@ -28,9 +30,11 @@ import {
 } from "./receivables-excel.parser";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 import {
+  buildBitrixLegacyDebtOrderWhere,
   buildOverdueDebtOrderWhere,
   buildReceivablesDebtOrderWhere,
   computeReconcileStatus,
+  excludeBitrixLegacyWhere,
   isReceivablesDeltaStatus,
 } from "./receivables-scope.util";
 
@@ -77,11 +81,13 @@ export class ReceivablesService {
     fileBuffer: Buffer;
     snapshotDate?: string;
     note?: string;
+    currency?: string;
   }) {
     if (params.actor.role !== UserRole.ADMIN && params.actor.role !== UserRole.LEAD) {
       throw new ForbiddenException("Only ADMIN or LEAD can upload receivables snapshots");
     }
 
+    const sourceCurrency = this.parse1CCurrency(params.currency);
     const rows = parseReceivablesExcel(params.fileBuffer);
     const byCode = aggregateReceivablesRows(rows);
     const snapshotDate = this.parseSnapshotDate(params.snapshotDate);
@@ -94,8 +100,16 @@ export class ReceivablesService {
       },
     });
 
-    await this.reconcileSnapshot(snapshot.id, byCode);
+    await this.reconcileSnapshot(snapshot.id, byCode, sourceCurrency);
     return this.getSnapshot(snapshot.id);
+  }
+
+  private parse1CCurrency(raw?: string): Receivables1CCurrency {
+    const c = (raw?.trim().toUpperCase() || RECEIVABLES_1C_AMOUNT_CURRENCY) as Receivables1CCurrency;
+    if (!RECEIVABLES_1C_ALLOWED_CURRENCIES.includes(c)) {
+      throw new BadRequestException(`currency must be one of: ${RECEIVABLES_1C_ALLOWED_CURRENCIES.join(", ")}`);
+    }
+    return c;
   }
 
   async refreshReconciliation(snapshotId: string, actor: AuthUser) {
@@ -113,7 +127,11 @@ export class ReceivablesService {
     return d;
   }
 
-  private async reconcileSnapshot(snapshotId: string, amount1CRawByCode?: Map<string, number>) {
+  private async reconcileSnapshot(
+    snapshotId: string,
+    amount1CRawByCode?: Map<string, number>,
+    sourceCurrency: Receivables1CCurrency = RECEIVABLES_1C_AMOUNT_CURRENCY,
+  ) {
     const snapshot = await this.prisma.receivablesSnapshot.findUnique({
       where: { id: snapshotId },
     });
@@ -125,7 +143,7 @@ export class ReceivablesService {
     const amount1CByCode = new Map<string, number>();
     if (amount1CRawByCode) {
       for (const [code, raw] of amount1CRawByCode) {
-        amount1CByCode.set(code, this.amount1CToBase(raw, rates));
+        amount1CByCode.set(code, this.amount1CToBase(raw, rates, sourceCurrency));
       }
     } else {
       const existing = await this.prisma.receivablesSnapshotLine.findMany({
@@ -250,8 +268,12 @@ export class ReceivablesService {
     ]);
   }
 
-  private amount1CToBase(amount: number, rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>) {
-    return Math.round(toBaseCurrency(amount, RECEIVABLES_1C_AMOUNT_CURRENCY, rates) * 100) / 100;
+  private amount1CToBase(
+    amount: number,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+    sourceCurrency: Receivables1CCurrency = RECEIVABLES_1C_AMOUNT_CURRENCY,
+  ) {
+    return Math.round(toBaseCurrency(amount, sourceCurrency, rates) * 100) / 100;
   }
 
   private async loadContactDebtMap(
@@ -261,11 +283,16 @@ export class ReceivablesService {
     const orderWhere: Prisma.OrderWhereInput = scope
       ? buildReceivablesDebtOrderWhere(scope)
       : {
-          debtAmount: { gt: 0 },
-          clientId: { not: null },
-          OR: [
-            { orderStage: { notIn: ["CANCELED", "REFUSED"] } },
-            { orderStage: null },
+          AND: [
+            {
+              debtAmount: { gt: 0 },
+              clientId: { not: null },
+              OR: [
+                { orderStage: { notIn: ["CANCELED", "REFUSED"] } },
+                { orderStage: null },
+              ],
+            },
+            excludeBitrixLegacyWhere(),
           ],
         };
 
@@ -517,12 +544,14 @@ export class ReceivablesService {
           overdueDebt: 0,
           clientsWithDebtCount: 0,
           ordersWithDebtCount: 0,
+          bitrixLegacyDebt: 0,
+          bitrixLegacyOrdersCount: 0,
         },
       };
     }
 
     const debtWhere = buildReceivablesDebtOrderWhere(scope);
-    const overdueWhere = buildOverdueDebtOrderWhere(scope);
+    const bitrixDebtWhere = buildBitrixLegacyDebtOrderWhere(scope);
     const contactDebt = await this.loadContactDebtMap(scope, rates);
 
     let debtTotal = 0;
@@ -532,7 +561,11 @@ export class ReceivablesService {
       overdueDebt += row.overdueBase;
     }
 
-    const ordersWithDebtCount = await this.prisma.order.count({ where: debtWhere });
+    const [ordersWithDebtCount, bitrixLegacyOrdersCount, bitrixLegacyDebt] = await Promise.all([
+      this.prisma.order.count({ where: debtWhere }),
+      this.prisma.order.count({ where: bitrixDebtWhere }),
+      this.sumOrderDebtBase(bitrixDebtWhere, rates),
+    ]);
     const latestSnapshotId = await this.getLatestSnapshotId();
     let reconciliation: {
       snapshotId: string;
@@ -559,8 +592,25 @@ export class ReceivablesService {
         overdueDebt: Math.round(overdueDebt * 100) / 100,
         clientsWithDebtCount: contactDebt.size,
         ordersWithDebtCount,
+        bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
+        bitrixLegacyOrdersCount,
       },
     };
+  }
+
+  private async sumOrderDebtBase(
+    where: Prisma.OrderWhereInput,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+  ): Promise<number> {
+    const rows = await this.prisma.order.findMany({
+      where,
+      select: { debtAmount: true, currency: true },
+    });
+    let total = 0;
+    for (const row of rows) {
+      total += toBaseCurrency(safeNum(row.debtAmount), row.currency, rates);
+    }
+    return total;
   }
 
   async listWorkClients(
@@ -692,6 +742,7 @@ export class ReceivablesService {
           paymentDueDate: true,
           financialStatus: true,
           paymentType: true,
+          legacySource: true,
           client: {
             select: {
               id: true,
@@ -724,10 +775,117 @@ export class ReceivablesService {
           : null,
         externalCode: o.client?.externalCode ?? null,
         ownerName: o.owner?.fullName ?? null,
+        legacySource: o.legacySource ?? null,
       })),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
+    };
+  }
+
+  private assertContactAccess(contact: { ownerId: string | null }, actor: AuthUser): void {
+    if (actor.role === UserRole.MANAGER && contact.ownerId && contact.ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access contacts assigned to you");
+    }
+  }
+
+  async getContactReceivables(actor: AuthUser, contactId: string) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        externalCode: true,
+        ownerId: true,
+      },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+
+    const ordersResult = await this.listWorkOrders(actor, {
+      contactId,
+      page: 1,
+      pageSize: 100,
+    });
+
+    const scope = await this.scopeService.resolveDashboardScope(actor, {});
+    const rates = await this.settings.getExchangeRates();
+    const bitrixLegacyDebt = scope.emptyTeam
+      ? 0
+      : await this.sumOrderDebtBase(
+          {
+            AND: [
+              buildBitrixLegacyDebtOrderWhere(scope),
+              { clientId: contactId },
+            ],
+          },
+          rates,
+        );
+
+    let debtTotal = 0;
+    let overdueDebt = 0;
+    for (const order of ordersResult.items) {
+      debtTotal += order.debtAmountBase;
+      if (order.financialStatus === "OVERDUE") {
+        overdueDebt += order.debtAmountBase;
+      }
+    }
+
+    const latestSnapshotId = await this.getLatestSnapshotId();
+    let reconciliation: {
+      snapshotId: string;
+      snapshotDate: string;
+      counterpartyCode1C: string;
+      amount1C: number;
+      amountCRM: number;
+      delta: number;
+      status: ReceivablesReconcileStatus;
+    } | null = null;
+
+    if (latestSnapshotId) {
+      await this.assertSnapshotAccess(latestSnapshotId, actor);
+      const normalizedCode = normalizeCounterpartyCode1C(contact.externalCode ?? "");
+      const orConditions: Prisma.ReceivablesSnapshotLineWhereInput[] = [{ contactId }];
+      if (normalizedCode) {
+        orConditions.push({ counterpartyCode1C: normalizedCode });
+      }
+
+      const line = await this.prisma.receivablesSnapshotLine.findFirst({
+        where: {
+          snapshotId: latestSnapshotId,
+          OR: orConditions,
+        },
+        include: {
+          snapshot: { select: { snapshotDate: true } },
+        },
+      });
+
+      if (line && !(actor.role === UserRole.MANAGER && line.status === "ONLY_1C" && !line.contactId)) {
+        reconciliation = {
+          snapshotId: latestSnapshotId,
+          snapshotDate: line.snapshot.snapshotDate.toISOString(),
+          counterpartyCode1C: line.counterpartyCode1C,
+          amount1C: line.amount1C,
+          amountCRM: line.amountCRM,
+          delta: line.delta,
+          status: line.status,
+        };
+      }
+    }
+
+    return {
+      currency: ordersResult.currency,
+      externalCode: contact.externalCode,
+      kpi: {
+        debtTotal: Math.round(debtTotal * 100) / 100,
+        overdueDebt: Math.round(overdueDebt * 100) / 100,
+        ordersWithDebtCount: ordersResult.total,
+        bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
+      },
+      reconciliation,
+      orders: ordersResult.items,
+      ordersTotal: ordersResult.total,
     };
   }
 }

@@ -11,12 +11,34 @@ import {
   type KitCapacity,
   type LaunchRecommendationsResponse,
   type PlanningAvailability,
+  type PlanningDashboard,
+  type PlanningSettings,
   type ProductionBatch,
+  type SnapshotFreshness,
+  type StockProjection,
 } from "@/lib/api/resources/planning";
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
 import { formatDateTime } from "@/lib/crmDatetime";
+import {
+  FactoryPanel,
+  ForecastPanel,
+  FreshnessBanner,
+  PackingPanel,
+  PlanningDashboardPanel,
+  PlanningSettingsPanel,
+} from "./PlanningOpsPanels";
 
-type PlanningTab = "dashboard" | "inventory" | "snapshots" | "bom" | "batches" | "queues" | "settings";
+type PlanningTab =
+  | "dashboard"
+  | "inventory"
+  | "snapshots"
+  | "bom"
+  | "forecast"
+  | "packing"
+  | "factory"
+  | "batches"
+  | "queues"
+  | "settings";
 
 const ORDER_STAGE_VALUES = [
   "NEW",
@@ -50,17 +72,18 @@ export default function PlanningPage() {
     includeOrderItemsWithoutProductIdAsSoft: true,
   });
   const [snapshots, setSnapshots] = useState<InventorySnapshot[]>([]);
-  const [latestSnapshot, setLatestSnapshot] = useState<InventorySnapshot | null>(null);
   const [qcQueue, setQcQueue] = useState<ProductionBatch[]>([]);
   const [packingQueue, setPackingQueue] = useState<ProductionBatch[]>([]);
   const [launch, setLaunch] = useState<LaunchRecommendationsResponse | null>(null);
   const [batches, setBatches] = useState<ProductionBatch[]>([]);
 
   const [productSearch, setProductSearch] = useState("");
+  const [kitSearch, setKitSearch] = useState("");
   const [products, setProducts] = useState<ProductCatalogItem[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [selectedKitId, setSelectedKitId] = useState<string>("");
+  const handleOpsError = useCallback((msg: string) => setError(msg), []);
   const [availability, setAvailability] = useState<PlanningAvailability | null>(null);
   const [bom, setBom] = useState<ActiveBom | null>(null);
   const [capacity, setCapacity] = useState<KitCapacity | null>(null);
@@ -73,10 +96,18 @@ export default function PlanningPage() {
   const [uploadingSnapshot, setUploadingSnapshot] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
     snapshotId: string;
+    rowsInFile: number;
+    keptRows: number;
+    skippedIrrelevant: number;
+    relevantSkuCount: number;
     unresolvedSku: string[];
     unresolvedWarehouses: string[];
   } | null>(null);
 
+  const [planningDashboard, setPlanningDashboard] = useState<PlanningDashboard | null>(null);
+  const [projection, setProjection] = useState<StockProjection | null>(null);
+  const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
+  const [planningSettings, setPlanningSettings] = useState<PlanningSettings | null>(null);
   const [savingRules, setSavingRules] = useState(false);
   const [runningWeekly, setRunningWeekly] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
@@ -134,21 +165,23 @@ export default function PlanningPage() {
     try {
       const res = await productsApi.listCatalog({ search, pageSize: 100, page: 1 });
       setProducts(res.items);
-    } catch {
-      throw new Error(t.errors.loadProducts);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t.errors.loadProducts);
     } finally {
       setProductsLoading(false);
     }
   }, [t.errors.loadProducts]);
 
   const loadBomDetails = useCallback(async (kitId: string) => {
-    try {
-      const [bomRes, capacityRes] = await Promise.all([
-        planningApi.getBom(kitId),
-        planningApi.getKitCapacity(kitId),
-      ]);
-      setBom(bomRes);
-      setCapacity(capacityRes);
+    const bomSettled = await Promise.allSettled([
+      planningApi.getBom(kitId),
+      planningApi.getKitCapacity(kitId),
+    ]);
+    const bomRes = bomSettled[0].status === "fulfilled" ? bomSettled[0].value : null;
+    const capacityRes = bomSettled[1].status === "fulfilled" ? bomSettled[1].value : null;
+    setBom(bomRes);
+    setCapacity(capacityRes);
+    if (bomRes) {
       setBomLines(
         bomRes.lines.map((line, idx) => ({
           componentProductId: line.componentProductId,
@@ -157,9 +190,7 @@ export default function PlanningPage() {
           sortOrder: line.sortOrder ?? idx,
         })),
       );
-    } catch {
-      setBom(null);
-      setCapacity(null);
+    } else {
       setBomLines([{ componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder: 0 }]);
     }
   }, []);
@@ -172,24 +203,40 @@ export default function PlanningPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rulesRes, snapshotsRes, latestRes, qcRes, packingRes, launchRes, batchesRes] =
-        await Promise.all([
-          planningApi.getDemandRules(),
-          planningApi.listSnapshots(50),
-          planningApi.getLatestPostedSnapshot(),
-          planningApi.getQcQueue(),
-          planningApi.getPackingQueue(),
-          planningApi.getLaunchRecommendations(horizonWeeks),
-          planningApi.listBatches(),
-        ]);
+      const [
+        rulesRes,
+        settingsRes,
+        snapshotsRes,
+        qcRes,
+        packingRes,
+        launchRes,
+        batchesRes,
+        dashRes,
+        projRes,
+        freshnessRes,
+      ] = await Promise.all([
+        planningApi.getDemandRules(),
+        planningApi.getSettings(),
+        planningApi.listSnapshots(50),
+        planningApi.getQcQueue(),
+        planningApi.getPackingQueue(),
+        planningApi.getLaunchRecommendations(horizonWeeks),
+        planningApi.listBatches(),
+        planningApi.getDashboard(),
+        planningApi.getProjection([2, 4, 8, 12]),
+        planningApi.getFreshness(),
+      ]);
       setRules(rulesRes);
       setRulesDraft(rulesRes);
+      setPlanningSettings(settingsRes);
       setSnapshots(snapshotsRes);
-      setLatestSnapshot(latestRes);
       setQcQueue(qcRes);
       setPackingQueue(packingRes);
       setLaunch(launchRes);
       setBatches(batchesRes);
+      setPlanningDashboard(dashRes);
+      setProjection(projRes);
+      setFreshness(freshnessRes);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.loadDashboard);
     } finally {
@@ -252,6 +299,10 @@ export default function PlanningPage() {
       const res = await planningApi.uploadSnapshot(snapshotFile, snapshotNote.trim() || undefined);
       setUploadResult({
         snapshotId: res.snapshot.id,
+        rowsInFile: res.rowsInFile,
+        keptRows: res.keptRows,
+        skippedIrrelevant: res.skippedIrrelevant,
+        relevantSkuCount: res.relevantSkuCount,
         unresolvedSku: res.unresolvedSku,
         unresolvedWarehouses: res.unresolvedWarehouses,
       });
@@ -412,6 +463,8 @@ export default function PlanningPage() {
         </div>
       </div>
 
+      <FreshnessBanner freshness={freshness} />
+
       <div className="flex flex-wrap gap-2">
         {(
           [
@@ -419,6 +472,9 @@ export default function PlanningPage() {
             "inventory",
             "snapshots",
             "bom",
+            "forecast",
+            "packing",
+            "factory",
             "batches",
             "queues",
             "settings",
@@ -439,36 +495,28 @@ export default function PlanningPage() {
         ))}
       </div>
 
-      {loading && <Panel>{strings.common.loading}</Panel>}
+      {loading && (
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+          {strings.common.loading}
+        </div>
+      )}
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      {!loading && (
-        <>
+      <>
           {activeTab === "dashboard" && (
-            <div className="space-y-4">
-              <p className="text-sm text-zinc-600">{t.messages.dashboardHint}</p>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                  title={t.labels.hardRules}
-                  value={(rules?.hardStages ?? []).map(orderStageLabel).join(", ") || t.states.none}
-                />
-                <StatCard
-                  title={t.labels.latestPosted}
-                  value={
-                    latestSnapshot?.postedAt ? formatDateTime(latestSnapshot.postedAt) : t.states.none
-                  }
-                />
-                <StatCard title={t.labels.qcQueue} value={String(qcQueue.length)} />
-                <StatCard title={t.labels.launchRecommendations} value={String(launch?.recommendations.length ?? 0)} />
-              </div>
-              <Panel title={t.labels.launchRecommendations}>
-                <RecommendationsTable
-                  recommendations={launch?.recommendations ?? []}
-                  productsById={productNameById}
-                  noDataLabel={t.states.noRecommendations}
-                />
-              </Panel>
-            </div>
+            <PlanningDashboardPanel dashboard={planningDashboard} projection={projection} />
+          )}
+
+          {activeTab === "forecast" && (
+            <ForecastPanel onError={handleOpsError} />
+          )}
+
+          {activeTab === "packing" && (
+            <PackingPanel onError={handleOpsError} />
+          )}
+
+          {activeTab === "factory" && (
+            <FactoryPanel onError={handleOpsError} />
           )}
 
           {activeTab === "inventory" && (
@@ -497,13 +545,13 @@ export default function PlanningPage() {
 
               <Panel title={t.labels.selectedKit}>
                 <ProductLookup
-                  query={productSearch}
-                  onQueryChange={setProductSearch}
+                  query={kitSearch}
+                  onQueryChange={setKitSearch}
                   products={products}
                   loading={productsLoading}
                   selectedId={selectedKitId}
                   onSelect={setSelectedKitId}
-                  onSearch={() => void loadProducts(productSearch)}
+                  onSearch={() => void loadProducts(kitSearch)}
                 />
                 {capacity && (
                   <div className="mt-4 space-y-3">
@@ -575,6 +623,14 @@ export default function PlanningPage() {
                   <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
                     <p>
                       {t.labels.result}: <span className="font-medium">{uploadResult.snapshotId}</span>
+                    </p>
+                    <p className="mt-2">
+                      {t.messages.snapshotFilterSummary(
+                        uploadResult.rowsInFile,
+                        uploadResult.keptRows,
+                        uploadResult.skippedIrrelevant,
+                        uploadResult.relevantSkuCount,
+                      )}
                     </p>
                     <p className="mt-2">
                       {t.labels.unresolvedSku}:{" "}
@@ -649,6 +705,16 @@ export default function PlanningPage() {
                 <p className="mt-3 text-sm text-zinc-500">{t.messages.bomUploadHint}</p>
                 {bomImportResult && (
                   <div className="mt-4 space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                    {bomImportResult.format && (
+                      <p>
+                        {t.messages.bomImportSummary(
+                          bomImportResult.format,
+                          bomImportResult.parsedRowCount ?? 0,
+                          bomImportResult.sheetsProcessed?.length ?? 0,
+                          bomImportResult.skippedSheets?.length ?? 0,
+                        )}
+                      </p>
+                    )}
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <StatCard title={t.labels.importedKits} value={String(bomImportResult.importedKitCount)} />
                       <StatCard title={t.labels.components} value={String(bomImportResult.importedLineCount)} />
@@ -660,6 +726,12 @@ export default function PlanningPage() {
                         title={t.labels.rowsWithErrors}
                         value={String(bomImportResult.rowErrors.length)}
                       />
+                      {typeof bomImportResult.skippedKitCount === "number" && (
+                        <StatCard
+                          title={t.labels.skippedKits}
+                          value={String(bomImportResult.skippedKitCount)}
+                        />
+                      )}
                     </div>
                     <p>
                       {t.labels.unresolvedKitSku}:{" "}
@@ -698,13 +770,13 @@ export default function PlanningPage() {
               </Panel>
               <Panel title={t.labels.selectedKit}>
                 <ProductLookup
-                  query={productSearch}
-                  onQueryChange={setProductSearch}
+                  query={kitSearch}
+                  onQueryChange={setKitSearch}
                   products={products}
                   loading={productsLoading}
                   selectedId={selectedKitId}
                   onSelect={setSelectedKitId}
-                  onSearch={() => void loadProducts(productSearch)}
+                  onSearch={() => void loadProducts(kitSearch)}
                 />
                 {bom && (
                   <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
@@ -878,7 +950,7 @@ export default function PlanningPage() {
                     onChange={(e) => setMoveStageForm((prev) => ({ ...prev, batchId: e.target.value }))}
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   >
-                    <option value="">{t.actions.selectProduct}</option>
+                    <option value="">{t.actions.selectBatch}</option>
                     {batches.map((batch) => (
                       <option key={batch.id} value={batch.id}>
                         {batch.code} - {batch.product?.name ?? batch.productId}
@@ -970,7 +1042,15 @@ export default function PlanningPage() {
 
           {activeTab === "settings" && (
             <div className="space-y-4">
-              <Panel title={t.tabs.settings}>
+              <PlanningSettingsPanel
+                settings={planningSettings}
+                onSaved={(s) => {
+                  setPlanningSettings(s);
+                  void loadDashboard();
+                }}
+                onError={(msg) => setError(msg)}
+              />
+              <Panel title={t.labels.demandRules}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <StageChecklist
                     title={t.labels.hardRules}
@@ -1025,8 +1105,7 @@ export default function PlanningPage() {
               </Panel>
             </div>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

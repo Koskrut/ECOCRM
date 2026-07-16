@@ -26,6 +26,13 @@ export type QueueItemTarget =
       displayName: string;
       phone: string | null;
       companyName: string | null;
+    }
+  | {
+      kind: "COMPANY";
+      id: string;
+      displayName: string;
+      phone: string | null;
+      companyName: string | null;
     };
 
 export type QueueItemSource = "MANUAL" | "MISSED_CALL";
@@ -69,6 +76,11 @@ export type SessionDetail = {
     phone: string;
     company: { id: string; name: string } | null;
   } | null;
+  company?: {
+    id: string;
+    name: string;
+    phone: string | null;
+  } | null;
 };
 
 export type PlaybookSection = { id: string; title: string; bullets: string[] };
@@ -80,7 +92,7 @@ export const manualCallingApi = {
   getPlaybook: (token: string) =>
     apiFetch<{ sections: PlaybookSection[] }>("/manual-calling/playbook", { token }),
 
-  enqueue: (token: string, body: { leadId?: string; contactId?: string }) =>
+  enqueue: (token: string, body: { leadId?: string; contactId?: string; companyId?: string }) =>
     apiFetch<{ ok: boolean }>("/manual-calling/queue/items", {
       method: "POST",
       body: JSON.stringify(body),

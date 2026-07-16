@@ -20,9 +20,18 @@ describe("splitRouteLegs", () => {
     assert.equal(legs[0]!.intermediates.length, 10);
   });
 
-  it("splits 30 waypoints into multiple legs with overlap", () => {
-    const intermediates = Array.from({ length: 30 }, (_, i) => pt(i + 1));
-    const legs = splitRouteLegs(pt(0), intermediates, pt(31));
+  it("splits 95 intermediates into two legs with overlap", () => {
+    const intermediates = Array.from({ length: 95 }, (_, i) => pt(i + 1));
+    const legs = splitRouteLegs(pt(0), intermediates, pt(96));
+    assert.ok(legs.length >= 2);
+    for (const leg of legs) {
+      assert.ok(leg.intermediates.length <= MAX_INTERMEDIATES_PER_LEG);
+    }
+  });
+
+  it("splits 100 waypoints into multiple legs with overlap", () => {
+    const intermediates = Array.from({ length: 100 }, (_, i) => pt(i + 1));
+    const legs = splitRouteLegs(pt(0), intermediates, pt(101));
     assert.ok(legs.length >= 2);
     for (const leg of legs) {
       assert.ok(leg.intermediates.length <= MAX_INTERMEDIATES_PER_LEG);
@@ -30,7 +39,7 @@ describe("splitRouteLegs", () => {
     assert.equal(legs[0]!.destination.lat, legs[1]!.origin.lat);
     assert.equal(legs[0]!.destination.lng, legs[1]!.origin.lng);
     const lastLeg = legs[legs.length - 1]!;
-    assert.equal(lastLeg.destination.lat, pt(31).lat);
+    assert.equal(lastLeg.destination.lat, pt(101).lat);
   });
 });
 

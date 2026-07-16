@@ -241,35 +241,17 @@ function VisitsPageContent() {
   const [loading, setLoading] = useState(false);
   const [savingRoute, setSavingRoute] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [routeMetrics, setRouteMetrics] = useState<{
-    distanceKm: number | null;
-    durationMin: number | null;
-    source: "google" | "fallback" | "none";
-  } | null>(null);
-  const [routeMetricsLoading, setRouteMetricsLoading] = useState(false);
-  const [routeMetricsPreview, setRouteMetricsPreview] = useState<{
-    distanceKm: number | null;
-    durationMin: number | null;
-    source: "google" | "fallback" | "none";
-  } | null>(null);
-  const [routeMetricsPreviewLoading, setRouteMetricsPreviewLoading] = useState(false);
-  const [routeFactMetrics, setRouteFactMetrics] = useState<{
-    distanceKm: number | null;
-    durationMin: number | null;
-    source: "google" | "fallback" | "none";
-  } | null>(null);
-  const [routeFactMetricsLoading, setRouteFactMetricsLoading] = useState(false);
   const [routeGeometryBundle, setRouteGeometryBundle] = useState<RouteGeometryBundle | null>(null);
   const [plannedPreviewGeometry, setPlannedPreviewGeometry] =
     useState<RouteGeometryResult | null>(null);
   const [routeGeometryLoading, setRouteGeometryLoading] = useState(false);
+  const [routeGeometryPreviewLoading, setRouteGeometryPreviewLoading] = useState(false);
   const [routeLayers, setRouteLayers] = useState<Record<RouteLayerKey, boolean>>({
     planned: true,
     fact_visits: false,
     fact_gps: false,
   });
 
-  const [useTrafficAware, setUseTrafficAware] = useState(false);
   const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleSaveRouteRef = useRef<() => Promise<void>>(async () => {});
@@ -311,10 +293,19 @@ function VisitsPageContent() {
   const [contactHits, setContactHits] = useState<
     { id: string; firstName: string; lastName: string; phone: string }[]
   >([]);
+  const [companyQuery, setCompanyQuery] = useState("");
+  const [companyHits, setCompanyHits] = useState<{ id: string; name: string; phone?: string | null }[]>(
+    [],
+  );
+  const [backlogAddMode, setBacklogAddMode] = useState<"contact" | "company">("contact");
   const [contactPickerOpen, setContactPickerOpen] = useState(false);
   const [newVisitPurpose, setNewVisitPurpose] = useState("");
   const [creatingBacklogVisit, setCreatingBacklogVisit] = useState(false);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
+  const [pendingCompanyId, setPendingCompanyId] = useState<string | null>(null);
+  const [scheduleBacklogVisit, setScheduleBacklogVisit] = useState<Visit | null>(null);
+  const [scheduleBacklogAt, setScheduleBacklogAt] = useState("");
+  const [schedulingBacklog, setSchedulingBacklog] = useState(false);
   const [logAdHocModalOpen, setLogAdHocModalOpen] = useState(false);
 
   const [locationEditVisit, setLocationEditVisit] = useState<Visit | null>(null);
@@ -535,6 +526,19 @@ function VisitsPageContent() {
     }
   }, [dateParam, planOwnerOpts, showOwnerFilter, viewOwnerId]);
 
+  const loadGeometryBundle = useCallback(async () => {
+    if (!planOwnerOpts) return;
+    setRouteGeometryLoading(true);
+    try {
+      const b = await routePlansApi.geometryBundle(dateParam, planOwnerOpts);
+      setRouteGeometryBundle(b);
+    } catch {
+      setRouteGeometryBundle(null);
+    } finally {
+      setRouteGeometryLoading(false);
+    }
+  }, [dateParam, planOwnerOpts]);
+
   useEffect(() => {
     void loadMapsConfig();
   }, [loadMapsConfig]);
@@ -544,69 +548,21 @@ function VisitsPageContent() {
   }, [loadData]);
 
   useEffect(() => {
-    setRouteMetrics(null);
-    if (!planOwnerOpts || !routePlan?.stops?.length) return;
-    setRouteMetricsLoading(true);
-    void routePlansApi
-      .metrics(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
-      .then((m) => setRouteMetrics(m))
-      .catch(() => setRouteMetrics(null))
-      .finally(() => setRouteMetricsLoading(false));
-  }, [dateParam, planOwnerOpts, routePlan?.id, routePlan?.stops?.length, useTrafficAware]);
-
-  useEffect(() => {
-    // Preview metrics for current (unsaved) order to show instant km effect.
-    setRouteMetricsPreview(null);
-    if (!planOwnerOpts || currentOrderVisitIds.length === 0) return;
-    if (hasScheduledWithoutCoords) return;
-    setRouteMetricsPreviewLoading(true);
-    const t = window.setTimeout(() => {
-      void routePlansApi
-        .metricsPreview(dateParam, currentOrderVisitIds, {
-          traffic: useTrafficAware,
-          ...planOwnerOpts,
-        })
-        .then((m) => setRouteMetricsPreview(m))
-        .catch(() => setRouteMetricsPreview(null))
-        .finally(() => setRouteMetricsPreviewLoading(false));
-    }, 250);
-    return () => window.clearTimeout(t);
-  }, [currentOrderVisitIds, dateParam, hasScheduledWithoutCoords, planOwnerOpts, useTrafficAware]);
-
-  useEffect(() => {
-    // Fact metrics: order of completed visits for the day.
-    setRouteFactMetrics(null);
-    if (!planOwnerOpts) return;
-    setRouteFactMetricsLoading(true);
-    void routePlansApi
-      .factMetrics(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
-      .then((m) => setRouteFactMetrics(m))
-      .catch(() => setRouteFactMetrics(null))
-      .finally(() => setRouteFactMetricsLoading(false));
-  }, [dateParam, planOwnerOpts, useTrafficAware]);
-
-  useEffect(() => {
     setRouteGeometryBundle(null);
     if (!planOwnerOpts) return;
-    setRouteGeometryLoading(true);
-    void routePlansApi
-      .geometryBundle(dateParam, { traffic: useTrafficAware, ...planOwnerOpts })
-      .then((b) => setRouteGeometryBundle(b))
-      .catch(() => setRouteGeometryBundle(null))
-      .finally(() => setRouteGeometryLoading(false));
-  }, [dateParam, planOwnerOpts, useTrafficAware, routePlan?.id]);
+    void loadGeometryBundle();
+  }, [dateParam, planOwnerOpts, routePlan?.id, loadGeometryBundle]);
 
   useEffect(() => {
     setPlannedPreviewGeometry(null);
     if (!planOwnerOpts || currentOrderVisitIds.length === 0 || hasScheduledWithoutCoords) return;
+    setRouteGeometryPreviewLoading(true);
     const t = window.setTimeout(() => {
       void routePlansApi
-        .geometryPreview(dateParam, currentOrderVisitIds, {
-          traffic: useTrafficAware,
-          ...planOwnerOpts,
-        })
+        .geometryPreview(dateParam, currentOrderVisitIds, planOwnerOpts)
         .then((g) => setPlannedPreviewGeometry(g))
-        .catch(() => setPlannedPreviewGeometry(null));
+        .catch(() => setPlannedPreviewGeometry(null))
+        .finally(() => setRouteGeometryPreviewLoading(false));
     }, 300);
     return () => window.clearTimeout(t);
   }, [
@@ -614,8 +570,11 @@ function VisitsPageContent() {
     dateParam,
     hasScheduledWithoutCoords,
     planOwnerOpts,
-    useTrafficAware,
   ]);
+
+  const savedPlanMetrics = routeGeometryBundle?.planned ?? null;
+  const routeFactMetrics = routeGeometryBundle?.factVisits ?? null;
+  const routeMetricsPreview = plannedPreviewGeometry;
 
   const mapGeometries = useMemo(
     () => ({
@@ -731,6 +690,25 @@ function VisitsPageContent() {
     return () => window.clearTimeout(t);
   }, [contactQuery]);
 
+  useEffect(() => {
+    const q = companyQuery.trim();
+    if (q.length < 2) {
+      setCompanyHits([]);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void apiHttp
+        .get<{ items?: { id: string; name: string; phone?: string | null }[] }>("/companies", {
+          params: { search: q, pageSize: 15 },
+        } as never)
+        .then((r) => {
+          setCompanyHits(r.data?.items ?? []);
+        })
+        .catch(() => setCompanyHits([]));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [companyQuery]);
+
   const applyScheduleToSlot = async (visit: Visit, slot: TimelineSlot, purpose: string) => {
     const durationMinutes = visit.durationMin ?? 60;
     const startsAt = slot.start;
@@ -845,22 +823,10 @@ function VisitsPageContent() {
       const res = await routePlansApi.saveForDay(dateParam, ids, planOwnerOpts);
       setRoutePlan(res.plan ?? null);
       setRouteOrderIds(ids);
-      // Refresh km immediately after saving a new plan order.
       if (res.plan?.stops?.length) {
-        setRouteMetricsLoading(true);
-        try {
-          const m = await routePlansApi.metrics(dateParam, {
-            traffic: useTrafficAware,
-            ...planOwnerOpts,
-          });
-          setRouteMetrics(m);
-        } catch {
-          setRouteMetrics(null);
-        } finally {
-          setRouteMetricsLoading(false);
-        }
+        await loadGeometryBundle();
       } else {
-        setRouteMetrics(null);
+        setRouteGeometryBundle(null);
       }
       await refreshRouteSession();
     } catch (e) {
@@ -1109,6 +1075,79 @@ function VisitsPageContent() {
       pushToast(e instanceof Error ? e.message : "Не удалось создать визит", "error");
     } finally {
       setCreatingBacklogVisit(false);
+    }
+  };
+
+  const handleCreateBacklogFromCompany = async () => {
+    if (!pendingCompanyId) return;
+    if (!newVisitPurpose.trim()) {
+      pushToast("Укажите цель встречи.", "error");
+      return;
+    }
+    setCreatingBacklogVisit(true);
+    try {
+      const company = companyHits.find((c) => c.id === pendingCompanyId);
+      const v = await visitsApi.create({
+        companyId: pendingCompanyId,
+        title: company?.name || "Візит",
+        purpose: newVisitPurpose.trim(),
+      });
+      setBacklog((prev) => [v, ...prev]);
+      setPendingCompanyId(null);
+      setNewVisitPurpose("");
+      setCompanyQuery("");
+      setCompanyHits([]);
+      setContactPickerOpen(false);
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Не удалось создать визит", "error");
+    } finally {
+      setCreatingBacklogVisit(false);
+    }
+  };
+
+  const openScheduleBacklog = (visit: Visit) => {
+    const base = new Date(date);
+    base.setHours(10, 0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setScheduleBacklogAt(
+      `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`,
+    );
+    setScheduleBacklogVisit(visit);
+  };
+
+  const handleScheduleBacklogVisit = async () => {
+    if (!scheduleBacklogVisit || !scheduleBacklogAt) return;
+    const startsAt = new Date(scheduleBacklogAt);
+    if (Number.isNaN(startsAt.getTime())) {
+      pushToast("Укажите корректные дату и время.", "error");
+      return;
+    }
+    const durationMin = scheduleBacklogVisit.durationMin ?? 60;
+    const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
+    setSchedulingBacklog(true);
+    try {
+      const updated = await visitsApi.update(scheduleBacklogVisit.id, {
+        status: "SCHEDULED",
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        durationMin,
+      });
+      setBacklog((prev) => prev.filter((v) => v.id !== updated.id));
+      setDayVisits((prev) => {
+        const rest = prev.filter((v) => v.id !== updated.id);
+        return [...rest, updated].sort((a, b) => {
+          const aTime = a.startsAt ? new Date(a.startsAt).getTime() : 0;
+          const bTime = b.startsAt ? new Date(b.startsAt).getTime() : 0;
+          return aTime - bTime;
+        });
+      });
+      setScheduleBacklogVisit(null);
+      setScheduleBacklogAt("");
+      pushToast("Визит назначен на выбранные дату и время.", "success");
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : "Не удалось назначить визит", "error");
+    } finally {
+      setSchedulingBacklog(false);
     }
   };
 
@@ -1454,46 +1493,101 @@ function VisitsPageContent() {
                 Backlog (planned, unscheduled)
               </div>
               <div className="mt-2 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setContactPickerOpen((o) => !o)}
-                  className="text-xs font-medium text-emerald-700 hover:underline"
-                >
-                  + Добавить из контакта
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBacklogAddMode("contact");
+                      setContactPickerOpen((o) => !(o && backlogAddMode === "contact"));
+                      setPendingCompanyId(null);
+                    }}
+                    className="text-xs font-medium text-emerald-700 hover:underline"
+                  >
+                    + Из контакта
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBacklogAddMode("company");
+                      setContactPickerOpen((o) => !(o && backlogAddMode === "company"));
+                      setPendingContactId(null);
+                    }}
+                    className="text-xs font-medium text-emerald-700 hover:underline"
+                  >
+                    + Из компании
+                  </button>
+                </div>
                 {contactPickerOpen ? (
                   <div className="rounded border border-zinc-200 bg-zinc-50 p-2">
-                    <input
-                      type="search"
-                      placeholder="Поиск контакта (мин. 2 символа)…"
-                      className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                      value={contactQuery}
-                      onChange={(e) => setContactQuery(e.target.value)}
-                    />
-                    {contactHits.length > 0 ? (
-                      <ul className="mt-1 max-h-32 overflow-auto text-xs">
-                        {contactHits.map((c) => (
-                          <li key={c.id}>
-                            <button
-                              type="button"
-                              className={
-                                "w-full rounded px-1 py-1 text-left hover:bg-white " +
-                                (pendingContactId === c.id
-                                  ? "bg-white ring-1 ring-emerald-300"
-                                  : "")
-                              }
-                              onClick={() => {
-                                setPendingContactId(c.id);
-                                setNewVisitPurpose("");
-                              }}
-                            >
-                              {c.firstName} {c.lastName} · {c.phone}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {pendingContactId ? (
+                    {backlogAddMode === "contact" ? (
+                      <>
+                        <input
+                          type="search"
+                          placeholder="Поиск контакта (мин. 2 символа)…"
+                          className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                          value={contactQuery}
+                          onChange={(e) => setContactQuery(e.target.value)}
+                        />
+                        {contactHits.length > 0 ? (
+                          <ul className="mt-1 max-h-32 overflow-auto text-xs">
+                            {contactHits.map((c) => (
+                              <li key={c.id}>
+                                <button
+                                  type="button"
+                                  className={
+                                    "w-full rounded px-1 py-1 text-left hover:bg-white " +
+                                    (pendingContactId === c.id
+                                      ? "bg-white ring-1 ring-emerald-300"
+                                      : "")
+                                  }
+                                  onClick={() => {
+                                    setPendingContactId(c.id);
+                                    setNewVisitPurpose("");
+                                  }}
+                                >
+                                  {c.firstName} {c.lastName} · {c.phone}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type="search"
+                          placeholder="Поиск компании (мин. 2 символа)…"
+                          className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                          value={companyQuery}
+                          onChange={(e) => setCompanyQuery(e.target.value)}
+                        />
+                        {companyHits.length > 0 ? (
+                          <ul className="mt-1 max-h-32 overflow-auto text-xs">
+                            {companyHits.map((c) => (
+                              <li key={c.id}>
+                                <button
+                                  type="button"
+                                  className={
+                                    "w-full rounded px-1 py-1 text-left hover:bg-white " +
+                                    (pendingCompanyId === c.id
+                                      ? "bg-white ring-1 ring-emerald-300"
+                                      : "")
+                                  }
+                                  onClick={() => {
+                                    setPendingCompanyId(c.id);
+                                    setNewVisitPurpose("");
+                                  }}
+                                >
+                                  {c.name}
+                                  {c.phone ? ` · ${c.phone}` : ""}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    )}
+                    {(pendingContactId || pendingCompanyId) ? (
                       <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2">
                         <label className="text-[10px] font-medium text-zinc-600">
                           Цель встречи *
@@ -1507,7 +1601,11 @@ function VisitsPageContent() {
                         <button
                           type="button"
                           disabled={creatingBacklogVisit}
-                          onClick={() => void handleCreateBacklogFromContact()}
+                          onClick={() =>
+                            void (pendingCompanyId
+                              ? handleCreateBacklogFromCompany()
+                              : handleCreateBacklogFromContact())
+                          }
                           className="mt-1 w-full rounded bg-zinc-900 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                         >
                           {creatingBacklogVisit ? "…" : "В backlog"}
@@ -1552,7 +1650,8 @@ function VisitsPageContent() {
               ) : (
                 backlog.map((v) => {
                   const contactName = v.contact ? formatContactNameLastFirst(v.contact) : "";
-                  const nameLine = contactName || v.title?.trim() || "—";
+                  const companyName = v.company?.name?.trim() || "";
+                  const nameLine = contactName || companyName || v.title?.trim() || "—";
                   return (
                     <div
                       key={v.id}
@@ -1588,6 +1687,18 @@ function VisitsPageContent() {
                           {v.durationMin ?? 60} мин
                         </span>
                         <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openScheduleBacklog(v);
+                            }}
+                            className="min-h-[28px] rounded-md px-1.5 py-1 text-[10px] font-medium leading-none text-emerald-700 hover:bg-emerald-100"
+                            title="Назначить дату и время"
+                          >
+                            🕒
+                          </button>
                           <button
                             type="button"
                             onMouseDown={(e) => e.stopPropagation()}
@@ -1727,14 +1838,6 @@ function VisitsPageContent() {
                 </div>
               ) : null}
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
-                <label className="inline-flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={useTrafficAware}
-                    onChange={(e) => setUseTrafficAware(e.target.checked)}
-                  />
-                  Учитывать пробки
-                </label>
                 {currentOrderVisitIds.length > 0 ? (
                   <label className="inline-flex items-center gap-1">
                     <input
@@ -1764,21 +1867,21 @@ function VisitsPageContent() {
 
               {routePlan?.stops?.length ? (
                 <div className="mt-0.5 text-[11px] text-zinc-500">
-                  {routeMetricsLoading ? (
+                  {routeGeometryLoading ? (
                     "План: считаем…"
-                  ) : routeMetrics?.distanceKm != null ? (
+                  ) : savedPlanMetrics?.distanceKm != null ? (
                     <>
-                      План: {routeMetrics.distanceKm} км
-                      {routeMetrics.durationMin != null
-                        ? ` · ~${routeMetrics.durationMin} мин`
+                      План: {savedPlanMetrics.distanceKm} км
+                      {savedPlanMetrics.durationMin != null
+                        ? ` · ~${savedPlanMetrics.durationMin} мин`
                         : ""}
-                      {routeMetrics.source === "fallback" ? " (примерно)" : ""}
+                      {savedPlanMetrics.source === "fallback" ? " (примерно)" : ""}
                     </>
                   ) : (
                     "План: —"
                   )}
                   {" · "}
-                  {routeMetricsPreviewLoading ? (
+                  {routeGeometryPreviewLoading ? (
                     "Текущий: считаем…"
                   ) : routeMetricsPreview?.distanceKm != null ? (
                     <>
@@ -1792,7 +1895,7 @@ function VisitsPageContent() {
                     "Текущий: —"
                   )}
                   {" · "}
-                  {routeFactMetricsLoading ? (
+                  {routeGeometryLoading ? (
                     "Факт: …"
                   ) : routeFactMetrics?.distanceKm != null ? (
                     <>
@@ -1852,10 +1955,7 @@ function VisitsPageContent() {
                     const optimized = await routePlansApi.optimize(
                       dateParam,
                       currentOrderVisitIds,
-                      {
-                        traffic: useTrafficAware,
-                        ...planOwnerOpts,
-                      },
+                      planOwnerOpts,
                     );
                     const res = await routePlansApi.saveForDay(
                       dateParam,
@@ -1864,23 +1964,14 @@ function VisitsPageContent() {
                     );
                     setRoutePlan(res.plan ?? null);
                     setRouteOrderIds(optimized.visitIds);
-                    setRouteMetricsLoading(true);
-                    try {
-                      const m = await routePlansApi.metrics(dateParam, {
-                        traffic: useTrafficAware,
-                        ...planOwnerOpts,
-                      });
-                      setRouteMetrics(m);
-                    } finally {
-                      setRouteMetricsLoading(false);
-                    }
+                    await loadGeometryBundle();
                     await refreshRouteSession();
                   } catch (e) {
                     pushToast(e instanceof Error ? e.message : "Failed to optimize route", "error");
                   }
                 }}
                 className="ml-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                title="Оптимизировать порядок остановок (сохранит маршрут)"
+                title="Оптимизировать порядок остановок (локально, сохранит маршрут)"
               >
                 Оптимизировать
               </button>
@@ -2173,17 +2264,17 @@ function VisitsPageContent() {
                   <div className="text-[11px] text-zinc-500">
                     Маршрут сохранён ({routePlan.stops.length} остановок)
                     {" · "}
-                    {routeMetricsLoading ? (
+                    {routeGeometryLoading ? (
                       "считаем км…"
-                    ) : routeMetrics?.distanceKm != null ? (
+                    ) : savedPlanMetrics?.distanceKm != null ? (
                       <>
-                        {routeMetrics.distanceKm} км
-                        {routeMetrics.durationMin != null
-                          ? ` · ~${routeMetrics.durationMin} мин`
+                        {savedPlanMetrics.distanceKm} км
+                        {savedPlanMetrics.durationMin != null
+                          ? ` · ~${savedPlanMetrics.durationMin} мин`
                           : ""}
-                        {routeMetrics.source === "fallback"
+                        {savedPlanMetrics.source === "fallback"
                           ? " (примерно)"
-                          : routeMetrics.source === "google"
+                          : savedPlanMetrics.source === "osrm"
                             ? " (по дорогам)"
                             : ""}
                       </>
@@ -2571,6 +2662,50 @@ function VisitsPageContent() {
           }
         }}
       />
+
+      {scheduleBacklogVisit ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-zinc-900">Назначить дату и время</h3>
+            <p className="mt-1 text-sm text-zinc-500">
+              {scheduleBacklogVisit.contact
+                ? formatContactNameLastFirst(scheduleBacklogVisit.contact)
+                : scheduleBacklogVisit.company?.name ||
+                  scheduleBacklogVisit.title ||
+                  "Визит"}
+            </p>
+            <label className="mt-4 block text-xs font-medium text-zinc-700">
+              Дата и время
+              <input
+                type="datetime-local"
+                value={scheduleBacklogAt}
+                onChange={(e) => setScheduleBacklogAt(e.target.value)}
+                className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleBacklogVisit(null);
+                  setScheduleBacklogAt("");
+                }}
+                className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={schedulingBacklog || !scheduleBacklogAt}
+                onClick={() => void handleScheduleBacklogVisit()}
+                className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {schedulingBacklog ? "…" : "Назначить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {error && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800 shadow">

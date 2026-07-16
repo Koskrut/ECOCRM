@@ -33,6 +33,7 @@ type Props = {
   initialStartsAt: string | null;
   durationMin?: number | null;
   loading?: boolean;
+  title?: string;
   onSave: (payload: SavePayload) => void;
 };
 
@@ -78,6 +79,7 @@ export function VisitRescheduleSheet({
   initialStartsAt,
   durationMin,
   loading,
+  title,
   onSave,
 }: Props) {
   const theme = useTheme();
@@ -92,9 +94,9 @@ export function VisitRescheduleSheet({
 
   useEffect(() => {
     if (!visible) return;
-    const base = initialStartsAt ? new Date(initialStartsAt) : new Date();
+    const base = initialStartsAt ? new Date(initialStartsAt) : addDays(new Date(), 1);
     const dateKey = formatLocalDateKey(base);
-    const preset = inferDayPreset(dateKey);
+    const preset = initialStartsAt ? inferDayPreset(dateKey) : "tomorrow";
     const time = inferTimeSlot(initialStartsAt);
     setDayPreset(preset);
     setSelectedDateKey(dateKey);
@@ -156,7 +158,7 @@ export function VisitRescheduleSheet({
     resolvedStartsAt != null || (timeSlot === "custom" && parseTodayTime(customTime, parseDateKey(selectedDateKey)) != null);
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title={t("visit.rescheduleTitle")}>
+    <BottomSheet visible={visible} onClose={onClose} title={title ?? t("visit.rescheduleTitle")}>
       <Text style={[theme.typography.caption, { marginBottom: 8, fontWeight: "600" }]}>
         {t("tasks.dueSectionLabel")}
       </Text>

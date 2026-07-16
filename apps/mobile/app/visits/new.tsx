@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ContactPickerPanel } from "@/components/visit/ContactPickerPanel";
+import { VisitEntityPickerPanel } from "@/components/visit/VisitEntityPickerPanel";
 import { VisitScheduleSection,
   resolveVisitPurpose,
   resolveVisitStartsAt,
@@ -15,6 +15,7 @@ import { AppButton } from "@/components/ui/AppButton";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
 import { Screen } from "@/components/ui/Screen";
 import { useAuth } from "@/context/auth-context";
+import { companiesApi } from "@/lib/api/companies";
 import { contactsApi } from "@/lib/api/contacts";
 import { visitsApi } from "@/lib/api/visits";
 import { useTheme } from "@/lib/design/theme-context";
@@ -35,7 +36,7 @@ import {
   type VisitLocationValue,
 } from "@/lib/visit-location.types";
 import { resolveMapsApiKey } from "@/lib/maps-config";
-import type { CompanyAddress, Contact } from "@/types/crm";
+import type { Company, CompanyAddress, Contact } from "@/types/crm";
 
 type Step = 1 | 2;
 
@@ -44,9 +45,16 @@ export default function NewVisitScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
-  const params = useLocalSearchParams<{ contactId?: string; schedule?: string; date?: string }>();
+  const params = useLocalSearchParams<{
+    contactId?: string;
+    companyId?: string;
+    schedule?: string;
+    date?: string;
+  }>();
   const preselectedContactId =
     typeof params.contactId === "string" && params.contactId ? params.contactId : null;
+  const preselectedCompanyId =
+    typeof params.companyId === "string" && params.companyId ? params.companyId : null;
   const scheduleDateKey =
     typeof params.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
       ? params.date
@@ -55,7 +63,9 @@ export default function NewVisitScreen() {
 
   const [step, setStep] = useState<Step>(1);
   const [contact, setContact] = useState<Contact | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
   const [backlogByContact, setBacklogByContact] = useState<Record<string, string>>({});
+  const [backlogByCompany, setBacklogByCompany] = useState<Record<string, string>>({});
 
   const [mode, setMode] = useState<VisitScheduleMode>(defaultToday ? "today" : "backlog");
   const [timeSlot, setTimeSlot] = useState<TimeSlotKey>("next");
@@ -67,32 +77,50 @@ export default function NewVisitScreen() {
   const [visitLocation, setVisitLocation] = useState<VisitLocationValue | null>(null);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
 
-  const backlogVisitId = contact ? backlogByContact[contact.id] ?? null : null;
+  const entityType = company ? "company" : "contact";
+  const backlogVisitId = contact
+    ? backlogByContact[contact.id] ?? null
+    : company
+      ? backlogByCompany[company.id] ?? null
+      : null;
 
   const loadBacklog = useCallback(async () => {
     if (!token) return;
     try {
       const res = await visitsApi.backlog(token);
-      const map: Record<string, string> = {};
+      const byContact: Record<string, string> = {};
+      const byCompany: Record<string, string> = {};
       for (const v of res) {
-        if (v.contactId) map[v.contactId] = v.id;
+        if (v.contactId) byContact[v.contactId] = v.id;
+        if (v.companyId && !v.contactId) byCompany[v.companyId] = v.id;
       }
-      setBacklogByContact(map);
+      setBacklogByContact(byContact);
+      setBacklogByCompany(byCompany);
     } catch {
       // non-blocking
     }
   }, [token]);
 
   const loadPreselected = useCallback(async () => {
-    if (!token || !preselectedContactId) return;
+    if (!token) return;
     try {
-      const c = await contactsApi.getById(token, preselectedContactId);
-      setContact(c);
-      setStep(2);
+      if (preselectedContactId) {
+        const c = await contactsApi.getById(token, preselectedContactId);
+        setContact(c);
+        setCompany(null);
+        setStep(2);
+        return;
+      }
+      if (preselectedCompanyId) {
+        const c = await companiesApi.getById(token, preselectedCompanyId);
+        setCompany(c);
+        setContact(null);
+        setStep(2);
+      }
     } catch {
       // user can pick manually
     }
-  }, [token, preselectedContactId]);
+  }, [token, preselectedContactId, preselectedCompanyId]);
 
   useEffect(() => {
     void loadPreselected();
@@ -101,44 +129,44 @@ export default function NewVisitScreen() {
   }, [loadPreselected, loadBacklog, token]);
 
   useEffect(() => {
-    if (!contact || !token) return;
+    if (!token) return;
     let cancelled = false;
-    void contactsApi
-      .listAddresses(token, contact.id)
-      .then((items: CompanyAddress[]) => {
-        if (cancelled) return;
-        setVisitLocation((prev) => {
-          if (prev && visitLocationHasCoords(prev)) return prev;
-          const ready = items.filter((a) => a.hasCoordinates && a.lat != null && a.lng != null);
-          if (ready.length > 0) return defaultVisitLocationFromAddresses(ready);
-          if (contact.lat != null && contact.lng != null && contact.address?.trim()) {
-            return {
-              mode: "entity",
-              addressId: "__legacy__",
-              addressText: contact.address,
-              lat: contact.lat,
-              lng: contact.lng,
-            };
-          }
-          return null;
-        });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        if (contact.lat != null && contact.lng != null && contact.address?.trim()) {
-          setVisitLocation({
+
+    const applyAddresses = (items: CompanyAddress[], entity: Contact | Company) => {
+      if (cancelled) return;
+      setVisitLocation((prev) => {
+        if (prev && visitLocationHasCoords(prev)) return prev;
+        const ready = items.filter((a) => a.hasCoordinates && a.lat != null && a.lng != null);
+        if (ready.length > 0) return defaultVisitLocationFromAddresses(ready);
+        if (entity.lat != null && entity.lng != null && entity.address?.trim()) {
+          return {
             mode: "entity",
             addressId: "__legacy__",
-            addressText: contact.address,
-            lat: contact.lat,
-            lng: contact.lng,
-          });
+            addressText: entity.address,
+            lat: entity.lat,
+            lng: entity.lng,
+          };
         }
+        return null;
       });
+    };
+
+    if (contact) {
+      void contactsApi
+        .listAddresses(token, contact.id)
+        .then((items) => applyAddresses(items, contact))
+        .catch(() => applyAddresses([], contact));
+    } else if (company) {
+      void companiesApi
+        .getAddresses(token, company.id)
+        .then((res) => applyAddresses(res.items ?? [], company))
+        .catch(() => applyAddresses([], company));
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [contact, token]);
+  }, [contact, company, token]);
 
   const scheduleBase = useMemo(
     () => (scheduleDateKey ? parseDateKey(scheduleDateKey) : new Date()),
@@ -155,36 +183,55 @@ export default function NewVisitScreen() {
     [purposeKey, customPurpose],
   );
 
+  const hasEntity = !!(contact || company);
+
   const canSubmit = useMemo(() => {
-    if (!contact || busy) return false;
+    if (!hasEntity || busy) return false;
     if (mode === "backlog" && backlogVisitId) return false;
     if (!visitLocation || !visitLocationHasCoords(visitLocation)) return false;
     if (mode === "today" && !startsAt) return false;
     return true;
-  }, [contact, busy, mode, backlogVisitId, startsAt, visitLocation]);
+  }, [hasEntity, busy, mode, backlogVisitId, startsAt, visitLocation]);
 
   const footerSummary = useMemo(() => {
-    if (!contact) return "";
+    if (!hasEntity) return "";
     if (mode === "backlog") return t("visits.summaryBacklog");
     if (startsAt) return t("visits.summaryToday", { time: formatTimeHm(startsAt) });
     return t("visits.timeLabel");
-  }, [contact, mode, startsAt]);
+  }, [hasEntity, mode, startsAt]);
 
   function onSelectContact(c: Contact) {
     setContact(c);
+    setCompany(null);
+    setVisitLocation(null);
     setStep(2);
   }
 
+  function onSelectCompany(c: Company) {
+    setCompany(c);
+    setContact(null);
+    setVisitLocation(null);
+    setStep(2);
+  }
+
+  function resetEntity() {
+    setContact(null);
+    setCompany(null);
+    setVisitLocation(null);
+    setStep(1);
+  }
+
   async function onCreate() {
-    if (!token || !contact || !canSubmit) return;
+    if (!token || !hasEntity || !canSubmit || !visitLocation) return;
     setBusy(true);
     try {
       const body = {
-        contactId: contact.id,
+        ...(contact
+          ? { contactId: contact.id, phone: contact.phone || null }
+          : { companyId: company!.id, phone: company!.phone || null }),
         title: title.trim() || null,
-        phone: contact.phone || null,
         purpose,
-        ...buildVisitLocationCreatePayload(visitLocation!),
+        ...buildVisitLocationCreatePayload(visitLocation, entityType),
       };
 
       let visitId: string;
@@ -264,13 +311,18 @@ export default function NewVisitScreen() {
         ]}>
         {step === 1 ? (
           token ? (
-            <ContactPickerPanel token={token} onSelect={onSelectContact} />
+            <VisitEntityPickerPanel
+              token={token}
+              onSelectContact={onSelectContact}
+              onSelectCompany={onSelectCompany}
+            />
           ) : null
-        ) : contact ? (
+        ) : hasEntity ? (
           <>
             <VisitLocationSection
               token={token!}
               contact={contact}
+              company={company}
               value={visitLocation}
               onChange={setVisitLocation}
               mapsApiKey={mapsApiKey}
@@ -278,6 +330,7 @@ export default function NewVisitScreen() {
             />
             <VisitScheduleSection
               contact={contact}
+              company={company}
               mode={mode}
               onModeChange={setMode}
               timeSlot={timeSlot}
@@ -291,11 +344,7 @@ export default function NewVisitScreen() {
               title={title}
               onTitleChange={setTitle}
               backlogVisitId={backlogVisitId}
-              onChangeContact={() => {
-                setContact(null);
-                setVisitLocation(null);
-                setStep(1);
-              }}
+              onChangeEntity={resetEntity}
             />
           </>
         ) : null}

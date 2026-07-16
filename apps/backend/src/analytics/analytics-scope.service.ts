@@ -26,7 +26,7 @@ export class AnalyticsScopeService {
 
     if (actor.role === UserRole.LEAD && opts?.allowLead) {
       const teamIds = await this.getTeamMemberIds(actor.id);
-      const allowed = new Set(teamIds);
+      const allowed = new Set([actor.id, ...teamIds]);
       if (opts.managerId) {
         if (!allowed.has(opts.managerId)) {
           throw new ForbiddenException("managerId is not in your team");
@@ -36,16 +36,10 @@ export class AnalyticsScopeService {
           allowedAssigneeIds: [opts.managerId],
         };
       }
-      if (teamIds.length === 0) {
-        return {
-          orderScope: { actor, allowedOwnerIds: [] },
-          allowedAssigneeIds: [],
-          emptyTeam: true,
-        };
-      }
+      const ownerIds = [...allowed];
       return {
-        orderScope: { actor, allowedOwnerIds: teamIds },
-        allowedAssigneeIds: teamIds,
+        orderScope: { actor, allowedOwnerIds: ownerIds },
+        allowedAssigneeIds: ownerIds,
       };
     }
 

@@ -516,6 +516,25 @@ enum PlanningItemType {
   LAUNCH_LIST
 }
 
+enum PackingListStatus {
+  DRAFT
+  APPROVED
+  DONE
+}
+
+enum FactoryOrderStatus {
+  DRAFT
+  OPEN
+  PARTIAL
+  CLOSED
+  CANCELLED
+}
+
+enum PlanningDemandMix {
+  HARD_PLUS_FORECAST_BEYOND_COVERED
+  MAX_FORECAST_HARD
+}
+
 // --- MODELS ---
 
 model User {
@@ -1582,6 +1601,10 @@ model Product {
   snapshotLines          InventorySnapshotLine[]
   reservations           MaterialReservation[]
   weeklyPlanItems        WeeklyPlanItem[]
+  kitDemandForecasts     KitDemandForecast[]
+  salesHistoryLines      SalesHistoryLine[]
+  packingListLines       PackingListLine[]
+  factoryOrderLines      FactoryOrderLine[]
 
   @@index([primaryImageId])
   @@index([kind])
@@ -2538,9 +2561,10 @@ model InventorySnapshot {
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
 
-  importedBy User                    @relation("InventorySnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
-  postedBy   User?                   @relation("InventorySnapshotPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
-  lines      InventorySnapshotLine[]
+  importedBy   User                    @relation("InventorySnapshotImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  postedBy     User?                   @relation("InventorySnapshotPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  lines        InventorySnapshotLine[]
+  packingLists PackingList[]
 
   @@index([status, importedAt])
   @@index([importedById])
@@ -2734,6 +2758,114 @@ model WeeklyPlanItem {
   @@index([batchId])
   @@index([productId])
   @@index([orderId])
+}
+
+model KitDemandForecast {
+  id          String   @id @default(cuid())
+  productId   String
+  horizonDays Int
+  qty         Int
+  method      String
+  computedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, horizonDays])
+  @@index([horizonDays])
+  @@index([computedAt])
+}
+
+model SalesHistoryLine {
+  id         String   @id @default(cuid())
+  productId  String?
+  skuRaw     String
+  soldAt     DateTime
+  qty        Int
+  source     String   @default("EXCEL_IMPORT")
+  importBatchId String?
+  createdAt  DateTime @default(now())
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([productId, soldAt])
+  @@index([skuRaw])
+  @@index([soldAt])
+  @@index([importBatchId])
+}
+
+model PackingList {
+  id            String            @id @default(cuid())
+  cycleStart    DateTime
+  cycleEnd      DateTime
+  status        PackingListStatus @default(DRAFT)
+  capacityUsed  Int               @default(0)
+  capacityLimit Int
+  snapshotId    String?
+  note          String?
+  approvedAt    DateTime?
+  approvedById  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  snapshot InventorySnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  lines    PackingListLine[]
+
+  @@index([status, cycleStart])
+  @@index([snapshotId])
+}
+
+model PackingListLine {
+  id             String   @id @default(cuid())
+  packingListId  String
+  kitProductId   String
+  qtySuggested   Int
+  qtyApproved    Int
+  maxFromParts   Int
+  priority       Int      @default(0)
+  hardNeed       Int      @default(0)
+  forecastNeed   Int      @default(0)
+  stockKits      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  packingList PackingList @relation(fields: [packingListId], references: [id], onDelete: Cascade)
+  kitProduct  Product     @relation(fields: [kitProductId], references: [id], onDelete: Restrict)
+
+  @@unique([packingListId, kitProductId])
+  @@index([kitProductId])
+}
+
+model FactoryOrder {
+  id         String             @id @default(cuid())
+  orderedAt  DateTime           @default(now())
+  dueAt      DateTime
+  status     FactoryOrderStatus @default(DRAFT)
+  note       String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  lines FactoryOrderLine[]
+
+  @@index([status, dueAt])
+  @@index([orderedAt])
+}
+
+model FactoryOrderLine {
+  id            String   @id @default(cuid())
+  factoryOrderId String
+  partProductId String
+  qtyOrdered    Int
+  qtyReceived   Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  factoryOrder FactoryOrder @relation(fields: [factoryOrderId], references: [id], onDelete: Cascade)
+  partProduct  Product      @relation(fields: [partProductId], references: [id], onDelete: Restrict)
+
+  @@unique([factoryOrderId, partProductId])
+  @@index([partProductId])
 }
 
 // ===== Payment module =====

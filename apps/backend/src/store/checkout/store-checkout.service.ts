@@ -140,11 +140,6 @@ export class StoreCheckoutService {
         undefined,
       );
     }
-    const existingCustomerBeforeCheckout = await this.prisma.customer.findUnique({
-      where: { contactId: contact.id },
-      select: { id: true },
-    });
-
     let orderDeliveryData: Record<string, unknown> | undefined;
     if (deliveryMethod === "NOVA_POSHTA") {
       const dd = dto.deliveryData as
@@ -327,18 +322,18 @@ export class StoreCheckoutService {
         };
 
         let savedProfileId: string | null = null;
-        const shouldAutoCreateFirstProfileForRegistered =
-          !!existingCustomerBeforeCheckout &&
-          (await this.prisma.contactShippingProfile.count({
-            where: { contactId: contact.id },
-          })) === 0;
-        if (dd.saveAsProfile || shouldAutoCreateFirstProfileForRegistered) {
+        // First NP address always becomes a profile (Customer may be created only after the order).
+        const existingProfilesCount = await this.prisma.contactShippingProfile.count({
+          where: { contactId: contact.id },
+        });
+        const shouldAutoCreateFirstProfile = existingProfilesCount === 0;
+        if (dd.saveAsProfile || shouldAutoCreateFirstProfile) {
           const label = dd.profileLabel?.trim() || cityName || "Нова пошта";
           const createdProfile = await this.prisma.contactShippingProfile.create({
             data: {
               contactId: contact.id,
               label,
-              isDefault: false,
+              isDefault: shouldAutoCreateFirstProfile,
               recipientType: recipientType as NpRecipientType,
               deliveryType: deliveryType as NpDeliveryType,
               firstName,

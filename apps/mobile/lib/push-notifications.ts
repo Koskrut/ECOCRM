@@ -4,7 +4,7 @@ import { Platform } from "react-native";
 
 import { apiFetch } from "@/lib/api";
 
-export const CRM_ALERTS_CHANNEL_ID = "crm-alerts";
+export const CRM_ALERTS_CHANNEL_ID = "crm-alerts-v2";
 
 let handlerInstalled = false;
 let cachedToken: string | null = null;
@@ -31,8 +31,10 @@ export async function ensureMobilePushChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync(CRM_ALERTS_CHANNEL_ID, {
     name: "CRM сповіщення",
-    importance: Notifications.AndroidImportance.DEFAULT,
+    importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
+    sound: "default",
+    enableVibrate: true,
   });
 }
 

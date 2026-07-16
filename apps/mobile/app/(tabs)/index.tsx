@@ -148,7 +148,7 @@ export default function TodayScreen() {
           };
         }>(`/field/fuel/day?date=${encodeURIComponent(dateKey)}`, { token }).catch(() => null),
         apiFetch<RouteGeometryBundle>(
-          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}&traffic=1`,
+          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}`,
           { token },
         ).catch(() => null),
         callsPromise,

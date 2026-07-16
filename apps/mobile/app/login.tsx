@@ -49,7 +49,7 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled">
           <View style={styles.hero}>
-            <Text style={[theme.typography.display, styles.brand]}>Suprex CRM</Text>
+            <Text style={[theme.typography.display, styles.brand]}>{t("login.brand")}</Text>
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
               {t("login.hint")}
             </Text>

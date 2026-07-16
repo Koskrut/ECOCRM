@@ -40,7 +40,7 @@ export type FuelCalculationSnapshot = {
 export function resolveTrackMetricsSource(
   source: string | null | undefined,
 ): TrackMetricsSource {
-  if (source === "google") return "track";
+  if (source === "osrm" || source === "google") return "track";
   if (source === "raw_gps" || source === "fallback") return "track_fallback";
   return "none";
 }

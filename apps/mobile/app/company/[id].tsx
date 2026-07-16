@@ -125,6 +125,7 @@ export default function CompanyDetailScreen() {
           token={token!}
           date={dateKey}
           phone={company.phone}
+          companyId={company.id}
           lat={company.lat}
           lng={company.lng}
           compact
@@ -174,12 +175,22 @@ export default function CompanyDetailScreen() {
         )}
 
         <SectionTitle title={t("companies.orders")} />
-        <AppButton
-          label={t("orders.new")}
-          onPress={() => router.push(`/orders/new?companyId=${encodeURIComponent(company.id)}`)}
-          variant="secondary"
-          style={{ marginBottom: theme.spacing.sm, alignSelf: "flex-start" }}
-        />
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.spacing.sm, marginBottom: theme.spacing.sm }}>
+          <AppButton
+            label={t("today.addVisit")}
+            onPress={() =>
+              router.push(`/visits/new?companyId=${encodeURIComponent(company.id)}&schedule=today`)
+            }
+            variant="secondary"
+            style={{ alignSelf: "flex-start" }}
+          />
+          <AppButton
+            label={t("orders.new")}
+            onPress={() => router.push(`/orders/new?companyId=${encodeURIComponent(company.id)}`)}
+            variant="secondary"
+            style={{ alignSelf: "flex-start" }}
+          />
+        </View>
         {orders.length === 0 ? (
           <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
         ) : (

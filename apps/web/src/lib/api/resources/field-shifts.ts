@@ -67,7 +67,7 @@ export type FieldLocationSampleRow = {
 export type FieldTrackGeometry = {
   sampleCount: number;
   path: Array<{ lat: number; lng: number }>;
-  source: "google" | "fallback" | "none";
+  source: "osrm" | "fallback" | "none";
   distanceKm: number | null;
 };
 
@@ -97,11 +97,9 @@ export const fieldShiftsApi = {
 
   getTrackGeometry: async (
     shiftId: string,
-    opts?: { traffic?: boolean },
   ): Promise<FieldTrackGeometry> => {
     const res = await apiHttp.get<FieldTrackGeometry>(
       `/field/shifts/${shiftId}/track-geometry`,
-      { params: opts?.traffic ? { traffic: "1" } : undefined } as never,
     );
     return res.data;
   },

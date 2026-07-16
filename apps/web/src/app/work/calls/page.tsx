@@ -200,8 +200,14 @@ export default function CallWorkspacePage() {
   }, []);
 
   const contextId =
-    session?.lead?.id ?? session?.contact?.id ?? selected?.target?.id ?? null;
-  const contextKind = session?.lead ? "lead" : session?.contact ? "contact" : selected?.target?.kind;
+    session?.lead?.id ?? session?.contact?.id ?? session?.company?.id ?? selected?.target?.id ?? null;
+  const contextKind = session?.lead
+    ? "LEAD"
+    : session?.contact
+      ? "CONTACT"
+      : session?.company
+        ? "COMPANY"
+        : selected?.target?.kind;
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-3">
@@ -287,14 +293,20 @@ export default function CallWorkspacePage() {
           {session && contextId && contextKind && (
             <div className="space-y-4">
               <ContextSummary session={session} />
-              <div className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-100">
-                <ContactTimeline
-                  apiBaseUrl=""
-                  contactId={contextId}
-                  entityType={contextKind === "LEAD" ? "lead" : "contact"}
-                  showActivityButtons={false}
-                />
-              </div>
+              {contextKind === "LEAD" || contextKind === "CONTACT" ? (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-zinc-100">
+                  <ContactTimeline
+                    apiBaseUrl=""
+                    contactId={contextId}
+                    entityType={contextKind === "LEAD" ? "lead" : "contact"}
+                    showActivityButtons={false}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  Компанія в черзі прозвона. Відкрийте картку компанії для деталей.
+                </p>
+              )}
             </div>
           )}
         </section>
@@ -416,6 +428,13 @@ function ContextSummary({ session }: { session: SessionDetail }) {
               line2: undefined,
             });
           }
+        } else if (session.company) {
+          if (!cancelled) {
+            setExtra({
+              line1: session.company.phone ?? "",
+              line2: undefined,
+            });
+          }
         }
       } catch {
         if (!cancelled) setExtra(null);
@@ -424,18 +443,31 @@ function ContextSummary({ session }: { session: SessionDetail }) {
     return () => {
       cancelled = true;
     };
-  }, [session.lead?.id, session.contact?.id]);
+  }, [session.lead?.id, session.contact?.id, session.company?.id]);
 
   const name =
     session.lead?.fullName?.trim() ||
     [session.lead?.firstName, session.lead?.lastName].filter(Boolean).join(" ") ||
     [session.contact?.firstName, session.contact?.lastName].filter(Boolean).join(" ") ||
+    session.company?.name ||
     "—";
+
+  const phone =
+    session.lead?.phone ?? session.contact?.phone ?? session.company?.phone ?? "—";
 
   return (
     <div className="rounded-lg bg-zinc-50 p-3 text-sm">
       <div className="font-semibold text-zinc-900">{name}</div>
-      <div className="text-zinc-600">{session.lead?.phone ?? session.contact?.phone ?? "—"}</div>
+      <div className="flex flex-wrap items-center gap-2 text-zinc-600">
+        <span>{phone}</span>
+        {phone !== "—" ? (
+          <>
+            <a href={`tel:${phone}`} className="text-xs text-blue-600 underline">
+              tel:
+            </a>
+          </>
+        ) : null}
+      </div>
       {extra?.line1 && <div className="mt-1 text-zinc-500">{extra.line1}</div>}
       {extra?.line2 && <div className="text-xs text-zinc-500">{extra.line2}</div>}
       {session.lead && (
@@ -446,6 +478,14 @@ function ContextSummary({ session }: { session: SessionDetail }) {
       {session.contact && (
         <Link href={`/contacts?contactId=${session.contact.id}`} className="mt-2 inline-block text-xs text-blue-600">
           Відкрити контакт
+        </Link>
+      )}
+      {session.company && !session.contact && !session.lead && (
+        <Link
+          href={`/companies?companyId=${session.company.id}`}
+          className="mt-2 inline-block text-xs text-blue-600"
+        >
+          Відкрити компанію
         </Link>
       )}
     </div>

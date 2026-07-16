@@ -42,7 +42,7 @@ describe("FieldShiftsService.getTrackGeometry", () => {
     const routePlans = {
       snapGpsPathToRoads: async () => ({
         path: snappedPath,
-        source: "google" as const,
+        source: "osrm" as const,
         distanceKm: 12.3,
       }),
     };
@@ -63,7 +63,7 @@ describe("FieldShiftsService.getTrackGeometry", () => {
     assert.equal(result.sampleCount, filtered.length);
     assert.ok(result.sampleCount > 500);
     assert.equal(result.path.length, 2);
-    assert.equal(result.source, "google");
+    assert.equal(result.source, "osrm");
     assert.equal(result.distanceKm, 12.3);
   });
 

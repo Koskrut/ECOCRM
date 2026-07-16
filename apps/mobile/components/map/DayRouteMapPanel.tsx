@@ -49,6 +49,8 @@ type Props = {
   dateKey: string;
   ownerId?: string;
   contentPaddingBottom?: number;
+  /** When provided, skips initial bundle fetch (e.g. parent already loaded it). */
+  initialBundle?: RouteGeometryBundle | null;
 };
 
 function toGoogleMapColor(hex: string): string {
@@ -69,16 +71,21 @@ function formatRouteStat(distanceKm: number | null, durationMin: number | null):
 }
 
 function routeSourceSuffix(source: string | undefined): string {
-  if (source === "google") return t("map.routeByRoads");
+  if (source === "osrm" || source === "google") return t("map.routeByRoads");
   if (source === "fallback") return t("map.routeApprox");
   if (source === "raw_gps") return t("map.routeRawGps");
   return "";
 }
 
-export function DayRouteMapPanel({ dateKey, ownerId, contentPaddingBottom }: Props) {
+export function DayRouteMapPanel({
+  dateKey,
+  ownerId,
+  contentPaddingBottom,
+  initialBundle,
+}: Props) {
   const { token } = useAuth();
   const theme = useTheme();
-  const [bundle, setBundle] = useState<RouteGeometryBundle | null>(null);
+  const [bundle, setBundle] = useState<RouteGeometryBundle | null>(initialBundle ?? null);
   const [mapsKey, setMapsKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -117,7 +124,7 @@ export function DayRouteMapPanel({ dateKey, ownerId, contentPaddingBottom }: Pro
       const ownerQs = ownerId ? `&ownerId=${encodeURIComponent(ownerId)}` : "";
       const [geo, key] = await Promise.all([
         apiFetch<unknown>(
-          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}&traffic=1${ownerQs}`,
+          `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}${ownerQs}`,
           { token },
         ),
         resolveMapsApiKey(token),
@@ -134,8 +141,14 @@ export function DayRouteMapPanel({ dateKey, ownerId, contentPaddingBottom }: Pro
 
   useFocusEffect(
     useCallback(() => {
+      if (initialBundle !== undefined) {
+        setBundle(initialBundle);
+        void resolveMapsApiKey(token).then(setMapsKey).catch(() => setMapsKey(null));
+        setLoading(false);
+        return;
+      }
       void reload();
-    }, [reload]),
+    }, [reload, initialBundle, token]),
   );
 
   const activeLayers = useMemo(() => {

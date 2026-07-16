@@ -428,6 +428,21 @@ export function mapBitrixDealStageToOrderStage(
   return legacyStatusToOrderStage(legacy);
 }
 
+/** Closed Bitrix deals should not inflate receivables debt. */
+export function computeBitrixDealFinancials(
+  orderStage: OrderStage,
+  totalAmount: number,
+): { paidAmount: number; debtAmount: number } {
+  const total = Number.isFinite(totalAmount) ? Math.max(0, totalAmount) : 0;
+  if (orderStage === "CANCELED" || orderStage === "REFUSED") {
+    return { paidAmount: 0, debtAmount: 0 };
+  }
+  if (orderStage === "COMPLETED") {
+    return { paidAmount: total, debtAmount: 0 };
+  }
+  return { paidAmount: 0, debtAmount: total };
+}
+
 /** Parse Bitrix date string (e.g. "2024-01-15T12:30:00+03:00") to Date; returns null if invalid. */
 export function parseBitrixDate(value: unknown): Date | null {
   if (value == null) return null;
@@ -490,6 +505,7 @@ export function mapBitrixDealToPrisma(
   const updatedAt = parseBitrixDate(row["DATE_MODIFY"]) ?? createdAt;
 
   const orderStage = mapBitrixDealStageToOrderStage(stageId, stageSemanticId);
+  const { paidAmount, debtAmount } = computeBitrixDealFinancials(orderStage, opportunity);
   return {
     orderNumber,
     companyId,
@@ -506,8 +522,8 @@ export function mapBitrixDealToPrisma(
     subtotalAmount: opportunity,
     discountAmount: 0,
     totalAmount: opportunity,
-    paidAmount: 0,
-    debtAmount: opportunity,
+    paidAmount,
+    debtAmount,
     comment: comments,
     legacySource: "bitrix",
     legacyId: id,

@@ -354,6 +354,21 @@ export class TasksService {
     const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
     const changes = diffTaskRecords(prevSnapshot, nextSnapshot);
     this.workflowEmitter?.emitRecordUpdated(CustomFieldEntityType.TASK, id, nextSnapshot, changes);
+    if (
+      assigneeId !== undefined &&
+      assigneeId !== task.assigneeId &&
+      assigneeId !== actor.id
+    ) {
+      void this.notifications?.notifyTaskAssigned({
+        assigneeId,
+        taskId: updated.id,
+        title: `Нова задача: ${updated.title}`,
+        body: updated.body,
+        actorId: actor.id,
+        orderId: updated.orderId,
+        leadId: updated.leadId,
+      });
+    }
     return updated;
   }
 

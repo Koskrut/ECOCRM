@@ -617,7 +617,7 @@ export class FieldShiftsService {
       })),
     );
     const points = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
-    const geometry = await this.routePlans.snapGpsPathToRoads(points, opts);
+    const geometry = await this.routePlans.snapGpsPathToRoads(points);
     return {
       sampleCount: filtered.length,
       ...geometry,

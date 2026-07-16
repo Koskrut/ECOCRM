@@ -107,6 +107,7 @@ export function ReceivablesPageContent() {
   const orderId = searchParams.get("orderId") ?? "";
 
   const [role, setRole] = useState<string | null>(null);
+  const [meId, setMeId] = useState<string | null>(null);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [searchInput, setSearchInput] = useState(q);
   const [snapshots, setSnapshots] = useState<ReceivablesSnapshot[]>([]);
@@ -125,6 +126,7 @@ export function ReceivablesPageContent() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadDate, setUploadDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [uploadNote, setUploadNote] = useState("");
+  const [uploadCurrency, setUploadCurrency] = useState("USD");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -146,8 +148,14 @@ export function ReceivablesPageContent() {
   useEffect(() => {
     apiHttp
       .get<MeResponse>("/auth/me")
-      .then((res) => setRole(res.data?.user?.role ?? null))
-      .catch(() => setRole(null));
+      .then((res) => {
+        setRole(res.data?.user?.role ?? null);
+        setMeId(res.data?.user?.id ?? null);
+      })
+      .catch(() => {
+        setRole(null);
+        setMeId(null);
+      });
   }, []);
 
   useEffect(() => {
@@ -158,18 +166,20 @@ export function ReceivablesPageContent() {
       )
       .then((res) => {
         const list = res.data?.items ?? [];
-        setManagers(
-          list
-            .filter((u) => u.role === "MANAGER")
-            .map((u) => ({
-              id: u.id,
-              fullName: u.fullName?.trim() || u.email || u.id,
-            }))
-            .sort((a, b) => a.fullName.localeCompare(b.fullName, "uk")),
-        );
+        const options = list
+          .filter((u) => u.role === "MANAGER" || (role === "LEAD" && u.id === meId))
+          .map((u) => ({
+            id: u.id,
+            fullName:
+              u.id === meId && role === "LEAD"
+                ? `${u.fullName?.trim() || u.email || u.id} (${t.myPortfolio})`
+                : u.fullName?.trim() || u.email || u.id,
+          }))
+          .sort((a, b) => a.fullName.localeCompare(b.fullName, "uk"));
+        setManagers(options);
       })
       .catch(() => setManagers([]));
-  }, [role]);
+  }, [role, meId, t.myPortfolio]);
 
   const loadSnapshots = useCallback(async () => {
     const res = await receivablesApi.listSnapshots(30);
@@ -284,6 +294,7 @@ export function ReceivablesPageContent() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("snapshotDate", uploadDate);
+      fd.append("currency", uploadCurrency);
       if (uploadNote.trim()) fd.append("note", uploadNote.trim());
       const res = await receivablesApi.uploadSnapshot(fd);
       pushToast(t.uploadSuccess, "success");
@@ -417,9 +428,9 @@ export function ReceivablesPageContent() {
 
         {tab === "work" ? (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <KpiCard
-                title={t.kpiDebtTotal}
+                title={t.kpiDebtOperational}
                 value={formatMoney(workSummary?.kpi.debtTotal ?? 0, currency)}
                 variant="risk"
               />
@@ -435,6 +446,11 @@ export function ReceivablesPageContent() {
               <KpiCard
                 title={t.kpiOrders}
                 value={String(workSummary?.kpi.ordersWithDebtCount ?? 0)}
+              />
+              <KpiCard
+                title={t.kpiBitrixLegacy}
+                value={formatMoney(workSummary?.kpi.bitrixLegacyDebt ?? 0, currency)}
+                subtitle={t.kpiBitrixLegacyHint}
               />
             </div>
 
@@ -613,6 +629,17 @@ export function ReceivablesPageContent() {
                   onChange={(e) => setUploadDate(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                 />
+              </label>
+              <label className="block text-sm">
+                <span className="text-zinc-600">{t.uploadCurrency}</span>
+                <select
+                  value={uploadCurrency}
+                  onChange={(e) => setUploadCurrency(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                >
+                  <option value="USD">USD</option>
+                  <option value="UAH">UAH</option>
+                </select>
               </label>
               <label className="block text-sm">
                 <span className="text-zinc-600">{t.note}</span>

@@ -3,7 +3,6 @@ import React from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/Themed";
-import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { manualCallingApi } from "@/lib/api/manual-calling";
 import { useTheme } from "@/lib/design/theme-context";
@@ -16,6 +15,7 @@ type Props = {
   phone?: string | null;
   visitId?: string;
   contactId?: string;
+  companyId?: string;
   leadId?: string;
   lat?: number | null;
   lng?: number | null;
@@ -28,6 +28,7 @@ export function EntityActionBar({
   phone,
   visitId,
   contactId,
+  companyId,
   leadId,
   lat,
   lng,
@@ -41,6 +42,7 @@ export function EntityActionBar({
     try {
       if (leadId) await manualCallingApi.enqueue(token, { leadId });
       else if (contactId) await manualCallingApi.enqueue(token, { contactId });
+      else if (companyId) await manualCallingApi.enqueue(token, { companyId });
       else return;
       Alert.alert(t("common.done"), t("actions.enqueuedCall"));
     } catch (e) {
@@ -53,6 +55,12 @@ export function EntityActionBar({
     borderRadius: theme.radius.md,
     minHeight: theme.layout.minTouchTarget,
   });
+
+  const orderHref = contactId
+    ? `/orders/new?contactId=${encodeURIComponent(contactId)}`
+    : companyId
+      ? `/orders/new?companyId=${encodeURIComponent(companyId)}`
+      : "/orders/new";
 
   return (
     <View style={[styles.row, compact && styles.compact, { gap: theme.spacing.sm, marginTop: compact ? 0 : theme.spacing.sm }]}>
@@ -69,15 +77,12 @@ export function EntityActionBar({
         <Text style={styles.emoji}>🗺</Text>
       </Pressable>
       <Pressable
-        onPress={() => {
-          const q = contactId ? `?contactId=${contactId}` : "";
-          router.push(`/orders/new${q}`);
-        }}
+        onPress={() => router.push(orderHref)}
         style={({ pressed }) => [styles.btn, btnStyle(theme.colors.orderMuted), pressed && styles.pressed]}
         accessibilityRole="button">
         <Text style={styles.emoji}>🛒</Text>
       </Pressable>
-      {manualCallingEnabled && (contactId || leadId) ? (
+      {manualCallingEnabled && (contactId || leadId || companyId) ? (
         <Pressable
           onPress={() => void onEnqueueCall()}
           style={({ pressed }) => [styles.btn, btnStyle(theme.colors.chip), pressed && styles.pressed]}

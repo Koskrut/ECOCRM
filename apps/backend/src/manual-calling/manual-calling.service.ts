@@ -96,6 +96,9 @@ export class ManualCallingService {
             company: { select: { id: true, name: true } },
           },
         },
+        company: {
+          select: { id: true, name: true, phone: true },
+        },
         sessions: {
           where: { status: ManualCallSessionStatus.OPEN },
           take: 1,
@@ -109,11 +112,12 @@ export class ManualCallingService {
   async enqueue(dto: EnqueueQueueItemDto, actor: AuthUser) {
     const leadId = dto.leadId?.trim() || null;
     const contactId = dto.contactId?.trim() || null;
-    if (!!leadId === !!contactId) {
-      throw new BadRequestException("Exactly one of leadId or contactId is required");
+    const companyOnlyId = dto.companyId?.trim() || null;
+    const targetCount = [leadId, contactId, companyOnlyId].filter(Boolean).length;
+    if (targetCount !== 1) {
+      throw new BadRequestException("Exactly one of leadId, contactId, or companyId is required");
     }
 
-    let companyId: string | null = null;
     if (leadId) {
       const lead = await this.prisma.lead.findUnique({
         where: { id: leadId },
@@ -121,29 +125,45 @@ export class ManualCallingService {
       });
       if (!lead) throw new NotFoundException("Lead not found");
       this.assertLeadOwner(lead.ownerId, actor);
-      companyId = lead.companyId;
       await this.prisma.callQueueItem.create({
         data: {
           assigneeId: actor.id,
           leadId,
-          companyId,
+          companyId: lead.companyId,
+          status: CallQueueItemStatus.PENDING,
+          sortOrder: await this.nextSortOrder(actor.id),
+        },
+      });
+    } else if (contactId) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { id: true, companyId: true, ownerId: true },
+      });
+      if (!contact) throw new NotFoundException("Contact not found");
+      this.assertContactOwner(contact.ownerId, actor);
+      await this.prisma.callQueueItem.create({
+        data: {
+          assigneeId: actor.id,
+          contactId,
+          companyId: contact.companyId ?? null,
           status: CallQueueItemStatus.PENDING,
           sortOrder: await this.nextSortOrder(actor.id),
         },
       });
     } else {
-      const contact = await this.prisma.contact.findUnique({
-        where: { id: contactId! },
-        select: { id: true, companyId: true, ownerId: true },
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyOnlyId! },
+        select: { id: true, ownerId: true, phone: true },
       });
-      if (!contact) throw new NotFoundException("Contact not found");
-      this.assertContactOwner(contact.ownerId, actor);
-      companyId = contact.companyId ?? null;
+      if (!company) throw new NotFoundException("Company not found");
+      this.assertCompanyOwner(company.ownerId, actor);
+      if (!this.normalizePhone(company.phone)) {
+        throw new BadRequestException("У компании нет телефона");
+      }
       await this.prisma.callQueueItem.create({
         data: {
           assigneeId: actor.id,
-          contactId: contactId!,
-          companyId,
+          companyId: company.id,
           status: CallQueueItemStatus.PENDING,
           sortOrder: await this.nextSortOrder(actor.id),
         },
@@ -159,6 +179,7 @@ export class ManualCallingService {
       include: {
         lead: { select: { ownerId: true } },
         contact: { select: { ownerId: true } },
+        company: { select: { ownerId: true } },
       },
     });
     if (!item) throw new NotFoundException("Queue item not found");
@@ -170,8 +191,15 @@ export class ManualCallingService {
     }
     this.assertLeadOwner(item.leadId ? item.lead?.ownerId : null, actor, true);
     this.assertContactOwner(item.contactId ? item.contact?.ownerId : null, actor, true);
+    if (!item.leadId && !item.contactId) {
+      this.assertCompanyOwner(item.company?.ownerId, actor);
+    }
 
-    const phoneNorm = await this.resolveTargetPhoneNormalized(item.leadId, item.contactId);
+    const phoneNorm = await this.resolveTargetPhoneNormalized(
+      item.leadId,
+      item.contactId,
+      item.leadId || item.contactId ? null : item.companyId,
+    );
 
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.callQueueItem.update({
@@ -234,6 +262,7 @@ export class ManualCallingService {
       include: {
         lead: { select: { ownerId: true } },
         contact: { select: { ownerId: true } },
+        company: { select: { ownerId: true } },
       },
     });
     if (!item) throw new NotFoundException("Queue item not found");
@@ -245,8 +274,15 @@ export class ManualCallingService {
     }
     this.assertLeadOwner(item.leadId ? item.lead?.ownerId : null, actor, true);
     this.assertContactOwner(item.contactId ? item.contact?.ownerId : null, actor, true);
+    if (!item.leadId && !item.contactId) {
+      this.assertCompanyOwner(item.company?.ownerId, actor);
+    }
 
-    const phoneNorm = await this.resolveTargetPhoneNormalized(item.leadId, item.contactId);
+    const phoneNorm = await this.resolveTargetPhoneNormalized(
+      item.leadId,
+      item.contactId,
+      item.leadId || item.contactId ? null : item.companyId,
+    );
 
     let session = await this.prisma.manualCallSession.findFirst({
       where: { queueItemId: item.id, status: ManualCallSessionStatus.OPEN },
@@ -501,6 +537,9 @@ export class ManualCallingService {
                 company: { select: { id: true, name: true } },
               },
             },
+            company: {
+              select: { id: true, name: true, phone: true },
+            },
             sessions: {
               where: { status: ManualCallSessionStatus.OPEN },
               take: 1,
@@ -528,6 +567,9 @@ export class ManualCallingService {
             phone: true,
             company: { select: { id: true, name: true } },
           },
+        },
+        company: {
+          select: { id: true, name: true, phone: true },
         },
       },
     });
@@ -557,6 +599,7 @@ export class ManualCallingService {
       queueItem: this.mapQueueItem(s.queueItem),
       lead: s.lead,
       contact: s.contact,
+      company: s.company,
     };
   }
 
@@ -585,6 +628,7 @@ export class ManualCallingService {
       phone: string;
       company: { id: string; name: string } | null;
     } | null;
+    company?: { id: string; name: string; phone: string | null } | null;
     sessions: { id: string; startedAt: Date }[];
   }) {
     const target =
@@ -600,7 +644,7 @@ export class ManualCallingService {
             phone: it.lead.phone,
             companyName: it.lead.company?.name ?? null,
           }
-        : it.contact
+        : it.contactId && it.contact
           ? {
               kind: "CONTACT" as const,
               id: it.contact.id,
@@ -608,7 +652,15 @@ export class ManualCallingService {
               phone: it.contact.phone,
               companyName: it.contact.company?.name ?? null,
             }
-          : null;
+          : it.companyId && it.company
+            ? {
+                kind: "COMPANY" as const,
+                id: it.company.id,
+                displayName: it.company.name,
+                phone: it.company.phone,
+                companyName: it.company.name,
+              }
+            : null;
 
     return {
       id: it.id,
@@ -635,6 +687,7 @@ export class ManualCallingService {
   private async resolveTargetPhoneNormalized(
     leadId: string | null,
     contactId: string | null,
+    companyId: string | null = null,
   ): Promise<string | null> {
     if (leadId) {
       const lead = await this.prisma.lead.findUnique({
@@ -649,6 +702,13 @@ export class ManualCallingService {
         select: { phoneNormalized: true, phone: true },
       });
       return this.normalizePhone(c?.phoneNormalized ?? c?.phone ?? null);
+    }
+    if (companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { phone: true },
+      });
+      return this.normalizePhone(company?.phone ?? null);
     }
     return null;
   }
@@ -675,5 +735,12 @@ export class ManualCallingService {
       throw new ForbiddenException("You can only access contacts assigned to you");
     }
     void strict;
+  }
+
+  private assertCompanyOwner(ownerId: string | null | undefined, actor: AuthUser) {
+    if (actor.role !== UserRole.MANAGER) return;
+    if (ownerId != null && ownerId !== actor.id) {
+      throw new ForbiddenException("You can only access companies assigned to you");
+    }
   }
 }

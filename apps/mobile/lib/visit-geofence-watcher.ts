@@ -99,6 +99,7 @@ export async function handleGeofenceLocationUpdate(
       title: t("geofence.atAddressTitle"),
       body: t("geofence.atAddressBody", { label }),
       data: { visitId: nearest.visit.id },
+      sound: "default",
     },
     trigger: null,
   });

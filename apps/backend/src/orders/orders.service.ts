@@ -2055,6 +2055,7 @@ export class OrdersService {
       orderStage: o.orderStage ?? null,
       deliveryStatus: o.deliveryStatus ?? null,
       financialStatus: o.financialStatus ?? null,
+      legacySource: o.legacySource ?? null,
       paymentDueDate: o.paymentDueDate ?? null,
       returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
       fxWriteOffAmount: o.fxWriteOffAmount ?? 0,

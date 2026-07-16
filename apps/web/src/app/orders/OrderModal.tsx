@@ -150,6 +150,7 @@ type OrderDetails = {
   status: string;
   /** Phase 3: main axis for UI */
   orderStage?: string | null;
+  legacySource?: string | null;
   deliveryMethod: string | null;
   paymentType?: string | null;
   /** CASH | FOP — способ оплаты (from Bitrix UF_CRM_1753787869056) */
@@ -2189,6 +2190,11 @@ export function OrderModal({
         title={
           <span className="inline-flex max-w-full min-w-0 flex-wrap items-center gap-2">
             <span className="min-w-0 truncate">{headerTitle}</span>
+            {!isCreate && order?.legacySource === "bitrix" ? (
+              <Badge className="shrink-0 border-zinc-300 bg-zinc-100 text-zinc-700">
+                {strings.receivables.bitrixLegacyBadge}
+              </Badge>
+            ) : null}
             {!isCreate && order?.ttnSharedAcrossOrders ? (
               <span
                 className="min-w-0 max-w-full shrink-0"
