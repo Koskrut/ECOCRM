@@ -70,21 +70,50 @@ export function parseOsrmRouteResponse(data: OsrmRouteResponse): {
   };
 }
 
-/** Parse OSRM map-matching response (`/match/v1/...`). */
+/**
+ * Parse OSRM map-matching response (`/match/v1/...`).
+ * Gaps in the GPS trace produce multiple matchings — sum distance/duration
+ * and concatenate geometries (taking only matchings[0] under-reports badly).
+ */
 export function parseOsrmMatchResponse(data: OsrmMatchResponse): {
   distanceKm: number | null;
   durationMin: number | null;
   path: LatLng[];
 } | null {
   if (data.code !== "Ok") return null;
-  const matching = data.matchings?.[0];
-  if (!matching) return null;
+  const matchings = data.matchings;
+  if (!Array.isArray(matchings) || matchings.length === 0) return null;
 
-  const path = parseGeojsonPath(matching.geometry);
-  if (!path) return null;
+  let distanceM = 0;
+  let durationSec = 0;
+  let hasDist = false;
+  let hasDur = false;
+  const path: LatLng[] = [];
+
+  for (const matching of matchings) {
+    if (typeof matching.distance === "number" && Number.isFinite(matching.distance)) {
+      distanceM += matching.distance;
+      hasDist = true;
+    }
+    if (typeof matching.duration === "number" && Number.isFinite(matching.duration)) {
+      durationSec += matching.duration;
+      hasDur = true;
+    }
+    const segment = parseGeojsonPath(matching.geometry);
+    if (!segment) continue;
+    for (const p of segment) {
+      const last = path[path.length - 1];
+      if (!last || last.lat !== p.lat || last.lng !== p.lng) {
+        path.push(p);
+      }
+    }
+  }
+
+  if (path.length < 2) return null;
 
   return {
-    ...metricsFromDistanceDuration(matching.distance, matching.duration),
+    distanceKm: hasDist ? Math.round((distanceM / 1000) * 10) / 10 : null,
+    durationMin: hasDur ? Math.round(durationSec / 60) : null,
     path,
   };
 }

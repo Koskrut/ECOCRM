@@ -670,7 +670,8 @@ export const en = {
       selectFile: "Select a file first",
       saveRules: "Failed to save demand rules",
       saveSettings: "Failed to save planning settings",
-      uploadSnapshot: "Failed to upload snapshot",
+      uploadSnapshot:
+        "Failed to upload snapshot. If you see 413, raise nginx client_max_body_size to 50M (including the HTTPS server block) and reload nginx.",
       uploadBom: "Failed to import BOM file",
       publishSnapshot: "Failed to publish snapshot",
       createRevision: "Failed to create BOM revision",

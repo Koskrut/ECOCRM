@@ -672,7 +672,8 @@ export const uk = {
       selectFile: "Спочатку оберіть файл",
       saveRules: "Не вдалося зберегти правила попиту",
       saveSettings: "Не вдалося зберегти параметри планування",
-      uploadSnapshot: "Не вдалося завантажити снапшот",
+      uploadSnapshot:
+        "Не вдалося завантажити снапшот. Якщо бачите 413 — на сервері збільште nginx client_max_body_size до 50M (і в HTTPS-блоці) та зробіть reload.",
       uploadBom: "Не вдалося імпортувати BOM-файл",
       publishSnapshot: "Не вдалося опублікувати снапшот",
       createRevision: "Не вдалося створити ревізію BOM",

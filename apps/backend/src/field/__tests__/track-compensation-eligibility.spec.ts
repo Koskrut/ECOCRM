@@ -122,4 +122,43 @@ describe("isTrackEligibleForCompensation", () => {
     assert.equal(result.eligible, false);
     assert.equal(result.reason, "gps_low_coverage");
   });
+
+  it("rejects truncated match vs visits (0.6 vs 14.8 with good coverage)", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 178,
+      rawPolylineDistanceKm: 16,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 0.6,
+      visitRouteDistanceKm: 14.8,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
+
+  it("rejects zero match segment vs visits (Mykhailiv-like)", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 115,
+      rawPolylineDistanceKm: 19.4,
+      coverageRatio: 0.8,
+      snappedTrackDistanceKm: 0,
+      visitRouteDistanceKm: 23.8,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
+
+  it("keeps fact_gps when summed match is close to visits route", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 178,
+      rawPolylineDistanceKm: 16,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 15.7,
+      visitRouteDistanceKm: 14.8,
+    });
+    assert.equal(result.eligible, true);
+    assert.equal(result.reason, null);
+  });
 });

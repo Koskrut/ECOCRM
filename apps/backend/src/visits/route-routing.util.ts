@@ -107,6 +107,16 @@ export const MIN_TRACK_COVERAGE_RATIO = 0.7;
  */
 export const TRACK_END_GRACE_MIN = 45;
 
+/**
+ * If snapped GPS km is below this fraction of the visits route (with enough
+ * visit km), treat the track as truncated/broken match → pay by visits.
+ * Guards against OSRM /match returning only the first gap segment.
+ */
+export const TRACK_VS_VISITS_SANITY_RATIO = 0.35;
+
+/** Minimum visit-route km before the track-vs-visits sanity check applies. */
+export const MIN_VISIT_ROUTE_KM_FOR_SANITY = 2;
+
 export type TrackCompensationEligibility = {
   eligible: boolean;
   reason: string | null;
@@ -123,6 +133,13 @@ export function isTrackEligibleForCompensation(opts: {
   lastSampleAt?: Date | string | null;
   /** completedAt of the last DONE visit that day. */
   lastDoneVisitCompletedAt?: Date | string | null;
+  /**
+   * Road-snapped GPS distance used for payout (OSRM match sum).
+   * Compared to visitRouteDistanceKm when coverage is healthy.
+   */
+  snappedTrackDistanceKm?: number | null;
+  /** fact_visits OSRM distance for the same day. */
+  visitRouteDistanceKm?: number | null;
 }): TrackCompensationEligibility {
   if (!opts.hasTrackingEnabledShift) {
     return { eligible: false, reason: "no_tracking_shift" };
@@ -153,7 +170,34 @@ export function isTrackEligibleForCompensation(opts: {
     }
   }
 
+  if (isGpsImplausiblyShortVsVisits(opts)) {
+    return { eligible: false, reason: "gps_implausibly_short_vs_visits" };
+  }
+
   return { eligible: true, reason: null };
+}
+
+/**
+ * True when snapped GPS km is far below the visits route despite healthy coverage
+ * (classic symptom of truncated OSRM /match or a dead tracking buffer).
+ */
+export function isGpsImplausiblyShortVsVisits(opts: {
+  coverageRatio?: number | null;
+  snappedTrackDistanceKm?: number | null;
+  visitRouteDistanceKm?: number | null;
+}): boolean {
+  const coverage = opts.coverageRatio;
+  const trackKm = opts.snappedTrackDistanceKm;
+  const visitKm = opts.visitRouteDistanceKm;
+  if (coverage == null || !Number.isFinite(coverage) || coverage < MIN_TRACK_COVERAGE_RATIO) {
+    return false;
+  }
+  if (visitKm == null || !Number.isFinite(visitKm) || visitKm < MIN_VISIT_ROUTE_KM_FOR_SANITY) {
+    return false;
+  }
+  const effectiveTrack =
+    trackKm != null && Number.isFinite(trackKm) ? Math.max(0, trackKm) : 0;
+  return effectiveTrack < visitKm * TRACK_VS_VISITS_SANITY_RATIO;
 }
 
 function toTimeMs(value: Date | string | null | undefined): number | null {

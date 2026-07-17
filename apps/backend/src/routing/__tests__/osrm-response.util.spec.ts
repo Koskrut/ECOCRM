@@ -84,6 +84,64 @@ describe("parseOsrmMatchResponse", () => {
     assert.equal(parsed!.path.length, 3);
   });
 
+  it("sums all matchings (Gumenyuk/Mykhailiv: gaps → multiple segments)", () => {
+    // Previously only matchings[0] was used → 0.55 km instead of ~15.7.
+    const parsed = parseOsrmMatchResponse({
+      code: "Ok",
+      matchings: [
+        {
+          distance: 550,
+          duration: 120,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [30.52, 50.45],
+              [30.521, 50.451],
+            ],
+          },
+        },
+        {
+          distance: 40,
+          duration: 30,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [30.53, 50.46],
+              [30.531, 50.461],
+            ],
+          },
+        },
+        {
+          distance: 230,
+          duration: 60,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [30.54, 50.47],
+              [30.541, 50.471],
+            ],
+          },
+        },
+        {
+          distance: 14880,
+          duration: 1800,
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [30.55, 50.48],
+              [30.56, 50.49],
+              [30.57, 50.5],
+            ],
+          },
+        },
+      ],
+    });
+    assert.ok(parsed);
+    assert.equal(parsed!.distanceKm, 15.7);
+    assert.equal(parsed!.durationMin, 34);
+    assert.equal(parsed!.path.length, 9);
+  });
+
   it("returns null for NoMatch", () => {
     assert.equal(parseOsrmMatchResponse({ code: "NoMatch" }), null);
   });

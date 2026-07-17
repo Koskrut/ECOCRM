@@ -53,14 +53,34 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### Лимит размера загрузок (`client_max_body_size`)
 
-В шаблоне для CRM, store и API задано `client_max_body_size 10M;` — иначе nginx по умолчанию режет тело запроса на **~1 MB** и мобильные фото чеков (заправка, импорты) падают с **413 Request Entity Too Large** ещё до Next.js/backend.
+В шаблоне для CRM, store и API задано `client_max_body_size 50M;` — иначе nginx по умолчанию режет тело запроса на **~1 MB**. Тогда падают:
 
-После обновления конфига на сервере продублируйте эту директиву и в HTTPS-блоках, которые certbot добавил вручную (`listen 443 ssl`), если их там нет:
+- полный файл остатков 1С (`остатки залить.xlsx`, часто **>1–2 MB**) → **413** на вкладке «Снапшоти»;
+- мобильные фото чеков (заправка);
+- BOM / sales Excel.
 
-```nginx
-client_max_body_size 10M;
+**Типичная причина на проде:** certbot создал отдельный `server { listen 443 ssl; ... }` **без** `client_max_body_size`, а в репозитории правка только в блоке `:80`. HTTPS тогда остаётся с дефолтом ~1M.
+
+На сервере сразу во всех блоках `crm.suprex.dental` / `api.suprex.dental` (и `:80`, и `:443`):
+
+```bash
+sudo grep -n 'client_max_body_size\|server_name crm' /etc/nginx/sites-enabled/*
+# если в 443-блоке нет лимита — добавьте:
+sudo sed -i '/server_name crm.suprex.dental;/a\    client_max_body_size 50M;' /etc/nginx/sites-available/suprex.dental.conf
+# или вручную в оба server {} для CRM:
 ```
 
+```nginx
+client_max_body_size 50M;
+```
+
+Проверка и reload:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+После обновления конфига на сервере продублируйте эту директиву и в HTTPS-блоках, которые certbot добавил вручную (`listen 443 ssl`), если их там нет.
 ## 4. Получить SSL-сертификаты
 
 ```bash

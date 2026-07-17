@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.112**.)_
+_(планируемые изменения после **0.2.113**.)_
+
+## [0.2.113] — 2026-07-17
+
+### Summary
+
+Патч **0.2.113**: OSRM **`/match`** суммирует все сегменты (не только `matchings[0]`); sanity-check GPS vs visits для топлива; nginx upload limit **50M** + понятные ошибки **413** в planning.
+
+### Fixed
+
+- **OSRM match**: `parseOsrmMatchResponse` суммирует distance/duration и склеивает geometry по всем `matchings` (gaps → несколько сегментов; раньше занижало км).
+- **Fuel eligibility**: `gps_implausibly_short_vs_visits` (`TRACK_VS_VISITS_SANITY_RATIO` 0.35) — при здоровом coverage, но слишком коротком snapped GPS относительно маршрута по визитам, выплата по visits.
+- **Planning uploads**: сообщения при nginx **413**; i18n hint про `client_max_body_size`.
+
+### Changed
+
+- **Deploy nginx**: `client_max_body_size` **50M** (CRM/API/store) + README про HTTPS-блок certbot.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.113`**.
+- **Новых миграций нет.**
+- На сервере: в nginx (и **:443**) для `crm`/`api` — **`client_max_body_size 50M;`**, затем `nginx -t && reload`. См. **`deploy/nginx/README.md`**.
 
 ## [0.2.112] — 2026-07-17
 

@@ -1204,6 +1204,8 @@ export class RoutePlansService {
       coverageRatio: factGps.quality.coverageRatio,
       lastSampleAt: factGps.quality.lastSampleAt ?? null,
       lastDoneVisitCompletedAt: factGps.quality.lastDoneVisitCompletedAt ?? null,
+      snappedTrackDistanceKm: factGps.distanceKm,
+      visitRouteDistanceKm: factVisits.distanceKm,
     });
 
     const compensationFactKind: RouteGeometryBundle["compensationFactKind"] =

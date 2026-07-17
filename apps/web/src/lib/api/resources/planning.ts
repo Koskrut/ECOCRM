@@ -1,5 +1,17 @@
 import { apiHttp } from "../client";
 
+/** Turn nginx/HTML error pages into a short message (e.g. 413 body size). */
+function uploadErrorMessage(status: number, body: string, fallback: string): string {
+  const text = body.trim();
+  if (status === 413 || /413|Request Entity Too Large/i.test(text)) {
+    return "File is too large for the server upload limit (nginx 413). Ask admin to set client_max_body_size 50M on crm.suprex.dental HTTPS and reload nginx.";
+  }
+  if (text.startsWith("<") || text.includes("<html")) {
+    return `${fallback} (HTTP ${status})`;
+  }
+  return text || `${fallback} (HTTP ${status})`;
+}
+
 export type DemandRules = {
   hardStages: string[];
   softStages: string[];
@@ -352,7 +364,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(text || `Upload failed (${res.status})`);
+      throw new Error(uploadErrorMessage(res.status, text, "Snapshot upload failed"));
     }
     return res.json() as Promise<UploadSnapshotResult>;
   },
@@ -404,7 +416,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(text || `BOM import failed (${res.status})`);
+      throw new Error(uploadErrorMessage(res.status, text, "BOM import failed"));
     }
     return res.json() as Promise<BomImportResult>;
   },
@@ -483,7 +495,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(text || `Sales history import failed (${res.status})`);
+      throw new Error(uploadErrorMessage(res.status, text, "Sales history import failed"));
     }
     return res.json();
   },
