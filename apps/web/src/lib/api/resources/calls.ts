@@ -48,6 +48,9 @@ export type ListCallsHistoryParams = {
   userId?: string;
   provider?: string;
   q?: string;
+  contactId?: string;
+  leadId?: string;
+  companyId?: string;
 };
 
 export const callsApi = {

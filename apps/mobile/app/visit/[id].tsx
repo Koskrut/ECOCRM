@@ -29,6 +29,7 @@ import { contactsApi } from "@/lib/api/contacts";
 import { resolveMapsApiKey } from "@/lib/maps-config";
 import { useTheme } from "@/lib/design/theme-context";
 import { captureGpsForVisitRequest } from "@/lib/gps-capture";
+import { appendPendingSample, flushPendingSamples } from "@/lib/location-tracking";
 import { visitDayKey } from "@/lib/visit-history";
 import {
   gpsVerificationLabel,
@@ -158,6 +159,30 @@ export default function VisitDetailScreen() {
         body: JSON.stringify(payload),
         token,
       });
+      // Belt-and-suspenders: also enqueue into the shift GPS buffer (backend dual-write is SoT).
+      if (
+        gps &&
+        typeof (gps as { lat?: unknown }).lat === "number" &&
+        typeof (gps as { lng?: unknown }).lng === "number"
+      ) {
+        const g = gps as {
+          lat: number;
+          lng: number;
+          accuracyM?: number;
+          clientRecordedAt?: string;
+        };
+        try {
+          await appendPendingSample({
+            lat: g.lat,
+            lng: g.lng,
+            accuracyM: g.accuracyM,
+            clientRecordedAt: g.clientRecordedAt ?? new Date().toISOString(),
+          });
+          await flushPendingSamples().catch(() => undefined);
+        } catch {
+          /* best-effort — backend already dual-wrote when possible */
+        }
+      }
       setActiveVisit(null, null);
       const vLabel = gpsVerificationLabel(done.completeGpsVerification ?? null);
       Alert.alert(

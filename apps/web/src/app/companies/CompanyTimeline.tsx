@@ -4,6 +4,9 @@ import { useCallback, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { CanonicalTimeline } from "@/components/timeline/CanonicalTimeline";
 import { useCanonicalTimeline } from "@/components/timeline/useCanonicalTimeline";
+import type { TimelineKind } from "@/components/timeline/types";
+
+type TimelineFilter = "all" | "calls" | "missed" | "withRecording";
 
 type Props = {
   apiBaseUrl: string;
@@ -15,9 +18,37 @@ export function CompanyTimeline({ apiBaseUrl: _apiBaseUrl, companyId }: Props) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [filter, setFilter] = useState<TimelineFilter>("all");
 
-  const timeline = useCanonicalTimeline({ entityType: "company", entityId: companyId });
+  const filters = useMemo(() => {
+    if (filter === "calls" || filter === "missed" || filter === "withRecording") {
+      return { kinds: ["call", "manual_call"] as TimelineKind[] };
+    }
+    return undefined;
+  }, [filter]);
+
+  const timeline = useCanonicalTimeline({ entityType: "company", entityId: companyId, filters });
   const activitiesUrl = useMemo(() => `companies/${companyId}/activities`, [companyId]);
+
+  const filteredItems = useMemo(() => {
+    if (filter === "missed") {
+      return timeline.items.filter((it) => {
+        if (it.kind !== "call") return false;
+        if (it.meta.kind !== "call") return false;
+        return (it.meta.data.status ?? "").toUpperCase().includes("MISSED");
+      });
+    }
+    if (filter === "withRecording") {
+      return timeline.items.filter((it) => {
+        if (it.kind !== "call") return false;
+        if (it.meta.kind !== "call") return false;
+        const url = it.meta.data.recordingUrl;
+        const status = (it.meta.data.recordingStatus ?? "").toUpperCase();
+        return !!url && (!status || status === "READY");
+      });
+    }
+    return timeline.items;
+  }, [filter, timeline.items]);
 
   const addActivity = useCallback(async () => {
     if (!text.trim()) return;
@@ -30,7 +61,6 @@ export function CompanyTimeline({ apiBaseUrl: _apiBaseUrl, companyId }: Props) {
       setSaving(false);
     }
   }, [activitiesUrl, mode, text, timeline]);
-
 
   const toActivityId = useCallback((canonicalId: string): string => {
     return canonicalId.startsWith("activity:") ? canonicalId.slice("activity:".length) : canonicalId;
@@ -77,6 +107,7 @@ export function CompanyTimeline({ apiBaseUrl: _apiBaseUrl, companyId }: Props) {
     },
     [timeline, toActivityId],
   );
+
   return (
     <div className="flex h-full flex-col rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="border-b border-zinc-200 p-4">
@@ -96,7 +127,26 @@ export function CompanyTimeline({ apiBaseUrl: _apiBaseUrl, companyId }: Props) {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        <CanonicalTimeline items={timeline.items} loading={timeline.loading} loadingMore={timeline.loadingMore} error={timeline.error} nextCursor={timeline.nextCursor} onLoadMore={() => void timeline.loadMore()} onEditActivity={handleEditActivity} onDeleteActivity={handleDeleteActivity} onTogglePinActivity={handleTogglePinActivity} actionLoading={actionLoading} />
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-zinc-500">Фільтр:</span>
+          <button type="button" onClick={() => setFilter("all")} className={`rounded-full px-3 py-1 ${filter === "all" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Усі</button>
+          <button type="button" onClick={() => setFilter("calls")} className={`rounded-full px-3 py-1 ${filter === "calls" ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Дзвінки</button>
+          <button type="button" onClick={() => setFilter("missed")} className={`rounded-full px-3 py-1 ${filter === "missed" ? "bg-red-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>Пропущені</button>
+          <button type="button" onClick={() => setFilter("withRecording")} className={`rounded-full px-3 py-1 ${filter === "withRecording" ? "bg-emerald-600 text-white" : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"} text-xs font-medium`}>З записом</button>
+        </div>
+
+        <CanonicalTimeline
+          items={filteredItems}
+          loading={timeline.loading}
+          loadingMore={timeline.loadingMore}
+          error={timeline.error}
+          nextCursor={timeline.nextCursor}
+          onLoadMore={() => void timeline.loadMore()}
+          onEditActivity={handleEditActivity}
+          onDeleteActivity={handleDeleteActivity}
+          onTogglePinActivity={handleTogglePinActivity}
+          actionLoading={actionLoading}
+        />
       </div>
     </div>
   );

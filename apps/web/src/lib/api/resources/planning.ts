@@ -111,6 +111,8 @@ export type BomImportResult = {
     revision: number;
     lines: number;
   }>;
+  createdKitCount?: number;
+  createdKits?: Array<{ sku: string; name: string; id: string }>;
   createdPartCount?: number;
   createdParts?: Array<{ id: string; sku: string; name: string }>;
   skippedKitCount?: number;

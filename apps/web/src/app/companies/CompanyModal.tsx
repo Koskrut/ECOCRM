@@ -27,6 +27,7 @@ import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { CompanyTimeline } from "./CompanyTimeline";
+import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
 import { OrderModal } from "../orders/OrderModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
@@ -1189,7 +1190,8 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <div className="min-h-0 overflow-auto border-zinc-200 lg:border-r lg:pr-4">
               <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
             </div>
-            <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4">
+            <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4 space-y-3">
+              <EntityCallRecordingsPanel companyId={companyId} />
               <EntitySection title="Активність">
                 <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
               </EntitySection>

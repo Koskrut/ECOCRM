@@ -31,6 +31,7 @@ import {
 import { ContactsService } from "../contacts/contacts.service";
 import { SettingsService } from "../settings/settings.service";
 import { resolvePrimaryRegionForManager } from "../settings/org-chart-region-resolver";
+import { dualWriteCompleteGpsToActiveShift } from "./visit-complete-gps-track";
 
 type CreateVisitInput = {
   contactId?: string | null;
@@ -858,6 +859,35 @@ export class VisitsService {
         this.logger.warn(
           `Failed to create/update timeline activity for visit ${id}: ${err instanceof Error ? err.message : String(err)}`,
         );
+      }
+    }
+
+    if (gpsPayload) {
+      const lat =
+        typeof gpsPayload.lat === "number" && Number.isFinite(gpsPayload.lat) ? gpsPayload.lat : null;
+      const lng =
+        typeof gpsPayload.lng === "number" && Number.isFinite(gpsPayload.lng) ? gpsPayload.lng : null;
+      if (lat != null && lng != null) {
+        try {
+          const clientRecordedAt =
+            this.normalizeClientRecordedAt(gpsPayload.clientRecordedAt) ?? now;
+          const result = await dualWriteCompleteGpsToActiveShift(this.prisma, {
+            ownerId: existing.ownerId,
+            lat,
+            lng,
+            accuracyM: gpsPayload.accuracyM,
+            clientRecordedAt,
+          });
+          if (result.created) {
+            this.logger.log(
+              `completeVisit dual-write GPS sample visitId=${id} ownerId=${existing.ownerId}`,
+            );
+          }
+        } catch (err) {
+          this.logger.warn(
+            `completeVisit dual-write GPS failed visitId=${id}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
 

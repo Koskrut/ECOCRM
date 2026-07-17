@@ -174,7 +174,22 @@ export function DayRouteMapPanel({
       {gpsQuality ? (
         <p className="mt-2 text-xs text-zinc-500">
           GPS: {gpsQuality.sampleCount} точек
-          {gpsQuality.degraded ? " · слабый сигнал GPS" : ""}
+          {gpsQuality.coverageRatio != null
+            ? ` · покрытие ${Math.round(gpsQuality.coverageRatio * 100)}%`
+            : ""}
+          {bundle?.compensationIneligibleReason === "gps_ended_before_last_visit" ||
+          (gpsQuality.lastSampleAt &&
+            gpsQuality.lastDoneVisitCompletedAt &&
+            new Date(gpsQuality.lastSampleAt).getTime() <
+              new Date(gpsQuality.lastDoneVisitCompletedAt).getTime() - 45 * 60_000)
+            ? " · трек оборвался"
+            : gpsQuality.degraded &&
+                !(gpsQuality.coverageRatio != null && gpsQuality.coverageRatio < 0.7)
+              ? " · слабый сигнал GPS"
+              : ""}
+          {bundle?.compensationFactKind
+            ? ` · компенсация: ${bundle.compensationFactKind === "fact_gps" ? "GPS" : "визиты"}`
+            : ""}
         </p>
       ) : null}
     </div>

@@ -121,4 +121,16 @@ describe("assessGpsTrackQuality", () => {
     assert.equal(q.degraded, true);
     assert.equal(q.degradedReason, "low_gps_coverage");
   });
+
+  it("uses 0.7 coverage threshold (aligns with payout policy)", () => {
+    const mid = assessGpsTrackQuality(200, 0.52);
+    assert.equal(mid.lowCoverage, true);
+    assert.equal(mid.partialCoverage, true);
+    assert.equal(mid.degradedReason, "gps_partial_coverage");
+
+    const ok = assessGpsTrackQuality(200, 0.75);
+    assert.equal(ok.lowCoverage, false);
+    assert.equal(ok.partialCoverage, false);
+    assert.equal(ok.degradedReason, null);
+  });
 });

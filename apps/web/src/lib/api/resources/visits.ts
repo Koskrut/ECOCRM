@@ -124,6 +124,8 @@ export type RouteGeometryLayer = {
     coverageRatio?: number | null;
     degraded?: boolean;
     degradedReason?: string | null;
+    lastSampleAt?: string | null;
+    lastDoneVisitCompletedAt?: string | null;
   };
 };
 
@@ -135,6 +137,8 @@ export type RouteGeometryResult = RouteGeometryLayer & {
     coverageRatio: number | null;
     degraded: boolean;
     degradedReason: string | null;
+    lastSampleAt?: string | null;
+    lastDoneVisitCompletedAt?: string | null;
   };
 };
 
@@ -142,6 +146,7 @@ export type RouteGeometryBundle = {
   date: string;
   ownerId: string;
   compensationFactKind: "fact_gps" | "fact_visits";
+  compensationIneligibleReason?: string | null;
   planned: RouteGeometryLayer;
   factVisits: RouteGeometryLayer;
   factGps: RouteGeometryLayer;

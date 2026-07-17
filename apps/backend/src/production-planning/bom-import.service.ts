@@ -271,11 +271,14 @@ export class BomImportService {
     );
 
     const resolveCatalogKitId = (sku: string): string | undefined => {
-      const hit = resolveStockSkuToProduct(sku, skuIndex);
-      if (!hit) return undefined;
-      const product = productById.get(hit.id);
+      const trimmed = sku.trim();
+      if (!trimmed) return undefined;
+      // Kits must match exactly — fuzzy article aliases collapse 08.041NH → 08.041.
+      const exact = skuIndex.exact.get(trimmed);
+      if (!exact) return undefined;
+      const product = productById.get(exact.id);
       if (!product || product.kind === ProductKind.PART) return undefined;
-      return hit.id;
+      return exact.id;
     };
 
     const registerName = (product: { id: string; name: string }) => {
@@ -300,6 +303,34 @@ export class BomImportService {
     };
 
     const createdParts: Array<{ sku: string; name: string; id: string }> = [];
+    const createdKits: Array<{ sku: string; name: string; id: string }> = [];
+
+    const ensureKitProductId = async (
+      kitSku: string,
+      kitName: string | null,
+    ): Promise<string> => {
+      const existing = resolveCatalogKitId(kitSku);
+      if (existing) return existing;
+
+      const created = await this.prisma.product.create({
+        data: {
+          sku: kitSku,
+          name: kitName?.trim() || kitSku,
+          unit: "pcs",
+          basePrice: 0,
+          stock: 0,
+          kind: ProductKind.KIT,
+          isActive: true,
+          showOnStore: false,
+        },
+        select: { id: true, sku: true, name: true, isActive: true, kind: true, showOnStore: true },
+      });
+      takenSkus.add(created.sku);
+      productById.set(created.id, created);
+      registerProductInStockIndex(skuIndex, created);
+      createdKits.push({ id: created.id, sku: created.sku, name: created.name });
+      return created.id;
+    };
 
     const ensureComponentProductId = async (
       row: ParsedBomRow,
@@ -379,28 +410,9 @@ export class BomImportService {
     let importedLineCount = 0;
 
     for (const [kitSku, kitRows] of grouped.entries()) {
-      const kitProductId = resolveCatalogKitId(kitSku);
-      if (!kitProductId) {
-        unresolvedKitSku.add(kitSku);
-        for (const row of kitRows) {
-          rowErrors.push({
-            rowNumber: row.rowNumber,
-            sheetName: row.sheetName,
-            kitSku,
-            componentSku: row.componentSkuRaw,
-            reason: "Kit SKU not found in catalog",
-          });
-        }
-        skippedKits.push({
-          kitSku,
-          reason: "Kit SKU not found in catalog",
-          unresolvedComponents: [],
-        });
-        continue;
-      }
+      const kitProductId = await ensureKitProductId(kitSku, kitRows[0]?.kitName ?? null);
 
       const componentIds = new Set<string>();
-      const duplicateComponents = new Set<string>();
       const bomLines: BomLineInput[] = [];
       const kitUnresolved: string[] = [];
       let hasErrors = false;
@@ -436,15 +448,10 @@ export class BomImportService {
         }
 
         if (componentIds.has(componentProductId)) {
-          duplicateComponents.add(row.componentSkuRaw);
-          rowErrors.push({
-            rowNumber: row.rowNumber,
-            sheetName: row.sheetName,
-            kitSku,
-            componentSku: row.componentSkuRaw,
-            reason: "Duplicate component within the same kit",
-          });
-          hasErrors = true;
+          const existing = bomLines.find((line) => line.componentProductId === componentProductId);
+          if (existing) {
+            existing.qtyPerKit += row.qtyPerKit;
+          }
           continue;
         }
 
@@ -457,16 +464,27 @@ export class BomImportService {
         });
       }
 
-      if (hasErrors || duplicateComponents.size > 0 || bomLines.length === 0) {
+      if (hasErrors || bomLines.length === 0) {
         skippedKits.push({
           kitSku,
           reason:
             bomLines.length === 0 && !hasErrors
               ? "No valid BOM lines"
-              : "Skipped: unresolved or duplicate components (previous active BOM kept)",
+              : "Skipped: unresolved components (previous active BOM kept)",
           unresolvedComponents: kitUnresolved,
         });
         continue;
+      }
+
+      // Promote catalog product to KIT when we attach a BOM.
+      const kitProduct = productById.get(kitProductId);
+      if (kitProduct && kitProduct.kind !== ProductKind.KIT) {
+        const updated = await this.prisma.product.update({
+          where: { id: kitProductId },
+          data: { kind: ProductKind.KIT },
+          select: { id: true, sku: true, name: true, isActive: true, kind: true, showOnStore: true },
+        });
+        productById.set(updated.id, updated);
       }
 
       const savedBom = await this.bomService.upsertNewRevision(kitProductId, bomLines);
@@ -487,6 +505,8 @@ export class BomImportService {
       importedKitCount: importedKits.length,
       importedLineCount,
       importedKits,
+      createdKitCount: createdKits.length,
+      createdKits: createdKits.slice(0, 100),
       createdPartCount: createdParts.length,
       createdParts: createdParts.slice(0, 100),
       skippedKitCount: skippedKits.length,

@@ -109,7 +109,12 @@ export function CallCard({
   const hasActions = onEdit != null || onDelete != null;
 
   const hasRecording =
-    !!call.recordingUrl && (call.recordingStatus ?? "").toUpperCase() === "READY";
+    !!call.recordingUrl &&
+    (!(call.recordingStatus ?? "").trim() ||
+      (call.recordingStatus ?? "").toUpperCase() === "READY");
+  const showRecordingUi =
+    !!call.recordingUrl ||
+    ["PENDING", "FAILED", "READY"].includes((call.recordingStatus ?? "").toUpperCase());
 
   const recordingSubtitle = [
     showSingleNumber ? fromLabel || toLabel : [fromLabel, toLabel].filter(Boolean).join(" → "),
@@ -278,11 +283,11 @@ export function CallCard({
             </div>
           )}
 
-          {!showDeleteConfirm && (
+          {!showDeleteConfirm && showRecordingUi && (
             <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
               <CallRecordingPlayer
                 url={call.recordingUrl}
-                status={call.recordingStatus}
+                status={call.recordingStatus ?? (call.recordingUrl ? "READY" : undefined)}
                 durationSec={call.talkSec ?? call.durationSec}
                 sessionId={item.id}
                 title={item.title || "Звонок"}

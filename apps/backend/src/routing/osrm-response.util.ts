@@ -12,16 +12,23 @@ export type OsrmRouteResponse = {
   }>;
 };
 
-export function parseOsrmRouteResponse(data: OsrmRouteResponse): {
-  distanceKm: number | null;
-  durationMin: number | null;
-  path: LatLng[];
-} | null {
-  if (data.code !== "Ok") return null;
-  const route = data.routes?.[0];
-  if (!route) return null;
+export type OsrmMatchResponse = {
+  code?: string;
+  matchings?: Array<{
+    distance?: number;
+    duration?: number;
+    confidence?: number;
+    geometry?: {
+      type?: string;
+      coordinates?: Array<[number, number]>;
+    };
+  }>;
+};
 
-  const coords = route.geometry?.coordinates;
+function parseGeojsonPath(
+  geometry: { type?: string; coordinates?: Array<[number, number]> } | undefined,
+): LatLng[] | null {
+  const coords = geometry?.coordinates;
   if (!Array.isArray(coords) || coords.length < 2) return null;
 
   const path: LatLng[] = [];
@@ -33,14 +40,51 @@ export function parseOsrmRouteResponse(data: OsrmRouteResponse): {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
     path.push({ lat, lng });
   }
-  if (path.length < 2) return null;
+  return path.length >= 2 ? path : null;
+}
 
-  const distM = typeof route.distance === "number" ? route.distance : null;
-  const durSec = typeof route.duration === "number" ? route.duration : null;
-
+function metricsFromDistanceDuration(distanceM: number | undefined, durationSec: number | undefined) {
+  const distM = typeof distanceM === "number" ? distanceM : null;
+  const durSec = typeof durationSec === "number" ? durationSec : null;
   return {
     distanceKm: distM != null ? Math.round((distM / 1000) * 10) / 10 : null,
     durationMin: durSec != null ? Math.round(durSec / 60) : null,
+  };
+}
+
+export function parseOsrmRouteResponse(data: OsrmRouteResponse): {
+  distanceKm: number | null;
+  durationMin: number | null;
+  path: LatLng[];
+} | null {
+  if (data.code !== "Ok") return null;
+  const route = data.routes?.[0];
+  if (!route) return null;
+
+  const path = parseGeojsonPath(route.geometry);
+  if (!path) return null;
+
+  return {
+    ...metricsFromDistanceDuration(route.distance, route.duration),
+    path,
+  };
+}
+
+/** Parse OSRM map-matching response (`/match/v1/...`). */
+export function parseOsrmMatchResponse(data: OsrmMatchResponse): {
+  distanceKm: number | null;
+  durationMin: number | null;
+  path: LatLng[];
+} | null {
+  if (data.code !== "Ok") return null;
+  const matching = data.matchings?.[0];
+  if (!matching) return null;
+
+  const path = parseGeojsonPath(matching.geometry);
+  if (!path) return null;
+
+  return {
+    ...metricsFromDistanceDuration(matching.distance, matching.duration),
     path,
   };
 }
@@ -52,4 +96,8 @@ export function buildOsrmCoordinatePath(
 ): string {
   const chain = [origin, ...intermediates, destination];
   return chain.map((p) => `${p.lng},${p.lat}`).join(";");
+}
+
+export function buildOsrmTraceCoordinatePath(points: LatLng[]): string {
+  return points.map((p) => `${p.lng},${p.lat}`).join(";");
 }

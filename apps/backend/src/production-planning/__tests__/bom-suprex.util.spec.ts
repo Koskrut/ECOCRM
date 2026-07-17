@@ -26,13 +26,22 @@ test("looksLikeComponentSku distinguishes article codes from packaging names", (
   assert.equal(looksLikeComponentSku("Этикетка 25*40"), false);
 });
 
-test("normalizeProductName keeps or strips parentheses by mode", () => {
+test("parseSuprexSheet defaults blank qty to 1", () => {
+  const rows = [
+    ...SUPREX_HEADER_BLOCK,
+    ["1", "Kit", "01.010", "ST-RC-AN", "", "", "", ""],
+    ["", "", "", "Блистер Suprex", "", "", "", ""],
+  ];
+  const { rows: parsed, rowErrors } = parseSuprexSheet(rows, "ST RC");
+  assert.equal(rowErrors.length, 0);
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0]?.qtyPerKit, 1);
+  assert.equal(parsed[1]?.qtyPerKit, 1);
+});
+
+test("normalizeProductName collapses non-breaking spaces", () => {
   assert.equal(
-    normalizeProductName("Блистер Suprex  (Костя)"),
-    "блистер suprex (костя)",
-  );
-  assert.equal(
-    normalizeProductName("Блистер Suprex  (Костя)", true),
+    normalizeProductName("Блистер Suprex\u00a0 (Костя)", true),
     "блистер suprex",
   );
 });

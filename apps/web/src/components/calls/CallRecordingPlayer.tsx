@@ -26,9 +26,11 @@ type Props = {
   useDock?: boolean;
 };
 
-function normalizeStatus(status?: string | null): RecordingStatus {
+function normalizeStatus(status?: string | null, url?: string | null): RecordingStatus {
   const s = (status ?? "").trim().toUpperCase();
   if (s === "READY" || s === "PENDING" || s === "FAILED") return s;
+  // URL without explicit status still means the recording is playable.
+  if (url?.trim()) return "READY";
   return s || "NONE";
 }
 
@@ -70,7 +72,7 @@ export function CallRecordingPlayer({
   const playback = useCallRecordingPlaybackOptional();
   const fallbackId = useId();
   const resolvedSessionId = sessionId ?? fallbackId;
-  const normalizedStatus = normalizeStatus(status);
+  const normalizedStatus = normalizeStatus(status, url);
   const canPlay = !!url && normalizedStatus === "READY";
   const dockEnabled = useDock && playback != null && canPlay;
 

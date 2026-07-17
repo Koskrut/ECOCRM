@@ -58,6 +58,15 @@ function warningText(code: string): string | null {
   if (code === "gps_track_unavailable") {
     return "GPS-трек відсутній — для виплати використано факт по завершених візитах.";
   }
+  if (code === "gps_partial_coverage") {
+    return "GPS-трек покриває лише частину зміни — перевірте якість треку.";
+  }
+  if (code === "gps_low_coverage") {
+    return "Покриття GPS нижче 70% — для виплати використано маршрут по візитах.";
+  }
+  if (code === "gps_ended_before_last_visit") {
+    return "GPS-трек обірвався до останнього візиту — для виплати використано маршрут по візитах.";
+  }
   if (code === "report_stale") {
     return "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».";
   }

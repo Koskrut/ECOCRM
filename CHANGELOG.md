@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.111**.)_
+_(планируемые изменения после **0.2.112**.)_
+
+## [0.2.112] — 2026-07-17
+
+### Summary
+
+Патч **0.2.112**: записи звонков на карточках сущностей; dual-write GPS при завершении визита в ACTIVE shift track; OSRM **`/match`** для GPS-треков; жёстче eligibility топлива (coverage / early end); правки BOM import.
+
+### Added
+
+- **Calls history**: фильтры `contactId` / `leadId` / `companyId`; web **`EntityCallRecordingsPanel`** в Contact / Lead / Company.
+- **Visit complete → GPS**: `visit-complete-gps-track` — sample в ACTIVE tracking shift при complete.
+- **OSRM match**: `matchTrack` / `parseOsrmMatchResponse` для сглаживания GPS-трейсов.
+
+### Changed
+
+- **Fuel track eligibility**: `MIN_TRACK_COVERAGE_RATIO` (0.7), `TRACK_END_GRACE_MIN` (45) — отклонение низкого покрытия / обрезанных треков.
+- **BOM import**: уточнения + скрипт `run-suprex-bom-import.ts`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.112`**.
+- **Новых миграций нет.**
 
 ## [0.2.111] — 2026-07-16
 

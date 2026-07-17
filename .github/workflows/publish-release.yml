@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without leading v, for example 0.2.111"
+        description: "Release version without leading v, for example 0.2.112"
         required: true
         type: string
       channel:

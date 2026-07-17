@@ -99,6 +99,7 @@ export type RouteGeometryBundle = {
   factVisits: RouteGeometryResult;
   factGps: RouteGeometryResult;
   compensationFactKind: "fact_gps" | "fact_visits";
+  compensationIneligibleReason?: string | null;
 };
 
 const EMPTY_GEOMETRY: RouteGeometryResult = {
@@ -147,6 +148,12 @@ export function normalizeGeometryBundle(raw: unknown): RouteGeometryBundle | nul
     factGps: normalizeGeometry(b.factGps, "fact_gps"),
     compensationFactKind:
       b.compensationFactKind === "fact_gps" ? "fact_gps" : "fact_visits",
+    compensationIneligibleReason:
+      typeof b.compensationIneligibleReason === "string"
+        ? b.compensationIneligibleReason
+        : b.compensationIneligibleReason === null
+          ? null
+          : undefined,
   };
 }
 

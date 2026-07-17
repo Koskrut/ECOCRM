@@ -135,6 +135,11 @@ export class CallsHistoryService {
       this.pushSearchOnCall(callConditions, dto.q.trim());
     }
 
+    const entityCallOr = this.buildEntityOrFilter("c", dto);
+    if (entityCallOr) {
+      callConditions.push(entityCallOr);
+    }
+
     const callPredicate =
       callConditions.length > 0 ? Prisma.join(callConditions, " AND ") : Prisma.sql`TRUE`;
 
@@ -182,6 +187,11 @@ export class CallsHistoryService {
 
     if (dto.q?.trim()) {
       this.pushSearchOnManual(manualConditions, dto.q.trim());
+    }
+
+    const entityManualOr = this.buildEntityOrFilter("m", dto);
+    if (entityManualOr) {
+      manualConditions.push(entityManualOr);
     }
 
     const manualWhere = Prisma.join(manualConditions, " AND ");
@@ -388,6 +398,42 @@ export class CallsHistoryService {
       orParts.push(Prisma.sql`m."targetPhoneNormalized" LIKE ${d}`);
     }
     parts.push(Prisma.sql`(${Prisma.join(orParts, " OR ")})`);
+  }
+
+  /**
+   * Optional entity scope for card views. Multiple ids are OR-combined
+   * (e.g. lead card may pass both leadId and linked contactId).
+   */
+  private buildEntityOrFilter(
+    alias: "c" | "m",
+    dto: Pick<ListCallsHistoryQueryDto, "contactId" | "leadId" | "companyId">,
+  ): Prisma.Sql | null {
+    const parts: Prisma.Sql[] = [];
+    const contactId = dto.contactId?.trim();
+    const leadId = dto.leadId?.trim();
+    const companyId = dto.companyId?.trim();
+    if (contactId) {
+      parts.push(
+        alias === "c"
+          ? Prisma.sql`c."contactId" = ${contactId}`
+          : Prisma.sql`m."contactId" = ${contactId}`,
+      );
+    }
+    if (leadId) {
+      parts.push(
+        alias === "c" ? Prisma.sql`c."leadId" = ${leadId}` : Prisma.sql`m."leadId" = ${leadId}`,
+      );
+    }
+    if (companyId) {
+      parts.push(
+        alias === "c"
+          ? Prisma.sql`c."companyId" = ${companyId}`
+          : Prisma.sql`m."companyId" = ${companyId}`,
+      );
+    }
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return parts[0]!;
+    return Prisma.sql`(${Prisma.join(parts, " OR ")})`;
   }
 
   private mapCallRow(

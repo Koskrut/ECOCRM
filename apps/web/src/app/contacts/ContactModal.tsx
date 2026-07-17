@@ -9,6 +9,7 @@ import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
 import { ContactTimeline } from "./ContactTimeline";
+import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import {
   buildContactShippingProfilePayload,
@@ -1928,6 +1929,7 @@ export function ContactModal({
                 error={contactInsights.error}
                 insights={contactInsights.data}
               />
+              <EntityCallRecordingsPanel contactId={effectiveContactId} />
               <div className="rounded-lg border border-zinc-200 bg-white p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -2082,13 +2084,16 @@ export function ContactModal({
             {isCreate ? (
               <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути таймлайн.</p>
             ) : (
-              <EntitySection title="Таймлайн">
-                <ContactTimeline
-                  apiBaseUrl={apiBaseUrl}
-                  contactId={effectiveContactId}
-                  showActivityButtons
-                />
-              </EntitySection>
+              <>
+                <EntityCallRecordingsPanel contactId={effectiveContactId} className="mb-3" />
+                <EntitySection title="Таймлайн">
+                  <ContactTimeline
+                    apiBaseUrl={apiBaseUrl}
+                    contactId={effectiveContactId}
+                    showActivityButtons
+                  />
+                </EntitySection>
+              </>
             )}
           </>
         )}

@@ -15,6 +15,10 @@ export type RouteGeometryQuality = {
   rawDistanceKm?: number | null;
   /** Day had at least one shift with trackingEnabled. */
   hasTrackingEnabledShift?: boolean;
+  /** Last filtered GPS sample timestamp (ISO). */
+  lastSampleAt?: string | null;
+  /** Last DONE visit completedAt that day (ISO). */
+  lastDoneVisitCompletedAt?: string | null;
 };
 
 export type RouteGeometryWaypoint = LatLng & {
@@ -43,4 +47,6 @@ export type RouteGeometryBundle = {
   factGps: RouteGeometryResult;
   /** Which fact source fuel/compensation should prefer when both exist. */
   compensationFactKind: "fact_gps" | "fact_visits";
+  /** Set when compensationFactKind is fact_visits due to GPS eligibility failure. */
+  compensationIneligibleReason: string | null;
 };

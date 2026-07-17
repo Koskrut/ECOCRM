@@ -13,12 +13,18 @@ function pickCompensationFactKind(factGps: {
     hasTrackingEnabledShift?: boolean;
     sampleCount: number;
     rawDistanceKm?: number | null;
+    coverageRatio?: number | null;
+    lastSampleAt?: string | null;
+    lastDoneVisitCompletedAt?: string | null;
   };
 }): "fact_gps" | "fact_visits" {
   const eligibility = isTrackEligibleForCompensation({
     hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
     filteredSampleCount: factGps.quality.sampleCount,
     rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
+    coverageRatio: factGps.quality.coverageRatio,
+    lastSampleAt: factGps.quality.lastSampleAt,
+    lastDoneVisitCompletedAt: factGps.quality.lastDoneVisitCompletedAt,
   });
   return eligibility.eligible ? "fact_gps" : "fact_visits";
 }
@@ -42,6 +48,7 @@ describe("fuel compensationFactKind selection (v2 eligibility)", () => {
         hasTrackingEnabledShift: true,
         sampleCount: 5,
         rawDistanceKm: rawKm,
+        coverageRatio: 0.85,
       },
     });
     assert.equal(kind, "fact_gps");

@@ -95,6 +95,18 @@ export const MIN_TRACK_COMPENSATION_KM = 0.5;
 /** Minimum filtered samples to use GPS track for fuel compensation. */
 export const MIN_TRACK_COMPENSATION_SAMPLES = 2;
 
+/**
+ * Minimum share of shift span covered by GPS samples for payout on fact_gps.
+ * Aligns UI low-coverage warnings with compensation policy.
+ */
+export const MIN_TRACK_COVERAGE_RATIO = 0.7;
+
+/**
+ * If the last GPS sample is earlier than the last DONE visit by more than this
+ * many minutes, treat the track as truncated (background tracking died).
+ */
+export const TRACK_END_GRACE_MIN = 45;
+
 export type TrackCompensationEligibility = {
   eligible: boolean;
   reason: string | null;
@@ -105,6 +117,12 @@ export function isTrackEligibleForCompensation(opts: {
   hasTrackingEnabledShift: boolean;
   filteredSampleCount: number;
   rawPolylineDistanceKm: number | null;
+  /** 0–1 share of shift duration spanned by samples. */
+  coverageRatio?: number | null;
+  /** Timestamp of the last filtered GPS sample. */
+  lastSampleAt?: Date | string | null;
+  /** completedAt of the last DONE visit that day. */
+  lastDoneVisitCompletedAt?: Date | string | null;
 }): TrackCompensationEligibility {
   if (!opts.hasTrackingEnabledShift) {
     return { eligible: false, reason: "no_tracking_shift" };
@@ -118,7 +136,30 @@ export function isTrackEligibleForCompensation(opts: {
   ) {
     return { eligible: false, reason: "track_too_short" };
   }
+  if (
+    opts.coverageRatio != null &&
+    Number.isFinite(opts.coverageRatio) &&
+    opts.coverageRatio < MIN_TRACK_COVERAGE_RATIO
+  ) {
+    return { eligible: false, reason: "gps_low_coverage" };
+  }
+
+  const lastSampleMs = toTimeMs(opts.lastSampleAt);
+  const lastDoneMs = toTimeMs(opts.lastDoneVisitCompletedAt);
+  if (lastSampleMs != null && lastDoneMs != null) {
+    const graceMs = TRACK_END_GRACE_MIN * 60_000;
+    if (lastSampleMs < lastDoneMs - graceMs) {
+      return { eligible: false, reason: "gps_ended_before_last_visit" };
+    }
+  }
+
   return { eligible: true, reason: null };
+}
+
+function toTimeMs(value: Date | string | null | undefined): number | null {
+  if (value == null) return null;
+  const t = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(t) ? t : null;
 }
 
 /** GPS track quality for UI warnings (partial coverage); not used for payout blocking. */
@@ -131,7 +172,7 @@ export function assessGpsTrackQuality(
   lowCoverage: boolean;
   degradedReason: string | null;
 } {
-  const lowCoverage = coverageRatio != null && coverageRatio < 0.25;
+  const lowCoverage = coverageRatio != null && coverageRatio < MIN_TRACK_COVERAGE_RATIO;
   const partialCoverage = lowCoverage && sampleCount >= 50;
   const degraded = sampleCount < 10 || (lowCoverage && sampleCount < 50);
 

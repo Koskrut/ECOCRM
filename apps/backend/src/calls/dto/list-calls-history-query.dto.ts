@@ -59,4 +59,22 @@ export class ListCallsHistoryQueryDto {
   @IsString()
   @MaxLength(120)
   q?: string;
+
+  /** Фільтр по контакту (Call.contactId / ManualCallSession.contactId) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  contactId?: string;
+
+  /** Фільтр по ліду (Call.leadId / ManualCallSession.leadId) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  leadId?: string;
+
+  /** Фільтр по компанії (Call.companyId / ManualCallSession.companyId) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  companyId?: string;
 }

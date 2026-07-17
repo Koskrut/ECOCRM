@@ -41,6 +41,7 @@ export function normalizeProductName(value: string, stripParens = false): string
   let normalized = value
     .trim()
     .toLowerCase()
+    .replace(/[\u00a0\u202f]/g, " ")
     .replace(/[«»""'']/g, "")
     .replace(/\s+/g, " ");
   if (stripParens) {
@@ -169,7 +170,10 @@ export function parseSuprexSheet(
     }
 
     const qtyParsed = parseNumber(qtyRaw);
-    if (qtyParsed == null || qtyParsed <= 0) {
+    // Suprex sheets sometimes leave Кол-во blank for a known component — treat as 1.
+    const qtyPerKit =
+      qtyParsed != null && qtyParsed > 0 ? qtyParsed : String(qtyRaw ?? "").trim() === "" ? 1 : null;
+    if (qtyPerKit == null) {
       rowErrors.push({
         rowNumber,
         sheetName,
@@ -192,7 +196,7 @@ export function parseSuprexSheet(
       componentSkuRaw: componentRaw,
       componentSku: normalizedComponent,
       componentName: isSku ? null : componentRaw,
-      qtyPerKit: qtyParsed,
+      qtyPerKit,
       scrapPct: null,
     });
   }

@@ -17,6 +17,7 @@ import { companiesApi } from "@/lib/api/resources/companies";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
+import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
 import { formatDateTime } from "@/lib/crmDatetime";
@@ -1213,8 +1214,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     </EntitySection>
   ) : leadTab === "activity" ? (
     <EntitySection title="Активність">
-      <div className="h-[420px]">
-        <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead?.contactId || lead.id} entityType={lead?.contactId ? "contact" : "lead"} showActivityButtons={true} />
+      <div className="space-y-3">
+        <EntityCallRecordingsPanel leadId={lead.id} contactId={lead.contactId} />
+        <div className="h-[420px]">
+          <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead.id} entityType="lead" showActivityButtons={true} />
+        </div>
       </div>
     </EntitySection>
   ) : leadTab === "products" ? (
@@ -2095,8 +2099,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   ) : lead && leadTab === "main" ? (
     <FeedTabsScaffold
       activityContent={
-        <div className="h-[420px]">
-          <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead?.contactId || lead.id} entityType={lead?.contactId ? "contact" : "lead"} showActivityButtons={true} />
+        <div className="space-y-3">
+          <EntityCallRecordingsPanel leadId={lead.id} contactId={lead.contactId} />
+          <div className="h-[420px]">
+            <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead.id} entityType="lead" showActivityButtons={true} />
+          </div>
         </div>
       }
       tasksContent={

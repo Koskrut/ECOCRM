@@ -288,12 +288,12 @@ export class FieldFuelService {
       warnings.push("gps_partial_coverage");
     }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source !== "none") {
-      const eligibility = geometryBundle.factGps.quality;
-      if (
-        eligibility.sampleCount >= 2 &&
-        eligibility.rawDistanceKm != null &&
-        eligibility.rawDistanceKm < 0.5
-      ) {
+      const ineligibleReason = geometryBundle.compensationIneligibleReason;
+      if (ineligibleReason === "gps_low_coverage") {
+        warnings.push("gps_low_coverage");
+      } else if (ineligibleReason === "gps_ended_before_last_visit") {
+        warnings.push("gps_ended_before_last_visit");
+      } else if (ineligibleReason === "track_too_short") {
         warnings.push("gps_track_too_short");
       } else if (geometryBundle.factGps.quality.degraded) {
         warnings.push("gps_track_degraded");

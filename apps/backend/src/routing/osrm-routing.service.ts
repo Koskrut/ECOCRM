@@ -2,7 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { LatLng } from "../visits/route-geometry";
 import {
   buildOsrmCoordinatePath,
+  buildOsrmTraceCoordinatePath,
+  parseOsrmMatchResponse,
   parseOsrmRouteResponse,
+  type OsrmMatchResponse,
   type OsrmRouteResponse,
 } from "./osrm-response.util";
 
@@ -82,6 +85,44 @@ export class OsrmRoutingService {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       this.logger.warn(`OSRM request failed: ${message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Snap a GPS trace to the road network via OSRM `/match`.
+   * Prefer this over `/route` for tracks — match does not force every
+   * intermediate as a hard waypoint (avoids inflated km).
+   */
+  async matchTrack(points: LatLng[]): Promise<OsrmRoutedLegResult | null> {
+    const base = this.resolveBaseUrl();
+    if (!base || points.length < 2) return null;
+
+    const coordPath = buildOsrmTraceCoordinatePath(points);
+    const params = new URLSearchParams({
+      overview: "full",
+      geometries: "geojson",
+      tidy: "true",
+    });
+    const url = `${base}/match/v1/${this.resolveProfile()}/${coordPath}?${params.toString()}`;
+
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS) });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        this.logger.warn(`OSRM match ${res.status}: ${errBody.slice(0, 400)}`);
+        return null;
+      }
+      const data = (await res.json()) as OsrmMatchResponse;
+      const parsed = parseOsrmMatchResponse(data);
+      if (!parsed) {
+        this.logger.warn(`OSRM match failed: code=${data.code ?? "unknown"}`);
+        return null;
+      }
+      return { ...parsed, source: "osrm" };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`OSRM match request failed: ${message}`);
       return null;
     }
   }

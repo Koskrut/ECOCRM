@@ -86,7 +86,9 @@ export function ContactTimeline({
       return timeline.items.filter((it) => {
         if (it.kind !== "call") return false;
         if (it.meta.kind !== "call") return false;
-        return !!it.meta.data.recordingUrl && (it.meta.data.recordingStatus ?? "").toUpperCase() === "READY";
+        return !!it.meta.data.recordingUrl &&
+          (!(it.meta.data.recordingStatus ?? "").trim() ||
+            (it.meta.data.recordingStatus ?? "").toUpperCase() === "READY");
       });
     }
     return timeline.items;

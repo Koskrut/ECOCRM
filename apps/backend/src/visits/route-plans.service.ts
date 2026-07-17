@@ -689,7 +689,7 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Chronological GPS track → drivable path (OSRM, multi-leg). */
+  /** Chronological GPS track → drivable path (OSRM match → multi-leg route → haversine). */
   async snapGpsPathToRoads(
     points: LatLng[],
   ): Promise<{ path: LatLng[]; source: "osrm" | "fallback" | "none"; distanceKm: number | null }> {
@@ -702,6 +702,20 @@ export class RoutePlansService {
     if (sampled.length < 2) {
       this.logger.warn("snapGpsPathToRoads: downsample_failed");
       return { path: points, source: "fallback", distanceKm: this.pathDistanceKm(points) };
+    }
+
+    try {
+      const matched = await this.osrm.matchTrack(sampled);
+      if (matched?.source === "osrm" && matched.path.length >= 2) {
+        return {
+          path: matched.path,
+          source: "osrm",
+          distanceKm: matched.distanceKm,
+        };
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`snapGpsPathToRoads: match_error ${message}`);
     }
 
     const origin = sampled[0]!;
@@ -961,6 +975,24 @@ export class RoutePlansService {
     return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
   }
 
+  private async loadLastDoneVisitCompletedAt(
+    ownerId: string,
+    date: Date,
+  ): Promise<Date | null> {
+    const { dayStart, dayEnd } = this.kyivVisitWindow(date);
+    const last = await this.prisma.visit.findFirst({
+      where: {
+        ownerId,
+        status: "DONE",
+        startsAt: { gte: dayStart, lte: dayEnd },
+        completedAt: { not: null },
+      },
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    });
+    return last?.completedAt ?? null;
+  }
+
   private async loadGpsTrack(ownerId: string, date: Date) {
     const shifts = await this.prisma.fieldShift.findMany({
       where: { ownerId, date },
@@ -980,6 +1012,7 @@ export class RoutePlansService {
         coverageRatio: null as number | null,
         shiftDurationMin: null as number | null,
         hasTrackingEnabledShift: false,
+        lastSampleAt: null as Date | null,
       };
     }
 
@@ -999,9 +1032,13 @@ export class RoutePlansService {
     const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
 
     let sampledSpanMin = 0;
+    let lastSampleAt: Date | null = null;
+    if (filtered.length >= 1) {
+      lastSampleAt = filtered[filtered.length - 1]!.clientRecordedAt;
+    }
     if (filtered.length >= 2) {
       const t0 = filtered[0]!.clientRecordedAt.getTime();
-      const t1 = filtered[filtered.length - 1]!.clientRecordedAt.getTime();
+      const t1 = lastSampleAt!.getTime();
       sampledSpanMin = Math.max(0, (t1 - t0) / 60000);
     }
 
@@ -1018,6 +1055,7 @@ export class RoutePlansService {
       coverageRatio,
       shiftDurationMin,
       hasTrackingEnabledShift: true,
+      lastSampleAt,
     };
   }
 
@@ -1060,9 +1098,24 @@ export class RoutePlansService {
       return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, fallbackOnly });
     }
 
-    const gps = await this.loadGpsTrack(ownerId, date);
+    const [gps, lastDoneVisitCompletedAt] = await Promise.all([
+      this.loadGpsTrack(ownerId, date),
+      this.loadLastDoneVisitCompletedAt(ownerId, date),
+    ]);
     if (gps.sampleCount < 2 || gps.fullPath.length < 2) {
-      return this.emptyGeometry(kind, "insufficient_gps_samples");
+      const empty = this.emptyGeometry(kind, "insufficient_gps_samples");
+      return {
+        ...empty,
+        quality: {
+          ...empty.quality,
+          sampleCount: gps.sampleCount,
+          coverageRatio: gps.coverageRatio,
+          hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
+          lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
+          lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
+          rawDistanceKm: gps.distanceKm,
+        },
+      };
     }
 
     const { degraded, degradedReason } = assessGpsTrackQuality(
@@ -1104,6 +1157,8 @@ export class RoutePlansService {
         degradedReason,
         rawDistanceKm: gps.distanceKm,
         hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
+        lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
+        lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
       },
     };
   }
@@ -1146,6 +1201,9 @@ export class RoutePlansService {
       hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
       filteredSampleCount: factGps.quality.sampleCount,
       rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
+      coverageRatio: factGps.quality.coverageRatio,
+      lastSampleAt: factGps.quality.lastSampleAt ?? null,
+      lastDoneVisitCompletedAt: factGps.quality.lastDoneVisitCompletedAt ?? null,
     });
 
     const compensationFactKind: RouteGeometryBundle["compensationFactKind"] =
@@ -1158,6 +1216,7 @@ export class RoutePlansService {
       factVisits,
       factGps,
       compensationFactKind,
+      compensationIneligibleReason: eligibility.eligible ? null : eligibility.reason,
     };
   }
 
