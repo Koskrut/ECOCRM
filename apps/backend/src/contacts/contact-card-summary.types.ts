@@ -19,6 +19,8 @@ export type ContactCardSummaryResponse = {
     revenue: number;
     debt: number;
     overdue: number;
+    /** Sum of order-level overpayments (creditAmount). */
+    orderCredit: number;
     clientBalance: number;
     lastOrderAt: string | null;
     lastActivityAt: string | null;

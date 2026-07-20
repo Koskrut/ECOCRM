@@ -22,6 +22,7 @@ import type { CreateCashPaymentDto } from "./dto/create-cash-payment.dto";
 import type { ListPaymentsQueryDto } from "./dto/list-payments-query.dto";
 import type { UpdatePaymentDto } from "./dto/update-payment.dto";
 import type { SplitPaymentDto } from "./dto/split-payment.dto";
+import type { TransferCreditDto } from "./dto/transfer-credit.dto";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 
@@ -68,6 +69,15 @@ export class PaymentsController {
   @Post("cash")
   createCash(@Body() dto: CreateCashPaymentDto, @Req() req: Request & { user?: AuthUser }) {
     return this.service.createCash(dto, req.user);
+  }
+
+  @Post("transfer-credit")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  transferCredit(
+    @Body() dto: TransferCreditDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.service.transferCredit(dto, req.user);
   }
 
   @Patch(":id")

@@ -66,13 +66,30 @@ export const ROUTE_LAYER_STYLES: Record<RouteLayerKey, google.maps.PolylineOptio
   fact_gps: { strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 3 },
 };
 
-const DASHED_LINE_ICONS: google.maps.PolylineOptions["icons"] = [
+const DASHED_LINE_ICONS: google.maps.IconSequence[] = [
   {
     icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 },
     offset: "0",
     repeat: "12px",
   },
 ];
+
+function directionArrowIcons(strokeColor: string): google.maps.IconSequence[] {
+  return [
+    {
+      icon: {
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        scale: 3,
+        strokeColor,
+        fillColor: strokeColor,
+        fillOpacity: 1,
+        strokeWeight: 1,
+      },
+      offset: "50%",
+      repeat: "80px",
+    },
+  ];
+}
 
 /** Polyline style from geometry source: solid for roads, dashed for straight-line fallback. */
 export function routePolylineOptions(
@@ -81,13 +98,23 @@ export function routePolylineOptions(
 ): google.maps.PolylineOptions {
   const base = ROUTE_LAYER_STYLES[layer];
   if (!geom) return base;
+
+  const withArrows =
+    layer === "planned" || layer === "fact_visits"
+      ? { ...base, icons: directionArrowIcons(base.strokeColor ?? "#2563eb") }
+      : base;
+
   if (geom.source === "fallback") {
-    return { ...base, strokeOpacity: 0.75, icons: DASHED_LINE_ICONS };
+    return {
+      ...withArrows,
+      strokeOpacity: 0.75,
+      icons: [...(withArrows.icons ?? []), ...DASHED_LINE_ICONS],
+    };
   }
   if (geom.source === "raw_gps") {
     return { ...base, strokeOpacity: 0.65, strokeWeight: 2 };
   }
-  return base;
+  return withArrows;
 }
 
 export function routeSourceLabel(source: RouteGeometryResult["source"] | undefined): string | null {

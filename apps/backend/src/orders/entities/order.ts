@@ -82,6 +82,7 @@ export type Order = {
   totalAmount: number;
   paidAmount: number;
   debtAmount: number;
+  creditAmount?: number;
 
   comment?: string;
 

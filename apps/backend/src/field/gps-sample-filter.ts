@@ -61,6 +61,9 @@ export function filterGpsSample(
       if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
         return { accept: false, reason: "teleport" };
       }
+    } else {
+      // Same-ts / older-ts jump would otherwise skip the speed check and inflate km.
+      return { accept: false, reason: "teleport" };
     }
   }
 

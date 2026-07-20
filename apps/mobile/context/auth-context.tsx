@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 
+import { useServerConfig } from "@/context/server-config-context";
 import { apiFetch } from "@/lib/api";
 import { endPresenceSession } from "@/lib/presence-heartbeat";
 import { getCachedPushToken, unregisterPushToken } from "@/lib/push-notifications";
@@ -26,14 +27,26 @@ type AuthCtx = {
 const AuthContext = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { ready: serverReady, apiUrl } = useServerConfig();
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUserBrief | null>(null);
 
   useEffect(() => {
+    if (!serverReady) return;
+
     let cancelled = false;
     void (async () => {
+      setReady(false);
       try {
+        if (!apiUrl) {
+          if (!cancelled) {
+            setToken(null);
+            setUser(null);
+          }
+          return;
+        }
+
         const t = await SecureStore.getItemAsync(TOKEN_KEY);
         const tok = !cancelled && t && t.length > 0 ? t : null;
         if (cancelled) return;
@@ -62,6 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setUser(null);
             }
           }
+        } else {
+          setUser(null);
         }
       } catch {
         if (!cancelled) {
@@ -75,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [serverReady, apiUrl]);
 
   const login = useCallback(async (loginStr: string, password: string) => {
     const data = await apiFetch<LoginResponse>("/auth/login", {

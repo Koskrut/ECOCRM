@@ -8,7 +8,7 @@ import {
 } from "@prisma/client";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
-import { todayYmdKyiv } from "../crm-timezone";
+import { instantToKyivYmd, todayYmdKyiv } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import {
@@ -113,20 +113,36 @@ export class FieldShiftsService {
       });
     }
 
-    await this.prisma.fieldShift.updateMany({
+    const otherActive = await this.prisma.fieldShift.findMany({
       where: { ownerId, status: FieldShiftStatus.ACTIVE },
-      data: { status: FieldShiftStatus.ENDED, endedAt: new Date() },
+      select: { id: true, ownerId: true },
+      orderBy: { startedAt: "asc" },
     });
+    for (const s of otherActive) {
+      await this.closeShift(s.id, s.ownerId);
+    }
 
-    return this.prisma.fieldShift.create({
-      data: {
-        ownerId,
-        date,
-        status: FieldShiftStatus.ACTIVE,
-        plannedDistanceKm: input.plannedDistanceKm ?? undefined,
-        trackingEnabled: input.trackingEnabled ?? true,
-      },
-    });
+    try {
+      return await this.prisma.fieldShift.create({
+        data: {
+          ownerId,
+          date,
+          status: FieldShiftStatus.ACTIVE,
+          plannedDistanceKm: input.plannedDistanceKm ?? undefined,
+          trackingEnabled: input.trackingEnabled ?? true,
+        },
+      });
+    } catch (e) {
+      // Concurrent start raced past existingToday check — return the winner.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        const raced = await this.prisma.fieldShift.findFirst({
+          where: { ownerId, date, status: FieldShiftStatus.ACTIVE },
+          orderBy: [{ startedAt: "desc" }],
+        });
+        if (raced) return raced;
+      }
+      throw e;
+    }
   }
 
   async end(actor: AuthUser | undefined, shiftId: string) {
@@ -188,6 +204,7 @@ export class FieldShiftsService {
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
     let rejected = 0;
     const rejectReasons: Record<string, number> = {};
+    const shiftDayYmd = shift.date.toISOString().slice(0, 10);
 
     for (const it of items) {
       if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) {
@@ -196,6 +213,12 @@ export class FieldShiftsService {
       const clientRecordedAt = new Date(it.clientRecordedAt);
       if (Number.isNaN(clientRecordedAt.getTime())) {
         throw new BadRequestException("Invalid clientRecordedAt");
+      }
+
+      if (instantToKyivYmd(clientRecordedAt) !== shiftDayYmd) {
+        rejected += 1;
+        rejectReasons.wrong_day = (rejectReasons.wrong_day ?? 0) + 1;
+        continue;
       }
 
       const candidate = {

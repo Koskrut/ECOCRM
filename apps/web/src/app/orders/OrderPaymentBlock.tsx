@@ -43,9 +43,13 @@ type PaymentItem = {
 function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: number; sourceType?: string }): string {
   const usd = p.amountUsd ?? (p.currency === "USD" ? p.amount : 0);
   const sym = p.currency === "UAH" ? "₴" : p.currency === "EUR" ? "€" : "$";
-  const prefix = p.sourceType === "CREDIT" ? "залік " : "+";
-  if (p.currency === "USD") return `${prefix}${p.amount.toFixed(2)} $`;
-  return `${prefix}${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
+  const isTransfer = p.sourceType === "CREDIT_TRANSFER";
+  const isCredit = p.sourceType === "CREDIT" || isTransfer;
+  const sign = p.amount < 0 ? "−" : isCredit ? (isTransfer ? "" : "залік ") : "+";
+  const absAmt = Math.abs(p.amount);
+  const absUsd = Math.abs(usd);
+  if (p.currency === "USD") return `${sign}${absAmt.toFixed(2)} $`;
+  return `${sign}${absAmt.toFixed(2)} ${sym} (${absUsd.toFixed(2)} $)`;
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -88,6 +92,10 @@ export type OrderPaymentBlockProps = {
   totalAmount: number;
   /** Рекомендована сума посилання (борг). */
   debtAmount: number;
+  /** Доступна переплата після повернення / оверпейменту. */
+  creditAmount?: number;
+  /** Клієнт замовлення — для переносу переплати на інший заказ. */
+  clientId?: string | null;
   paymentStatus?: string;
   currency: string;
   /** UAH per 1 USD — fixed at order creation; used to show amount in UAH next to USD. */
@@ -105,6 +113,8 @@ export function OrderPaymentBlock({
   paidAmount,
   totalAmount,
   debtAmount,
+  creditAmount = 0,
+  clientId,
   paymentStatus,
   currency,
   exchangeRate,
@@ -115,6 +125,8 @@ export function OrderPaymentBlock({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddCash, setShowAddCash] = useState(false);
+  const [editCash, setEditCash] = useState<PaymentItem | null>(null);
+  const [showTransfer, setShowTransfer] = useState(false);
   const [payLinks, setPayLinks] = useState<PaymentRequestListItem[]>([]);
   const [payLinksLoading, setPayLinksLoading] = useState(true);
   const [payLinksError, setPayLinksError] = useState<string | null>(null);
@@ -168,6 +180,7 @@ export function OrderPaymentBlock({
 
   const statusLabel = paymentStatus ? PAYMENT_STATUS_LABELS[paymentStatus] ?? paymentStatus : null;
   const effectivePaid = paidAmount + Math.max(0, fxWriteOffAmount);
+  const hasCredit = creditAmount > 0.009;
 
   return (
     <div className="space-y-3">
@@ -186,8 +199,22 @@ export function OrderPaymentBlock({
               з них {formatOrderAmount(fxWriteOffAmount, currency, exchangeRate)} — списання курсової різниці
             </span>
           ) : null}
+          {hasCredit ? (
+            <span className="mt-1 block text-xs font-medium text-sky-800">
+              {pt.overpaymentLabel}: {formatOrderAmount(creditAmount, currency, exchangeRate)}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {hasCredit && clientId ? (
+            <button
+              type="button"
+              onClick={() => setShowTransfer(true)}
+              className="rounded-md border border-sky-200 bg-sky-50/80 px-3 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100"
+            >
+              {pt.transferCredit}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setShowPayLinkModal(true)}
@@ -305,8 +332,17 @@ export function OrderPaymentBlock({
                         {formatDate(p.paidAt)}
                         {p.note ? ` · ${p.note}` : ""}
                       </span>
-                      <span className="shrink-0 font-medium text-zinc-900">
-                        {formatPaymentAmount(p)}
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="font-medium text-zinc-900">
+                          {formatPaymentAmount(p)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setEditCash(p)}
+                          className="text-xs font-medium text-emerald-700 hover:underline"
+                        >
+                          {pt.edit}
+                        </button>
                       </span>
                     </li>
                   ))}
@@ -348,6 +384,50 @@ export function OrderPaymentBlock({
               </ul>
             )}
           </div>
+          <div>
+            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">{pt.credits}</h4>
+            {payments.filter((p) => p.sourceType === "CREDIT").length === 0 ? (
+              <p className="text-xs text-zinc-400">{pt.noCredits}</p>
+            ) : (
+              <ul className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-2">
+                {payments
+                  .filter((p) => p.sourceType === "CREDIT")
+                  .map((p) => (
+                    <li key={p.id} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="min-w-0 flex-1 truncate text-zinc-600">
+                        {formatDate(p.paidAt)}
+                        {p.note ? ` · ${p.note}` : ""}
+                      </span>
+                      <span className="shrink-0 font-medium text-zinc-900">
+                        {formatPaymentAmount(p)}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">{pt.creditTransfers}</h4>
+            {payments.filter((p) => p.sourceType === "CREDIT_TRANSFER").length === 0 ? (
+              <p className="text-xs text-zinc-400">{pt.noCreditTransfers}</p>
+            ) : (
+              <ul className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-2">
+                {payments
+                  .filter((p) => p.sourceType === "CREDIT_TRANSFER")
+                  .map((p) => (
+                    <li key={p.id} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="min-w-0 flex-1 truncate text-zinc-600">
+                        {formatDate(p.paidAt)}
+                        {p.note ? ` · ${p.note}` : ""}
+                      </span>
+                      <span className="shrink-0 font-medium text-zinc-900">
+                        {formatPaymentAmount(p)}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
@@ -364,6 +444,36 @@ export function OrderPaymentBlock({
           }}
         />
       )}
+
+      {editCash && (
+        <EditCashPaymentModal
+          apiBaseUrl={apiBaseUrl}
+          payment={editCash}
+          onClose={() => setEditCash(null)}
+          onSaved={async () => {
+            setEditCash(null);
+            void fetchPayments();
+            await Promise.resolve(onSaved?.());
+          }}
+        />
+      )}
+
+      {showTransfer && clientId ? (
+        <TransferCreditModal
+          apiBaseUrl={apiBaseUrl}
+          fromOrderId={orderId}
+          clientId={clientId}
+          currency={currency}
+          exchangeRate={exchangeRate}
+          creditAmount={creditAmount}
+          onClose={() => setShowTransfer(false)}
+          onSaved={async () => {
+            setShowTransfer(false);
+            void fetchPayments();
+            await Promise.resolve(onSaved?.());
+          }}
+        />
+      ) : null}
 
       {showPayLinkModal && (
         <CreatePaymentLinkModal
@@ -610,6 +720,204 @@ type AddCashPaymentModalProps = {
   onSaved: () => void;
 };
 
+type DebtOrderOption = {
+  id: string;
+  orderNumber: string;
+  debtAmount: number;
+  currency: string;
+};
+
+type TransferCreditModalProps = {
+  apiBaseUrl: string;
+  fromOrderId: string;
+  clientId: string;
+  currency: string;
+  exchangeRate?: number | null;
+  creditAmount: number;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+};
+
+function TransferCreditModal({
+  apiBaseUrl,
+  fromOrderId,
+  clientId,
+  currency,
+  exchangeRate,
+  creditAmount,
+  onClose,
+  onSaved,
+}: TransferCreditModalProps) {
+  const [targets, setTargets] = useState<DebtOrderOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toOrderId, setToOrderId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const r = await fetch(
+          `${apiBaseUrl}/orders?clientId=${encodeURIComponent(clientId)}&hasDebt=true&pageSize=50`,
+          { credentials: "include", cache: "no-store" },
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = (await r.json()) as { items?: DebtOrderOption[] };
+        const items = (data.items ?? [])
+          .filter((o) => o.id !== fromOrderId && Number(o.debtAmount) > 0.009)
+          .filter((o) => (o.currency || "").toUpperCase() === currency.toUpperCase());
+        if (cancelled) return;
+        setTargets(items);
+        if (items.length === 1) {
+          setToOrderId(items[0].id);
+          setAmount(String(Math.min(creditAmount, Number(items[0].debtAmount)).toFixed(2)));
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : pt.transferFailed);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl, clientId, fromOrderId, currency, creditAmount]);
+
+  const selected = targets.find((t) => t.id === toOrderId);
+  const maxTransfer = selected
+    ? Math.min(creditAmount, Number(selected.debtAmount))
+    : creditAmount;
+
+  const onSelectTarget = (id: string) => {
+    setToOrderId(id);
+    const t = targets.find((x) => x.id === id);
+    if (t) {
+      setAmount(String(Math.min(creditAmount, Number(t.debtAmount)).toFixed(2)));
+    }
+  };
+
+  const submit = async () => {
+    const num = parseFloat(amount.replace(/,/g, "."));
+    if (!toOrderId) {
+      setError(pt.transferTarget);
+      return;
+    }
+    if (!Number.isFinite(num) || num <= 0) {
+      setError(pt.enterAmount);
+      return;
+    }
+    if (num > maxTransfer + 0.009) {
+      setError(`${pt.transferAmount}: max ${maxTransfer.toFixed(2)}`);
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/payments/transfer-credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          fromOrderId,
+          toOrderId,
+          amount: num,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        let msg = t;
+        try {
+          const j = JSON.parse(t) as { message?: string | string[] };
+          if (typeof j.message === "string") msg = j.message;
+          else if (Array.isArray(j.message)) msg = j.message.join(", ");
+        } catch {
+          /* plain */
+        }
+        throw new Error(msg || `HTTP ${r.status}`);
+      }
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : pt.transferFailed);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[min(90dvh,32rem)] w-full max-w-sm overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
+        <h3 className="text-sm font-semibold text-zinc-900">{pt.transferCreditTitle}</h3>
+        <p className="mt-1 text-xs text-zinc-500">
+          {pt.overpaymentLabel}: {formatOrderAmount(creditAmount, currency, exchangeRate)}
+        </p>
+        <div className="mt-3 space-y-3">
+          {loading ? (
+            <p className="text-xs text-zinc-400">{pt.loading}</p>
+          ) : targets.length === 0 ? (
+            <p className="text-xs text-zinc-500">{pt.transferNoTargets}</p>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-zinc-600">{pt.transferTarget}</label>
+                <select
+                  value={toOrderId}
+                  onChange={(e) => onSelectTarget(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">—</option>
+                  {targets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      #{t.orderNumber} · борг {Number(t.debtAmount).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-zinc-600">{pt.transferAmount}</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                />
+                {selected ? (
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    max {maxTransfer.toFixed(2)} {currency}
+                  </p>
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
+        {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {pt.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={submitting || loading || targets.length === 0}
+            className="rounded-md bg-sky-700 px-3 py-2 text-sm text-white hover:bg-sky-800 disabled:opacity-50"
+          >
+            {submitting ? pt.transferSubmitting : pt.transferSubmit}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CASH_PAYMENT_CURRENCIES = ["USD", "UAH", "EUR"] as const;
 
 function AddCashPaymentModal({
@@ -684,6 +992,136 @@ function AddCashPaymentModal({
                 onChange={(e) => setPaymentCurrency(e.target.value)}
                 className="shrink-0 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
                 aria-label="Валюта"
+              >
+                {CASH_PAYMENT_CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-600">{pt.dateTime}</label>
+            <input
+              type="datetime-local"
+              value={paidAt}
+              onChange={(e) => setPaidAt(e.target.value)}
+              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-600">{pt.note}</label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={pt.noteOptional}
+              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {pt.cancel}
+          </button>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {submitting ? pt.saving : pt.save}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type EditCashPaymentModalProps = {
+  apiBaseUrl: string;
+  payment: PaymentItem;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+};
+
+function EditCashPaymentModal({
+  apiBaseUrl,
+  payment,
+  onClose,
+  onSaved,
+}: EditCashPaymentModalProps) {
+  const [amount, setAmount] = useState(String(payment.amount));
+  const [paymentCurrency, setPaymentCurrency] = useState(() =>
+    CASH_PAYMENT_CURRENCIES.includes(payment.currency as (typeof CASH_PAYMENT_CURRENCIES)[number])
+      ? payment.currency
+      : "USD",
+  );
+  const [paidAt, setPaidAt] = useState(() => new Date(payment.paidAt).toISOString().slice(0, 16));
+  const [note, setNote] = useState(payment.note ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    const num = parseFloat(amount.replace(/,/g, "."));
+    if (!Number.isFinite(num) || num <= 0) {
+      setError(pt.enterAmount);
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/payments/${payment.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          amount: num,
+          currency: paymentCurrency,
+          paidAt: new Date(paidAt).toISOString(),
+          note: note.trim() || undefined,
+        }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t || `HTTP ${r.status}`);
+      }
+      await Promise.resolve(onSaved());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : pt.saveFailed);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[min(90dvh,32rem)] w-full max-w-sm overflow-auto rounded-lg border border-zinc-200 bg-white p-4 shadow-lg">
+        <h3 className="text-sm font-semibold text-zinc-900">{pt.editCashPaymentTitle}</h3>
+        <div className="mt-3 space-y-2">
+          <div>
+            <span className="block text-xs font-medium text-zinc-600">{pt.amount}</span>
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              />
+              <select
+                value={paymentCurrency}
+                onChange={(e) => setPaymentCurrency(e.target.value)}
+                className="shrink-0 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                aria-label={pt.currency}
               >
                 {CASH_PAYMENT_CURRENCIES.map((c) => (
                   <option key={c} value={c}>

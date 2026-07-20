@@ -12,13 +12,19 @@ describe("classifyFlushHttpStatus", () => {
     assert.equal(classifyFlushHttpStatus(503), "retry");
   });
 
-  it("discards all on 401 and 404", () => {
-    assert.equal(classifyFlushHttpStatus(401), "discard_all");
+  it("enqueues offline on 401 (does not wipe pending)", () => {
+    assert.equal(classifyFlushHttpStatus(401), "enqueue_offline");
+  });
+
+  it("discards all on 404", () => {
     assert.equal(classifyFlushHttpStatus(404), "discard_all");
   });
 
+  it("discards batch on 400 (dead shift)", () => {
+    assert.equal(classifyFlushHttpStatus(400), "discard_batch");
+  });
+
   it("enqueues offline on other 4xx", () => {
-    assert.equal(classifyFlushHttpStatus(400), "enqueue_offline");
     assert.equal(classifyFlushHttpStatus(403), "enqueue_offline");
   });
 

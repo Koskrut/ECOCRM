@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   routePlansApi,
   type RouteGeometryBundle,
+  type RouteGeometryLayer,
 } from "@/lib/api/resources/visits";
 import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
@@ -16,15 +17,27 @@ type Props = {
   mapsApiKey: string | null;
   showTeamLink?: boolean;
   mapHeightClass?: string;
+  /** History: fact_visits first with numbered stops; planning keeps default layers. */
+  mode?: "default" | "history";
 };
 
-function plannedMarkers(bundle: RouteGeometryBundle | null) {
-  if (!bundle?.planned?.waypoints?.length) return [];
-  return bundle.planned.waypoints.map((wp, i) => ({
+function stopMarkersFromWaypoints(
+  waypoints: NonNullable<RouteGeometryLayer["waypoints"]> | undefined,
+): Array<{ lat: number; lng: number; label: string; title?: string }> {
+  if (!waypoints?.length) return [];
+  return waypoints.map((wp, i) => ({
     lat: wp.lat,
     lng: wp.lng,
-    label: wp.label?.slice(0, 1) ?? String(i + 1),
+    label: String(i + 1),
+    title: wp.label?.trim() || undefined,
   }));
+}
+
+function defaultLayers(mode: "default" | "history"): Record<RouteLayerKey, boolean> {
+  if (mode === "history") {
+    return { planned: false, fact_visits: true, fact_gps: false };
+  }
+  return { planned: true, fact_visits: false, fact_gps: true };
 }
 
 export function DayRouteMapPanel({
@@ -33,14 +46,15 @@ export function DayRouteMapPanel({
   mapsApiKey,
   showTeamLink = false,
   mapHeightClass = "h-[320px]",
+  mode = "default",
 }: Props) {
   const [bundle, setBundle] = useState<RouteGeometryBundle | null>(null);
   const [loading, setLoading] = useState(false);
-  const [layers, setLayers] = useState<Record<RouteLayerKey, boolean>>({
-    planned: true,
-    fact_visits: false,
-    fact_gps: true,
-  });
+  const [layers, setLayers] = useState<Record<RouteLayerKey, boolean>>(() => defaultLayers(mode));
+
+  useEffect(() => {
+    setLayers(defaultLayers(mode));
+  }, [mode]);
 
   const load = useCallback(async () => {
     if (!dateKey || !ownerId) return;
@@ -87,6 +101,11 @@ export function DayRouteMapPanel({
   }, [bundle]);
 
   const mapCenter = useMemo(() => {
+    if (mode === "history") {
+      const g2 = bundle?.factVisits;
+      if (g2?.path?.[0]) return { lat: g2.path[0].lat, lng: g2.path[0].lng };
+      if (g2?.waypoints?.[0]) return { lat: g2.waypoints[0].lat, lng: g2.waypoints[0].lng };
+    }
     const g = bundle?.planned;
     if (g?.path?.[0]) return { lat: g.path[0].lat, lng: g.path[0].lng };
     const g2 = bundle?.factVisits;
@@ -94,9 +113,33 @@ export function DayRouteMapPanel({
     const g3 = bundle?.factGps;
     if (g3?.path?.[0]) return { lat: g3.path[0].lat, lng: g3.path[0].lng };
     return { lat: 50.4501, lng: 30.5234 };
-  }, [bundle]);
+  }, [bundle, mode]);
 
-  const markers = useMemo(() => plannedMarkers(bundle), [bundle]);
+  const markers = useMemo(() => {
+    if (!bundle) return [];
+    if (layers.fact_visits && bundle.factVisits?.waypoints?.length) {
+      return stopMarkersFromWaypoints(bundle.factVisits.waypoints);
+    }
+    if (layers.planned && bundle.planned?.waypoints?.length) {
+      return stopMarkersFromWaypoints(bundle.planned.waypoints);
+    }
+    return [];
+  }, [bundle, layers.fact_visits, layers.planned]);
+
+  const stopList = useMemo(() => {
+    if (mode !== "history" || !bundle) return [];
+    const wps =
+      layers.fact_visits && bundle.factVisits?.waypoints?.length
+        ? bundle.factVisits.waypoints
+        : layers.planned && bundle.planned?.waypoints?.length
+          ? bundle.planned.waypoints
+          : [];
+    return wps.map((wp, i) => ({
+      n: i + 1,
+      name: wp.label?.trim() || `Стоп ${i + 1}`,
+    }));
+  }, [bundle, layers.fact_visits, layers.planned, mode]);
+
   const gpsQuality = bundle?.factGps?.quality;
 
   return (
@@ -152,10 +195,21 @@ export function DayRouteMapPanel({
               fact_visits: bundle?.factVisits ?? null,
               fact_gps: bundle?.factGps ?? null,
             }}
-            markers={layers.planned ? markers : []}
+            markers={markers}
           />
         )}
       </div>
+
+      {stopList.length > 0 ? (
+        <ol className="mt-3 max-h-40 list-none space-y-1 overflow-y-auto text-xs text-zinc-700">
+          {stopList.map((s) => (
+            <li key={s.n} className="flex gap-2">
+              <span className="w-5 shrink-0 font-semibold text-emerald-700">{s.n}.</span>
+              <span className="truncate">{s.name}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
 
       {bundle && layerStats.length > 0 ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-3">

@@ -238,6 +238,7 @@ enum PaymentSourceType {
   BANK
   CASH
   CREDIT
+  CREDIT_TRANSFER
 }
 
 enum BalanceHolderKind {
@@ -1161,6 +1162,7 @@ model FieldShift {
 
   @@index([ownerId, date])
   @@index([ownerId, status])
+  /// Enforced via partial unique index in migration (one ACTIVE per owner+date).
 }
 
 model FieldTrackingEvent {
@@ -1733,6 +1735,8 @@ model Order {
   totalAmount        Float
   paidAmount         Float
   debtAmount         Float
+  /// Available overpayment after return / overpay (visible, transferable).
+  creditAmount       Float    @default(0)
   comment            String?
   legacySource       String?
   legacyId           Int?
@@ -3038,6 +3042,10 @@ model Payment {
   bankTransactionId String?
   createdByUserId   String?
   note              String?
+  /// Pairs CREDIT_TRANSFER out/in payments for audit.
+  transferGroupId   String?
+  /// Counterpart order for CREDIT_TRANSFER (source or target).
+  linkedOrderId     String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
@@ -3052,6 +3060,8 @@ model Payment {
   @@index([orderId])
   @@index([bankTransactionId])
   @@index([paidAt])
+  @@index([transferGroupId])
+  @@index([linkedOrderId])
 }
 
 /// Посилання на оплату за IBAN (snapshot реквізитів); публічний доступ лише за publicToken.

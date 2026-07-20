@@ -20,6 +20,7 @@ import {
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { computePaymentStatus, isPaymentClosed } from "./order-payment-guards";
+import { computeOrderDebtAndCredit } from "../payments/order-finance.utils";
 import {
   assertWarehouseOrderItemQtyUpdate,
   assertWarehouseOrderMutation,
@@ -506,10 +507,14 @@ export class OrdersService {
           andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { gt: 0 } });
           break;
         case OrderPaymentStatus.PAID:
-          andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { lte: 0 } });
+          andWhere.push({
+            paidAmount: { gt: 0 },
+            debtAmount: { lte: 0 },
+            creditAmount: { lte: 0 },
+          });
           break;
         case OrderPaymentStatus.OVERPAID:
-          andWhere.push({ paidAmount: { gt: 0 }, debtAmount: { lte: 0 } });
+          andWhere.push({ creditAmount: { gt: 0 } });
           break;
         default:
           break;
@@ -746,6 +751,7 @@ export class OrdersService {
           returnAdjustmentAmount: o.returnAdjustmentAmount ?? null,
           paidAmount: o.paidAmount,
           debtAmount: o.debtAmount,
+          creditAmount: o.creditAmount ?? 0,
           exchangeRate: o.exchangeRate ?? null,
           paymentStatus: computePaymentStatus({
             totalAmount: o.totalAmount,
@@ -1973,8 +1979,12 @@ export class OrdersService {
     const a = this.calc(subtotal, order.discountAmount, order.paidAmount);
     const returnAdjustment = Math.max(0, Number(order.returnAdjustmentAmount ?? 0));
     const fxWriteOff = Math.max(0, Number(order.fxWriteOffAmount ?? 0));
-    const effectiveTotal = Math.max(0, a.total - returnAdjustment);
-    const debtAmount = Math.max(0, effectiveTotal - a.paid - fxWriteOff);
+    const { effectiveTotal, debtAmount, creditAmount } = computeOrderDebtAndCredit({
+      totalAmount: a.total,
+      returnAdjustmentAmount: returnAdjustment,
+      paidAmount: a.paid,
+      fxWriteOffAmount: fxWriteOff,
+    });
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,
       totalAmount: effectiveTotal,
@@ -1990,6 +2000,7 @@ export class OrdersService {
         subtotalAmount: a.subtotal,
         totalAmount: a.total,
         debtAmount,
+        creditAmount,
         financialStatus,
       },
       include: ORDER_INCLUDE,
@@ -2029,6 +2040,7 @@ export class OrdersService {
       totalAmount: o.totalAmount,
       paidAmount: o.paidAmount,
       debtAmount: o.debtAmount,
+      creditAmount: o.creditAmount != null ? Number(o.creditAmount) : 0,
       paymentStatus: computePaymentStatus({
         totalAmount: Number(o.totalAmount) || 0,
         paidAmount: Number(o.paidAmount) || 0,

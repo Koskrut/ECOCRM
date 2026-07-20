@@ -264,6 +264,7 @@ function PaymentsContent() {
   const [orderCandidates, setOrderCandidates] = useState<OrderOption[]>([]);
   const [editPayment, setEditPayment] = useState<PaymentItem | null>(null);
   const [editAmount, setEditAmount] = useState("");
+  const [editCurrency, setEditCurrency] = useState("UAH");
   const [editPaidAt, setEditPaidAt] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editOrderId, setEditOrderId] = useState<string>("");
@@ -1113,6 +1114,7 @@ function PaymentsContent() {
   const openEdit = (p: PaymentItem) => {
     setEditPayment(p);
     setEditAmount(String(p.amount));
+    setEditCurrency(p.currency || "UAH");
     setEditAmountUsd(typeof p.amountUsd === "number" ? String(p.amountUsd) : "");
     setEditPaidAt(new Date(p.paidAt).toISOString().slice(0, 16));
     setEditNote(p.note ?? "");
@@ -1142,6 +1144,7 @@ function PaymentsContent() {
     try {
       const payload: {
         amount?: number;
+        currency?: string;
         amountUsd?: number;
         paidAt?: string;
         note?: string;
@@ -1149,11 +1152,10 @@ function PaymentsContent() {
       } = {};
       if (editPayment.sourceType === "CASH") {
         payload.paidAt = new Date(editPaidAt).toISOString();
-        if (userRole === "ADMIN") {
-          const num = parseFloat(editAmount.replace(/,/g, "."));
-          if (!Number.isFinite(num) || num <= 0) throw new Error(t.payments.errors.invalidAmount);
-          payload.amount = num;
-        }
+        const num = parseFloat(editAmount.replace(/,/g, "."));
+        if (!Number.isFinite(num) || num <= 0) throw new Error(t.payments.errors.invalidAmount);
+        payload.amount = num;
+        if (editCurrency.trim()) payload.currency = editCurrency.trim().toUpperCase();
       }
       if (userRole === "ADMIN" && editAmountUsd.trim() !== "") {
         const usd = parseFloat(editAmountUsd.replace(/,/g, "."));
@@ -2784,15 +2786,28 @@ function PaymentsContent() {
               </div>
               {editPayment.sourceType === "CASH" && (
                 <>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={editAmount}
-                    onChange={(e) => setEditAmount(e.target.value)}
-                    disabled={userRole !== "ADMIN"}
-                    placeholder={t.payments.amountInCurrency(editPayment.currency)}
-                    className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100 disabled:text-zinc-500"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={editAmount}
+                      onChange={(e) => setEditAmount(e.target.value)}
+                      placeholder={t.payments.amountInCurrency(editCurrency || editPayment.currency)}
+                      className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                    <select
+                      value={editCurrency}
+                      onChange={(e) => setEditCurrency(e.target.value)}
+                      className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm text-zinc-900"
+                      aria-label={t.payments.currencyLabel}
+                    >
+                      {(["UAH", "USD", "EUR"] as const).map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <input
                     type="datetime-local"
                     value={editPaidAt}

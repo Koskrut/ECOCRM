@@ -170,7 +170,12 @@ export function isTrackEligibleForCompensation(opts: {
     }
   }
 
-  if (isGpsImplausiblyShortVsVisits(opts)) {
+  if (isGpsImplausiblyShortVsVisits({
+    coverageRatio: opts.coverageRatio,
+    snappedTrackDistanceKm: opts.snappedTrackDistanceKm,
+    visitRouteDistanceKm: opts.visitRouteDistanceKm,
+    rawPolylineDistanceKm: opts.rawPolylineDistanceKm,
+  })) {
     return { eligible: false, reason: "gps_implausibly_short_vs_visits" };
   }
 
@@ -185,13 +190,28 @@ export function isGpsImplausiblyShortVsVisits(opts: {
   coverageRatio?: number | null;
   snappedTrackDistanceKm?: number | null;
   visitRouteDistanceKm?: number | null;
+  rawPolylineDistanceKm?: number | null;
 }): boolean {
   const coverage = opts.coverageRatio;
   const trackKm = opts.snappedTrackDistanceKm;
   const visitKm = opts.visitRouteDistanceKm;
+  const rawKm = opts.rawPolylineDistanceKm;
   if (coverage == null || !Number.isFinite(coverage) || coverage < MIN_TRACK_COVERAGE_RATIO) {
     return false;
   }
+  // Near-zero snapped with a real raw track → truncated match (even if visit route < 2 km).
+  // Only when snapped distance was explicitly computed (not omitted).
+  if (
+    trackKm != null &&
+    Number.isFinite(trackKm) &&
+    trackKm < MIN_TRACK_COMPENSATION_KM &&
+    rawKm != null &&
+    Number.isFinite(rawKm) &&
+    rawKm >= MIN_TRACK_COMPENSATION_KM
+  ) {
+    return true;
+  }
+
   if (visitKm == null || !Number.isFinite(visitKm) || visitKm < MIN_VISIT_ROUTE_KM_FOR_SANITY) {
     return false;
   }

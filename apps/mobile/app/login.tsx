@@ -1,6 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Text } from "@/components/Themed";
@@ -9,11 +10,14 @@ import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView
 import { TextField } from "@/components/ui/TextField";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
+import { useServerConfig } from "@/context/server-config-context";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const { apiUrl } = useServerConfig();
+  const router = useRouter();
   const theme = useTheme();
   const [loginField, setLoginField] = useState("");
   const [password, setPassword] = useState("");
@@ -34,6 +38,13 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function onChangeServer() {
+    router.push({
+      pathname: "/server-setup",
+      params: apiUrl ? { prefill: apiUrl } : undefined,
+    });
   }
 
   return (
@@ -65,6 +76,17 @@ export default function LoginScreen() {
               },
             ]}>
             <Text style={theme.typography.title}>{t("login.title")}</Text>
+
+            {apiUrl ? (
+              <Pressable onPress={onChangeServer} disabled={loading} style={styles.serverRow}>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                  {t("login.serverLabel", { url: apiUrl })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.primary, marginTop: 4 }]}>
+                  {t("login.changeServer")}
+                </Text>
+              </Pressable>
+            ) : null}
 
             <TextField
               value={loginField}
@@ -125,4 +147,5 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 4,
   },
+  serverRow: { marginBottom: 12 },
 });

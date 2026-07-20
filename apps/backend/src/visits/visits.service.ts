@@ -17,7 +17,7 @@ import {
   VisitGpsVerification,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { kyivDayBounds } from "../crm-timezone";
+import { kyivDayBounds, instantToKyivYmd } from "../crm-timezone";
 import { ActivitiesService } from "../activities/activities.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { VISIT_COMPLETED_EVENT } from "../field/field.events";
@@ -871,16 +871,22 @@ export class VisitsService {
         try {
           const clientRecordedAt =
             this.normalizeClientRecordedAt(gpsPayload.clientRecordedAt) ?? now;
+          const dayRef = existing.startsAt ?? now;
           const result = await dualWriteCompleteGpsToActiveShift(this.prisma, {
             ownerId: existing.ownerId,
             lat,
             lng,
             accuracyM: gpsPayload.accuracyM,
             clientRecordedAt,
+            dayRef,
           });
           if (result.created) {
             this.logger.log(
               `completeVisit dual-write GPS sample visitId=${id} ownerId=${existing.ownerId}`,
+            );
+          } else {
+            this.logger.log(
+              `completeVisit dual-write GPS skipped visitId=${id} reason=${result.reason ?? "unknown"}`,
             );
           }
         } catch (err) {
@@ -892,7 +898,7 @@ export class VisitsService {
     }
 
     const dayRef = updated.startsAt ?? updated.completedAt ?? now;
-    const dateStr = new Date(dayRef).toISOString().slice(0, 10);
+    const dateStr = instantToKyivYmd(dayRef);
     void this.eventEmitter.emitAsync(VISIT_COMPLETED_EVENT, {
       ownerId: updated.ownerId,
       dateStr,
@@ -1097,7 +1103,7 @@ export class VisitsService {
     }
 
     const dayRef = updated.startsAt ?? updated.completedAt ?? now;
-    const dateStr = new Date(dayRef).toISOString().slice(0, 10);
+    const dateStr = instantToKyivYmd(dayRef);
     void this.eventEmitter.emitAsync(VISIT_COMPLETED_EVENT, {
       ownerId: updated.ownerId,
       dateStr,

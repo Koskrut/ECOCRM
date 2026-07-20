@@ -1,5 +1,5 @@
 import { FieldShiftStatus, type Prisma } from "@prisma/client";
-import { todayYmdKyiv } from "../crm-timezone";
+import { instantToKyivYmd } from "../crm-timezone";
 import { filterGpsSample } from "../field/gps-sample-filter";
 
 type PrismaClientLike = {
@@ -34,8 +34,7 @@ type PrismaClientLike = {
 
 /**
  * Best-effort: when a visit is completed with GPS, append one sample to the
- * owner's ACTIVE tracking-enabled shift so the day track is not missing
- * points if background tracking died.
+ * owner's ACTIVE tracking-enabled shift for the visit's Kyiv calendar day.
  */
 export async function dualWriteCompleteGpsToActiveShift(
   prisma: PrismaClientLike,
@@ -45,13 +44,16 @@ export async function dualWriteCompleteGpsToActiveShift(
     lng: number;
     accuracyM?: number | null;
     clientRecordedAt: Date;
+    /** Instant used to pick the Kyiv calendar day (visit startsAt / completedAt). */
+    dayRef?: Date;
   },
 ): Promise<{ created: boolean; reason?: string }> {
   if (!Number.isFinite(opts.lat) || !Number.isFinite(opts.lng)) {
     return { created: false, reason: "invalid_coords" };
   }
 
-  const dateKey = new Date(`${todayYmdKyiv()}T00:00:00.000Z`);
+  const dayInstant = opts.dayRef ?? opts.clientRecordedAt;
+  const dateKey = new Date(`${instantToKyivYmd(dayInstant)}T00:00:00.000Z`);
   const shift = await prisma.fieldShift.findFirst({
     where: {
       ownerId: opts.ownerId,

@@ -17,6 +17,7 @@ import { PresenceHeartbeatProvider } from "@/context/presence-context";
 import { ActiveWorkProvider } from "@/context/active-work-context";
 import { ModulesProvider } from "@/context/modules-context";
 import { OfflineQueueProvider } from "@/context/offline-queue-context";
+import { ServerConfigProvider, useServerConfig } from "@/context/server-config-context";
 import { ShiftTrackingProvider } from "@/context/shift-tracking-context";
 import { VisitGeofenceProvider } from "@/context/visit-geofence-context";
 import { AppThemeProvider, useTheme } from "@/lib/design/theme-context";
@@ -32,22 +33,32 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 function RouteGuard({ children }: { children: React.ReactNode }) {
-  const { token, ready } = useAuth();
+  const { apiUrl, ready: serverReady } = useServerConfig();
+  const { token, ready: authReady } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (!ready) return;
+    if (!serverReady || !authReady) return;
 
     const root = segments[0];
-    if (!token && root !== "login") {
+
+    if (!apiUrl) {
+      if (root !== "server-setup") {
+        router.replace("/server-setup");
+      }
+      return;
+    }
+
+    if (!token && root !== "login" && root !== "server-setup") {
       router.replace("/login");
       return;
     }
-    if (token && root === "login") {
+
+    if (token && (root === "login" || root === "server-setup")) {
       router.replace("/");
     }
-  }, [ready, segments, token, router]);
+  }, [serverReady, authReady, apiUrl, segments, token, router]);
 
   return children;
 }
@@ -62,34 +73,38 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style="auto" />
         <AppThemeProvider>
-        <AuthProvider>
-          <PushNotificationsProvider>
-          <PresenceHeartbeatProvider>
-          <ModulesProvider>
-            <ActiveWorkProvider>
-              <OfflineQueueProvider>
-                <ShiftTrackingProvider>
-                  <VisitGeofenceProvider>
-                    <RouteGuard>
-                      <RootLayoutNav />
-                    </RouteGuard>
-                  </VisitGeofenceProvider>
-                </ShiftTrackingProvider>
-              </OfflineQueueProvider>
-            </ActiveWorkProvider>
-          </ModulesProvider>
-          </PresenceHeartbeatProvider>
-          </PushNotificationsProvider>
-        </AuthProvider>
-      </AppThemeProvider>
+          <ServerConfigProvider>
+            <AuthProvider>
+              <PushNotificationsProvider>
+                <PresenceHeartbeatProvider>
+                  <ModulesProvider>
+                    <ActiveWorkProvider>
+                      <OfflineQueueProvider>
+                        <ShiftTrackingProvider>
+                          <VisitGeofenceProvider>
+                            <RouteGuard>
+                              <RootLayoutNav />
+                            </RouteGuard>
+                          </VisitGeofenceProvider>
+                        </ShiftTrackingProvider>
+                      </OfflineQueueProvider>
+                    </ActiveWorkProvider>
+                  </ModulesProvider>
+                </PresenceHeartbeatProvider>
+              </PushNotificationsProvider>
+            </AuthProvider>
+          </ServerConfigProvider>
+        </AppThemeProvider>
       </SafeAreaProvider>
     </RootErrorBoundary>
   );
 }
 
 function RootLayoutNav() {
-  const { ready } = useAuth();
+  const { ready: authReady } = useAuth();
+  const { ready: serverReady } = useServerConfig();
   const { navTheme, colors, typography } = useTheme();
+  const ready = serverReady && authReady;
 
   useEffect(() => {
     if (ready) {
@@ -117,6 +132,7 @@ function RootLayoutNav() {
     <ThemeProvider value={navTheme}>
       <Stack screenOptions={screenOptions}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="server-setup" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="visit/[id]" options={{ title: t("visit.title"), headerShown: true }} />
         <Stack.Screen name="contact/[id]" options={{ title: t("clients.card"), headerShown: true }} />

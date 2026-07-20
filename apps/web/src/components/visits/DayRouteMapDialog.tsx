@@ -37,6 +37,7 @@ export function DayRouteMapDialog({
           mapsApiKey={mapsApiKey}
           showTeamLink={showTeamLink}
           mapHeightClass="h-[min(60vh,520px)]"
+          mode="history"
         />
       }
     />

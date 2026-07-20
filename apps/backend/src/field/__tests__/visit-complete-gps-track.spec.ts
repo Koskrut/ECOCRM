@@ -94,4 +94,32 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
     assert.equal(result.created, false);
     assert.equal(result.reason, "duplicate");
   });
+
+  it("looks up ACTIVE shift by visit Kyiv day (dayRef), not wall-clock today", async () => {
+    let seenDate: Date | undefined;
+    const prisma = {
+      fieldShift: {
+        findFirst: async (args: { where: { date?: Date } }) => {
+          seenDate = args.where.date;
+          return { id: "shift-past" };
+        },
+      },
+      fieldLocationSample: {
+        findFirst: async () => null,
+        create: async (args: { data: unknown }) => args.data,
+      },
+    };
+
+    const dayRef = new Date("2026-07-16T10:00:00.000Z");
+    const result = await dualWriteCompleteGpsToActiveShift(prisma, {
+      ownerId: "owner-1",
+      lat: 50.45,
+      lng: 30.52,
+      clientRecordedAt: new Date("2026-07-16T22:30:00.000Z"),
+      dayRef,
+    });
+    assert.equal(result.created, true);
+    assert.ok(seenDate);
+    assert.equal(seenDate!.toISOString().slice(0, 10), "2026-07-16");
+  });
 });

@@ -1,5 +1,5 @@
 import { getAuthToken } from "./auth-token";
-import { getApiBaseUrl } from "./config";
+import { getApiBaseUrl, hydrateApiBaseUrl } from "./config";
 import type { TrackingRestartReason } from "./location-tracking-restart";
 
 export type TrackingEventType = "tracking_task_restarted";
@@ -12,6 +12,7 @@ export async function sendTrackingRestartEvent(
   if (!token) return;
 
   try {
+    await hydrateApiBaseUrl();
     await fetch(`${getApiBaseUrl()}/field/shifts/${shiftId}/tracking-events`, {
       method: "POST",
       headers: {

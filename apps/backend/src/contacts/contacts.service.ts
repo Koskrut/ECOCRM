@@ -176,6 +176,7 @@ export class ContactsService {
             totalAmount: true,
             returnAdjustmentAmount: true,
             debtAmount: true,
+            creditAmount: true,
             financialStatus: true,
           },
         }),
@@ -208,17 +209,20 @@ export class ContactsService {
 
     let revenue = 0;
     let debt = 0;
+    let orderCredit = 0;
     let overdue = 0;
     let lastOrderAt: Date | null = null;
     const clientBalance = balanceRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     for (const order of visibleOrders) {
       revenue += Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0));
       debt += Math.max(0, Number(order.debtAmount ?? 0));
+      orderCredit += Math.max(0, Number(order.creditAmount ?? 0));
       if (order.financialStatus === "OVERDUE" && Number(order.debtAmount ?? 0) > 0) {
         overdue += Number(order.debtAmount ?? 0);
       }
       if (!lastOrderAt || order.createdAt > lastOrderAt) lastOrderAt = order.createdAt;
     }
+    const netDebt = Math.max(0, debt - orderCredit);
 
     const lastActivityAt = lastActivity?.occurredAt ?? lastActivity?.createdAt ?? null;
     const daysSinceActivity = lastActivityAt
@@ -232,7 +236,7 @@ export class ContactsService {
 
     const riskFlags: string[] = [];
     if (overdue > 0) riskFlags.push("overdue");
-    if (debt > 0) riskFlags.push("debt");
+    if (netDebt > 0) riskFlags.push("debt");
     if (overdueTasksCount > 0) riskFlags.push("overdue_tasks");
     if (daysSinceActivity != null && daysSinceActivity >= 14) riskFlags.push("no_activity");
 
@@ -240,9 +244,10 @@ export class ContactsService {
     if (isUnassigned) badges.push("unassigned");
     if (missingCompany) badges.push("no_company");
     if (overdue > 0) badges.push("overdue");
-    if (debt > 0) badges.push("debt");
+    if (netDebt > 0) badges.push("debt");
     if (overdueTasksCount > 0) badges.push("open_overdue_tasks");
     if (daysSinceActivity != null && daysSinceActivity >= 14) badges.push("no_activity");
+    if (orderCredit > 0) badges.push("credit");
 
     const phones = [contact.phone, ...contact.phones.map((p) => p.phone)]
       .map((p) => p?.trim())
@@ -269,8 +274,9 @@ export class ContactsService {
       kpi: {
         ordersCount: visibleOrders.length,
         revenue,
-        debt,
+        debt: netDebt,
         overdue,
+        orderCredit,
         clientBalance,
         lastOrderAt: lastOrderAt ? lastOrderAt.toISOString() : null,
         lastActivityAt: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
@@ -711,7 +717,7 @@ export class ContactsService {
           where: {
             clientId: { in: contactIds },
           },
-          _sum: { debtAmount: true },
+          _sum: { debtAmount: true, creditAmount: true },
         }),
       ]);
       hasCallTodayIds = new Set(callsToday.map((c) => c.contactId as string));
@@ -719,7 +725,10 @@ export class ContactsService {
       for (const row of debts) {
         const id = row.clientId ?? null;
         if (!id) continue;
-        const debt = Number(row._sum.debtAmount ?? 0);
+        const debt = Math.max(
+          0,
+          Number(row._sum.debtAmount ?? 0) - Number(row._sum.creditAmount ?? 0),
+        );
         if (debt > 0) debtByContact.set(id, debt);
       }
     }

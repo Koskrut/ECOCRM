@@ -9,6 +9,7 @@ import {
   maybeFlushAfterAppend,
 } from "./location-tracking-buffer";
 import { processLocationUpdate } from "./location-tracking-processor";
+import { hydrateApiBaseUrl } from "./config";
 import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
 import type { SamplingTier } from "./location-tracking-config";
 
@@ -28,6 +29,7 @@ export function setForegroundWatchStarter(fn: (tier: SamplingTier) => Promise<vo
 if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
   TaskManager.defineTask(FIELD_LOCATION_TASK, async ({ data, error }) => {
     if (error) return;
+    await hydrateApiBaseUrl();
     const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
     if (!locations?.length) return;
 

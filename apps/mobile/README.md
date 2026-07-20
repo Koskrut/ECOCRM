@@ -20,13 +20,19 @@
 
 ## API
 
+Базовий URL CRM API задається **на пристрої** при першому запуску (екран «Адреса CRM») і зберігається локально. Його можна змінити з екрана входу або з вкладки «Ще» (сесія скидається).
+
+`EXPO_PUBLIC_API_URL` у `.env` / EAS — **опційний seed**: якщо в сховищі ще немає URL, значення з білду підставляється один раз (зручно для Suprex і для dev).
+
 ```bash
-# apps/mobile/.env
+# apps/mobile/.env (опційно — seed / локальна розробка)
 EXPO_PUBLIC_API_URL=https://api.suprex.dental
+# або для емулятора:
+# EXPO_PUBLIC_API_URL=http://10.0.2.2:3001
 ```
 
-| Середовище | URL |
-|------------|-----|
+| Середовище | Типовий URL |
+|------------|-------------|
 | Android Emulator | `http://10.0.2.2:3001` |
 | Фізичний телефон (dev) | `http://<LAN-IP>:3001` |
 | Production (VPS) | `https://api.<домен>` |
@@ -61,7 +67,7 @@ cd apps/mobile
 EAS_NO_VCS=1 EAS_PROJECT_ROOT=$(pwd) npx eas-cli build --profile preview --platform android --non-interactive
 ```
 
-Профіль `preview` у [`eas.json`](./eas.json) вже містить `EXPO_PUBLIC_API_URL` для Suprex.
+Профілі `preview` / `production` у [`eas.json`](./eas.json) **без** `EXPO_PUBLIC_API_URL` — універсальний APK показує екран введення URL. Для seed (наприклад лише Suprex) додайте env у окремий EAS-профіль або локальний `.env`.
 
 ## Release checklist (перед EAS build)
 

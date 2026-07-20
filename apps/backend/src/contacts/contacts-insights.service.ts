@@ -133,6 +133,7 @@ export class ContactsInsightsService {
             totalAmount: true,
             returnAdjustmentAmount: true,
             debtAmount: true,
+            creditAmount: true,
           },
         }),
         this.prisma.order.findMany({
@@ -194,7 +195,12 @@ export class ContactsInsightsService {
       const id = o.clientId ?? null;
       if (!id) continue;
       ordersCountAllById.set(id, (ordersCountAllById.get(id) ?? 0) + 1);
-      debtById.set(id, (debtById.get(id) ?? 0) + Math.max(0, Number(o.debtAmount ?? 0)));
+      debtById.set(
+        id,
+        (debtById.get(id) ?? 0) +
+          Math.max(0, Number(o.debtAmount ?? 0)) -
+          Math.max(0, Number(o.creditAmount ?? 0)),
+      );
       const prev = lastOrderAtById.get(id) ?? null;
       if (!prev || o.createdAt > prev) {
         lastOrderAtById.set(id, o.createdAt);
@@ -296,7 +302,7 @@ export class ContactsInsightsService {
         hasOrderHistory,
         overdueFollowupTasks: overdueTasksById.get(c.id) ?? 0,
         openTasksCount: openTasksById.get(c.id) ?? 0,
-        debtAmount: debtById.get(c.id) ?? 0,
+        debtAmount: Math.max(0, debtById.get(c.id) ?? 0),
         revenue30: revenue30ById.get(c.id) ?? 0,
         revenue90,
         revenue365,

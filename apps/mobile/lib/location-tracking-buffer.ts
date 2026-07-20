@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { getAuthToken } from "./auth-token";
 import { FLUSH_INTERVAL_MS, FLUSH_WHEN_PENDING_GTE } from "./location-tracking-config";
-import { getApiBaseUrl } from "./config";
+import { getApiBaseUrl, hydrateApiBaseUrl } from "./config";
 import { appendErrorLog } from "./error-log";
 import {
   classifyFlushHttpStatus,
@@ -82,6 +82,13 @@ async function applyFlushFailure(
     void appendErrorLog(`flush samples discarded all: ${message}`);
     return;
   }
+  if (action === "discard_batch") {
+    const rest = pending.slice(batch.length);
+    await writePending(rest);
+    await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_SHIFT_ID).catch(() => undefined);
+    void appendErrorLog(`flush samples discarded batch (${batch.length}): ${message}`);
+    return;
+  }
   const rest = pending.slice(batch.length);
   await enqueueOfflineJob("shiftSamplesBatch", {
     shiftId,
@@ -111,6 +118,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
     const sid = shiftId ?? (await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID));
     if (!sid) return 0;
 
+    await hydrateApiBaseUrl();
     const token = await getAuthToken();
     if (!token) return 0;
 
@@ -141,9 +149,29 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           break;
         }
 
+        let created = batch.length;
+        let rejected = 0;
+        try {
+          const body = (await res.json()) as { created?: number; rejected?: number };
+          if (typeof body.created === "number" && Number.isFinite(body.created)) {
+            created = body.created;
+          }
+          if (typeof body.rejected === "number" && Number.isFinite(body.rejected)) {
+            rejected = body.rejected;
+          }
+        } catch {
+          /* non-JSON body — treat as full batch accepted */
+        }
+
         await writePending(rest);
         await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
-        uploaded += batch.length;
+        uploaded += Math.max(0, created);
+
+        if (created === 0 && rejected > 0) {
+          void appendErrorLog(
+            `flush samples all rejected (${rejected}) shiftId=${sid} — batch dropped`,
+          );
+        }
 
         if (rest.length === 0) break;
       } catch (e) {

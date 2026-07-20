@@ -11,6 +11,7 @@ import {
   concatPaths,
   downsamplePathUniform,
   isTrackEligibleForCompensation,
+  MIN_TRACK_COMPENSATION_KM,
   splitRouteLegs,
   sumLegMetrics,
 } from "./route-routing.util";
@@ -706,12 +707,22 @@ export class RoutePlansService {
 
     try {
       const matched = await this.osrm.matchTrack(sampled);
-      if (matched?.source === "osrm" && matched.path.length >= 2) {
+      const rawKm = this.pathDistanceKm(points);
+      const matchTooTiny =
+        matched?.distanceKm != null &&
+        (matched.distanceKm < MIN_TRACK_COMPENSATION_KM ||
+          (rawKm != null && rawKm >= MIN_TRACK_COMPENSATION_KM && matched.distanceKm < rawKm * 0.25));
+      if (matched?.source === "osrm" && matched.path.length >= 2 && !matchTooTiny) {
         return {
           path: matched.path,
           source: "osrm",
           distanceKm: matched.distanceKm,
         };
+      }
+      if (matchTooTiny) {
+        this.logger.warn(
+          `snapGpsPathToRoads: match_too_tiny km=${matched?.distanceKm} rawKm=${rawKm}`,
+        );
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -1028,17 +1039,24 @@ export class RoutePlansService {
     const firstShift = trackingShifts[0]!;
     const lastShift = trackingShifts[trackingShifts.length - 1]!;
     const spanStart = firstShift.startedAt.getTime();
-    const spanEnd = (lastShift.endedAt ?? new Date()).getTime();
-    const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
 
-    let sampledSpanMin = 0;
     let lastSampleAt: Date | null = null;
     if (filtered.length >= 1) {
       lastSampleAt = filtered[filtered.length - 1]!.clientRecordedAt;
     }
-    if (filtered.length >= 2) {
+
+    // Open shifts: don't stretch span to wall-clock now (forgotten end → false low coverage).
+    const spanEnd = (
+      lastShift.endedAt ??
+      lastSampleAt ??
+      new Date()
+    ).getTime();
+    const shiftDurationMin = Math.max(1, (spanEnd - spanStart) / 60000);
+
+    let sampledSpanMin = 0;
+    if (filtered.length >= 2 && lastSampleAt) {
       const t0 = filtered[0]!.clientRecordedAt.getTime();
-      const t1 = lastSampleAt!.getTime();
+      const t1 = lastSampleAt.getTime();
       sampledSpanMin = Math.max(0, (t1 - t0) / 60000);
     }
 

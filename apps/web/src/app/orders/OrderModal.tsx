@@ -166,6 +166,8 @@ type OrderDetails = {
   waybillDate?: string | null;
   paidAmount?: number;
   debtAmount?: number;
+  /** Available overpayment after return / overpay. */
+  creditAmount?: number;
   /** Phase 5: sum of closed return amounts (reduces effective total/debt). */
   returnAdjustmentAmount?: number | null;
   fxWriteOffAmount?: number;
@@ -4096,6 +4098,8 @@ export function OrderModal({
                         Number(order.fxWriteOffAmount ?? 0),
                     );
                   })()}
+                  creditAmount={Math.max(0, Number(order.creditAmount ?? 0))}
+                  clientId={order.clientId ?? null}
                   paymentStatus={(order as { paymentStatus?: string }).paymentStatus}
                   currency={order.currency}
                   exchangeRate={order.exchangeRate ?? null}

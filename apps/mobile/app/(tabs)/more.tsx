@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { Text } from "@/components/Themed";
@@ -12,6 +12,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { useOfflineQueue } from "@/context/offline-queue-context";
+import { useServerConfig } from "@/context/server-config-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
 import { getApiBaseUrl } from "@/lib/config";
 import { useTheme } from "@/lib/design/theme-context";
@@ -23,6 +24,7 @@ export default function MoreScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { user, logout } = useAuth();
+  const { apiUrl, clearServerUrl } = useServerConfig();
   const { visitsEnabled } = useModules();
   const { jobs, flushNow, lastError } = useOfflineQueue();
   const [errorLog, setErrorLog] = useState<ErrorLogEntry[]>([]);
@@ -296,6 +298,32 @@ export default function MoreScreen() {
             ))}
           </Card>
         ) : null}
+
+        <SectionTitle title={t("more.serverSection")} />
+        <ListItem
+          title={t("more.serverTitle")}
+          subtitle={apiUrl ?? getApiBaseUrl()}
+          onPress={() => {
+            Alert.alert(t("more.serverChangeTitle"), t("more.serverChangeBody"), [
+              { text: t("common.cancel"), style: "cancel" },
+              {
+                text: t("more.serverChangeConfirm"),
+                style: "destructive",
+                onPress: () => {
+                  void (async () => {
+                    const current = apiUrl ?? getApiBaseUrl();
+                    await logout();
+                    await clearServerUrl();
+                    router.replace({
+                      pathname: "/server-setup",
+                      params: { prefill: current },
+                    });
+                  })();
+                },
+              },
+            ]);
+          }}
+        />
 
         <AppButton
           label={t("more.logout")}

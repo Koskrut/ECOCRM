@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.113**.)_
+_(планируемые изменения после **0.2.114**.)_
+
+## [0.2.114] — 2026-07-20
+
+### Summary
+
+Патч **0.2.114**: перенос переплаты между заказами (`creditAmount` / `transfer-credit`); один ACTIVE field shift на день; рефактор карточки контакта; mobile runtime API URL; GPS/route polish.
+
+### Added
+
+- **Order credit transfer**: миграция **`20260720120000_order_credit_amount_transfer`** — `Order.creditAmount`, `PaymentSourceType.CREDIT_TRANSFER`, `transferGroupId` / `linkedOrderId`; API **`POST /payments/transfer-credit`**; UI в **OrderPaymentBlock** / payments.
+- **Contact card**: вкладки Profile / Activity / Finance / Delivery / Analytics / Work; shell header; visit planner.
+- **Mobile**: экран **server-setup**, runtime API URL (`api-url` / SecureStore), EAS/config updates.
+
+### Changed
+
+- **Field shifts**: миграция **`20260720100000_field_shift_one_active_per_day`** — unique ACTIVE `(ownerId, date)`; закрытие дублей.
+- **GPS tracking**: dual-write по Kyiv day визита; filter/eligibility tweaks; route map arrows / dashed fallback.
+- **Cash payments**: менеджер может править сумму/валюту своего cash-платежа.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.114`**.
+- **Миграции:** `prisma migrate deploy` / **`backend-migrate`** — **`20260720100000_field_shift_one_active_per_day`**, **`20260720120000_order_credit_amount_transfer`**.
 
 ## [0.2.113] — 2026-07-17
 

@@ -146,6 +146,7 @@ test("getCardSummary: uses canonical Order.clientId scope and visibility note", 
   assert.equal(result.kpi.ordersCount, 1);
   assert.equal(result.kpi.revenue, 900);
   assert.equal(result.kpi.debt, 200);
+  assert.equal(result.kpi.orderCredit, 0);
   assert.equal(result.kpi.overdue, 200);
   assert.equal(result.insights.financeRestricted, true);
   assert.equal(result.insights.scopeNote, "Показаны только доступные вам сделки");
@@ -158,6 +159,59 @@ test("getCardSummary: uses canonical Order.clientId scope and visibility note", 
   const activityFindFirstCall = (prisma.activity.findFirst as any).calls[0]?.[0];
   assert.equal(activityFindFirstCall.where.contactId, "c1");
   assert.equal(activityFindFirstCall.where.type.not, "COMMENT");
+});
+
+test("getCardSummary: nets order credit against debt", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c-net",
+        ownerId: "m1",
+        firstName: "Net",
+        lastName: "Debt",
+        status: null,
+        clientType: null,
+        city: null,
+        region: null,
+        email: null,
+        phone: "+380111111111",
+        companyId: null,
+        company: null,
+        owner: { id: "m1", fullName: "Manager" },
+        phones: [],
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          createdAt: new Date("2026-03-01T10:00:00.000Z"),
+          totalAmount: 1000,
+          returnAdjustmentAmount: 300,
+          debtAmount: 0,
+          creditAmount: 300,
+          financialStatus: "PAID",
+        },
+        {
+          createdAt: new Date("2026-03-02T10:00:00.000Z"),
+          totalAmount: 500,
+          returnAdjustmentAmount: 0,
+          debtAmount: 200,
+          creditAmount: 0,
+          financialStatus: "AWAITING_PAYMENT",
+        },
+      ]),
+      count: mockFn(async () => 2),
+    },
+    activity: { findFirst: mockFn(async () => null) },
+    task: {
+      count: mockFn(async () => 0),
+      findFirst: mockFn(async () => null),
+    },
+  });
+
+  const result = await service.getCardSummary("c-net", manager("m1"));
+  assert.equal(result.kpi.orderCredit, 300);
+  assert.equal(result.kpi.debt, 0); // max(0, 200 - 300)
 });
 
 test("getCardSummary: ADMIN sees full scope without finance restriction", async () => {
@@ -222,6 +276,7 @@ test("getCardSummary: ADMIN sees full scope without finance restriction", async 
   assert.equal(result.kpi.ordersCount, 2);
   assert.equal(result.kpi.revenue, 2500);
   assert.equal(result.kpi.debt, 150);
+  assert.equal(result.kpi.orderCredit, 0);
   assert.equal(result.insights.financeRestricted, false);
   assert.equal(result.insights.scopeNote, null);
 

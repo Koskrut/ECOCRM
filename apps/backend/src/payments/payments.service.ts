@@ -24,10 +24,13 @@ import type { AllocateSplitDto } from "./dto/allocate-split.dto";
 import type { CreateCashPaymentDto } from "./dto/create-cash-payment.dto";
 import type { UpdatePaymentDto } from "./dto/update-payment.dto";
 import type { SplitPaymentDto } from "./dto/split-payment.dto";
+import type { TransferCreditDto } from "./dto/transfer-credit.dto";
 import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
 import { buildPaymentSearchWhere } from "./payment-search.util";
+import { computeOrderDebtAndCredit, roundMoney } from "./order-finance.utils";
+import { randomUUID } from "node:crypto";
 
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
   return toUsd(amount, currency, rates);
@@ -499,6 +502,7 @@ export class PaymentsService {
     }
     const data: {
       amount?: number;
+      currency?: string;
       amountUsd?: number;
       paidAt?: Date;
       note?: string | null;
@@ -515,20 +519,37 @@ export class PaymentsService {
       data.amountUsd = amountUsd;
     }
     if (payment.sourceType === PaymentSourceType.CASH) {
-      if (dto.amount != null) {
-        if (actor?.role !== UserRole.ADMIN) {
-          throw new ForbiddenException("Only ADMIN can change payment amount");
-        }
-        const amount = Number(dto.amount);
+      const amountChanging = dto.amount != null;
+      const currencyChanging = dto.currency != null;
+      if (amountChanging || currencyChanging) {
+        const amount = amountChanging ? Number(dto.amount) : Number(payment.amount);
         if (!Number.isFinite(amount) || amount <= 0)
           throw new BadRequestException("Amount must be a positive number");
-        data.amount = amount;
+        if (amountChanging) data.amount = amount;
+
+        let currency = payment.currency;
+        if (currencyChanging) {
+          const next = String(dto.currency).trim().toUpperCase();
+          if (!["USD", "UAH", "EUR"].includes(next)) {
+            throw new BadRequestException("Currency must be USD, UAH, or EUR");
+          }
+          currency = next;
+          data.currency = next;
+        }
+
+        // Keep USD equivalent in sync unless ADMIN explicitly overrides amountUsd.
+        if (dto.amountUsd === undefined) {
+          const rates = await this.settings.getExchangeRates();
+          data.amountUsd = convertToUsd(amount, currency, rates);
+        }
       }
       if (dto.paidAt != null) {
         const paidAt = new Date(dto.paidAt);
         if (Number.isNaN(paidAt.getTime())) throw new BadRequestException("Invalid paidAt date");
         data.paidAt = paidAt;
       }
+    } else if (dto.amount != null || dto.currency != null) {
+      throw new BadRequestException("Only cash payments can change amount or currency");
     }
     if (dto.orderId != null && dto.orderId !== payment.orderId) {
       const newOrder = await this.prisma.order.findUnique({
@@ -692,6 +713,163 @@ export class PaymentsService {
     return { ok: true };
   }
 
+  async transferCredit(dto: TransferCreditDto, actor?: AuthUser) {
+    if (
+      !actor ||
+      (actor.role !== UserRole.ADMIN &&
+        actor.role !== UserRole.LEAD &&
+        actor.role !== UserRole.MANAGER)
+    ) {
+      throw new ForbiddenException("You are not allowed to transfer credit");
+    }
+
+    const amount = roundMoney(Number(dto.amount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException("Amount must be a positive number");
+    }
+    if (dto.fromOrderId === dto.toOrderId) {
+      throw new BadRequestException("Cannot transfer credit to the same order");
+    }
+
+    const [fromOrder, toOrder] = await Promise.all([
+      this.prisma.order.findUnique({
+        where: { id: dto.fromOrderId },
+        select: {
+          id: true,
+          ownerId: true,
+          clientId: true,
+          contactId: true,
+          companyId: true,
+          currency: true,
+          orderNumber: true,
+          creditAmount: true,
+          debtAmount: true,
+        },
+      }),
+      this.prisma.order.findUnique({
+        where: { id: dto.toOrderId },
+        select: {
+          id: true,
+          ownerId: true,
+          clientId: true,
+          contactId: true,
+          companyId: true,
+          currency: true,
+          orderNumber: true,
+          creditAmount: true,
+          debtAmount: true,
+        },
+      }),
+    ]);
+
+    if (!fromOrder) throw new NotFoundException("Source order not found");
+    if (!toOrder) throw new NotFoundException("Target order not found");
+
+    if (actor.role === UserRole.MANAGER) {
+      if (fromOrder.ownerId !== actor.id || toOrder.ownerId !== actor.id) {
+        throw new ForbiddenException("You can only transfer credit between orders assigned to you");
+      }
+    }
+
+    if (!fromOrder.clientId || fromOrder.clientId !== toOrder.clientId) {
+      throw new BadRequestException("Both orders must belong to the same client");
+    }
+
+    const fromCur = (fromOrder.currency || "USD").toUpperCase();
+    const toCur = (toOrder.currency || "USD").toUpperCase();
+    if (fromCur !== toCur) {
+      throw new BadRequestException("Orders must use the same currency for credit transfer");
+    }
+
+    const availableCredit = roundMoney(Number(fromOrder.creditAmount ?? 0));
+    const targetDebt = roundMoney(Number(toOrder.debtAmount ?? 0));
+    if (amount > availableCredit + 0.009) {
+      throw new BadRequestException(`Amount exceeds available credit (${availableCredit})`);
+    }
+    if (amount > targetDebt + 0.009) {
+      throw new BadRequestException(`Amount exceeds target order debt (${targetDebt})`);
+    }
+
+    const rates = await this.settings.getExchangeRates();
+    const amountUsd = convertToUsd(amount, fromCur, rates);
+    const transferGroupId = randomUUID();
+    const paidAt = new Date();
+    const noteBase =
+      dto.note?.trim() ||
+      `Перенос переплати ${amount.toFixed(2)} ${fromCur}: ${fromOrder.orderNumber ?? fromOrder.id} → ${toOrder.orderNumber ?? toOrder.id}`;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.create({
+        data: {
+          orderId: fromOrder.id,
+          contactId: fromOrder.clientId ?? fromOrder.contactId,
+          companyId: fromOrder.companyId,
+          sourceType: PaymentSourceType.CREDIT_TRANSFER,
+          amount: -amount,
+          currency: fromCur,
+          amountUsd: -amountUsd,
+          paidAt,
+          status: PaymentStatus.COMPLETED,
+          createdByUserId: actor.id,
+          note: noteBase,
+          transferGroupId,
+          linkedOrderId: toOrder.id,
+        },
+      });
+      await tx.payment.create({
+        data: {
+          orderId: toOrder.id,
+          contactId: toOrder.clientId ?? toOrder.contactId,
+          companyId: toOrder.companyId,
+          sourceType: PaymentSourceType.CREDIT_TRANSFER,
+          amount,
+          currency: toCur,
+          amountUsd,
+          paidAt,
+          status: PaymentStatus.COMPLETED,
+          createdByUserId: actor.id,
+          note: noteBase,
+          transferGroupId,
+          linkedOrderId: fromOrder.id,
+        },
+      });
+    });
+
+    await this.recalcOrder(fromOrder.id);
+    await this.recalcOrder(toOrder.id);
+
+    const [fromAfter, toAfter] = await Promise.all([
+      this.prisma.order.findUnique({
+        where: { id: fromOrder.id },
+        select: {
+          id: true,
+          orderNumber: true,
+          paidAmount: true,
+          debtAmount: true,
+          creditAmount: true,
+        },
+      }),
+      this.prisma.order.findUnique({
+        where: { id: toOrder.id },
+        select: {
+          id: true,
+          orderNumber: true,
+          paidAmount: true,
+          debtAmount: true,
+          creditAmount: true,
+        },
+      }),
+    ]);
+
+    return {
+      transferGroupId,
+      amount,
+      currency: fromCur,
+      fromOrder: fromAfter,
+      toOrder: toAfter,
+    };
+  }
+
   async recalcOrder(orderId: string): Promise<void> {
     const [payments, rates] = await Promise.all([
       this.prisma.payment.findMany({
@@ -722,11 +900,12 @@ export class PaymentsService {
       },
     });
     if (!order) return;
-    const total = Number(order.totalAmount);
-    const adjustment = Number(order.returnAdjustmentAmount ?? 0);
-    const fxWriteOff = Number(order.fxWriteOffAmount ?? 0);
-    const effectiveTotal = Math.max(0, total - adjustment);
-    const debtAmount = Math.max(0, effectiveTotal - paidAmount - fxWriteOff);
+    const { effectiveTotal, debtAmount, creditAmount } = computeOrderDebtAndCredit({
+      totalAmount: order.totalAmount,
+      returnAdjustmentAmount: order.returnAdjustmentAmount,
+      paidAmount,
+      fxWriteOffAmount: order.fxWriteOffAmount,
+    });
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,
       totalAmount: effectiveTotal,
@@ -761,6 +940,7 @@ export class PaymentsService {
       data: {
         paidAmount,
         debtAmount,
+        creditAmount,
         financialStatus,
         ...(autoComplete && {
           orderStage: "COMPLETED",

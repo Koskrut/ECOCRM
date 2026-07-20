@@ -528,6 +528,7 @@ export default function VisitsHistoryPage() {
               ownerId={mapOwnerId}
               mapsApiKey={mapsApiKey}
               showTeamLink={showOwnerFilter}
+              mode="history"
             />
           </div>
         ) : null}

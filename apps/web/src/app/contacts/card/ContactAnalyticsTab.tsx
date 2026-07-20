@@ -9,11 +9,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { strings } from "@/locales";
 import type {
   ContactCardAnalytics,
   ContactCardAnalyticsRange,
   ContactCardAnalyticsScope,
 } from "./useContactCardAnalytics";
+
+const analyticsT = strings.contacts.card.analytics;
 
 function formatMoney(v: number): string {
   return `${Math.round(v).toLocaleString("uk-UA")} грн`;
@@ -75,7 +78,7 @@ export function ContactAnalyticsTab({
               scope === "contact" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
             }`}
           >
-            Contact
+            {analyticsT.contactScope}
           </button>
           <button
             type="button"
@@ -85,12 +88,16 @@ export function ContactAnalyticsTab({
               scope === "company" ? "bg-accent-gradient text-white" : "text-zinc-700 hover:bg-zinc-100"
             } disabled:cursor-not-allowed disabled:opacity-40`}
           >
-            Company
+            {analyticsT.companyScope}
           </button>
         </div>
       </div>
 
-      {loading ? <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500">Loading analytics...</div> : null}
+      {loading ? (
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-500">
+          {analyticsT.loading}
+        </div>
+      ) : null}
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       {!loading && !error && analytics ? (

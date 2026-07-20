@@ -161,4 +161,17 @@ describe("isTrackEligibleForCompensation", () => {
     assert.equal(result.eligible, true);
     assert.equal(result.reason, null);
   });
+
+  it("rejects near-zero snap even when visit route < 2 km", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 80,
+      rawPolylineDistanceKm: 8,
+      coverageRatio: 0.9,
+      snappedTrackDistanceKm: 0.2,
+      visitRouteDistanceKm: 1.5,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
 });

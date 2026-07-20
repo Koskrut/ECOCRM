@@ -1,44 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
+import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
-import { InlineEditableField } from "@/components/fields/InlineEditableField";
-import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
-import { ContactTimeline } from "./ContactTimeline";
-import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
-import { EntityTasksList } from "@/components/EntityTasksList";
-import {
-  buildContactShippingProfilePayload,
-  NpShippingProfileFormFields,
-  validateNpShippingProfileForm,
-  type NpShippingProfileFormValues,
-} from "@/components/np/NpShippingProfileFormFields";
 import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
 import { contactsApi } from "@/lib/api/resources/contacts";
-import { formatPhoneDisplay, formatPhoneInputMask } from "@/lib/formatPhone";
+import { formatPhoneInputMask } from "@/lib/formatPhone";
 import { ContactCreateForm, type ContactCreateFormValues } from "./ContactCreateForm";
-import { CONTACT_REGION_OPTIONS } from "./contact-region-options";
 import { useContactPhoneDuplicateCheck } from "./useContactPhoneDuplicateCheck";
-import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
-import { ContactCardHeader } from "./card/ContactCardHeader";
 import { ContactCardSkeleton } from "./card/ContactCardSkeleton";
-import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { ContactKpiStrip } from "./card/ContactKpiStrip";
-import { formatContactClientStage } from "./contact-formatters";
-import {
-  EntityAddressesSection,
-  pickVisitReadyAddresses,
-} from "@/components/EntityAddressesSection";
-import { VisitLocationPicker } from "@/components/visits/VisitLocationPicker";
-import type { EntityAddress } from "@/lib/api/resources/entity-addresses";
+import { pickVisitReadyAddresses } from "@/components/EntityAddressesSection";
 import {
   buildVisitLocationCreatePayload,
   defaultVisitLocationFromAddresses,
@@ -47,19 +27,29 @@ import {
 } from "@/lib/visits/visit-location.types";
 import { useContactCardSummary } from "./card/useContactCardSummary";
 import { useContactInsights } from "./card/useContactInsights";
-import { ContactCrmHint } from "./card/ContactCrmHint";
-import { ContactAnalyticsTab } from "./card/ContactAnalyticsTab";
-import { ContactReceivablesTab } from "./card/ContactReceivablesTab";
 import { useModules } from "@/lib/modules/useModules";
 import { ModuleIds } from "@/lib/modules/module-ids";
-import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
-import { ContactCardLayoutPanel } from "@/components/metadata/ContactCardLayoutPanel";
-import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
 import {
   useContactCardAnalytics,
   type ContactCardAnalyticsRange,
   type ContactCardAnalyticsScope,
 } from "./card/useContactCardAnalytics";
+import {
+  badgesFromSummary,
+  useContactCardShellHeader,
+} from "./card/ContactCardShellHeader";
+import { ContactWorkPanel } from "./card/ContactWorkPanel";
+import { ContactVisitPlanner } from "./card/ContactVisitPlanner";
+import { ContactIdentityFields } from "./card/ContactIdentityFields";
+import { ContactActivityTab } from "./card/ContactActivityTab";
+import { ContactFinanceTab } from "./card/ContactFinanceTab";
+import { ContactProfileTab } from "./card/ContactProfileTab";
+import { ContactDeliveryProfilesTab } from "./card/ContactDeliveryProfilesTab";
+import {
+  toDateTimeLocalValue,
+  type ContactCardTabId,
+  type ContactModalContact,
+} from "./card/contact-modal.types";
 
 function buildStoreThankYouSetPasswordUrl(publicStoreBase: string, setPasswordToken: string): string {
   const base = publicStoreBase.trim().replace(/\/+$/, "");
@@ -68,617 +58,6 @@ function buildStoreThankYouSetPasswordUrl(publicStoreBase: string, setPasswordTo
   u.searchParams.set("setPasswordToken", setPasswordToken);
   return u.href;
 }
-
-const NEXT_ACTION_OPTIONS = [
-  { value: "", label: "Без дії" },
-  { value: "CALL", label: "Дзвінок" },
-  { value: "MESSAGE", label: "Повідомлення" },
-  { value: "SEND_OFFER", label: "Надіслати пропозицію" },
-  { value: "CONTROL_PAYMENT", label: "Контроль оплати" },
-  { value: "MEETING", label: "Зустріч" },
-  { value: "NO_ACTION", label: "Без дії" },
-] as const;
-
-const CLIENT_STAGE_OPTIONS = [
-  { value: "", label: "Без ручної стадії" },
-  { value: "NEW_LEAD", label: "Новий лід" },
-  { value: "IN_PROGRESS", label: "В роботі" },
-  { value: "WAITING_DECISION", label: "Очікує рішення" },
-  { value: "ACTIVE_CLIENT", label: "Активний клієнт" },
-  { value: "DORMANT_CLIENT", label: "Сплячий клієнт" },
-  { value: "AT_RISK", label: "У зоні ризику" },
-  { value: "PROBLEM_DEBT", label: "Проблемна заборгованість" },
-  { value: "LOST_CLIENT", label: "Втрачений клієнт" },
-] as const;
-
-function toDateTimeLocalValue(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-type ShippingProfile = {
-  id: string;
-  label?: string | null;
-  isDefault?: boolean | null;
-  deliveryType?: string | null;
-  recipientType?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  middleName?: string | null;
-  phone?: string | null;
-  // COMPANY fields
-  companyName?: string | null;
-  edrpou?: string | null;
-  contactPersonFirstName?: string | null;
-  contactPersonLastName?: string | null;
-  contactPersonMiddleName?: string | null;
-  contactPersonPhone?: string | null;
-  cityRef?: string | null;
-  cityName?: string | null;
-  warehouseRef?: string | null;
-  warehouseNumber?: string | null;
-  warehouseType?: string | null;
-  // ADDRESS fields
-  streetRef?: string | null;
-  streetName?: string | null;
-  building?: string | null;
-  flat?: string | null;
-};
-
-function AddShippingProfileModal({
-  contactId,
-  profileId,
-  initialData,
-  defaultPerson,
-  onClose,
-  onSaved,
-}: {
-  contactId: string;
-  profileId?: string;
-  initialData?: ShippingProfile | null;
-  /** When adding (no initialData), pre-fill person fields from contact if no profiles yet */
-  defaultPerson?: { firstName?: string; lastName?: string; phone?: string } | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const isEdit = !!profileId && !!initialData;
-  const defaultLabel =
-    initialData?.label ??
-    (defaultPerson?.lastName || defaultPerson?.firstName
-      ? [defaultPerson.lastName, defaultPerson.firstName].filter(Boolean).join(" ").trim()
-      : "");
-  const [label, setLabel] = useState(defaultLabel);
-  const [recipientType, setRecipientType] = useState<"PERSON" | "COMPANY">(
-    (initialData?.recipientType as "PERSON" | "COMPANY") ?? "PERSON",
-  );
-  const [deliveryType, setDeliveryType] = useState<"WAREHOUSE" | "POSTOMAT" | "ADDRESS">(
-    (initialData?.deliveryType as "WAREHOUSE" | "POSTOMAT" | "ADDRESS") ?? "WAREHOUSE",
-  );
-  const [firstName, setFirstName] = useState(
-    initialData?.firstName ?? defaultPerson?.firstName ?? "",
-  );
-  const [lastName, setLastName] = useState(initialData?.lastName ?? defaultPerson?.lastName ?? "");
-  const [middleName, setMiddleName] = useState(initialData?.middleName ?? "");
-  const [phone, setPhone] = useState(initialData?.phone ?? defaultPerson?.phone ?? "");
-
-  // COMPANY fields
-  const [companyName, setCompanyName] = useState(initialData?.companyName ?? "");
-  const [edrpou, setEdrpou] = useState(initialData?.edrpou ?? "");
-  const [contactPersonFirstName, setContactPersonFirstName] = useState(
-    initialData?.contactPersonFirstName ?? "",
-  );
-  const [contactPersonLastName, setContactPersonLastName] = useState(
-    initialData?.contactPersonLastName ?? "",
-  );
-  const [contactPersonMiddleName, setContactPersonMiddleName] = useState(
-    initialData?.contactPersonMiddleName ?? "",
-  );
-  const [contactPersonPhone, setContactPersonPhone] = useState(initialData?.contactPersonPhone ?? "");
-
-  const [cityRef, setCityRef] = useState(initialData?.cityRef ?? "");
-  const [cityName, setCityName] = useState(initialData?.cityName ?? "");
-  const [warehouseRef, setWarehouseRef] = useState(initialData?.warehouseRef ?? "");
-  const [warehouseLabel, setWarehouseLabel] = useState(
-    initialData?.warehouseNumber ? `${initialData.warehouseNumber} — ${initialData.cityName ?? ""}` : "",
-  );
-  const [warehouseNumber, setWarehouseNumber] = useState(initialData?.warehouseNumber ?? "");
-
-  // ADDRESS fields
-  const [streetRef, setStreetRef] = useState(initialData?.streetRef ?? "");
-  const [streetName, setStreetName] = useState(initialData?.streetName ?? "");
-  const [building, setBuilding] = useState(initialData?.building ?? "");
-  const [flat, setFlat] = useState(initialData?.flat ?? "");
-
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const formValues: NpShippingProfileFormValues = {
-    label,
-    recipientType,
-    deliveryType,
-
-    lastName,
-    firstName,
-    middleName,
-    phone,
-
-    companyName,
-    edrpou,
-    contactPersonLastName,
-    contactPersonFirstName,
-    contactPersonMiddleName,
-    contactPersonPhone,
-
-    cityRef,
-    cityName,
-
-    warehouseRef,
-    warehouseLabel,
-    warehouseNumber,
-
-    streetRef,
-    streetName,
-    building,
-    flat,
-  };
-
-  const setFormPatch = (patch: Partial<NpShippingProfileFormValues>) => {
-    if (patch.label !== undefined) setLabel(patch.label);
-    if (patch.recipientType !== undefined) setRecipientType(patch.recipientType);
-    if (patch.deliveryType !== undefined) setDeliveryType(patch.deliveryType);
-
-    if (patch.firstName !== undefined) setFirstName(patch.firstName);
-    if (patch.lastName !== undefined) setLastName(patch.lastName);
-    if (patch.middleName !== undefined) setMiddleName(patch.middleName);
-    if (patch.phone !== undefined) setPhone(patch.phone);
-
-    if (patch.companyName !== undefined) setCompanyName(patch.companyName);
-    if (patch.edrpou !== undefined) setEdrpou(patch.edrpou);
-    if (patch.contactPersonFirstName !== undefined) setContactPersonFirstName(patch.contactPersonFirstName);
-    if (patch.contactPersonLastName !== undefined) setContactPersonLastName(patch.contactPersonLastName);
-    if (patch.contactPersonMiddleName !== undefined) setContactPersonMiddleName(patch.contactPersonMiddleName);
-    if (patch.contactPersonPhone !== undefined) setContactPersonPhone(patch.contactPersonPhone);
-
-    if (patch.cityRef !== undefined) setCityRef(patch.cityRef);
-    if (patch.cityName !== undefined) setCityName(patch.cityName);
-
-    if (patch.warehouseRef !== undefined) setWarehouseRef(patch.warehouseRef);
-    if (patch.warehouseLabel !== undefined) setWarehouseLabel(patch.warehouseLabel);
-    if (patch.warehouseNumber !== undefined) setWarehouseNumber(patch.warehouseNumber);
-
-    if (patch.streetRef !== undefined) setStreetRef(patch.streetRef);
-    if (patch.streetName !== undefined) setStreetName(patch.streetName);
-    if (patch.building !== undefined) setBuilding(patch.building);
-    if (patch.flat !== undefined) setFlat(patch.flat);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const err = validateNpShippingProfileForm(formValues, { requireLabel: true });
-    if (err) return setError(err);
-    const trimmedLabel = label.trim();
-    setSaving(true);
-    setError(null);
-    try {
-      const payload = buildContactShippingProfilePayload(
-        { ...formValues, label: trimmedLabel },
-        { requireLabel: true },
-      );
-      if (isEdit && profileId) {
-        await apiHttp.patch(`/contacts/${contactId}/shipping-profiles/${profileId}`, payload);
-      } else {
-        await apiHttp.post(`/contacts/${contactId}/shipping-profiles`, payload);
-      }
-      onSaved();
-      onClose();
-    } catch (e) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не вдалося створити профіль");
-      setError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const requestClose = () => scheduleModalClose(onClose);
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 px-4 py-4 backdrop-blur-sm"
-      role="presentation"
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        requestClose();
-      }}
-    >
-      <div
-        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal
-      >
-        <div className="shrink-0 border-b border-zinc-200 px-5 py-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-zinc-900">
-              {isEdit ? "Редагувати профіль доставки" : "Додати профіль доставки"}
-            </h3>
-            <button
-              type="button"
-              onClick={requestClose}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-50"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-            <div className="space-y-3">
-          {error && (
-            <div className="rounded-md border border-red-100 bg-red-50 p-2 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-          <NpShippingProfileFormFields
-            disabled={saving}
-            requireLabel
-            values={formValues}
-            onChange={setFormPatch}
-          />
-            </div>
-          </div>
-          <div className="shrink-0 flex justify-end gap-2 border-t border-zinc-200 bg-zinc-50 px-5 py-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-            >
-              Скасувати
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn-primary"
-            >
-              {saving ? "Збереження…" : isEdit ? "Зберегти" : "Додати профіль"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function ContactDeliveryProfilesTab({
-  isCreate,
-  contactId,
-  contactPerson,
-}: {
-  isCreate: boolean;
-  apiBaseUrl: string;
-  contactId: string;
-  contactPerson?: { firstName: string; lastName: string; phone: string };
-}) {
-  const [profiles, setProfiles] = useState<ShippingProfile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<ShippingProfile | null>(null);
-
-  const loadProfiles = useCallback(() => {
-    if (isCreate) return;
-    setLoading(true);
-    apiHttp
-      .get<{ items?: ShippingProfile[] } | ShippingProfile[]>(
-        `/contacts/${contactId}/shipping-profiles`,
-      )
-      .then((res) => {
-        const data = res.data;
-        setProfiles(Array.isArray(data) ? data : data?.items ?? []);
-      })
-      .catch(() => setProfiles([]))
-      .finally(() => setLoading(false));
-  }, [isCreate, contactId]);
-
-  useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
-
-  if (isCreate) {
-    return <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути профілі доставки.</p>;
-  }
-  if (loading && profiles.length === 0) {
-    return <p className="text-sm text-zinc-500">Завантаження…</p>;
-  }
-  return (
-    <>
-      <EntitySection
-        title="Профілі доставки"
-        rightAction={
-          <button
-            type="button"
-            onClick={() => {
-              setEditingProfile(null);
-              setAddModalOpen(true);
-            }}
-            className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-          >
-            Додати профіль
-          </button>
-        }
-      >
-        {profiles.length === 0 ? (
-          <p className="text-sm text-zinc-500">Профілі доставки поки відсутні.</p>
-        ) : (
-          <ul className="space-y-2 text-sm">
-            {profiles.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-start justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium">{p.label || "Без назви"}</span>
-                  {p.isDefault && (
-                    <span className="ml-2 rounded bg-zinc-100 px-1.5 py-0.5 text-xs">За замовчуванням</span>
-                  )}
-                  {(p.cityName || p.warehouseNumber) && (
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {[p.cityName, p.warehouseNumber].filter(Boolean).join(" • ")}
-                    </div>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAddModalOpen(false);
-                      setEditingProfile(p);
-                    }}
-                    className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
-                    title="Редагувати"
-                    aria-label="Редагувати профіль"
-                  >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!confirm(`Видалити профіль "${p.label || "Без назви"}"?`)) return;
-                      apiHttp
-                        .delete(`/contacts/${contactId}/shipping-profiles/${p.id}`)
-                        .then(() => loadProfiles())
-                        .catch(() => {});
-                    }}
-                    className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                    title="Видалити"
-                    aria-label="Видалити профіль"
-                  >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </EntitySection>
-      {(addModalOpen || editingProfile) && (
-        <AddShippingProfileModal
-          key={editingProfile?.id ?? "add"}
-          contactId={contactId}
-          profileId={editingProfile?.id}
-          initialData={editingProfile ?? undefined}
-          defaultPerson={
-            !editingProfile && profiles.length === 0 && contactPerson
-              ? contactPerson
-              : undefined
-          }
-          onClose={() => {
-            setAddModalOpen(false);
-            setEditingProfile(null);
-          }}
-          onSaved={loadProfiles}
-        />
-      )}
-    </>
-  );
-}
-
-type ContactPhone = {
-  id: string;
-  phone: string;
-  phoneNormalized: string;
-  label: string | null;
-};
-
-function ContactPhonesSection({
-  contactId,
-  additionalPhones,
-  onUpdated,
-  saving,
-}: {
-  contactId: string;
-  additionalPhones: ContactPhone[];
-  onUpdated: () => void;
-  saving: boolean;
-}) {
-  const [addOpen, setAddOpen] = useState(false);
-  const [addPhone, setAddPhone] = useState("");
-  const [addLabel, setAddLabel] = useState("");
-  const [addSaving, setAddSaving] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [mutatingId, setMutatingId] = useState<string | null>(null);
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const phone = addPhone.trim();
-    if (!phone) {
-      setAddError("Введіть номер");
-      return;
-    }
-    setAddSaving(true);
-    setAddError(null);
-    try {
-      await apiHttp.post(`/contacts/${contactId}/phones`, { phone, label: addLabel.trim() || undefined });
-      setAddOpen(false);
-      setAddPhone("");
-      setAddLabel("");
-      onUpdated();
-    } catch (err) {
-      const msg =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (err instanceof Error ? err.message : "Помилка");
-      setAddError(msg);
-    } finally {
-      setAddSaving(false);
-    }
-  };
-
-  const handleDelete = async (phoneId: string) => {
-    setMutatingId(phoneId);
-    try {
-      await apiHttp.delete(`/contacts/${contactId}/phones/${phoneId}`);
-      onUpdated();
-    } finally {
-      setMutatingId(null);
-    }
-  };
-
-  const handleSetPrimary = async (phoneId: string) => {
-    setMutatingId(phoneId);
-    try {
-      await apiHttp.post(`/contacts/${contactId}/phones/${phoneId}/set-primary`);
-      onUpdated();
-    } finally {
-      setMutatingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-1 py-1">
-      <label className="text-sm text-zinc-500">Доп. номера</label>
-      <ul className="space-y-1 text-sm">
-        {additionalPhones.map((p) => (
-          <li key={p.id} className="flex items-center justify-between gap-2 rounded border border-zinc-100 bg-zinc-50/50 px-2 py-1.5">
-            <span>
-              {formatPhoneDisplay(p.phone)}
-              {p.label ? <span className="ml-1 text-zinc-500">({p.label})</span> : null}
-            </span>
-            <span className="flex gap-1">
-              <button
-                type="button"
-                className="text-xs text-blue-600 hover:underline disabled:opacity-50"
-                onClick={() => handleSetPrimary(p.id)}
-                disabled={saving || mutatingId !== null}
-              >
-                Сделать основным
-              </button>
-              <button
-                type="button"
-                className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                onClick={() => handleDelete(p.id)}
-                disabled={saving || mutatingId !== null}
-              >
-                Видалити
-              </button>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {!addOpen ? (
-        <button
-          type="button"
-          className="mt-1 text-sm text-blue-600 hover:underline disabled:opacity-50"
-          onClick={() => setAddOpen(true)}
-          disabled={saving}
-        >
-          + Додати номер
-        </button>
-      ) : (
-        <form onSubmit={handleAdd} className="mt-2 space-y-2 rounded border border-zinc-200 bg-white p-2">
-          {addError && <p className="text-xs text-red-600">{addError}</p>}
-          <input
-            type="text"
-            value={addPhone}
-            onChange={(e) => setAddPhone(e.target.value)}
-            placeholder="Номер телефону"
-            className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-          />
-          <input
-            type="text"
-            value={addLabel}
-            onChange={(e) => setAddLabel(e.target.value)}
-            placeholder="Мітка (моб., робочий…)"
-            className="w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-          />
-          <div className="flex gap-2">
-            <button type="button" className="text-sm text-zinc-600 hover:underline" onClick={() => setAddOpen(false)}>
-              Скасувати
-            </button>
-            <button type="submit" className="text-sm text-blue-600 hover:underline" disabled={addSaving}>
-              {addSaving ? "Збереження…" : "Додати"}
-            </button>
-          </div>
-        </form>
-      )}
-    </div>
-  );
-}
-
-type Contact = {
-  id: string;
-  companyId?: string | null;
-  company?: { id: string; name: string } | null;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  email?: string | null;
-  position?: string | null;
-  address?: string | null;
-  lat?: number | null;
-  lng?: number | null;
-  googlePlaceId?: string | null;
-  ownerId?: string | null;
-  owner?: { id: string; fullName: string; email: string } | null;
-  externalCode?: string | null;
-  documentDisplayName?: string | null;
-  region?: string | null;
-  addressInfo?: string | null;
-  city?: string | null;
-  clientType?: string | null;
-  status?: string | null;
-  nextActionType?: string | null;
-  nextActionAt?: string | null;
-  nextActionNote?: string | null;
-  clientStage?: string | null;
-  isPrimary: boolean;
-  createdAt: string;
-  updatedAt: string;
-  lastVisitAt?: string | null;
-  telegramLinked?: boolean;
-  telegramUsername?: string | null;
-  telegramLastMessageAt?: string | null;
-  telegramConversationId?: string | null;
-  phones?: ContactPhone[];
-  addresses?: EntityAddress[];
-};
 
 export type ContactCreateInitial = {
   companyId?: string | null;
@@ -689,16 +68,13 @@ export type ContactCreateInitial = {
 
 type Props = {
   apiBaseUrl: string;
-  contactId: string; // "new" or uuid
+  contactId: string;
   onClose: () => void;
   onUpdate: () => void;
-  /** After create (or opening duplicate), sync parent URL/state to the real contact id. */
   onCreated?: (id: string) => void;
   initialCreate?: ContactCreateInitial;
   onOpenCompany?: (id: string) => void;
-  /** Role from parent (/auth/me); used for manual calling queue button. */
   userRole?: string | null;
-  /** Stacking order when opened over another entity modal (default 50). */
   zIndex?: number;
 };
 
@@ -717,10 +93,9 @@ export function ContactModal({
   const [justSavedBanner, setJustSavedBanner] = useState(false);
   const effectiveContactId = savedContactId ?? contactId;
   const isCreate = effectiveContactId === "new";
-  const isCardV2Enabled = process.env.NEXT_PUBLIC_CONTACT_CARD_V2 !== "0";
   const effectiveRole = userRoleProp ?? null;
 
-  const [contact, setContact] = useState<Contact | null>(null);
+  const [contact, setContact] = useState<ContactModalContact | null>(null);
   const [loading, setLoading] = useState(!isCreate);
   const [err, setErr] = useState<string | null>(null);
 
@@ -772,11 +147,8 @@ export function ContactModal({
     tempPassword: string;
     setPasswordToken: string;
   } | null>(null);
-  /** Resolved store origin for set-password link (settings or NEXT_PUBLIC_STORE_PUBLIC_URL). */
   const [resetPasswordPublicStoreBase, setResetPasswordPublicStoreBase] = useState<string | null>(null);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
-  const [headerActionsOpen, setHeaderActionsOpen] = useState(false);
-  const headerActionsRef = useRef<HTMLDivElement | null>(null);
 
   const resetPasswordFullUrl = useMemo(() => {
     if (!resetPasswordResult || !resetPasswordPublicStoreBase) return null;
@@ -792,37 +164,28 @@ export function ContactModal({
     setResetPasswordPublicStoreBase(null);
   }, []);
 
-  type LeftTabId =
-    | "overview"
-    | "analytics"
-    | "timeline"
-    | "orders"
-    | "receivables"
-    | "delivery-profiles"
-    | "tasks"
-    | "change-history";
-  const [leftTab, setLeftTab] = useState<LeftTabId>("overview");
+  const [leftTab, setLeftTab] = useState<ContactCardTabId>("overview");
 
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const financeModuleEnabled =
     modulesStatus === "ready" && moduleEffective(ModuleIds.Finance);
 
   useEffect(() => {
-    if (!financeModuleEnabled && leftTab === "receivables") {
+    if (!financeModuleEnabled && leftTab === "finance") {
       setLeftTab("overview");
     }
   }, [financeModuleEnabled, leftTab]);
 
   const phoneDuplicate = useContactPhoneDuplicateCheck(phone, isCreate);
 
-  const cardSummary = useContactCardSummary(effectiveContactId, !isCreate && isCardV2Enabled);
+  const cardSummary = useContactCardSummary(effectiveContactId, !isCreate);
   const contactInsights = useContactInsights(effectiveContactId, !isCreate && leftTab === "overview");
   const [analyticsRange, setAnalyticsRange] = useState<ContactCardAnalyticsRange>("30d");
   const [analyticsScope, setAnalyticsScope] = useState<ContactCardAnalyticsScope>("contact");
   const cardAnalytics = useContactCardAnalytics(effectiveContactId, {
     range: analyticsRange,
     scope: analyticsScope,
-    enabled: !isCreate && isCardV2Enabled && leftTab === "analytics",
+    enabled: !isCreate && leftTab === "finance",
   });
   useEffect(() => {
     if (!contact?.companyId && analyticsScope === "company") {
@@ -831,10 +194,9 @@ export function ContactModal({
   }, [contact?.companyId, analyticsScope]);
 
   const cancelInlineEditRef = useRef<(() => void) | null>(null);
-
   const canClose = !saving;
 
-  const title = useMemo(() => {
+  const fullName = useMemo(() => {
     if (isCreate) {
       const name = `${lastName.trim()} ${firstName.trim()}`.trim();
       return name || strings.contacts.create.title;
@@ -897,46 +259,49 @@ export function ContactModal({
     setJustSavedBanner(false);
   }, [contactId]);
 
-  const refresh = useCallback(async (overrideId?: string) => {
-    const targetId = overrideId ?? effectiveContactId;
-    if (targetId === "new") return;
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await apiHttp.get<Contact>(`/contacts/${targetId}`);
-      const data = res.data as Contact;
-      setContact(data);
-      setFirstName(data.firstName ?? "");
-      setLastName(data.lastName ?? "");
-      setPhone(data.phone ?? "");
-      setEmail((data.email ?? "") as string);
-      setPosition((data.position ?? "") as string);
-      setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
-      setCompanyId(data.companyId != null ? String(data.companyId) : null);
-      setExternalCode((data.externalCode ?? "") as string);
-      setDocumentDisplayName((data.documentDisplayName ?? "") as string);
-      setRegion((data.region ?? "") as string);
-      setClientType((data.clientType ?? "") as string);
-      setStatus((data.status ?? "") as string);
-      setNextActionType((data.nextActionType ?? "") as string);
-      setNextActionAt(toDateTimeLocalValue(data.nextActionAt));
-      setNextActionNote((data.nextActionNote ?? "") as string);
-      setClientStage((data.clientStage ?? "") as string);
-      setNextActionError(null);
-      setNextActionSuccess(null);
-      setStageError(null);
-      setStageSuccess(null);
-      await Promise.all([fetchCompanies(), fetchUsers()]);
-    } catch (e) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не вдалося завантажити контакт");
-      setContact(null);
-      setErr(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [effectiveContactId, fetchCompanies, fetchUsers]);
+  const refresh = useCallback(
+    async (overrideId?: string) => {
+      const targetId = overrideId ?? effectiveContactId;
+      if (targetId === "new") return;
+      setLoading(true);
+      setErr(null);
+      try {
+        const res = await apiHttp.get<ContactModalContact>(`/contacts/${targetId}`);
+        const data = res.data;
+        setContact(data);
+        setFirstName(data.firstName ?? "");
+        setLastName(data.lastName ?? "");
+        setPhone(data.phone ?? "");
+        setEmail((data.email ?? "") as string);
+        setPosition((data.position ?? "") as string);
+        setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
+        setCompanyId(data.companyId != null ? String(data.companyId) : null);
+        setExternalCode((data.externalCode ?? "") as string);
+        setDocumentDisplayName((data.documentDisplayName ?? "") as string);
+        setRegion((data.region ?? "") as string);
+        setClientType((data.clientType ?? "") as string);
+        setStatus((data.status ?? "") as string);
+        setNextActionType((data.nextActionType ?? "") as string);
+        setNextActionAt(toDateTimeLocalValue(data.nextActionAt));
+        setNextActionNote((data.nextActionNote ?? "") as string);
+        setClientStage((data.clientStage ?? "") as string);
+        setNextActionError(null);
+        setNextActionSuccess(null);
+        setStageError(null);
+        setStageSuccess(null);
+        await Promise.all([fetchCompanies(), fetchUsers()]);
+      } catch (e) {
+        const msg =
+          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          (e instanceof Error ? e.message : "Не вдалося завантажити контакт");
+        setContact(null);
+        setErr(msg);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [effectiveContactId, fetchCompanies, fetchUsers],
+  );
 
   useEffect(() => {
     setErr(null);
@@ -947,9 +312,7 @@ export function ContactModal({
       setLoading(false);
       setFirstName(initialCreate?.firstName ?? "");
       setLastName(initialCreate?.lastName ?? "");
-      setPhone(
-        initialCreate?.phone ? formatPhoneInputMask(initialCreate.phone) : "",
-      );
+      setPhone(initialCreate?.phone ? formatPhoneInputMask(initialCreate.phone) : "");
       setEmail("");
       setPosition("");
       setOwnerId(null);
@@ -980,48 +343,38 @@ export function ContactModal({
   }, [isCreate, refresh, fetchCompanies, fetchUsers, initialCreate]);
 
   const patchContact = useCallback(
-    async (payload: Partial<{
-      firstName: string;
-      lastName: string;
-      phone: string;
-      email: string | null;
-      position: string | null;
-      address: string | null;
-      lat: number | null;
-      lng: number | null;
-      googlePlaceId: string | null;
-      ownerId: string | null;
-      companyId: string | null;
-      externalCode: string | null;
-      documentDisplayName: string | null;
-      region: string | null;
-      city: string | null;
-      clientType: string | null;
-      status: string | null;
-    }>) => {
-      const res = await apiHttp.patch<Contact>(`/contacts/${effectiveContactId}`, payload);
-      const data = res.data as Contact;
+    async (payload: Record<string, unknown>) => {
+      const res = await apiHttp.patch<ContactModalContact>(`/contacts/${effectiveContactId}`, payload);
+      const data = res.data;
       setContact((prev) =>
         prev
           ? {
               ...data,
-              phones: (data as Contact).phones ?? prev.phones ?? [],
-              addresses: (data as Contact).addresses ?? prev.addresses ?? [],
+              phones: data.phones ?? prev.phones ?? [],
+              addresses: data.addresses ?? prev.addresses ?? [],
             }
           : data,
       );
-      if (payload.firstName !== undefined) setFirstName(payload.firstName);
-      if (payload.lastName !== undefined) setLastName(payload.lastName);
-      if (payload.phone !== undefined) setPhone(payload.phone);
-      if (payload.email !== undefined) setEmail(payload.email ?? "");
-      if (payload.position !== undefined) setPosition(payload.position ?? "");
-      if (payload.region !== undefined) setRegion(payload.region ?? "");
-      if (payload.clientType !== undefined) setClientType(payload.clientType ?? "");
-      if (payload.status !== undefined) setStatus(payload.status ?? "");
-      if (payload.ownerId !== undefined) setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
-      if (payload.companyId !== undefined) setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
-      if (payload.externalCode !== undefined) setExternalCode(payload.externalCode ?? "");
-      if (payload.documentDisplayName !== undefined) setDocumentDisplayName(payload.documentDisplayName ?? "");
+      if (payload.firstName !== undefined) setFirstName(String(payload.firstName));
+      if (payload.lastName !== undefined) setLastName(String(payload.lastName));
+      if (payload.phone !== undefined) setPhone(String(payload.phone));
+      if (payload.email !== undefined) setEmail((payload.email as string | null) ?? "");
+      if (payload.position !== undefined) setPosition((payload.position as string | null) ?? "");
+      if (payload.region !== undefined) setRegion((payload.region as string | null) ?? "");
+      if (payload.clientType !== undefined) setClientType((payload.clientType as string | null) ?? "");
+      if (payload.status !== undefined) setStatus((payload.status as string | null) ?? "");
+      if (payload.ownerId !== undefined) {
+        setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
+      }
+      if (payload.companyId !== undefined) {
+        setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
+      }
+      if (payload.externalCode !== undefined) {
+        setExternalCode((payload.externalCode as string | null) ?? "");
+      }
+      if (payload.documentDisplayName !== undefined) {
+        setDocumentDisplayName((payload.documentDisplayName as string | null) ?? "");
+      }
       onUpdate();
       void cardSummary.refetch();
     },
@@ -1040,17 +393,6 @@ export function ContactModal({
     }
     return false;
   }, [orderId]);
-
-  useEffect(() => {
-    const onPointerDown = (event: MouseEvent) => {
-      if (!headerActionsRef.current) return;
-      const target = event.target as Node | null;
-      if (target && headerActionsRef.current.contains(target)) return;
-      setHeaderActionsOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, []);
 
   const saveCreate = async (opts?: { closeAfter?: boolean }) => {
     const closeAfter = opts?.closeAfter ?? false;
@@ -1076,7 +418,7 @@ export function ContactModal({
       if (!payload.lastName) throw new Error(requiredMsg(strings.contacts.create.lastName));
       if (!payload.phone) throw new Error(requiredMsg(strings.contacts.create.phone));
       if (!payload.region) throw new Error(requiredMsg(strings.contacts.create.region));
-      const res = await apiHttp.post<Contact>("/contacts", payload);
+      const res = await apiHttp.post<ContactModalContact>("/contacts", payload);
       const id = res.data?.id;
       if (!id) throw new Error("Не вдалося створити контакт");
       setSavedContactId(id);
@@ -1089,11 +431,11 @@ export function ContactModal({
       setJustSavedBanner(true);
       await refresh(id);
     } catch (e) {
-      const status = (e as { response?: { status?: number } })?.response?.status;
+      const statusCode = (e as { response?: { status?: number } })?.response?.status;
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (e instanceof Error ? e.message : "Failed");
-      setErr(status === 409 ? strings.contacts.create.duplicateMessage : msg);
+      setErr(statusCode === 409 ? strings.contacts.create.duplicateMessage : msg);
     } finally {
       setSaving(false);
     }
@@ -1206,9 +548,9 @@ export function ContactModal({
     onClose();
   }, [createDirty, onClose]);
 
-  const scheduleVisit = async () => {
+  const scheduleVisit = useCallback(async () => {
     if (!contact) {
-      alert("Спочатку збережіть контакт.");
+      alert(strings.contacts.card.saveContactFirst);
       return;
     }
     if (!visitLocation || !visitLocationHasCoords(visitLocation)) {
@@ -1241,9 +583,9 @@ export function ContactModal({
           durationMin,
           purpose: visitPurpose.trim() || undefined,
         });
-        setVisitPlanSuccess("Зустріч заплановано на обрану дату.");
+        setVisitPlanSuccess(strings.contacts.card.visit.scheduleDated);
       } else {
-        setVisitPlanSuccess("Visit added to planned backlog.");
+        setVisitPlanSuccess(strings.contacts.card.visit.addToBacklog);
       }
       setVisitPurpose("");
       setVisitStartsAt("");
@@ -1257,7 +599,7 @@ export function ContactModal({
     } finally {
       setPlanningVisit(false);
     }
-  };
+  }, [contact, visitDurationMin, visitLocation, visitPurpose, visitStartsAt]);
 
   const openMainOrderModal = useCallback(async () => {
     if (isCreate || creatingOrder) return;
@@ -1273,7 +615,6 @@ export function ContactModal({
       const createdId = res.data?.id;
       if (!createdId) throw new Error("Order id is missing in response");
 
-      // Safety: ensure client/contact linkage is persisted before opening the main Order modal.
       if (res.data?.clientId !== effectiveContactId) {
         await apiHttp.patch(`/orders/${createdId}`, {
           clientId: effectiveContactId,
@@ -1334,7 +675,7 @@ export function ContactModal({
       setResetPasswordResult(res.data);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : null;
-      setResetPasswordError(msg ?? "У контакта нет аккаунта в магазине или произошла ошибка.");
+      setResetPasswordError(msg ?? "У контакта немає акаунта в магазині або сталася помилка.");
     } finally {
       setResetPasswordLoading(false);
     }
@@ -1364,11 +705,11 @@ export function ContactModal({
           normalizedType && normalizedType !== "NO_ACTION" ? nextActionNote.trim() || null : null,
       };
       const updated = await contactsApi.updateNextAction(contact.id, payload);
-      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as Contact)));
+      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as ContactModalContact)));
       setNextActionType((updated.nextActionType ?? "") as string);
       setNextActionAt(toDateTimeLocalValue(updated.nextActionAt));
       setNextActionNote((updated.nextActionNote ?? "") as string);
-      setNextActionSuccess("Наступну дію збережено.");
+      setNextActionSuccess(strings.contacts.card.work.actionSaved);
       await contactInsights.refetch();
       onUpdate();
     } catch (e) {
@@ -1407,9 +748,9 @@ export function ContactModal({
           | "LOST_CLIENT"
           | null,
       });
-      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as Contact)));
+      setContact((prev) => (prev ? { ...prev, ...updated } : (updated as ContactModalContact)));
       setClientStage((updated.clientStage ?? "") as string);
-      setStageSuccess("Стадію клієнта збережено.");
+      setStageSuccess(strings.contacts.card.work.stageSaved);
       onUpdate();
     } catch (e) {
       const msg =
@@ -1421,19 +762,13 @@ export function ContactModal({
     }
   }, [clientStage, contact, isCreate, onUpdate]);
 
-  const fullName = useMemo(() => {
-    const a = (contact?.firstName ?? "").trim();
-    const b = (contact?.lastName ?? "").trim();
-    return `${a} ${b}`.trim() || null;
-  }, [contact]);
-
   const companyOptions = useMemo(
     () => companies.map((c) => ({ id: String(c.id), label: c.name })),
     [companies],
   );
 
   const companyOptionsWithEmpty = useMemo(
-    () => [{ id: "", label: "— No company" }, ...companyOptions],
+    () => [{ id: "", label: strings.contacts.create.noCompany }, ...companyOptions],
     [companyOptions],
   );
 
@@ -1446,391 +781,62 @@ export function ContactModal({
     cancelInlineEditRef.current = cancel;
   }, []);
 
-  const aboutContactSection = useMemo(() => {
-    if (loading) {
-      return <div className="text-sm text-zinc-500">Завантаження…</div>;
-    }
-    if (err) {
-      return (
-        <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
-      );
-    }
-
-    if (!contact) {
-      return <div className="text-sm text-zinc-500">Не знайдено</div>;
-    }
-
-    return (
-      <div className="space-y-3">
-        <VisitLocationPicker
-          entityType="contact"
-          addresses={contact.addresses ?? []}
-          value={visitLocation}
-          onChange={(next) => {
-            setVisitLocation(next);
-            setAddressRequiredForVisit(false);
-          }}
-          mapsApiKey={mapsApiKey}
-          error={addressRequiredForVisit}
-          disabled={saving || planningVisit}
-        />
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 space-y-3">
-          <div className="text-sm font-semibold text-zinc-900">Планування візиту</div>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-zinc-600">Цель встречи</span>
-            <input
-              value={visitPurpose}
-              onChange={(e) => setVisitPurpose(e.target.value)}
-              disabled={saving || planningVisit}
-              placeholder="Например: презентация, оплата…"
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-zinc-600">Дата и время</span>
-              <input
-                type="datetime-local"
-                value={visitStartsAt}
-                onChange={(e) => setVisitStartsAt(e.target.value)}
-                disabled={saving || planningVisit}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-zinc-600">Тривалість, хв</span>
-              <select
-                value={visitDurationMin}
-                onChange={(e) => setVisitDurationMin(e.target.value)}
-                disabled={saving || planningVisit}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-              >
-                <option value="30">30</option>
-                <option value="45">45</option>
-                <option value="60">60</option>
-                <option value="90">90</option>
-                <option value="120">120</option>
-              </select>
-            </label>
-          </div>
-          {visitPlanError ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {visitPlanError}
-            </div>
-          ) : null}
-          {visitPlanSuccess ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {visitPlanSuccess}
-            </div>
-          ) : null}
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-sm text-zinc-500">Останній візит</span>
-            <span className="text-sm text-zinc-900">
-              {contact.lastVisitAt
-                ? formatDateTime(contact.lastVisitAt)
-                : <span className="font-normal text-zinc-400">Немає візитів</span>}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => void scheduleVisit()}
-            disabled={saving || planningVisit}
-            className="btn-primary"
-          >
-            {planningVisit
-              ? "Зберігаємо…"
-              : visitStartsAt
-                ? "Запланувати на дату"
-                : "Добавить в backlog"}
-          </button>
-          <p className="text-xs text-zinc-500">
-            Если дату не указывать, встреча создастся без времени и появится в backlog визитов.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 py-2">
-          {contact.telegramLinked ? (
-            <>
-              <span className="inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800">
-                Telegram подключен
-                {contact.telegramUsername ? ` @${contact.telegramUsername}` : ""}
-              </span>
-              {contact.telegramConversationId && (
-                <a
-                  href={`/inbox/telegram?conversationId=${contact.telegramConversationId}`}
-                  className="inline-flex items-center rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  Открыть Telegram чат
-                </a>
-              )}
-            </>
-          ) : (
-            <span className="text-xs text-zinc-500">Telegram не підключено</span>
-          )}
-        </div>
-        <InlineEditableField
-          label="First name"
-          value={contact.firstName}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          required
-          disabled={saving}
-          onSave={async (next) => {
-            const v = next ?? "";
-            await patchContact({ firstName: v });
-          }}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Last name"
-          value={contact.lastName}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          required
-          disabled={saving}
-          onSave={async (next) => {
-            const v = next ?? "";
-            await patchContact({ lastName: v });
-          }}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Phone (основной)"
-          value={formatPhoneDisplay(contact.phone ?? "")}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          required
-          disabled={saving}
-          onSave={async (next) => {
-            const v = next ?? "";
-            await patchContact({ phone: v });
-          }}
-          onRegisterCancel={registerCancel}
-        />
-        {contact.phone ? (
-          <div className="flex flex-wrap items-center gap-2 pl-1">
-            <KyivstarDialButton phone={contact.phone} size="md" label="Click2Dial Kyivstar" />
-            <a
-              href={`tel:${contact.phone}`}
-              className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
-            >
-              або звичайний tel:
-            </a>
-          </div>
-        ) : null}
-        {!isCreate && (
-          <ContactPhonesSection
-            contactId={contact.id}
-            additionalPhones={contact.phones ?? []}
-            onUpdated={refresh}
-            saving={saving}
-          />
-        )}
-        <InlineEditableField
-          label="Email"
-          value={contact.email ?? ""}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ email: next })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Position"
-          value={contact.position ?? ""}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ position: next })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="КОД 1С"
-          value={contact.externalCode ?? ""}
-          placeholder="Натисніть, щоб додати…"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ externalCode: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Як виводити на документ"
-          value={contact.documentDisplayName ?? ""}
-          placeholder="Напр. ФОП Петров Петр"
-          kind="text"
-          disabled={saving}
-          onSave={async (next) => patchContact({ documentDisplayName: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Область"
-          value={contact.region ?? ""}
-          placeholder="—"
-          kind="select"
-          options={CONTACT_REGION_OPTIONS}
-          disabled={saving}
-          onSave={async (next) => patchContact({ region: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Тип клиента"
-          value={contact.clientType ?? ""}
-          placeholder="—"
-          kind="select"
-          options={[
-            { value: "", label: "—" },
-            { value: "Врач", label: "Врач" },
-            { value: "Техник", label: "Техник" },
-          ]}
-          disabled={saving}
-          onSave={async (next) => patchContact({ clientType: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        <InlineEditableField
-          label="Статус"
-          value={contact.status ?? ""}
-          placeholder="—"
-          kind="select"
-          options={[
-            { value: "", label: "—" },
-            { value: "Клієнт", label: "Клієнт" },
-            { value: "Зацікавленний", label: "Зацікавленний" },
-            { value: "Тимчасово не працює", label: "Тимчасово не працює" },
-            { value: "Відмова", label: "Відмова" },
-            { value: "Немає зв'язку", label: "Немає зв'язку" },
-            { value: "Видалити", label: "Видалити" },
-            { value: "Не працює з імплантами", label: "Не працює з імплантами" },
-          ]}
-          disabled={saving}
-          onSave={async (next) => patchContact({ status: next?.trim() || null })}
-          onRegisterCancel={registerCancel}
-        />
-        {!isCreate ? (
-          <EntityAddressesSection
-            entityType="contact"
-            entityId={contact.id}
-            disabled={saving}
-            highlightMissingCoords={addressRequiredForVisit}
-            onUpdated={() => void refresh()}
-          />
-        ) : null}
-        <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Відповідальний менеджер</span>
-          <SearchableSelectLite
-            variant="inline"
-            value={ownerId}
-            options={userOptions}
-            placeholder="Натисніть, щоб додати…"
-            disabled={saving || loadingUsers}
-            isLoading={loadingUsers}
-            onChange={async (id) => {
-              setOwnerId(id);
-              await patchContact({ ownerId: id });
-            }}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4 py-1">
-          <span className="text-sm text-zinc-500">Компанія</span>
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-            <SearchableSelectLite
-              variant="inline"
-              value={companyId ?? ""}
-              options={companyOptionsWithEmpty}
-              placeholder="Натисніть, щоб додати…"
-              disabled={saving || loadingCompanies}
-              isLoading={loadingCompanies}
-              onChange={async (id) => {
-                const next = id === "" ? null : id;
-                setCompanyId(next);
-                await patchContact({ companyId: next });
-              }}
-              onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
-              createLabel="Create company"
-            />
-            {onOpenCompany && companyId ? (
-              <button
-                type="button"
-                onClick={() => onOpenCompany(companyId)}
-                className="shrink-0 text-sm text-zinc-700 hover:underline"
-              >
-                Open company
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="pt-2 text-xs text-zinc-500">
-          Created: {formatDateTime(contact.createdAt)}
-          <br />
-          Updated: {formatDateTime(contact.updatedAt)}
-        </div>
-      </div>
-    );
-  }, [
-    loading,
-    err,
-    isCreate,
-    saving,
-    firstName,
-    lastName,
-    phone,
-    email,
-    position,
-    addressRequiredForVisit,
-    visitLocation,
-    visitPurpose,
-    visitStartsAt,
-    visitDurationMin,
-    planningVisit,
-    visitPlanError,
-    visitPlanSuccess,
-    mapsApiKey,
-    scheduleVisit,
-    visitReadyAddresses,
-    companyId,
-    companyOptions,
-    loadingCompanies,
-    contact,
+  const shellHeader = useContactCardShellHeader({
+    fullName,
+    companyName: contact?.company?.name ?? cardSummary.data?.contact.company?.name,
+    companyId: contact?.companyId ?? cardSummary.data?.contact.company?.id,
+    phone: contact?.phone,
+    status: contact?.status ?? cardSummary.data?.contact.status,
+    clientType: contact?.clientType ?? cardSummary.data?.contact.clientType,
+    ownerName: contact?.owner?.fullName ?? cardSummary.data?.contact.owner?.name,
+    badges: badgesFromSummary(cardSummary.data),
     onOpenCompany,
-    patchContact,
-    refresh,
-    registerCancel,
-    region,
-    externalCode,
-    clientType,
-    status,
-    ownerId,
-    userOptions,
-    loadingUsers,
-    nextActionType,
-    nextActionAt,
-    nextActionNote,
-    nextActionError,
-    nextActionSuccess,
-    savingNextAction,
-    saveNextAction,
-    clientStage,
-    stageError,
-    stageSuccess,
-    savingStage,
-    saveClientStage,
-    contactInsights.loading,
-    contactInsights.error,
-    contactInsights.data,
-  ]);
+    creatingOrder,
+    queueingDialer,
+    resetPasswordLoading,
+    canEnqueueDialer:
+      effectiveRole === "MANAGER" || effectiveRole === "ADMIN" || effectiveRole === "LEAD",
+    canDelete: effectiveRole === "ADMIN",
+    onCreateOrder: () => void openMainOrderModal(),
+    onCreateTask: () => setLeftTab("activity"),
+    onScheduleVisit: () => {
+      setLeftTab("overview");
+      void scheduleVisit();
+    },
+    onEnqueueDialer: () => void enqueueDialer(),
+    onResetPassword: () => void resetStorePassword(),
+    onDelete: () => {
+      if (!contact) return;
+      if (!confirm(`${strings.contacts.actions.deleteContact} "${fullName}"?`)) return;
+      void contactsApi
+        .delete(contact.id)
+        .then(() => {
+          onUpdate();
+          onClose();
+        })
+        .catch((e) => {
+          const msg =
+            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (e instanceof Error ? e.message : "Не вдалося видалити контакт");
+          alert(msg);
+        });
+    },
+    telegramConversationId: contact?.telegramConversationId,
+    email: contact?.email,
+  });
+
+  const cardT = strings.contacts.card;
 
   const tabsUnderHeader = (
     <div className="flex gap-1 overflow-x-auto py-2 whitespace-nowrap">
       {(
         [
           "overview",
-          "analytics",
-          "timeline",
+          "activity",
           "orders",
-          ...(financeModuleEnabled ? (["receivables"] as const) : []),
-          "delivery-profiles",
-          "tasks",
-          "change-history",
+          ...(financeModuleEnabled ? (["finance"] as const) : []),
+          "delivery",
+          "profile",
         ] as const
       ).map((tab) => (
         <button
@@ -1841,363 +847,224 @@ export function ContactModal({
             leftTab === tab ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"
           }`}
         >
-          {tab === "overview"
-            ? "Огляд"
-            : tab === "analytics"
-              ? "Аналітика"
-            : tab === "timeline"
-              ? "Таймлайн"
-            : tab === "orders"
-              ? "Замовлення"
-              : tab === "receivables"
-                ? strings.receivables.contactTab
-              : tab === "delivery-profiles"
-                ? "Профілі доставки"
-                : tab === "tasks"
-                  ? "Завдання"
-                  : "Історія змін"}
+          {cardT.tabs[tab]}
         </button>
       ))}
     </div>
   );
 
-  const leftContent = (
-    <div className="min-h-0">
-        {leftTab === "overview" && (
-          isCreate ? (
-            <div className="min-h-0 overflow-auto space-y-3">
-              {err ? (
-                <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">
-                  {err}
-                </div>
-              ) : null}
-              <ContactCreateForm
-                values={createFormValues}
-                saving={saving}
-                companyOptions={companyOptions}
-                userOptions={userOptions}
-                loadingCompanies={loadingCompanies}
-                loadingUsers={loadingUsers}
-                duplicate={phoneDuplicate}
-                onChange={handleCreateFieldChange}
-                onOpenCompany={onOpenCompany}
-                onOpenExistingContact={(id) => onCreated?.(id)}
-              />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {justSavedBanner ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                  {strings.contacts.create.saved}
-                </div>
-              ) : null}
-              {isCardV2Enabled ? (
-                cardSummary.loading ? (
-                  <ContactCardSkeleton />
-                ) : cardSummary.error ? (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    Не вдалося завантажити summary. Показано legacy режим картки.
-                  </div>
-                ) : cardSummary.data ? (
-                  <>
-                    <ContactCardHeader
-                      summary={cardSummary.data}
-                    />
-                    <ContactKpiStrip
-                      kpi={cardSummary.data.kpi}
-                      scopeNote={cardSummary.data.insights.scopeNote}
-                    />
-                    {cardSummary.data.insights.nextStep ? (
-                      <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                          Next step
-                        </div>
-                        <div className="mt-1 text-zinc-800">
-                          {`${cardSummary.data.insights.nextStep.title}${
-                            cardSummary.data.insights.nextStep.dueAt
-                              ? ` · ${formatDate(cardSummary.data.insights.nextStep.dueAt)}`
-                              : ""
-                          }`}
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null
-              ) : null}
-              <ContactCrmHint
-                loading={contactInsights.loading}
-                error={contactInsights.error}
-                insights={contactInsights.data}
-              />
-              <EntityCallRecordingsPanel contactId={effectiveContactId} />
-              <div className="rounded-lg border border-zinc-200 bg-white p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Стадія клієнта
-                  </div>
-                  {stageSuccess ? (
-                    <span className="text-xs text-emerald-700">{stageSuccess}</span>
-                  ) : null}
-                </div>
-                <div className="mt-2 text-sm text-zinc-800">
-                  Рекомендована стадія:{" "}
-                  <span className="font-medium">
-                    {formatContactClientStage(contactInsights.data?.suggestion.suggestedStage)}
-                  </span>
-                </div>
-                <label className="mt-3 block text-sm text-zinc-700">
-                  <span className="mb-1 block text-xs text-zinc-500">Стадія клієнта</span>
-                  <select
-                    value={clientStage}
-                    onChange={(e) => {
-                      setClientStage(e.target.value);
-                      setStageSuccess(null);
-                    }}
-                    disabled={savingStage}
-                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                  >
-                    {CLIENT_STAGE_OPTIONS.map((option) => (
-                      <option key={option.value || "empty"} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {stageError ? (
-                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
-                    {stageError}
-                  </div>
-                ) : null}
-                <div className="mt-3 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void saveClientStage()}
-                    disabled={savingStage}
-                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    {savingStage ? "Збереження..." : "Зберегти стадію"}
-                  </button>
-                </div>
-              </div>
-              <div className="rounded-lg border border-zinc-200 bg-white p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Наступна дія
-                  </div>
-                  {nextActionSuccess ? (
-                    <span className="text-xs text-emerald-700">{nextActionSuccess}</span>
-                  ) : null}
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className="text-sm text-zinc-700">
-                    <span className="mb-1 block text-xs text-zinc-500">Дія</span>
-                    <select
-                      value={nextActionType}
-                      onChange={(e) => {
-                        setNextActionType(e.target.value);
-                        setNextActionSuccess(null);
-                      }}
-                      disabled={savingNextAction}
-                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                    >
-                      {NEXT_ACTION_OPTIONS.map((option) => (
-                        <option key={option.value || "empty"} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm text-zinc-700">
-                    <span className="mb-1 block text-xs text-zinc-500">Коли</span>
-                    <input
-                      type="datetime-local"
-                      value={nextActionAt}
-                      onChange={(e) => {
-                        setNextActionAt(e.target.value);
-                        setNextActionSuccess(null);
-                      }}
-                      disabled={savingNextAction || !nextActionType || nextActionType === "NO_ACTION"}
-                      className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-50"
-                    />
-                  </label>
-                </div>
-                <label className="mt-3 block text-sm text-zinc-700">
-                  <span className="mb-1 block text-xs text-zinc-500">Нотатка</span>
-                  <textarea
-                    rows={2}
-                    value={nextActionNote}
-                    onChange={(e) => {
-                      setNextActionNote(e.target.value);
-                      setNextActionSuccess(null);
-                    }}
-                    disabled={savingNextAction || !nextActionType || nextActionType === "NO_ACTION"}
-                    className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:bg-zinc-50"
-                    placeholder="Необов'язкова нотатка для фоллоуапу"
-                  />
-                </label>
-                {nextActionError ? (
-                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
-                    {nextActionError}
-                  </div>
-                ) : null}
-                <div className="mt-3 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => void saveNextAction()}
-                    disabled={savingNextAction}
-                    className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    {savingNextAction ? "Збереження..." : "Зберегти дію"}
-                  </button>
-                </div>
-              </div>
-              <div className="min-h-0 overflow-auto">
-                <EntitySection
-                  title={isCardV2Enabled ? "Overview" : "About contact"}
-                  rightAction={
-                    contact?.companyId && onOpenCompany ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenCompany(contact.companyId!)}
-                        className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Open company
-                      </button>
-                    ) : null
-                  }
-                >
-                  {aboutContactSection}
-                </EntitySection>
-              </div>
-              <EntitySection title={strings.entityUi.contactCustomFieldsSection}>
-                <CustomFieldsPanel entityType="CONTACT" entityId={effectiveContactId} />
-              </EntitySection>
-              <EntitySection title="Розмітка (runtime)">
-                <ContactCardLayoutPanel contactId={effectiveContactId} />
-              </EntitySection>
-            </div>
-          )
-        )}
-
-        {leftTab === "timeline" && (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути таймлайн.</p>
-            ) : (
-              <>
-                <EntityCallRecordingsPanel contactId={effectiveContactId} className="mb-3" />
-                <EntitySection title="Таймлайн">
-                  <ContactTimeline
-                    apiBaseUrl={apiBaseUrl}
-                    contactId={effectiveContactId}
-                    showActivityButtons
-                  />
-                </EntitySection>
-              </>
-            )}
-          </>
-        )}
-
-        {leftTab === "analytics" && (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути аналітику.</p>
-            ) : (
-              <EntitySection title="Аналітика">
-                <ContactAnalyticsTab
-                  analytics={cardAnalytics.data}
-                  loading={cardAnalytics.loading}
-                  error={cardAnalytics.error}
-                  range={analyticsRange}
-                  scope={analyticsScope}
-                  onRangeChange={setAnalyticsRange}
-                  onScopeChange={setAnalyticsScope}
-                  canUseCompanyScope={Boolean(contact?.companyId)}
-                />
-              </EntitySection>
-            )}
-          </>
-        )}
-
-        {leftTab === "orders" && (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути замовлення.</p>
-            ) : (
-              <EntitySection title="Замовлення">
-                <div className="min-h-0 overflow-auto">
-                  <EntityOrdersList
-                    key={ordersReloadKey}
-                    apiBaseUrl={apiBaseUrl}
-                    query={`clientId=${effectiveContactId}&pageSize=50`}
-                    onOpenOrder={(id) => setOrderId(id)}
-                  />
-                </div>
-              </EntitySection>
-            )}
-          </>
-        )}
-
-        {leftTab === "receivables" && financeModuleEnabled ? (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">
-                Спочатку збережіть контакт, щоб переглянути дебіторку.
-              </p>
-            ) : (
-              <EntitySection title={strings.receivables.contactTab}>
-                <ContactReceivablesTab
-                  contactId={effectiveContactId}
-                  financeRestricted={cardSummary.data?.insights.financeRestricted}
-                  onOpenOrder={(id) => setOrderId(id)}
-                />
-              </EntitySection>
-            )}
-          </>
-        ) : null}
-
-        {leftTab === "tasks" && (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб керувати завданнями.</p>
-            ) : (
-              <EntitySection title="Завдання">
-                <EntityTasksList contactId={effectiveContactId} />
-              </EntitySection>
-            )}
-          </>
-        )}
-
-        {leftTab === "delivery-profiles" && (
-          <ContactDeliveryProfilesTab
-            isCreate={isCreate}
-            apiBaseUrl={apiBaseUrl}
-            contactId={effectiveContactId}
-            contactPerson={
-              contact
-                ? {
-                    firstName: contact.firstName ?? "",
-                    lastName: contact.lastName ?? "",
-                    phone: contact.phone ?? "",
-                  }
-                : undefined
-            }
-          />
-        )}
-
-        {leftTab === "change-history" && (
-          <>
-            {isCreate ? (
-              <p className="text-sm text-zinc-500">Спочатку збережіть контакт, щоб переглянути історію змін.</p>
-            ) : (
-              <EntitySection title="Історія змін">
-                <EntityChangeHistoryPanel entityType="Contact" entityId={effectiveContactId} />
-              </EntitySection>
-            )}
-          </>
-        )}
+  const overviewLeft = (
+    <div className="space-y-3">
+      {justSavedBanner ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {strings.contacts.create.saved}
+        </div>
+      ) : null}
+      {err ? (
+        <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+      ) : null}
+      {loading ? (
+        <div className="text-sm text-zinc-500">Завантаження…</div>
+      ) : contact ? (
+        <>
+          <EntitySection title={cardT.identity.sectionTitle}>
+            <ContactIdentityFields
+              contact={contact}
+              saving={saving}
+              ownerId={ownerId}
+              companyId={companyId}
+              userOptions={userOptions}
+              companyOptionsWithEmpty={companyOptionsWithEmpty}
+              loadingUsers={loadingUsers}
+              loadingCompanies={loadingCompanies}
+              addressRequiredForVisit={addressRequiredForVisit}
+              onOpenCompany={onOpenCompany}
+              onPatch={patchContact}
+              onRefresh={() => void refresh()}
+              onRegisterCancel={registerCancel}
+            />
+          </EntitySection>
+          <EntitySection title={cardT.profile.customFields}>
+            <CustomFieldsPanel entityType="CONTACT" entityId={effectiveContactId} />
+          </EntitySection>
+        </>
+      ) : (
+        <div className="text-sm text-zinc-500">Не знайдено</div>
+      )}
     </div>
   );
+
+  const overviewRight = (
+    <div className="space-y-3">
+      {cardSummary.loading ? (
+        <ContactCardSkeleton />
+      ) : cardSummary.error ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {cardT.summaryLoadError}
+        </div>
+      ) : cardSummary.data ? (
+        <ContactKpiStrip
+          kpi={cardSummary.data.kpi}
+          scopeNote={cardSummary.data.insights.scopeNote}
+        />
+      ) : null}
+      <ContactWorkPanel
+        summary={cardSummary.data}
+        insightsLoading={contactInsights.loading}
+        insightsError={contactInsights.error}
+        insights={contactInsights.data}
+        clientStage={clientStage}
+        onClientStageChange={(v) => {
+          setClientStage(v);
+          setStageSuccess(null);
+        }}
+        savingStage={savingStage}
+        stageError={stageError}
+        stageSuccess={stageSuccess}
+        onSaveStage={() => void saveClientStage()}
+        nextActionType={nextActionType}
+        nextActionAt={nextActionAt}
+        nextActionNote={nextActionNote}
+        onNextActionTypeChange={(v) => {
+          setNextActionType(v);
+          setNextActionSuccess(null);
+        }}
+        onNextActionAtChange={(v) => {
+          setNextActionAt(v);
+          setNextActionSuccess(null);
+        }}
+        onNextActionNoteChange={(v) => {
+          setNextActionNote(v);
+          setNextActionSuccess(null);
+        }}
+        savingNextAction={savingNextAction}
+        nextActionError={nextActionError}
+        nextActionSuccess={nextActionSuccess}
+        onSaveNextAction={() => void saveNextAction()}
+      />
+      {contact ? (
+        <ContactVisitPlanner
+          addresses={contact.addresses ?? []}
+          visitLocation={visitLocation}
+          onVisitLocationChange={(next) => {
+            setVisitLocation(next);
+            setAddressRequiredForVisit(false);
+          }}
+          mapsApiKey={mapsApiKey}
+          addressRequiredForVisit={addressRequiredForVisit}
+          visitPurpose={visitPurpose}
+          onVisitPurposeChange={setVisitPurpose}
+          visitStartsAt={visitStartsAt}
+          onVisitStartsAtChange={setVisitStartsAt}
+          visitDurationMin={visitDurationMin}
+          onVisitDurationMinChange={setVisitDurationMin}
+          lastVisitAt={contact.lastVisitAt}
+          planningVisit={planningVisit}
+          visitPlanError={visitPlanError}
+          visitPlanSuccess={visitPlanSuccess}
+          saving={saving}
+          onScheduleVisit={() => void scheduleVisit()}
+        />
+      ) : null}
+    </div>
+  );
+
+  let leftContent: ReactNode;
+  let rightContent: ReactNode = null;
+
+  if (isCreate) {
+    leftContent = (
+      <div className="min-h-0 overflow-auto space-y-3">
+        {err ? (
+          <div className="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-700">{err}</div>
+        ) : null}
+        <ContactCreateForm
+          values={createFormValues}
+          saving={saving}
+          companyOptions={companyOptions}
+          userOptions={userOptions}
+          loadingCompanies={loadingCompanies}
+          loadingUsers={loadingUsers}
+          duplicate={phoneDuplicate}
+          onChange={handleCreateFieldChange}
+          onOpenCompany={onOpenCompany}
+          onOpenExistingContact={(id) => onCreated?.(id)}
+        />
+      </div>
+    );
+  } else if (leftTab === "overview") {
+    leftContent = overviewLeft;
+    rightContent = overviewRight;
+  } else if (leftTab === "activity") {
+    leftContent = (
+      <ContactActivityTab
+        apiBaseUrl={apiBaseUrl}
+        contactId={effectiveContactId}
+        isCreate={isCreate}
+      />
+    );
+  } else if (leftTab === "orders") {
+    leftContent = (
+      <EntitySection title={cardT.tabs.orders}>
+        <div className="min-h-0 overflow-auto">
+          <EntityOrdersList
+            key={ordersReloadKey}
+            apiBaseUrl={apiBaseUrl}
+            query={`clientId=${effectiveContactId}&pageSize=50`}
+            onOpenOrder={(id) => setOrderId(id)}
+          />
+        </div>
+      </EntitySection>
+    );
+  } else if (leftTab === "finance" && financeModuleEnabled) {
+    leftContent = (
+      <ContactFinanceTab
+        contactId={effectiveContactId}
+        isCreate={isCreate}
+        financeRestricted={cardSummary.data?.insights.financeRestricted}
+        onOpenOrder={(id) => setOrderId(id)}
+        analytics={cardAnalytics.data}
+        analyticsLoading={cardAnalytics.loading}
+        analyticsError={cardAnalytics.error}
+        range={analyticsRange}
+        scope={analyticsScope}
+        onRangeChange={setAnalyticsRange}
+        onScopeChange={setAnalyticsScope}
+        canUseCompanyScope={Boolean(contact?.companyId)}
+      />
+    );
+  } else if (leftTab === "delivery") {
+    leftContent = (
+      <ContactDeliveryProfilesTab
+        isCreate={isCreate}
+        apiBaseUrl={apiBaseUrl}
+        contactId={effectiveContactId}
+        contactPerson={
+          contact
+            ? {
+                firstName: contact.firstName ?? "",
+                lastName: contact.lastName ?? "",
+                phone: contact.phone ?? "",
+              }
+            : undefined
+        }
+      />
+    );
+  } else if (leftTab === "profile") {
+    leftContent = (
+      <ContactProfileTab
+        contact={contact}
+        contactId={effectiveContactId}
+        isCreate={isCreate}
+        saving={saving}
+        isAdmin={effectiveRole === "ADMIN"}
+        onPatch={patchContact}
+        onRegisterCancel={registerCancel}
+      />
+    );
+  } else {
+    leftContent = null;
+  }
 
   const footer = isCreate ? (
     <div className="flex flex-wrap justify-end gap-2">
@@ -2231,155 +1098,13 @@ export function ContactModal({
   return (
     <>
       <EntityModalShell
-        title={
-          <div className="flex items-center gap-2" ref={headerActionsRef}>
-            {!isCreate ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setHeaderActionsOpen((v) => !v)}
-                  className="rounded-md border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  Действия
-                </button>
-                {headerActionsOpen ? (
-                  <div className="absolute left-0 z-20 mt-1 min-w-56 rounded-md border border-zinc-200 bg-white p-1 shadow-lg">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHeaderActionsOpen(false);
-                        void openMainOrderModal();
-                      }}
-                      disabled={creatingOrder}
-                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      {creatingOrder ? "Создаем заказ..." : "Создать заказ"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHeaderActionsOpen(false);
-                        setLeftTab("tasks");
-                      }}
-                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    >
-                      {strings.contacts.actions.createTask}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHeaderActionsOpen(false);
-                        void scheduleVisit();
-                      }}
-                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Запланировать визит
-                    </button>
-                    <a
-                      href={contact?.phone ? `tel:${contact.phone}` : undefined}
-                      className={`block rounded px-2 py-2 text-sm ${
-                        contact?.phone
-                          ? "text-zinc-700 hover:bg-zinc-50"
-                          : "pointer-events-none text-zinc-400"
-                      }`}
-                    >
-                      Позвонить (tel)
-                    </a>
-                    {contact?.phone ? (
-                      <div className="px-2 py-2">
-                        <KyivstarDialButton phone={contact.phone} size="md" className="w-full justify-center" />
-                      </div>
-                    ) : null}
-                    <a
-                      href={contact?.email ? `mailto:${contact.email}` : undefined}
-                      className={`block rounded px-2 py-2 text-sm ${
-                        contact?.email
-                          ? "text-zinc-700 hover:bg-zinc-50"
-                          : "pointer-events-none text-zinc-400"
-                      }`}
-                    >
-                      Email
-                    </a>
-                    <a
-                      href={
-                        contact?.telegramConversationId
-                          ? `/inbox/telegram?conversationId=${contact.telegramConversationId}`
-                          : undefined
-                      }
-                      className={`block rounded px-2 py-2 text-sm ${
-                        contact?.telegramConversationId
-                          ? "text-zinc-700 hover:bg-zinc-50"
-                          : "pointer-events-none text-zinc-400"
-                      }`}
-                    >
-                      Сообщение
-                    </a>
-                    {(effectiveRole === "MANAGER" ||
-                      effectiveRole === "ADMIN" ||
-                      effectiveRole === "LEAD") && (
-                      <button
-                        type="button"
-                        disabled={queueingDialer}
-                        onClick={() => {
-                          setHeaderActionsOpen(false);
-                          void enqueueDialer();
-                        }}
-                        className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                      >
-                        {queueingDialer ? "Добавляем в очередь..." : "В очередь прозвона"}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={resetPasswordLoading}
-                      onClick={() => {
-                        setHeaderActionsOpen(false);
-                        void resetStorePassword();
-                      }}
-                      className="block w-full rounded px-2 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      {resetPasswordLoading ? "Сбрасываем..." : "Сбросить пароль"}
-                    </button>
-                    {effectiveRole === "ADMIN" ? (
-                      <>
-                        <div className="my-1 h-px bg-zinc-100" />
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setHeaderActionsOpen(false);
-                            if (!contact) return;
-                            if (!confirm(`Видалити контакт "${fullName ?? contact.id}"?`)) return;
-                            try {
-                              await contactsApi.delete(contact.id);
-                              onUpdate();
-                              onClose();
-                            } catch (e) {
-                              const msg =
-                                (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-                                (e instanceof Error ? e.message : "Не вдалося видалити контакт");
-                              alert(msg);
-                            }
-                          }}
-                          className="block w-full rounded px-2 py-2 text-left text-sm text-red-700 hover:bg-red-50"
-                        >
-                          Видалити контакт
-                        </button>
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        }
-        subtitle={undefined}
-        headerActions={
-          null
-        }
+        title={isCreate ? fullName : shellHeader.title}
+        subtitle={isCreate ? undefined : shellHeader.subtitle}
+        headerActions={isCreate ? null : shellHeader.headerActions}
         tabsUnderHeader={isCreate ? undefined : tabsUnderHeader}
         size={isCreate ? "compact" : "default"}
         left={leftContent}
-        right={null}
+        right={rightContent}
         footer={footer}
         canClose={canClose}
         onClose={isCreate ? handleCloseCreate : onClose}
@@ -2405,7 +1130,7 @@ export function ContactModal({
         />
       ) : null}
 
-      {(resetPasswordResult !== null || resetPasswordError !== null) ? (
+      {resetPasswordResult !== null || resetPasswordError !== null ? (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
           role="presentation"
@@ -2421,7 +1146,9 @@ export function ContactModal({
             role="dialog"
             aria-modal
           >
-            <h3 className="text-sm font-semibold text-zinc-900">Сброс пароля магазина</h3>
+            <h3 className="text-sm font-semibold text-zinc-900">
+              {strings.contacts.actions.resetPassword}
+            </h3>
             {resetPasswordError ? (
               <>
                 <p className="mt-2 text-sm text-red-600">{resetPasswordError}</p>
@@ -2431,7 +1158,7 @@ export function ContactModal({
                     onClick={() => scheduleModalClose(closeResetPasswordDialog)}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Закрыть
+                    {strings.common.cancel}
                   </button>
                 </div>
               </>
@@ -2444,7 +1171,7 @@ export function ContactModal({
                   <div>
                     <span className="text-xs text-zinc-500">Тимчасовий пароль:</span>
                     <div className="mt-0.5 flex items-center gap-2">
-                      <code className="flex-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm font-mono">
+                      <code className="flex-1 rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-sm">
                         {resetPasswordResult.tempPassword}
                       </code>
                       <button
@@ -2462,7 +1189,7 @@ export function ContactModal({
                     <div>
                       <span className="text-xs text-zinc-500">Посилання для встановлення пароля:</span>
                       <div className="mt-0.5 space-y-2">
-                        <code className="block max-h-24 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
+                        <code className="block max-h-24 overflow-auto break-all rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-xs">
                           {resetPasswordFullUrl}
                         </code>
                         <div className="flex flex-wrap items-center gap-2">
@@ -2489,17 +1216,15 @@ export function ContactModal({
                   ) : (
                     <p className="rounded border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
                       Щоб отримати готове посилання, вкажіть «Публічна URL вітрини» в{" "}
-                      <span className="font-medium">Налаштування → Інтернет-магазин</span> або задайте змінну{" "}
-                      <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці CRM. Нижче — токен для
-                      ручної збірки URL.
+                      <span className="font-medium">Налаштування → Інтернет-магазин</span> або задайте
+                      змінну <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці
+                      CRM.
                     </p>
                   )}
                   <div>
-                    <span className="text-xs text-zinc-500">
-                      {resetPasswordPublicStoreBase ? "Токен (для діагностики):" : "Токен:"}
-                    </span>
+                    <span className="text-xs text-zinc-500">Токен:</span>
                     <div className="mt-0.5 flex items-center gap-2">
-                      <code className="max-h-20 flex-1 overflow-auto rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs font-mono break-all">
+                      <code className="max-h-20 flex-1 overflow-auto break-all rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-xs">
                         {resetPasswordResult.setPasswordToken}
                       </code>
                       <button
@@ -2520,7 +1245,7 @@ export function ContactModal({
                     onClick={() => scheduleModalClose(closeResetPasswordDialog)}
                     className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
                   >
-                    Закрыть
+                    {strings.common.cancel}
                   </button>
                 </div>
               </>
@@ -2531,5 +1256,3 @@ export function ContactModal({
     </>
   );
 }
-
-export default ContactModal;

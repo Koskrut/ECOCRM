@@ -27,7 +27,7 @@ export type VisitsRouteMapProps = {
     fact_visits?: RouteGeometryLayer | null;
     fact_gps?: RouteGeometryLayer | null;
   };
-  markers?: Array<{ lat: number; lng: number; label?: string }>;
+  markers?: Array<{ lat: number; lng: number; label?: string; title?: string }>;
   overlayMarkers?: VisitsRouteMapOverlayMarker[];
   extraPaths?: VisitsRouteMapExtraPath[];
   routeAnchors?: { start?: { lat: number; lng: number }; end?: { lat: number; lng: number } };
@@ -166,6 +166,7 @@ export function VisitsRouteMap({
           key={`${m.lat}-${m.lng}-${idx}`}
           position={{ lat: m.lat, lng: m.lng }}
           label={m.label ?? String(idx + 1)}
+          title={m.title}
           draggable={draggableMarkers}
           onDragEnd={onMarkerDragEnd ? (e) => onMarkerDragEnd(idx, e) : undefined}
         />
