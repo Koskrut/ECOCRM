@@ -44,15 +44,15 @@ const EXCLUSION_LABELS: Record<ContactExclusionCode, string> = {
 };
 
 const PRIORITY_REASON_COMPACT_LABELS: Record<ContactPriorityReasonCode, string> = {
-  OVERDUE_FOLLOWUP: "Просрочен",
+  OVERDUE_FOLLOWUP: "Прострочений",
   NEW_LEAD_NO_FIRST_CONTACT: "Без 1-го контакта",
-  NO_CONTACT_14_DAYS: "Нет контакта 14+",
-  NO_ORDER_30_DAYS: "Нет заказа 30+",
-  HAS_DEBT: "Долг",
+  NO_CONTACT_14_DAYS: "Немає контакту 14+",
+  NO_ORDER_30_DAYS: "Немає замовлення 30+",
+  HAS_DEBT: "Борг",
   HIGH_VALUE_CLIENT: "VIP",
-  RETURN_TO_WORK: "Вернуть",
+  RETURN_TO_WORK: "Повернути",
   AT_RISK: "Риск",
-  DORMANT: "Спящий",
+  DORMANT: "Сплячий",
 };
 
 export function formatContactPriorityReason(reason: ContactPriorityReasonCode): string {

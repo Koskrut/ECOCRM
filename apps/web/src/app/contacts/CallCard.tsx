@@ -56,9 +56,9 @@ function formatDuration(sec?: number): string | null {
 
 function directionLabel(direction?: string): { label: string; variant: "in" | "out" | "unknown" } {
   const d = (direction ?? "").toUpperCase();
-  if (d === "INBOUND") return { label: "Входящий", variant: "in" };
-  if (d === "OUTBOUND") return { label: "Исходящий", variant: "out" };
-  return { label: "Звонок", variant: "unknown" };
+  if (d === "INBOUND") return { label: "Вхідний", variant: "in" };
+  if (d === "OUTBOUND") return { label: "Вихідний", variant: "out" };
+  return { label: "Дзвінок", variant: "unknown" };
 }
 
 function statusLabel(
@@ -72,7 +72,7 @@ function statusLabel(
     return { label: d === "OUTBOUND" ? "Не дозвонился" : "Пропущен", variant: "missed" };
   if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Отвечен", variant: "ok" };
   if (s === "BUSY") return { label: "Занято", variant: "other" };
-  if (s === "FAILED") return { label: "Ошибка", variant: "other" };
+  if (s === "FAILED") return { label: "Помилка", variant: "other" };
   return { label: s, variant: "other" };
 }
 
@@ -151,7 +151,7 @@ export function CallCard({
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-zinc-900">
-              {item.title || "Звонок"}
+              {item.title || "Дзвінок"}
             </span>
             <span
               className={
@@ -197,7 +197,7 @@ export function CallCard({
             )}
             {hasBody && onToggle && !showDeleteConfirm && (
               <span className="text-xs text-zinc-500">
-                {isExpanded ? "▼ свернуть" : "▶ результат и комментарии"}
+                {isExpanded ? "▼ згорнути" : "▶ результат і коментарі"}
               </span>
             )}
             {hasActions && !showDeleteConfirm && (
@@ -290,7 +290,7 @@ export function CallCard({
                 status={call.recordingStatus ?? (call.recordingUrl ? "READY" : undefined)}
                 durationSec={call.talkSec ?? call.durationSec}
                 sessionId={item.id}
-                title={item.title || "Звонок"}
+                title={item.title || "Дзвінок"}
                 subtitle={recordingSubtitle}
               />
             </div>

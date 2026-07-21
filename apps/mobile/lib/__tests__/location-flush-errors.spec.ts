@@ -4,6 +4,7 @@ const { describe, it } = require("node:test");
 const {
   classifyFlushHttpStatus,
   classifyFlushThrownError,
+  retargetShiftSamplesBatchJob,
 } = require("../location-flush-errors");
 
 describe("classifyFlushHttpStatus", () => {
@@ -37,5 +38,31 @@ describe("classifyFlushHttpStatus", () => {
 describe("classifyFlushThrownError", () => {
   it("enqueues offline on network errors", () => {
     assert.equal(classifyFlushThrownError(), "enqueue_offline");
+  });
+});
+
+describe("retargetShiftSamplesBatchJob", () => {
+  it("rewrites shiftId when active shift exists", () => {
+    const job = {
+      id: "j1",
+      kind: "shiftSamplesBatch",
+      createdAt: "2026-07-20T08:00:00.000Z",
+      attempts: 2,
+      payload: { shiftId: "dead-shift", items: [], clientMutationId: "m1" },
+    };
+    const retargeted = retargetShiftSamplesBatchJob(job, "new-shift");
+    assert.ok(retargeted);
+    assert.equal(retargeted.payload.shiftId, "new-shift");
+  });
+
+  it("returns null to discard when no active shift", () => {
+    const job = {
+      id: "j1",
+      kind: "shiftSamplesBatch",
+      createdAt: "2026-07-20T08:00:00.000Z",
+      attempts: 2,
+      payload: { shiftId: "dead-shift", items: [] },
+    };
+    assert.equal(retargetShiftSamplesBatchJob(job, null), null);
   });
 });

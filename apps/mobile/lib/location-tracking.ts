@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 import { AppState, Platform } from "react-native";
 
 import { readBatteryOptimizationStatus } from "./battery-optimization";
+import { formatKyivDateKey } from "./date";
 import {
   appendPendingSample,
   flushPendingSamples,
@@ -224,6 +225,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     await registerFieldLocationTask();
     await resetLocationProcessorState();
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
+    await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY, formatKyivDateKey());
 
     const { foreground, background } = await requestTrackingPermissionsWithRationale();
     if (foreground !== "granted") {
@@ -278,7 +280,11 @@ export async function stopLocationTracking(): Promise<void> {
         /* keep buffer for next session */
       }
     }
-    await AsyncStorage.multiRemove([STORAGE_KEYS.ACTIVE_SHIFT_ID, STORAGE_KEYS.TRACKING_MODE]);
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.ACTIVE_SHIFT_ID,
+      STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
+      STORAGE_KEYS.TRACKING_MODE,
+    ]);
     await resetLocationProcessorState();
     await resetTrackingRestartDiagnostics();
   } catch {
@@ -287,11 +293,30 @@ export async function stopLocationTracking(): Promise<void> {
 }
 
 export async function resumeTrackingIfNeeded(
-  shift: { id: string; trackingEnabled: boolean; status: string } | null,
+  shift: { id: string; trackingEnabled: boolean; status: string; date?: string } | null,
 ): Promise<TrackingMode> {
   try {
     if (!shift || shift.status !== "ACTIVE" || !shift.trackingEnabled) {
       return "none";
+    }
+    const todayKey = formatKyivDateKey();
+    const shiftDayKey = shift.date?.slice(0, 10) ?? null;
+    if (shiftDayKey && shiftDayKey !== todayKey) {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.ACTIVE_SHIFT_ID,
+        STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
+        STORAGE_KEYS.TRACKING_MODE,
+      ]);
+      return startLocationTracking(shift.id);
+    }
+    const boundDay = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY);
+    if (boundDay && boundDay !== todayKey) {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.ACTIVE_SHIFT_ID,
+        STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
+        STORAGE_KEYS.TRACKING_MODE,
+      ]);
+      return startLocationTracking(shift.id);
     }
     await registerFieldLocationTask();
     setForegroundWatchStarter(startForegroundWatch);

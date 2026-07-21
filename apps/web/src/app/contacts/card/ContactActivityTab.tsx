@@ -1,12 +1,13 @@
 "use client";
 
-import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
+import { useState } from "react";
 import { EntityTasksList } from "@/components/EntityTasksList";
-import { EntitySection } from "@/components/sections/EntitySection";
 import { strings } from "@/locales";
 import { ContactTimeline } from "../ContactTimeline";
 
 const t = strings.contacts.card;
+
+type ActivitySubTab = "timeline" | "tasks";
 
 type Props = {
   apiBaseUrl: string;
@@ -15,19 +16,34 @@ type Props = {
 };
 
 export function ContactActivityTab({ apiBaseUrl, contactId, isCreate }: Props) {
+  const [subTab, setSubTab] = useState<ActivitySubTab>("timeline");
+
   if (isCreate) {
     return <p className="text-sm text-zinc-500">{t.saveContactFirst}</p>;
   }
 
   return (
     <div className="space-y-3">
-      <EntityCallRecordingsPanel contactId={contactId} />
-      <EntitySection title={t.activity.timeline}>
+      <div className="flex gap-1 overflow-x-auto border-b border-zinc-200 pb-2 whitespace-nowrap">
+        {(["timeline", "tasks"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setSubTab(tab)}
+            className={`shrink-0 rounded px-2 py-1.5 text-sm font-medium ${
+              subTab === tab ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"
+            }`}
+          >
+            {t.activity[tab]}
+          </button>
+        ))}
+      </div>
+
+      {subTab === "timeline" ? (
         <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={contactId} showActivityButtons />
-      </EntitySection>
-      <EntitySection title={t.activity.tasks}>
+      ) : (
         <EntityTasksList contactId={contactId} />
-      </EntitySection>
+      )}
     </div>
   );
 }

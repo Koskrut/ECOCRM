@@ -133,7 +133,7 @@ function CompaniesPageContent() {
 
   const bulkDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Удалить выбранные компании (${selectedIds.size})?`)) return;
+    if (!confirm(`Видалити обрані компанії (${selectedIds.size})?`)) return;
     setBulkDeleting(true);
     setError(null);
     try {
@@ -226,7 +226,7 @@ function CompaniesPageContent() {
                 type="button"
                 onClick={() => setFiltersOpen(true)}
                 className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                aria-label="Открыть фильтры"
+                aria-label="Відкрити фільтри"
               >
                 <Filter className="h-4 w-4" />
               </button>
@@ -253,7 +253,7 @@ function CompaniesPageContent() {
 
       {selectedIds.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-          <span className="text-sm font-medium text-zinc-700">Выбрано: {selectedIds.size}</span>
+          <span className="text-sm font-medium text-zinc-700">Обрано: {selectedIds.size}</span>
           <button
             type="button"
             onClick={bulkDelete}
@@ -261,14 +261,14 @@ function CompaniesPageContent() {
             className="inline-flex items-center gap-1.5 rounded border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
           >
             <Trash2 className="h-4 w-4" />
-            {bulkDeleting ? "Удаление…" : "Удалить выбранные"}
+            {bulkDeleting ? "Видалення…" : "Видалити обрані"}
           </button>
           <button
             type="button"
             onClick={clearSelection}
             className="text-sm text-zinc-600 underline hover:text-zinc-900"
           >
-            Снять выделение
+            Зняти виділення
           </button>
         </div>
       )}
@@ -283,11 +283,11 @@ function CompaniesPageContent() {
                   checked={items.length > 0 && items.every((c) => selectedIds.has(c.id))}
                   onChange={selectAllOnPage}
                   className="rounded border-zinc-300"
-                  aria-label="Выбрать все на странице"
+                  aria-label="Вибрати всі на сторінці"
                 />
               </th>
               <th className="px-4 py-3">Название</th>
-              {showOwnerColumn && <th className="px-4 py-3">Ответственный</th>}
+              {showOwnerColumn && <th className="px-4 py-3">Відповідальний</th>}
               {extraColumns.map((col) => (
                 <th key={col.fieldId} className="px-4 py-3">
                   {col.label}
@@ -325,7 +325,7 @@ function CompaniesPageContent() {
                       checked={selectedIds.has(c.id)}
                       onChange={() => toggleSelected(c.id)}
                       className="rounded border-zinc-300"
-                      aria-label={`Выбрать ${c.name}`}
+                      aria-label={`Вибрати ${c.name}`}
                     />
                   </td>
                   <td className="px-4 py-4 font-medium text-zinc-900">{c.name}</td>
@@ -343,8 +343,8 @@ function CompaniesPageContent() {
                         type="button"
                         onClick={() => openCompany(c.id)}
                         className="rounded p-1.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
-                        title="Открыть"
-                        aria-label="Открыть"
+                        title="Відкрити"
+                        aria-label="Відкрити"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -352,8 +352,8 @@ function CompaniesPageContent() {
                         href={`/contacts?companyId=${c.id}`}
                         onClick={(e) => e.stopPropagation()}
                         className="rounded p-1.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800"
-                        title="Контакты компании"
-                        aria-label="Контакты компании"
+                        title="Контакти компанії"
+                        aria-label="Контакти компанії"
                       >
                         <Users className="h-4 w-4" />
                       </a>

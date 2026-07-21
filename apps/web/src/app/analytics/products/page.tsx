@@ -51,7 +51,7 @@ export default function AnalyticsProductsPage() {
           columns={[
             { key: "productName", title: "Product", render: (row) => row.productName },
             { key: "quantity", title: "Qty", render: (row) => formatNumber(row.quantity) },
-            { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
+            { key: "ordersCount", title: "Замовлення", render: (row) => formatNumber(row.ordersCount) },
             { key: "revenue", title: "Revenue", render: (row) => formatMoneyBase(row.revenue, currency) },
           ]}
         />

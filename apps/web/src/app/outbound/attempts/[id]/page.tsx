@@ -159,7 +159,7 @@ function ReviewActionsPanel({
     } catch (e) {
       setError(
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to save note"),
+          (e instanceof Error ? e.message : "Не вдалося зберегти нотатку"),
       );
     } finally {
       setBusy(false);
@@ -185,7 +185,7 @@ function ReviewActionsPanel({
       });
       setMode("idle");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create task");
+      setError(e instanceof Error ? e.message : "Не вдалося створити задачу");
     } finally {
       setBusy(false);
     }
@@ -320,7 +320,7 @@ function ReviewActionsPanel({
                 onClick={() => void saveNote()}
                 className="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
-                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Save note"}
+                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Зберегти нотатку"}
               </button>
               <button
                 type="button"
@@ -396,7 +396,7 @@ export default function AttemptDetailPage() {
       .catch((e) => {
         setError(
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-            (e instanceof Error ? e.message : "Failed to load attempt"),
+            (e instanceof Error ? e.message : "Не вдалося завантажити спробу"),
         );
       })
       .finally(() => setLoading(false));
@@ -708,7 +708,7 @@ export default function AttemptDetailPage() {
               >
                 <h2 className="text-sm font-semibold text-zinc-700">Transcript</h2>
                 <span className="text-xs text-zinc-400">
-                  {transcriptExpanded ? "Collapse ▲" : "Expand ▼"}
+                  {transcriptExpanded ? "Згорнути ▲" : "Розгорнути ▼"}
                 </span>
               </button>
               {transcriptExpanded && (

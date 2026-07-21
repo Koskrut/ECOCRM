@@ -218,7 +218,7 @@ function LeadsPageContent() {
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to load leads");
+          (e instanceof Error ? e.message : "Не вдалося завантажити ліди");
         setError(msg);
         setItems([]);
       } finally {

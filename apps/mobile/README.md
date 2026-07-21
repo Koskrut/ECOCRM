@@ -35,7 +35,10 @@ EXPO_PUBLIC_API_URL=https://api.suprex.dental
 |------------|-------------|
 | Android Emulator | `http://10.0.2.2:3001` |
 | Фізичний телефон (dev) | `http://<LAN-IP>:3001` |
-| Production (VPS) | `https://api.<домен>` |
+| Production (окремий API) | `https://api.<домен>` |
+| Production (лише веб-хост) | `https://crm.<домен>` — застосунок сам додасть `/api` (BFF) |
+
+Якщо ввести корінь веб-CRM (`https://crm…` без шляху), probe спробує також `…/api`. Логін іде на `POST {base}/auth/login` → для BFF це `POST https://crm…/api/auth/login`; відповідь містить JWT у тілі (нативний клієнт зберігає його в SecureStore).
 
 ## Запуск (розробка)
 

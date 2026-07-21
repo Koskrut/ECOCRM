@@ -78,7 +78,7 @@ export function InlineEditableField({
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Save failed");
+        (e instanceof Error ? e.message : "Не вдалося зберегти");
       setError(msg);
     } finally {
       setSaving(false);

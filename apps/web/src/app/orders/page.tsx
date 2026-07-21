@@ -462,7 +462,7 @@ function OrdersPageContent() {
 
       void fetchOrders();
     } catch (e) {
-      setError(getErrMessage(e, "Failed to create order"));
+      setError(getErrMessage(e, "Не вдалося створити замовлення"));
     } finally {
       setCreating(false);
     }
@@ -665,7 +665,7 @@ function OrdersPageContent() {
                   type="button"
                   onClick={() => setFiltersOpen(true)}
                   className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                  aria-label="Открыть фильтры"
+                  aria-label="Відкрити фільтри"
                 >
                   <Filter className="h-4 w-4" />
                 </button>
@@ -781,12 +781,12 @@ function OrdersPageContent() {
                   <tr>
                     <th className="px-4 py-3">Заказ</th>
                     <th className="px-4 py-3 hidden xl:table-cell">Клиент/Компания</th>
-                    <th className="px-4 py-3 hidden lg:table-cell">Ответственный</th>
+                    <th className="px-4 py-3 hidden lg:table-cell">Відповідальний</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Склад</th>
                     <th className="px-4 py-3">Дата</th>
                     <th className="px-4 py-3 hidden md:table-cell">Оплата</th>
                     <th className="px-4 py-3">Статус</th>
-                    <th className="px-4 py-3 text-right hidden lg:table-cell">Товары</th>
+                    <th className="px-4 py-3 text-right hidden lg:table-cell">Товари</th>
                     <th className="px-4 py-3 text-right">Сумма</th>
                     {extraColumns.map((col) => (
                       <th key={col.fieldId} className="px-4 py-3">
@@ -967,7 +967,7 @@ function OrdersPageContent() {
                     }}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                   >
-                    Подгрузить ещё
+                    Підвантажити ще
                   </button>
                 </div>
               </div>
@@ -1028,7 +1028,7 @@ function OrdersPageContent() {
                         }}
                         className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                       >
-                        Ещё
+                        Ще
                       </button>
                     </div>
                   </div>

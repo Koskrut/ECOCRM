@@ -65,10 +65,10 @@ export default function AnalyticsClientsPage() {
             { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
             {
               key: "bookedRevenue",
-              title: "Booked Revenue",
+              title: "Заброньований дохід",
               render: (row) => formatMoneyBase(row.bookedRevenue, currency),
             },
-            { key: "ordersCount", title: "Orders", render: (row) => formatNumber(row.ordersCount) },
+            { key: "ordersCount", title: "Замовлення", render: (row) => formatNumber(row.ordersCount) },
           ]}
         />
         <SimpleTable
@@ -77,7 +77,7 @@ export default function AnalyticsClientsPage() {
             { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
             {
               key: "collectedPayments",
-              title: "Collected Payments",
+              title: "Зібрані оплати",
               render: (row) => formatMoneyBase(row.collectedPayments, currency),
             },
           ]}

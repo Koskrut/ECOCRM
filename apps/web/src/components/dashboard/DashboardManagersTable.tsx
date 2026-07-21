@@ -68,22 +68,22 @@ export function DashboardManagersTable({ managers, currency, activityDate }: Pro
             },
             {
               key: "bookedRevenue",
-              title: "Booked",
+              title: "Заброньовано",
               render: (row) => formatMoneyBase(row.bookedRevenue, currency),
             },
             {
               key: "collectedPayments",
-              title: "Collected",
+              title: "Зібрано",
               render: (row) => formatMoneyBase(row.collectedPayments, currency),
             },
             {
               key: "ordersCount",
-              title: "Orders",
+              title: "Замовлення",
               render: (row) => formatNumber(row.ordersCount),
             },
             {
               key: "avgCheck",
-              title: "Avg check",
+              title: "Сер. чек",
               render: (row) => formatMoneyBaseFine(row.avgCheck, currency),
             },
             {

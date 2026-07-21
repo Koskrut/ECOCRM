@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { apiFetch, ApiError } from "@/lib/api";
+import { retargetShiftSamplesBatchJob } from "@/lib/location-flush-errors";
 
 export type OfflineJobKind =
   | "visitStart"
@@ -75,6 +76,21 @@ export async function enqueueOfflineJob(
   jobs.push(job);
   await writeJobs(jobs);
   return job;
+}
+
+async function fetchActiveShiftId(token: string): Promise<string | null> {
+  try {
+    const res = await apiFetch<{ shift: { id: string; status: string } | null }>(
+      "/field/shifts/active",
+      { token },
+    );
+    if (res.shift?.status === "ACTIVE" && res.shift.id) {
+      return res.shift.id;
+    }
+  } catch {
+    /* no active shift */
+  }
+  return null;
 }
 
 async function runJob(job: OfflineJob, token: string): Promise<void> {
@@ -161,6 +177,33 @@ export async function flushOfflineJobs(opts: {
       await runJob(job, opts.token);
       sent += 1;
     } catch (e) {
+      if (
+        job.kind === "shiftSamplesBatch" &&
+        e instanceof ApiError &&
+        e.status === 400
+      ) {
+        const activeShiftId = await fetchActiveShiftId(opts.token);
+        const retargeted = retargetShiftSamplesBatchJob(job, activeShiftId);
+        if (retargeted) {
+          try {
+            await runJob(retargeted, opts.token);
+            sent += 1;
+            continue;
+          } catch (retryErr) {
+            const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            lastError = msg;
+            next.push({
+              ...retargeted,
+              attempts: retargeted.attempts + 1,
+              lastError: msg,
+            });
+            continue;
+          }
+        }
+        lastError = "discarded shiftSamplesBatch after dead shift 400";
+        continue;
+      }
+
       const msg = e instanceof Error ? e.message : String(e);
       lastError = msg;
       next.push({

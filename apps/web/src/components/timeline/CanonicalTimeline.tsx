@@ -1,9 +1,10 @@
 "use client";
 
 import { Pencil, Phone, Pin, PinOff, Trash2 } from "lucide-react";
+import { CallRecordingPlayer } from "@/components/calls/CallRecordingPlayer";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { localizeCallActivityText } from "@/lib/activityDisplay";
-import type { TimelineItem } from "./types";
+import type { TimelineCallMeta, TimelineItem } from "./types";
 import { useState } from "react";
 
 type Props = {
@@ -26,6 +27,18 @@ function sourceBadge(item: TimelineItem): string {
   if (item.kind === "meeting") return "Зустріч";
   if (item.kind === "comment") return "Коментар";
   return item.source;
+}
+
+function callMetaFromItem(item: TimelineItem): TimelineCallMeta | null {
+  if (item.meta.kind !== "call") return null;
+  return item.meta.data;
+}
+
+function showCallRecordingUi(call: TimelineCallMeta): boolean {
+  return (
+    !!call.recordingUrl ||
+    ["PENDING", "FAILED", "READY"].includes((call.recordingStatus ?? "").toUpperCase())
+  );
 }
 
 export function CanonicalTimeline({
@@ -56,6 +69,7 @@ export function CanonicalTimeline({
     <div className="space-y-3">
       {items.map((item) => {
         const isCallLike = item.kind === "call" || item.kind === "manual_call";
+        const callMeta = isCallLike ? callMetaFromItem(item) : null;
         const displayTitle = isCallLike ? localizeCallActivityText(item.title) : item.title;
         const displayBody = isCallLike && item.body ? localizeCallActivityText(item.body) : item.body;
         const isActivity = item.source === "activity";
@@ -114,6 +128,17 @@ export function CanonicalTimeline({
                 </div>
               ) : displayBody ? (
                 <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{displayBody}</div>
+              ) : null}
+              {callMeta && showCallRecordingUi(callMeta) ? (
+                <div className="mt-2">
+                  <CallRecordingPlayer
+                    url={callMeta.recordingUrl}
+                    status={callMeta.recordingStatus ?? (callMeta.recordingUrl ? "READY" : undefined)}
+                    durationSec={callMeta.talkSec ?? callMeta.durationSec}
+                    sessionId={item.id}
+                    title={displayTitle || "Дзвінок"}
+                  />
+                </div>
               ) : null}
             </div>
             <div className="flex flex-col items-end gap-2">

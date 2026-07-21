@@ -381,8 +381,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             });
           }}
           className="rounded-lg p-1 text-zinc-600 hover:bg-zinc-100"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand (Ctrl+B)" : "Collapse (Ctrl+B)"}
+          aria-label={collapsed ? "Розгорнути бічну панель" : "Згорнути бічну панель"}
+          title={collapsed ? "Розгорнути (Ctrl+B)" : "Згорнути (Ctrl+B)"}
         >
           {collapsed ? "›" : "‹"}
         </button>

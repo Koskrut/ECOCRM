@@ -478,7 +478,7 @@ function VisitsPageContent() {
         setMapsConfigError(null);
       }
     } catch {
-      setMapsConfigError("Failed to load Google Maps configuration.");
+      setMapsConfigError("Не вдалося завантажити конфігурацію Google Maps.");
       setMapsApiKey(null);
     }
   }, []);
@@ -514,7 +514,7 @@ function VisitsPageContent() {
       setRouteOrderIds(planIds.length ? mergeRouteOrder(planIds, scheduledIds) : scheduledIds);
     } catch (e) {
       if (generation !== loadGenerationRef.current) return;
-      setError(e instanceof Error ? e.message : "Failed to load visits");
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити візити");
       setBacklog([]);
       setDayVisits([]);
       setRoutePlan(null);
@@ -733,7 +733,7 @@ function VisitsPageContent() {
         prev.includes(updated.id) ? prev : [...prev, updated.id],
       );
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to schedule visit", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося призначити візит", "error");
       void loadData();
     }
   };
@@ -768,7 +768,7 @@ function VisitsPageContent() {
           }),
       );
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to move visit", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося перемістити візит", "error");
       void loadData();
     }
   };
@@ -785,7 +785,7 @@ function VisitsPageContent() {
       });
       setDayVisits((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to resize visit", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося змінити тривалість візиту", "error");
       void loadData();
     }
   };
@@ -830,7 +830,7 @@ function VisitsPageContent() {
       }
       await refreshRouteSession();
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to save route", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося зберегти маршрут", "error");
     } finally {
       setSavingRoute(false);
     }
@@ -873,7 +873,7 @@ function VisitsPageContent() {
       setDayVisits((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
       setBacklog((prev) => prev.map((v) => (v.id === visit.id ? updated : v)));
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : "Failed to update coordinates", "error");
+      pushToast(err instanceof Error ? err.message : "Не вдалося оновити координати", "error");
     }
   };
 
@@ -881,7 +881,7 @@ function VisitsPageContent() {
     const entityType: "contact" | "company" = visit.contactId ? "contact" : "company";
     const entityId = visit.contactId ?? visit.companyId;
     if (!entityId) {
-      pushToast("Визит не привязан к карточке клиента.", "error");
+      pushToast("Візит не привʼязаний до картки клієнта.", "error");
       return;
     }
     try {
@@ -896,7 +896,7 @@ function VisitsPageContent() {
       setLocationEditError(false);
       setLocationEditVisit(visit);
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : "Failed to load addresses", "error");
+      pushToast(err instanceof Error ? err.message : "Не вдалося завантажити адреси", "error");
     }
   };
 
@@ -918,7 +918,7 @@ function VisitsPageContent() {
       setLocationEditValue(null);
       pushToast(strings.visitLocation.saveLocation, "success");
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : "Failed to update location", "error");
+      pushToast(err instanceof Error ? err.message : "Не вдалося оновити локацію", "error");
     } finally {
       setLocationEditSaving(false);
     }
@@ -984,7 +984,7 @@ function VisitsPageContent() {
       setBacklog((prev) => [updated, ...prev.filter((v) => v.id !== visit.id)]);
       setRouteOrderIds((prev) => prev.filter((id) => id !== visit.id));
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to move visit to backlog", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося перемістити візит to backlog", "error");
       void loadData();
     }
   };
@@ -1004,7 +1004,7 @@ function VisitsPageContent() {
         setDayVisits((prev) => prev.filter((v) => v.id !== visit.id));
         setRouteOrderIds((prev) => prev.filter((id) => id !== visit.id));
       } catch (e) {
-        pushToast(e instanceof Error ? e.message : "Failed to remove visit", "error");
+        pushToast(e instanceof Error ? e.message : "Не вдалося видалити візит", "error");
         void loadData();
       }
     },
@@ -1013,7 +1013,7 @@ function VisitsPageContent() {
 
   const handleResultSubmit = async () => {
     if (!resultModalVisit || !resultOutcome.trim() || !resultNote.trim()) {
-      pushToast("Укажите результат (outcome) и комментарий (resultNote).", "error");
+      pushToast("Вкажіть результат (outcome) і коментар (resultNote).", "error");
       return;
     }
     try {
@@ -1041,14 +1041,14 @@ function VisitsPageContent() {
         setRouteSessionLoading(false);
       }
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Failed to save result", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося зберегти результат", "error");
     }
   };
 
   const OUTCOME_OPTIONS = [
     { value: "SUCCESS", label: "Успех" },
     { value: "FOLLOW_UP", label: "Дозвон / повтор" },
-    { value: "NO_DECISION", label: "Без решения" },
+    { value: "NO_DECISION", label: "Без рішення" },
     { value: "NOT_RELEVANT", label: "Не релевантно" },
     { value: "FAILED", label: "Неудача" },
   ] as const;
@@ -1056,7 +1056,7 @@ function VisitsPageContent() {
   const handleCreateBacklogFromContact = async () => {
     if (!pendingContactId) return;
     if (!newVisitPurpose.trim()) {
-      pushToast("Укажите цель встречи.", "error");
+      pushToast("Вкажіть мету зустрічі.", "error");
       return;
     }
     setCreatingBacklogVisit(true);
@@ -1072,7 +1072,7 @@ function VisitsPageContent() {
       setContactHits([]);
       setContactPickerOpen(false);
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Не удалось создать визит", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося створити візит", "error");
     } finally {
       setCreatingBacklogVisit(false);
     }
@@ -1081,7 +1081,7 @@ function VisitsPageContent() {
   const handleCreateBacklogFromCompany = async () => {
     if (!pendingCompanyId) return;
     if (!newVisitPurpose.trim()) {
-      pushToast("Укажите цель встречи.", "error");
+      pushToast("Вкажіть мету зустрічі.", "error");
       return;
     }
     setCreatingBacklogVisit(true);
@@ -1099,7 +1099,7 @@ function VisitsPageContent() {
       setCompanyHits([]);
       setContactPickerOpen(false);
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Не удалось создать визит", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося створити візит", "error");
     } finally {
       setCreatingBacklogVisit(false);
     }
@@ -1119,7 +1119,7 @@ function VisitsPageContent() {
     if (!scheduleBacklogVisit || !scheduleBacklogAt) return;
     const startsAt = new Date(scheduleBacklogAt);
     if (Number.isNaN(startsAt.getTime())) {
-      pushToast("Укажите корректные дату и время.", "error");
+      pushToast("Вкажіть коректні дату і час.", "error");
       return;
     }
     const durationMin = scheduleBacklogVisit.durationMin ?? 60;
@@ -1143,9 +1143,9 @@ function VisitsPageContent() {
       });
       setScheduleBacklogVisit(null);
       setScheduleBacklogAt("");
-      pushToast("Визит назначен на выбранные дату и время.", "success");
+      pushToast("Візит призначено на обрані дату і час.", "success");
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Не удалось назначить визит", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося призначити візит", "error");
     } finally {
       setSchedulingBacklog(false);
     }
@@ -1205,7 +1205,7 @@ function VisitsPageContent() {
                     const state = await routeSessionsApi.start(dateParam);
                     setRouteSessionState(state);
                   } catch (e) {
-                    pushToast(e instanceof Error ? e.message : "Failed to start route", "error");
+                    pushToast(e instanceof Error ? e.message : "Не вдалося розпочати маршрут", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -1228,14 +1228,14 @@ function VisitsPageContent() {
                   value={viewOwnerId}
                   onChange={setViewOwnerId}
                   allOptionLabel={
-                    role === "ADMIN" ? "Все менеджеры (день)" : "Вся команда (день)"
+                    role === "ADMIN" ? "Усі менеджери (день)" : "Уся команда (день)"
                   }
                   className="mt-0.5 min-w-[220px]"
                 />
               </div>
               {showMultiOwnerDay ? (
                 <p className="text-xs text-amber-800">
-                  Маршрут и км — выберите конкретного менеджера. Сейчас показаны визиты всех.
+                  Маршрут і км — оберіть конкретного менеджера. Зараз показано візити всіх.
                 </p>
               ) : readOnlyPlan ? (
                 <p className="text-xs text-zinc-600">Режим просмотра чужого плана</p>
@@ -1283,7 +1283,7 @@ function VisitsPageContent() {
                     )}
                 </div>
               ) : (
-                <div className="mt-1 text-sm text-zinc-500">Нет запланированных встреч</div>
+                <div className="mt-1 text-sm text-zinc-500">Немає запланованих зустрічей</div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1361,7 +1361,7 @@ function VisitsPageContent() {
                     const state = await routeSessionsApi.next(dateParam);
                     setRouteSessionState(state);
                   } catch (e) {
-                    pushToast(e instanceof Error ? e.message : "Failed", "error");
+                    pushToast(e instanceof Error ? e.message : "Помилка", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -1378,7 +1378,7 @@ function VisitsPageContent() {
                     const state = await routeSessionsApi.stop(dateParam);
                     setRouteSessionState(state ?? null);
                   } catch (e) {
-                    pushToast(e instanceof Error ? e.message : "Failed", "error");
+                    pushToast(e instanceof Error ? e.message : "Помилка", "error");
                   } finally {
                     setRouteSessionLoading(false);
                   }
@@ -1391,11 +1391,11 @@ function VisitsPageContent() {
             <div className="w-full shrink-0 overflow-auto md:max-w-xs">
               <div className="text-xs font-semibold uppercase text-zinc-500">Точки маршрута</div>
               <p className="mt-0.5 text-[10px] text-zinc-500">
-                Можно менять порядок и добавлять визиты в течение дня
+                Можна змінювати порядок і додавати візити протягом дня
               </p>
               <ul className="mt-1 flex flex-col gap-1">
                 {routeListVisits.length === 0 ? (
-                  <li className="text-[11px] text-zinc-500">Нет запланированных визитов</li>
+                  <li className="text-[11px] text-zinc-500">Немає запланованих візитів</li>
                 ) : (
                   routeListVisits.map((v, idx) => {
                     const isCurrent = v.id === routeSessionState.session.currentVisitId;
@@ -1415,8 +1415,8 @@ function VisitsPageContent() {
                               disabled={idx === 0 || savingRoute}
                               onClick={() => moveInRouteOrder(v.id, -1)}
                               className="rounded border border-zinc-200 bg-white px-0.5 py-0 text-zinc-600 hover:bg-zinc-50 disabled:opacity-30"
-                              title="Выше в маршруте"
-                              aria-label="Выше в маршруте"
+                              title="Вище в маршруті"
+                              aria-label="Вище в маршруті"
                             >
                               <ChevronUp className="h-3 w-3" />
                             </button>
@@ -1444,7 +1444,7 @@ function VisitsPageContent() {
                               setRouteSessionState(state);
                             } catch (e) {
                               pushToast(
-                                e instanceof Error ? e.message : "Не удалось выбрать визит",
+                                e instanceof Error ? e.message : "Не вдалося вибрати візит",
                                 "error",
                               );
                             } finally {
@@ -1523,7 +1523,7 @@ function VisitsPageContent() {
                       <>
                         <input
                           type="search"
-                          placeholder="Поиск контакта (мин. 2 символа)…"
+                          placeholder="Пошук контакту (мін. 2 символи)…"
                           className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
                           value={contactQuery}
                           onChange={(e) => setContactQuery(e.target.value)}
@@ -1556,7 +1556,7 @@ function VisitsPageContent() {
                       <>
                         <input
                           type="search"
-                          placeholder="Поиск компании (мин. 2 символа)…"
+                          placeholder="Пошук компанії (мін. 2 символи)…"
                           className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
                           value={companyQuery}
                           onChange={(e) => setCompanyQuery(e.target.value)}
@@ -1684,7 +1684,7 @@ function VisitsPageContent() {
                     >
                       <div className="absolute right-1 top-1 z-[1] flex items-center gap-1">
                         <span className="shrink-0 rounded-md bg-zinc-200/90 px-1.5 py-1 text-[10px] font-semibold tabular-nums leading-none text-zinc-900">
-                          {v.durationMin ?? 60} мин
+                          {v.durationMin ?? 60} хв
                         </span>
                         <div className="pointer-coarse:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 flex items-center gap-1">
                           <button
@@ -1719,7 +1719,7 @@ function VisitsPageContent() {
                               const slot = findNearestAvailableSlot(v, slots, dayVisits, date);
                               if (!slot) {
                                 pushToast(
-                                  "На выбранный день нет свободного окна под длительность этого визита.",
+                                  "На обраний день немає вільного вікна під тривалість цього візиту.",
                                 );
                                 return;
                               }
@@ -1732,8 +1732,8 @@ function VisitsPageContent() {
                               });
                             }}
                             className="min-h-[28px] min-w-[28px] rounded-md px-1 py-1 text-sm font-semibold leading-none text-emerald-700 hover:bg-emerald-100"
-                            title="На ближайшее свободное время в выбранный день"
-                            aria-label="На ближайшее свободное время в выбранный день"
+                            title="На найближчий вільний час в обраний день"
+                            aria-label="На найближчий вільний час в обраний день"
                           >
                             ↓
                           </button>
@@ -1819,7 +1819,7 @@ function VisitsPageContent() {
                           disabled={idx === 0 || savingRoute}
                           onClick={() => moveInRouteOrder(v.id, -1)}
                           className="rounded border border-zinc-200 bg-white p-0.5 disabled:opacity-30"
-                          title="Выше"
+                          title="Вище"
                         >
                           <ChevronUp className="h-3 w-3" />
                         </button>
@@ -1850,16 +1850,16 @@ function VisitsPageContent() {
                 ) : null}
                 {hasUnsavedPlanOrder && !autoSaveRoutePlan ? (
                   <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
-                    Есть несохранённые изменения
+                    Є незбережені зміни
                   </span>
                 ) : null}
                 {coordQuality.zeroCount > 0 || coordQuality.duplicateCount > 0 ? (
                   <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">
-                    Координаты:{" "}
+                    Координати:{" "}
                     {coordQuality.zeroCount > 0 ? `0,0 = ${coordQuality.zeroCount}` : ""}
                     {coordQuality.zeroCount > 0 && coordQuality.duplicateCount > 0 ? ", " : ""}
                     {coordQuality.duplicateCount > 0
-                      ? `дубликаты = ${coordQuality.duplicateCount}`
+                      ? `дублікати = ${coordQuality.duplicateCount}`
                       : ""}
                   </span>
                 ) : null}
@@ -1873,7 +1873,7 @@ function VisitsPageContent() {
                     <>
                       План: {savedPlanMetrics.distanceKm} км
                       {savedPlanMetrics.durationMin != null
-                        ? ` · ~${savedPlanMetrics.durationMin} мин`
+                        ? ` · ~${savedPlanMetrics.durationMin} хв`
                         : ""}
                       {savedPlanMetrics.source === "fallback" ? " (примерно)" : ""}
                     </>
@@ -1887,7 +1887,7 @@ function VisitsPageContent() {
                     <>
                       Текущий: {routeMetricsPreview.distanceKm} км
                       {routeMetricsPreview.durationMin != null
-                        ? ` · ~${routeMetricsPreview.durationMin} мин`
+                        ? ` · ~${routeMetricsPreview.durationMin} хв`
                         : ""}
                       {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
                     </>
@@ -1901,7 +1901,7 @@ function VisitsPageContent() {
                     <>
                       Факт: {routeFactMetrics.distanceKm} км
                       {routeFactMetrics.durationMin != null
-                        ? ` · ~${routeFactMetrics.durationMin} мин`
+                        ? ` · ~${routeFactMetrics.durationMin} хв`
                         : ""}
                       {routeFactMetrics.source === "fallback" ? " (примерно)" : ""}
                     </>
@@ -1923,20 +1923,20 @@ function VisitsPageContent() {
               }
               title={
                 hasScheduledWithoutCoords
-                  ? "Укажите точки для всех"
+                  ? "Вкажіть точки для всіх"
                   : savingRoute
-                    ? "Сохранение…"
-                    : "Сохранить маршрут"
+                    ? "Збереження…"
+                    : "Зберегти маршрут"
               }
               className="inline-flex shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 p-2 text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Save className="h-4 w-4" aria-hidden />
               <span className="sr-only">
                 {hasScheduledWithoutCoords
-                  ? "Укажите точки для всех"
+                  ? "Вкажіть точки для всіх"
                   : savingRoute
-                    ? "Сохранение маршрута"
-                    : "Сохранить маршрут"}
+                    ? "Збереження маршруту"
+                    : "Зберегти маршрут"}
               </span>
             </button>
             {routePlan?.stops?.length ? (
@@ -1967,11 +1967,11 @@ function VisitsPageContent() {
                     await loadGeometryBundle();
                     await refreshRouteSession();
                   } catch (e) {
-                    pushToast(e instanceof Error ? e.message : "Failed to optimize route", "error");
+                    pushToast(e instanceof Error ? e.message : "Не вдалося оптимізувати маршрут", "error");
                   }
                 }}
                 className="ml-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                title="Оптимизировать порядок остановок (локально, сохранит маршрут)"
+                title="Оптимізувати порядок зупинок (локально, збереже маршрут)"
               >
                 Оптимизировать
               </button>
@@ -2178,7 +2178,7 @@ function VisitsPageContent() {
                               </div>
                             ) : null}
                             <div className="mt-0.5 truncate text-[11px] text-zinc-500">
-                              {v.addressText || <span className="text-amber-600">Нет адреса</span>}
+                              {v.addressText || <span className="text-amber-600">Немає адреси</span>}
                             </div>
                             <div
                               className={
@@ -2262,7 +2262,7 @@ function VisitsPageContent() {
                 <div className="text-sm font-semibold text-zinc-900">Карта</div>
                 {routePlan && routePlan.stops?.length ? (
                   <div className="text-[11px] text-zinc-500">
-                    Маршрут сохранён ({routePlan.stops.length} остановок)
+                    Маршрут збережено ({routePlan.stops.length} зупинок)
                     {" · "}
                     {routeGeometryLoading ? (
                       "считаем км…"
@@ -2270,7 +2270,7 @@ function VisitsPageContent() {
                       <>
                         {savedPlanMetrics.distanceKm} км
                         {savedPlanMetrics.durationMin != null
-                          ? ` · ~${savedPlanMetrics.durationMin} мин`
+                          ? ` · ~${savedPlanMetrics.durationMin} хв`
                           : ""}
                         {savedPlanMetrics.source === "fallback"
                           ? " (примерно)"
@@ -2283,7 +2283,7 @@ function VisitsPageContent() {
                     )}
                   </div>
                 ) : (
-                  <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
+                  <div className="text-[11px] text-zinc-500">Маршрут ще не збережено.</div>
                 )}
               </div>
               <RouteLayerControls
@@ -2293,14 +2293,14 @@ function VisitsPageContent() {
               />
               {routeGeometryBundle?.factGps.quality?.degraded ? (
                 <p className="text-[10px] text-amber-700">
-                  GPS-трек слабый ({routeGeometryBundle.factGps.quality?.sampleCount} точек) — для
-                  топлива используется факт по визитам.
+                  GPS-трек слабкий ({routeGeometryBundle.factGps.quality?.sampleCount} точок) — для
+                  палива використовується факт за візитами.
                 </p>
               ) : null}
               {mapGeometries.planned?.source === "fallback" ? (
                 <p className="text-[10px] text-amber-700">
                   {mapsApiKey
-                    ? "Плановый маршрут приблизительный — проверьте Routes API в Google Cloud."
+                    ? "Плановий маршрут приблизний — перевірте Routes API в Google Cloud."
                     : "Настройте Google Maps API key (Settings) для маршрутов по дорогам."}
                 </p>
               ) : null}
@@ -2311,7 +2311,7 @@ function VisitsPageContent() {
                       ? `План: ${routeSourceLabel(mapGeometries.planned?.source) ?? "—"}`
                       : null,
                     mapGeometries.fact_visits?.path.length
-                      ? `Факт визиты: ${routeSourceLabel(mapGeometries.fact_visits?.source) ?? "—"}`
+                      ? `Факт візити: ${routeSourceLabel(mapGeometries.fact_visits?.source) ?? "—"}`
                       : null,
                     mapGeometries.fact_gps?.path.length
                       ? `Факт GPS: ${routeSourceLabel(mapGeometries.fact_gps?.source) ?? "—"}`
@@ -2357,13 +2357,13 @@ function VisitsPageContent() {
           aria-live="polite"
         >
           <div className="pointer-events-auto flex max-w-[220px] flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg">
-            <p className="text-center text-xs text-zinc-600">Перетащите визит на слот расписания</p>
+            <p className="text-center text-xs text-zinc-600">Перетягніть візит на слот розкладу</p>
             <button
               type="button"
               onClick={() => cancelBacklogDrag()}
               className="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-100"
             >
-              Отмена
+              Скасувати
             </button>
             <p className="text-center text-[10px] text-zinc-400">или Esc</p>
           </div>
@@ -2377,7 +2377,7 @@ function VisitsPageContent() {
         >
           <button
             type="button"
-            aria-label="Close map"
+            aria-label="Закрити карту"
             className="min-h-0 flex-1 cursor-default"
             onClick={() => setMapSheetOpen(false)}
           />
@@ -2387,10 +2387,10 @@ function VisitsPageContent() {
                 <div className="text-sm font-semibold text-zinc-900">Карта</div>
                 {routePlan && routePlan.stops?.length ? (
                   <div className="text-[11px] text-zinc-500">
-                    Маршрут сохранён ({routePlan.stops.length} остановок)
+                    Маршрут збережено ({routePlan.stops.length} зупинок)
                   </div>
                 ) : (
-                  <div className="text-[11px] text-zinc-500">Маршрут ещё не сохранён.</div>
+                  <div className="text-[11px] text-zinc-500">Маршрут ще не збережено.</div>
                 )}
               </div>
               <button
@@ -2398,7 +2398,7 @@ function VisitsPageContent() {
                 onClick={() => setMapSheetOpen(false)}
                 className="rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700"
               >
-                Закрыть
+                Закрити
               </button>
             </div>
             <div className="h-2 w-12 shrink-0 self-center rounded-full bg-zinc-200" aria-hidden />
@@ -2436,7 +2436,7 @@ function VisitsPageContent() {
           <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 shadow-xl">
             <h3 className="text-lg font-semibold text-zinc-900">Цель встречи</h3>
             <p className="mt-1 text-sm text-zinc-500">
-              {pendingSchedule.visit.title || pendingSchedule.visit.addressText || "Визит"}
+              {pendingSchedule.visit.title || pendingSchedule.visit.addressText || "Візит"}
             </p>
             <label className="mt-3 block text-xs font-medium text-zinc-700">Цель *</label>
             <textarea
@@ -2444,7 +2444,7 @@ function VisitsPageContent() {
               onChange={(e) => setPurposeDraft(e.target.value)}
               rows={3}
               className="mt-1 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
-              placeholder="Зачем едете к клиенту"
+              placeholder="Навіщо їдете до клієнта"
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -2455,14 +2455,14 @@ function VisitsPageContent() {
                 }}
                 className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Отмена
+                Скасувати
               </button>
               <button
                 type="button"
                 onClick={() => {
                   const text = purposeDraft.trim();
                   if (!text) {
-                    pushToast("Укажите цель встречи.", "error");
+                    pushToast("Вкажіть мету зустрічі.", "error");
                     return;
                   }
                   const ps = pendingSchedule;
@@ -2532,14 +2532,14 @@ function VisitsPageContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">Маршрут визитов</div>
+              <div className="text-base font-semibold text-zinc-900">Маршрут візитів</div>
               <p className="mt-1 text-sm text-zinc-600">
                 Для «Маршрут дня» нужна стартовая точка. Финиш по умолчанию будет таким же, как
                 старт.
               </p>
               <div className="mt-3 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">
-                Откройте сотрудника → «Маршрут визитов» и заполните «Старт — подпись» через
-                автокомплит (координаты подставятся автоматически).
+                Откройте співробітника → «Маршрут візитів» и заполните «Старт — подпись» через
+                автокомпліт (координати підставляться автоматично).
               </div>
               <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-zinc-200 pt-3">
                 <button
@@ -2560,7 +2560,7 @@ function VisitsPageContent() {
                   }}
                   className="btn-primary"
                 >
-                  Открыть сотрудников
+                  Відкрити співробітників
                 </button>
               </div>
             </div>
@@ -2583,7 +2583,7 @@ function VisitsPageContent() {
                   onChange={(e) => setResultOutcome(e.target.value)}
                   className="mt-0.5 w-full rounded border border-zinc-300 px-2 py-1.5 text-sm"
                 >
-                  <option value="">— выберите —</option>
+                  <option value="">— оберіть —</option>
                   {OUTCOME_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
@@ -2633,14 +2633,14 @@ function VisitsPageContent() {
                 }}
                 className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Отмена
+                Скасувати
               </button>
               <button
                 type="button"
                 onClick={() => void handleResultSubmit()}
                 className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
               >
-                Сохранить
+                Зберегти
               </button>
             </div>
           </div>
@@ -2672,7 +2672,7 @@ function VisitsPageContent() {
                 ? formatContactNameLastFirst(scheduleBacklogVisit.contact)
                 : scheduleBacklogVisit.company?.name ||
                   scheduleBacklogVisit.title ||
-                  "Визит"}
+                  "Візит"}
             </p>
             <label className="mt-4 block text-xs font-medium text-zinc-700">
               Дата и время
@@ -2692,7 +2692,7 @@ function VisitsPageContent() {
                 }}
                 className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
               >
-                Отмена
+                Скасувати
               </button>
               <button
                 type="button"

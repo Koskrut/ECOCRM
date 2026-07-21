@@ -30,7 +30,12 @@ export async function POST(req: Request) {
   }
 
   const token = data.token ?? data.accessToken;
-  const res = NextResponse.json({ ok: true });
+  // Cookie for the web app; token (+ user) in body for native clients that cannot use cookies.
+  const res = NextResponse.json({
+    ok: true,
+    token: token ?? null,
+    user: data.user ?? null,
+  });
 
   if (token) {
     res.cookies.set("token", token, {

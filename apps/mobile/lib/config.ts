@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
-import { normalizeApiBaseUrl } from "./api-url";
+import { apiBaseUrlCandidates, normalizeApiBaseUrl } from "./api-url";
 
-export { normalizeApiBaseUrl } from "./api-url";
+export { apiBaseUrlCandidates, normalizeApiBaseUrl } from "./api-url";
 
 const STORAGE_KEY = "crm_api_base_url";
 
@@ -100,6 +100,15 @@ export async function clearApiBaseUrl(): Promise<void> {
   hydrated = true;
 }
 
+function isCrmVersionPayload(body: unknown): boolean {
+  return (
+    !!body &&
+    typeof body === "object" &&
+    typeof (body as { version?: unknown }).version === "string" &&
+    (body as { version: string }).version.length > 0
+  );
+}
+
 /** GET /system/version (public) to verify the URL points at a CRM API. */
 export async function probeApiBaseUrl(base: string, timeoutMs = 8_000): Promise<void> {
   const normalized = normalizeApiBaseUrl(base);
@@ -114,7 +123,36 @@ export async function probeApiBaseUrl(base: string, timeoutMs = 8_000): Promise<
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
+    const text = await res.text();
+    let body: unknown = null;
+    try {
+      body = text ? (JSON.parse(text) as unknown) : null;
+    } catch {
+      throw new Error("invalid");
+    }
+    if (!isCrmVersionPayload(body)) {
+      throw new Error("invalid");
+    }
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Probe the given URL and, if it looks like a web CRM host (no path), also try `/api`.
+ * Returns the first base that answers with a CRM version payload.
+ */
+export async function resolveApiBaseUrl(input: string, timeoutMs = 8_000): Promise<string> {
+  const normalized = normalizeApiBaseUrl(input);
+  const candidates = apiBaseUrlCandidates(normalized);
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      await probeApiBaseUrl(candidate, timeoutMs);
+      return candidate;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("unreachable");
 }

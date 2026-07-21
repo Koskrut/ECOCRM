@@ -11,7 +11,7 @@ import { Alert, AppState, InteractionManager, type AppStateStatus } from "react-
 
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
-import { formatLocalDateKey } from "@/lib/date";
+import { formatKyivDateKey } from "@/lib/date";
 import { t } from "@/lib/i18n";
 import {
   ensureTrackingContinuity,
@@ -168,7 +168,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       const res = await apiFetch<{ shift: FieldShift | null }>("/field/shifts/active", { token });
       let shift = res.shift;
 
-      const todayKey = formatLocalDateKey();
+      const todayKey = formatKyivDateKey();
       const shiftDateKey = shift?.date ? shift.date.slice(0, 10) : null;
       const isStaleActiveShift =
         !!shift && shift.status === "ACTIVE" && typeof shiftDateKey === "string" && shiftDateKey !== todayKey;
@@ -344,7 +344,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     flushAlertShownRef.current = false;
     try {
       let plannedDistanceKm: number | null = null;
-      const dateKey = formatLocalDateKey();
+      const dateKey = formatKyivDateKey();
       try {
         const m = await apiFetch<{ distanceKm: number | null }>(
           `/route-plans/metrics?date=${encodeURIComponent(dateKey)}`,

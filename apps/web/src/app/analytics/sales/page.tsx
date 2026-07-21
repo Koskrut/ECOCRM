@@ -129,7 +129,7 @@ function ManagerBookedRevenueChart({ rows, currency = "USD" }: { rows: ManagerRo
   if (data.length === 0) {
     return (
       <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-zinc-900">Booked revenue by manager</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Заброньований дохід за менеджером</h3>
         <p className="mt-0.5 text-xs text-zinc-500">Поточний період, {currency}.</p>
         <div className="mt-3 min-h-[240px] flex items-center justify-center rounded-lg border border-dashed border-zinc-200 bg-zinc-50/80 text-sm text-zinc-500">
           Немає даних
@@ -141,7 +141,7 @@ function ManagerBookedRevenueChart({ rows, currency = "USD" }: { rows: ManagerRo
   return (
     <div className="flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900">Booked revenue by manager</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Заброньований дохід за менеджером</h3>
         <p className="mt-0.5 text-xs text-zinc-500">Поточний період (createdAt), {currency}.</p>
       </div>
       <div className="mt-3 min-h-[260px] w-full min-w-0 flex-1 overflow-x-auto">
@@ -162,7 +162,7 @@ function ManagerBookedRevenueChart({ rows, currency = "USD" }: { rows: ManagerRo
             <Tooltip
               formatter={(value: number) => [
                 `${Math.round(value).toLocaleString("en-US")} $`,
-                "Booked",
+                "Заброньовано",
               ]}
               contentStyle={{ borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12px" }}
             />
@@ -175,7 +175,7 @@ function ManagerBookedRevenueChart({ rows, currency = "USD" }: { rows: ManagerRo
               dataKey="bookedRevenue"
               fill="#10b981"
               radius={[0, 4, 4, 0]}
-              name="Booked revenue"
+              name="Заброньований дохід"
             />
           </BarChart>
         </ResponsiveContainer>
@@ -269,7 +269,7 @@ export default function AnalyticsSalesPage() {
       })
       .catch((e) => {
         if (!active) return;
-        setPrevManagersError(e instanceof Error ? e.message : "Failed to load previous managers");
+        setPrevManagersError(e instanceof Error ? e.message : "Не вдалося завантажити попередніх менеджерів");
       })
       .finally(() => {
         if (!active) return;
@@ -386,7 +386,7 @@ export default function AnalyticsSalesPage() {
           onComparePrevChange={filters.setComparePrev}
         />
         <AnalyticsErrorPanel
-          message={salesError || managersError || "Failed to load sales data"}
+          message={salesError || managersError || "Не вдалося завантажити дані продажів"}
           onRetry={() => window.location.reload()}
         />
       </div>
@@ -419,7 +419,7 @@ export default function AnalyticsSalesPage() {
           <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <KpiDeltaCard
               variant="money"
-              title="Booked revenue"
+              title="Заброньований дохід"
               subtitle={`${currency}, createdAt (period-based)`}
               tooltip={`Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → ${currency}.`}
               value={formatMoneyBase(kpi?.bookedRevenue, currency)}
@@ -431,8 +431,8 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="count"
-              title="Orders count"
-              subtitle="Orders у періоді (createdAt)"
+              title="Кількість замовлень"
+              subtitle="Замовлення у періоді (createdAt)"
               value={formatNumber(kpi?.ordersCount)}
               deltaLabel={
                 filters.comparePrev
@@ -442,8 +442,8 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="money"
-              title="Avg check"
-              subtitle={`Booked / orders (${currency})`}
+              title="Середній чек"
+              subtitle={`Дохід / замовлення (${currency})`}
               value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
               deltaLabel={
                 filters.comparePrev
@@ -453,9 +453,9 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="money"
-              title="Collected payments"
+              title="Зібрані оплати"
               subtitle={`${currency}, COMPLETED + paidAt (period-based)`}
-              tooltip="Collected payments ≠ booked revenue."
+              tooltip="Зібрані оплати ≠ заброньований дохід."
               value={formatMoneyBase(kpi?.collectedPayments, currency)}
               deltaLabel={
                 filters.comparePrev
@@ -497,21 +497,21 @@ export default function AnalyticsSalesPage() {
                     onClick={() => toggleSort("name")}
                   />
                   <SortableTh
-                    label="Booked revenue"
+                    label="Заброньований дохід"
                     active={sortKey === "bookedRevenue"}
                     dir={sortDir}
                     onClick={() => toggleSort("bookedRevenue")}
                     align="right"
                   />
                   <SortableTh
-                    label="Collected payments"
+                    label="Зібрані оплати"
                     active={sortKey === "collectedPayments"}
                     dir={sortDir}
                     onClick={() => toggleSort("collectedPayments")}
                     align="right"
                   />
                   <SortableTh
-                    label="Orders"
+                    label="Замовлення"
                     active={sortKey === "ordersCount"}
                     dir={sortDir}
                     onClick={() => toggleSort("ordersCount")}
@@ -563,7 +563,7 @@ export default function AnalyticsSalesPage() {
           <div>
             <h3 className="text-base font-semibold text-zinc-900">Charts</h3>
             <p className="mt-1 text-sm text-zinc-500">
-              Поточний період only. Booked і Collected — не змішуються.
+              Лише поточний період. Заброньовано і зібрано — не змішуються.
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">

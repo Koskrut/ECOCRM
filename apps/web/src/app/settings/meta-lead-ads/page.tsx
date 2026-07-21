@@ -236,7 +236,7 @@ export default function MetaLeadAdsSettingsPage() {
                 disabled={saving}
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Збереження…" : "Зберегти"}
               </button>
             </div>
           </div>

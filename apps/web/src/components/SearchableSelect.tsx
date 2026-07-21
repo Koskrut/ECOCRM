@@ -30,7 +30,7 @@ export function SearchableSelect({
   options,
   value,
   onChange,
-  placeholder = "Search…",
+  placeholder = "Пошук…",
   disabled,
   isLoading,
   onCreateNew,

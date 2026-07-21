@@ -7,6 +7,7 @@ import {
   TRACK_MAX_ACCURACY_M,
   filterGpsSample,
   filterGpsTrack,
+  sortGpsSamplesByTime,
 } from "../gps-sample-filter";
 
 function sample(
@@ -124,5 +125,22 @@ describe("filterGpsTrack", () => {
     ];
     const filtered = filterGpsTrack(chain);
     assert.equal(filtered.length, 3);
+  });
+});
+
+describe("sortGpsSamplesByTime", () => {
+  it("sorts reverse batch to same filter result as ascending", () => {
+    const ascending = [
+      sample(50.45, 30.52, 0, 20),
+      sample(50.4503, 30.5203, 60, 20),
+      sample(50.451, 30.521, 120, 25),
+    ];
+    const reversed = [...ascending].reverse();
+    const fromSorted = filterGpsTrack(sortGpsSamplesByTime(reversed));
+    const fromAscending = filterGpsTrack(ascending);
+    assert.deepEqual(
+      fromSorted.map((s) => s.clientRecordedAt),
+      fromAscending.map((s) => s.clientRecordedAt),
+    );
   });
 });

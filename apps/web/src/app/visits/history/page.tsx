@@ -82,10 +82,10 @@ function VisitHistoryCard({
         </span>
         <span className="text-zinc-400">→</span>
         <span className="rounded bg-blue-50 px-2 py-1 text-blue-800">
-          Завершён: {formatDateTime(v.completedAt)}
+          Завершено: {formatDateTime(v.completedAt)}
         </span>
         {v.durationMin ? (
-          <span className="text-zinc-500">{v.durationMin} мин</span>
+          <span className="text-zinc-500">{v.durationMin} хв</span>
         ) : null}
       </div>
 
@@ -190,8 +190,8 @@ function HistoryCalendar({
         })}
       </div>
       <p className="mt-3 text-xs text-zinc-500">
-        Цифры: всего визитов · зелёный успех · жёлтый follow-up · красный проблемные. Клик по дню
-        открывает список за этот день.
+        Цифри: усього візитів · зелений успіх · жовтий follow-up · червоний проблемні. Клік по дню
+        відкриває список за цей день.
       </p>
     </div>
   );
@@ -289,7 +289,7 @@ export default function VisitsHistoryPage() {
       setItems(res.items);
       setTotal(res.total);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed");
+      setErr(e instanceof Error ? e.message : "Помилка");
       setItems([]);
       setTotal(0);
     } finally {
@@ -367,7 +367,7 @@ export default function VisitsHistoryPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold text-zinc-900">{strings.nav.visitsHistory}</h1>
-            <p className="text-sm text-zinc-500">Завершённые визиты · анализ и контроль</p>
+            <p className="text-sm text-zinc-500">Завершені візити · аналіз і контроль</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5">
@@ -403,9 +403,9 @@ export default function VisitsHistoryPage() {
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {[
             { label: "Всего", value: summary.total, sub: `из ${total} в базе` },
-            { label: "Успешные", value: summary.success, className: "text-emerald-700" },
+            { label: "Успішні", value: summary.success, className: "text-emerald-700" },
             { label: "Follow-up", value: summary.followUp, className: "text-amber-700" },
-            { label: "Проблемные", value: summary.problem, className: "text-red-700" },
+            { label: "Проблемні", value: summary.problem, className: "text-red-700" },
             { label: "След. шаг", value: summary.nextAction, className: "text-zinc-700" },
           ].map((c) => (
             <div
@@ -432,7 +432,7 @@ export default function VisitsHistoryPage() {
                 ["today", "Сегодня"],
                 ["7d", "7 дней"],
                 ["30d", "30 дней"],
-                ["month", "Этот месяц"],
+                ["month", "Цей місяць"],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -483,7 +483,7 @@ export default function VisitsHistoryPage() {
                     setPage(1);
                     setOwnerId(id);
                   }}
-                  allOptionLabel="Все доступные"
+                  allOptionLabel="Усі доступні"
                   className="mt-0.5 min-w-[200px]"
                 />
               </div>
@@ -496,9 +496,9 @@ export default function VisitsHistoryPage() {
                 className="mt-0.5 rounded border border-zinc-200 px-2 py-1.5 text-sm"
               >
                 <option value="all">Все</option>
-                <option value="success">Успешные</option>
+                <option value="success">Успішні</option>
                 <option value="follow_up">Follow-up</option>
-                <option value="problem">Проблемные</option>
+                <option value="problem">Проблемні</option>
               </select>
             </div>
             <button
@@ -558,7 +558,7 @@ export default function VisitsHistoryPage() {
           <>
             {selectedDay ? (
               <p className="mb-3 text-sm text-zinc-600">
-                Показаны визиты за{" "}
+                Показано візити за{" "}
                 <span className="font-medium">{selectedDay}</span>
                 <button
                   type="button"
@@ -571,26 +571,26 @@ export default function VisitsHistoryPage() {
                     setPage(1);
                   }}
                 >
-                  Сбросить день
+                  Скинути день
                 </button>
               </p>
             ) : null}
 
             {loading ? (
               <div className="rounded-lg border border-zinc-200 bg-white px-3 py-12 text-center text-sm text-zinc-500">
-                Загрузка…
+                Завантаження…
               </div>
             ) : filteredItems.length === 0 ? (
               <EmptyState
-                title="Нет визитов по фильтрам"
-                description="За выбранный период завершённых визитов не найдено. Измените даты, менеджера или фильтр результата."
+                title="Немає візитів за фільтрами"
+                description="За обраний період завершених візитів не знайдено. Змініть дати, менеджера або фільтр результату."
                 action={
                   <button
                     type="button"
                     onClick={resetFilters}
                     className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
                   >
-                    Сбросить фильтры
+                    Скинути фільтри
                   </button>
                 }
               />
@@ -629,7 +629,7 @@ export default function VisitsHistoryPage() {
                   onClick={() => setPage((p) => p + 1)}
                   className="rounded border border-zinc-200 px-3 py-1 disabled:opacity-50"
                 >
-                  Вперёд
+                  Далі
                 </button>
               </div>
             ) : null}
@@ -639,15 +639,15 @@ export default function VisitsHistoryPage() {
         {viewMode === "calendar" && !loading && items.length === 0 ? (
           <div className="mt-4">
             <EmptyState
-              title="Нет данных для календаря"
-              description="В выбранном периоде нет завершённых визитов на текущей странице загрузки."
+              title="Немає даних для календаря"
+              description="У обраному періоді немає завершених візитів на поточній сторінці завантаження."
               action={
                 <button
                   type="button"
                   onClick={resetFilters}
                   className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
                 >
-                  Сбросить фильтры
+                  Скинути фільтри
                 </button>
               }
             />

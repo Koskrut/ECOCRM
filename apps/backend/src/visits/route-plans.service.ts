@@ -4,6 +4,14 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { AuthUser } from "../auth/auth.types";
 import { OsrmRoutingService } from "../routing/osrm-routing.service";
 import { RouteResultCache } from "../routing/route-result-cache";
+import {
+  asTrackedSamples,
+  splitSamplesByTimeGap,
+  stitchPathGaps,
+  STITCH_GAP_THRESHOLD_KM,
+  TRACK_SEGMENT_GAP_MIN,
+  type TrackedGpsSample,
+} from "../routing/gps-track-snap.util";
 import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./route-geometry";
 import { pathFromWaypoints } from "./polyline.util";
 import {
@@ -690,19 +698,17 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Chronological GPS track → drivable path (OSRM match → multi-leg route → haversine). */
-  async snapGpsPathToRoads(
+  /** Match one GPS chunk to roads (OSRM match → multi-leg route → haversine). */
+  private async matchGpsChunkToRoads(
     points: LatLng[],
-  ): Promise<{ path: LatLng[]; source: "osrm" | "fallback" | "none"; distanceKm: number | null }> {
+  ): Promise<{ path: LatLng[]; source: "osrm" | "fallback" }> {
     if (points.length < 2) {
-      this.logger.warn("snapGpsPathToRoads: insufficient_points");
-      return { path: [], source: "none", distanceKm: null };
+      return { path: points, source: "fallback" };
     }
 
     const sampled = downsamplePathUniform(points, 100);
     if (sampled.length < 2) {
-      this.logger.warn("snapGpsPathToRoads: downsample_failed");
-      return { path: points, source: "fallback", distanceKm: this.pathDistanceKm(points) };
+      return { path: points, source: "fallback" };
     }
 
     try {
@@ -713,11 +719,7 @@ export class RoutePlansService {
         (matched.distanceKm < MIN_TRACK_COMPENSATION_KM ||
           (rawKm != null && rawKm >= MIN_TRACK_COMPENSATION_KM && matched.distanceKm < rawKm * 0.25));
       if (matched?.source === "osrm" && matched.path.length >= 2 && !matchTooTiny) {
-        return {
-          path: matched.path,
-          source: "osrm",
-          distanceKm: matched.distanceKm,
-        };
+        return { path: matched.path, source: "osrm" };
       }
       if (matchTooTiny) {
         this.logger.warn(
@@ -740,18 +742,13 @@ export class RoutePlansService {
         intermediates,
       });
       if (routed?.source === "osrm" && routed.path.length >= 2) {
-        return {
-          path: routed.path,
-          source: "osrm",
-          distanceKm: routed.distanceKm,
-        };
+        return { path: routed.path, source: "osrm" };
       }
       if (routed?.source === "fallback") {
         this.logger.warn("snapGpsPathToRoads: partial_chunk_failure");
         return {
           path: routed.path.length >= 2 ? routed.path : points,
           source: "fallback",
-          distanceKm: routed.distanceKm ?? this.pathDistanceKm(points),
         };
       }
     } catch (e) {
@@ -759,10 +756,90 @@ export class RoutePlansService {
       this.logger.warn(`snapGpsPathToRoads: api_error ${message}`);
     }
 
+    return { path: points, source: "fallback" };
+  }
+
+  /** Chronological GPS track → drivable path (time-split match + stitch gaps). */
+  async snapGpsPathToRoads(
+    points: LatLng[] | TrackedGpsSample[],
+  ): Promise<{
+    path: LatLng[];
+    source: "osrm" | "fallback" | "none";
+    distanceKm: number | null;
+    maxStitchGapKm: number;
+    hasUnfilledGaps: boolean;
+  }> {
+    const tracked = asTrackedSamples(points);
+    const noneResult = {
+      path: [] as LatLng[],
+      source: "none" as const,
+      distanceKm: null,
+      maxStitchGapKm: 0,
+      hasUnfilledGaps: false,
+    };
+
+    if (tracked.length < 2) {
+      this.logger.warn("snapGpsPathToRoads: insufficient_points");
+      return noneResult;
+    }
+
+    const chunks = splitSamplesByTimeGap(tracked, TRACK_SEGMENT_GAP_MIN);
+    const chunkPaths: LatLng[][] = [];
+    let usedOsrm = false;
+    let usedFallback = false;
+
+    for (const chunk of chunks) {
+      const chunkPoints = chunk.map((s) => ({ lat: s.lat, lng: s.lng }));
+      const matched = await this.matchGpsChunkToRoads(chunkPoints);
+      chunkPaths.push(matched.path);
+      if (matched.source === "osrm") usedOsrm = true;
+      if (matched.source === "fallback") usedFallback = true;
+    }
+
+    let merged = concatPaths(chunkPaths);
+    if (merged.length < 2) {
+      merged = tracked.map((s) => ({ lat: s.lat, lng: s.lng }));
+    }
+
+    const routeLeg = async (origin: LatLng, destination: LatLng) => {
+      try {
+        const routed = await this.computeRouteMultiLeg({
+          origin,
+          destination,
+          intermediates: [],
+        });
+        if (routed?.source === "osrm" && routed.path.length >= 2) {
+          usedOsrm = true;
+          return { path: routed.path };
+        }
+      } catch {
+        /* stitch leg optional */
+      }
+      return null;
+    };
+
+    const stitched = await stitchPathGaps(merged, routeLeg, STITCH_GAP_THRESHOLD_KM);
+    if (stitched.path.length < 2) {
+      return {
+        path: tracked.map((s) => ({ lat: s.lat, lng: s.lng })),
+        source: "fallback",
+        distanceKm: this.pathDistanceKm(tracked),
+        maxStitchGapKm: stitched.maxStitchGapKm,
+        hasUnfilledGaps: stitched.hasUnfilledGaps,
+      };
+    }
+
+    const source: "osrm" | "fallback" = usedOsrm ? "osrm" : "fallback";
+    if (!usedOsrm && usedFallback) {
+      /* already fallback */
+    }
+
     return {
-      path: points,
-      source: "fallback",
-      distanceKm: this.pathDistanceKm(points),
+      path: stitched.path,
+      source,
+      distanceKm: this.pathDistanceKm(stitched.path),
+      maxStitchGapKm: stitched.maxStitchGapKm,
+      hasUnfilledGaps: stitched.hasUnfilledGaps,
     };
   }
 
@@ -1018,6 +1095,11 @@ export class RoutePlansService {
       return {
         path: [] as LatLng[],
         fullPath: [] as LatLng[],
+        trackedSamples: [] as Array<{
+          lat: number;
+          lng: number;
+          clientRecordedAt: Date;
+        }>,
         distanceKm: null as number | null,
         sampleCount: 0,
         coverageRatio: null as number | null,
@@ -1068,6 +1150,7 @@ export class RoutePlansService {
     return {
       path: this.downsamplePath(fullPath),
       fullPath,
+      trackedSamples: filtered,
       distanceKm: this.pathDistanceKm(fullPath),
       sampleCount: filtered.length,
       coverageRatio,
@@ -1136,23 +1219,39 @@ export class RoutePlansService {
       };
     }
 
-    const { degraded, degradedReason } = assessGpsTrackQuality(
+    const { degraded: coverageDegraded, degradedReason: coverageReason } = assessGpsTrackQuality(
       gps.sampleCount,
       gps.coverageRatio,
     );
+    let degraded = coverageDegraded;
+    let degradedReason = coverageReason;
 
     let distanceKm = gps.distanceKm;
     let path = gps.path;
     let source: RouteGeometryResult["source"] = "raw_gps";
+    let maxStitchGapKm: number | null = null;
+    let hasUnfilledGaps = false;
 
     if (!fallbackOnly) {
-      const snapped = await this.snapGpsPathToRoads(gps.fullPath);
+      const snapped = await this.snapGpsPathToRoads(
+        gps.trackedSamples.map((s) => ({
+          lat: s.lat,
+          lng: s.lng,
+          clientRecordedAt: s.clientRecordedAt,
+        })),
+      );
       if (snapped.source !== "none" && snapped.distanceKm != null) {
         distanceKm = snapped.distanceKm;
         if (snapped.path.length >= 2) {
           path = snapped.path;
         }
         source = snapped.source === "osrm" ? "osrm" : "raw_gps";
+      }
+      maxStitchGapKm = snapped.maxStitchGapKm;
+      hasUnfilledGaps = snapped.hasUnfilledGaps;
+      if (hasUnfilledGaps || (maxStitchGapKm != null && maxStitchGapKm > 1)) {
+        degraded = true;
+        degradedReason = "gps_stitch_gaps";
       }
     }
 
@@ -1177,6 +1276,8 @@ export class RoutePlansService {
         hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
         lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
         lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
+        maxStitchGapKm,
+        hasUnfilledGaps,
       },
     };
   }

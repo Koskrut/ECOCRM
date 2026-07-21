@@ -94,8 +94,8 @@ export function DayRouteMapPanel({
     if (!bundle) return [];
     const rows: Array<{ key: RouteLayerKey; label: string; km: number | null; min: number | null; source: string | null }> = [
       { key: "planned", label: "План", km: bundle.planned.distanceKm, min: bundle.planned.durationMin, source: routeSourceLabel(bundle.planned.source) },
-      { key: "fact_gps", label: "Факт (GPS)", km: bundle.factGps.distanceKm, min: bundle.factGps.durationMin, source: routeSourceLabel(bundle.factGps.source) },
-      { key: "fact_visits", label: "Факт (визиты)", km: bundle.factVisits.distanceKm, min: bundle.factVisits.durationMin, source: routeSourceLabel(bundle.factVisits.source) },
+      { key: "fact_gps", label: "Факт (GPS)", km: bundle.factGps.distanceKm, min: bundle.factGps.durationMin, source: routeSourceLabel(bundle.factGps.source, bundle.factGps.quality) },
+      { key: "fact_visits", label: "Факт (візити)", km: bundle.factVisits.distanceKm, min: bundle.factVisits.durationMin, source: routeSourceLabel(bundle.factVisits.source) },
     ];
     return rows;
   }, [bundle]);
@@ -151,22 +151,22 @@ export function DayRouteMapPanel({
               href={`/visits/team?owner=${ownerId}`}
               className="mb-1 inline-block text-xs font-medium text-blue-700 hover:underline"
             >
-              Открыть live-карту команды
+              Відкрити live-карту команди
             </Link>
           ) : null}
           {compareKpi ? (
             <p className="text-xs text-zinc-600">
               План: {compareKpi.plan ?? "—"} км · Факт GPS: {compareKpi.factGps ?? "—"} км · Факт
-              (визиты): {compareKpi.factVisits ?? "—"} км
+              (візити): {compareKpi.factVisits ?? "—"} км
               {compareKpi.deviationPct != null ? (
                 <span className="ml-1 font-medium">
-                  · отклонение {compareKpi.deviationPct > 0 ? "+" : ""}
+                  · відхилення {compareKpi.deviationPct > 0 ? "+" : ""}
                   {compareKpi.deviationPct}%
                 </span>
               ) : null}
             </p>
           ) : !loading ? (
-            <p className="text-xs text-zinc-500">Нет данных маршрута за этот день.</p>
+            <p className="text-xs text-zinc-500">Немає даних маршруту за цей день.</p>
           ) : null}
         </div>
         <RouteLayerControls
@@ -179,11 +179,11 @@ export function DayRouteMapPanel({
       <div className={`overflow-hidden rounded-md border border-zinc-100 ${mapHeightClass}`}>
         {!mapsApiKey ? (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-            Карта недоступна (нет Google Maps API key)
+            Карта недоступна (немає Google Maps API key)
           </div>
         ) : loading ? (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-            Загрузка маршрута…
+            Завантаження маршруту…
           </div>
         ) : (
           <VisitsRouteMap
@@ -217,7 +217,7 @@ export function DayRouteMapPanel({
             <div key={row.key} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs">
               <div className="font-medium text-zinc-700">{row.label}</div>
               <div className="mt-0.5 text-zinc-600">
-                {row.km ?? "—"} км · {row.min != null ? Math.round(row.min) : "—"} мин
+                {row.km ?? "—"} км · {row.min != null ? Math.round(row.min) : "—"} хв
                 {row.source ? <span className="text-zinc-400"> · {row.source}</span> : null}
               </div>
             </div>
@@ -227,22 +227,25 @@ export function DayRouteMapPanel({
 
       {gpsQuality ? (
         <p className="mt-2 text-xs text-zinc-500">
-          GPS: {gpsQuality.sampleCount} точек
+          GPS: {gpsQuality.sampleCount} точок
           {gpsQuality.coverageRatio != null
-            ? ` · покрытие ${Math.round(gpsQuality.coverageRatio * 100)}%`
+            ? ` · покриття ${Math.round(gpsQuality.coverageRatio * 100)}%`
             : ""}
           {bundle?.compensationIneligibleReason === "gps_ended_before_last_visit" ||
           (gpsQuality.lastSampleAt &&
             gpsQuality.lastDoneVisitCompletedAt &&
             new Date(gpsQuality.lastSampleAt).getTime() <
               new Date(gpsQuality.lastDoneVisitCompletedAt).getTime() - 45 * 60_000)
-            ? " · трек оборвался"
-            : gpsQuality.degraded &&
+            ? " · трек обірвався"
+            : gpsQuality.degradedReason === "gps_stitch_gaps" ||
+                gpsQuality.hasUnfilledGaps
+              ? " · GPS із пропусками"
+              : gpsQuality.degraded &&
                 !(gpsQuality.coverageRatio != null && gpsQuality.coverageRatio < 0.7)
-              ? " · слабый сигнал GPS"
+              ? " · слабкий сигнал GPS"
               : ""}
           {bundle?.compensationFactKind
-            ? ` · компенсация: ${bundle.compensationFactKind === "fact_gps" ? "GPS" : "визиты"}`
+            ? ` · компенсація: ${bundle.compensationFactKind === "fact_gps" ? "GPS" : "візити"}`
             : ""}
         </p>
       ) : null}

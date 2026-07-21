@@ -112,7 +112,7 @@ export function CatalogProductCard({
             onClick={onToggleExpand}
             className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100"
             aria-expanded={expanded}
-            aria-label={expanded ? "Скрыть характеристики" : "Показать характеристики"}
+            aria-label={expanded ? "Сховати характеристики" : "Показати характеристики"}
           >
             <svg
               className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`}

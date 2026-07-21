@@ -981,7 +981,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               </p>
             </div>
             <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-600">
-              {visitReadyAddresses.length > 0 ? "Координаты готовы" : "Нужно добавить адрес"}
+              {visitReadyAddresses.length > 0 ? "Координати готові" : "Потрібно додати адресу"}
             </div>
           </div>
           <div className="mt-4">
@@ -1006,7 +1006,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                 onChange={(e) => setVisitPurpose(e.target.value)}
                 rows={3}
                 disabled={saving || planningVisit}
-                placeholder="Например: презентация, переговоры, согласование оплаты"
+                placeholder="Наприклад: презентація, переговори, узгодження оплати"
                 className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </label>
@@ -1062,7 +1062,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   : "Добавить в backlog"}
             </button>
             <p className="text-xs text-zinc-500">
-              Если дату не указывать, встреча создастся без времени и появится в backlog визитов.
+              Якщо дату не вказувати, зустріч створиться без часу і зʼявиться в backlog візитів.
             </p>
           </div>
         </div>
@@ -1234,7 +1234,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   }
                   className="rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50"
                 >
-                  {linkContactOpen ? "Cancel" : "Link contact"}
+                  {linkContactOpen ? "Скасувати" : "Привʼязати контакт"}
                 </button>
               }
             >

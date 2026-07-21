@@ -17,9 +17,9 @@ export type OutcomeFilter = "all" | "success" | "follow_up" | "problem";
 export type OutcomeMeta = { label: string; badgeClass: string };
 
 const OUTCOME_META: Record<string, OutcomeMeta> = {
-  SUCCESS: { label: "Успешно", badgeClass: "bg-emerald-100 text-emerald-800" },
-  FOLLOW_UP: { label: "Повторный контакт", badgeClass: "bg-amber-100 text-amber-800" },
-  NO_DECISION: { label: "Без решения", badgeClass: "bg-zinc-100 text-zinc-700" },
+  SUCCESS: { label: "Успішно", badgeClass: "bg-emerald-100 text-emerald-800" },
+  FOLLOW_UP: { label: "Повторний контакт", badgeClass: "bg-amber-100 text-amber-800" },
+  NO_DECISION: { label: "Без рішення", badgeClass: "bg-zinc-100 text-zinc-700" },
   NOT_RELEVANT: { label: "Не релевантно", badgeClass: "bg-zinc-100 text-zinc-600" },
   FAILED: { label: "Провалено", badgeClass: "bg-red-100 text-red-800" },
 };
@@ -37,7 +37,7 @@ export function visitDisplayTitle(v: VisitHistoryItem): string {
     if (name) return name;
   }
   if (v.addressText?.trim()) return v.addressText.trim();
-  return "Визит";
+  return "Візит";
 }
 
 export function visitSubtitle(v: VisitHistoryItem): string | null {

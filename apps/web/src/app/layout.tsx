@@ -23,7 +23,7 @@ const bodyBg = "#f4f4f5"; // zinc-50, чтобы не было белого ме
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" style={{ backgroundColor: bodyBg }}>
+    <html lang="uk" style={{ backgroundColor: bodyBg }}>
       <body
         className={`${plusJakarta.className} min-h-screen bg-zinc-50 text-zinc-900 antialiased`}
         style={{ backgroundColor: bodyBg }}

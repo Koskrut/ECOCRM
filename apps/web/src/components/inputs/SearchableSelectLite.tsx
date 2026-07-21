@@ -123,7 +123,7 @@ export function SearchableSelectLite({
         )}
       >
         <span className={cx(isInline ? "" : "truncate", selected && !isInline && "text-zinc-900")}>
-          {isLoading && !selected ? "Loading…" : selected ? selected.label : placeholder ?? "Select…"}
+          {isLoading && !selected ? "Завантаження…" : selected ? selected.label : placeholder ?? "Оберіть…"}
         </span>
         {!isInline && <span className="ml-3 text-xs text-zinc-400">▾</span>}
       </button>
@@ -139,7 +139,7 @@ export function SearchableSelectLite({
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={isLoading ? "Loading…" : searchPlaceholder ?? "Search…"}
+            placeholder={isLoading ? "Завантаження…" : searchPlaceholder ?? "Пошук…"}
             className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
           />
         </div>

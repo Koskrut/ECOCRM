@@ -167,7 +167,7 @@ export function ReceivablesPageContent() {
       .then((res) => {
         const list = res.data?.items ?? [];
         const options = list
-          .filter((u) => u.role === "MANAGER" || (role === "LEAD" && u.id === meId))
+          .filter((u) => u.role === "MANAGER" || u.role === "LEAD")
           .map((u) => ({
             id: u.id,
             fullName:

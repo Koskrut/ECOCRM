@@ -31,8 +31,8 @@ function formatTaskDue(dueAt: string | null | undefined): string {
   const dDay = d.toISODate();
   const today = now.toISODate();
   const tomorrow = now.plus({ days: 1 }).toISODate();
-  if (dDay === today) return "Today";
-  if (dDay === tomorrow) return "Tomorrow";
+  if (dDay === today) return "Сьогодні";
+  if (dDay === tomorrow) return "Завтра";
   return d.setLocale(CRM_LOCALE).toLocaleString({ day: "numeric", month: "short" });
 }
 
@@ -61,7 +61,7 @@ export function DashboardMyWorkSection({
     <section className="min-w-0 space-y-4">
       <div>
         <h2 className="text-lg font-semibold text-zinc-900">Мій день</h2>
-        <p className="mt-1 text-sm text-zinc-500">План, agenda та найближчі задачі.</p>
+        <p className="mt-1 text-sm text-zinc-500">План, порядок дня та найближчі задачі.</p>
       </div>
 
       <DayPlanWidget
@@ -78,7 +78,7 @@ export function DashboardMyWorkSection({
         onCompose={() => onMorningOpenChange(true)}
       />
 
-      {myWork.agenda && morningOpen && userRole === "MANAGER" ? (
+      {myWork.agenda && morningOpen ? (
         <MorningPlanModal
           open={morningOpen}
           agenda={myWork.agenda}

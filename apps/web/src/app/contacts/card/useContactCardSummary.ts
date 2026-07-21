@@ -54,7 +54,7 @@ export function useContactCardSummary(contactId: string, enabled: boolean) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load card summary");
+        (e instanceof Error ? e.message : "Не вдалося завантажити підсумок картки");
       setError(msg);
       setData(null);
     } finally {

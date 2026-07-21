@@ -44,7 +44,7 @@ function warningText(code: string): string | null {
   if (code.startsWith("visit_gps_review:")) return "Було попередження GPS — керівник може уточнити.";
   if (code === "metrics_unavailable") return "Не вдалося порахувати маршрут.";
   if (code === "route_anchors_not_configured") {
-    return "Старт/фініш не задані в профілі (Сотрудники → Маршрут визитов). Пробіг рахується між першим і останнім візитом.";
+    return "Старт/фініш не задані в профілі (Сотрудники → Маршрут візитів). Пробіг рахується між першим і останнім візитом.";
   }
   if (code === "gps_track_degraded") {
     return "GPS-трек слабкий — для виплати використано факт по завершених візитах.";
@@ -348,7 +348,7 @@ function DayDetailPanel({
                   (data.routeAnchors.hasExplicitEnd ? "Фініш" : data.routeAnchors.startLabel || "Старт")}
               </span>
               {" "}
-              (точки з профиля сотрудника)
+              (точки з профілю співробітника)
             </p>
           ) : null}
 

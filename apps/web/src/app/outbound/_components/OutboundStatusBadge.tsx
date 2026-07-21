@@ -21,7 +21,7 @@ const STATUS_MAP: Record<
     label: "No answer",
     className: "bg-zinc-100 text-zinc-600 border-zinc-200",
   },
-  CANCELED: { label: "Canceled", className: "bg-zinc-100 text-zinc-500 border-zinc-200" },
+  CANCELED: { label: "Скасовано", className: "bg-zinc-100 text-zinc-500 border-zinc-200" },
 };
 
 export function OutboundStatusBadge({ status }: { status: OutboundAttemptStatus | string }) {

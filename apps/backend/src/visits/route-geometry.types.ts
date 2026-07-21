@@ -19,6 +19,10 @@ export type RouteGeometryQuality = {
   lastSampleAt?: string | null;
   /** Last DONE visit completedAt that day (ISO). */
   lastDoneVisitCompletedAt?: string | null;
+  /** Largest straight segment left after stitch gap-fill (km). */
+  maxStitchGapKm?: number | null;
+  /** True when a straight gap > 1 km remains after OSRM stitch attempts. */
+  hasUnfilledGaps?: boolean;
 };
 
 export type RouteGeometryWaypoint = LatLng & {

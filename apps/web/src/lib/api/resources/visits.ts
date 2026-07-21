@@ -126,6 +126,8 @@ export type RouteGeometryLayer = {
     degradedReason?: string | null;
     lastSampleAt?: string | null;
     lastDoneVisitCompletedAt?: string | null;
+    maxStitchGapKm?: number | null;
+    hasUnfilledGaps?: boolean;
   };
 };
 
@@ -139,6 +141,8 @@ export type RouteGeometryResult = RouteGeometryLayer & {
     degradedReason: string | null;
     lastSampleAt?: string | null;
     lastDoneVisitCompletedAt?: string | null;
+    maxStitchGapKm?: number | null;
+    hasUnfilledGaps?: boolean;
   };
 };
 

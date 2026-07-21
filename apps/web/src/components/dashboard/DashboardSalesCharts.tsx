@@ -28,20 +28,20 @@ const CHART_COLORS = [
 ];
 
 const LEAD_STATUS_LABELS: Record<string, string> = {
-  NEW: "New",
-  IN_PROGRESS: "In progress",
-  WON: "Won",
-  NOT_TARGET: "Not target",
-  LOST: "Lost",
-  SPAM: "Spam",
+  NEW: "Нові",
+  IN_PROGRESS: "В роботі",
+  WON: "Успішні",
+  NOT_TARGET: "Не цільові",
+  LOST: "Програні",
+  SPAM: "Спам",
 };
 
 const LEAD_SOURCE_LABELS: Record<string, string> = {
   FACEBOOK: "Facebook",
   TELEGRAM: "Telegram",
   INSTAGRAM: "Instagram",
-  WEBSITE: "Website",
-  OTHER: "Other",
+  WEBSITE: "Сайт",
+  OTHER: "Інше",
 };
 
 type Props = {
@@ -71,8 +71,8 @@ export function DashboardSalesCharts({ charts, currency }: Props) {
       </div>
       <OrdersByStageBarChart rows={charts.ordersByStage} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <PieCard title="Leads by status" data={leadsByStatus} />
-        <PieCard title="Leads by source" data={leadsBySource} />
+        <PieCard title="Ліди за статусом" data={leadsByStatus} />
+        <PieCard title="Ліди за джерелом" data={leadsBySource} />
       </div>
     </section>
   );
@@ -107,7 +107,7 @@ function PieCard({ title, data }: { title: string; data: { name: string; value: 
           </ResponsiveContainer>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-zinc-400">
-            No data for period
+            Немає даних за період
           </div>
         )}
       </div>

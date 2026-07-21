@@ -51,7 +51,7 @@ export function useContactCardAnalytics(
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load contact analytics");
+        (e instanceof Error ? e.message : "Не вдалося завантажити аналітику контакту");
       setError(msg);
       setData(null);
     } finally {

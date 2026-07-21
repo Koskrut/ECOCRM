@@ -41,7 +41,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
       const rows = await listWarehouses();
       setItems(rows);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить склады");
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити склади");
     } finally {
       setLoading(false);
     }
@@ -153,7 +153,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900">Склады</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Склади</h2>
             <p className="mt-1 text-sm text-zinc-600">
               Порядок влияет на колонки каталога и склад по умолчанию в заказах. Импорт Excel
               ищет колонки по названию склада.
@@ -163,7 +163,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
             type="button"
             onClick={onClose}
             className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100"
-            aria-label="Закрыть"
+            aria-label="Закрити"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -259,7 +259,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
                         <div className="flex flex-wrap items-center gap-1">
                           <button
                             type="button"
-                            title="Выше"
+                            title="Вище"
                             onClick={() => void moveSortOrder(wh, -1)}
                             className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs hover:bg-zinc-50"
                           >
@@ -335,7 +335,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
             onClick={onClose}
             className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Закрыть
+            Закрити
           </button>
         </div>
       </div>

@@ -93,7 +93,7 @@ export default function VisitsTeamPage() {
       setItems(team.items);
       setPendingFuel(pending.items ?? []);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load team");
+      setErr(e instanceof Error ? e.message : "Не вдалося завантажити команду");
       setItems([]);
     } finally {
       setLoading(false);

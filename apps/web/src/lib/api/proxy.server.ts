@@ -11,7 +11,12 @@ function joinUrl(base: string, path: string) {
   return `${b}${p}`;
 }
 
-async function getAuthHeaders() {
+/** Prefer Authorization from the client (mobile Bearer); fall back to web cookie. */
+async function getAuthHeaders(req: NextRequest) {
+  const incoming = req.headers.get("authorization");
+  if (incoming && incoming.trim()) {
+    return { Authorization: incoming.trim() };
+  }
   const store = await cookies();
   const token = store.get("token")?.value;
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -24,7 +29,7 @@ export async function proxyToBackend(req: NextRequest, backendPath: string) {
   const target = new URL(joinUrl(API_URL, backendPath));
   target.search = url.search;
 
-  const auth = await getAuthHeaders();
+  const auth = await getAuthHeaders(req);
 
   const headers = new Headers(req.headers);
   stripProxyRequestHeaders(headers);

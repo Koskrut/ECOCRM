@@ -11,7 +11,7 @@ import {
   clearApiBaseUrl,
   getCachedApiBaseUrl,
   hydrateApiBaseUrl,
-  probeApiBaseUrl,
+  resolveApiBaseUrl,
   setApiBaseUrl,
 } from "@/lib/config";
 
@@ -33,7 +33,21 @@ export function ServerConfigProvider({ children }: { children: React.ReactNode }
     let cancelled = false;
     void (async () => {
       try {
-        const url = await hydrateApiBaseUrl();
+        let url = await hydrateApiBaseUrl();
+        // Migrate web CRM roots saved without `/api` (e.g. https://crm.example.com → …/api).
+        if (url) {
+          try {
+            const path = new URL(url).pathname.replace(/\/+$/, "");
+            if (!path) {
+              const resolved = await resolveApiBaseUrl(url);
+              if (resolved !== url) {
+                url = await setApiBaseUrl(resolved);
+              }
+            }
+          } catch {
+            /* keep stored URL; login/setup will surface errors */
+          }
+        }
         if (!cancelled) {
           setApiUrl(url ?? getCachedApiBaseUrl());
         }
@@ -49,8 +63,8 @@ export function ServerConfigProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const setServerUrl = useCallback(async (url: string) => {
-    await probeApiBaseUrl(url);
-    const normalized = await setApiBaseUrl(url);
+    const resolved = await resolveApiBaseUrl(url);
+    const normalized = await setApiBaseUrl(resolved);
     setApiUrl(normalized);
     return normalized;
   }, []);

@@ -111,8 +111,9 @@ export const TRACK_END_GRACE_MIN = 45;
  * If snapped GPS km is below this fraction of the visits route (with enough
  * visit km), treat the track as truncated/broken match → pay by visits.
  * Guards against OSRM /match returning only the first gap segment.
+ * Visit route includes return anchor, so real GPS is often ~50–65% of visit km.
  */
-export const TRACK_VS_VISITS_SANITY_RATIO = 0.35;
+export const TRACK_VS_VISITS_SANITY_RATIO = 0.55;
 
 /** Minimum visit-route km before the track-vs-visits sanity check applies. */
 export const MIN_VISIT_ROUTE_KM_FOR_SANITY = 2;

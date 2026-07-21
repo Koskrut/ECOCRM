@@ -221,7 +221,7 @@ function EditProductModal({
       onSaved();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : "Не вдалося зберегти");
     } finally {
       setSaving(false);
     }
@@ -240,7 +240,7 @@ function EditProductModal({
             type="button"
             onClick={onClose}
             className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-            aria-label="Закрыть"
+            aria-label="Закрити"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -323,7 +323,7 @@ function EditProductModal({
               onChange={(e) => setShowOnStore(e.target.checked)}
               className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
             />
-            Показывать на сайте
+            Показувати на сайті
           </label>
           <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
             <input
@@ -386,7 +386,7 @@ function ActivateProductButton({
       onClick={handleActivate}
       disabled={activating}
       className="ml-2 rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-      title="Сделать активным"
+      title="Зробити активним"
     >
       {activating ? "…" : "Активировать"}
     </button>
@@ -428,7 +428,7 @@ function ProductImagesModal({
             type="button"
             onClick={onClose}
             className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-            aria-label="Закрыть"
+            aria-label="Закрити"
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -469,7 +469,7 @@ function ProductImagesModal({
                           }
                         }}
                         className="shrink-0 rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                        title="Сделать главным"
+                        title="Зробити головним"
                       >
                         {settingPrimaryId === img.id ? "…" : "Главное"}
                       </button>
@@ -566,7 +566,7 @@ function SyncImagesModal({
           Синхронизация фото из Google Drive
         </h2>
         <p className="mb-4 text-sm text-zinc-600">
-          Файлы из папки сопоставляются с товарами по артикулу в имени файла.
+          Файли з папки зіставляються з товарами за артикулом у імені файлу.
           Настройте папку и service account в{" "}
           <a href="/settings/google-sheet" className="font-medium text-zinc-900 underline">
             Настройки → Google-таблиця
@@ -605,7 +605,7 @@ function SyncImagesModal({
         {result && !running && (
           <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm">
             <p className="font-medium text-zinc-900">
-              В папке Drive объектов: {result.driveItemsTotal}
+              У папці Drive обʼєктів: {result.driveItemsTotal}
             </p>
             {(result.skippedFolders > 0 || result.skippedNonImage > 0) && (
               <p className="mt-1 text-zinc-600">
@@ -639,18 +639,18 @@ function SyncImagesModal({
             )}
             {result.unmatchedNoArticleExamples.length > 0 && (
               <p className="mt-2 text-zinc-600">
-                Нет артикула в имени (примеры):{" "}
+                Немає артикулу в імені (приклади):{" "}
                 {result.unmatchedNoArticleExamples.slice(0, 5).join(", ")}
                 {result.unmatchedNoArticleExamples.length > 5 &&
-                  ` и ещё ${result.unmatchedNoArticleExamples.length - 5}`}
+                  ` і ще ${result.unmatchedNoArticleExamples.length - 5}`}
               </p>
             )}
             {result.unmatchedNoProductExamples.length > 0 && (
               <p className="mt-2 text-zinc-600">
-                Артикул распознан, товара в каталоге нет (примеры):{" "}
+                Артикул розпізнано, товару в каталозі немає (приклади):{" "}
                 {result.unmatchedNoProductExamples.slice(0, 5).join(", ")}
                 {result.unmatchedNoProductExamples.length > 5 &&
-                  ` и ещё ${result.unmatchedNoProductExamples.length - 5}`}
+                  ` і ще ${result.unmatchedNoProductExamples.length - 5}`}
               </p>
             )}
           </div>
@@ -676,7 +676,7 @@ function SyncImagesModal({
             }}
             className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Закрыть
+            Закрити
           </button>
         </div>
       </div>
@@ -725,7 +725,7 @@ function StockImportMissingProductsBlock({
       <p className="mt-1 text-amber-800">
         {preview.map((p) => (p.name ? `${label(p)} (${p.name})` : label(p))).join(", ")}
         {missingProducts.length > preview.length
-          ? ` и ещё ${missingProducts.length - preview.length}`
+          ? ` і ще ${missingProducts.length - preview.length}`
           : ""}
       </p>
       {done ? (
@@ -734,7 +734,7 @@ function StockImportMissingProductsBlock({
           {done.updated > 0 ? `, обновлено: ${done.updated}` : ""}
           {done.failed.length > 0
             ? `. Не удалось: ${done.failed.slice(0, 5).join(", ")}${
-                done.failed.length > 5 ? ` и ещё ${done.failed.length - 5}` : ""
+                done.failed.length > 5 ? ` і ще ${done.failed.length - 5}` : ""
               }`
             : ""}
         </p>
@@ -784,7 +784,7 @@ function StockUploadModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setError("Выберите файл");
+      setError("Оберіть файл");
       return;
     }
     setError(null);
@@ -835,9 +835,9 @@ function StockUploadModal({
               </p>
               {result.notFound.length > 0 && !result.missingProducts?.length && (
                 <p className="mt-1 text-zinc-600">
-                  Не найдены артикулы: {result.notFound.slice(0, 10).join(", ")}
+                  Не знайдено артикули: {result.notFound.slice(0, 10).join(", ")}
                   {result.notFound.length > 10
-                    ? ` и ещё ${result.notFound.length - 10}`
+                    ? ` і ще ${result.notFound.length - 10}`
                     : ""}
                 </p>
               )}
@@ -865,7 +865,7 @@ function StockUploadModal({
             }}
             className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
-            Закрыть
+            Закрити
           </button>
         </div>
       </form>
@@ -903,7 +903,7 @@ function StockUploadByWarehousesModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setError("Выберите файл");
+      setError("Оберіть файл");
       return;
     }
     setError(null);
@@ -945,7 +945,7 @@ function StockUploadByWarehousesModal({
                 ))}
             </>
           ) : (
-            " (добавьте склады в настройках каталога)"
+            " (додайте склади в налаштуваннях каталогу)"
           )}{" "}
           (допускаются заголовки вида «Остаток Днепр»).
         </p>
@@ -969,10 +969,10 @@ function StockUploadByWarehousesModal({
               </p>
               {result.notFound.length > 0 && !result.missingProducts?.length && (
                 <p className="mt-1 text-zinc-600">
-                  Не найдены артикулы:{" "}
+                  Не знайдено артикули:{" "}
                   {(result.unresolvedSkus ?? result.notFound).slice(0, 10).join(", ")}
                   {(result.unresolvedSkus ?? result.notFound).length > 10
-                    ? ` и ещё ${(result.unresolvedSkus ?? result.notFound).length - 10}`
+                    ? ` і ще ${(result.unresolvedSkus ?? result.notFound).length - 10}`
                     : ""}
                 </p>
               )}
@@ -989,18 +989,18 @@ function StockUploadByWarehousesModal({
                     .slice(0, 8)
                     .map((r) => `${r.fileSku} → ${r.dbSku}`)
                     .join(", ")}
-                  {result.resolved.length > 8 ? ` и ещё ${result.resolved.length - 8}` : ""}
+                  {result.resolved.length > 8 ? ` і ще ${result.resolved.length - 8}` : ""}
                 </p>
               )}
               {result.skuCorrections && result.skuCorrections.length > 0 && !result.resolved?.length && (
                 <p className="mt-2 text-zinc-700">
-                  Сопоставлены артикулы из файла:{" "}
+                  Зіставлено артикули з файлу:{" "}
                   {result.skuCorrections
                     .slice(0, 8)
                     .map((c) => `${c.fileSku} → ${c.dbSku}`)
                     .join(", ")}
                   {result.skuCorrections.length > 8
-                    ? ` и ещё ${result.skuCorrections.length - 8}`
+                    ? ` і ще ${result.skuCorrections.length - 8}`
                     : ""}
                 </p>
               )}
@@ -1033,7 +1033,7 @@ function StockUploadByWarehousesModal({
               }}
               className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
-              Закрыть
+              Закрити
             </button>
           </div>
         </form>
@@ -1081,7 +1081,7 @@ function AddProductModal({
     }
     const priceNum = basePrice.trim() === "" ? 0 : Number(basePrice);
     if (Number.isNaN(priceNum) || priceNum < 0) {
-      setError("Цена должна быть неотрицательным числом");
+      setError("Ціна має бути невідʼємним числом");
       return;
     }
     setError(null);
@@ -1172,7 +1172,7 @@ function AddProductModal({
               onChange={(e) => setShowOnStore(e.target.checked)}
               className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
             />
-            <span className="text-sm text-zinc-700">Показывать на сайте</span>
+            <span className="text-sm text-zinc-700">Показувати на сайті</span>
           </label>
           {error && (
             <p className="text-sm text-red-600" role="alert">
@@ -1383,7 +1383,7 @@ function CatalogPageContent() {
         onClick={() => setWarehousesModalOpen(true)}
         className={catalogActionBtn}
       >
-        Склады
+        Склади
       </button>
       <button type="button" onClick={() => setSyncImagesModalOpen(true)} className={catalogActionBtn}>
         Синхронизация фото
@@ -1573,7 +1573,7 @@ function CatalogPageContent() {
                                   checked={p.showOnStore ?? true}
                                   onChange={(e) => void handleShowOnStoreChange(p.id, e.target.checked)}
                                   className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
-                                  title={p.showOnStore ?? true ? "Скрыть с сайта" : "Показать на сайте"}
+                                  title={p.showOnStore ?? true ? "Сховати з сайту" : "Показати на сайті"}
                                 />
                                 <span className="sr-only">Отображать на сайте</span>
                               </label>

@@ -57,15 +57,15 @@ export function DashboardQualityPanel({ quality }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <QualityStat title="Візити DONE" value={quality.visits.totalDone} />
+        <QualityStat title="Завершені візити" value={quality.visits.totalDone} />
         <QualityStat
-          title="Без result note"
+          title="Без нотатки результату"
           value={quality.visits.withoutResultNote}
           risk={quality.visits.withoutResultNote > 0}
         />
         <QualityStat title="З follow-up" value={quality.visits.withFollowUp} />
-        <QualityStat title="GPS start ✓" value={quality.visits.gpsVerifiedStart} />
-        <QualityStat title="GPS complete ✓" value={quality.visits.gpsVerifiedComplete} />
+        <QualityStat title="GPS на старті ✓" value={quality.visits.gpsVerifiedStart} />
+        <QualityStat title="GPS на завершенні ✓" value={quality.visits.gpsVerifiedComplete} />
         <QualityStat
           title="Простроч. follow-up"
           value={quality.overdueFollowUps}

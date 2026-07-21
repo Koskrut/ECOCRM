@@ -154,15 +154,15 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Фінанси — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          <strong>Collected</strong> — період (COMPLETED, paidAt).{" "}
+          <strong>Зібрано</strong> — період (COMPLETED, paidAt).{" "}
           <strong>Борг / прострочення</strong> — замовлення з{" "}
           <code className="rounded bg-zinc-100 px-1">createdAt</code> у вибраному періоді; дельта
-          «vs попередній» лише для збору платежів. Booked revenue тут не показуємо.
+          «vs попередній» лише для збору платежів. Заброньований дохід тут не показуємо.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
             variant="money"
-            title="Collected payments"
+            title="Зібрані оплати"
             subtitle={`COMPLETED → ${currency}, paidAt у періоді`}
             tooltip="Та сама семантика, що Overview / Sales collected."
             value={formatMoneyBase(kpi?.collectedPayments, currency)}
@@ -186,7 +186,7 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="money"
             title="Avg payment size"
-            subtitle={`Collected / count (${currency})`}
+            subtitle={`Зібрано / кількість (${currency})`}
             value={formatMoneyBaseFine(kpi?.avgPayment, currency)}
             deltaLabel={
               filters.comparePrev
@@ -196,7 +196,7 @@ export default function AnalyticsFinancePage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Debt total"
+            title="Борг загалом"
             subtitle="Сума debtAmount, замовлення за період (createdAt)"
             tooltip="У межах обраного діапазону дат і scope."
             value={formatMoneyBase(kpi?.debtTotal, currency)}
@@ -204,7 +204,7 @@ export default function AnalyticsFinancePage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Overdue debt"
+            title="Прострочений борг"
             subtitle="OVERDUE + debt за той самий когортний період"
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
@@ -213,7 +213,7 @@ export default function AnalyticsFinancePage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Overdue orders"
+            title="Прострочені замовлення"
             subtitle="Замовлень з боргом і OVERDUE"
             value={formatNumber(kpi?.overdueOrdersCount)}
             deltaLabel={null}

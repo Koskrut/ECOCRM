@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.114**.)_
+_(планируемые изменения после **0.2.115**.)_
+
+## [0.2.115] — 2026-07-21
+
+### Summary
+
+Патч **0.2.115**: GPS track snap по time-gap + stitch OSRM; dashboard leadership tabs/hero KPIs; mobile API URL probe; Bearer auth для native; web i18n/UX polish.
+
+### Added
+
+- **GPS track snap**: `gps-track-snap.util` — split samples по 30 min gap, stitch straight gaps через OSRM route legs; segment-aware `/match`.
+- **Dashboard leadership**: tabs Today / Team / Sales, **DashboardHeroKpis**, **DashboardQualityFlags**, **DashboardTabBar**.
+- **Mobile auth/API**: BFF **`GET /api/system/version`**; login возвращает `token`/`user`; `/auth/me` принимает **Bearer**; `resolveApiBaseUrl` с fallback `/api`.
+
+### Changed
+
+- **Field shifts**: sort GPS samples on append; Kyiv day для shift date; time-aware road snap.
+- **Web**: i18n dashboard/visits/contacts; proxy tweaks; route map layer labels; timeline polish.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.115`**.
+- **Новых миграций нет.**
 
 ## [0.2.114] — 2026-07-20
 

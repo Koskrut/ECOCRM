@@ -22,3 +22,21 @@ export function normalizeApiBaseUrl(input: string): string {
   const path = parsed.pathname.replace(/\/+$/, "");
   return `${parsed.protocol}//${parsed.host}${path === "/" ? "" : path}`;
 }
+
+/**
+ * Candidate bases to try when the user pastes a web CRM host (no path)
+ * vs a direct API host / already-suffixed `/api` BFF URL.
+ */
+export function apiBaseUrlCandidates(normalized: string): string[] {
+  const out = [normalized];
+  try {
+    const u = new URL(normalized);
+    const path = u.pathname.replace(/\/+$/, "") || "";
+    if (!path) {
+      out.push(`${normalized}/api`);
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
+}

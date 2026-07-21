@@ -39,7 +39,7 @@ export function DashboardExecutiveKpis({
         <div>
           <h2 className="text-lg font-semibold text-zinc-900">Ключові показники</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Booked revenue та collected payments — різні метрики. Порівняння — лише коли увімкнено.
+            Заброньований дохід і зібрані оплати — різні метрики. Порівняння — лише коли увімкнено.
           </p>
         </div>
         {showAnalyticsLink ? (
@@ -54,7 +54,7 @@ export function DashboardExecutiveKpis({
       <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiDeltaCard
           variant="money"
-          title="Booked revenue"
+          title="Заброньований дохід"
           subtitle="Замовлення за період (createdAt)"
           value={formatMoneyBase(kpi.bookedRevenue, currency)}
           deltaLabel={
@@ -63,7 +63,7 @@ export function DashboardExecutiveKpis({
         />
         <KpiDeltaCard
           variant="money"
-          title="Collected payments"
+          title="Зібрані оплати"
           subtitle="Оплати за період (paidAt)"
           value={formatMoneyBase(kpi.collectedPayments, currency)}
           deltaLabel={
@@ -72,35 +72,35 @@ export function DashboardExecutiveKpis({
         />
         <KpiDeltaCard
           variant="count"
-          title="Orders"
+          title="Замовлення"
           subtitle="Кількість замовлень"
           value={formatNumber(kpi.ordersCount)}
           deltaLabel={compareEnabled ? deltaCountLine(kpi.ordersCount, cmp?.ordersCount) : null}
         />
         <KpiDeltaCard
           variant="money"
-          title="Avg check"
-          subtitle="Booked / orders"
+          title="Середній чек"
+          subtitle="Дохід / замовлення"
           value={formatMoneyBaseFine(kpi.avgCheck, currency)}
           deltaLabel={compareEnabled ? deltaMoneyLineFine(kpi.avgCheck, cmp?.avgCheck) : null}
         />
         <KpiDeltaCard
           variant="risk"
-          title="Debt total"
+          title="Борг загалом"
           subtitle="Сума боргу за період"
           value={formatMoneyBase(kpi.debtTotal, currency)}
           deltaLabel={null}
         />
         <KpiDeltaCard
           variant="risk"
-          title="Overdue debt"
-          subtitle="OVERDUE + debt"
+          title="Прострочений борг"
+          subtitle="Прострочені з боргом"
           value={formatMoneyBase(kpi.overdueDebt, currency)}
           deltaLabel={null}
         />
         <KpiDeltaCard
           variant="count"
-          title="Leads created"
+          title="Створені ліди"
           subtitle="Нові ліди за період"
           value={formatNumber(kpi.leadsCreatedCount)}
           deltaLabel={
@@ -111,8 +111,8 @@ export function DashboardExecutiveKpis({
         />
         <KpiDeltaCard
           variant="percent"
-          title="WON share (proxy)"
-          subtitle="WON / створені ліди"
+          title="Частка успішних (proxy)"
+          subtitle="Успішні / створені ліди"
           value={formatPercent(kpi.leadConversionProxy)}
           deltaLabel={
             compareEnabled

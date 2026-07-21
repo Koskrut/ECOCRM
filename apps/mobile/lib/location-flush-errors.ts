@@ -27,3 +27,23 @@ export function classifyFlushHttpStatus(status: number): FlushErrorAction {
 export function classifyFlushThrownError(): FlushErrorAction {
   return "enqueue_offline";
 }
+
+export type ShiftSamplesBatchJob = {
+  kind: string;
+  payload: Record<string, unknown>;
+  lastError?: string | null;
+};
+
+/** Rewrite dead shiftId after 400, or return null to discard the job. */
+export function retargetShiftSamplesBatchJob<T extends ShiftSamplesBatchJob>(
+  job: T,
+  activeShiftId: string | null,
+): T | null {
+  if (job.kind !== "shiftSamplesBatch") return job;
+  if (!activeShiftId) return null;
+  return {
+    ...job,
+    payload: { ...job.payload, shiftId: activeShiftId },
+    lastError: "retargeted shiftId after 400",
+  };
+}

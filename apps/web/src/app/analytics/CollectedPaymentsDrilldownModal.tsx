@@ -118,7 +118,7 @@ export function CollectedPaymentsDrilldownModal({
                 </span>
                 {kpiCollectedAmount != null && (
                   <span>
-                    KPI на Overview: <strong>{formatMoneyBase(kpiCollectedAmount, currency)}</strong>
+                    KPI на огляді: <strong>{formatMoneyBase(kpiCollectedAmount, currency)}</strong>
                   </span>
                 )}
                 {diff != null && Math.abs(diff) > 0.01 && (

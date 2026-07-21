@@ -347,7 +347,7 @@ export default function AttemptsPage() {
         if (!silent) {
           setError(
             (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-              (e instanceof Error ? e.message : "Failed to load attempts"),
+              (e instanceof Error ? e.message : "Не вдалося завантажити спроби"),
           );
         }
       } finally {
@@ -393,7 +393,7 @@ export default function AttemptsPage() {
 
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm text-zinc-500">
-          {loading ? "Loading…" : `${total} attempt${total !== 1 ? "s" : ""}`}
+          {loading ? "Завантаження…" : `${total} спроб`}
           {lastRefreshed && !loading && (
             <span className="ml-2 text-xs text-zinc-400">
               · updated {lastRefreshed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}

@@ -82,7 +82,7 @@ export function useCanonicalTimeline({
         if (axios.isCancel(e)) return;
         if (myId !== generationRef.current) return;
         setItems([]);
-        setError(e instanceof Error ? e.message : "Failed to load timeline");
+        setError(e instanceof Error ? e.message : "Не вдалося завантажити стрічку");
       } finally {
         if (myId === generationRef.current) setLoading(false);
       }
@@ -122,7 +122,7 @@ export function useCanonicalTimeline({
       });
       setNextCursor(res.data?.nextCursor ?? null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load more");
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити ще");
     } finally {
       setLoadingMore(false);
     }

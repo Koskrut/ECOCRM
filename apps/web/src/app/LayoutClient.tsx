@@ -10,9 +10,9 @@ type LayoutClientProps = {
 };
 
 const getPageTitle = (pathname: string): string => {
-  if (pathname.startsWith("/orders")) return "Orders";
-  if (pathname.startsWith("/companies")) return "Companies";
-  if (pathname.startsWith("/contacts")) return "Contacts";
+  if (pathname.startsWith("/orders")) return "Замовлення";
+  if (pathname.startsWith("/companies")) return "Компанії";
+  if (pathname.startsWith("/contacts")) return "Контакти";
   return "CRM";
 };
 

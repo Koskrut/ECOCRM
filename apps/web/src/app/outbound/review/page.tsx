@@ -101,7 +101,7 @@ export default function ReviewPage() {
         if (!silent) {
           setError(
             (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-              (e instanceof Error ? e.message : "Failed to load review items"),
+              (e instanceof Error ? e.message : "Не вдалося завантажити елементи на перевірку"),
           );
         }
       } finally {
@@ -132,7 +132,7 @@ export default function ReviewPage() {
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-500">
-          {loading ? "Loading…" : `${total} item${total !== 1 ? "s" : ""} need review`}
+          {loading ? "Завантаження…" : `${total} елементів потребують перевірки`}
           {lastRefreshed && !loading && (
             <span className="ml-2 text-xs text-zinc-400">
               · {lastRefreshed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}

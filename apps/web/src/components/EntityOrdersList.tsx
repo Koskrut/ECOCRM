@@ -81,7 +81,7 @@ export function EntityOrdersList({
       setItems(list);
     } catch (e) {
       setItems([]);
-      setErr(getErrMsg(e, "Failed to load orders"));
+      setErr(getErrMsg(e, "Не вдалося завантажити замовлення"));
     } finally {
       setLoading(false);
     }

@@ -2,8 +2,14 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { API_URL } from "@/lib/api/config";
 
-export async function GET() {
-  const token = (await cookies()).get("token")?.value;
+export async function GET(req: Request) {
+  const header = req.headers.get("authorization");
+  const bearer =
+    typeof header === "string" && /^Bearer\s+/i.test(header)
+      ? header.replace(/^Bearer\s+/i, "").trim()
+      : "";
+  const cookieToken = (await cookies()).get("token")?.value;
+  const token = bearer || cookieToken;
 
   let r: Response;
   try {

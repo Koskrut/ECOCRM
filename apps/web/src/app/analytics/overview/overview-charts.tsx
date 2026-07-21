@@ -95,7 +95,7 @@ export function BookedRevenueTrendChart({
   const empty = data.length === 0;
   return (
     <ChartCard
-      title={`Booked revenue (${code})`}
+      title={`Заброньований дохід (${code})`}
       subtitle={`Поточний період overview лише. Сума по днях: max(0, total − returns) → ${code}. Вісь X — день створення замовлення (UTC).`}
       empty={empty}
     >
@@ -132,7 +132,7 @@ export function BookedRevenueTrendChart({
           <Tooltip
             formatter={(value: number) => [
               `${Math.round(value).toLocaleString("en-US")} ${sym}`,
-              "Booked",
+              "Заброньовано",
             ]}
             labelFormatter={(_, payload) => {
               const p = payload?.[0]?.payload as
@@ -154,7 +154,7 @@ export function BookedRevenueTrendChart({
             stroke={BOOKED_FILL}
             strokeWidth={2}
             fill={`url(#${gradId})`}
-            name={`Booked (${code})`}
+            name={`Заброньовано (${code})`}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -182,7 +182,7 @@ export function CollectedPaymentsTrendChart({
     subtitle ??
     `Поточний період overview лише. Оплати COMPLETED; дата — paidAt (UTC). Сума в ${code}.`;
   return (
-    <ChartCard title={`Collected payments (${code})`} subtitle={resolvedSubtitle} empty={empty}>
+    <ChartCard title={`Зібрані оплати (${code})`} subtitle={resolvedSubtitle} empty={empty}>
       <ResponsiveContainer width="100%" height={260} minWidth={320}>
         <AreaChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
           <defs>
@@ -215,7 +215,7 @@ export function CollectedPaymentsTrendChart({
           <Tooltip
             formatter={(value: number) => [
               `${Math.round(value).toLocaleString("en-US")} ${sym}`,
-              "Collected",
+              "Зібрано",
             ]}
             labelFormatter={(_, payload) => {
               const p = payload?.[0]?.payload as
@@ -237,7 +237,7 @@ export function CollectedPaymentsTrendChart({
             stroke={COLLECTED_FILL}
             strokeWidth={2}
             fill={`url(#${gradId})`}
-            name={`Collected (${code})`}
+            name={`Зібрано (${code})`}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -282,7 +282,7 @@ export function OrdersByStageBarChart({ rows }: { rows: { stage: string; count: 
   const empty = data.length === 0;
   return (
     <ChartCard
-      title="Orders by stage"
+      title="Замовлення за стадіями"
       subtitle="Кількість замовлень у поточному періоді overview (createdAt) за orderStage. Порядок стадій — логіка воронки, не за обсягом."
       empty={empty}
     >

@@ -454,7 +454,7 @@ export function EntityAddressesSection({
                   className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
                   value={form.label}
                   onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
-                  placeholder="Клиника, кабінет…"
+                  placeholder="Клініка, кабінет…"
                   disabled={saving || disabled}
                 />
               </label>

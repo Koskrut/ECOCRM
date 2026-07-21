@@ -70,6 +70,13 @@ export function filterGpsSample(
   return { accept: true };
 }
 
+/** Stable ascending sort before appendSamples filter chain. */
+export function sortGpsSamplesByTime<T extends GpsSamplePoint>(items: T[]): T[] {
+  return [...items].sort(
+    (a, b) => toTimeMs(a.clientRecordedAt) - toTimeMs(b.clientRecordedAt),
+  );
+}
+
 export function filterGpsTrack<T extends GpsSamplePoint>(samples: T[]): T[] {
   const out: T[] = [];
   let prev: GpsSamplePoint | null = null;

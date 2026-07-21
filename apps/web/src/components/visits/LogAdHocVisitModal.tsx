@@ -74,7 +74,7 @@ export function LogAdHocVisitModal({ open, busy = false, onClose, onSubmit, onSu
       onSuccess?.(visit);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
+      setError(e instanceof Error ? e.message : "Помилка");
     } finally {
       setSubmitting(false);
     }

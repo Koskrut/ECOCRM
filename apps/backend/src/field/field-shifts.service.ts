@@ -15,7 +15,7 @@ import {
   assertCanAccessOwner,
   getAllowedOwnerIds,
 } from "../visits/visits-owner-scope";
-import { filterGpsSample, filterGpsTrack } from "./gps-sample-filter";
+import { filterGpsSample, filterGpsTrack, sortGpsSamplesByTime } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
 import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
 import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field-shifts.types";
@@ -204,9 +204,10 @@ export class FieldShiftsService {
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
     let rejected = 0;
     const rejectReasons: Record<string, number> = {};
-    const shiftDayYmd = shift.date.toISOString().slice(0, 10);
+    const shiftDayYmd = instantToKyivYmd(shift.date);
+    const sortedItems = sortGpsSamplesByTime(items);
 
-    for (const it of items) {
+    for (const it of sortedItems) {
       if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) {
         throw new BadRequestException("Invalid lat/lng");
       }
@@ -639,8 +640,13 @@ export class FieldShiftsService {
         clientRecordedAt: s.clientRecordedAt,
       })),
     );
-    const points = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
-    const geometry = await this.routePlans.snapGpsPathToRoads(points);
+    const geometry = await this.routePlans.snapGpsPathToRoads(
+      filtered.map((s) => ({
+        lat: s.lat,
+        lng: s.lng,
+        clientRecordedAt: s.clientRecordedAt,
+      })),
+    );
     return {
       sampleCount: filtered.length,
       ...geometry,

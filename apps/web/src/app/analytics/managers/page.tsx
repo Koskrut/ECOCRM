@@ -82,7 +82,7 @@ export default function AnalyticsManagersPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Менеджери</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Booked / collected / orders — за період (як на Sales). {at.overdueSnapshot} — операційний знімок
+          Заброньовано / зібрано / замовлення — за період (як у Продажах). {at.overdueSnapshot} — операційний знімок
           по виконавцю. Прапорець compare в URL не змінює цей endpoint (немає compare у API).
         </p>
         <div className="mt-4 min-w-0 overflow-x-auto">
@@ -92,17 +92,17 @@ export default function AnalyticsManagersPage() {
               { key: "name", title: "Менеджер", render: (row) => row.name },
               {
                 key: "bookedRevenue",
-                title: "Booked revenue",
+                title: "Заброньований дохід",
                 render: (row) => formatMoneyBase(row.bookedRevenue, currency),
               },
               {
                 key: "collectedPayments",
-                title: "Collected payments",
+                title: "Зібрані оплати",
                 render: (row) => formatMoneyBase(row.collectedPayments, currency),
               },
               {
                 key: "ordersCount",
-                title: "Orders",
+                title: "Замовлення",
                 render: (row) => formatNumber(row.ordersCount),
               },
               {

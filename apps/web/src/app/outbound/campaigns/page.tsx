@@ -92,7 +92,7 @@ function CreateCampaignModal({
     } catch (e) {
       setError(
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to create campaign"),
+          (e instanceof Error ? e.message : "Не вдалося створити кампанію"),
       );
     } finally {
       setBusy(false);
@@ -265,7 +265,7 @@ export default function CampaignsPage() {
     } catch (e) {
       setError(
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Failed to load campaigns"),
+          (e instanceof Error ? e.message : "Не вдалося завантажити кампанії"),
       );
     } finally {
       setLoading(false);
@@ -292,7 +292,7 @@ export default function CampaignsPage() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-zinc-500">
-          {loading ? "Loading…" : `${items.length} campaign${items.length !== 1 ? "s" : ""}`}
+          {loading ? "Завантаження…" : `${items.length} кампаній`}
         </p>
         <button
           type="button"

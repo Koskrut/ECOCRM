@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DateTime } from "luxon";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { CreateLeadModal } from "@/app/leads/CreateLeadModal";
 import { LeadModal } from "@/app/leads/LeadModal";
 import { ContactModal } from "@/app/contacts/ContactModal";
@@ -62,6 +63,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [createLeadOpen, setCreateLeadOpen] = useState(false);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  const [scorecardExpanded, setScorecardExpanded] = useState(false);
 
   const { pushToast } = useToast();
 
@@ -149,7 +151,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400"
       >
         <option value="week">{strings.tasks.period.thisWeek}</option>
-        <option value="month">30d</option>
+        <option value="month">{strings.dashboard.leadership.periodMonth}</option>
       </select>
       <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
         <input
@@ -176,7 +178,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
 
       <ManagerInboxPanel tiles={inbox.tiles} />
@@ -203,15 +205,47 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
       {scorecardLoading && !scorecard ? (
         <ScorecardSkeleton />
       ) : scorecard ? (
-        <div className={scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"}>
-          <ManagerScorecard
-            scorecard={scorecard}
-            currency={currency}
-            compareEnabled={compare}
-            periodLabel={periodLabel}
-            controls={scorecardControls}
-          />
-        </div>
+        <section className="rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setScorecardExpanded((open) => !open)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <div>
+              <h2 className="text-base font-semibold text-zinc-900">
+                {strings.dashboard.manager.scorecard.title}
+              </h2>
+              {periodLabel ? (
+                <p className="mt-0.5 text-sm text-zinc-500">{periodLabel}</p>
+              ) : null}
+            </div>
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-zinc-600">
+              {scorecardExpanded
+                ? strings.dashboard.manager.scorecard.collapse
+                : strings.dashboard.manager.scorecard.expand}
+              {scorecardExpanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </span>
+          </button>
+          {scorecardExpanded ? (
+            <div
+              className={`border-t border-zinc-100 px-4 pb-4 pt-2 ${
+                scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"
+              }`}
+            >
+              <ManagerScorecard
+                scorecard={scorecard}
+                currency={currency}
+                compareEnabled={compare}
+                controls={scorecardControls}
+                hideHeader
+              />
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       <ManagerLeadPipeline

@@ -9,7 +9,7 @@ const LAYER_META: Record<
   { label: string; color: string; dash?: string }
 > = {
   planned: { label: "План", color: "#2563eb" },
-  fact_visits: { label: "Факт (визиты)", color: "#059669", dash: "8 6" },
+  fact_visits: { label: "Факт (візити)", color: "#059669", dash: "8 6" },
   fact_gps: { label: "Факт (GPS)", color: "#d97706" },
 };
 
@@ -104,6 +104,21 @@ export function routePolylineOptions(
       ? { ...base, icons: directionArrowIcons(base.strokeColor ?? "#2563eb") }
       : base;
 
+  const gpsStitchGaps =
+    layer === "fact_gps" &&
+    geom.source === "osrm" &&
+    (geom.quality?.hasUnfilledGaps === true ||
+      geom.quality?.degradedReason === "gps_stitch_gaps" ||
+      (geom.quality?.maxStitchGapKm != null && geom.quality.maxStitchGapKm > 1));
+
+  if (gpsStitchGaps) {
+    return {
+      ...withArrows,
+      strokeOpacity: 0.55,
+      icons: [...(withArrows.icons ?? []), ...DASHED_LINE_ICONS],
+    };
+  }
+
   if (geom.source === "fallback") {
     return {
       ...withArrows,
@@ -117,8 +132,22 @@ export function routePolylineOptions(
   return withArrows;
 }
 
-export function routeSourceLabel(source: RouteGeometryResult["source"] | undefined): string | null {
-  if (source === "osrm") return "по дорогах";
+type RouteSourceQuality = RouteGeometryResult["quality"] | RouteGeometryLayer["quality"];
+
+export function routeSourceLabel(
+  source: RouteGeometryResult["source"] | undefined,
+  quality?: RouteSourceQuality,
+): string | null {
+  if (source === "osrm") {
+    if (
+      quality?.hasUnfilledGaps === true ||
+      quality?.degradedReason === "gps_stitch_gaps" ||
+      (quality?.maxStitchGapKm != null && quality.maxStitchGapKm > 1)
+    ) {
+      return "GPS із пропусками";
+    }
+    return "по дорогах";
+  }
   if (source === "fallback") return "приблизно";
   if (source === "raw_gps") return "GPS без доріг";
   return null;

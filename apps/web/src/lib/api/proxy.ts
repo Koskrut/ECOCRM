@@ -17,18 +17,17 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
   const target = new URL(`${API_URL}${backendPath}`);
   target.search = url.search;
 
+  const incomingAuth = req.headers.get("authorization")?.trim() || "";
   const cookieStore = await cookies();
-  const token = cookieStore.get("token")?.value;
+  const cookieToken = cookieStore.get("token")?.value;
+  const authHeader =
+    incomingAuth || (cookieToken ? `Bearer ${cookieToken}` : "");
 
   const headers = new Headers(req.headers);
   stripProxyRequestHeaders(headers);
 
-  if (token) {
-    headers.set("authorization", `Bearer ${token}`);
-  } else {
-    // чтобы было понятно, почему 401
-    // (можешь убрать, но полезно при дебаге)
-    // console.warn("proxyToBackend: token cookie is missing");
+  if (authHeader) {
+    headers.set("authorization", authHeader);
   }
 
   // body читаем только если метод может иметь body
@@ -43,7 +42,7 @@ export async function proxyToBackend(req: NextRequest, backendPath: string, opts
           const h = new Headers();
           h.set("Content-Type", "application/json");
           h.set("Content-Length", new TextEncoder().encode(body).length.toString());
-          if (token) h.set("Authorization", `Bearer ${token}`);
+          if (authHeader) h.set("Authorization", authHeader);
           return h;
         })()
       : headers;

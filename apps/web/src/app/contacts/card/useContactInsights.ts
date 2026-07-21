@@ -18,7 +18,7 @@ export function useContactInsights(contactId: string, enabled: boolean) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load CRM hint");
+        (e instanceof Error ? e.message : "Не вдалося завантажити підказку CRM");
       setError(Array.isArray(msg) ? msg.join(", ") : msg);
       setData(null);
     } finally {

@@ -149,7 +149,20 @@ describe("isTrackEligibleForCompensation", () => {
     assert.equal(result.reason, "gps_implausibly_short_vs_visits");
   });
 
-  it("keeps fact_gps when summed match is close to visits route", () => {
+  it("rejects Gumenyuk-like track ~50% of visit route with good coverage", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 180,
+      rawPolylineDistanceKm: 17.4,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 17.4,
+      visitRouteDistanceKm: 35.1,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
+
+  it("keeps fact_gps when snapped track is above sanity ratio", () => {
     const result = isTrackEligibleForCompensation({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 178,

@@ -38,7 +38,7 @@ export function CompaniesFiltersPopover({ open, onClose, onApply, onReset }: Pro
           onClick={onClose}
           className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
         >
-          Закрыть
+          Закрити
         </button>
       </div>
 

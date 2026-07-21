@@ -40,12 +40,12 @@ type ContactsSortDir = "asc" | "desc";
 type ContactsWorkPreset = "all" | ContactWorkQueuePreset;
 
 const WORK_PRESET_OPTIONS: Array<{ value: ContactsWorkPreset; label: string }> = [
-  { value: "all", label: "Все контакты" },
-  { value: "attention", label: "Требуют внимания" },
-  { value: "overdue", label: "Просроченные" },
-  { value: "new-no-first-contact", label: "Новые без первого контакта" },
-  { value: "debt-control", label: "Контроль оплаты / долг" },
-  { value: "return-to-work", label: "Вернуть в работу" },
+  { value: "all", label: "Усі контакти" },
+  { value: "attention", label: "Потребують уваги" },
+  { value: "overdue", label: "Прострочені" },
+  { value: "new-no-first-contact", label: "Нові без першого контакту" },
+  { value: "debt-control", label: "Контроль оплати / борг" },
+  { value: "return-to-work", label: "Повернути в роботу" },
   { value: "risk-or-dormant", label: "Риск потери / спящие" },
 ];
 
@@ -87,7 +87,7 @@ function WorkQueueMobileCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="truncate text-sm font-semibold text-zinc-900">
-              {item.contact.fullName || "Без имени"}
+              {item.contact.fullName || "Без імені"}
             </div>
             <span
               className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${scoreTone(item.priorityScore)}`}
@@ -96,12 +96,12 @@ function WorkQueueMobileCard({
             </span>
             {item.metrics.debtAmount > 0 ? (
               <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                Долг {item.metrics.debtAmount}
+                Борг {item.metrics.debtAmount}
               </span>
             ) : null}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-            <span>Компания: {item.contact.companyName ?? "—"}</span>
+            <span>Компанія: {item.contact.companyName ?? "—"}</span>
             <span>Owner: {item.contact.ownerName ?? "—"}</span>
             <span>Стадия: {formatContactClientStage(item.contact.clientStage)}</span>
           </div>
@@ -379,7 +379,7 @@ function ContactsPageContent() {
       .list()
       .then((r) => {
         setCompanyOptions([
-          { value: "", label: "Все компании" },
+          { value: "", label: "Усі компанії" },
           ...r.items.map((c: Company) => ({ value: c.id, label: c.name })),
         ]);
       })
@@ -566,7 +566,7 @@ function ContactsPageContent() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">{strings.nav.contacts}</h1>
         <button type="button" onClick={openCreate} className="btn-primary">
-          + Добавить
+          + Додати
         </button>
       </div>
 
@@ -605,10 +605,10 @@ function ContactsPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="имя, телефон, email, компания, адрес, город"
+                placeholder="імʼя, телефон, email, компанія, адреса, місто"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
-                aria-label="Поиск контактов"
+                aria-label="Пошук контактів"
               />
               {qInput ? (
                 <button
@@ -625,8 +625,8 @@ function ContactsPageContent() {
                 type="button"
                 onClick={() => setFiltersOpen(true)}
                 className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                aria-label="Открыть фильтры"
-                title="Фильтры"
+                aria-label="Відкрити фільтри"
+                title="Фільтри"
               >
                 <Filter className="h-4 w-4" />
               </button>
@@ -646,7 +646,7 @@ function ContactsPageContent() {
         </div>
         {isPresetMode ? (
           <div className="mt-2 text-xs text-zinc-500">
-            В рабочем списке доступны только поиск, ответственный, preset и пагинация.
+            У робочому списку доступні лише пошук, відповідальний, preset і пагінація.
           </div>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
@@ -669,7 +669,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Поиск: {q} ✕
+                Пошук: {q} ✕
               </button>
             ) : null}
             {!isPresetMode && filterCompanyId ? (
@@ -693,7 +693,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Ответственный ✕
+                Відповідальний ✕
               </button>
             ) : null}
             {!isPresetMode && filterHasPhone ? (
@@ -705,7 +705,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Телефон: {filterHasPhone === "yes" ? "есть" : "нет"} ✕
+                Телефон: {filterHasPhone === "yes" ? "є" : "ні"} ✕
               </button>
             ) : null}
             {!isPresetMode && filterHasEmail ? (
@@ -717,7 +717,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Email: {filterHasEmail === "yes" ? "есть" : "нет"} ✕
+                Email: {filterHasEmail === "yes" ? "є" : "ні"} ✕
               </button>
             ) : null}
             {!isPresetMode && filterHasCallToday ? (
@@ -729,7 +729,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Звонок сегодня: {filterHasCallToday === "yes" ? "да" : "нет"} ✕
+                Дзвінок сьогодні: {filterHasCallToday === "yes" ? "так" : "ні"} ✕
               </button>
             ) : null}
             {!isPresetMode && filterHasMissedCall ? (
@@ -741,7 +741,7 @@ function ContactsPageContent() {
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Пропущенные: {filterHasMissedCall === "yes" ? "да" : "нет"} ✕
+                Пропущені: {filterHasMissedCall === "yes" ? "так" : "ні"} ✕
               </button>
             ) : null}
             {!isPresetMode &&
@@ -800,8 +800,8 @@ function ContactsPageContent() {
           <div className="space-y-1">
             <div className="font-medium">
               {isPresetMode
-                ? "Не удалось загрузить рабочий список"
-                : "Не удалось загрузить контакты"}
+                ? "Не вдалося завантажити робочий список"
+                : "Не вдалося завантажити контакти"}
             </div>
             <div>{error}</div>
           </div>
@@ -819,14 +819,14 @@ function ContactsPageContent() {
         <div className="divide-y divide-zinc-100 md:hidden">
           {loading ? (
             <div className="px-4 py-8 text-center text-zinc-500">
-              {isPresetMode ? "Формируем рабочий список…" : "Загрузка…"}
+              {isPresetMode ? "Формуємо робочий список…" : "Завантаження…"}
             </div>
           ) : isPresetMode ? (
             workItems.length === 0 ? (
               <div className="px-4 py-10 text-center">
-                <div className="text-sm font-medium text-zinc-700">В этом списке сейчас пусто</div>
+                <div className="text-sm font-medium text-zinc-700">У цьому списку зараз порожньо</div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  Попробуйте другой preset или снимите поиск/фильтр по ответственному.
+                  Спробуйте інший preset або зніміть пошук/фільтр за відповідальним.
                 </div>
               </div>
             ) : (
@@ -835,7 +835,7 @@ function ContactsPageContent() {
               ))
             )
           ) : items.length === 0 ? (
-            <div className="px-4 py-8 text-center text-zinc-500">Нет контактов</div>
+            <div className="px-4 py-8 text-center text-zinc-500">Немає контактів</div>
           ) : (
             items.map((c) => (
               <article
@@ -930,33 +930,33 @@ function ContactsPageContent() {
             <table className="w-full min-w-[1120px] text-left text-sm">
               <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
                 <tr>
-                  <th className="w-[18%] px-3 py-3">Имя</th>
+                  <th className="w-[18%] px-3 py-3">Імʼя</th>
                   <th className="w-[14%] px-3 py-3">Компания</th>
                   <th className="w-[12%] px-3 py-3">Owner</th>
                   <th className="w-[8%] px-3 py-3 text-right">Score</th>
-                  <th className="w-[18%] px-3 py-3">Причины</th>
+                  <th className="w-[18%] px-3 py-3">Причини</th>
                   <th className="w-[12%] px-3 py-3">Stage</th>
                   <th className="w-[10%] px-3 py-3">Action</th>
                   <th className="w-[10%] px-3 py-3">Дата</th>
                   <th className="w-[10%] px-3 py-3">Контакт</th>
-                  <th className="w-[8%] px-3 py-3 text-right">Долг</th>
+                  <th className="w-[8%] px-3 py-3 text-right">Борг</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {loading ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
-                      Формируем рабочий список…
+                      Формуємо робочий список…
                     </td>
                   </tr>
                 ) : workItems.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-10 text-center">
                       <div className="text-sm font-medium text-zinc-700">
-                        В этом списке сейчас пусто
+                        У цьому списку зараз порожньо
                       </div>
                       <div className="mt-1 text-xs text-zinc-500">
-                        Попробуйте другой preset или снимите поиск/фильтр по ответственному.
+                        Спробуйте інший preset або зніміть пошук/фільтр за відповідальним.
                       </div>
                     </td>
                   </tr>
@@ -979,10 +979,10 @@ function ContactsPageContent() {
                     >
                       <td className="px-3 py-3.5">
                         <div className="font-medium text-zinc-900">
-                          {item.contact.fullName || "Без имени"}
+                          {item.contact.fullName || "Без імені"}
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">
-                          {item.contact.companyName ?? "Без компании"}
+                          {item.contact.companyName ?? "Без компанії"}
                         </div>
                       </td>
                       <td className="px-3 py-3.5 text-sm text-zinc-600">
@@ -1048,7 +1048,7 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("name")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Имя{sortIndicator("name")}
+                      Імʼя{sortIndicator("name")}
                     </button>
                   </th>
                   <th className="px-4 py-3">Телефон</th>
@@ -1060,7 +1060,7 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("hasMissedCall")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Пропущенные{sortIndicator("hasMissedCall")}
+                      Пропущені{sortIndicator("hasMissedCall")}
                     </button>
                   </th>
                   <th className="hidden px-4 py-3 text-right lg:table-cell">
@@ -1069,7 +1069,7 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("hasCallToday")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Звонок сегодня{sortIndicator("hasCallToday")}
+                      Дзвінок сьогодні{sortIndicator("hasCallToday")}
                     </button>
                   </th>
                   <th className="hidden px-4 py-3 lg:table-cell">
@@ -1093,13 +1093,13 @@ function ContactsPageContent() {
                 {loading ? (
                   <tr>
                     <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
-                      Загрузка…
+                      Завантаження…
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
                     <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
-                      Нет контактов
+                      Немає контактів
                     </td>
                   </tr>
                 ) : (
@@ -1193,8 +1193,8 @@ function ContactsPageContent() {
                               openContact(c.id);
                             }}
                             className="rounded p-2 text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
-                            title="Открыть"
-                            aria-label="Открыть"
+                            title="Відкрити"
+                            aria-label="Відкрити"
                           >
                             <Pencil className="h-5 w-5 sm:h-4 sm:w-4" />
                           </button>
@@ -1227,7 +1227,7 @@ function ContactsPageContent() {
               onClick={() => goToPage(page + 1)}
               className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
             >
-              Вперёд
+              Далі
             </button>
           </div>
         </div>
@@ -1261,7 +1261,7 @@ function ContactsPageContent() {
 
 export default function ContactsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Загрузка…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
       <ContactsPageContent />
     </Suspense>
   );

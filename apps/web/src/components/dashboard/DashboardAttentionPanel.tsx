@@ -28,7 +28,7 @@ export function DashboardAttentionPanel({ attention, currency, showAnalyticsLink
             href={attentionHref}
             className="inline-flex items-center rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
           >
-            Відкрити Attention
+            Відкрити розділ «Увага»
           </Link>
         ) : null}
       </div>
@@ -49,13 +49,13 @@ export function DashboardAttentionPanel({ attention, currency, showAnalyticsLink
           title="Ліди без дотику"
           count={attention.crm.leadsWithoutTouchCount}
           href="/leads?attention=without-touch"
-          hint="NEW / IN_PROGRESS без активності"
+          hint="Нові / в роботі без активності"
         />
         <AttentionTile
           title="Прострочені оплати"
           count={attention.finance.overdueOrdersCount}
           href="/orders?attention=overdue-payments"
-          hint="OVERDUE + debt > 0"
+          hint="Прострочені з боргом"
         />
       </div>
       <p className="mt-4 text-xs text-zinc-500">

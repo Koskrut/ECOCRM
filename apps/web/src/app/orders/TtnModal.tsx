@@ -428,7 +428,7 @@ export function TtnModal({
           ?.message ??
         (e as { response?: { data?: { message?: string; error?: string } } })?.response?.data
           ?.error ??
-        (e instanceof Error ? e.message : "Failed to load profiles");
+        (e instanceof Error ? e.message : "Не вдалося завантажити профілі");
 
       setProfiles([]);
       setMode("NEW");
@@ -457,7 +457,7 @@ export function TtnModal({
         try {
           await loadTtnDetails();
         } catch (e) {
-          const msg = e instanceof Error ? e.message : "Failed to load TTN";
+          const msg = e instanceof Error ? e.message : "Не вдалося завантажити ТТН";
           setError(msg);
         } finally {
           setLoading(false);
@@ -669,7 +669,7 @@ export function TtnModal({
       } catch (e) {
         const data = getBackendErrorData(e);
         const msg =
-          String(data?.message ?? "") || (e instanceof Error ? e.message : "Failed to update TTN");
+          String(data?.message ?? "") || (e instanceof Error ? e.message : "Не вдалося оновити ТТН");
         setError(msg);
       } finally {
         setCreating(false);
@@ -723,7 +723,7 @@ export function TtnModal({
         }
         const msg =
           String(data?.message ?? "") ||
-          (e instanceof Error ? e.message : "Failed to create TTN");
+          (e instanceof Error ? e.message : "Не вдалося створити ТТН");
         setError(msg);
       } finally {
         setCreating(false);
@@ -771,7 +771,7 @@ export function TtnModal({
       }
       const msg =
         String(data?.message ?? "") ||
-        (e instanceof Error ? e.message : "Failed to create TTN");
+        (e instanceof Error ? e.message : "Не вдалося створити ТТН");
       setError(msg);
     } finally {
       setCreating(false);
@@ -790,7 +790,7 @@ export function TtnModal({
       onCreated?.(null);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to reuse existing TTN");
+      setError(e instanceof Error ? e.message : "Не вдалося використати наявну ТТН");
     } finally {
       setCreating(false);
     }
@@ -810,7 +810,7 @@ export function TtnModal({
       onCreated?.(res.data);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create TTN");
+      setError(e instanceof Error ? e.message : "Не вдалося створити ТТН");
     } finally {
       setCreating(false);
     }

@@ -112,7 +112,7 @@ export default function GoogleMapsSettingsPage() {
                 disabled={saving}
                 className="inline-flex items-center rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Збереження…" : "Зберегти"}
               </button>
             </div>
           </div>

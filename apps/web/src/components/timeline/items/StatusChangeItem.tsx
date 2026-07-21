@@ -20,7 +20,7 @@ export function StatusChangeItem({ item }: Props) {
         </div>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-zinc-900">
-            <span>Смена статуса</span>
+            <span>Зміна статусу</span>
             <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
               {fromStage ?? "—"}
             </span>
@@ -37,7 +37,7 @@ export function StatusChangeItem({ item }: Props) {
           <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span>{formatDateTime(item.at)}</span>
             <span>·</span>
-            <span>by {item.actor.name}</span>
+            <span>від {item.actor.name}</span>
           </div>
         </div>
       </div>

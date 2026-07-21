@@ -35,21 +35,21 @@ type Props = {
 };
 
 const HAS_PHONE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Любой" },
-  { value: "yes", label: "Есть телефон" },
-  { value: "no", label: "Нет телефона" },
+  { value: "", label: "Будь-який" },
+  { value: "yes", label: "Є телефон" },
+  { value: "no", label: "Немає телефону" },
 ];
 
 const HAS_EMAIL_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Любой" },
-  { value: "yes", label: "Есть email" },
-  { value: "no", label: "Нет email" },
+  { value: "", label: "Будь-який" },
+  { value: "yes", label: "Є email" },
+  { value: "no", label: "Немає email" },
 ];
 
 const BOOL_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Любой" },
-  { value: "yes", label: "Да" },
-  { value: "no", label: "Нет" },
+  { value: "", label: "Будь-який" },
+  { value: "yes", label: "Так" },
+  { value: "no", label: "Ні" },
 ];
 
 const REGION_OPTIONS = CONTACT_REGION_OPTIONS.filter((opt) => opt.value);
@@ -89,11 +89,11 @@ function FilterValueChips({
 }
 
 const SORT_BY_OPTIONS: { value: string; label: string }[] = [
-  { value: "createdAt", label: "По дате создания" },
-  { value: "name", label: "По имени" },
-  { value: "updatedAt", label: "По обновлению" },
-  { value: "hasMissedCall", label: "По пропущенным" },
-  { value: "hasCallToday", label: "По звонку сегодня" },
+  { value: "createdAt", label: "За датою створення" },
+  { value: "name", label: "За іменем" },
+  { value: "updatedAt", label: "За оновленням" },
+  { value: "hasMissedCall", label: "За пропущеними" },
+  { value: "hasCallToday", label: "За дзвінком сьогодні" },
 ];
 
 export function ContactsFiltersPopover({
@@ -167,26 +167,26 @@ export function ContactsFiltersPopover({
       className="absolute right-0 top-12 z-30 w-[min(95vw,420px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-900">Фильтр контактов</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">Фільтр контактів</h3>
         <button
           type="button"
           onClick={onClose}
           className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
         >
-          Закрыть
+          Закрити
         </button>
       </div>
 
       {presetMode ? (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          В рабочих списках доступны только поиск и фильтр по ответственному. Остальные фильтры и сортировка
-          работают только в режиме «Все контакты».
+          У робочих списках доступні лише пошук і фільтр за відповідальним. Інші фільтри та сортування
+          працюють лише в режимі «Усі контакти».
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-3">
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Компания</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Компанія</label>
           <select
             ref={firstFieldRef}
             value={draft.companyId}
@@ -203,13 +203,13 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Ответственный</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Відповідальний</label>
           <select
             value={draft.ownerId}
             onChange={(e) => setDraft((p) => ({ ...p, ownerId: e.target.value }))}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
-            <option value="">Все</option>
+            <option value="">Усі</option>
             {ownerOptions.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.fullName}
@@ -251,7 +251,7 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Звонок сегодня</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Дзвінок сьогодні</label>
           <select
             value={draft.hasCallToday}
             onChange={(e) => setDraft((p) => ({ ...p, hasCallToday: e.target.value }))}
@@ -267,7 +267,7 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Есть пропущенные</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Є пропущені</label>
           <select
             value={draft.hasMissedCall}
             onChange={(e) => setDraft((p) => ({ ...p, hasMissedCall: e.target.value }))}
@@ -333,19 +333,19 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Тип клиента</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Тип клієнта</label>
           <input
             type="text"
             value={draft.clientType}
             onChange={(e) => setDraft((p) => ({ ...p, clientType: e.target.value }))}
-            placeholder="Врач, техник и т.д."
+            placeholder="Лікар, технік тощо"
             disabled={presetMode}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm placeholder:text-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Сортировка</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Сортування</label>
           <select
             value={draft.sortBy}
             onChange={(e) => setDraft((p) => ({ ...p, sortBy: e.target.value }))}
@@ -361,15 +361,15 @@ export function ContactsFiltersPopover({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Направление</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">Напрямок</label>
           <select
             value={draft.sortDir}
             onChange={(e) => setDraft((p) => ({ ...p, sortDir: e.target.value }))}
             disabled={presetMode}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm disabled:bg-zinc-50 disabled:text-zinc-400"
           >
-            <option value="desc">По убыванию</option>
-            <option value="asc">По возрастанию</option>
+            <option value="desc">За спаданням</option>
+            <option value="asc">За зростанням</option>
           </select>
         </div>
       </div>
@@ -383,7 +383,7 @@ export function ContactsFiltersPopover({
           }}
           className="btn-primary"
         >
-          Применить
+          Застосувати
         </button>
         <button
           type="button"
@@ -393,10 +393,10 @@ export function ContactsFiltersPopover({
           }}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50"
         >
-          Сбросить
+          Скинути
         </button>
         <span className="text-xs text-zinc-500">
-          {hasActiveFilters ? "Фильтры активны" : "Без фильтров"}
+          {hasActiveFilters ? "Фільтри активні" : "Без фільтрів"}
         </span>
       </div>
     </div>

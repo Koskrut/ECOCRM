@@ -434,7 +434,7 @@ export function ContactModal({
       const statusCode = (e as { response?: { status?: number } })?.response?.status;
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed");
+        (e instanceof Error ? e.message : "Помилка");
       setErr(statusCode === 409 ? strings.contacts.create.duplicateMessage : msg);
     } finally {
       setSaving(false);
@@ -613,7 +613,7 @@ export function ContactModal({
       };
       const res = await apiHttp.post<{ id: string; clientId?: string | null }>("/orders", payload);
       const createdId = res.data?.id;
-      if (!createdId) throw new Error("Order id is missing in response");
+      if (!createdId) throw new Error("У відповіді відсутній id замовлення");
 
       if (res.data?.clientId !== effectiveContactId) {
         await apiHttp.patch(`/orders/${createdId}`, {

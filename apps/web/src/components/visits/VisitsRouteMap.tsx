@@ -52,7 +52,7 @@ export function VisitsRouteMap({
   routeAnchors,
   onMarkerDragEnd,
   draggableMarkers,
-  loadingLabel = "Загрузка карты…",
+  loadingLabel = "Завантаження карти…",
 }: VisitsRouteMapProps) {
   const { isLoaded, loadError } = useLoadScript({
     id: "google-map-script-visits-route",
@@ -77,7 +77,7 @@ export function VisitsRouteMap({
   if (loadError) {
     return (
       <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-600">
-        Failed to load Google Maps
+        Не вдалося завантажити Google Maps
       </div>
     );
   }

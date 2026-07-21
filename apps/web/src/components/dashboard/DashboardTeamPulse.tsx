@@ -43,7 +43,7 @@ export function DashboardTeamPulse({
         <DatePicker value={date} onChange={onDateChange} />
       </div>
       <p className="mb-3 text-xs text-zinc-500">
-        День за календарною датою (Київ). Візити — лише завершені (DONE).
+        День за календарною датою (Київ). Візити — лише завершені.
         {showTeamDayPlan ? " Сортування за % плану дня (найнижчі зверху)." : ""}
       </p>
       {sorted.length === 0 ? (
@@ -137,7 +137,7 @@ function DatePicker({ value, onChange }: { value: string; onChange: (d: string) 
         type="button"
         onClick={() => onChange(shiftYmdInKyiv(value, -1))}
         className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
-        aria-label="Previous day"
+        aria-label="Попередній день"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
@@ -151,7 +151,7 @@ function DatePicker({ value, onChange }: { value: string; onChange: (d: string) 
         type="button"
         onClick={() => onChange(shiftYmdInKyiv(value, 1))}
         className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50"
-        aria-label="Next day"
+        aria-label="Наступний день"
       >
         <ChevronRight className="h-4 w-4" />
       </button>

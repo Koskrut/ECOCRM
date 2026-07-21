@@ -125,13 +125,13 @@ export default function AnalyticsOverviewPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Ключові показники</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Booked revenue та collected payments — різні метрики (дата створення замовлення vs дата
+          Заброньований дохід і зібрані оплати — різні метрики (дата створення замовлення vs дата
           оплати). Порівняння з попереднім періодом — лише коли увімкнено фільтр.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
             variant="money"
-            title="Booked revenue"
+            title="Заброньований дохід"
             subtitle="max(0, total − returns) → USD за період (createdAt)"
             tooltip="Не змішувати з collected payments."
             value={formatMoneyBase(kpi?.bookedRevenue, currency)}
@@ -143,7 +143,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="money"
-            title="Collected payments"
+            title="Зібрані оплати"
             subtitle="COMPLETED, дата paidAt → USD"
             tooltip="Окремо від booked revenue."
             value={formatMoneyBase(kpi?.collectedPayments, currency)}
@@ -156,7 +156,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="Orders"
+            title="Замовлення"
             subtitle="Замовлення у періоді (createdAt)"
             value={formatNumber(kpi?.ordersCount)}
             deltaLabel={
@@ -165,8 +165,8 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="money"
-            title="Avg check"
-            subtitle="Booked / orders (USD)"
+            title="Середній чек"
+            subtitle="Дохід / замовлення (USD)"
             tooltip="Те саме, що bookedRevenue / ordersCount для обраного періоду; порівняння — попередній період тієї ж довжини."
             value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
             deltaLabel={
@@ -175,7 +175,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Debt total"
+            title="Борг загалом"
             subtitle="Сума debtAmount у замовленнях за вибраний період"
             tooltip="Розрахунок у межах обраного діапазону дат overview."
             value={formatMoneyBase(kpi?.debtTotal, currency)}
@@ -183,7 +183,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Overdue debt"
+            title="Прострочений борг"
             subtitle="OVERDUE + debtAmount за вибраний період"
             tooltip="Розрахунок у межах обраного діапазону дат overview."
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
@@ -193,7 +193,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="Leads created"
+            title="Створені ліди"
             subtitle="Ліди з createdAt у періоді"
             value={formatNumber(kpi?.leadsCreatedCount)}
             deltaLabel={
@@ -204,7 +204,7 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="percent"
-            title="WON share (proxy)"
+            title="Частка успішних (proxy)"
             subtitle="WON / створені ліди у періоді"
             tooltip="Не конверсія в замовлення; API поле leadConversionProxy."
             value={formatPercent(kpi?.leadConversionProxy)}

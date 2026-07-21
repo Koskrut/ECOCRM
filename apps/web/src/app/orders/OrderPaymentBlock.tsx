@@ -185,7 +185,7 @@ export function OrderPaymentBlock({
   return (
     <div className="space-y-3">
       <p className="text-xs text-zinc-500">
-        В назначении платежа указывайте номер заказа — оплаты подтянутся автоматически.
+        У призначенні платежу вказуйте номер замовлення — оплати підтягнуться автоматично.
       </p>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 text-sm text-zinc-600">

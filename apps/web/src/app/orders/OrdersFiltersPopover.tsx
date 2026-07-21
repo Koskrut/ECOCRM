@@ -52,7 +52,7 @@ const PAYMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const PAYMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Любой статус оплаты" },
+  { value: "", label: "Будь-який статус оплати" },
   { value: "UNPAID", label: "Не оплачен" },
   { value: "PARTIALLY_PAID", label: "Частично оплачен" },
   { value: "PAID", label: "Оплачен" },
@@ -123,7 +123,7 @@ export function OrdersFiltersPopover({
           onClick={onClose}
           className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
         >
-          Закрыть
+          Закрити
         </button>
       </div>
 
@@ -146,7 +146,7 @@ export function OrdersFiltersPopover({
           onChange={(e) => setDraft((p) => ({ ...p, ownerId: e.target.value }))}
           className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
         >
-          <option value="">Любой ответственный</option>
+          <option value="">Будь-який відповідальний</option>
           {ownerOptions.map((owner) => (
             <option key={owner.id} value={owner.id}>
               {owner.fullName}
@@ -240,7 +240,7 @@ export function OrdersFiltersPopover({
           }
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50"
         >
-          {draft.sortDir === "asc" ? "По возрастанию" : "По убыванию"}
+          {draft.sortDir === "asc" ? "За зростанням" : "За спаданням"}
         </button>
       </div>
 
@@ -265,7 +265,7 @@ export function OrdersFiltersPopover({
         >
           Сбросить
         </button>
-        <span className="text-xs text-zinc-500">{hasActiveFilters ? "Есть активные фильтры" : "Фильтры не выбраны"}</span>
+        <span className="text-xs text-zinc-500">{hasActiveFilters ? "Є активні фільтри" : "Фільтри не вибрані"}</span>
       </div>
     </div>
   );

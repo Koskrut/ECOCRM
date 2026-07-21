@@ -14,9 +14,17 @@ type Props = {
   compareEnabled: boolean;
   periodLabel?: string;
   controls?: ReactNode;
+  hideHeader?: boolean;
 };
 
-export function ManagerScorecard({ scorecard, currency, compareEnabled, periodLabel, controls }: Props) {
+export function ManagerScorecard({
+  scorecard,
+  currency,
+  compareEnabled,
+  periodLabel,
+  controls,
+  hideHeader,
+}: Props) {
   const t = strings.dashboard.manager.scorecard;
   const m = t.metrics;
   const { activity, outcomes } = scorecard;
@@ -25,16 +33,20 @@ export function ManagerScorecard({ scorecard, currency, compareEnabled, periodLa
 
   return (
     <section className="min-w-0 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
-            <BarChart3 className="h-5 w-5 text-zinc-500" />
-            {t.title}
-          </h2>
-          {periodLabel ? <p className="mt-1 text-sm text-zinc-500">{periodLabel}</p> : null}
+      {hideHeader ? (
+        controls ? <div className="flex flex-wrap justify-end">{controls}</div> : null
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
+              <BarChart3 className="h-5 w-5 text-zinc-500" />
+              {t.title}
+            </h2>
+            {periodLabel ? <p className="mt-1 text-sm text-zinc-500">{periodLabel}</p> : null}
+          </div>
+          {controls}
         </div>
-        {controls}
-      </div>
+      )}
 
       <div className="rounded-xl border border-zinc-200 bg-white/60 p-4 shadow-sm">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -100,7 +112,7 @@ export function ManagerScorecard({ scorecard, currency, compareEnabled, periodLa
           <KpiDeltaCard
             title={m.leadsWon}
             value={formatNumber(outcomes.leadsWon)}
-            subtitle={`LOST: ${formatNumber(outcomes.leadsLost)}`}
+            subtitle={`Програні: ${formatNumber(outcomes.leadsLost)}`}
             variant="count"
             deltaLabel={deltaCountLine(outcomes.leadsWon, outCmp?.leadsWon)}
           />

@@ -1,3 +1,13 @@
+/** Calendar YYYY-MM-DD in Europe/Kyiv (aligns with backend shift.date). */
+export function formatKyivDateKey(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Kyiv",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 /** Local calendar YYYY-MM-DD (user timezone). */
 export function formatLocalDateKey(d = new Date()): string {
   const y = d.getFullYear();

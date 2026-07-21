@@ -108,7 +108,7 @@ function ManagerQueuePageContent() {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Failed to load manager queue");
+        (e instanceof Error ? e.message : "Не вдалося завантажити чергу менеджера");
       setItems([]);
       setSummary(null);
       setError(msg);

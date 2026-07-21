@@ -17,6 +17,7 @@ export const MAX_PENDING_SAMPLES = 500;
 export const STORAGE_KEYS = {
   PENDING_SAMPLES: "field_location_pending_samples",
   ACTIVE_SHIFT_ID: "field_active_shift_id",
+  ACTIVE_SHIFT_DAY_KEY: "field_active_shift_day_key",
   TRACKING_MODE: "field_tracking_mode",
   LAST_FLUSH_AT: "field_last_flush_at",
 } as const;

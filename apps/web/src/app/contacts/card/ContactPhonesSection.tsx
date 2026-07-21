@@ -91,7 +91,7 @@ export function ContactPhonesSection({
                 onClick={() => handleSetPrimary(p.id)}
                 disabled={saving || mutatingId !== null}
               >
-                Сделать основным
+                Зробити основним
               </button>
               <button
                 type="button"
