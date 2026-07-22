@@ -21,6 +21,7 @@ import {
   RECEIVABLES_1C_ALLOWED_CURRENCIES,
   RECEIVABLES_1C_AMOUNT_CURRENCY,
   RECEIVABLES_DELTA_TOLERANCE,
+  RECEIVABLES_DEBT_ORDER_STAGES,
   type Receivables1CCurrency,
 } from "./receivables.constants";
 import {
@@ -287,10 +288,7 @@ export class ReceivablesService {
             {
               debtAmount: { gt: 0 },
               clientId: { not: null },
-              OR: [
-                { orderStage: { notIn: ["CANCELED", "REFUSED"] } },
-                { orderStage: null },
-              ],
+              orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] },
             },
             excludeBitrixLegacyWhere(),
           ],
@@ -572,6 +570,10 @@ export class ReceivablesService {
       snapshotDate: string;
       isAligned: boolean;
       managerDeltaCount: number;
+      deltaCount: number;
+      total1C: number;
+      totalCRM: number;
+      totalDelta: number;
     } | null = null;
 
     if (latestSnapshotId) {
@@ -581,6 +583,10 @@ export class ReceivablesService {
         snapshotDate: summary.snapshot.snapshotDate.toISOString(),
         isAligned: summary.kpi.isAligned,
         managerDeltaCount: summary.kpi.managerDeltaCount,
+        deltaCount: summary.kpi.deltaCount,
+        total1C: summary.kpi.total1C,
+        totalCRM: summary.kpi.totalCRM,
+        totalDelta: summary.kpi.totalDelta,
       };
     }
 

@@ -175,6 +175,34 @@ describe("OrderReturnsService", () => {
     assert.ok(stageUpdates.includes("COMPLETED"));
   });
 
+  it("list filters by status and pageSize", async () => {
+    const findManyArgs: Array<Record<string, unknown>> = [];
+    const countArgs: Array<Record<string, unknown>> = [];
+    const prisma = {
+      orderReturn: {
+        findMany: async (args: Record<string, unknown>) => {
+          findManyArgs.push(args);
+          return [{ id: "r1", status: "REQUESTED", order: {}, items: [] }];
+        },
+        count: async (args: Record<string, unknown>) => {
+          countArgs.push(args);
+          return 3;
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const result = await svc.list({ status: "REQUESTED" as never, page: 1, pageSize: 3 });
+
+    assert.equal(result.pageSize, 3);
+    assert.equal(result.total, 3);
+    assert.equal(result.items.length, 1);
+    assert.deepEqual(findManyArgs[0]?.where, { status: "REQUESTED" });
+    assert.equal(findManyArgs[0]?.take, 3);
+    assert.equal(findManyArgs[0]?.skip, 0);
+    assert.deepEqual(countArgs[0]?.where, { status: "REQUESTED" });
+  });
+
   it("create rejects over-return considering previous returns", async () => {
     let created = false;
     const prisma = {

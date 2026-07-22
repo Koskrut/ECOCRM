@@ -3529,112 +3529,6 @@ export function OrderModal({
                       </div>
                     )}
 
-                    {showCreateReturnForm && order.items && order.items.length > 0 ? (
-                      <div className="col-span-1 xl:col-span-2">
-                        <div className="text-xs font-medium text-zinc-600">
-                          {t.returnFormTitle}
-                        </div>
-                        <div className="mt-1 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-                          <div className="text-xs font-medium text-zinc-700">{t.returnItems}</div>
-                          {(order.items as OrderItem[]).map((it) => (
-                            <div key={it.id} className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                              <span className="min-w-0 flex-1 truncate text-zinc-700">
-                                {it.productName ?? "—"}
-                              </span>
-                              <span className="shrink-0 text-zinc-500">{t.maxQty(it.qty)}</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={it.qty}
-                                value={returnItemQtys[it.id] ?? 0}
-                                onChange={(e) =>
-                                  setReturnItemQtys((prev) => ({
-                                    ...prev,
-                                    [it.id]: Math.max(
-                                      0,
-                                      Math.min(it.qty, Number(e.target.value) || 0),
-                                    ),
-                                  }))
-                                }
-                                className="w-16 rounded border border-zinc-300 px-2 py-0.5 text-right text-sm"
-                              />
-                            </div>
-                          ))}
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={createReturnSubmitting}
-                              onClick={async () => {
-                                const items = (order.items as OrderItem[])
-                                  .map((it) => ({
-                                    orderItemId: it.id,
-                                    qtyReturned: returnItemQtys[it.id] ?? 0,
-                                  }))
-                                  .filter((x) => x.qtyReturned > 0);
-                                if (items.length === 0) {
-                                  pushToast("Оберіть кількість хоча б по одній позиції", "error");
-                                  return;
-                                }
-                                setCreateReturnSubmitting(true);
-                                try {
-                                  const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ items }),
-                                    credentials: "include",
-                                  });
-                                  if (!r.ok) {
-                                    const err = await r.json().catch(() => ({}));
-                                    throw new Error(
-                                      (err as { message?: string }).message ??
-                                        "Не вдалося створити повернення",
-                                    );
-                                  }
-                                  setShowCreateReturnForm(false);
-                                  setReturnItemQtys({});
-                                  await Promise.all([refreshReturns(), refreshOrder()]);
-                                  onSaved?.();
-                                } catch (e) {
-                                  pushToast(
-                                    e instanceof Error ? e.message : "Помилка створення повернення",
-                                    "error",
-                                  );
-                                } finally {
-                                  setCreateReturnSubmitting(false);
-                                }
-                              }}
-                              className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                            >
-                              {createReturnSubmitting ? "…" : t.createReturn}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowCreateReturnForm(false);
-                                setReturnItemQtys({});
-                              }}
-                              className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100"
-                            >
-                              {strings.common.cancel}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setReturnItemQtys(
-                                  Object.fromEntries(
-                                    (order.items as OrderItem[]).map((it) => [it.id, it.qty]),
-                                  ),
-                                )
-                              }
-                              className="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100"
-                            >
-                              {t.returnAll}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
                     <div className="min-w-0">
                       <div className="text-xs text-zinc-500">{t.delivery}</div>
                       <div className="mt-1 flex w-full max-w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5 shadow-inner">
@@ -4151,6 +4045,141 @@ export function OrderModal({
             onSaved?.();
           }}
         />
+      ) : null}
+      {showCreateReturnForm && order ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-return-dialog-title"
+          onClick={() => {
+            if (createReturnSubmitting) return;
+            setShowCreateReturnForm(false);
+            setReturnItemQtys({});
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="create-return-dialog-title" className="text-base font-semibold text-zinc-900">
+              {t.returnFormTitle}
+            </h3>
+            <p className="mt-1 text-sm text-zinc-600">{t.returnItems}</p>
+
+            {(order.items as OrderItem[] | undefined)?.length ? (
+              <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
+                {(order.items as OrderItem[]).map((it) => (
+                  <div
+                    key={it.id}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-zinc-800">
+                      {it.productName ?? it.product?.name ?? "—"}
+                    </span>
+                    <span className="shrink-0 text-zinc-500">{t.maxQty(it.qty)}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={it.qty}
+                      value={returnItemQtys[it.id] ?? 0}
+                      onChange={(e) =>
+                        setReturnItemQtys((prev) => ({
+                          ...prev,
+                          [it.id]: Math.max(
+                            0,
+                            Math.min(it.qty, Number(e.target.value) || 0),
+                          ),
+                        }))
+                      }
+                      className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-zinc-500">У замовленні немає позицій</p>
+            )}
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <button
+                type="button"
+                disabled={!(order.items as OrderItem[] | undefined)?.length}
+                onClick={() =>
+                  setReturnItemQtys(
+                    Object.fromEntries(
+                      (order.items as OrderItem[]).map((it) => [it.id, it.qty]),
+                    ),
+                  )
+                }
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
+              >
+                {t.returnAll}
+              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={createReturnSubmitting}
+                  onClick={() => {
+                    setShowCreateReturnForm(false);
+                    setReturnItemQtys({});
+                  }}
+                  className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
+                >
+                  {strings.common.cancel}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    createReturnSubmitting || !(order.items as OrderItem[] | undefined)?.length
+                  }
+                  onClick={async () => {
+                    const items = (order.items as OrderItem[])
+                      .map((it) => ({
+                        orderItemId: it.id,
+                        qtyReturned: returnItemQtys[it.id] ?? 0,
+                      }))
+                      .filter((x) => x.qtyReturned > 0);
+                    if (items.length === 0) {
+                      pushToast("Оберіть кількість хоча б по одній позиції", "error");
+                      return;
+                    }
+                    setCreateReturnSubmitting(true);
+                    try {
+                      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ items }),
+                        credentials: "include",
+                      });
+                      if (!r.ok) {
+                        const err = await r.json().catch(() => ({}));
+                        throw new Error(
+                          (err as { message?: string }).message ??
+                            "Не вдалося створити повернення",
+                        );
+                      }
+                      setShowCreateReturnForm(false);
+                      setReturnItemQtys({});
+                      await Promise.all([refreshReturns(), refreshOrder()]);
+                      onSaved?.();
+                    } catch (e) {
+                      pushToast(
+                        e instanceof Error ? e.message : "Помилка створення повернення",
+                        "error",
+                      );
+                    } finally {
+                      setCreateReturnSubmitting(false);
+                    }
+                  }}
+                  className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {createReturnSubmitting ? "…" : t.createReturn}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
       {pendingReturnSettlement ? (
         <OrderReturnSettlementDialog

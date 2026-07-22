@@ -1,7 +1,7 @@
 import type { Prisma, ReceivablesReconcileStatus } from "@prisma/client";
 import type { AnalyticsScope } from "../analytics/analytics-scope.service";
-import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics/analytics.constants";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
+import { RECEIVABLES_DEBT_ORDER_STAGES } from "./receivables.constants";
 
 export const RECEIVABLES_EXCLUDED_LEGACY_SOURCES = ["bitrix"] as const;
 
@@ -16,10 +16,7 @@ function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhere
   const where: Prisma.OrderWhereInput = {
     debtAmount: { gt: 0 },
     clientId: { not: null },
-    OR: [
-      { orderStage: { notIn: [...ANALYTICS_EXCLUDED_ORDER_STAGES] } },
-      { orderStage: null },
-    ],
+    orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] },
   };
 
   if (scope.orderScope.managerId) {

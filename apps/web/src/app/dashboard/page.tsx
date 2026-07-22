@@ -14,6 +14,10 @@ import { DashboardHeroKpis } from "@/components/dashboard/DashboardHeroKpis";
 import { DashboardManagersTable } from "@/components/dashboard/DashboardManagersTable";
 import { DashboardMyWorkSection } from "@/components/dashboard/DashboardMyWorkSection";
 import { DashboardQualityFlags } from "@/components/dashboard/DashboardQualityFlags";
+import {
+  DashboardReceivablesPanel,
+  type DashboardReceivablesData,
+} from "@/components/dashboard/DashboardReceivablesPanel";
 import { DashboardSalesCharts } from "@/components/dashboard/DashboardSalesCharts";
 import {
   DashboardTabBar,
@@ -25,6 +29,9 @@ import { ErrorPanel, PageLoading } from "@/components/feedback";
 import type { BaseCurrency } from "@/lib/base-currency";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
+import { ModuleIds } from "@/lib/modules/module-ids";
+import { useModules } from "@/lib/modules/useModules";
+import { receivablesApi } from "@/lib/api/resources/receivables";
 
 type ManagerOption = { id: string; fullName: string };
 
@@ -59,6 +66,11 @@ function DashboardPageContent() {
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [morningOpen, setMorningOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
+  const [receivablesLoading, setReceivablesLoading] = useState(false);
+
+  const { effective: moduleEffective } = useModules();
+  const financeEnabled = moduleEffective(ModuleIds.Finance);
 
   const tab = parseLeadershipTab(searchParams.get("tab"));
   const lt = strings.dashboard.leadership;
@@ -131,6 +143,29 @@ function DashboardPageContent() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadReceivables = useCallback(async () => {
+    if (!financeEnabled || userRole === "MANAGER") {
+      setReceivables(null);
+      return;
+    }
+    setReceivablesLoading(true);
+    try {
+      const res = await receivablesApi.workSummary(managerId || undefined);
+      setReceivables({
+        currency: res.data.currency,
+        reconciliation: res.data.reconciliation,
+      });
+    } catch {
+      setReceivables(null);
+    } finally {
+      setReceivablesLoading(false);
+    }
+  }, [financeEnabled, managerId, userRole]);
+
+  useEffect(() => {
+    void loadReceivables();
+  }, [loadReceivables, refreshKey]);
 
   useEffect(() => {
     if (userRole === "LEAD" && data?.myWork.agenda?.plan?.status !== "COMMITTED") {
@@ -246,6 +281,13 @@ function DashboardPageContent() {
             currency={currency}
             showAnalyticsLink={isLeadership}
           />
+          {financeEnabled ? (
+            <DashboardReceivablesPanel
+              data={receivables}
+              loading={receivablesLoading}
+              currency={currency}
+            />
+          ) : null}
           {isLeadership ? (
             <DashboardMyWorkSection
               myWork={data.myWork}

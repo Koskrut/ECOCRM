@@ -70,6 +70,9 @@ function warningText(code: string): string | null {
   if (code === "gps_implausibly_short_vs_visits") {
     return "GPS-км значно менші за маршрут по візитах — для виплати використано факт по візитах.";
   }
+  if (code === "gps_implausibly_long_vs_visits") {
+    return "GPS-км значно більші за маршрут по візитах — для виплати використано факт по візитах.";
+  }
   if (code === "report_stale") {
     return "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».";
   }

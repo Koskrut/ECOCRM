@@ -295,6 +295,8 @@ export class FieldFuelService {
         warnings.push("gps_ended_before_last_visit");
       } else if (ineligibleReason === "gps_implausibly_short_vs_visits") {
         warnings.push("gps_implausibly_short_vs_visits");
+      } else if (ineligibleReason === "gps_implausibly_long_vs_visits") {
+        warnings.push("gps_implausibly_long_vs_visits");
       } else if (ineligibleReason === "track_too_short") {
         warnings.push("gps_track_too_short");
       } else if (geometryBundle.factGps.quality.degraded) {

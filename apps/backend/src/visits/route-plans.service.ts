@@ -698,17 +698,30 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Match one GPS chunk to roads (OSRM match → multi-leg route → haversine). */
+  /** Match one GPS chunk to roads (OSRM match → single A→B leg → haversine). */
   private async matchGpsChunkToRoads(
     points: LatLng[],
-  ): Promise<{ path: LatLng[]; source: "osrm" | "fallback" }> {
+  ): Promise<{ path: LatLng[]; source: "osrm" | "fallback"; distanceKm: number | null }> {
     if (points.length < 2) {
-      return { path: points, source: "fallback" };
+      return { path: points, source: "fallback", distanceKm: null };
     }
 
-    const sampled = downsamplePathUniform(points, 100);
+    const sampled = downsamplePathUniform(points, 80);
     if (sampled.length < 2) {
-      return { path: points, source: "fallback" };
+      const origin = points[0]!;
+      const destination = points[points.length - 1]!;
+      const straightKm = this.haversineKm(
+        origin.lat,
+        origin.lng,
+        [],
+        destination.lat,
+        destination.lng,
+      );
+      return {
+        path: [origin, destination],
+        source: "fallback",
+        distanceKm: Math.round(straightKm * 10) / 10,
+      };
     }
 
     try {
@@ -719,7 +732,11 @@ export class RoutePlansService {
         (matched.distanceKm < MIN_TRACK_COMPENSATION_KM ||
           (rawKm != null && rawKm >= MIN_TRACK_COMPENSATION_KM && matched.distanceKm < rawKm * 0.25));
       if (matched?.source === "osrm" && matched.path.length >= 2 && !matchTooTiny) {
-        return { path: matched.path, source: "osrm" };
+        return {
+          path: matched.path,
+          source: "osrm",
+          distanceKm: matched.distanceKm,
+        };
       }
       if (matchTooTiny) {
         this.logger.warn(
@@ -733,22 +750,33 @@ export class RoutePlansService {
 
     const origin = sampled[0]!;
     const destination = sampled[sampled.length - 1]!;
-    const intermediates = sampled.length > 2 ? sampled.slice(1, -1) : [];
 
     try {
       const routed = await this.computeRouteMultiLeg({
         origin,
         destination,
-        intermediates,
+        intermediates: [],
       });
       if (routed?.source === "osrm" && routed.path.length >= 2) {
-        return { path: routed.path, source: "osrm" };
+        return {
+          path: routed.path,
+          source: "osrm",
+          distanceKm: routed.distanceKm,
+        };
       }
       if (routed?.source === "fallback") {
         this.logger.warn("snapGpsPathToRoads: partial_chunk_failure");
+        const straightKm = this.haversineKm(
+          origin.lat,
+          origin.lng,
+          [],
+          destination.lat,
+          destination.lng,
+        );
         return {
-          path: routed.path.length >= 2 ? routed.path : points,
+          path: routed.path.length >= 2 ? routed.path : [origin, destination],
           source: "fallback",
+          distanceKm: routed.distanceKm ?? Math.round(straightKm * 10) / 10,
         };
       }
     } catch (e) {
@@ -756,7 +784,18 @@ export class RoutePlansService {
       this.logger.warn(`snapGpsPathToRoads: api_error ${message}`);
     }
 
-    return { path: points, source: "fallback" };
+    const straightKm = this.haversineKm(
+      origin.lat,
+      origin.lng,
+      [],
+      destination.lat,
+      destination.lng,
+    );
+    return {
+      path: [origin, destination],
+      source: "fallback",
+      distanceKm: Math.round(straightKm * 10) / 10,
+    };
   }
 
   /** Chronological GPS track → drivable path (time-split match + stitch gaps). */
@@ -784,19 +823,58 @@ export class RoutePlansService {
     }
 
     const chunks = splitSamplesByTimeGap(tracked, TRACK_SEGMENT_GAP_MIN);
-    const chunkPaths: LatLng[][] = [];
+    const chunkResults: Array<{
+      path: LatLng[];
+      source: "osrm" | "fallback";
+      distanceKm: number | null;
+    }> = [];
     let usedOsrm = false;
     let usedFallback = false;
+    let totalKm = 0;
 
     for (const chunk of chunks) {
       const chunkPoints = chunk.map((s) => ({ lat: s.lat, lng: s.lng }));
       const matched = await this.matchGpsChunkToRoads(chunkPoints);
-      chunkPaths.push(matched.path);
+      chunkResults.push(matched);
       if (matched.source === "osrm") usedOsrm = true;
       if (matched.source === "fallback") usedFallback = true;
+      if (matched.distanceKm != null && Number.isFinite(matched.distanceKm)) {
+        totalKm += matched.distanceKm;
+      }
     }
 
-    let merged = concatPaths(chunkPaths);
+    for (let i = 0; i < chunks.length - 1; i++) {
+      const prevChunk = chunks[i]!;
+      const nextChunk = chunks[i + 1]!;
+      const origin = {
+        lat: prevChunk[prevChunk.length - 1]!.lat,
+        lng: prevChunk[prevChunk.length - 1]!.lng,
+      };
+      const destination = {
+        lat: nextChunk[0]!.lat,
+        lng: nextChunk[0]!.lng,
+      };
+      try {
+        const routed = await this.computeRouteMultiLeg({
+          origin,
+          destination,
+          intermediates: [],
+        });
+        if (routed?.distanceKm != null && Number.isFinite(routed.distanceKm)) {
+          totalKm += routed.distanceKm;
+          if (routed.source === "osrm") usedOsrm = true;
+          else usedFallback = true;
+        } else {
+          totalKm += this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng);
+          usedFallback = true;
+        }
+      } catch {
+        totalKm += this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng);
+        usedFallback = true;
+      }
+    }
+
+    let merged = concatPaths(chunkResults.map((r) => r.path));
     if (merged.length < 2) {
       merged = tracked.map((s) => ({ lat: s.lat, lng: s.lng }));
     }
@@ -812,32 +890,36 @@ export class RoutePlansService {
           usedOsrm = true;
           return { path: routed.path };
         }
+        if (routed?.path && routed.path.length >= 2) {
+          usedFallback = true;
+          return { path: routed.path };
+        }
       } catch {
-        /* stitch leg optional */
+        /* map stitch only */
       }
       return null;
     };
 
     const stitched = await stitchPathGaps(merged, routeLeg, STITCH_GAP_THRESHOLD_KM);
+    const distanceKm =
+      totalKm > 0 ? Math.round(totalKm * 10) / 10 : this.pathDistanceKm(tracked);
+
     if (stitched.path.length < 2) {
       return {
         path: tracked.map((s) => ({ lat: s.lat, lng: s.lng })),
         source: "fallback",
-        distanceKm: this.pathDistanceKm(tracked),
+        distanceKm,
         maxStitchGapKm: stitched.maxStitchGapKm,
         hasUnfilledGaps: stitched.hasUnfilledGaps,
       };
     }
 
     const source: "osrm" | "fallback" = usedOsrm ? "osrm" : "fallback";
-    if (!usedOsrm && usedFallback) {
-      /* already fallback */
-    }
 
     return {
       path: stitched.path,
       source,
-      distanceKm: this.pathDistanceKm(stitched.path),
+      distanceKm,
       maxStitchGapKm: stitched.maxStitchGapKm,
       hasUnfilledGaps: stitched.hasUnfilledGaps,
     };

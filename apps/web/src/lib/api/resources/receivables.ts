@@ -159,6 +159,10 @@ export const receivablesApi = {
         snapshotDate: string;
         isAligned: boolean;
         managerDeltaCount: number;
+        deltaCount: number;
+        total1C: number;
+        totalCRM: number;
+        totalDelta: number;
       } | null;
       kpi: {
         debtTotal: number;

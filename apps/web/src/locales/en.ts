@@ -998,6 +998,20 @@ export const en = {
         detailsLink: "Visit analytics →",
       },
       teamFilteredHint: "Showing data for the selected manager only.",
+      receivables: {
+        title: "Receivables & 1C reconciliation",
+        subtitle: "CRM debt compared to the latest 1C snapshot.",
+        openFull: "Open receivables →",
+        open: "Review →",
+        noSnapshot: "No 1C reconciliation snapshot yet. Upload Excel in Receivables.",
+        alignedBanner: (date: string) => `Reconciliation OK — snapshot from ${date}`,
+        mismatchBanner: (count: number, date: string) =>
+          `${count} counterparties do not match 1C (snapshot ${date})`,
+        mismatchClients: "Mismatch with 1C",
+        debt1C: "Debt per 1C",
+        debtCrm: "Debt per CRM",
+        delta: "Delta (1C − CRM)",
+      },
     },
     manager: {
       greeting: "Hi, {name}",

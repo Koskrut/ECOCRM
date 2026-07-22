@@ -18,6 +18,7 @@ import { StatusBadge } from "../../components/StatusBadge";
 import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
 import {
   StockReadinessBadge,
+  stockReadinessHint,
   type OrderStockReadiness,
 } from "@/components/orders/StockReadinessBadge";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
@@ -515,10 +516,13 @@ export function OrdersKanban({
                         ? `${o.client.lastName} ${o.client.firstName}`.trim() || "—"
                         : o.company?.name ?? "—";
                     const stage = resolveStage(o);
-                    return (
-                      <button
+                  const stockFullyReady =
+                    stage === "AWAITING_STOCK" && o.stockReadiness === "FULL";
+                  return (
+                    <button
                         key={o.id}
                         type="button"
+                        title={stockFullyReady ? stockReadinessHint(o.stockReadiness) ?? undefined : undefined}
                         onClick={() => {
                           if (isTextSelected()) return;
                           onOpenOrder(o.id);
@@ -547,7 +551,10 @@ export function OrdersKanban({
                           setDragOver(null);
                         }}
                         className={[
-                          "w-full rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md",
+                          "w-full rounded-xl border bg-white p-4 text-left transition-shadow",
+                          stockFullyReady
+                            ? "border-emerald-400/80 shadow-[0_0_0_1px_rgba(52,211,153,0.45),0_0_18px_rgba(16,185,129,0.55)] hover:shadow-[0_0_0_1px_rgba(52,211,153,0.55),0_0_22px_rgba(16,185,129,0.7)]"
+                            : "border-zinc-200 shadow-sm hover:shadow-md",
                           dragging?.orderId === o.id ? "opacity-60" : "",
                         ].join(" ")}
                       >
@@ -584,7 +591,7 @@ export function OrdersKanban({
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
-                          {stage === "AWAITING_STOCK" ? (
+                          {stage === "AWAITING_STOCK" && o.stockReadiness === "PARTIAL" ? (
                             <StockReadinessBadge readiness={o.stockReadiness} size="xs" />
                           ) : null}
                         </div>

@@ -118,6 +118,15 @@ export const TRACK_VS_VISITS_SANITY_RATIO = 0.55;
 /** Minimum visit-route km before the track-vs-visits sanity check applies. */
 export const MIN_VISIT_ROUTE_KM_FOR_SANITY = 2;
 
+/**
+ * If snapped GPS km exceeds this multiple of the visits route (with enough visit km),
+ * treat as inflated fallback-route / jitter → pay by visits.
+ */
+export const TRACK_VS_VISITS_MAX_RATIO = 1.35;
+
+/** Minimum visit-route km before the max-ratio sanity check applies. */
+export const MIN_VISIT_ROUTE_KM_FOR_MAX_SANITY = 2;
+
 export type TrackCompensationEligibility = {
   eligible: boolean;
   reason: string | null;
@@ -180,6 +189,14 @@ export function isTrackEligibleForCompensation(opts: {
     return { eligible: false, reason: "gps_implausibly_short_vs_visits" };
   }
 
+  if (isGpsImplausiblyLongVsVisits({
+    coverageRatio: opts.coverageRatio,
+    snappedTrackDistanceKm: opts.snappedTrackDistanceKm,
+    visitRouteDistanceKm: opts.visitRouteDistanceKm,
+  })) {
+    return { eligible: false, reason: "gps_implausibly_long_vs_visits" };
+  }
+
   return { eligible: true, reason: null };
 }
 
@@ -219,6 +236,34 @@ export function isGpsImplausiblyShortVsVisits(opts: {
   const effectiveTrack =
     trackKm != null && Number.isFinite(trackKm) ? Math.max(0, trackKm) : 0;
   return effectiveTrack < visitKm * TRACK_VS_VISITS_SANITY_RATIO;
+}
+
+/**
+ * True when snapped GPS km is far above the visits route despite healthy coverage
+ * (symptom of fallback routing through jitter waypoints or dense polyline sum).
+ */
+export function isGpsImplausiblyLongVsVisits(opts: {
+  coverageRatio?: number | null;
+  snappedTrackDistanceKm?: number | null;
+  visitRouteDistanceKm?: number | null;
+}): boolean {
+  const coverage = opts.coverageRatio;
+  const trackKm = opts.snappedTrackDistanceKm;
+  const visitKm = opts.visitRouteDistanceKm;
+  if (coverage == null || !Number.isFinite(coverage) || coverage < MIN_TRACK_COVERAGE_RATIO) {
+    return false;
+  }
+  if (
+    visitKm == null ||
+    !Number.isFinite(visitKm) ||
+    visitKm < MIN_VISIT_ROUTE_KM_FOR_MAX_SANITY
+  ) {
+    return false;
+  }
+  if (trackKm == null || !Number.isFinite(trackKm)) {
+    return false;
+  }
+  return trackKm > visitKm * TRACK_VS_VISITS_MAX_RATIO;
 }
 
 function toTimeMs(value: Date | string | null | undefined): number | null {

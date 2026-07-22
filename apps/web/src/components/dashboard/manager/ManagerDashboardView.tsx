@@ -19,6 +19,13 @@ import { contactsApi, type ContactWorkQueueItem } from "@/lib/api/resources/cont
 import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
 import { dailyAgendaApi, type DailyAgendaPayload } from "@/lib/api/resources/daily-agenda";
 import { tasksApi } from "@/lib/api/resources/tasks";
+import {
+  DashboardReceivablesPanel,
+  type DashboardReceivablesData,
+} from "@/components/dashboard/DashboardReceivablesPanel";
+import { ModuleIds } from "@/lib/modules/module-ids";
+import { useModules } from "@/lib/modules/useModules";
+import { receivablesApi } from "@/lib/api/resources/receivables";
 import type { BaseCurrency } from "@/lib/base-currency";
 import { CRM_LOCALE, CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
@@ -64,8 +71,12 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
   const [scorecardExpanded, setScorecardExpanded] = useState(false);
+  const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
+  const [receivablesLoading, setReceivablesLoading] = useState(false);
 
   const { pushToast } = useToast();
+  const { effective: moduleEffective } = useModules();
+  const financeEnabled = moduleEffective(ModuleIds.Finance);
 
   const loadCore = useCallback(async () => {
     setLoading(true);
@@ -120,6 +131,29 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   useEffect(() => {
     void loadQueue();
   }, [loadQueue]);
+
+  const loadReceivables = useCallback(async () => {
+    if (!financeEnabled) {
+      setReceivables(null);
+      return;
+    }
+    setReceivablesLoading(true);
+    try {
+      const res = await receivablesApi.workSummary();
+      setReceivables({
+        currency: res.data.currency,
+        reconciliation: res.data.reconciliation,
+      });
+    } catch {
+      setReceivables(null);
+    } finally {
+      setReceivablesLoading(false);
+    }
+  }, [financeEnabled]);
+
+  useEffect(() => {
+    void loadReceivables();
+  }, [loadReceivables]);
 
   useEffect(() => {
     if (agenda && agenda.plan?.status !== "COMMITTED") {
@@ -182,6 +216,14 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
 
       <ManagerInboxPanel tiles={inbox.tiles} />
+
+      {financeEnabled ? (
+        <DashboardReceivablesPanel
+          data={receivables}
+          loading={receivablesLoading}
+          currency={currency}
+        />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">

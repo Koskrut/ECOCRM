@@ -3,8 +3,8 @@ import type { ReturnStatus } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { OrderReturnsService } from "./order-returns.service";
-import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
-import type { UpdateReturnStatusDto } from "./dto/update-return-status.dto";
+import { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
+import { UpdateReturnStatusDto } from "./dto/update-return-status.dto";
 
 @Controller("order-returns")
 export class OrderReturnsController {

@@ -1005,6 +1005,20 @@ export const uk = {
         detailsLink: "Аналітика візитів →",
       },
       teamFilteredHint: "Показано дані лише для обраного менеджера.",
+      receivables: {
+        title: "Дебіторка та звірка з 1С",
+        subtitle: "Порівняння боргу CRM з останнім знімком 1С.",
+        openFull: "Відкрити дебіторку →",
+        open: "Переглянути →",
+        noSnapshot: "Немає знімка звірки з 1С. Завантажте Excel у розділі «Дебіторка».",
+        alignedBanner: (date: string) => `Звірка OK — знімок від ${date}`,
+        mismatchBanner: (count: number, date: string) =>
+          `${count} контрагентів не сходиться з 1С (знімок ${date})`,
+        mismatchClients: "Не сходиться з 1С",
+        debt1C: "Борг за 1С",
+        debtCrm: "Борг за CRM",
+        delta: "Різниця (1С − CRM)",
+      },
     },
     manager: {
       greeting: "Привіт, {name}",

@@ -187,4 +187,43 @@ describe("isTrackEligibleForCompensation", () => {
     assert.equal(result.eligible, false);
     assert.equal(result.reason, "gps_implausibly_short_vs_visits");
   });
+
+  it("rejects Isanchev-like inflated track vs visits (long)", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 220,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 229.1,
+      visitRouteDistanceKm: 10.8,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_long_vs_visits");
+  });
+
+  it("rejects Gumenyuk 17.07 inflated track 54 vs visits 15.3 (long)", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 180,
+      rawPolylineDistanceKm: 50,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 54.1,
+      visitRouteDistanceKm: 15.3,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_long_vs_visits");
+  });
+
+  it("Gumenyuk 20.07 after fix: track 17 vs visits 35 → short ineligible", () => {
+    const result = isTrackEligibleForCompensation({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 180,
+      rawPolylineDistanceKm: 17,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 17,
+      visitRouteDistanceKm: 35.1,
+    });
+    assert.equal(result.eligible, false);
+    assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
 });

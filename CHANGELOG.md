@@ -4,7 +4,34 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.115**.)_
+_(планируемые изменения после **0.2.116**.)_
+
+## [0.2.116] — 2026-07-22
+
+### Summary
+
+Патч **0.2.116**: anti-inflation GPS fuel (long vs visits + snap fix); pickup auto-ship cron; receivables debt from READY_TO_SHIP+; dashboard receivables panel.
+
+### Added
+
+- **Pickup auto-ship**: nightly cron — `PICKUP` + `READY_TO_SHIP` → `SHIPPED`.
+- **Dashboard receivables**: **DashboardReceivablesPanel** (1C vs CRM reconcile snapshot).
+- **Ops script**: `recalculate-inflated-gps-fuel-drafts.ts` для пересчёта завышенных GPS fuel drafts.
+
+### Fixed
+
+- **GPS snap**: fallback только start→end (не все jitter waypoints); distance = sum chunk km, не длина dense polyline.
+- **Fuel eligibility**: `gps_implausibly_long_vs_visits` (`TRACK_VS_VISITS_MAX_RATIO` 1.35) — inflated track → payout by visits.
+
+### Changed
+
+- **Receivables**: debt только со стадий **`READY_TO_SHIP`** и дальше (не ранняя воронка).
+- **OrderModal** / kanban polish; fuel warning для long-vs-visits.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.116`**.
+- **Новых миграций нет.**
 
 ## [0.2.115] — 2026-07-21
 

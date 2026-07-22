@@ -69,6 +69,7 @@ import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.s
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
 import { computeLineTotal } from "./order-line-total.utils";
+import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -1892,6 +1893,40 @@ export class OrdersService {
     });
 
     return this.mapToEntity(updated);
+  }
+
+  /**
+   * Nightly job: pickup orders left at READY_TO_SHIP → SHIPPED.
+   * Skips (logs) orders that fail business rules (e.g. unpaid prepayment).
+   */
+  async autoShipReadyPickupOrders(limit = 500): Promise<{
+    candidates: number;
+    shipped: number;
+    failed: number;
+  }> {
+    const orders = await this.prisma.order.findMany({
+      where: PICKUP_AUTO_SHIP_WHERE,
+      select: { id: true, orderNumber: true },
+      orderBy: { updatedAt: "asc" },
+      take: Math.max(1, Math.min(limit, 2000)),
+    });
+
+    let shipped = 0;
+    let failed = 0;
+    for (const order of orders) {
+      try {
+        await this.setOrderStage(order.id, "SHIPPED", undefined, PICKUP_AUTO_SHIP_REASON);
+        shipped += 1;
+      } catch (e: unknown) {
+        failed += 1;
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.warn(
+          `Pickup auto-ship skipped order ${order.orderNumber} (${order.id}): ${msg}`,
+        );
+      }
+    }
+
+    return { candidates: orders.length, shipped, failed };
   }
 
   /** Legacy endpoint: accepts legacy status, maps to orderStage and delegates to setOrderStage. */
