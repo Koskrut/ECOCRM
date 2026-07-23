@@ -6,6 +6,7 @@ export declare const ModuleIds: {
   readonly Finance: "ext.finance";
   readonly ProductionPlanning: "ext.production_planning";
   readonly Store: "ext.store";
+  readonly RiskManagement: "ext.risk_management";
   readonly IntegrationsTelegram: "int.integrations_telegram";
   readonly IntegrationsMetaMessaging: "int.integrations_meta_messaging";
   readonly NovaPoshta: "int.nova_poshta";

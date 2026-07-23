@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ListTodo, Search } from "lucide-react";
+import { HelpHint } from "@/components/help/HelpHint";
 import {
   tasksApi,
   resolveTaskListStatus,
@@ -496,13 +497,16 @@ function TasksPageContent() {
           <ListTodo className="h-7 w-7 text-zinc-600" />
           {t.pageTitle}
         </h1>
-        <button
+        <div className="flex items-center gap-2">
+          <HelpHint routeKey="tasks" />
+          <button
           type="button"
           onClick={() => setShowAdd((v) => !v)}
           className="rounded-lg bg-accent-gradient px-3 py-2 text-sm font-medium text-white"
         >
           {showAdd ? t.cancelAdd : t.addTask}
         </button>
+        </div>
       </div>
 
       <div className="space-y-2">

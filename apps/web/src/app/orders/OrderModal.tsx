@@ -13,6 +13,7 @@ import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderClientBalancePanel, OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 import { OrderTimeline } from "./OrderTimeline";
+import { HelpRelated } from "@/components/help/HelpRelated";
 import { TtnModal } from "./TtnModal";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/order-line-total";
 import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
+import { riskApi, type RiskGateResult } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
 
 const t = strings.orders.modal;
@@ -783,6 +785,7 @@ export function OrderModal({
   const [showDiscounts, setShowDiscounts] = useState(false);
   const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
   const [comment, setComment] = useState<string>("");
+  const [deferredRiskGate, setDeferredRiskGate] = useState<RiskGateResult | null>(null);
 
   // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
@@ -884,6 +887,7 @@ export function OrderModal({
   );
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const npModuleEffective = modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
+  const riskModuleEffective = modulesStatus === "ready" && moduleEffective(ModuleIds.RiskManagement);
 
   const canSplitByStock = useMemo(() => {
     if (!order?.items?.length) return false;
@@ -1206,6 +1210,42 @@ export function OrderModal({
       cancelled = true;
     };
   }, [orderId, isCreate]);
+
+  useEffect(() => {
+    const effectiveType = order?.paymentType ?? paymentType;
+    if (!riskModuleEffective || effectiveType !== "DEFERRED") {
+      setDeferredRiskGate(null);
+      return;
+    }
+    let cancelled = false;
+    void riskApi
+      .evaluateDeferred({
+        contactId: order?.clientId ?? clientId,
+        companyId: order?.companyId ?? companyId,
+        orderId: order?.id,
+        totalAmount: Number(order?.totalAmount ?? 0),
+        paymentType: "DEFERRED",
+      })
+      .then((gate) => {
+        if (!cancelled) setDeferredRiskGate(gate);
+      })
+      .catch(() => {
+        if (!cancelled) setDeferredRiskGate(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    riskModuleEffective,
+    order?.paymentType,
+    paymentType,
+    order?.clientId,
+    order?.companyId,
+    order?.id,
+    order?.totalAmount,
+    clientId,
+    companyId,
+  ]);
 
   useEffect(() => {
     if (!returnsDocsMenuOpen) return;
@@ -3264,6 +3304,27 @@ export function OrderModal({
                     </div>
 
                     {(order.paymentType ?? paymentType) === "DEFERRED" ? (
+                      <>
+                        {deferredRiskGate && deferredRiskGate.outcome !== "ALLOW" ? (
+                          <div
+                            className={`mt-2 rounded-lg border px-3 py-2 text-sm ${
+                              deferredRiskGate.outcome === "BLOCK"
+                                ? "border-red-200 bg-red-50 text-red-800"
+                                : deferredRiskGate.outcome === "REQUIRE_APPROVAL"
+                                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                                  : "border-orange-200 bg-orange-50 text-orange-900"
+                            }`}
+                          >
+                            {deferredRiskGate.outcome === "BLOCK"
+                              ? strings.risk.deferredBlock
+                              : deferredRiskGate.outcome === "REQUIRE_APPROVAL"
+                                ? strings.risk.deferredApprove
+                                : strings.risk.deferredWarn}
+                            {deferredRiskGate.reasons[0]?.explanationUk
+                              ? `: ${deferredRiskGate.reasons[0].explanationUk}`
+                              : null}
+                          </div>
+                        ) : null}
                       <div>
                         <div className="text-xs text-zinc-500">{t.paymentDueDate}</div>
                         {editing === "paymentDueDate" ? (
@@ -3334,6 +3395,7 @@ export function OrderModal({
                           </button>
                         )}
                       </div>
+                      </>
                     ) : null}
 
                     <div className="min-w-0">
@@ -4009,9 +4071,12 @@ export function OrderModal({
         }
         right={
           !isCreate && order && orderId && leftTab === "main" ? (
-            <EntitySection title={t.tabActivity}>
-              <OrderTimeline orderId={orderId} onItemsCountChange={setActivityTabCount} />
-            </EntitySection>
+            <div className="space-y-3">
+              <HelpRelated entityType="ORDER" compact />
+              <EntitySection title={t.tabActivity}>
+                <OrderTimeline orderId={orderId} onItemsCountChange={setActivityTabCount} />
+              </EntitySection>
+            </div>
           ) : null
         }
         canClose={canClose}

@@ -737,6 +737,7 @@ model Company {
   callQueueItems     CallQueueItem[]
   manualCallSessions ManualCallSession[]
   addresses          CompanyAddress[]
+  creditProfile      CreditProfile?
 
   @@unique([legacySource, legacyId])
   @@index([ownerId])
@@ -872,6 +873,7 @@ model Contact {
   callQueueItems       CallQueueItem[]
   manualCallSessions   ManualCallSession[]
   receivablesSnapshotLines ReceivablesSnapshotLine[]
+  creditProfile        CreditProfile?
 
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
@@ -1823,6 +1825,7 @@ model Order {
   productionBatches ProductionBatch[]
   reservations      MaterialReservation[]
   weeklyPlanItems   WeeklyPlanItem[]
+  riskDecisions     RiskDecision[]
 
   fxWriteOffBy User? @relation("OrderFxWriteOffBy", fields: [fxWriteOffByUserId], references: [id], onDelete: SetNull)
 
@@ -3471,4 +3474,275 @@ model IntegrationWebhookEvent {
   @@index([entityLegacyId])
   @@index([status])
   @@index([receivedAt])
+}
+
+enum HelpAudience {
+  PRODUCT
+  BUSINESS
+}
+
+enum HelpArticleStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model HelpCategory {
+  id        String       @id @default(cuid())
+  key       String       @unique
+  title     String
+  audience  HelpAudience
+  sortOrder Int          @default(0)
+  icon      String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  articles HelpArticle[]
+
+  @@index([audience, sortOrder])
+}
+
+model HelpArticle {
+  id           String            @id @default(cuid())
+  slug         String            @unique
+  seedKey      String?           @unique
+  categoryId   String
+  audience     HelpAudience
+  status       HelpArticleStatus @default(DRAFT)
+  locale       String            @default("uk")
+  title        String
+  excerpt      String?
+  bodyMd       String            @db.Text
+  sortOrder    Int               @default(0)
+  visibleRoles Json?
+  seedRevision Int?
+  createdById  String?
+  updatedById  String?
+  publishedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  category HelpCategory         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  bindings HelpArticleBinding[]
+
+  @@index([audience, status])
+  @@index([categoryId, sortOrder])
+}
+
+model HelpArticleBinding {
+  id         String  @id @default(cuid())
+  articleId  String
+  routeKey   String?
+  entityType String?
+  sortOrder  Int     @default(0)
+
+  article HelpArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([routeKey])
+  @@index([entityType])
+  @@index([articleId, sortOrder])
+}
+
+// --- Risk Management (ext.risk_management) ---
+
+enum RiskDomainId {
+  CLIENT_CREDIT
+  CLIENT_HEALTH
+  CASH_OPS
+  FX
+  INV
+  MFG
+  SHIP
+  FIELD
+  TEAM
+  QA
+  LEAD
+  SYS
+}
+
+enum RiskSubjectType {
+  CONTACT
+  COMPANY
+  ORDER
+  LEAD
+  PRODUCT
+  WAREHOUSE
+  PRODUCTION_BATCH
+  PACKING_LIST
+  FACTORY_ORDER
+  VISIT
+  USER
+  SYSTEM
+}
+
+enum RiskBand {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskSeverity {
+  INFO
+  WARNING
+  HIGH
+  CRITICAL
+}
+
+enum RiskDecisionOutcome {
+  ALLOW
+  WARN
+  REQUIRE_APPROVAL
+  BLOCK
+}
+
+enum CreditProfileStatus {
+  ACTIVE
+  WATCH
+  HOLD
+  BLOCKED
+}
+
+enum RiskClass {
+  A
+  B
+  C
+  D
+  BLOCK
+}
+
+enum RiskPlaybookRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+model CreditProfile {
+  id                 String              @id @default(cuid())
+  contactId          String?             @unique
+  companyId          String?             @unique
+  creditLimit        Decimal             @default(0) @db.Decimal(18, 2)
+  currency           String              @default("UAH")
+  utilizedExposure   Decimal             @default(0) @db.Decimal(18, 2)
+  availableCredit    Decimal             @default(0) @db.Decimal(18, 2)
+  riskClass          RiskClass           @default(B)
+  paymentTermsDays   Int                 @default(14)
+  status             CreditProfileStatus @default(ACTIVE)
+  notes              String?             @db.Text
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([riskClass])
+}
+
+model RiskSignalEvent {
+  id          String           @id @default(cuid())
+  domain      RiskDomainId
+  signalCode  String
+  severity    RiskSeverity
+  subjectType RiskSubjectType
+  subjectId   String
+  payload     Json?
+  occurredAt  DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+
+  @@index([domain, occurredAt])
+  @@index([subjectType, subjectId])
+  @@index([signalCode, occurredAt])
+}
+
+model RiskScoreSnapshot {
+  id           String          @id @default(cuid())
+  domain       RiskDomainId
+  subjectType  RiskSubjectType
+  subjectId    String
+  score        Int
+  band         RiskBand
+  reasons      Json
+  modelVersion String          @default("scorecard-v1")
+  computedAt   DateTime        @default(now())
+
+  @@unique([domain, subjectType, subjectId])
+  @@index([domain, band])
+  @@index([computedAt])
+}
+
+model EnterpriseRiskSnapshot {
+  id          String   @id @default(cuid())
+  eriScore    Int
+  eriBand     RiskBand
+  breakdown   Json
+  modelVersion String  @default("eri-v1")
+  computedAt  DateTime @default(now())
+
+  @@index([computedAt])
+}
+
+model RiskPolicy {
+  id        String       @id @default(cuid())
+  domain    RiskDomainId @unique
+  rules     Json
+  weight    Float        @default(1)
+  enabled   Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+model RiskDecision {
+  id             String              @id @default(cuid())
+  domain         RiskDomainId
+  gatePoint      String
+  outcome        RiskDecisionOutcome
+  subjectType    RiskSubjectType
+  subjectId      String
+  orderId        String?
+  reasons        Json
+  scoreSnapshot  Json?
+  requestedById  String?
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime            @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([outcome, createdAt])
+  @@index([orderId])
+  @@index([subjectType, subjectId])
+}
+
+model RiskPlaybook {
+  id            String       @id @default(cuid())
+  key           String       @unique
+  domain        RiskDomainId
+  triggerBand   RiskBand
+  actions       Json
+  enabled       Boolean      @default(true)
+  cooldownHours Int          @default(24)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  runs RiskPlaybookRun[]
+}
+
+model RiskPlaybookRun {
+  id          String                @id @default(cuid())
+  playbookId  String
+  domain      RiskDomainId
+  subjectType RiskSubjectType
+  subjectId   String
+  status      RiskPlaybookRunStatus @default(PENDING)
+  result      Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime              @default(now())
+
+  playbook RiskPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@index([playbookId, createdAt])
+  @@index([subjectType, subjectId])
 }

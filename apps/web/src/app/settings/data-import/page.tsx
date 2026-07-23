@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
+import { HelpHint } from "@/components/help/HelpHint";
 
 export default function DataImportSettingsPage() {
   const [role, setRole] = useState<string | null>(null);
@@ -118,7 +119,10 @@ export default function DataImportSettingsPage() {
         <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
           ← Налаштування
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Імпорт контактів (CSV)</h1>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <h1 className="text-2xl font-bold text-zinc-900">Імпорт контактів (CSV)</h1>
+          <HelpHint routeKey="settings.data-import" />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           Заголовок: <code className="font-mono">phone,first_name,last_name</code>
         </p>

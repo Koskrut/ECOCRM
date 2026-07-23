@@ -88,7 +88,7 @@ export default function AnalyticsLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PageShell title={strings.analytics.pageTitle} subtitle={strings.analytics.pageSubtitle}>
+    <PageShell title={strings.analytics.pageTitle} subtitle={strings.analytics.pageSubtitle} helpRouteKey="analytics">
       <Suspense fallback={<div className="mb-6 h-10 animate-pulse rounded-lg bg-zinc-200" />}>
         <AnalyticsTabsNav />
       </Suspense>

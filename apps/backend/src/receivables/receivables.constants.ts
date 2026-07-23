@@ -21,3 +21,9 @@ export const RECEIVABLES_1C_AMOUNT_CURRENCY = "USD";
 
 export const RECEIVABLES_1C_ALLOWED_CURRENCIES = ["USD", "UAH"] as const;
 export type Receivables1CCurrency = (typeof RECEIVABLES_1C_ALLOWED_CURRENCIES)[number];
+
+/** Activity.title for debt follow-up comments on contacts (timeline + receivables UI). */
+export const RECEIVABLES_COMMENT_TITLE = "Дебіторка";
+
+/** Clients without a debt comment newer than this are "needs comment". */
+export const RECEIVABLES_COMMENT_STALE_DAYS = 7;

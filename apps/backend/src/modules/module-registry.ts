@@ -234,6 +234,20 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  [ModuleIds.RiskManagement]: defineModule({
+    id: ModuleIds.RiskManagement,
+    kind: "extension" satisfies ModuleKind,
+    version: 1,
+    displayName: "Risk Management",
+    description:
+      "Enterprise Risk Control Tower: credit, cash, inventory, production, shipping, field, team, pipeline, and platform health.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.RiskManagement,
+      bundleSelectable: true,
+    },
+  }),
 };
 
 export function registryModuleIds(): ModuleDef["id"][] {

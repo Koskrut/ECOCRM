@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildPaymentSearchWhere,
   buildBankTransactionSearchWhere,
+  parseSearchAmount,
 } from "../payment-search.util";
 
 function orderOr(where: any): any[] {
@@ -57,12 +58,42 @@ test("buildPaymentSearchWhere: includes phoneNormalized for long digit queries",
   );
 });
 
+test("parseSearchAmount: accepts plain, spaced, comma and currency forms", () => {
+  assert.equal(parseSearchAmount("1500"), 1500);
+  assert.equal(parseSearchAmount("1 500,50"), 1500.5);
+  assert.equal(parseSearchAmount("₴2500.00"), 2500);
+  assert.equal(parseSearchAmount("Сидоренко"), null);
+  assert.equal(parseSearchAmount("1500abc"), null);
+});
+
+test("buildPaymentSearchWhere: numeric amount query also matches amount and amountUsd", () => {
+  const where = buildPaymentSearchWhere("1500.50");
+  assert.ok(
+    where.OR!.some((c: any) => c.amount?.equals === 1500.5),
+    "should match payment.amount",
+  );
+  assert.ok(
+    where.OR!.some((c: any) => c.amountUsd?.equals === 1500.5),
+    "should match payment.amountUsd",
+  );
+  const bankBranch = where.OR!.find((c: any) => c.bankTransaction) as any;
+  assert.ok(
+    bankBranch.bankTransaction.is.OR.some((c: any) => c.amount?.equals === 1500.5),
+    "should match bankTransaction.amount",
+  );
+});
+
 test("buildBankTransactionSearchWhere: searches description, counterparty and linked order", () => {
   const where = buildBankTransactionSearchWhere("9336");
   assert.ok(where.OR!.some((c: any) => c.description?.contains === "9336"));
   assert.ok(where.OR!.some((c: any) => c.counterpartyName?.contains === "9336"));
+  assert.ok(
+    where.OR!.some((c: any) => c.amount?.equals === 9336),
+    "digit query should also match transaction amount",
+  );
   const paymentsBranch = where.OR!.find((c: any) => c.payments);
   assert.ok(paymentsBranch, "expected a payments branch");
-  const orderOrList = (paymentsBranch as any).payments.some.order.is.OR;
-  assert.ok(orderOrList.some((c: any) => c.orderNumber?.equals === "9336"));
+  const paymentsOr = (paymentsBranch as any).payments.some.OR;
+  const orderOrList = paymentsOr.find((c: any) => c.order)?.order.is.OR;
+  assert.ok(orderOrList?.some((c: any) => c.orderNumber?.equals === "9336"));
 });

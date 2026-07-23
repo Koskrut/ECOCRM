@@ -25,6 +25,7 @@ import {
   type OwnerOption,
 } from "./OrdersFiltersPopover";
 import { strings } from "@/locales";
+import { HelpHint } from "@/components/help/HelpHint";
 
 type OrderSummary = {
   id: string;
@@ -560,6 +561,7 @@ function OrdersPageContent() {
 
           {!isWarehouse ? (
             <div className="flex items-center gap-3">
+              <HelpHint routeKey="orders" />
               <button
                 type="button"
                 onClick={() => void openNewOrder()}
@@ -569,7 +571,9 @@ function OrdersPageContent() {
                 {creating ? "Створення…" : "+ Нове замовлення"}
               </button>
             </div>
-          ) : null}
+          ) : (
+            <HelpHint routeKey="orders" />
+          )}
         </div>
 
         {error && (

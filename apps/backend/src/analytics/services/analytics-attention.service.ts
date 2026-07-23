@@ -28,7 +28,7 @@ export class AnalyticsAttentionService {
       allowedAssigneeIds: scope.allowedAssigneeIds,
     });
 
-    const [overdueTasks, stuckOrders, leadsWithoutTouch, overdueOrders] = await Promise.all([
+    const [overdueTasks, stuckOrders, leadsWithoutTouch, overdueOrders, riskAlerts] = await Promise.all([
       this.prisma.task.findMany({
         where: overdueTaskWhere,
         orderBy: { dueAt: "asc" },
@@ -58,6 +58,19 @@ export class AnalyticsAttentionService {
           client: { select: { firstName: true, lastName: true } },
         },
       }),
+      this.prisma.riskScoreSnapshot.findMany({
+        where: { band: { in: ["CRITICAL", "HIGH"] } },
+        orderBy: { score: "desc" },
+        take: 20,
+        select: {
+          domain: true,
+          subjectType: true,
+          subjectId: true,
+          score: true,
+          band: true,
+          reasons: true,
+        },
+      }),
     ]);
 
     return {
@@ -81,6 +94,14 @@ export class AnalyticsAttentionService {
           paymentDueDate: o.paymentDueDate?.toISOString() ?? null,
         })),
       },
+      risk: riskAlerts.map((r) => ({
+        domain: r.domain,
+        subjectType: r.subjectType,
+        subjectId: r.subjectId,
+        score: r.score,
+        band: r.band,
+        reasons: r.reasons,
+      })),
     };
   }
 

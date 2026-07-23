@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import type { DeliveryMethod, PaymentMethod, PaymentType, Prisma } from "@prisma/client";
 import type { OrderFinancialStatus, OrderStage } from "@prisma/client";
@@ -70,6 +72,9 @@ import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitt
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
 import { computeLineTotal } from "./order-line-total.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
+import { ModuleIds } from "../modules/module-ids";
+import { ModuleStateService } from "../modules/module-state.service";
+import { RiskPolicyService } from "../risk/risk-policy.service";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -134,11 +139,37 @@ export class OrdersService {
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     private readonly warehouseNotifier: OrderWarehouseNotifierService,
+    @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
+    @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  private async enforceDeferredRiskGate(input: {
+    contactId?: string | null;
+    companyId?: string | null;
+    orderId?: string;
+    totalAmount: number;
+    requestedById?: string;
+  }) {
+    if (!this.riskPolicy || !this.modules) return;
+    const effective = await this.modules.isEffective(ModuleIds.RiskManagement);
+    if (!effective) return;
+    const evaluation = await this.riskPolicy.evaluateDeferredGate({
+      contactId: input.contactId,
+      companyId: input.companyId,
+      orderId: input.orderId,
+      totalAmount: input.totalAmount,
+      paymentType: "DEFERRED",
+      requestedById: input.requestedById,
+    });
+    if (evaluation.outcome === "BLOCK") {
+      const reason = evaluation.reasons[0]?.explanationUk ?? "Credit risk gate blocked deferred payment";
+      throw new BadRequestException(reason);
+    }
   }
 
   private async assertAllowedDiscountPercent(discountPercent: number): Promise<void> {
@@ -1015,6 +1046,14 @@ export class OrdersService {
     };
 
     try {
+      if (dto.paymentType === "DEFERRED") {
+        await this.enforceDeferredRiskGate({
+          contactId: dto.clientId ?? null,
+          companyId: dto.companyId ?? null,
+          totalAmount: a.total,
+          requestedById: actor?.id,
+        });
+      }
       // When a transaction client is provided, run inside the caller's transaction
       // (no nested $transaction) and defer the workflow emit to the caller (post-commit).
       const order = tx
@@ -1154,6 +1193,19 @@ export class OrdersService {
         debtAmount: existing.debtAmount,
         paymentDueDate: nextDue ?? undefined,
         orderStage: existing.orderStage ?? undefined,
+      });
+    }
+
+    const nextPaymentType =
+      ("paymentType" in dto ? (data.paymentType as PaymentType | null) : existing.paymentType) ?? null;
+    const nextTotal = "discountAmount" in dto || "paidAmount" in dto ? a.total : existing.totalAmount;
+    if (nextPaymentType === "DEFERRED") {
+      await this.enforceDeferredRiskGate({
+        contactId: existing.clientId,
+        companyId: existing.companyId,
+        orderId: id,
+        totalAmount: nextTotal,
+        requestedById: actor?.id,
       });
     }
 

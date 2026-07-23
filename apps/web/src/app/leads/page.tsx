@@ -22,6 +22,7 @@ import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
+import { HelpHint } from "@/components/help/HelpHint";
 
 const ATTENTION_LABELS: Record<LeadAttentionPreset, string> = {
   "without-touch": "Ліди без дотику",
@@ -322,13 +323,16 @@ function LeadsPageContent() {
           <h1 className="text-2xl font-bold">Ліди</h1>
           <p className="text-sm text-zinc-500">Вхідні звернення та потенційні клієнти</p>
         </div>
-        <button
+        <div className="flex items-center gap-2">
+          <HelpHint routeKey="leads" />
+          <button
           type="button"
           onClick={() => setCreateOpen(true)}
           className="btn-primary"
         >
           + Лід
         </button>
+        </div>
       </div>
 
       <div className="mb-4">

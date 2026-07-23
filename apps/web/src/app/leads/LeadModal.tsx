@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { LeadStepper, leadStatusToUiStage, type LeadStepperStepDef } from "./LeadStepper";
+import { HelpRelated } from "@/components/help/HelpRelated";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
 import { EntitySection } from "@/components/sections/EntitySection";
@@ -2097,7 +2098,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               </div>
     </div>
   ) : lead && leadTab === "main" ? (
-    <FeedTabsScaffold
+    <div className="space-y-3">
+      <HelpRelated entityType="LEAD" compact />
+      <FeedTabsScaffold
       activityContent={
         <div className="space-y-3">
           <EntityCallRecordingsPanel leadId={lead.id} contactId={lead.contactId} />
@@ -2112,6 +2115,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         </div>
       }
     />
+    </div>
   ) : null;
 
   const tabsUnderHeader =

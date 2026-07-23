@@ -6,6 +6,7 @@ import { apiHttp } from "@/lib/api/client";
 import { useModules } from "@/lib/modules/useModules";
 import { settingsHrefModuleId } from "@/lib/modules/pathModuleGating";
 import { SettingCard, SettingCardSkeleton } from "@/components/SettingCard";
+import { HelpHint } from "@/components/help/HelpHint";
 import { strings } from "@/locales";
 
 type SystemReleaseResponse = {
@@ -157,7 +158,10 @@ export default function SettingsHomePage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <h1 className="mb-2 text-2xl font-bold text-zinc-900">{t.pageTitle}</h1>
+      <div className="mb-2 flex items-start justify-between gap-4">
+        <h1 className="text-2xl font-bold text-zinc-900">{t.pageTitle}</h1>
+        <HelpHint routeKey="settings" />
+      </div>
       <p className="mb-6 text-sm text-zinc-500">{t.pageSubtitle}</p>
 
       {role === "ADMIN" ? (

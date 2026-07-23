@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  ActivityType,
   ReceivablesReconcileStatus,
   UserRole,
   type Prisma,
@@ -20,6 +21,8 @@ import { SettingsService } from "../settings/settings.service";
 import {
   RECEIVABLES_1C_ALLOWED_CURRENCIES,
   RECEIVABLES_1C_AMOUNT_CURRENCY,
+  RECEIVABLES_COMMENT_STALE_DAYS,
+  RECEIVABLES_COMMENT_TITLE,
   RECEIVABLES_DELTA_TOLERANCE,
   RECEIVABLES_DEBT_ORDER_STAGES,
   type Receivables1CCurrency,
@@ -627,6 +630,7 @@ export class ReceivablesService {
       q?: string;
       ownerId?: string;
       overdue?: boolean;
+      needsComment?: boolean;
     },
   ) {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
@@ -661,6 +665,18 @@ export class ReceivablesService {
       );
     }
 
+    const lastCommentByContact = await this.loadLastDebtComments(items.map((i) => i.contactId));
+
+    if (query.needsComment) {
+      const staleBefore = new Date(
+        Date.now() - RECEIVABLES_COMMENT_STALE_DAYS * 24 * 60 * 60 * 1000,
+      );
+      items = items.filter((i) => {
+        const last = lastCommentByContact.get(i.contactId);
+        return !last || last.createdAt < staleBefore;
+      });
+    }
+
     items.sort((a, b) => b.debtAmount - a.debtAmount);
 
     const pagination = normalizePagination(query, { page: 1, pageSize: 50 });
@@ -668,24 +684,157 @@ export class ReceivablesService {
     const pageItems = items.slice(pagination.offset, pagination.offset + pagination.limit);
 
     const ownerIds = [...new Set(pageItems.map((i) => i.ownerId).filter(Boolean))] as string[];
-    const owners =
-      ownerIds.length > 0
+    const authorIds = [
+      ...new Set(
+        pageItems
+          .map((i) => lastCommentByContact.get(i.contactId)?.createdBy)
+          .filter(Boolean) as string[],
+      ),
+    ];
+    const userIds = [...new Set([...ownerIds, ...authorIds])];
+    const users =
+      userIds.length > 0
         ? await this.prisma.user.findMany({
-            where: { id: { in: ownerIds } },
+            where: { id: { in: userIds } },
             select: { id: true, fullName: true },
           })
         : [];
-    const ownerMap = new Map(owners.map((o) => [o.id, o.fullName]));
+    const userMap = new Map(users.map((o) => [o.id, o.fullName]));
 
     return {
       currency,
-      items: pageItems.map((i) => ({
-        ...i,
-        ownerName: i.ownerId ? (ownerMap.get(i.ownerId) ?? null) : null,
-      })),
+      items: pageItems.map((i) => {
+        const last = lastCommentByContact.get(i.contactId) ?? null;
+        return {
+          ...i,
+          ownerName: i.ownerId ? (userMap.get(i.ownerId) ?? null) : null,
+          lastCommentAt: last?.createdAt.toISOString() ?? null,
+          lastCommentPreview: last ? truncatePreview(last.body) : null,
+          lastCommentAuthorName: last ? (userMap.get(last.createdBy) ?? null) : null,
+        };
+      }),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
+    };
+  }
+
+  private async loadLastDebtComments(contactIds: string[]) {
+    const uniqueIds = [...new Set(contactIds.filter(Boolean))];
+    const map = new Map<string, { body: string; createdAt: Date; createdBy: string }>();
+    if (uniqueIds.length === 0) return map;
+
+    const rows = await this.prisma.activity.findMany({
+      where: {
+        contactId: { in: uniqueIds },
+        type: ActivityType.COMMENT,
+        title: RECEIVABLES_COMMENT_TITLE,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        contactId: true,
+        body: true,
+        createdAt: true,
+        createdBy: true,
+      },
+    });
+
+    for (const row of rows) {
+      if (!row.contactId || map.has(row.contactId)) continue;
+      map.set(row.contactId, {
+        body: row.body,
+        createdAt: row.createdAt,
+        createdBy: row.createdBy,
+      });
+    }
+    return map;
+  }
+
+  async addDebtComment(actor: AuthUser, contactId: string, bodyRaw: string) {
+    const body = bodyRaw?.trim() ?? "";
+    if (!body) throw new BadRequestException("Comment body is required");
+    if (body.length > 10_000) throw new BadRequestException("Comment is too long");
+
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+
+    const act = await this.prisma.activity.create({
+      data: {
+        type: ActivityType.COMMENT,
+        title: RECEIVABLES_COMMENT_TITLE,
+        body,
+        createdBy: actor.id,
+        contactId: contact.id,
+      },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        createdBy: true,
+      },
+    });
+
+    const author = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { fullName: true },
+    });
+
+    return {
+      id: act.id,
+      body: act.body,
+      createdAt: act.createdAt.toISOString(),
+      createdBy: act.createdBy,
+      authorName: author?.fullName ?? null,
+    };
+  }
+
+  async listDebtComments(actor: AuthUser, contactId: string, limit = 20) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+
+    const take = Math.min(Math.max(limit, 1), 50);
+    const rows = await this.prisma.activity.findMany({
+      where: {
+        contactId,
+        type: ActivityType.COMMENT,
+        title: RECEIVABLES_COMMENT_TITLE,
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        createdBy: true,
+      },
+    });
+
+    const authorIds = [...new Set(rows.map((r) => r.createdBy))];
+    const authors =
+      authorIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: authorIds } },
+            select: { id: true, fullName: true },
+          })
+        : [];
+    const authorMap = new Map(authors.map((a) => [a.id, a.fullName]));
+
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        body: r.body,
+        createdAt: r.createdAt.toISOString(),
+        createdBy: r.createdBy,
+        authorName: authorMap.get(r.createdBy) ?? null,
+      })),
     };
   }
 
@@ -880,6 +1029,8 @@ export class ReceivablesService {
       }
     }
 
+    const comments = await this.listDebtComments(actor, contactId, 20);
+
     return {
       currency: ordersResult.currency,
       externalCode: contact.externalCode,
@@ -892,6 +1043,13 @@ export class ReceivablesService {
       reconciliation,
       orders: ordersResult.items,
       ordersTotal: ordersResult.total,
+      comments: comments.items,
     };
   }
+}
+
+function truncatePreview(body: string, max = 120): string {
+  const text = body.replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
 }

@@ -18,6 +18,7 @@ import { ProductCharacteristicsPanel } from "./ProductCharacteristicsPanel";
 import { filterCatalogItems } from "./catalog-search";
 import { WarehousesModal } from "./WarehousesModal";
 import { apiHttp } from "@/lib/api/client";
+import { HelpHint } from "@/components/help/HelpHint";
 
 function CatalogExpandedCharacteristics({
   product,
@@ -1403,8 +1404,11 @@ function CatalogPageContent() {
 
   return (
     <div className="min-w-0">
-      <div className="mb-4 flex flex-col gap-3">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl">Каталог</h1>
+        <HelpHint routeKey="catalog" />
+      </div>
+      <div className="mb-4 flex flex-col gap-3">
         <div className="relative">
           <input
             type="search"

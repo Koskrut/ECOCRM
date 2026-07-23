@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.2.116",
+  "version": "0.2.117",
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
@@ -23,7 +23,9 @@
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
     "recharts": "^2.15.4",
+    "remark-gfm": "^4.0.1",
     "topojson-client": "^3.1.0"
   },
   "devDependencies": {

@@ -32,6 +32,14 @@ export type ReconciliationLine = {
   ownerName: string | null;
 };
 
+export type DebtComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  createdBy: string;
+  authorName: string | null;
+};
+
 export type WorkClientRow = {
   contactId: string;
   clientName: string;
@@ -41,6 +49,9 @@ export type WorkClientRow = {
   orderCount: number;
   ownerId: string | null;
   ownerName: string | null;
+  lastCommentAt: string | null;
+  lastCommentPreview: string | null;
+  lastCommentAuthorName: string | null;
 };
 
 export type WorkOrderRow = {
@@ -81,6 +92,7 @@ export type ContactReceivablesResponse = {
   } | null;
   orders: WorkOrderRow[];
   ordersTotal: number;
+  comments: DebtComment[];
 };
 
 export const receivablesApi = {
@@ -181,6 +193,7 @@ export const receivablesApi = {
     q?: string;
     ownerId?: string;
     overdue?: boolean;
+    needsComment?: boolean;
   }) {
     return apiHttp.get<{
       currency: string;
@@ -189,6 +202,17 @@ export const receivablesApi = {
       page: number;
       pageSize: number;
     }>("/receivables/work/clients", { params });
+  },
+
+  listDebtComments(contactId: string, limit = 20) {
+    return apiHttp.get<{ items: DebtComment[] }>(
+      `/receivables/contacts/${contactId}/comments`,
+      { params: { limit } },
+    );
+  },
+
+  addDebtComment(contactId: string, body: string) {
+    return apiHttp.post<DebtComment>(`/receivables/contacts/${contactId}/comments`, { body });
   },
 
   workOrders(params: {

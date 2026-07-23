@@ -12,6 +12,7 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
 import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
+import { HelpHint } from "@/components/help/HelpHint";
 
 const PAGE_SIZE = 50;
 
@@ -206,6 +207,8 @@ function PaymentsContent() {
   const viewParam = searchParams.get("view");
   const bankAccountId = searchParams.get("bankAccountId") ?? "";
   const urlSearch = searchParams.get("search") ?? "";
+  const urlDateFrom = searchParams.get("dateFrom") ?? "";
+  const urlDateTo = searchParams.get("dateTo") ?? "";
   const [mode, setMode] = useState<"cash" | "fop">("fop");
   const initialView: PaymentsView =
     viewParam === "payments"
@@ -218,6 +221,8 @@ function PaymentsContent() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [searchInput, setSearchInput] = useState(urlSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(urlSearch);
+  const [dateFrom, setDateFrom] = useState(urlDateFrom);
+  const [dateTo, setDateTo] = useState(urlDateTo);
 
   const setBankAccountId = useCallback(
     (value: string) => {
@@ -380,6 +385,8 @@ function PaymentsContent() {
         if (bid) params.set("bankAccountId", bid);
         const q = debouncedSearch.trim();
         if (q) params.set("q", q);
+        if (dateFrom) params.set("dateFrom", dateFrom);
+        if (dateTo) params.set("dateTo", dateTo);
         const r = await apiHttp.get<{ items: PaymentItem[]; total: number }>(
           `/payments?${params.toString()}`,
         );
@@ -399,7 +406,7 @@ function PaymentsContent() {
         setPaymentsLoadingMore(false);
       }
     },
-    [bankAccountId, debouncedSearch, mode],
+    [bankAccountId, debouncedSearch, dateFrom, dateTo, mode],
   );
 
   const fetchUnmatched = useCallback(
@@ -423,6 +430,8 @@ function PaymentsContent() {
         if (bankAccountId) params.set("bankAccountId", bankAccountId);
         const q = debouncedSearch.trim();
         if (q) params.set("q", q);
+        if (dateFrom) params.set("from", dateFrom);
+        if (dateTo) params.set("to", dateTo);
         const r = await apiHttp.get<{ items: BankTransaction[]; total: number }>(
           `/bank/transactions?${params.toString()}`,
         );
@@ -446,7 +455,7 @@ function PaymentsContent() {
         setUnmatchedLoadingMore(false);
       }
     },
-    [bankAccountId, debouncedSearch],
+    [bankAccountId, debouncedSearch, dateFrom, dateTo],
   );
 
   const loadMorePayments = useCallback(() => {
@@ -540,7 +549,11 @@ function PaymentsContent() {
       setSearchInput(fromUrl);
       setDebouncedSearch(fromUrl);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when URL search param changes externally
+    const nextFrom = searchParams.get("dateFrom") ?? "";
+    const nextTo = searchParams.get("dateTo") ?? "";
+    if (nextFrom !== dateFrom) setDateFrom(nextFrom);
+    if (nextTo !== dateTo) setDateTo(nextTo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when URL params change externally
   }, [searchParams]);
 
   useEffect(() => {
@@ -548,12 +561,16 @@ function PaymentsContent() {
     const trimmed = debouncedSearch.trim();
     if (trimmed) params.set("search", trimmed);
     else params.delete("search");
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    else params.delete("dateFrom");
+    if (dateTo) params.set("dateTo", dateTo);
+    else params.delete("dateTo");
     if (/^\d+$/.test(trimmed)) params.delete("bankAccountId");
     const q = params.toString();
     const next = q ? `${pathname}?${q}` : pathname;
     const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
     if (next !== current) router.replace(next, { scroll: false });
-  }, [debouncedSearch, pathname, router, searchParams]);
+  }, [debouncedSearch, dateFrom, dateTo, pathname, router, searchParams]);
 
   useEffect(() => {
     if (mode === "cash" || (mode === "fop" && view === "payments")) {
@@ -1221,6 +1238,7 @@ function PaymentsContent() {
         <div>
           <div className="flex flex-wrap items-center gap-4">
             <h1 className="text-2xl font-bold text-zinc-900">{t.payments.pageTitle}</h1>
+            <HelpHint routeKey="payments" />
             <div className="flex rounded-lg border border-zinc-200 p-0.5">
               <button
                 type="button"
@@ -1330,6 +1348,28 @@ function PaymentsContent() {
                   </select>
                 </label>
                 )}
+              </>
+            )}
+            {(mode === "cash" || view !== "fxVariance") && (
+              <>
+                <label className="flex items-center gap-1.5 text-sm text-zinc-600">
+                  <span className="whitespace-nowrap">{t.payments.dateFromLabel}</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-sm text-zinc-600">
+                  <span className="whitespace-nowrap">{t.payments.dateToLabel}</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm focus:border-zinc-500 focus:outline-none"
+                  />
+                </label>
               </>
             )}
             <input

@@ -12,6 +12,7 @@ import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
 import { strings } from "@/locales";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
+import { HelpHint } from "@/components/help/HelpHint";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -201,9 +202,12 @@ function CompaniesPageContent() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">{strings.nav.companies}</h1>
-        <button type="button" onClick={openCreate} className="btn-primary">
+        <div className="flex items-center gap-2">
+          <HelpHint routeKey="companies" />
+          <button type="button" onClick={openCreate} className="btn-primary">
           + Додати
         </button>
+        </div>
       </div>
 
       <div className="mb-4">

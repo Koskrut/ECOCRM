@@ -43,10 +43,22 @@ export class BankTransactionsService {
       where.bankAccountId = params.bankAccountId;
     }
     if (params.unmatched) where.payments = { none: {} };
-    const bookedAt: Prisma.DateTimeFilter = {};
-    if (params.from) bookedAt.gte = new Date(params.from);
-    if (params.to) bookedAt.lte = new Date(params.to);
-    if (params.from || params.to) where.bookedAt = bookedAt;
+    if (params.from || params.to) {
+      const bookedAt: Prisma.DateTimeFilter = {};
+      if (params.from) {
+        const from = new Date(params.from);
+        if (!Number.isNaN(from.getTime())) bookedAt.gte = from;
+      }
+      if (params.to) {
+        const to = new Date(params.to);
+        if (!Number.isNaN(to.getTime())) {
+          const hasTime = params.to.includes("T");
+          if (!hasTime) to.setHours(23, 59, 59, 999);
+          bookedAt.lte = to;
+        }
+      }
+      if (bookedAt.gte || bookedAt.lte) where.bookedAt = bookedAt;
+    }
 
     const searchQ = params.q?.trim();
     if (searchQ) {

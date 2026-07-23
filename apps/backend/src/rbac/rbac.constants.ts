@@ -12,6 +12,11 @@ export const PermissionKeys = {
   FinanceWrite: "finance.write",
   OutboundManage: "outbound.manage",
   SystemManage: "system.manage",
+  HelpRead: "help.read",
+  HelpWrite: "help.write",
+  RiskRead: "risk.read",
+  RiskManage: "risk.manage",
+  RiskCreditManage: "risk.credit.manage",
 } as const;
 
 export type PermissionKey = (typeof PermissionKeys)[keyof typeof PermissionKeys] | (string & {});
@@ -28,14 +33,28 @@ export const DEFAULT_RBAC_PERMISSIONS = [
   { key: PermissionKeys.FinanceWrite, name: "Write finance", category: "finance" },
   { key: PermissionKeys.OutboundManage, name: "Manage outbound calling", category: "outbound" },
   { key: PermissionKeys.SystemManage, name: "Manage system settings", category: "admin" },
+  { key: PermissionKeys.HelpRead, name: "Read help articles", category: "help" },
+  { key: PermissionKeys.HelpWrite, name: "Write help articles", category: "help" },
+  { key: PermissionKeys.RiskRead, name: "Read risk management", category: "risk" },
+  { key: PermissionKeys.RiskManage, name: "Manage risk engine", category: "risk" },
+  { key: PermissionKeys.RiskCreditManage, name: "Manage credit limits and approvals", category: "risk" },
 ] as const;
 
 export const DEFAULT_LEGACY_ROLE_PERMISSIONS: Record<UserRole, PermissionKey[]> = {
   [UserRole.ADMIN]: DEFAULT_RBAC_PERMISSIONS.map((permission) => permission.key),
-  [UserRole.LEAD]: [PermissionKeys.MetadataRead, PermissionKeys.MetadataWrite, PermissionKeys.FinanceRead],
-  [UserRole.MANAGER]: [PermissionKeys.MetadataRead, PermissionKeys.MetadataWrite],
-  [UserRole.WAREHOUSE]: [PermissionKeys.MetadataRead],
-  [UserRole.USER]: [PermissionKeys.MetadataRead],
+  [UserRole.LEAD]: [
+    PermissionKeys.MetadataRead,
+    PermissionKeys.MetadataWrite,
+    PermissionKeys.FinanceRead,
+    PermissionKeys.HelpRead,
+    PermissionKeys.HelpWrite,
+    PermissionKeys.RiskRead,
+    PermissionKeys.RiskManage,
+    PermissionKeys.RiskCreditManage,
+  ],
+  [UserRole.MANAGER]: [PermissionKeys.MetadataRead, PermissionKeys.MetadataWrite, PermissionKeys.HelpRead, PermissionKeys.RiskRead],
+  [UserRole.WAREHOUSE]: [PermissionKeys.MetadataRead, PermissionKeys.HelpRead],
+  [UserRole.USER]: [PermissionKeys.MetadataRead, PermissionKeys.HelpRead],
 };
 
 export const LEGACY_RBAC_ROLE_KEYS: Record<UserRole, string> = {

@@ -16,6 +16,7 @@ export function sidebarHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/outbound")) return ModuleIds.VoiceOutbound;
   if (href.startsWith("/work/calls")) return ModuleIds.ManualCalling;
   if (href.startsWith("/visits")) return ModuleIds.Visits;
+  if (href.startsWith("/risk")) return ModuleIds.RiskManagement;
   return null;
 }
 

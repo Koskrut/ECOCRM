@@ -14,6 +14,7 @@ import { DashboardHeroKpis } from "@/components/dashboard/DashboardHeroKpis";
 import { DashboardManagersTable } from "@/components/dashboard/DashboardManagersTable";
 import { DashboardMyWorkSection } from "@/components/dashboard/DashboardMyWorkSection";
 import { DashboardQualityFlags } from "@/components/dashboard/DashboardQualityFlags";
+import { DashboardRiskPanel } from "@/components/dashboard/DashboardRiskPanel";
 import {
   DashboardReceivablesPanel,
   type DashboardReceivablesData,
@@ -281,6 +282,7 @@ function DashboardPageContent() {
             currency={currency}
             showAnalyticsLink={isLeadership}
           />
+          <DashboardRiskPanel />
           {financeEnabled ? (
             <DashboardReceivablesPanel
               data={receivables}

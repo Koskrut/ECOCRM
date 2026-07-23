@@ -44,6 +44,9 @@ import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { AuditModule } from "./audit/audit.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { PresenceModule } from "./presence/presence.module";
+import { HelpModule } from "./help/help.module";
+import { RiskModule } from "./risk/risk.module";
+import { ReceivablesModule } from "./receivables/receivables.module";
 
 @Module({
   imports: [
@@ -81,6 +84,9 @@ import { PresenceModule } from "./presence/presence.module";
     DataImportModule,
     CustomEntitiesModule,
     TimelineModule,
+    HelpModule,
+    RiskModule,
+    ReceivablesModule,
   ],
   providers: [
     {

@@ -8,6 +8,7 @@ const ModuleIds = {
   Finance: "ext.finance",
   ProductionPlanning: "ext.production_planning",
   Store: "ext.store",
+  RiskManagement: "ext.risk_management",
   IntegrationsTelegram: "int.integrations_telegram",
   IntegrationsMetaMessaging: "int.integrations_meta_messaging",
   NovaPoshta: "int.nova_poshta",

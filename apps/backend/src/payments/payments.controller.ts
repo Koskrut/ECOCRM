@@ -42,6 +42,8 @@ export class PaymentsController {
       {
         bankAccountId: q.bankAccountId,
         q: q.q,
+        dateFrom: q.dateFrom,
+        dateTo: q.dateTo,
         sourceType:
           q.sourceType === "CASH"
             ? PaymentSourceType.CASH

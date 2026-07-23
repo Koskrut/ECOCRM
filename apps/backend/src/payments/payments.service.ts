@@ -56,6 +56,8 @@ type ListPaymentsParams = {
   bankAccountId?: string;
   q?: string;
   sourceType?: PaymentSourceType;
+  dateFrom?: string;
+  dateTo?: string;
   page: number;
   pageSize: number;
   offset: number;
@@ -129,6 +131,27 @@ export class PaymentsService {
       const sourceFilter: Prisma.PaymentWhereInput = { sourceType: params.sourceType };
       where =
         Object.keys(where).length === 0 ? sourceFilter : { AND: [where, sourceFilter] };
+    }
+
+    if (params.dateFrom || params.dateTo) {
+      const paidAt: Prisma.DateTimeFilter = {};
+      if (params.dateFrom) {
+        const from = new Date(params.dateFrom);
+        if (!Number.isNaN(from.getTime())) paidAt.gte = from;
+      }
+      if (params.dateTo) {
+        const to = new Date(params.dateTo);
+        if (!Number.isNaN(to.getTime())) {
+          const hasTime = params.dateTo.includes("T");
+          if (!hasTime) to.setHours(23, 59, 59, 999);
+          paidAt.lte = to;
+        }
+      }
+      if (paidAt.gte || paidAt.lte) {
+        const dateFilter: Prisma.PaymentWhereInput = { paidAt };
+        where =
+          Object.keys(where).length === 0 ? dateFilter : { AND: [where, dateFilter] };
+      }
     }
 
     try {

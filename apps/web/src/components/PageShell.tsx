@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import { HelpHint } from "@/components/help/HelpHint";
 
 export type PageShellTab = {
   label: string;
@@ -23,6 +24,8 @@ export type PageShellProps = {
   container?: boolean;
   /** Inline content rendered to the right of the title (e.g. action buttons). */
   actions?: ReactNode;
+  /** Contextual help articles for this screen (shows ? popover). */
+  helpRouteKey?: string;
   /** Optional banner rendered between header and children, e.g. error/info banners. */
   banner?: ReactNode;
   children: ReactNode;
@@ -45,6 +48,7 @@ export function PageShell({
   tabs,
   container,
   actions,
+  helpRouteKey,
   banner,
   children,
 }: PageShellProps) {
@@ -67,6 +71,11 @@ export function PageShell({
               {subtitle ? <p className="mt-1 text-sm text-zinc-500">{subtitle}</p> : null}
             </div>
             {actions ? <div className="ml-3 shrink-0">{actions}</div> : null}
+            {helpRouteKey ? (
+              <div className="ml-2 shrink-0">
+                <HelpHint routeKey={helpRouteKey} />
+              </div>
+            ) : null}
           </div>
           {tabs && tabs.length > 0 ? (
             <nav className="-mx-1 mt-4 flex flex-nowrap gap-1 overflow-x-auto border-b border-zinc-200">

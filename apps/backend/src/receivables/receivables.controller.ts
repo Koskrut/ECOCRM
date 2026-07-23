@@ -114,6 +114,7 @@ export class ReceivablesController {
     @Query("q") q?: string,
     @Query("ownerId") ownerId?: string,
     @Query("overdue") overdue?: string,
+    @Query("needsComment") needsComment?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkClients(this.requireUser(req!), {
@@ -122,6 +123,7 @@ export class ReceivablesController {
       q,
       ownerId,
       overdue: overdue === "true" || overdue === "1",
+      needsComment: needsComment === "true" || needsComment === "1",
     });
   }
 
@@ -133,6 +135,32 @@ export class ReceivablesController {
   ) {
     if (!contactId?.trim()) throw new BadRequestException("contactId is required");
     return this.service.getContactReceivables(this.requireUser(req), contactId.trim());
+  }
+
+  @Get("contacts/:contactId/comments")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  listDebtComments(
+    @Param("contactId") contactId: string,
+    @Query("limit") limit: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.listDebtComments(
+      this.requireUser(req),
+      contactId.trim(),
+      limit ? Number(limit) : undefined,
+    );
+  }
+
+  @Post("contacts/:contactId/comments")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  addDebtComment(
+    @Param("contactId") contactId: string,
+    @Body() body: { body?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.addDebtComment(this.requireUser(req), contactId.trim(), body?.body ?? "");
   }
 
   @Get("work/orders")

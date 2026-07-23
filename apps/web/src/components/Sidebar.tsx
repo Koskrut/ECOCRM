@@ -22,6 +22,8 @@ import {
   Archive,
   Activity,
   Receipt,
+  ShieldAlert,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -69,6 +71,8 @@ function buildMenuItems() {
     { label: t.inboxInstagram, icon: MessageCircle, href: INBOX_INSTAGRAM_HREF },
     { label: t.inboxFacebook, icon: MessageCircle, href: INBOX_FACEBOOK_HREF },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
+    { label: t.risk, icon: ShieldAlert, href: "/risk" },
+    { label: t.help, icon: BookOpen, href: "/help" },
     { label: t.planning, icon: BarChart3, href: "/planning" },
     { label: t.visits, icon: MapPin, href: "/visits", exact: true },
     { label: t.visitsHistory, icon: History, href: "/visits/history" },
@@ -90,6 +94,7 @@ const warehouseMenuItems = (base: MenuItem[]): MenuItem[] => {
     { label: t.warehouseWork, icon: Boxes, href: "/work/warehouse", exact: true },
     { label: t.orders, icon: Package, href: "/orders" },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
+    { label: t.help, icon: BookOpen, href: "/help" },
   ];
 };
 

@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.116**.)_
+_(планируемые изменения после **0.2.117**.)_
+
+## [0.2.117] — 2026-07-23
+
+### Summary
+
+Патч **0.2.117**: **Help** (instruction center + seeded guides) и **Risk Management** (ERI scorecard, hub, cron); receivables debt comments; payments search polish.
+
+### Added
+
+- **Help center**: миграции **`20260723120000_help_instruction_center`**, **`20260723130000_help_article_seed_revision`** — categories/articles/bindings, seed CRM guides + manager playbook; web **`/help`**, editor, route hints.
+- **Risk Management** (`ext.risk_management`): миграция **`20260723140000_risk_management_module`** — credit profiles, signals, score snapshots, ERI, playbooks; API **`/risk/*`**; web hub + **DashboardRiskPanel**; nightly cron.
+- **Receivables**: debt comments на contact (`GET/POST …/comments`), **DebtCommentDialog**, dashboard/manager panels.
+
+### Changed
+
+- **Payments search**: amount/phone/bank fields; receivables scope/constants; **OrderModal** debt UX.
+- **AppModuleCore**: Help, Risk, Receivables in-process modules.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.117`**.
+- **Миграции:** `prisma migrate deploy` / **`backend-migrate`** — **`20260723120000_help_instruction_center`**, **`20260723130000_help_article_seed_revision`**, **`20260723140000_risk_management_module`**.
 
 ## [0.2.116] — 2026-07-22
 

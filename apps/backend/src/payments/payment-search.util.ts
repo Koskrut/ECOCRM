@@ -36,10 +36,26 @@ function orderNumberOr(search: string): Prisma.OrderWhereInput["OR"] {
 }
 
 /**
+ * Parse a search string as a money amount when it looks like one
+ * (e.g. "1500", "1 500,50", "1500.00", "₴1500").
+ */
+export function parseSearchAmount(search: string): number | null {
+  const cleaned = search
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/^[₴$€]+|[₴$€]+$/g, "")
+    .replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Search filter for /payments: order number, contact/client name & phone,
- * bank transaction description/counterparty, and payment note.
+ * bank transaction description/counterparty, payment note, and amount.
  */
 export function buildPaymentSearchWhere(search: string): Prisma.PaymentWhereInput {
+  const amount = parseSearchAmount(search);
   return {
     OR: [
       {
@@ -59,38 +75,51 @@ export function buildPaymentSearchWhere(search: string): Prisma.PaymentWhereInpu
             OR: [
               { description: { contains: search, mode: "insensitive" } },
               { counterpartyName: { contains: search, mode: "insensitive" } },
+              ...(amount != null ? [{ amount: { equals: amount } }] : []),
             ],
           },
         },
       },
       { note: { contains: search, mode: "insensitive" } },
+      ...(amount != null
+        ? [{ amount: { equals: amount } }, { amountUsd: { equals: amount } }]
+        : []),
     ],
   };
 }
 
 /**
- * Search filter for /bank/transactions: description, counterparty, and the
- * order number / contact of any linked payment.
+ * Search filter for /bank/transactions: description, counterparty, amount,
+ * and the order number / contact of any linked payment.
  */
 export function buildBankTransactionSearchWhere(
   search: string,
 ): Prisma.BankTransactionWhereInput {
+  const amount = parseSearchAmount(search);
   return {
     OR: [
       { description: { contains: search, mode: "insensitive" } },
       { counterpartyName: { contains: search, mode: "insensitive" } },
+      ...(amount != null ? [{ amount: { equals: amount } }] : []),
       {
         payments: {
           some: {
-            order: {
-              is: {
-                OR: [
-                  ...orderNumberOr(search)!,
-                  { contact: { is: contactSearchOr(search) } },
-                  { client: { is: contactSearchOr(search) } },
-                ],
+            OR: [
+              ...(amount != null
+                ? [{ amount: { equals: amount } }, { amountUsd: { equals: amount } }]
+                : []),
+              {
+                order: {
+                  is: {
+                    OR: [
+                      ...orderNumberOr(search)!,
+                      { contact: { is: contactSearchOr(search) } },
+                      { client: { is: contactSearchOr(search) } },
+                    ],
+                  },
+                },
               },
-            },
+            ],
           },
         },
       },

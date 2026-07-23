@@ -31,6 +31,7 @@ import {
   formatContactPriorityReasonCompact,
 } from "./contact-formatters";
 import { strings } from "@/locales";
+import { HelpHint } from "@/components/help/HelpHint";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 
@@ -565,9 +566,12 @@ function ContactsPageContent() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">{strings.nav.contacts}</h1>
-        <button type="button" onClick={openCreate} className="btn-primary">
-          + Додати
-        </button>
+        <div className="flex items-center gap-2">
+          <HelpHint routeKey="contacts" />
+          <button type="button" onClick={openCreate} className="btn-primary">
+            + Додати
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">

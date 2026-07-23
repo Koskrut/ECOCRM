@@ -9,6 +9,8 @@ import { PaymentRequestsModule } from "../payment-requests/payment-requests.modu
 import { SettingsModule } from "../settings/settings.module";
 import { WarehousesModule } from "../warehouses/warehouses.module";
 import { WorkflowsModule } from "../workflows/workflows.module";
+import { RiskModule } from "../risk/risk.module";
+import { SystemModule } from "../system/system.module";
 import { OrdersController } from "./orders.controller";
 import { OrdersDocumentsService } from "./orders-documents.service";
 import { OrdersPickupAutoShipCron } from "./orders-pickup-auto-ship.cron";
@@ -28,6 +30,8 @@ import { OrderStatusService } from "./order-status.service";
     OrderReturnsModule,
     WorkflowsModule,
     NotificationsModule,
+    RiskModule,
+    SystemModule,
     ScheduleModule.forRoot(),
   ],
   controllers: [OrdersController],

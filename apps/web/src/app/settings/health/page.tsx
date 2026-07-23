@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
+import { HelpHint } from "@/components/help/HelpHint";
 
 type UpdateStatus = {
   mode: "operator_only" | "agent_available";
@@ -247,7 +248,10 @@ export default function SettingsHealthPage() {
         <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
           ← Налаштування
         </Link>
-        <h1 className="mt-2 text-2xl font-bold text-zinc-900">Стан системи</h1>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <h1 className="text-2xl font-bold text-zinc-900">Стан системи</h1>
+          <HelpHint routeKey="settings.health" />
+        </div>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         <div className="mt-4 space-y-4">
           <section className="rounded-lg border border-zinc-200 bg-white p-4">

@@ -56,6 +56,8 @@ import { CustomEntitiesModule } from "./custom-entities/custom-entities.module";
 import { TimelineModule } from "./timeline/timeline.module";
 import { FieldModule } from "./field/field.module";
 import { PresenceModule } from "./presence/presence.module";
+import { HelpModule } from "./help/help.module";
+import { RiskModule } from "./risk/risk.module";
 
 @Module({
   imports: [
@@ -111,6 +113,8 @@ import { PresenceModule } from "./presence/presence.module";
     DataImportModule,
     CustomEntitiesModule,
     TimelineModule,
+    HelpModule,
+    RiskModule,
   ],
   providers: [
     {

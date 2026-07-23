@@ -11,6 +11,7 @@ import {
   type ContactReceivablesResponse,
   type ReceivablesReconcileStatus,
 } from "@/lib/api/resources/receivables";
+import { DebtCommentSection } from "@/app/receivables/DebtCommentDialog";
 
 const RECONCILE_STATUS_LABELS: Record<ReceivablesReconcileStatus, string> = {
   ALIGNED: "Збіг",
@@ -171,6 +172,12 @@ export function ContactReceivablesTab({
           {t.kpiBitrixLegacy}: {formatMoney(data.kpi.bitrixLegacyDebt, currency)} — {t.kpiBitrixLegacyHint}
         </div>
       ) : null}
+
+      <DebtCommentSection
+        contactId={contactId}
+        initialComments={data.comments ?? []}
+        onChanged={() => void load()}
+      />
 
       {data.reconciliation ? (
         <div className="rounded-lg border border-zinc-200 bg-white p-3">

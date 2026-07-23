@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/resources/receivables";
 import { ContactModal } from "../contacts/ContactModal";
 import { OrderModal } from "../orders/OrderModal";
+import { DebtCommentDialog } from "./DebtCommentDialog";
 
 type Tab = "work" | "reconcile";
 type WorkView = "clients" | "orders";
@@ -98,6 +99,7 @@ export function ReceivablesPageContent() {
   const tab: Tab = searchParams.get("tab") === "reconcile" ? "reconcile" : "work";
   const workView: WorkView = searchParams.get("view") === "orders" ? "orders" : "clients";
   const overdue = searchParams.get("overdue") === "true";
+  const needsComment = searchParams.get("needsComment") === "true";
   const deltasOnly = searchParams.get("deltasOnly") === "true";
   const reconcileStatus = searchParams.get("status") ?? "";
   const snapshotId = searchParams.get("snapshotId") ?? "";
@@ -128,6 +130,10 @@ export function ReceivablesPageContent() {
   const [uploadNote, setUploadNote] = useState("");
   const [uploadCurrency, setUploadCurrency] = useState("USD");
   const [uploading, setUploading] = useState(false);
+  const [commentTarget, setCommentTarget] = useState<{
+    contactId: string;
+    clientName: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canUpload = role === "ADMIN" || role === "LEAD";
@@ -210,6 +216,7 @@ export function ReceivablesPageContent() {
             ownerId: ownerId || undefined,
             q: q || undefined,
             overdue,
+            needsComment,
             page: 1,
             pageSize: 100,
           }),
@@ -222,7 +229,7 @@ export function ReceivablesPageContent() {
       setWorkClients((listRes.data as { items: WorkClientRow[] }).items ?? []);
       setWorkOrders([]);
     }
-  }, [ownerId, q, overdue, workView]);
+  }, [ownerId, q, overdue, needsComment, workView]);
 
   const loadReconcile = useCallback(async () => {
     const sid = snapshotId || activeSnapshotId;
@@ -345,6 +352,7 @@ export function ReceivablesPageContent() {
       <PageShell
         title={t.pageTitle}
         subtitle={t.pageSubtitle}
+        helpRouteKey="receivables"
         banner={tab === "work" ? reconciliationBanner : undefined}
         actions={
           tab === "reconcile" ? (
@@ -487,6 +495,18 @@ export function ReceivablesPageContent() {
                 />
                 {t.overdueOnly}
               </label>
+              {workView === "clients" ? (
+                <label className="flex items-center gap-2 text-sm text-zinc-600">
+                  <input
+                    type="checkbox"
+                    checked={needsComment}
+                    onChange={(e) =>
+                      patchParams({ needsComment: e.target.checked ? "true" : null })
+                    }
+                  />
+                  {t.needsCommentOnly}
+                </label>
+              ) : null}
             </div>
 
             {loading ? (
@@ -496,6 +516,9 @@ export function ReceivablesPageContent() {
                 rows={workClients}
                 currency={currency}
                 onOpenContact={(id) => patchParams({ contactId: id })}
+                onComment={(row) =>
+                  setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
+                }
               />
             ) : (
               <WorkOrdersTable
@@ -699,18 +722,41 @@ export function ReceivablesPageContent() {
           zIndex={contactId ? 60 : undefined}
         />
       ) : null}
+
+      {commentTarget ? (
+        <DebtCommentDialog
+          contactId={commentTarget.contactId}
+          clientName={commentTarget.clientName}
+          onClose={() => setCommentTarget(null)}
+          onSaved={() => {
+            pushToast(t.commentSuccess, "success");
+            void loadWork();
+          }}
+        />
+      ) : null}
     </>
   );
+}
+
+const COMMENT_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isCommentStale(lastCommentAt: string | null): boolean {
+  if (!lastCommentAt) return true;
+  const ts = Date.parse(lastCommentAt);
+  if (Number.isNaN(ts)) return true;
+  return Date.now() - ts > COMMENT_STALE_MS;
 }
 
 function WorkClientsTable({
   rows,
   currency,
   onOpenContact,
+  onComment,
 }: {
   rows: WorkClientRow[];
   currency: string;
   onOpenContact: (id: string) => void;
+  onComment: (row: WorkClientRow) => void;
 }) {
   const t = strings.receivables;
   if (rows.length === 0) {
@@ -727,29 +773,71 @@ function WorkClientsTable({
             <th className="px-4 py-3 text-right">{t.colOverdue}</th>
             <th className="px-4 py-3 text-right">{t.colOrders}</th>
             <th className="px-4 py-3">{t.colManager}</th>
+            <th className="px-4 py-3">{t.colLastComment}</th>
+            <th className="px-4 py-3">{t.colActions}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100">
-          {rows.map((row) => (
-            <tr
-              key={row.contactId}
-              className="cursor-pointer hover:bg-zinc-50"
-              onClick={() => onOpenContact(row.contactId)}
-            >
-              <td className="px-4 py-3 font-medium text-zinc-900">{row.clientName}</td>
-              <td className="px-4 py-3 font-mono text-xs text-zinc-600">
-                {row.externalCode ?? "—"}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums font-medium">
-                {formatMoney(row.debtAmount, currency)}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums text-red-600">
-                {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
-              <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const stale = isCommentStale(row.lastCommentAt);
+            return (
+              <tr key={row.contactId} className="hover:bg-zinc-50">
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+                    onClick={() => onOpenContact(row.contactId)}
+                  >
+                    {row.clientName}
+                  </button>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-zinc-600">
+                  {row.externalCode ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums font-medium">
+                  {formatMoney(row.debtAmount, currency)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-red-600">
+                  {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
+                <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
+                <td className="px-4 py-3 max-w-[16rem]">
+                  {row.lastCommentAt ? (
+                    <div className={stale ? "text-amber-800" : "text-zinc-700"}>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span>{formatDate(row.lastCommentAt.slice(0, 10))}</span>
+                        {row.lastCommentAuthorName ? (
+                          <span className="text-zinc-500">· {row.lastCommentAuthorName}</span>
+                        ) : null}
+                        {stale ? (
+                          <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
+                            {t.commentStale}
+                          </span>
+                        ) : null}
+                      </div>
+                      {row.lastCommentPreview ? (
+                        <div className="mt-0.5 truncate text-xs text-zinc-500">
+                          {row.lastCommentPreview}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-amber-700">{t.commentNone}</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => onComment(row)}
+                    className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {t.commentAdd}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

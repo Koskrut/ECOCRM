@@ -20,6 +20,7 @@ import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { ChevronDown, ChevronUp, Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
+import { HelpHint } from "@/components/help/HelpHint";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { VisitsSubNav } from "./VisitsSubNav";
 import { LogAdHocVisitModal } from "@/components/visits/LogAdHocVisitModal";
@@ -1162,6 +1163,7 @@ function VisitsPageContent() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <HelpHint routeKey="visits" />
             <button
               type="button"
               onClick={() => setMapSheetOpen(true)}

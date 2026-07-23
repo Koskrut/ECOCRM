@@ -9,6 +9,7 @@ import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
 import { companiesApi, type Company } from "@/lib/api/resources/companies";
 import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel";
+import { HelpRelated } from "@/components/help/HelpRelated";
 import {
   EntityAddressesSection,
   pickVisitReadyAddresses,
@@ -1191,6 +1192,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
               <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
             </div>
             <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4 space-y-3">
+              <HelpRelated entityType="COMPANY" compact />
               <EntityCallRecordingsPanel companyId={companyId} />
               <EntitySection title="Активність">
                 <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
