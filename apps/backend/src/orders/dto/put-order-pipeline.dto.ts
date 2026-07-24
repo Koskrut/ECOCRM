@@ -8,7 +8,7 @@ export class PutOrderPipelineStageDto {
 
   @IsInt()
   @Min(0)
-  @Max(11)
+  @Max(12)
   sortOrder!: number;
 
   @IsString()

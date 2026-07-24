@@ -405,6 +405,7 @@ export const uk = {
     CANCELED: "Скасовано",
     REFUSED: "Відмова",
     RETURN_IN_PROGRESS: "Повернення",
+    FULLY_RETURNED: "Повернений",
   },
   orderCreate: {
     stepClient: "Клієнт",

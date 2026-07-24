@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { BankTransactionMatchStatus } from "@prisma/client";
+import { BankTransactionMatchStatus, PaymentMatchDecision } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { PaymentsService } from "../payments/payments.service";
 import {
   allocationExceedsTransaction,
+  BANK_ALLOCATION_EPSILON,
   lockBankTransactionForUpdate,
   sumBankTransactionAllocations,
   withBankMatchAdvisoryLock,
@@ -11,10 +12,13 @@ import {
 import {
   amountsMatchWithinTolerance,
   expectedPaymentAmountInCurrency,
+  extractOrderCandidatesFromDescription,
   extractOrderNumberFromDescription,
   extractPersonNameFromDescription,
   firstNameVariants,
 } from "./match-engine.utils";
+import { MatchSuggestionService } from "./match-suggestion.service";
+import { PayerAliasService } from "./payer-alias.service";
 
 export type MatchCandidate = {
   orderId: string;
@@ -63,6 +67,12 @@ type OrderForMatch = {
   company: { name: string } | null;
 };
 
+function envFlag(name: string, defaultValue: boolean): boolean {
+  const v = process.env[name];
+  if (v == null || v === "") return defaultValue;
+  return v === "true" || v === "1";
+}
+
 @Injectable()
 export class PaymentMatchingService {
   private readonly logger = new Logger(PaymentMatchingService.name);
@@ -70,13 +80,19 @@ export class PaymentMatchingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paymentsService: PaymentsService,
+    private readonly suggestions: MatchSuggestionService,
+    private readonly payerAliases: PayerAliasService,
   ) {}
 
-  async run(): Promise<{ matched: number; needsReview: number }> {
+  async run(): Promise<{ matched: number; needsReview: number; multiMatched: number }> {
     return withBankMatchAdvisoryLock(this.prisma, () => this.runMatching());
   }
 
-  private async runMatching(): Promise<{ matched: number; needsReview: number }> {
+  private async runMatching(): Promise<{
+    matched: number;
+    needsReview: number;
+    multiMatched: number;
+  }> {
     const unmatched = await this.prisma.bankTransaction.findMany({
       where: {
         direction: "IN",
@@ -85,13 +101,43 @@ export class PaymentMatchingService {
           in: [BankTransactionMatchStatus.UNMATCHED, BankTransactionMatchStatus.NEEDS_REVIEW],
         },
       },
-      include: { bankAccount: true },
+      include: { bankAccount: true, payments: true },
     });
 
     let matched = 0;
     let needsReview = 0;
+    let multiMatched = 0;
+    const multiAuto = envFlag("BANK_MATCH_MULTI_ORDER_AUTO", true);
 
     for (const tx of unmatched) {
+      if (multiAuto) {
+        const didMulti = await this.tryMultiOrderAutoMatch(tx);
+        if (didMulti) {
+          multiMatched++;
+          matched++;
+          continue;
+        }
+      }
+
+      // If purpose lists ≥2 order numbers that exist in DB, never silent-single-auto
+      // the full TX onto one order (would skip the required split / review).
+      const multiResolved = await this.countResolvedPurposeOrders(tx.description);
+      if (multiResolved >= 2) {
+        await this.prisma.bankTransaction.update({
+          where: { id: tx.id },
+          data: {
+            matchStatus: BankTransactionMatchStatus.NEEDS_REVIEW,
+            matchScore: null,
+            suggestedOrderId: null,
+          },
+        });
+        this.logger.debug(
+          `Tx ${tx.id}: ${multiResolved} purpose orders resolved — skip single auto, needs review`,
+        );
+        needsReview++;
+        continue;
+      }
+
       const candidates = await this.scoreCandidates({
         id: tx.id,
         description: tx.description,
@@ -146,7 +192,138 @@ export class PaymentMatchingService {
       }
     }
 
-    return { matched, needsReview };
+    return { matched, needsReview, multiMatched };
+  }
+
+  private async countResolvedPurposeOrders(description: string | null): Promise<number> {
+    const candidates = extractOrderCandidatesFromDescription(description);
+    if (candidates.length < 2) return candidates.length;
+    const numbers = [...new Set(candidates.map((c) => c.orderNumber))];
+    if (numbers.length < 2) return numbers.length;
+    const found = await this.prisma.order.count({
+      where: { orderNumber: { in: numbers } },
+    });
+    return found;
+  }
+
+  private async tryMultiOrderAutoMatch(tx: {
+    id: string;
+    description: string | null;
+    amount: { toString(): string } | number;
+    currency: string;
+    bookedAt: Date;
+    counterpartyName: string | null;
+    counterpartyIban: string | null;
+    payments: Array<{ amount: { toString(): string } | number; status?: string }>;
+  }): Promise<boolean> {
+    const result = await this.suggestions.getSuggestions(tx);
+    if (!result.autoMatchEligible || !result.autoMatchPlan) return false;
+
+    const plan = result.autoMatchPlan;
+    try {
+      const paymentIds = await this.paymentsService.allocateSplitInternal({
+        transactionId: tx.id,
+        allocations: plan.allocations.map((a) => ({
+          orderId: a.orderId,
+          amount: a.amount,
+        })),
+        actorUserId: null,
+        matchMeta: {
+          decision: PaymentMatchDecision.AUTO,
+          matchReason: plan.reason,
+          reasons: {
+            parsedOrders: result.parsedOrders,
+            allocations: plan.allocations,
+            actor: "system",
+          },
+          score: 95,
+        },
+      });
+
+      await this.prisma.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          matchStatus: BankTransactionMatchStatus.AUTO_MATCHED,
+          matchScore: 95,
+          suggestedOrderId: plan.allocations[0]?.orderId ?? null,
+        },
+      });
+
+      // Learn alias from first order's client (no silent name-only auto; multi-order is purpose-based)
+      const firstOrder = await this.prisma.order.findUnique({
+        where: { id: plan.allocations[0]!.orderId },
+        select: { contactId: true, clientId: true, companyId: true },
+      });
+      if (firstOrder) {
+        await this.payerAliases.learnFromAllocation({
+          contactId: firstOrder.contactId ?? firstOrder.clientId,
+          companyId: firstOrder.companyId,
+          counterpartyIban: tx.counterpartyIban,
+          counterpartyName: tx.counterpartyName,
+        });
+      }
+
+      this.logger.log(
+        `Multi-order auto-matched tx ${tx.id} → ${plan.allocations.length} orders (${plan.reason}); payments=${paymentIds.length}`,
+      );
+      return true;
+    } catch (e) {
+      this.logger.warn(
+        `Multi-order auto-match failed for tx ${tx.id}: ${e instanceof Error ? e.message : e}`,
+      );
+      return false;
+    }
+  }
+
+  async applyAutoMatchPlan(transactionId: string, actorUserId?: string | null): Promise<{
+    ok: true;
+    paymentIds: string[];
+    reason: string;
+  }> {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      include: { payments: true },
+    });
+    if (!tx) {
+      const { NotFoundException } = await import("@nestjs/common");
+      throw new NotFoundException("Transaction not found");
+    }
+    const result = await this.suggestions.getSuggestions(tx);
+    if (!result.autoMatchEligible || !result.autoMatchPlan) {
+      const { ConflictException } = await import("@nestjs/common");
+      throw new ConflictException({
+        message: "Transaction is not eligible for auto-match",
+        reasons: result.suggestions[0]?.warnings ?? ["not_eligible"],
+        parsedOrders: result.parsedOrders,
+      });
+    }
+    const plan = result.autoMatchPlan;
+    const paymentIds = await this.paymentsService.allocateSplitInternal({
+      transactionId: tx.id,
+      allocations: plan.allocations.map((a) => ({
+        orderId: a.orderId,
+        amount: a.amount,
+      })),
+      actorUserId: actorUserId ?? null,
+      matchMeta: {
+        decision: actorUserId ? PaymentMatchDecision.SUGGESTED : PaymentMatchDecision.AUTO,
+        matchReason: plan.reason,
+        reasons: {
+          parsedOrders: result.parsedOrders,
+          allocations: plan.allocations,
+        },
+        score: result.suggestions[0]?.score ?? 90,
+      },
+    });
+    await this.prisma.bankTransaction.update({
+      where: { id: tx.id },
+      data: {
+        matchStatus: BankTransactionMatchStatus.AUTO_MATCHED,
+        matchScore: result.suggestions[0]?.score ?? 90,
+        suggestedOrderId: plan.allocations[0]?.orderId ?? null,
+      },
+    });
+    return { ok: true, paymentIds, reason: plan.reason };
   }
 
   async scoreCandidates(tx: {
@@ -296,13 +473,10 @@ export class PaymentMatchingService {
       ctx.txCurrency,
       order.exchangeRate,
     );
-    if (
-      expected != null &&
-      amountsMatchWithinTolerance(expected, ctx.amount)
-    ) {
+    if (expected != null && amountsMatchWithinTolerance(expected, ctx.amount)) {
       score += 30;
       reasons.push("amount");
-    } else if (debt > 0 && Math.abs(debt - ctx.amount) < 0.01) {
+    } else if (debt > 0 && Math.abs(debt - ctx.amount) < BANK_ALLOCATION_EPSILON) {
       score += 30;
       reasons.push("amountDirect");
     }
@@ -331,6 +505,7 @@ export class PaymentMatchingService {
   /**
    * Find a single unpaid order from a contact name in the description or counterparty.
    * When one contact has several open orders, narrow by the (FX-aware) payment amount.
+   * Never used alone for silent auto without amount/order confirmation (score still needs ≥90).
    */
   private async findOrdersByNameInDescription(ctx: {
     description: string | null;
@@ -355,7 +530,6 @@ export class PaymentMatchingService {
       select: { id: true, middleName: true },
     });
 
-    // Disambiguate homonyms by patronymic when the description carries one.
     if (contacts.length > 1 && person.middleName) {
       const mid = person.middleName.toLowerCase();
       const narrowed = contacts.filter((c) => c.middleName?.toLowerCase() === mid);
@@ -382,7 +556,6 @@ export class PaymentMatchingService {
     if (orders.length === 0) return [];
     if (orders.length === 1) return orders;
 
-    // Several open orders for the same contact: keep only the one matching the amount.
     const byAmount = orders.filter((o) => {
       const expected = expectedPaymentAmountInCurrency(
         Number(o.debtAmount ?? 0),
@@ -418,7 +591,7 @@ export class PaymentMatchingService {
       const allocated = sumBankTransactionAllocations(bankTx.payments);
       if (allocationExceedsTransaction(allocated, amount, txAmount)) return false;
 
-      await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           orderId,
           sourceType: "BANK",
@@ -429,11 +602,36 @@ export class PaymentMatchingService {
           bankTransactionId: bankTx.id,
         },
       });
-      return true;
+      return { paymentId: payment.id, order };
     });
 
     if (created) {
       await this.paymentsService.recalcOrder(orderId);
+      await this.paymentsService.syncBankTransactionMatchStatus(bankTransactionId);
+      await this.payerAliases.writeAudit({
+        bankTransactionId,
+        paymentIds: [created.paymentId],
+        decision: PaymentMatchDecision.AUTO,
+        matchReason: "order-number",
+        score: 90,
+        reasons: { orderId, actor: "system" },
+      });
+      await this.payerAliases.learnFromAllocation({
+        contactId: created.order.contactId ?? created.order.clientId,
+        companyId: created.order.companyId,
+        counterpartyIban: (
+          await this.prisma.bankTransaction.findUnique({
+            where: { id: bankTransactionId },
+            select: { counterpartyIban: true, counterpartyName: true },
+          })
+        )?.counterpartyIban,
+        counterpartyName: (
+          await this.prisma.bankTransaction.findUnique({
+            where: { id: bankTransactionId },
+            select: { counterpartyName: true },
+          })
+        )?.counterpartyName,
+      });
     }
   }
 }

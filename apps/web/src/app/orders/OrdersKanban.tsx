@@ -36,7 +36,8 @@ type OrderStage =
   | "COMPLETED"
   | "CANCELED"
   | "REFUSED"
-  | "RETURN_IN_PROGRESS";
+  | "RETURN_IN_PROGRESS"
+  | "FULLY_RETURNED";
 
 type BoardOrder = {
   id: string;
@@ -48,6 +49,8 @@ type BoardOrder = {
   exchangeRate?: number | null;
   paymentType?: string | null;
   debtAmount?: number;
+  /** Closed/open return amount; >0 on RECEIVED/COMPLETED means partial return. */
+  returnAdjustmentAmount?: number | null;
   updatedAt?: string;
   createdAt?: string;
   /** Same TTN number linked to another order */
@@ -115,6 +118,7 @@ const FALLBACK_FINAL_DROP_ZONES: { id: OrderStage; label: string; className: str
   { id: "CANCELED", label: "Скасовано", className: "border-red-300 bg-red-50/80" },
   { id: "REFUSED", label: "Відмова", className: "border-orange-300 bg-orange-50/80" },
   { id: "RETURN_IN_PROGRESS", label: "Повернення", className: "border-amber-300 bg-amber-50/80" },
+  { id: "FULLY_RETURNED", label: "Повернений", className: "border-amber-400 bg-amber-50/80" },
 ];
 
 const STAGE_LABELS: Record<OrderStage, string> = {
@@ -130,6 +134,7 @@ const STAGE_LABELS: Record<OrderStage, string> = {
   CANCELED: "Скасовано",
   REFUSED: "Відмова",
   RETURN_IN_PROGRESS: "Повернення",
+  FULLY_RETURNED: "Повернений",
 };
 
 function isKnownStage(s: string): s is OrderStage {
@@ -415,7 +420,7 @@ export function OrdersKanban({
       }
       try {
         await patchStage(orderId, to, "Moved in board");
-        if (["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS"].includes(to)) {
+        if (["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS", "FULLY_RETURNED"].includes(to)) {
           reloadAll();
         }
       } catch (error) {
@@ -593,6 +598,15 @@ export function OrdersKanban({
                           <StatusBadge variant="order" status={o.status} orderStage={o.orderStage} />
                           {stage === "AWAITING_STOCK" && o.stockReadiness === "PARTIAL" ? (
                             <StockReadinessBadge readiness={o.stockReadiness} size="xs" />
+                          ) : null}
+                          {(stage === "RECEIVED" || stage === "COMPLETED") &&
+                          Number(o.returnAdjustmentAmount ?? 0) > 0 ? (
+                            <span
+                              title="Є часткове повернення"
+                              className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900"
+                            >
+                              Частк. повернення
+                            </span>
                           ) : null}
                         </div>
                         <div className="mt-3 text-[10px] font-medium uppercase text-zinc-500">

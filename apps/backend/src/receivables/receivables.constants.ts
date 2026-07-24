@@ -11,6 +11,7 @@ export const RECEIVABLES_DEBT_ORDER_STAGES: readonly OrderStage[] = [
   "RECEIVED",
   "COMPLETED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ] as const;
 
 /** Tolerance for ALIGNED status (base currency units). */

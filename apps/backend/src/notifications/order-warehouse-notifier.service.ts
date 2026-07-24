@@ -19,6 +19,7 @@ const ORDER_STAGE_LABELS: Record<string, string> = {
   CANCELED: "Скасовано",
   REFUSED: "Відмова",
   RETURN_IN_PROGRESS: "Повернення",
+  FULLY_RETURNED: "Повернений",
 };
 
 function stageLabel(stage: OrderStage | null | undefined): string {

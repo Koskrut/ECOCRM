@@ -16,7 +16,8 @@ type OrderStage =
   | "COMPLETED"
   | "CANCELED"
   | "REFUSED"
-  | "RETURN_IN_PROGRESS";
+  | "RETURN_IN_PROGRESS"
+  | "FULLY_RETURNED";
 
 type KanbanGroup = "MAIN" | "FINAL";
 
@@ -53,6 +54,7 @@ const ALL_TARGETS: OrderStage[] = [
   "CANCELED",
   "REFUSED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ];
 
 function cloneStages(s: PipelineStage[]): PipelineStage[] {

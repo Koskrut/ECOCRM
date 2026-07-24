@@ -17,7 +17,7 @@ function mockIntegrations(onRecalc?: (orderId: string) => void | Promise<void>) 
 }
 
 describe("OrderReturnsService", () => {
-  it("create sets order stage to RETURN_IN_PROGRESS", async () => {
+  it("partial create keeps RECEIVED (does not set RETURN_IN_PROGRESS)", async () => {
     const orderUpdates: Array<Record<string, unknown>> = [];
     const prisma = {
       order: {
@@ -60,6 +60,7 @@ describe("OrderReturnsService", () => {
           {
             items: [
               {
+                orderItemId: "i1",
                 qtyReturned: 2,
                 orderItem: { qty: 3, lineTotal: 300, price: 100 },
               },
@@ -73,12 +74,74 @@ describe("OrderReturnsService", () => {
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
-    assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(orderUpdates.some((u) => u.orderStage === "RECEIVED"));
+    assert.ok(!orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
     // (300 / 3) * 2 * (100 / 100) = 200 — applied while return is still open
     assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 200));
   });
 
-  it("closing return updates returnAdjustmentAmount and recalculates finance", async () => {
+  it("full create sets order stage to RETURN_IN_PROGRESS", async () => {
+    const orderUpdates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          orderStage: "COMPLETED",
+          subtotalAmount: 300,
+          totalAmount: 300,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 300,
+          debtAmount: 0,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 3, price: 100, lineTotal: 300 }],
+          company: null,
+          client: null,
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
+      },
+      orderReturnItem: {
+        groupBy: async () => [],
+      },
+      $transaction: async (cb: (tx: { orderReturn: { create: (args: unknown) => Promise<unknown> } }) => Promise<unknown>) =>
+        cb({
+          orderReturn: {
+            create: async () => ({
+              id: "r1",
+              status: "REQUESTED",
+              order: { id: "o1", orderNumber: "1001" },
+              items: [{ orderItemId: "i1", qtyReturned: 3 }],
+            }),
+          },
+        }),
+      orderReturn: {
+        count: async () => 1,
+        findMany: async () => [
+          {
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 3,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
+
+    await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 3 }] });
+
+    assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(orderUpdates.some((u) => u.deliveryStatus === "RETURN_TO_WAREHOUSE"));
+  });
+
+  it("closing last partial return sets stage RECEIVED when debt remains", async () => {
     const orderUpdates: Array<Record<string, unknown>> = [];
     let recalcCalled = false;
 
@@ -95,8 +158,11 @@ describe("OrderReturnsService", () => {
         count: async () => 0,
         findMany: async () => [
           {
+            status: "CLOSED",
+            settledAt: new Date(),
             items: [
               {
+                orderItemId: "i1",
                 qtyReturned: 2,
                 orderItem: { qty: 4, lineTotal: 400, price: 100 },
               },
@@ -106,6 +172,7 @@ describe("OrderReturnsService", () => {
       },
       order: {
         findUnique: async () => ({
+          orderStage: "RECEIVED",
           subtotalAmount: 1000,
           totalAmount: 900,
           debtAmount: 500,
@@ -113,6 +180,7 @@ describe("OrderReturnsService", () => {
           paidAmount: 400,
           returnAdjustmentAmount: 0,
           paymentDueDate: null,
+          items: [{ id: "i1", qty: 4 }],
         }),
         update: async (args: { data: Record<string, unknown> }) => {
           orderUpdates.push(args.data);
@@ -135,9 +203,11 @@ describe("OrderReturnsService", () => {
     // (400 / 4) * 2 * (900 / 1000) = 180
     assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 180));
     assert.ok(orderUpdates.some((u) => u.orderStage === "RECEIVED"));
+    assert.ok(!orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(!orderUpdates.some((u) => u.orderStage === "FULLY_RETURNED"));
   });
 
-  it("closing last return sets stage COMPLETED when debt is closed", async () => {
+  it("closing last return sets stage COMPLETED when debt is closed (no return qty)", async () => {
     const stageUpdates: string[] = [];
     const prisma = {
       orderReturn: {
@@ -154,6 +224,7 @@ describe("OrderReturnsService", () => {
       },
       order: {
         findUnique: async () => ({
+          orderStage: "RECEIVED",
           subtotalAmount: 100,
           totalAmount: 100,
           debtAmount: 0,
@@ -161,6 +232,7 @@ describe("OrderReturnsService", () => {
           paidAmount: 100,
           returnAdjustmentAmount: 0,
           paymentDueDate: null,
+          items: [{ id: "i1", qty: 1 }],
         }),
         update: async (args: { data: Record<string, unknown> }) => {
           if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
@@ -173,6 +245,190 @@ describe("OrderReturnsService", () => {
 
     await svc.updateStatus("r1", "CLOSED");
     assert.ok(stageUpdates.includes("COMPLETED"));
+  });
+
+  it("closing full return sets FULLY_RETURNED", async () => {
+    const stageUpdates: string[] = [];
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          orderId: "o1",
+          status: "REFUND_OR_ADJUSTMENT",
+          order: { ownerId: "u1" },
+          items: [],
+        }),
+        update: async () => ({ id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} }),
+        count: async () => 0,
+        findMany: async () => [
+          {
+            status: "CLOSED",
+            settledAt: new Date(),
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 3,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
+      },
+      order: {
+        findUnique: async () => ({
+          orderStage: "RETURN_IN_PROGRESS",
+          subtotalAmount: 300,
+          totalAmount: 300,
+          debtAmount: 0,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          returnAdjustmentAmount: 300,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 3 }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
+
+    await svc.updateStatus("r1", "CLOSED");
+    assert.ok(stageUpdates.includes("FULLY_RETURNED"));
+  });
+
+  it("cumulative partial returns that become full set RETURN_IN_PROGRESS while open", async () => {
+    const orderUpdates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          orderStage: "RECEIVED",
+          subtotalAmount: 300,
+          totalAmount: 300,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          debtAmount: 100,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 3, price: 100, lineTotal: 300 }],
+          company: null,
+          client: null,
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
+      },
+      orderReturnItem: {
+        groupBy: async () => [{ orderItemId: "i1", _sum: { qtyReturned: 1 } }],
+      },
+      $transaction: async (cb: (tx: { orderReturn: { create: (args: unknown) => Promise<unknown> } }) => Promise<unknown>) =>
+        cb({
+          orderReturn: {
+            create: async () => ({
+              id: "r2",
+              status: "REQUESTED",
+              order: { id: "o1", orderNumber: "1001" },
+              items: [{ orderItemId: "i1", qtyReturned: 2 }],
+            }),
+          },
+        }),
+      orderReturn: {
+        count: async () => 1,
+        findMany: async () => [
+          {
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 1,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+          {
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 2,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
+
+    await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
+
+    assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+  });
+
+  it("closing cumulative partials that sum to full sets FULLY_RETURNED", async () => {
+    const stageUpdates: string[] = [];
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r2",
+          orderId: "o1",
+          status: "REFUND_OR_ADJUSTMENT",
+          order: { ownerId: "u1" },
+          items: [],
+        }),
+        update: async () => ({ id: "r2", status: "CLOSED", orderId: "o1", items: [], order: {} }),
+        count: async () => 0,
+        findMany: async () => [
+          {
+            status: "CLOSED",
+            settledAt: new Date(),
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 1,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+          {
+            status: "CLOSED",
+            settledAt: new Date(),
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 2,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
+      },
+      order: {
+        findUnique: async () => ({
+          orderStage: "RETURN_IN_PROGRESS",
+          subtotalAmount: 300,
+          totalAmount: 300,
+          debtAmount: 0,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          returnAdjustmentAmount: 300,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 3 }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          if (typeof args.data.orderStage === "string") stageUpdates.push(args.data.orderStage);
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations());
+
+    await svc.updateStatus("r2", "CLOSED");
+    assert.ok(stageUpdates.includes("FULLY_RETURNED"));
   });
 
   it("list filters by status and pageSize", async () => {

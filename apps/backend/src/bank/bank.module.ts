@@ -13,16 +13,26 @@ import { BankSyncService } from "./bank-sync.service";
 import { BankTransactionsController } from "./bank-transactions.controller";
 import { BankTransactionsService } from "./bank-transactions.service";
 import { MatchEngineService } from "./match-engine.service";
+import { MatchSuggestionService } from "./match-suggestion.service";
+import { PayerAliasService } from "./payer-alias.service";
+import { PayerAliasesController } from "./payer-aliases.controller";
 import { PaymentMatchingService } from "./payment-matching.service";
 
 @Module({
   imports: [PrismaModule, SystemModule, IntegrationPortsModule, forwardRef(() => PaymentsModule)],
-  controllers: [BankAccountsController, BankSyncController, BankTransactionsController],
+  controllers: [
+    BankAccountsController,
+    BankSyncController,
+    BankTransactionsController,
+    PayerAliasesController,
+  ],
   providers: [
     BankProviderRegistry,
     BankAccountsService,
     BankTransactionsService,
     BankSyncService,
+    MatchSuggestionService,
+    PayerAliasService,
     PaymentMatchingService,
     MatchEngineService,
     BankSyncCron,
@@ -33,6 +43,8 @@ import { PaymentMatchingService } from "./payment-matching.service";
     BankAccountsService,
     BankSyncService,
     MatchEngineService,
+    MatchSuggestionService,
+    PayerAliasService,
     PaymentMatchingService,
     BankTransactionsService,
   ],

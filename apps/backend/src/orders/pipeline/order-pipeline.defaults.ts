@@ -23,6 +23,7 @@ export const DEFAULT_FINAL_STAGE_ORDER: OrderStage[] = [
   "CANCELED",
   "REFUSED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ];
 
 /** Display labels (UA) — same as legacy OrdersKanban STAGE_LABELS + final zone labels. */
@@ -39,6 +40,7 @@ export const DEFAULT_STAGE_LABELS: Record<OrderStage, string> = {
   CANCELED: "Скасовано",
   REFUSED: "Відмова",
   RETURN_IN_PROGRESS: "Повернення",
+  FULLY_RETURNED: "Повернений",
 };
 
 /**
@@ -58,6 +60,7 @@ export const DEFAULT_STAGE_COLORS: Record<OrderStage, string | null> = {
   CANCELED: "border-red-300 bg-red-50/80",
   REFUSED: "border-orange-300 bg-orange-50/80",
   RETURN_IN_PROGRESS: "border-amber-300 bg-amber-50/80",
+  FULLY_RETURNED: "border-amber-400 bg-amber-50/80",
 };
 
 /** Transition graph — same edges as legacy order-stage-transitions ALLOWED_TRANSITIONS. */
@@ -74,6 +77,7 @@ export const DEFAULT_ALLOWED_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
   CANCELED: ["NEW"],
   REFUSED: [],
   RETURN_IN_PROGRESS: [],
+  FULLY_RETURNED: [],
 };
 
 const ALL_STAGES = [
@@ -87,7 +91,7 @@ export const ALL_ORDER_STAGES: OrderStage[] = [...ALL_STAGES];
 export function assertDefaultPipelineCoversAllStages(): void {
   const set = new Set<OrderStage>(ALL_STAGES);
   const fromKeys = new Set<OrderStage>(Object.keys(DEFAULT_ALLOWED_TRANSITIONS) as OrderStage[]);
-  if (set.size !== 12 || fromKeys.size !== 12) {
+  if (set.size !== 13 || fromKeys.size !== 13) {
     throw new Error("DEFAULT_* pipeline must include every OrderStage exactly once");
   }
   for (const s of fromKeys) {

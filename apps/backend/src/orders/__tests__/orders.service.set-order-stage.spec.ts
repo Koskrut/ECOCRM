@@ -46,6 +46,7 @@ describe("OrdersService.setOrderStage", () => {
         CANCELED: [],
         REFUSED: [],
         RETURN_IN_PROGRESS: [],
+        FULLY_RETURNED: [],
       }),
     } as unknown as PipelineSvc;
     const svc = new OrdersService(prisma, warehouses, settings, googleSheet, pipeline);
@@ -94,6 +95,7 @@ describe("OrdersService.setOrderStage", () => {
         CANCELED: [],
         REFUSED: [],
         RETURN_IN_PROGRESS: [],
+        FULLY_RETURNED: [],
       }),
     } as unknown as PipelineSvc;
     const svc = new OrdersService(prisma, warehouses, settings, googleSheet, pipeline);
@@ -144,6 +146,7 @@ describe("OrdersService.setOrderStage", () => {
           CANCELED: [],
           REFUSED: [],
           RETURN_IN_PROGRESS: [],
+          FULLY_RETURNED: [],
         }),
       } as unknown as PipelineSvc,
     );

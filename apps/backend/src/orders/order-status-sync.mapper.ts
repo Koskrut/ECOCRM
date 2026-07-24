@@ -44,6 +44,7 @@ const TERMINAL_ORDER_STAGES: OrderStage[] = [
   "CANCELED",
   "REFUSED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ];
 
 function kyivTodayYmd(now = new Date()): string {
@@ -306,6 +307,7 @@ export function orderStageToLegacyStatus(
       return "CANCELED";
     case "REFUSED":
     case "RETURN_IN_PROGRESS":
+    case "FULLY_RETURNED":
       return "RETURNING";
     default:
       return "NEW";
@@ -333,6 +335,7 @@ export function orderStageToDeliveryStatus(stage: OrderStage): DeliveryStatus {
     case "REFUSED":
       return "REFUSED";
     case "RETURN_IN_PROGRESS":
+    case "FULLY_RETURNED":
       return "RETURN_TO_WAREHOUSE";
     default:
       return "NOT_SHIPPED";

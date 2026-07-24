@@ -51,7 +51,17 @@ function createService(contacts: any[], orders: any[]) {
       findMany: mockFn(async () => contacts),
     },
   };
-  const service = new PaymentMatchingService(prisma as any, {} as any);
+  const suggestions = { getSuggestions: mockFn(async () => ({ autoMatchEligible: false })) };
+  const payerAliases = {
+    learnFromAllocation: mockFn(async () => undefined),
+    writeAudit: mockFn(async () => undefined),
+  };
+  const service = new PaymentMatchingService(
+    prisma as any,
+    {} as any,
+    suggestions as any,
+    payerAliases as any,
+  );
   return { service, prisma };
 }
 

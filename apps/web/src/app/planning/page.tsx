@@ -53,6 +53,7 @@ const ORDER_STAGE_VALUES = [
   "CANCELED",
   "REFUSED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ] as const;
 
 const PRODUCTION_STAGE_VALUES = ["MECH", "DEGREASE", "QC", "PACK", "TRANSFER"] as const;

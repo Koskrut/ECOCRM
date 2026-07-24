@@ -32,6 +32,7 @@ const ORDER_STAGE_MAP: Record<string, { color: string; label: string }> = {
   CANCELED: { color: "bg-red-100 text-red-700", label: "Скасовано" },
   REFUSED: { color: "bg-red-100 text-red-700", label: "Відмова від отримання" },
   RETURN_IN_PROGRESS: { color: "bg-amber-100 text-amber-800", label: "Повернення" },
+  FULLY_RETURNED: { color: "bg-amber-100 text-amber-900", label: "Повернений" },
 };
 
 /** Legacy order status (fallback when orderStage not set). */

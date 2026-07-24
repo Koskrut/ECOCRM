@@ -73,7 +73,7 @@ describe("OrdersPipelineConfigService.putPipelineSnapshot", () => {
     await assert.rejects(() => svc.putPipelineSnapshot(dto), BadRequestException);
   });
 
-  it("valid snapshot runs 12 updates and GET shape reflects label change", async () => {
+  it("valid snapshot runs stage updates and GET shape reflects label change", async () => {
     let txLen = 0;
     let historyCreates = 0;
     const base = buildDefaultPipelineRows();
@@ -132,7 +132,8 @@ describe("OrdersPipelineConfigService.putPipelineSnapshot", () => {
     newRow.label = "Перейменовано";
 
     const out = await svc.putPipelineSnapshot(dto);
-    assert.equal(txLen, 13);
+    // One update per stage + history row.
+    assert.equal(txLen, base.length + 1);
     assert.equal(historyCreates, 1);
     assert.equal(out.stages.find((s) => s.stage === "NEW")?.label, "Перейменовано");
   });

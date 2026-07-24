@@ -107,6 +107,7 @@ const SPLIT_BLOCKED_ORDER_STAGES: OrderStage[] = [
   "CANCELED",
   "REFUSED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
 ];
 
 @Injectable()
@@ -123,6 +124,7 @@ export class OrdersService {
     "CANCELED",
     "REFUSED",
     "RETURN_IN_PROGRESS",
+    "FULLY_RETURNED",
   ]);
   private static readonly STAGES_CONSUME_RESERVATION = new Set<OrderStage>([
     "SHIPPED",
@@ -447,6 +449,7 @@ export class OrdersService {
         "CANCELED",
         "REFUSED",
         "RETURN_IN_PROGRESS",
+        "FULLY_RETURNED",
       ];
       where.OR = [
         { orderStage: { notIn: closedStages } },

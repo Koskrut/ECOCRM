@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.118**.)_
+_(планируемые изменения после **0.2.119**.)_
+
+## [0.2.119] — 2026-07-24
+
+### Summary
+
+Патч **0.2.119**: bank auto-match v2 (payer aliases, suggestions, audit); стадия **`FULLY_RETURNED`**; return coverage PARTIAL/FULL.
+
+### Added
+
+- **Order returns**: стадия **`FULLY_RETURNED`** — миграция **`20260724140000_order_stage_fully_returned`**; `computeReturnCoverage`; kanban/UI/mobile labels.
+- **Bank matching v2**: миграция **`20260724150000_payer_alias_and_match_audit`** — `PayerAlias`, `PaymentMatchAudit`, `PARTIALLY_MATCHED`; `MatchSuggestionService`, payer-alias learn/audit; API match-suggestions + auto-match.
+- **Web payments**: UI подтверждения suggestions; BFF payer-aliases / match-suggestions.
+
+### Changed
+
+- **Match engine**: IBAN/history/name scoring; split allocation rounding; Сидоренко-style auto-match among open orders.
+- **Order pipeline**: `FULLY_RETURNED` в defaults/settings.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.119`**.
+- **Миграции:** `20260724140000_order_stage_fully_returned`, `20260724150000_payer_alias_and_match_audit`.
 
 ## [0.2.118] — 2026-07-24
 

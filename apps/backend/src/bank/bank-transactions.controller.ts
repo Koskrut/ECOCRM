@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req } from "@nestjs/common";
+import { Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -33,5 +33,18 @@ export class BankTransactionsController {
       },
       req.user,
     );
+  }
+
+  @Get(":id/match-suggestions")
+  matchSuggestions(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.service.getMatchSuggestions(id, req.user);
+  }
+
+  @Post(":id/auto-match")
+  autoMatch(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.service.applyAutoMatch(id, req.user);
   }
 }

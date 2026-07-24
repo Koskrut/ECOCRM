@@ -11,7 +11,13 @@ export const MAIN_STAGE_ORDER = [
 
 export const TERMINAL_STAGES = new Set(["CANCELED", "REFUSED", "COMPLETED"]);
 
-export const SPECIAL_STAGES = ["CANCELED", "REFUSED", "RETURN_IN_PROGRESS", "COMPLETED"] as const;
+export const SPECIAL_STAGES = [
+  "CANCELED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
+  "COMPLETED",
+] as const;
 
 export function isForwardStageTransition(from: string, to: string): boolean {
   if (from === to) return false;

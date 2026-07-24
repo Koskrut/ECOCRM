@@ -227,6 +227,19 @@ enum BankTransactionMatchStatus {
   NEEDS_REVIEW
   AUTO_MATCHED
   MATCHED
+  /// Some COMPLETED payments exist but allocated sum < transaction amount.
+  PARTIALLY_MATCHED
+}
+
+enum PayerAliasSource {
+  MANUAL
+  LEARNED
+}
+
+enum PaymentMatchDecision {
+  AUTO
+  SUGGESTED
+  MANUAL
 }
 
 enum TransactionDirection {
@@ -423,6 +436,7 @@ enum OrderStage {
   CANCELED
   REFUSED
   RETURN_IN_PROGRESS
+  FULLY_RETURNED
 }
 
 /// Kanban grouping: main swimlane columns vs bottom final drop zones.
@@ -614,6 +628,7 @@ model User {
   notifications              UserNotification[]
   notificationPreferences    UserNotificationPreference[]
   pushDevices                UserPushDevice[]
+  paymentMatchAudits         PaymentMatchAudit[] @relation("PaymentMatchAuditCreatedBy")
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -738,9 +753,12 @@ model Company {
   manualCallSessions ManualCallSession[]
   addresses          CompanyAddress[]
   creditProfile      CreditProfile?
+  payerAliases       PayerAlias[]
 
   @@unique([legacySource, legacyId])
   @@index([ownerId])
+  @@index([edrpou])
+  @@index([taxId])
 }
 
 model CompanyAddress {
@@ -874,6 +892,7 @@ model Contact {
   manualCallSessions   ManualCallSession[]
   receivablesSnapshotLines ReceivablesSnapshotLine[]
   creditProfile        CreditProfile?
+  payerAliases         PayerAlias[]
 
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
@@ -2951,12 +2970,56 @@ model BankTransaction {
 
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   payments    Payment[]
+  matchAudits PaymentMatchAudit[]
 
   @@unique([bankAccountId, dedupKey])
   @@index([matchStatus])
   @@index([bankAccountId, bookedAt])
   @@index([bankAccountId])
   @@index([bookedAt])
+  @@index([counterpartyIban])
+}
+
+/// Learned / manual mapping from payer IBAN or normalized name → contact/company.
+model PayerAlias {
+  id                       String           @id @default(cuid())
+  contactId                String?
+  companyId                String?
+  counterpartyIban         String?
+  counterpartyNameNormalized String?
+  source                   PayerAliasSource @default(LEARNED)
+  hitCount                 Int              @default(1)
+  lastSeenAt               DateTime         @default(now())
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([counterpartyIban])
+  @@index([counterpartyNameNormalized])
+  @@index([contactId])
+  @@index([companyId])
+  @@unique([counterpartyIban])
+}
+
+/// Audit trail for bank payment match decisions (auto / suggested confirm / manual).
+model PaymentMatchAudit {
+  id                String               @id @default(cuid())
+  bankTransactionId String
+  paymentIds        String[]
+  decision          PaymentMatchDecision
+  reasons           Json?
+  score             Int?
+  matchReason       String?
+  createdAt         DateTime             @default(now())
+  createdByUserId   String?
+
+  bankTransaction BankTransaction @relation(fields: [bankTransactionId], references: [id], onDelete: Cascade)
+  createdBy       User?           @relation("PaymentMatchAuditCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([bankTransactionId])
+  @@index([createdAt])
 }
 
 /// Stores completed (or in-flight) finance POST responses keyed by Idempotency-Key header.

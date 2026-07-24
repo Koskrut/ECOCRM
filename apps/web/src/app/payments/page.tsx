@@ -42,8 +42,31 @@ type PaymentItem = {
     bookedAt: string;
     description: string | null;
     counterpartyName: string | null;
+    matchStatus?: string | null;
   } | null;
   createdBy: { id: string; fullName: string } | null;
+};
+
+type ClientMatchSuggestion = {
+  contactId?: string | null;
+  companyId?: string | null;
+  label: string;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  reasons: string[];
+  ordersWithDebt: Array<{
+    orderId: string;
+    orderNumber: string;
+    debtAmount: number;
+    currency: string;
+    suggestedAmount: number;
+  }>;
+  proposedAllocations?: Array<{
+    orderId: string;
+    amount: number;
+    source: string;
+  }>;
+  warnings?: string[];
 };
 
 type BankTransaction = {
@@ -60,6 +83,9 @@ type BankTransaction = {
   counterpartyIban: string | null;
   paymentId: string | null;
   orderId: string | null;
+  matchStatus?: string | null;
+  allocatedAmount?: number;
+  remainingAmount?: number;
   suggestion?: {
     orderId: string;
     orderNumber: string;
@@ -69,7 +95,34 @@ type BankTransaction = {
     expectedAmountUah: number | null;
     score: number;
   } | null;
+  suggestions?: ClientMatchSuggestion[];
+  parsedOrders?: {
+    found: Array<{ orderId: string; orderNumber: string; explicitAmount?: number }>;
+    notFound: string[];
+  };
+  autoMatchEligible?: boolean;
+  autoMatchPlan?: {
+    allocations: Array<{ orderId: string; amount: number; source: string }>;
+    reason: string;
+  };
 };
+
+function reasonLabel(code: string): string {
+  switch (code) {
+    case "iban_history":
+      return t.payments.reasonIbanHistory;
+    case "orders_in_purpose":
+      return t.payments.reasonOrdersInPurpose;
+    case "name_match":
+      return t.payments.reasonNameMatch;
+    case "edrpou":
+      return t.payments.reasonEdrpou;
+    case "amount_fit":
+      return t.payments.reasonAmountFit;
+    default:
+      return code;
+  }
+}
 
 type OrderOption = {
   id: string;
@@ -1040,13 +1093,23 @@ function PaymentsContent() {
     if (!allocateTxId || !selectedOrderId) return;
     setAllocating(allocateTxId);
     try {
+      const remaining =
+        allocateTx && typeof allocateTx.remainingAmount === "number"
+          ? allocateTx.remainingAmount
+          : undefined;
       await apiHttp.post("/payments/allocate", {
         transactionId: allocateTxId,
         orderId: selectedOrderId,
+        ...(remaining != null && remaining > 0 && remaining < allocateTx!.amount
+          ? { amount: remaining }
+          : {}),
+        matchMeta: { decision: "MANUAL" },
       });
       closeAllocateModal();
       await fetchUnmatched();
-      setViewWithUrl("payments");
+      if (remaining == null || remaining >= (allocateTx?.amount ?? 0) - 0.01) {
+        setViewWithUrl("payments");
+      }
       await fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
@@ -1057,8 +1120,61 @@ function PaymentsContent() {
 
   const splitTotalAmount = splitFromEditPayment
     ? splitFromEditPayment.amount
-    : splitTx?.amount ?? 0;
+    : splitTx != null
+      ? (typeof splitTx.remainingAmount === "number" ? splitTx.remainingAmount : splitTx.amount)
+      : 0;
   const splitCurrency = splitFromEditPayment?.currency ?? splitTx?.currency ?? "";
+
+  const openDistributeFromSuggestion = (tx: BankTransaction, sug?: ClientMatchSuggestion) => {
+    const top = sug ?? tx.suggestions?.[0];
+    resetSplitContactState();
+    setSplitTx(tx);
+    setSplitOrderSearch("");
+    setSplitOrderForRowIndex(null);
+    const allocs = top?.proposedAllocations?.length
+      ? top.proposedAllocations
+      : tx.autoMatchPlan?.allocations;
+    if (allocs?.length) {
+      const orderMap = new Map(
+        (top?.ordersWithDebt ?? []).map((o) => [o.orderId, o.orderNumber]),
+      );
+      setSplitRows(
+        allocs.map((a) => ({
+          orderId: a.orderId,
+          orderNumber: orderMap.get(a.orderId) ?? a.orderId,
+          amount: String(a.amount),
+        })),
+      );
+    } else {
+      setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
+    }
+    if (top?.contactId) {
+      setSplitContactId(top.contactId);
+      setSplitContactName(top.label);
+      setSplitContactSearch("");
+      void loadSplitClientOrders(top.contactId);
+    }
+  };
+
+  const submitApplyProposed = async (tx: BankTransaction) => {
+    // Only server-eligible auto plans (debt/purpose sum == remaining). Proportional
+    // prefill is for the distribute modal, not one-click allocate-split.
+    if (!tx.autoMatchEligible || !tx.autoMatchPlan?.allocations?.length) {
+      openDistributeFromSuggestion(tx);
+      return;
+    }
+    setAllocating(tx.id);
+    try {
+      await apiHttp.post(`/bank/transactions/${tx.id}/auto-match`, {});
+      await fetchUnmatched();
+      setViewWithUrl("payments");
+      await fetchPayments();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
+    } finally {
+      setAllocating(null);
+    }
+  };
 
   const pickSplitOrders = useCallback(() => {
     const unpaid = splitClientOrders.filter((o) => Number(o.debtAmount ?? 0) > 0);
@@ -1583,7 +1699,16 @@ function PaymentsContent() {
                             })}
                           </td>
                           <td className="px-4 py-3 max-w-xs truncate">
-                            {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
+                            <div>
+                              {p.bankTransaction?.counterpartyName ?? p.note ?? t.payments.dash}
+                            </div>
+                            {p.bankTransaction?.matchStatus === "AUTO_MATCHED" ? (
+                              <div className="text-xs text-emerald-700">
+                                {group.isSplit
+                                  ? t.payments.autoMatchMultiOrder
+                                  : t.payments.autoMatchOrderNumber}
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-4 py-3">
                             <button
@@ -1753,23 +1878,41 @@ function PaymentsContent() {
                   <th className="px-4 py-3">{t.payments.fopCol}</th>
                   <th className="px-4 py-3 text-right">{t.payments.amount}</th>
                   <th className="px-4 py-3">{t.payments.description}</th>
+                  <th className="px-4 py-3">{t.payments.likelyClient}</th>
                   <th className="px-4 py-3">{t.payments.counterparty}</th>
-                  <th className="px-4 py-3 w-32">{t.payments.action}</th>
+                  <th className="px-4 py-3 w-36">{t.payments.action}</th>
                 </tr>
               </thead>
               <tbody>
-                {unmatched.map((tx) => (
+                {unmatched.map((tx) => {
+                  const topSug = tx.suggestions?.[0];
+                  const foundOrders = tx.parsedOrders?.found?.map((o) => o.orderNumber) ?? [];
+                  const remaining =
+                    typeof tx.remainingAmount === "number" ? tx.remainingAmount : tx.amount;
+                  const isPartial =
+                    (tx.allocatedAmount ?? 0) > 0.01 && remaining > 0.01;
+                  return (
                   <tr key={tx.id} className="border-t border-zinc-100 hover:bg-zinc-50">
                     <td className="px-4 py-3 text-zinc-600">
                       {formatDate(tx.bookedAt)}
                     </td>
                     <td className="px-4 py-3">{tx.bankAccount?.name ?? tx.bankAccountId}</td>
                     <td className="px-4 py-3 text-right font-medium">
-                      +{tx.amount.toFixed(2)} {tx.currency}
+                      <div>+{tx.amount.toFixed(2)} {tx.currency}</div>
+                      {isPartial ? (
+                        <div className="text-xs font-normal text-amber-700">
+                          {t.payments.remainingAmount(remaining.toFixed(2), tx.currency)}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 max-w-xs" title={tx.description ?? ""}>
                       <div className="truncate">{tx.description ?? t.payments.dash}</div>
-                      {tx.suggestion ? (
+                      {foundOrders.length > 0 ? (
+                        <div className="mt-1 text-xs text-sky-800">
+                          {t.payments.foundOrdersBadge(foundOrders.join(", "))}
+                        </div>
+                      ) : null}
+                      {tx.suggestion && !topSug ? (
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-emerald-800">
                           <span>
                             {t.payments.possibleMatch(
@@ -1794,6 +1937,52 @@ function PaymentsContent() {
                         </div>
                       ) : null}
                     </td>
+                    <td className="px-4 py-3 text-xs">
+                      {topSug ? (
+                        <div className="space-y-1">
+                          <div className="font-medium text-zinc-800">{topSug.label}</div>
+                          <div className="text-zinc-500">
+                            {t.payments.scoreLabel(topSug.score)}
+                            {topSug.reasons?.length
+                              ? ` · ${topSug.reasons.map(reasonLabel).join(", ")}`
+                              : ""}
+                          </div>
+                          {topSug.warnings?.includes("different_clients") ? (
+                            <div className="text-amber-700">{t.payments.warningDifferentClients}</div>
+                          ) : null}
+                          {topSug.warnings?.includes("amount_mismatch") ? (
+                            <div className="text-amber-700">{t.payments.warningAmountMismatch}</div>
+                          ) : null}
+                          {tx.autoMatchEligible ? (
+                            <button
+                              type="button"
+                              disabled={allocating === tx.id}
+                              onClick={() => void submitApplyProposed(tx)}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              {allocating === tx.id
+                                ? t.payments.allocating
+                                : t.payments.applyProposed}
+                            </button>
+                          ) : topSug.ordersWithDebt[0] ? (
+                            <button
+                              type="button"
+                              disabled={allocating === tx.id}
+                              onClick={() =>
+                                void submitQuickAllocate(tx.id, topSug.ordersWithDebt[0]!.orderId)
+                              }
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              {allocating === tx.id
+                                ? t.payments.allocating
+                                : t.payments.linkSuggestion}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        t.payments.dash
+                      )}
+                    </td>
                     <td className="px-4 py-3">{tx.counterpartyName ?? t.payments.dash}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -1803,26 +1992,30 @@ function PaymentsContent() {
                             setAllocateTxId(tx.id);
                             setAllocateTx(tx);
                             setAllocateContactSearch("");
-                            setAllocateContactId(null);
-                            setAllocateContactName("");
-                            setAllocateOrders([]);
-                            setSelectedOrderId(null);
-                            setAllocateOrderNumber("");
                             setOrderSearch("");
+                            if (topSug?.contactId) {
+                              setAllocateContactId(topSug.contactId);
+                              setAllocateContactName(topSug.label);
+                              setAllocateOrders([]);
+                              const first = topSug.ordersWithDebt[0];
+                              setSelectedOrderId(first?.orderId ?? null);
+                              setAllocateOrderNumber(first?.orderNumber ?? "");
+                              void fetchUnpaidOrdersForAllocate(topSug.contactId);
+                            } else {
+                              setAllocateContactId(null);
+                              setAllocateContactName("");
+                              setAllocateOrders([]);
+                              setSelectedOrderId(null);
+                              setAllocateOrderNumber("");
+                            }
                           }}
                           className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                         >
-                          {t.payments.allocateToOrder}
+                          {isPartial ? t.payments.allocateRemaining : t.payments.allocateToOrder}
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            resetSplitContactState();
-                            setSplitTx(tx);
-                            setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
-                            setSplitOrderSearch("");
-                            setSplitOrderForRowIndex(null);
-                          }}
+                          onClick={() => openDistributeFromSuggestion(tx, topSug)}
                           className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
                         >
                           {t.payments.distribute}
@@ -1830,10 +2023,11 @@ function PaymentsContent() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {unmatched.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                       {t.payments.noUnmatched}
                     </td>
                   </tr>

@@ -1,6 +1,14 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
-const { extractOrderNumberFromDescription } = require("../match-engine.utils");
+const {
+  extractOrderNumberFromDescription,
+  extractOrderCandidatesFromDescription,
+  resolveOrderCandidates,
+  stripDescriptionNoise,
+  amountsMatchAbsolute,
+  normalizeCounterpartyName,
+  extractEdrpouFromDescription,
+} = require("../match-engine.utils");
 
 describe("extractOrderNumberFromDescription", () => {
   it("returns null for null or empty", () => {
@@ -49,8 +57,111 @@ describe("extractOrderNumberFromDescription", () => {
   });
 });
 
+describe("extractOrderCandidatesFromDescription (v2)", () => {
+  it("single number", () => {
+    const c = extractOrderCandidatesFromDescription("Оплата замовлення 7001");
+    assert.deepStrictEqual(
+      c.map((x) => x.orderNumber),
+      ["7001"],
+    );
+  });
+
+  it("UA multi-order list", () => {
+    const c = extractOrderCandidatesFromDescription("Оплата замовлення 7001, 7002");
+    assert.deepStrictEqual(
+      c.map((x) => x.orderNumber).sort(),
+      ["7001", "7002"],
+    );
+  });
+
+  it("semicolon / slash lists", () => {
+    const c = extractOrderCandidatesFromDescription("order 7001; 7002 / 7003");
+    assert.deepStrictEqual(
+      c.map((x) => x.orderNumber).sort(),
+      ["7001", "7002", "7003"],
+    );
+  });
+
+  it("filters dates and phones as noise", () => {
+    const cleaned = stripDescriptionNoise(
+      "Оплата 24.07.2026 тел +380501112233 замовлення 7001",
+    );
+    assert.ok(!cleaned.includes("24.07.2026"));
+    assert.ok(!cleaned.includes("380501112233"));
+    const c = extractOrderCandidatesFromDescription(
+      "Оплата 24.07.2026 тел +380501112233 замовлення 7001",
+    );
+    assert.deepStrictEqual(
+      c.map((x) => x.orderNumber),
+      ["7001"],
+    );
+  });
+
+  it("filters currency amounts near грн/UAH", () => {
+    const c = extractOrderCandidatesFromDescription("Сума 1500 грн order 7001");
+    assert.deepStrictEqual(
+      c.map((x) => x.orderNumber),
+      ["7001"],
+    );
+  });
+
+  it("parses explicit amounts", () => {
+    const c = extractOrderCandidatesFromDescription(
+      "Оплата замовлення 7001 - 1200, замовлення 7002 сума 800",
+    );
+    const by = Object.fromEntries(c.map((x) => [x.orderNumber, x.explicitAmount]));
+    assert.strictEqual(by["7001"], 1200);
+    assert.strictEqual(by["7002"], 800);
+  });
+
+  it("returns empty for garbage", () => {
+    assert.deepStrictEqual(extractOrderCandidatesFromDescription("xxx"), []);
+    assert.deepStrictEqual(extractOrderCandidatesFromDescription(null), []);
+  });
+});
+
+describe("resolveOrderCandidates", () => {
+  it("exact match + notFound + dedupe", () => {
+    const map = new Map([
+      ["7001", { orderNumber: "7001", id: "a" }],
+      ["7002", { orderNumber: "7002", id: "b" }],
+    ]);
+    const { found, notFound } = resolveOrderCandidates(
+      [
+        { orderNumber: "7001" },
+        { orderNumber: "7001", explicitAmount: 10 },
+        { orderNumber: "9999" },
+        { orderNumber: "7002" },
+      ],
+      map,
+    );
+    assert.strictEqual(found.length, 2);
+    assert.deepStrictEqual(notFound, ["9999"]);
+    assert.strictEqual(found[0].explicitAmount, 10);
+  });
+});
+
+describe("name / edrpou helpers", () => {
+  it("normalizes company name", () => {
+    assert.strictEqual(normalizeCounterpartyName('ТОВ "Ромашка"'), "ромашка");
+  });
+
+  it("extracts edrpou", () => {
+    assert.strictEqual(extractEdrpouFromDescription("код ЄДРПОУ 12345678 оплата"), "12345678");
+  });
+
+  it("absolute amount tolerance", () => {
+    assert.strictEqual(amountsMatchAbsolute(1000, 1000.5, 1), true);
+    assert.strictEqual(amountsMatchAbsolute(1000, 1002, 1), false);
+  });
+});
+
 describe("extractPersonNameFromDescription", () => {
-  const { extractPersonNameFromDescription, amountsMatchWithinTolerance, expectedPaymentAmountInCurrency } = require("../match-engine.utils");
+  const {
+    extractPersonNameFromDescription,
+    amountsMatchWithinTolerance,
+    expectedPaymentAmountInCurrency,
+  } = require("../match-engine.utils");
 
   it("extracts name after comma in bank description", () => {
     const name = extractPersonNameFromDescription(

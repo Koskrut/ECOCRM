@@ -1646,7 +1646,13 @@ export class NpTtnService {
     const limit = Math.min(Math.max(Number(opts?.limit ?? 200), 1), 1000);
 
     // Phase 7: filter by orderStage only; exclude closed stages
-    const closedStages: OrderStage[] = ["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS"];
+    const closedStages: OrderStage[] = [
+      "COMPLETED",
+      "CANCELED",
+      "REFUSED",
+      "RETURN_IN_PROGRESS",
+      "FULLY_RETURNED",
+    ];
     const orders = await this.prisma.order.findMany({
       where: {
         deliveryMethod: "NOVA_POSHTA" as Carrier,

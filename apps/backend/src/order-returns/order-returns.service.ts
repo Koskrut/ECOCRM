@@ -14,6 +14,7 @@ import type { CreateOrderReturnDto } from "./dto/create-order-return.dto";
 import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
 import type { SettleReturnDto } from "../client-balances/dto/settle-return.dto";
 import { computeReturnAdjustmentAmount } from "./order-return-adjustment.utils";
+import { computeReturnCoverage } from "./order-return-coverage.utils";
 
 const ALLOWED_TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
   REQUESTED: ["APPROVED"],
@@ -35,7 +36,7 @@ export class OrderReturnsService {
   ) {}
 
   private async syncOrderStateFromReturns(orderId: string) {
-    const [openCount, allReturns, orderTotals] = await Promise.all([
+    const [openCount, allReturns, orderSnapshot] = await Promise.all([
       this.prisma.orderReturn.count({
         where: { orderId, status: { not: CLOSED_RETURN_STATUS } },
       }),
@@ -45,13 +46,29 @@ export class OrderReturnsService {
       }),
       this.prisma.order.findUnique({
         where: { id: orderId },
-        select: { subtotalAmount: true, totalAmount: true },
+        select: {
+          subtotalAmount: true,
+          totalAmount: true,
+          orderStage: true,
+          items: { select: { id: true, qty: true } },
+        },
       }),
     ]);
+    if (!orderSnapshot) throw new NotFoundException("Order not found");
+
+    const coverage = computeReturnCoverage(
+      orderSnapshot.items,
+      allReturns.flatMap((r) =>
+        r.items.map((ri) => ({
+          orderItemId: ri.orderItemId,
+          qtyReturned: ri.qtyReturned,
+        })),
+      ),
+    );
 
     const totalAdjustment = computeReturnAdjustmentAmount(allReturns, {
-      subtotalAmount: orderTotals?.subtotalAmount ?? 0,
-      totalAmount: orderTotals?.totalAmount ?? 0,
+      subtotalAmount: orderSnapshot.subtotalAmount ?? 0,
+      totalAmount: orderSnapshot.totalAmount ?? 0,
     });
 
     await this.prisma.order.update({
@@ -74,25 +91,34 @@ export class OrderReturnsService {
     });
     if (!orderAfter) throw new NotFoundException("Order not found");
 
-    const completionBlockers =
-      openCount === 0
-        ? await getOrderCompletionBlockers(this.prisma, orderId, {
-            paymentType: orderAfter.paymentType,
-            paidAmount: orderAfter.paidAmount,
-            totalAmount: orderAfter.totalAmount,
-            subtotalAmount: orderAfter.subtotalAmount ?? 0,
-            debtAmount: orderAfter.debtAmount,
-            returnAdjustmentAmount: orderAfter.returnAdjustmentAmount,
-            paymentDueDate: orderAfter.paymentDueDate,
-          })
-        : ["open_return"];
+    const stageByDebt = (): OrderStage =>
+      Number(orderAfter.debtAmount) <= 0.00001 ? "COMPLETED" : "RECEIVED";
 
-    const nextStage: OrderStage =
-      openCount > 0
-        ? "RETURN_IN_PROGRESS"
-        : completionBlockers.length === 0
-          ? "COMPLETED"
-          : "RECEIVED";
+    let nextStage: OrderStage;
+    if (openCount > 0) {
+      if (coverage === "FULL") {
+        // Full return in flight — only these go to «Повернення».
+        nextStage = "RETURN_IN_PROGRESS";
+      } else {
+        // Partial open return: keep RECEIVED/COMPLETED; migrate legacy RETURN_IN_PROGRESS away.
+        const current = orderSnapshot.orderStage;
+        nextStage =
+          current === "RECEIVED" || current === "COMPLETED" ? current : stageByDebt();
+      }
+    } else if (coverage === "FULL") {
+      nextStage = "FULLY_RETURNED";
+    } else {
+      const completionBlockers = await getOrderCompletionBlockers(this.prisma, orderId, {
+        paymentType: orderAfter.paymentType,
+        paidAmount: orderAfter.paidAmount,
+        totalAmount: orderAfter.totalAmount,
+        subtotalAmount: orderAfter.subtotalAmount ?? 0,
+        debtAmount: orderAfter.debtAmount,
+        returnAdjustmentAmount: orderAfter.returnAdjustmentAmount,
+        paymentDueDate: orderAfter.paymentDueDate,
+      });
+      nextStage = completionBlockers.length === 0 ? "COMPLETED" : "RECEIVED";
+    }
 
     const effectiveTotal = Math.max(
       0,

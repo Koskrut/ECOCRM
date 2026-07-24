@@ -90,6 +90,7 @@ const ORDER_STAGE_OPTIONS: { value: string; label: string }[] = [
   { value: "CANCELED", label: "Скасовано" },
   { value: "REFUSED", label: "Відмова" },
   { value: "RETURN_IN_PROGRESS", label: "Повернення" },
+  { value: "FULLY_RETURNED", label: "Повернений" },
 ];
 
 /** Phase 4: financial board filter options */

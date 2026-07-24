@@ -119,7 +119,9 @@ export class RiskCollectorsService {
 
   async collectCashOps(): Promise<CollectorSignal[]> {
     const [unmatched, needsReview] = await Promise.all([
-      this.prisma.bankTransaction.count({ where: { matchStatus: "UNMATCHED" } }),
+      this.prisma.bankTransaction.count({
+        where: { matchStatus: { in: ["UNMATCHED", "PARTIALLY_MATCHED"] } },
+      }),
       this.prisma.bankTransaction.count({ where: { matchStatus: "NEEDS_REVIEW" } }),
     ]);
     const signals: CollectorSignal[] = [];

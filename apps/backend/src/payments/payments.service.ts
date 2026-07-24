@@ -1,25 +1,39 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  forwardRef,
 } from "@nestjs/common";
-import { PaymentSourceType, PaymentStatus, Prisma, UserRole } from "@prisma/client";
+import {
+  BankTransactionMatchStatus,
+  PaymentMatchDecision,
+  PaymentSourceType,
+  PaymentStatus,
+  Prisma,
+  UserRole,
+} from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { BankAccountsService } from "../bank/bank-accounts.service";
 import {
   allocationExceedsTransaction,
+  BANK_ALLOCATION_EPSILON,
   lockBankTransactionForUpdate,
+  remainingBankTransactionAmount,
   sumBankTransactionAllocations,
 } from "../bank/bank-allocation.util";
+import { MatchSuggestionService } from "../bank/match-suggestion.service";
+import { PayerAliasService } from "../bank/payer-alias.service";
 import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
 import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { PrismaService } from "../prisma/prisma.service";
-import type { AllocatePaymentDto } from "./dto/allocate-payment.dto";
+import type { AllocateMatchMetaDto, AllocatePaymentDto } from "./dto/allocate-payment.dto";
 import type { AllocateSplitDto } from "./dto/allocate-split.dto";
 import type { CreateCashPaymentDto } from "./dto/create-cash-payment.dto";
 import type { UpdatePaymentDto } from "./dto/update-payment.dto";
@@ -31,6 +45,8 @@ import { toUsd } from "../common/currency.util";
 import { buildPaymentSearchWhere } from "./payment-search.util";
 import { computeOrderDebtAndCredit, roundMoney } from "./order-finance.utils";
 import { randomUUID } from "node:crypto";
+
+export type AllocateMatchMeta = AllocateMatchMetaDto;
 
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
   return toUsd(amount, currency, rates);
@@ -72,7 +88,110 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly bankAccounts: BankAccountsService,
+    @Optional()
+    @Inject(forwardRef(() => PayerAliasService))
+    private readonly payerAliases?: PayerAliasService,
+    @Optional()
+    @Inject(forwardRef(() => MatchSuggestionService))
+    private readonly matchSuggestions?: MatchSuggestionService,
   ) {}
+
+  async getMatchSuggestionsForTransaction(transactionId: string, actor?: AuthUser) {
+    if (!transactionId?.trim()) {
+      throw new BadRequestException("transactionId is required");
+    }
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: transactionId },
+      include: { payments: true },
+    });
+    if (!tx) throw new NotFoundException("Transaction not found");
+    await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
+    if (!this.matchSuggestions) {
+      throw new BadRequestException("Match suggestions unavailable");
+    }
+    return this.matchSuggestions.getSuggestions(tx);
+  }
+
+  async syncBankTransactionMatchStatus(bankTransactionId: string): Promise<void> {
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: bankTransactionId },
+      include: { payments: { select: { amount: true, status: true } } },
+    });
+    if (!tx) return;
+    const txAmount = Number(tx.amount);
+    const allocated = sumBankTransactionAllocations(tx.payments);
+    const remaining = remainingBankTransactionAmount(txAmount, tx.payments);
+    let matchStatus = tx.matchStatus;
+    if (allocated <= BANK_ALLOCATION_EPSILON) {
+      if (
+        matchStatus === BankTransactionMatchStatus.MATCHED ||
+        matchStatus === BankTransactionMatchStatus.AUTO_MATCHED ||
+        matchStatus === BankTransactionMatchStatus.PARTIALLY_MATCHED
+      ) {
+        matchStatus = BankTransactionMatchStatus.UNMATCHED;
+      }
+    } else if (remaining > 0) {
+      matchStatus = BankTransactionMatchStatus.PARTIALLY_MATCHED;
+    } else if (
+      matchStatus !== BankTransactionMatchStatus.AUTO_MATCHED &&
+      matchStatus !== BankTransactionMatchStatus.MATCHED
+    ) {
+      matchStatus = BankTransactionMatchStatus.MATCHED;
+    }
+    if (matchStatus !== tx.matchStatus) {
+      await this.prisma.bankTransaction.update({
+        where: { id: bankTransactionId },
+        data: { matchStatus },
+      });
+    }
+  }
+
+  private async learnAliasFromOrders(
+    bankTransactionId: string,
+    orderIds: string[],
+    matchMeta?: AllocateMatchMeta,
+    actorUserId?: string | null,
+    paymentIds?: string[],
+  ): Promise<void> {
+    if (!this.payerAliases) return;
+    const tx = await this.prisma.bankTransaction.findUnique({
+      where: { id: bankTransactionId },
+      select: { counterpartyIban: true, counterpartyName: true },
+    });
+    const order = await this.prisma.order.findFirst({
+      where: { id: { in: orderIds } },
+      select: { contactId: true, clientId: true, companyId: true },
+    });
+    if (tx && order) {
+      await this.payerAliases.learnFromAllocation({
+        contactId: order.contactId ?? order.clientId,
+        companyId: order.companyId,
+        counterpartyIban: tx.counterpartyIban,
+        counterpartyName: tx.counterpartyName,
+      });
+    }
+    if (paymentIds?.length) {
+      const decisionRaw = matchMeta?.decision ?? PaymentMatchDecision.MANUAL;
+      const decisionLabel = String(decisionRaw);
+      const decision: PaymentMatchDecision =
+        decisionLabel === "AUTO"
+          ? PaymentMatchDecision.AUTO
+          : decisionLabel === "SUGGESTED"
+            ? PaymentMatchDecision.SUGGESTED
+            : PaymentMatchDecision.MANUAL;
+      await this.payerAliases.writeAudit({
+        bankTransactionId,
+        paymentIds,
+        decision,
+        matchReason: matchMeta?.matchReason ?? null,
+        reasons: matchMeta?.reasons ?? (matchMeta?.confirmSuggestionId
+          ? { confirmSuggestionId: matchMeta.confirmSuggestionId }
+          : undefined),
+        score: matchMeta?.score ?? null,
+        createdByUserId: actorUserId ?? null,
+      });
+    }
+  }
 
   private async ensureCanUseBankTransaction(txBankAccountId: string, actor?: AuthUser): Promise<void> {
     if (!actor || actor.role === UserRole.ADMIN) return;
@@ -177,6 +296,7 @@ export class PaymentsService {
                 bookedAt: true,
                 description: true,
                 counterpartyName: true,
+                matchStatus: true,
                 bankAccount: { select: { id: true, name: true, currency: true } },
               },
             },
@@ -237,6 +357,7 @@ export class PaymentsService {
               bookedAt: p.bankTransaction.bookedAt,
               description: p.bankTransaction.description,
               counterpartyName: p.bankTransaction.counterpartyName,
+              matchStatus: p.bankTransaction.matchStatus,
             }
             : null,
           createdBy: p.createdBy,
@@ -354,13 +475,19 @@ export class PaymentsService {
       throw new ForbiddenException("You can only allocate to orders assigned to you");
     }
 
-    const amount = dto.amount != null ? dto.amount : Number(tx.amount);
+    const txAmount = Number(tx.amount);
+    const alreadyAllocated = sumBankTransactionAllocations(tx.payments);
+    const remaining = remainingBankTransactionAmount(txAmount, tx.payments);
+    if (remaining <= 0) {
+      throw new BadRequestException("Transaction already fully allocated");
+    }
+    const amount = dto.amount != null ? dto.amount : remaining;
     if (amount <= 0) throw new BadRequestException("Amount must be positive");
 
     const rates = await this.settings.getExchangeRates();
     const amountUsd = convertToUsd(amount, tx.currency, rates);
-    const txAmount = Number(tx.amount);
 
+    let paymentId: string | null = null;
     await this.prisma.$transaction(async (db) => {
       await lockBankTransactionForUpdate(db, dto.transactionId);
       const lockedTx = await db.bankTransaction.findUnique({
@@ -368,15 +495,17 @@ export class PaymentsService {
         include: { payments: true },
       });
       if (!lockedTx) throw new NotFoundException("Transaction not found");
-      if ((lockedTx.payments ?? []).length > 0) {
-        throw new BadRequestException("Transaction already allocated (use split or edit)");
-      }
       const allocated = sumBankTransactionAllocations(lockedTx.payments);
       if (allocationExceedsTransaction(allocated, amount, txAmount)) {
         throw new BadRequestException("Transaction amount would be exceeded");
       }
+      // First full allocation path still prefers empty tx when amount covers all
+      // and caller did not intend residual top-up — allow residual top-ups.
+      if (allocated > BANK_ALLOCATION_EPSILON && alreadyAllocated <= BANK_ALLOCATION_EPSILON) {
+        // race: another writer allocated between read and lock
+      }
 
-      await db.payment.create({
+      const payment = await db.payment.create({
         data: {
           orderId: dto.orderId,
           sourceType: PaymentSourceType.BANK,
@@ -389,9 +518,23 @@ export class PaymentsService {
           createdByUserId: actor?.id ?? null,
         },
       });
+      paymentId = payment.id;
     });
 
     await this.recalcOrder(dto.orderId);
+    await this.syncBankTransactionMatchStatus(dto.transactionId);
+    const meta: AllocateMatchMeta = {
+      ...(dto.matchMeta ?? {}),
+      confirmSuggestionId: dto.confirmSuggestionId ?? dto.matchMeta?.confirmSuggestionId,
+      decision: dto.matchMeta?.decision ?? PaymentMatchDecision.MANUAL,
+    };
+    await this.learnAliasFromOrders(
+      dto.transactionId,
+      [dto.orderId],
+      meta,
+      actor?.id,
+      paymentId ? [paymentId] : undefined,
+    );
     return this.listByOrderId(dto.orderId, actor);
   }
 
@@ -404,54 +547,93 @@ export class PaymentsService {
     ) {
       throw new ForbiddenException("You are not allowed to allocate bank transactions");
     }
-    if (!dto.allocations?.length) {
+    await this.allocateSplitInternal({
+      transactionId: dto.transactionId,
+      allocations: dto.allocations,
+      actorUserId: actor.id,
+      actor,
+      matchMeta: {
+        ...(dto.matchMeta ?? {}),
+        confirmSuggestionId: dto.confirmSuggestionId ?? dto.matchMeta?.confirmSuggestionId,
+        decision: dto.matchMeta?.decision ?? PaymentMatchDecision.MANUAL,
+      },
+    });
+    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
+  }
+
+  /**
+   * Core split allocation used by API and system multi-order auto-match.
+   * Sum of new allocations must equal remaining amount (full tx when nothing allocated yet).
+   */
+  async allocateSplitInternal(input: {
+    transactionId: string;
+    allocations: Array<{ orderId: string; amount: number }>;
+    actorUserId?: string | null;
+    actor?: AuthUser;
+    matchMeta?: AllocateMatchMeta;
+  }): Promise<string[]> {
+    if (!input.allocations?.length) {
       throw new BadRequestException("At least one allocation required");
     }
     const tx = await this.prisma.bankTransaction.findUnique({
-      where: { id: dto.transactionId },
+      where: { id: input.transactionId },
       include: { payments: true },
     });
     if (!tx) throw new NotFoundException("Transaction not found");
-    await this.ensureCanUseBankTransaction(tx.bankAccountId, actor);
+    if (input.actor) {
+      await this.ensureCanUseBankTransaction(tx.bankAccountId, input.actor);
+    }
+
     const txAmount = Number(tx.amount);
-    const totalAlloc = dto.allocations.reduce((s, a) => s + Number(a.amount), 0);
-    if (Math.abs(totalAlloc - txAmount) > 0.01) {
+    const alreadyAllocated = sumBankTransactionAllocations(tx.payments);
+    const remaining = remainingBankTransactionAmount(txAmount, tx.payments);
+    if (remaining <= 0) {
+      throw new BadRequestException("Transaction already fully allocated");
+    }
+
+    const totalAlloc = input.allocations.reduce((s, a) => s + Number(a.amount), 0);
+    if (Math.abs(totalAlloc - remaining) > BANK_ALLOCATION_EPSILON) {
       throw new BadRequestException(
-        `Total allocated ${totalAlloc} must equal transaction amount ${txAmount}`,
+        `Total allocated ${totalAlloc} must equal remaining amount ${remaining}` +
+          (alreadyAllocated > 0 ? ` (tx ${txAmount}, already ${alreadyAllocated})` : ` (tx ${txAmount})`),
       );
     }
-    for (const a of dto.allocations) {
+
+    for (const a of input.allocations) {
       const amount = Number(a.amount);
       if (!Number.isFinite(amount) || amount <= 0) {
         throw new BadRequestException("Each allocation amount must be positive");
       }
       const order = await this.prisma.order.findUnique({ where: { id: a.orderId } });
       if (!order) throw new NotFoundException(`Order not found: ${a.orderId}`);
-      if (actor.role === UserRole.MANAGER && order.ownerId !== actor.id) {
+      if (input.actor?.role === UserRole.MANAGER && order.ownerId !== input.actor.id) {
         throw new ForbiddenException("You can only assign to orders assigned to you");
       }
     }
+
     const rates = await this.settings.getExchangeRates();
+    const paymentIds: string[] = [];
 
     await this.prisma.$transaction(async (db) => {
-      await lockBankTransactionForUpdate(db, dto.transactionId);
+      await lockBankTransactionForUpdate(db, input.transactionId);
       const lockedTx = await db.bankTransaction.findUnique({
-        where: { id: dto.transactionId },
+        where: { id: input.transactionId },
         include: { payments: true },
       });
       if (!lockedTx) throw new NotFoundException("Transaction not found");
       const allocatedTotal = sumBankTransactionAllocations(lockedTx.payments ?? []);
-      if (allocatedTotal > 0) {
-        throw new BadRequestException("Transaction already has allocations");
+      const lockedRemaining = remainingBankTransactionAmount(txAmount, lockedTx.payments ?? []);
+      if (Math.abs(totalAlloc - lockedRemaining) > BANK_ALLOCATION_EPSILON) {
+        throw new BadRequestException("Transaction remaining amount changed; retry");
       }
       if (allocationExceedsTransaction(allocatedTotal, totalAlloc, txAmount)) {
         throw new BadRequestException("Transaction amount would be exceeded");
       }
 
-      for (const a of dto.allocations) {
+      for (const a of input.allocations) {
         const amt = Number(a.amount);
         const amountUsd = convertToUsd(amt, lockedTx.currency, rates);
-        await db.payment.create({
+        const payment = await db.payment.create({
           data: {
             orderId: a.orderId,
             sourceType: PaymentSourceType.BANK,
@@ -461,16 +643,25 @@ export class PaymentsService {
             paidAt: lockedTx.bookedAt,
             status: PaymentStatus.COMPLETED,
             bankTransactionId: lockedTx.id,
-            createdByUserId: actor?.id ?? null,
+            createdByUserId: input.actorUserId ?? null,
           },
         });
+        paymentIds.push(payment.id);
       }
     });
 
-    for (const a of dto.allocations) {
+    for (const a of input.allocations) {
       await this.recalcOrder(a.orderId);
     }
-    return this.list({ page: 1, pageSize: 50, offset: 0, limit: 50 }, actor);
+    await this.syncBankTransactionMatchStatus(input.transactionId);
+    await this.learnAliasFromOrders(
+      input.transactionId,
+      input.allocations.map((a) => a.orderId),
+      input.matchMeta,
+      input.actorUserId,
+      paymentIds,
+    );
+    return paymentIds;
   }
 
   async createCash(dto: CreateCashPaymentDto, actor?: AuthUser) {
@@ -727,12 +918,14 @@ export class PaymentsService {
       }
     }
     const orderIds = [...new Set(siblings.map((s) => s.orderId))];
+    const bankTransactionId = payment.bankTransactionId;
     await this.prisma.payment.deleteMany({
-      where: { bankTransactionId: payment.bankTransactionId },
+      where: { bankTransactionId },
     });
     for (const oid of orderIds) {
       await this.recalcOrder(oid);
     }
+    await this.syncBankTransactionMatchStatus(bankTransactionId);
     return { ok: true };
   }
 

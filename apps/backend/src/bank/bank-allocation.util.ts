@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 /** Advisory lock key for serializing bank payment matching across processes. */
 export const BANK_MATCH_ADVISORY_LOCK_KEY = 8723401;
 
+/** Equality / residual tolerance in transaction currency (documented). */
 export const BANK_ALLOCATION_EPSILON = 0.01;
 
 type AllocatablePayment = {
@@ -16,8 +17,27 @@ export function sumBankTransactionAllocations(
   status: string = "COMPLETED",
 ): number {
   return payments
-    .filter((p) => p.status === status)
+    .filter((p) => (p.status ?? status) === status)
     .reduce((sum, p) => sum + Number(p.amount), 0);
+}
+
+export function remainingBankTransactionAmount(
+  transactionAmount: number,
+  payments: AllocatablePayment[],
+  epsilon: number = BANK_ALLOCATION_EPSILON,
+): number {
+  const allocated = sumBankTransactionAllocations(payments);
+  const remaining = transactionAmount - allocated;
+  return remaining <= epsilon ? 0 : Math.round(remaining * 100) / 100;
+}
+
+/** True when sum(payments) < tx.amount beyond epsilon (needs further allocation). */
+export function bankTransactionNeedsAllocation(
+  transactionAmount: number,
+  payments: AllocatablePayment[],
+  epsilon: number = BANK_ALLOCATION_EPSILON,
+): boolean {
+  return remainingBankTransactionAmount(transactionAmount, payments, epsilon) > 0;
 }
 
 export function allocationExceedsTransaction(

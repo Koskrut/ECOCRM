@@ -391,6 +391,7 @@ const ORDER_STAGE_STEPS_ALL: StepDef[] = [
   { key: "CANCELED", label: "Скасовано", color: "red" },
   { key: "REFUSED", label: "Відмова", color: "red" },
   { key: "RETURN_IN_PROGRESS", label: "Повернення", color: "red" },
+  { key: "FULLY_RETURNED", label: "Повернений", color: "red" },
 ];
 
 function stepIndexInSteps(stage: string, steps: StepDef[]) {
@@ -444,7 +445,7 @@ function Stepper({
 
   const isCanceled = stage === "CANCELED";
   const isRefused = stage === "REFUSED";
-  const isReturning = stage === "RETURN_IN_PROGRESS";
+  const isReturning = stage === "RETURN_IN_PROGRESS" || stage === "FULLY_RETURNED";
 
   const centerActiveChip = useCallback(() => {
     const el = wheelRef.current;
@@ -557,7 +558,7 @@ function Stepper({
   const isDone = (s: StepDef, idx: number) => {
     if (isCanceled) return s.key === "CANCELED";
     if (isRefused) return s.key === "REFUSED";
-    if (isReturning) return s.key === "RETURN_IN_PROGRESS";
+    if (isReturning) return s.key === stage;
     return idx <= activeIdx;
   };
 
@@ -586,7 +587,7 @@ function Stepper({
       }
       return [];
     }
-    const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS"]);
+    const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS", "FULLY_RETURNED"]);
     return filterBlocked(
       filterCompletion(
         steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key))),
@@ -899,6 +900,7 @@ export function OrderModal({
       "CANCELED",
       "REFUSED",
       "RETURN_IN_PROGRESS",
+      "FULLY_RETURNED",
     ]);
     return !blocked.has(order.orderStage ?? "");
   }, [order]);
@@ -2018,6 +2020,12 @@ export function OrderModal({
                 </div>
                 <div className="border-t border-zinc-100 pt-3">
                   <div className="mb-1.5 text-xs font-medium text-zinc-600">Повернення</div>
+                  {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED") &&
+                  orderReturns.length > 0 ? (
+                    <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                      Є часткове повернення
+                    </div>
+                  ) : null}
                   {returnsLoading ? (
                     <div className="text-xs text-zinc-500">Завантаження…</div>
                   ) : orderReturns.length > 0 ? (
@@ -2121,6 +2129,12 @@ export function OrderModal({
           deliveryMethod={order.deliveryMethod ?? deliveryMethod ?? null}
           hasTtn={orderHasTtn(order)}
         />
+        {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED") &&
+        orderReturns.some((r) => r.status !== "CLOSED") ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Є часткове повернення в процесі
+          </div>
+        ) : null}
         {(order.completionBlockers?.length ?? 0) > 0 ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             <div className="font-medium">Завершення замовлення заблоковано</div>

@@ -34,6 +34,7 @@ const STAGE_ORDER: string[] = [
   "RECEIVED",
   "COMPLETED",
   "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
   "CANCELED",
   "REFUSED",
   "UNKNOWN",
@@ -259,6 +260,7 @@ const STAGE_LABELS: Record<string, string> = {
   CANCELED: "Скасовано",
   REFUSED: "Відмова",
   RETURN_IN_PROGRESS: "Повернення",
+  FULLY_RETURNED: "Повернений",
 };
 
 function stageRank(stage: string): number {

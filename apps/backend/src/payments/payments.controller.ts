@@ -56,6 +56,16 @@ export class PaymentsController {
     );
   }
 
+  @Get("match-suggestions")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  matchSuggestions(
+    @Query("transactionId") transactionId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    // Thin proxy so clients can keep using /payments/* for finance UX.
+    return this.service.getMatchSuggestionsForTransaction(transactionId, req.user);
+  }
+
   @Post("allocate")
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   allocate(@Body() dto: AllocatePaymentDto, @Req() req: Request & { user?: AuthUser }) {
