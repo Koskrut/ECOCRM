@@ -7,16 +7,18 @@ import { productsApi } from "@/lib/api/products";
 import { useTheme } from "@/lib/design/theme-context";
 import { formatOrderStockMeta } from "@/lib/stock-display";
 import { warehouseStockBreakdown } from "@/lib/order-utils";
+import { formatBaseMoney } from "@/lib/order-currency";
 import { t } from "@/lib/i18n";
 import type { Product } from "@/types/crm";
 
 type ProductPickerProps = {
   token: string;
   warehouseId?: string | null;
+  currency: string;
   onSelect: (product: Product) => void;
 };
 
-export function ProductPicker({ token, warehouseId, onSelect }: ProductPickerProps) {
+export function ProductPicker({ token, warehouseId, currency, onSelect }: ProductPickerProps) {
   const theme = useTheme();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Product[]>([]);
@@ -73,7 +75,7 @@ export function ProductPicker({ token, warehouseId, onSelect }: ProductPickerPro
         const stock = warehouseStockBreakdown(p, warehouseId);
         const meta = [
           p.sku,
-          p.basePrice != null ? `${p.basePrice}` : null,
+          p.basePrice != null ? formatBaseMoney(p.basePrice, currency) : null,
           stock ? formatOrderStockMeta(stock) : null,
         ]
           .filter(Boolean)

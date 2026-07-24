@@ -4,7 +4,27 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.117**.)_
+_(планируемые изменения после **0.2.118**.)_
+
+## [0.2.118] — 2026-07-24
+
+### Summary
+
+Патч **0.2.118**: Kyivstar FMC fixes (`calls` lowercase, Kyiv midnight hour 24); mobile base currency + UAH hint; field shifts BFF routes.
+
+### Fixed
+
+- **Kyivstar FMC**: `parseKyivstarCallHistoryPayload` принимает live **`calls`** (не только `Calls`); `formatKyivstarFmcQueryDatetime` — `hourCycle: h23`, без hour **24** у Kyiv midnight; ingest использует общий parser.
+
+### Added
+
+- **Mobile orders**: `useBaseCurrency` из settings; `formatOrderAmount` / `formatBaseMoney`; UAH в скобках для USD/EUR.
+- **Web field BFF**: **`POST /api/field/shifts/start`**, **`…/end`**, **`…/tracking-events`**, **`POST …/samples`**.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.118`**.
+- **Новых миграций нет.**
 
 ## [0.2.117] — 2026-07-23
 

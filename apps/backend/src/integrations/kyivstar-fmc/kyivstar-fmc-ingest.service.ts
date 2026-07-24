@@ -6,6 +6,7 @@ import { isConversation } from "../../manual-calling/call-conversation.util";
 import { MissedCallQueueService } from "../../manual-calling/missed-call-queue.service";
 import { NotificationsService } from "../../notifications/notifications.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { parseKyivstarCallHistoryPayload } from "./kyivstar-fmc-api";
 import { KYIVSTAR_FMC_PROVIDER } from "./kyivstar-fmc.constants";
 
 export { KYIVSTAR_FMC_PROVIDER } from "./kyivstar-fmc.constants";
@@ -85,9 +86,10 @@ export class KyivstarFmcIngestService {
       return body.filter((x) => x && typeof x === "object") as KyivstarRawPayload[];
     }
     if (body && typeof body === "object") {
-      const calls = (body as { Calls?: unknown }).Calls;
-      if (Array.isArray(calls)) {
-        return calls.filter((x) => x && typeof x === "object") as KyivstarRawPayload[];
+      // Prefer shared parser (accepts both `calls` and `Calls` from Kyivstar).
+      const parsed = parseKyivstarCallHistoryPayload(body);
+      if (parsed.length > 0 || "calls" in body || "Calls" in body) {
+        return parsed as KyivstarRawPayload[];
       }
       return [body as KyivstarRawPayload];
     }

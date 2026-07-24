@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import type { DeliveryMethod } from "@/components/order/DeliveryMethodSection";
 import { useTheme } from "@/lib/design/theme-context";
+import { formatBaseMoney } from "@/lib/order-currency";
 import { t } from "@/lib/i18n";
 import type { Contact, ContactShippingProfile, DraftOrderLine } from "@/types/crm";
 
@@ -16,6 +17,7 @@ type Props = {
   contact: Contact;
   companyName?: string | null;
   lines: DraftOrderLine[];
+  currency: string;
   discountAmount: number;
   paymentType: string | null;
   deliveryMethod: DeliveryMethod;
@@ -31,6 +33,7 @@ export function OrderReviewStep({
   contact,
   companyName,
   lines,
+  currency,
   discountAmount,
   paymentType,
   deliveryMethod,
@@ -63,13 +66,13 @@ export function OrderReviewStep({
             key={line.key}
             style={[theme.typography.caption, { marginLeft: 8, marginBottom: 4, color: theme.colors.textMuted }]}>
             · {line.productSku ? `${line.productSku} · ` : ""}
-            {line.productName} × {line.qty} = {lineAmount(line).toFixed(2)}
+            {line.productName} × {line.qty} = {formatBaseMoney(lineAmount(line), currency)}
           </Text>
         ))}
         <Text style={[theme.typography.body, { marginBottom: 8 }]}>
           <Text style={{ fontWeight: "700" }}>{t("orderCreate.reviewTotal")}: </Text>
-          {total.toFixed(2)}
-          {discountAmount > 0 ? ` (−${discountAmount} ${t("orderCreate.reviewDiscount")})` : ""}
+          {formatBaseMoney(total, currency)}
+          {discountAmount > 0 ? ` (−${formatBaseMoney(discountAmount, currency)} ${t("orderCreate.reviewDiscount")})` : ""}
         </Text>
         <Text style={[theme.typography.body, { marginBottom: 8 }]}>
           <Text style={{ fontWeight: "700" }}>{t("orderCreate.paymentType")}: </Text>

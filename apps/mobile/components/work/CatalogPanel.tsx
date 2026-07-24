@@ -12,9 +12,11 @@ import { SearchField } from "@/components/ui/SearchField";
 import { SkeletonCard } from "@/components/ui/Skeleton";
 import { useAuth } from "@/context/auth-context";
 import { productsApi } from "@/lib/api/products";
+import { formatBaseMoney } from "@/lib/order-currency";
 import { formatCatalogStockLine, formatStockBreakdown } from "@/lib/stock-display";
 import { warehouseStockLines, totalStockBreakdown } from "@/lib/order-utils";
 import { useTheme } from "@/lib/design/theme-context";
+import { useBaseCurrency } from "@/lib/use-base-currency";
 import { t } from "@/lib/i18n";
 import type { Product } from "@/types/crm";
 
@@ -27,10 +29,12 @@ type Props = {
 function CatalogProductCard({
   item,
   index,
+  currency,
   onAddToOrder,
 }: {
   item: Product;
   index: number;
+  currency: string;
   onAddToOrder: (productId: string) => void;
 }) {
   const theme = useTheme();
@@ -69,7 +73,7 @@ function CatalogProductCard({
 
         {item.basePrice != null ? (
           <Text style={[theme.typography.title, { color: theme.colors.order, marginTop: theme.spacing.sm }]}>
-            {item.basePrice} {t("common.currency")}
+            {formatBaseMoney(item.basePrice, currency)}
           </Text>
         ) : null}
 
@@ -88,6 +92,7 @@ export function CatalogPanel({ onMetaChange }: Props) {
   const router = useRouter();
   const theme = useTheme();
   const { token } = useAuth();
+  const { currency } = useBaseCurrency();
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [items, setItems] = useState<Product[]>([]);
@@ -194,6 +199,7 @@ export function CatalogPanel({ onMetaChange }: Props) {
           <CatalogProductCard
             item={item}
             index={index}
+            currency={currency}
             onAddToOrder={(productId) => router.push(`/orders/new?productId=${encodeURIComponent(productId)}`)}
           />
         )}

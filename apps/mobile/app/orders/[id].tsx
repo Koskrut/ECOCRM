@@ -30,11 +30,16 @@ import { ordersApi } from "@/lib/api/orders";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { orderStageLabel } from "@/lib/labels";
+import { formatBaseMoney, formatOrderAmount } from "@/lib/order-currency";
 import type { Contact, Order, OrderItem } from "@/types/crm";
 
-function formatAmount(amount: number | null | undefined, currency?: string | null): string {
+function formatAmount(
+  amount: number | null | undefined,
+  currency?: string | null,
+  exchangeRate?: number | null,
+): string {
   if (amount == null) return "—";
-  return `${amount} ${currency ?? ""}`.trim();
+  return formatOrderAmount(amount, currency ?? "USD", exchangeRate);
 }
 
 function itemLineTotal(item: OrderItem): number {
@@ -297,7 +302,7 @@ export default function OrderDetailScreen() {
           style={{ alignSelf: "flex-start", marginTop: 8, marginBottom: 4 }}
         />
         <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
-          {t("orders.amount")}: {formatAmount(order.totalAmount, order.currency)}
+          {t("orders.amount")}: {formatAmount(order.totalAmount, order.currency, order.exchangeRate)}
         </Text>
 
         {contact ? (
@@ -340,7 +345,8 @@ export default function OrderDetailScreen() {
           </Text>
           {(order.discountAmount ?? 0) > 0 ? (
             <Text style={[theme.typography.body, styles.condLine]}>
-              {t("orderCreate.orderDiscount")}: {order.discountAmount}
+              {t("orderCreate.orderDiscount")}:{" "}
+              {formatBaseMoney(order.discountAmount!, order.currency ?? "USD")}
             </Text>
           ) : null}
           {order.paymentDueDate ? (
@@ -350,8 +356,8 @@ export default function OrderDetailScreen() {
           ) : null}
           {order.paidAmount != null || order.debtAmount != null ? (
             <Text style={[theme.typography.body, styles.condLine]}>
-              {t("orders.paidDebt")}: {formatAmount(order.paidAmount, order.currency)} /{" "}
-              {formatAmount(order.debtAmount, order.currency)}
+              {t("orders.paidDebt")}: {formatAmount(order.paidAmount, order.currency, order.exchangeRate)} /{" "}
+              {formatAmount(order.debtAmount, order.currency, order.exchangeRate)}
             </Text>
           ) : null}
         </Card>
@@ -382,8 +388,9 @@ export default function OrderDetailScreen() {
                 {item.productName ?? item.productNameSnapshot ?? t("orders.productFallback")}
               </Text>
               <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                {item.qty} × {item.price}
-                {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} = {itemLineTotal(item)}
+                {item.qty} × {formatBaseMoney(item.price, order.currency ?? "USD")}
+                {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} ={" "}
+                {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}
               </Text>
             </Card>
           ))

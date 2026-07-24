@@ -8,3 +8,8 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const qs = req.nextUrl.searchParams.toString();
   return proxyToBackend(req, `field/shifts/${id}/samples${qs ? `?${qs}` : ""}`);
 }
+
+export async function POST(req: NextRequest, context: RouteContext) {
+  const { id } = await context.params;
+  return proxyToBackend(req, `field/shifts/${id}/samples`);
+}

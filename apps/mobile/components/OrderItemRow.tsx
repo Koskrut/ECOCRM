@@ -4,11 +4,13 @@ import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "@/components/Themed";
 import { IconButton } from "@/components/ui/IconButton";
 import { useTheme } from "@/lib/design/theme-context";
+import { orderCurrencySymbol } from "@/lib/order-currency";
 import { spacing } from "@/lib/design/tokens";
 import type { DraftOrderLine } from "@/types/crm";
 
 type OrderItemRowProps = {
   item: DraftOrderLine;
+  currency: string;
   onChange: (patch: Partial<Pick<DraftOrderLine, "qty" | "price" | "discountPercent">>) => void;
   onRemove: () => void;
   discountPresets?: number[];
@@ -47,9 +49,10 @@ function useNumericDraft(value: number, onCommit: (n: number) => void, min: numb
   };
 }
 
-export function OrderItemRow({ item, onChange, onRemove, discountPresets }: OrderItemRowProps) {
+export function OrderItemRow({ item, currency, onChange, onRemove, discountPresets }: OrderItemRowProps) {
   const theme = useTheme();
   const showDiscounts = (discountPresets?.length ?? 0) > 0;
+  const currencySym = orderCurrencySymbol(currency);
 
   const qtyField = useNumericDraft(item.qty, (n) => onChange({ qty: n }), 1);
   const priceField = useNumericDraft(item.price, (n) => onChange({ price: n }), 0);
@@ -116,7 +119,7 @@ export function OrderItemRow({ item, onChange, onRemove, discountPresets }: Orde
           </View>
         </View>
         <View style={styles.priceField}>
-          <Text style={[styles.label, { color: theme.colors.textMuted }]}>Ціна</Text>
+          <Text style={[styles.label, { color: theme.colors.textMuted }]}>Ціна ({currencySym})</Text>
           <TextInput
             value={priceField.display}
             onChangeText={priceField.onChangeText}
@@ -153,7 +156,9 @@ export function OrderItemRow({ item, onChange, onRemove, discountPresets }: Orde
           ))}
         </View>
       ) : null}
-      <Text style={[styles.total, { color: theme.colors.text }]}>Сума: {lineTotal(item)}</Text>
+      <Text style={[styles.total, { color: theme.colors.text }]}>
+        Сума: {lineTotal(item).toFixed(2)} {currencySym}
+      </Text>
     </View>
   );
 }

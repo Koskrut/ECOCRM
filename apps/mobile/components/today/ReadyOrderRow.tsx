@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { useTheme } from "@/lib/design/theme-context";
 import type { OrderListItem } from "@/lib/api/orders";
+import { formatOrderAmount } from "@/lib/order-currency";
 import { t } from "@/lib/i18n";
 
 type Props = {
@@ -23,7 +24,7 @@ function clientLabel(o: OrderListItem): string {
 
 function formatAmount(o: OrderListItem): string {
   if (o.totalAmount == null) return "—";
-  return `${o.totalAmount} ${o.currency ?? t("common.currency")}`.trim();
+  return formatOrderAmount(o.totalAmount, o.currency ?? "USD", o.exchangeRate);
 }
 
 export function ReadyOrderRow({ order, index = 0 }: Props) {

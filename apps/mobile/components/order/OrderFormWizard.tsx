@@ -27,6 +27,8 @@ import { productsApi } from "@/lib/api/products";
 import { settingsApi } from "@/lib/api/settings";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+import { formatBaseMoney } from "@/lib/order-currency";
+import { useBaseCurrency } from "@/lib/use-base-currency";
 import {
   createOrderFull,
   newDraftLineKey,
@@ -57,6 +59,8 @@ export function OrderFormWizard({
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { npEnabled } = useModules();
+  const { currency: baseCurrency } = useBaseCurrency();
+  const [orderCurrency, setOrderCurrency] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(mode === "edit");
   const [step, setStep] = useState<OrderWizardStep>(1);
@@ -85,6 +89,7 @@ export function OrderFormWizard({
   const [busy, setBusy] = useState(false);
 
   const total = useMemo(() => draftLinesTotal(lines), [lines]);
+  const displayCurrency = orderCurrency ?? baseCurrency;
   const selectedShippingProfile = useMemo(
     () => shippingProfiles.find((p) => p.id === selectedProfileId) ?? null,
     [shippingProfiles, selectedProfileId],
@@ -147,6 +152,7 @@ export function OrderFormWizard({
       setComment(order.comment ?? "");
       setCompanyId(order.companyId ?? order.company?.id ?? null);
       setCompanyName(order.company?.name ?? null);
+      setOrderCurrency(order.currency ?? null);
 
       const npData = (order.deliveryData?.novaPoshta ?? {}) as Record<string, unknown>;
       const profileId =
@@ -354,9 +360,11 @@ export function OrderFormWizard({
 
   const footerLabel = useMemo(() => {
     if (step === 1) return t("orderCreate.selectClientFooter");
-    if (lines.length > 0) return t("orderCreate.totalLabel", { amount: total.toFixed(2) });
+    if (lines.length > 0) {
+      return t("orderCreate.totalLabel", { amount: formatBaseMoney(total, displayCurrency) });
+    }
     return t("orderCreate.addProducts");
-  }, [step, lines.length, total]);
+  }, [step, lines.length, total, displayCurrency]);
 
   if (loading) {
     return (
@@ -407,7 +415,12 @@ export function OrderFormWizard({
               {t("orderCreate.warehouse")}
             </Text>
             <WarehousePicker token={token} value={warehouseId} onChange={setWarehouseId} />
-            <ProductPicker token={token} warehouseId={warehouseId} onSelect={onProductSelect} />
+            <ProductPicker
+              token={token}
+              warehouseId={warehouseId}
+              currency={displayCurrency}
+              onSelect={onProductSelect}
+            />
             {lines.length === 0 ? (
               <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
             ) : (
@@ -415,6 +428,7 @@ export function OrderFormWizard({
                 <AnimatedListItem key={line.key} index={index}>
                   <OrderItemRow
                     item={line}
+                    currency={displayCurrency}
                     discountPresets={discountPresets}
                     onChange={(patch) =>
                       setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, ...patch } : l)))
@@ -468,6 +482,7 @@ export function OrderFormWizard({
             contact={contact}
             companyName={companyName}
             lines={lines}
+            currency={displayCurrency}
             discountAmount={discountAmount}
             paymentType={paymentType}
             deliveryMethod={deliveryMethod}

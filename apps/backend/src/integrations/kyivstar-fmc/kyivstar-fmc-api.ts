@@ -34,6 +34,7 @@ export type KyivstarFmcCallRecordFetchResult =
 
 /** ISO 8601 local datetime without offset (Europe/Kyiv per vendor docs). */
 export function formatKyivstarFmcQueryDatetime(d: Date): string {
+  // hourCycle:"h23" avoids ICU hour=24 near midnight (hour12:false can emit 24:xx).
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Kyiv",
     year: "numeric",
@@ -42,11 +43,26 @@ export function formatKyivstarFmcQueryDatetime(d: Date): string {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(d);
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((p) => p.type === type)?.value ?? "00";
-  return `${pick("year")}-${pick("month")}-${pick("day")}T${pick("hour")}:${pick("minute")}:${pick("second")}`;
+  let year = Number(pick("year"));
+  let month = Number(pick("month"));
+  let day = Number(pick("day"));
+  let hour = Number(pick("hour"));
+  const minute = pick("minute");
+  const second = pick("second");
+  // Belt-and-suspenders: some engines still emit 24 → roll to 00:00 next calendar day.
+  if (hour >= 24) {
+    hour = 0;
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    year = next.getUTCFullYear();
+    month = next.getUTCMonth() + 1;
+    day = next.getUTCDate();
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${minute}:${second}`;
 }
 
 function resolveApiBase(cfg: KyivstarFmcApiConfig): string {
@@ -65,8 +81,10 @@ function buildAuthUrl(base: string, path: string, cfg: KyivstarFmcApiConfig): UR
 
 export function parseKyivstarCallHistoryPayload(payload: unknown): KyivstarFmcCallHistoryItem[] {
   if (!payload || typeof payload !== "object") return [];
-  const calls = (payload as { Calls?: unknown }).Calls;
-  if (!Array.isArray(calls)) return [];
+  // Vendor OpenAPI samples use `Calls`; live /v1/callhistory returns `calls`.
+  const obj = payload as { Calls?: unknown; calls?: unknown };
+  const calls = Array.isArray(obj.calls) ? obj.calls : Array.isArray(obj.Calls) ? obj.Calls : null;
+  if (!calls) return [];
   return calls.filter((c) => c && typeof c === "object") as KyivstarFmcCallHistoryItem[];
 }
 
