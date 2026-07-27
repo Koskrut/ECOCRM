@@ -2,7 +2,7 @@
 
 Контекст: install bundle вроде **`/opt/crm`**, env **`suprex/.env`**, манифест с CP или **`deployment-manifest.json`**.
 
-Актуализировано под зелёный релиз **`v0.2.120`** (полный манифест CI: **store** + overlays модулей, **`composeFileUrls`**, NP и Google Drive в Settings — см. **`CHANGELOG.md` [0.2.120]**).
+Актуализировано под зелёный релиз **`v0.2.121`** (полный манифест CI: **store** + overlays модулей, **`composeFileUrls`**, NP и Google Drive в Settings — см. **`CHANGELOG.md` [0.2.121]**).
 
 ## 0. Rollout после зелёного **Publish Registry Release** (CP → сервер)
 

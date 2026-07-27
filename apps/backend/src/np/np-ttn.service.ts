@@ -983,7 +983,7 @@ export class NpTtnService {
   // Persist TTN to Order.deliveryData (+ move NEW -> AWAITING_PAYMENT or AWAITING_STOCK)
   // ======================
   private async persistOrderDeliveryDataWithTtn(
-    order: { id: string; status?: string | null; orderStage?: string | null; deliveryData?: unknown },
+    order: { id: string; status?: string | null; orderStage?: OrderStage | null; deliveryData?: unknown },
     resolved: { data: Record<string, unknown> },
     saved: {
       documentNumber: string;
@@ -1044,7 +1044,7 @@ export class NpTtnService {
     };
 
     const isNew =
-      isNewOrderStage((order as { orderStage?: string | null }).orderStage) ||
+      isNewOrderStage(order.orderStage) ||
       order.status === "NEW";
     let statusUpdate: Record<string, unknown> = {};
     if (isNew) {

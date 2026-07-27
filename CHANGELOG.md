@@ -4,9 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.120**.)_
+_(планируемые изменения после **0.2.121**.)_
+
+## [0.2.121] — 2026-07-27
+
+### Summary
+
+Патч **0.2.121**: hotfix CI/backend build — **`OrderStage`** typing в **`np-ttn.service.ts`**. Образы **`0.2.120`** не опубликованы (Publish Registry Release failed).
+
+### Fixed
+
+- **`np-ttn.service.ts`**: `persistOrderDeliveryDataWithTtn` — `orderStage` typed as **`OrderStage`**, не `string`; исправляет `tsc` в Docker build.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.121`** (вместо **`0.2.120`**).
+- **Миграций нет.** Функционально идентичен **0.2.120**.
 
 ## [0.2.120] — 2026-07-24
+
+> **Не использовать:** CI **Publish Registry Release** упал на backend `tsc` — образы в registry не собраны. Берите **`0.2.121`**.
 
 ### Summary
 
