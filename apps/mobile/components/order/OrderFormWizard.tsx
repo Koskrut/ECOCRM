@@ -428,6 +428,7 @@ export function OrderFormWizard({
                 <AnimatedListItem key={line.key} index={index}>
                   <OrderItemRow
                     item={line}
+                    index={index}
                     currency={displayCurrency}
                     discountPresets={discountPresets}
                     onChange={(patch) =>

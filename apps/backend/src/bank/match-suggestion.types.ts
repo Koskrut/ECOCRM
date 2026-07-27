@@ -1,6 +1,8 @@
 export type MatchReasonCode =
   | "iban_history"
   | "orders_in_purpose"
+  | "invoice_match"
+  | "waybill_match"
   | "name_match"
   | "edrpou"
   | "amount_fit";
@@ -33,6 +35,18 @@ export type ClientMatchSuggestion = {
   ordersWithDebt: OrderWithDebtSuggestion[];
   proposedAllocations?: ProposedAllocation[];
   warnings?: string[];
+  /** 1C invoice number when matched from purpose. */
+  matchedInvoiceNumber?: string | null;
+  /** 1C waybill (РН) number when matched from purpose. */
+  matchedWaybillNumber?: string | null;
+};
+
+export type ParsedDocumentsResult = {
+  invoices: string[];
+  waybills: string[];
+  unlabeled: string[];
+  matchedInvoiceNumber?: string | null;
+  matchedWaybillNumber?: string | null;
 };
 
 export type ParsedOrdersResult = {
@@ -50,6 +64,8 @@ export type TransactionMatchSuggestions = {
   transactionId: string;
   suggestions: ClientMatchSuggestion[];
   parsedOrders: ParsedOrdersResult;
+  parsedDocuments?: ParsedDocumentsResult;
+  documentMatchOrderId?: string | null;
   autoMatchEligible: boolean;
   autoMatchPlan?: AutoMatchPlan;
   allocatedAmount: number;

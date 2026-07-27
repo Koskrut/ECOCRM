@@ -105,3 +105,76 @@ test("scoreCandidates: name matches but amount ambiguous across orders → no na
   assert.ok(candidates.every((c) => !(c.matchReason ?? "").includes("contactName")));
   assert.ok(candidates.every((c) => c.score < 90));
 });
+
+test("tryDocumentAutoMatch: skips when orderNumber already resolves", async () => {
+  const findFirst = mockFn(async () => ({ id: "o-order" }));
+  const prisma = {
+    order: { findFirst, findMany: mockFn(async () => []) },
+    bankTransaction: { update: mockFn(async () => ({})) },
+  };
+  const { service } = createService([], []);
+  (service as any).prisma = prisma;
+
+  const result = await (service as any).tryDocumentAutoMatch({
+    id: "tx-doc-skip",
+    description: "замовлення 9336 рахунок INV-9",
+    counterpartyName: null,
+  });
+  assert.deepEqual(result, { matched: false, needsReview: false });
+  assert.equal(findFirst.calls.length, 1);
+});
+
+test("tryDocumentAutoMatch: unique invoice auto-matches", async () => {
+  let paymentCreated = false;
+  const bankUpdate = mockFn(async () => ({}));
+  const findFirst = mockFn(async () => null);
+  const findMany = mockFn(async (args: any) => {
+    if (args.where?.invoiceNumber?.in) {
+      return [{ id: "o-inv", invoiceNumber: "INV-9", waybillNumber: null }];
+    }
+    return [];
+  });
+  const prisma = {
+    order: { findFirst, findMany },
+    bankTransaction: { update: bankUpdate },
+  };
+  const { service } = createService([], []);
+  (service as any).prisma = prisma;
+  (service as any).createPaymentFromTransaction = async () => {
+    paymentCreated = true;
+  };
+
+  const result = await (service as any).tryDocumentAutoMatch({
+    id: "tx-inv",
+    description: "оплата рахунок INV-9",
+    counterpartyName: null,
+  });
+  assert.equal(result.matched, true);
+  assert.ok(paymentCreated);
+  assert.equal(bankUpdate.calls.length, 1);
+  assert.equal(bankUpdate.calls[0]![0].data.matchStatus, "AUTO_MATCHED");
+});
+
+test("tryDocumentAutoMatch: ambiguous invoice needs review", async () => {
+  const bankUpdate = mockFn(async () => ({}));
+  const findFirst = mockFn(async () => null);
+  const findMany = mockFn(async () => [
+    { id: "o1", invoiceNumber: "INV-9", waybillNumber: null },
+    { id: "o2", invoiceNumber: "INV-9", waybillNumber: null },
+  ]);
+  const prisma = {
+    order: { findFirst, findMany },
+    bankTransaction: { update: bankUpdate },
+  };
+  const { service } = createService([], []);
+  (service as any).prisma = prisma;
+
+  const result = await (service as any).tryDocumentAutoMatch({
+    id: "tx-ambig",
+    description: "рахунок INV-9",
+    counterpartyName: null,
+  });
+  assert.equal(result.matched, false);
+  assert.equal(result.needsReview, true);
+  assert.equal(bankUpdate.calls[0]![0].data.matchStatus, "NEEDS_REVIEW");
+});

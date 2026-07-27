@@ -11,6 +11,7 @@ import type { DraftOrderLine } from "@/types/crm";
 type OrderItemRowProps = {
   item: DraftOrderLine;
   currency: string;
+  index?: number;
   onChange: (patch: Partial<Pick<DraftOrderLine, "qty" | "price" | "discountPercent">>) => void;
   onRemove: () => void;
   discountPresets?: number[];
@@ -49,7 +50,7 @@ function useNumericDraft(value: number, onCommit: (n: number) => void, min: numb
   };
 }
 
-export function OrderItemRow({ item, currency, onChange, onRemove, discountPresets }: OrderItemRowProps) {
+export function OrderItemRow({ item, currency, index, onChange, onRemove, discountPresets }: OrderItemRowProps) {
   const theme = useTheme();
   const showDiscounts = (discountPresets?.length ?? 0) > 0;
   const currencySym = orderCurrencySymbol(currency);
@@ -69,6 +70,9 @@ export function OrderItemRow({ item, currency, onChange, onRemove, discountPrese
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.surfaceMuted }]}>
       <View style={styles.header}>
+        {typeof index === "number" ? (
+          <Text style={[styles.index, { color: theme.colors.textMuted }]}>{index + 1}.</Text>
+        ) : null}
         <View style={styles.nameBlock}>
           {item.productSku ? (
             <Text style={[styles.sku, { color: theme.colors.textMuted }]}>{item.productSku}</Text>
@@ -174,6 +178,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  index: { width: 22, fontSize: 13, marginTop: 2, marginRight: 4 },
   nameBlock: { flex: 1, marginRight: 8 },
   sku: { fontSize: 12, marginBottom: 2 },
   name: { fontWeight: "600", fontSize: 15 },

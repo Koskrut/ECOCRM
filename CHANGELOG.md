@@ -4,7 +4,34 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.119**.)_
+_(планируемые изменения после **0.2.120**.)_
+
+## [0.2.120] — 2026-07-24
+
+### Summary
+
+Патч **0.2.120**: bank auto-match по рахунку/РН (1C invoice/waybill); route plan owner guard; visits multi-owner day fixes; mobile GPS reject reasons.
+
+### Added
+
+- **Bank document matching**: `extractDocumentRefsFromDescription`, `resolveUniqueDocumentOrder` — auto-match и suggestions по **`invoiceNumber`** / **`waybillNumber`** заказа; приоритет invoice > waybill > unlabeled token; конфликт с orderNumber → review.
+- **Match engine**: отдельные маркеры рахунок/накладна; fallback order digits не путает с 1C doc tokens.
+- **Order stage guard**: выход из **NEW** требует **Код 1С** контакта — проверка в `setOrderStage` и при создании TTN (NP), нельзя обойти через накладную.
+- **Web payments**: labels `invoice_match` / `waybill_match`; поиск заказов с invoice/waybill в подсказках.
+- **Route plans**: `purgeForeignRouteStops`, `assertVisitsOwnedBy` — лечение и блокировка чужих визитов в плане.
+- **Mobile GPS**: `location-sample-reject` — soft vs hard reject reasons в flush log.
+
+### Changed
+
+- **Google Sheet order-documents webhook**: пустая строка очищает поле (null); partial update; документация DTO.
+- **Field fuel**: plan visit set игнорирует foreign RouteStop.
+- **Visits web**: timeline/route order только визиты владельца плана; no auto-save в multi-owner day view.
+- **Orders web/mobile**: invoice/waybill в модалке и wizard review.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.120`**.
+- **Миграций нет.**
 
 ## [0.2.119] — 2026-07-24
 

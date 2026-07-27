@@ -61,11 +61,11 @@ export function OrderReviewStep({
           <Text style={{ fontWeight: "700" }}>{t("orderCreate.reviewItems")}: </Text>
           {lines.length}
         </Text>
-        {lines.map((line) => (
+        {lines.map((line, index) => (
           <Text
             key={line.key}
             style={[theme.typography.caption, { marginLeft: 8, marginBottom: 4, color: theme.colors.textMuted }]}>
-            · {line.productSku ? `${line.productSku} · ` : ""}
+            {index + 1}. {line.productSku ? `${line.productSku} · ` : ""}
             {line.productName} × {line.qty} = {formatBaseMoney(lineAmount(line), currency)}
           </Text>
         ))}

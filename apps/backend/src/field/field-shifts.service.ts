@@ -258,7 +258,7 @@ export class FieldShiftsService {
       );
     }
 
-    return { created: rows.length, rejected };
+    return { created: rows.length, rejected, rejectReasons };
   }
 
   private visitTitle(v: {

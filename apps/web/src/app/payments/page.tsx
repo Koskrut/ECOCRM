@@ -67,6 +67,8 @@ type ClientMatchSuggestion = {
     source: string;
   }>;
   warnings?: string[];
+  matchedInvoiceNumber?: string | null;
+  matchedWaybillNumber?: string | null;
 };
 
 type BankTransaction = {
@@ -94,11 +96,21 @@ type BankTransaction = {
     currency: string;
     expectedAmountUah: number | null;
     score: number;
+    invoiceNumber?: string | null;
+    waybillNumber?: string | null;
+    documentMatchType?: "invoice" | "waybill" | null;
   } | null;
   suggestions?: ClientMatchSuggestion[];
   parsedOrders?: {
     found: Array<{ orderId: string; orderNumber: string; explicitAmount?: number }>;
     notFound: string[];
+  };
+  parsedDocuments?: {
+    invoices: string[];
+    waybills: string[];
+    unlabeled: string[];
+    matchedInvoiceNumber?: string | null;
+    matchedWaybillNumber?: string | null;
   };
   autoMatchEligible?: boolean;
   autoMatchPlan?: {
@@ -113,6 +125,10 @@ function reasonLabel(code: string): string {
       return t.payments.reasonIbanHistory;
     case "orders_in_purpose":
       return t.payments.reasonOrdersInPurpose;
+    case "invoice_match":
+      return t.payments.reasonInvoiceMatch;
+    case "waybill_match":
+      return t.payments.reasonWaybillMatch;
     case "name_match":
       return t.payments.reasonNameMatch;
     case "edrpou":
@@ -127,6 +143,8 @@ function reasonLabel(code: string): string {
 type OrderOption = {
   id: string;
   orderNumber: string;
+  invoiceNumber?: string | null;
+  waybillNumber?: string | null;
   totalAmount?: number;
   paidAmount?: number;
   debtAmount?: number;
@@ -134,6 +152,13 @@ type OrderOption = {
   exchangeRate?: number | null;
   createdAt?: string;
 };
+
+function formatOrderSearchLabel(o: OrderOption): string {
+  const parts = [o.orderNumber || o.id];
+  if (o.invoiceNumber?.trim()) parts.push(t.payments.invoiceLabel(o.invoiceNumber.trim()));
+  if (o.waybillNumber?.trim()) parts.push(t.payments.waybillLabel(o.waybillNumber.trim()));
+  return parts.join(" · ");
+}
 
 type ContactOption = { id: string; firstName: string; lastName: string; phone: string };
 
@@ -724,19 +749,9 @@ function PaymentsContent() {
     }
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        "/orders?page=1&pageSize=50&withCompanyClient=true",
+        `/orders?q=${encodeURIComponent(q.trim())}&page=1&pageSize=50&withCompanyClient=true`,
       );
-      const list = r.data?.items ?? [];
-      const term = q.trim().toLowerCase();
-      setOrderCandidates(
-        list
-          .filter(
-            (o) =>
-              o.orderNumber?.toLowerCase().includes(term) ||
-              String(o.id).toLowerCase().includes(term),
-          )
-          .slice(0, 10),
-      );
+      setOrderCandidates((r.data?.items ?? []).slice(0, 10));
     } catch {
       setOrderCandidates([]);
     }
@@ -754,19 +769,9 @@ function PaymentsContent() {
     }
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        "/orders?page=1&pageSize=50&withCompanyClient=true",
+        `/orders?q=${encodeURIComponent(q.trim())}&page=1&pageSize=50&withCompanyClient=true`,
       );
-      const list = r.data?.items ?? [];
-      const term = q.trim().toLowerCase();
-      setEditOrderCandidates(
-        list
-          .filter(
-            (o) =>
-              o.orderNumber?.toLowerCase().includes(term) ||
-              String(o.id).toLowerCase().includes(term),
-          )
-          .slice(0, 10),
-      );
+      setEditOrderCandidates((r.data?.items ?? []).slice(0, 10));
     } catch {
       setEditOrderCandidates([]);
     }
@@ -1028,19 +1033,9 @@ function PaymentsContent() {
     }
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        "/orders?page=1&pageSize=50&withCompanyClient=true",
+        `/orders?q=${encodeURIComponent(q.trim())}&page=1&pageSize=50&withCompanyClient=true`,
       );
-      const list = r.data?.items ?? [];
-      const term = q.trim().toLowerCase();
-      setSplitOrderCandidates(
-        list
-          .filter(
-            (o) =>
-              o.orderNumber?.toLowerCase().includes(term) ||
-              String(o.id).toLowerCase().includes(term),
-          )
-          .slice(0, 10),
-      );
+      setSplitOrderCandidates((r.data?.items ?? []).slice(0, 10));
     } catch {
       setSplitOrderCandidates([]);
     }
@@ -1912,6 +1907,27 @@ function PaymentsContent() {
                           {t.payments.foundOrdersBadge(foundOrders.join(", "))}
                         </div>
                       ) : null}
+                      {tx.parsedDocuments?.matchedInvoiceNumber ||
+                      tx.parsedDocuments?.matchedWaybillNumber ||
+                      topSug?.matchedInvoiceNumber ||
+                      topSug?.matchedWaybillNumber ? (
+                        <div className="mt-1 text-xs text-violet-800">
+                          {topSug?.matchedInvoiceNumber || tx.parsedDocuments?.matchedInvoiceNumber
+                            ? t.payments.invoiceLabel(
+                                topSug?.matchedInvoiceNumber ||
+                                  tx.parsedDocuments?.matchedInvoiceNumber ||
+                                  "",
+                              )
+                            : null}
+                          {topSug?.matchedWaybillNumber || tx.parsedDocuments?.matchedWaybillNumber
+                            ? ` · ${t.payments.waybillLabel(
+                                topSug?.matchedWaybillNumber ||
+                                  tx.parsedDocuments?.matchedWaybillNumber ||
+                                  "",
+                              )}`
+                            : null}
+                        </div>
+                      ) : null}
                       {tx.suggestion && !topSug ? (
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-emerald-800">
                           <span>
@@ -2667,7 +2683,7 @@ function PaymentsContent() {
                                   }}
                                   className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
                                 >
-                                  {o.orderNumber}
+                                  {formatOrderSearchLabel(o)}
                                   {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
                                 </button>
                               </li>

@@ -22,6 +22,10 @@ import {
   legacyStatusToOrderUpdate,
   orderStageToLegacyStatus,
 } from "../orders/order-status-sync.mapper";
+import {
+  assertContactExternalCodeToLeaveNew,
+  isNewOrderStage,
+} from "../orders/order-stage-prerequisites";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
@@ -145,6 +149,14 @@ export class NpTtnService {
         where: { id: order.id },
         data: { contactId: order.clientId },
       });
+    }
+
+    // Fail before NP API: first TTN advances stage out of NEW and requires Код 1С.
+    if (isNewOrderStage(order.orderStage) || order.status === "NEW") {
+      const code =
+        order.contact?.externalCode ??
+        (!order.contactId && order.clientId ? order.client?.externalCode : null);
+      assertContactExternalCodeToLeaveNew("NEW", "AWAITING_STOCK", code);
     }
 
     const existingTtnForOrder = await this.prisma.orderTtn.findFirst({
@@ -1032,7 +1044,7 @@ export class NpTtnService {
     };
 
     const isNew =
-      (order as { orderStage?: string | null }).orderStage === "NEW" ||
+      isNewOrderStage((order as { orderStage?: string | null }).orderStage) ||
       order.status === "NEW";
     let statusUpdate: Record<string, unknown> = {};
     if (isNew) {
@@ -1045,10 +1057,18 @@ export class NpTtnService {
           debtAmount: true,
           paymentDueDate: true,
           orderStage: true,
+          contact: { select: { externalCode: true } },
+          client: { select: { externalCode: true } },
+          contactId: true,
+          clientId: true,
         },
       });
       if (full) {
         const orderStage = orderStageAfterFirstTtnFromNew(full);
+        const code =
+          full.contact?.externalCode ??
+          (!full.contactId && full.clientId ? full.client?.externalCode : null);
+        assertContactExternalCodeToLeaveNew(full.orderStage, orderStage, code);
         statusUpdate = {
           orderStage,
           deliveryStatus: "NOT_SHIPPED" as const,
@@ -1238,6 +1258,13 @@ export class NpTtnService {
       include: { contact: true, client: true },
     });
     if (!order) throw new NotFoundException("Order not found");
+
+    if (isNewOrderStage(order.orderStage) || order.status === "NEW") {
+      const code =
+        order.contact?.externalCode ??
+        (!order.contactId && order.clientId ? order.client?.externalCode : null);
+      assertContactExternalCodeToLeaveNew("NEW", "AWAITING_STOCK", code);
+    }
 
     const sourceOr: Prisma.OrderTtnWhereInput[] = [];
     if (input?.sourceShipmentId) sourceOr.push({ shipmentId: input.sourceShipmentId });

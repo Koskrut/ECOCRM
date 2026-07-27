@@ -10,6 +10,7 @@ import {
   amountsMatchWithinTolerance,
   BANK_DEBT_ABS_TOLERANCE,
   extractEdrpouFromDescription,
+  extractDocumentRefsFromDescription,
   extractOrderCandidatesFromDescription,
   expectedPaymentAmountInCurrency,
   nameSimilarity,
@@ -22,14 +23,21 @@ import type {
   MatchConfidence,
   MatchReasonCode,
   OrderWithDebtSuggestion,
+  ParsedDocumentsResult,
   ParsedOrdersResult,
   ProposedAllocation,
   TransactionMatchSuggestions,
 } from "./match-suggestion.types";
+import {
+  documentConflictsWithOrderNumber,
+  resolveUniqueDocumentOrder,
+} from "./document-match.utils";
 
 const ORDER_SELECT = {
   id: true,
   orderNumber: true,
+  invoiceNumber: true,
+  waybillNumber: true,
   debtAmount: true,
   currency: true,
   exchangeRate: true,
@@ -44,6 +52,8 @@ const ORDER_SELECT = {
 type OrderRow = {
   id: string;
   orderNumber: string;
+  invoiceNumber: string | null;
+  waybillNumber: string | null;
   debtAmount: number | null;
   currency: string;
   exchangeRate: number | null;
@@ -135,6 +145,43 @@ export class MatchSuggestionService {
       explicitAmounts: Object.keys(explicitAmounts).length ? explicitAmounts : undefined,
     };
 
+    const docRefs = extractDocumentRefsFromDescription(tx.description);
+    const parsedDocuments: ParsedDocumentsResult = {
+      invoices: docRefs.invoices,
+      waybills: docRefs.waybills,
+      unlabeled: docRefs.unlabeled,
+    };
+
+    let documentMatchOrderId: string | null = null;
+    let docMatchInvoice: string | null = null;
+    let docMatchWaybill: string | null = null;
+    let docMatchReason: MatchReasonCode | null = null;
+    let docAmbiguous = false;
+
+    const orderNumberResolved =
+      resolved.found.length === 1 ? resolved.found[0]!.id : null;
+    const docResolved = await resolveUniqueDocumentOrder(this.prisma, docRefs);
+    docAmbiguous = docResolved.ambiguous;
+    if (
+      docResolved.orderId &&
+      !docAmbiguous &&
+      !documentConflictsWithOrderNumber(orderNumberResolved, docResolved.orderId)
+    ) {
+      documentMatchOrderId = docResolved.orderId;
+      docMatchInvoice = docResolved.invoiceNumber;
+      docMatchWaybill = docResolved.waybillNumber;
+      docMatchReason =
+        docResolved.matchType === "invoice" ? "invoice_match" : "waybill_match";
+    } else if (
+      docResolved.orderId &&
+      documentConflictsWithOrderNumber(orderNumberResolved, docResolved.orderId)
+    ) {
+      docAmbiguous = true;
+    }
+
+    if (docMatchInvoice) parsedDocuments.matchedInvoiceNumber = docMatchInvoice;
+    if (docMatchWaybill) parsedDocuments.matchedWaybillNumber = docMatchWaybill;
+
     type Acc = {
       contactId: string | null;
       companyId: string | null;
@@ -143,6 +190,8 @@ export class MatchSuggestionService {
       reasons: Set<MatchReasonCode>;
       orders: OrderRow[];
       warnings: Set<string>;
+      matchedInvoiceNumber?: string | null;
+      matchedWaybillNumber?: string | null;
     };
     const byClient = new Map<ClientKey, Acc>();
 
@@ -280,6 +329,37 @@ export class MatchSuggestionService {
         scoreAdd: 35,
         order,
       });
+    }
+
+    // 2b) Unique invoice / waybill match from 1C documents
+    if (documentMatchOrderId && docMatchReason) {
+      const docOrder = await this.prisma.order.findUnique({
+        where: { id: documentMatchOrderId },
+        select: ORDER_SELECT,
+      });
+      if (docOrder) {
+        const key = clientKeyOf(docOrder as OrderRow);
+        if (key) {
+          bump(key, {
+            contactId: docOrder.contactId ?? docOrder.clientId,
+            companyId: docOrder.companyId,
+            label: contactLabel(docOrder as OrderRow),
+            reason: docMatchReason,
+            scoreAdd: docMatchReason === "invoice_match" ? 75 : 70,
+            order: docOrder as OrderRow,
+          });
+          const acc = byClient.get(key);
+          if (acc) {
+            acc.matchedInvoiceNumber = docMatchInvoice;
+            acc.matchedWaybillNumber = docMatchWaybill;
+          }
+        }
+      }
+    }
+    if (docAmbiguous) {
+      for (const acc of byClient.values()) {
+        acc.warnings.add("document_ambiguous");
+      }
     }
     if (clientKeysFromOrders.size > 1) {
       for (const key of clientKeysFromOrders) {
@@ -456,6 +536,8 @@ export class MatchSuggestionService {
         ordersWithDebt,
         proposedAllocations: proposedAllocations.length ? proposedAllocations : undefined,
         warnings: warnings.length ? warnings : undefined,
+        matchedInvoiceNumber: acc.matchedInvoiceNumber ?? null,
+        matchedWaybillNumber: acc.matchedWaybillNumber ?? null,
       });
     }
 
@@ -474,6 +556,8 @@ export class MatchSuggestionService {
       transactionId: tx.id,
       suggestions: suggestions.slice(0, 8),
       parsedOrders,
+      parsedDocuments,
+      documentMatchOrderId,
       autoMatchEligible: autoPlan != null,
       autoMatchPlan: autoPlan ?? undefined,
       allocatedAmount,

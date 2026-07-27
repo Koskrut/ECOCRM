@@ -120,6 +120,35 @@ describe("extractOrderCandidatesFromDescription (v2)", () => {
   });
 });
 
+describe("extractDocumentRefsFromDescription", () => {
+  const { extractDocumentRefsFromDescription } = require("../match-engine.utils");
+
+  it("extracts invoice number without treating as orderNumber", () => {
+    const refs = extractDocumentRefsFromDescription("Оплата рахунок INV-2026-001");
+    assert.deepStrictEqual(refs.invoices, ["INV-2026-001"]);
+    assert.deepStrictEqual(refs.waybills, []);
+    assert.strictEqual(extractOrderNumberFromDescription("Оплата рахунок INV-2026-001"), null);
+  });
+
+  it("extracts waybill РН token", () => {
+    const refs = extractDocumentRefsFromDescription("Оплата РН ABC-1234 за товар");
+    assert.deepStrictEqual(refs.waybills, ["ABC-1234"]);
+  });
+
+  it("orderNumber regression: замовлення still works", () => {
+    assert.strictEqual(extractOrderNumberFromDescription("Оплата замовлення 7001"), "7001");
+  });
+
+  it("заказ wins over nearby invoice digits", () => {
+    assert.strictEqual(
+      extractOrderNumberFromDescription("заказ 9336, рахунок 12345678"),
+      "9336",
+    );
+    const refs = extractDocumentRefsFromDescription("заказ 9336, рахунок 12345678");
+    assert.ok(refs.invoices.includes("12345678"));
+  });
+});
+
 describe("resolveOrderCandidates", () => {
   it("exact match + notFound + dedupe", () => {
     const map = new Map([

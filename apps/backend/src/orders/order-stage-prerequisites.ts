@@ -52,3 +52,28 @@ export function assertNovaPoshtaTtnBeforeConfirmed(
     "Cannot confirm order: Nova Poshta delivery requires a TTN before moving to Confirmed.",
   );
 }
+
+/** UI and most reads treat null/undefined orderStage as NEW. */
+export function isNewOrderStage(orderStage: OrderStage | null | undefined): boolean {
+  return orderStage == null || orderStage === "NEW";
+}
+
+/**
+ * Leaving NEW (including null stage) requires contact Код 1С.
+ * Shared by setOrderStage and TTN persist so the rule cannot be bypassed.
+ */
+export function assertContactExternalCodeToLeaveNew(
+  fromStage: OrderStage | null | undefined,
+  toStage: OrderStage | null | undefined,
+  contactExternalCode: string | null | undefined,
+): void {
+  if (!isNewOrderStage(fromStage)) return;
+  if (toStage != null && isNewOrderStage(toStage)) return;
+
+  const code = contactExternalCode?.trim();
+  if (code) return;
+
+  throw new BadRequestException(
+    "Cannot change stage from NEW: contact must have externalCode (Код1с)",
+  );
+}

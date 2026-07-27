@@ -12,11 +12,16 @@ import {
 import {
   amountsMatchWithinTolerance,
   expectedPaymentAmountInCurrency,
+  extractDocumentRefsFromDescription,
   extractOrderCandidatesFromDescription,
   extractOrderNumberFromDescription,
   extractPersonNameFromDescription,
   firstNameVariants,
 } from "./match-engine.utils";
+import {
+  documentConflictsWithOrderNumber,
+  resolveUniqueDocumentOrder,
+} from "./document-match.utils";
 import { MatchSuggestionService } from "./match-suggestion.service";
 import { PayerAliasService } from "./payer-alias.service";
 
@@ -34,6 +39,9 @@ export type MatchSuggestion = {
   currency: string;
   expectedAmountUah: number | null;
   score: number;
+  invoiceNumber?: string | null;
+  waybillNumber?: string | null;
+  documentMatchType?: "invoice" | "waybill" | null;
 };
 
 const AUTO_MATCH_THRESHOLD = 90;
@@ -42,6 +50,8 @@ const REVIEW_THRESHOLD = 70;
 const ORDER_SELECT = {
   id: true,
   orderNumber: true,
+  invoiceNumber: true,
+  waybillNumber: true,
   debtAmount: true,
   currency: true,
   exchangeRate: true,
@@ -56,6 +66,8 @@ const ORDER_SELECT = {
 type OrderForMatch = {
   id: string;
   orderNumber: string;
+  invoiceNumber?: string | null;
+  waybillNumber?: string | null;
   debtAmount: number | null;
   currency: string;
   exchangeRate: number | null;
@@ -138,6 +150,16 @@ export class PaymentMatchingService {
         continue;
       }
 
+      const didDoc = await this.tryDocumentAutoMatch(tx);
+      if (didDoc.matched) {
+        matched++;
+        continue;
+      }
+      if (didDoc.needsReview) {
+        needsReview++;
+        continue;
+      }
+
       const candidates = await this.scoreCandidates({
         id: tx.id,
         description: tx.description,
@@ -204,6 +226,85 @@ export class PaymentMatchingService {
       where: { orderNumber: { in: numbers } },
     });
     return found;
+  }
+
+  /**
+   * Auto-match by unique 1C invoice or waybill when orderNumber is absent or unresolved.
+   * Priority: explicit orderNumber (handled elsewhere) > invoice > waybill > unlabeled.
+   */
+  private async tryDocumentAutoMatch(tx: {
+    id: string;
+    description: string | null;
+    counterpartyName: string | null;
+    counterpartyIban?: string | null;
+  }): Promise<{ matched: boolean; needsReview: boolean }> {
+    const orderNum = extractOrderNumberFromDescription(tx.description);
+    let orderNumberOrderId: string | null = null;
+    if (orderNum) {
+      const byNum = await this.prisma.order.findFirst({
+        where: { orderNumber: orderNum },
+        select: { id: true },
+      });
+      orderNumberOrderId = byNum?.id ?? null;
+      if (orderNumberOrderId) {
+        return { matched: false, needsReview: false };
+      }
+    }
+
+    const refs = extractDocumentRefsFromDescription(tx.description);
+    if (
+      refs.invoices.length === 0 &&
+      refs.waybills.length === 0 &&
+      refs.unlabeled.length === 0
+    ) {
+      return { matched: false, needsReview: false };
+    }
+
+    const doc = await resolveUniqueDocumentOrder(this.prisma, refs);
+    if (doc.ambiguous) {
+      await this.prisma.bankTransaction.update({
+        where: { id: tx.id },
+        data: {
+          matchStatus: BankTransactionMatchStatus.NEEDS_REVIEW,
+          matchScore: null,
+          suggestedOrderId: null,
+        },
+      });
+      return { matched: false, needsReview: true };
+    }
+
+    if (
+      !doc.orderId ||
+      documentConflictsWithOrderNumber(orderNumberOrderId, doc.orderId)
+    ) {
+      if (doc.orderId && documentConflictsWithOrderNumber(orderNumberOrderId, doc.orderId)) {
+        await this.prisma.bankTransaction.update({
+          where: { id: tx.id },
+          data: {
+            matchStatus: BankTransactionMatchStatus.NEEDS_REVIEW,
+            matchScore: null,
+            suggestedOrderId: doc.orderId,
+          },
+        });
+        return { matched: false, needsReview: true };
+      }
+      return { matched: false, needsReview: false };
+    }
+
+    const matchReason = doc.matchType === "invoice" ? "invoice-number" : "waybill-number";
+    await this.createPaymentFromTransaction(tx.id, doc.orderId, matchReason);
+    await this.prisma.bankTransaction.update({
+      where: { id: tx.id },
+      data: {
+        matchStatus: BankTransactionMatchStatus.AUTO_MATCHED,
+        matchScore: 88,
+        suggestedOrderId: doc.orderId,
+      },
+    });
+    this.logger.log(
+      `Auto-matched tx ${tx.id} → order ${doc.orderId} (${matchReason}, ref=${doc.matchedRef})`,
+    );
+    return { matched: true, needsReview: false };
   }
 
   private async tryMultiOrderAutoMatch(tx: {
@@ -337,6 +438,10 @@ export class PaymentMatchingService {
     const amount = Number(tx.amount);
     const txCurrency = tx.currency ?? "UAH";
     const orderNumber = extractOrderNumberFromDescription(tx.description);
+    const docResolved = await resolveUniqueDocumentOrder(
+      this.prisma,
+      extractDocumentRefsFromDescription(tx.description),
+    );
 
     const orderMap = new Map<string, OrderForMatch>();
 
@@ -346,9 +451,14 @@ export class PaymentMatchingService {
         select: ORDER_SELECT,
       });
       for (const o of byNumber) orderMap.set(o.id, o);
+    } else if (docResolved.orderId && !docResolved.ambiguous) {
+      const byDoc = await this.prisma.order.findMany({
+        where: { id: docResolved.orderId },
+        select: ORDER_SELECT,
+      });
+      for (const o of byDoc) orderMap.set(o.id, o);
     } else {
-      // FX-aware amount discovery: a USD order paid in UAH has debtAmount in USD,
-      // so compare against the expected converted amount rather than raw debtAmount.
+      // FX-aware amount discovery when no order/doc hint.
       const windowOrders = await this.prisma.order.findMany({
         where: {
           debtAmount: { gt: 0 },
@@ -391,6 +501,10 @@ export class PaymentMatchingService {
         amount,
         txCurrency,
         orderNumber,
+        documentMatch:
+          docResolved.orderId === order.id && !docResolved.ambiguous
+            ? docResolved.matchType
+            : null,
         bookedAt: tx.bookedAt,
         counterpartyName: tx.counterpartyName,
         nameMatched: nameMatchedOrderIds.has(order.id),
@@ -439,6 +553,14 @@ export class PaymentMatchingService {
         order.exchangeRate,
       ),
       score: best.score,
+      invoiceNumber: order.invoiceNumber ?? null,
+      waybillNumber: order.waybillNumber ?? null,
+      documentMatchType:
+        best.matchReason?.includes("invoiceNumber")
+          ? "invoice"
+          : best.matchReason?.includes("waybillNumber")
+            ? "waybill"
+            : null,
     };
   }
 
@@ -448,6 +570,7 @@ export class PaymentMatchingService {
       amount: number;
       txCurrency: string;
       orderNumber: string | null;
+      documentMatch: "invoice" | "waybill" | null;
       bookedAt: Date;
       counterpartyName: string | null;
       nameMatched: boolean;
@@ -459,6 +582,14 @@ export class PaymentMatchingService {
     if (ctx.orderNumber && order.orderNumber === ctx.orderNumber) {
       score += 80;
       reasons.push("orderNumber");
+    }
+
+    if (ctx.documentMatch === "invoice") {
+      score += 75;
+      reasons.push("invoiceNumber");
+    } else if (ctx.documentMatch === "waybill") {
+      score += 70;
+      reasons.push("waybillNumber");
     }
 
     if (ctx.nameMatched) {
@@ -573,7 +704,11 @@ export class PaymentMatchingService {
     return [];
   }
 
-  async createPaymentFromTransaction(bankTransactionId: string, orderId: string): Promise<void> {
+  async createPaymentFromTransaction(
+    bankTransactionId: string,
+    orderId: string,
+    matchReason = "order-number",
+  ): Promise<void> {
     const created = await this.prisma.$transaction(async (tx) => {
       await lockBankTransactionForUpdate(tx, bankTransactionId);
 
@@ -612,8 +747,8 @@ export class PaymentMatchingService {
         bankTransactionId,
         paymentIds: [created.paymentId],
         decision: PaymentMatchDecision.AUTO,
-        matchReason: "order-number",
-        score: 90,
+        matchReason,
+        score: matchReason === "order-number" ? 90 : 88,
         reasons: { orderId, actor: "system" },
       });
       await this.payerAliases.learnFromAllocation({

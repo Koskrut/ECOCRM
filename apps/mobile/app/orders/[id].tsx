@@ -382,16 +382,23 @@ export default function OrderDetailScreen() {
         {items.length === 0 ? (
           <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
         ) : (
-          items.map((item) => (
+          items.map((item, index) => (
             <Card key={item.id} style={{ marginBottom: theme.spacing.sm }}>
-              <Text style={theme.typography.bodyMedium}>
-                {item.productName ?? item.productNameSnapshot ?? t("orders.productFallback")}
-              </Text>
-              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                {item.qty} × {formatBaseMoney(item.price, order.currency ?? "USD")}
-                {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} ={" "}
-                {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, width: 20, marginTop: 2 }]}>
+                  {index + 1}.
+                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={theme.typography.bodyMedium}>
+                    {item.productName ?? item.productNameSnapshot ?? t("orders.productFallback")}
+                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                    {item.qty} × {formatBaseMoney(item.price, order.currency ?? "USD")}
+                    {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} ={" "}
+                    {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}
+                  </Text>
+                </View>
+              </View>
             </Card>
           ))
         )}

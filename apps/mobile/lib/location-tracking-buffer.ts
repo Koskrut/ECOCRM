@@ -9,6 +9,11 @@ import {
   classifyFlushThrownError,
   type FlushErrorAction,
 } from "./location-flush-errors";
+import {
+  classifySampleRejectBatch,
+  formatRejectReasons,
+  type SampleRejectReasons,
+} from "./location-sample-reject";
 import { enqueueOfflineJob } from "./offline-queue";
 
 const MAX_BATCH = 100;
@@ -152,13 +157,21 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
 
         let created = batch.length;
         let rejected = 0;
+        let rejectReasons: SampleRejectReasons | undefined;
         try {
-          const body = (await res.json()) as { created?: number; rejected?: number };
+          const body = (await res.json()) as {
+            created?: number;
+            rejected?: number;
+            rejectReasons?: SampleRejectReasons;
+          };
           if (typeof body.created === "number" && Number.isFinite(body.created)) {
             created = body.created;
           }
           if (typeof body.rejected === "number" && Number.isFinite(body.rejected)) {
             rejected = body.rejected;
+          }
+          if (body.rejectReasons && typeof body.rejectReasons === "object") {
+            rejectReasons = body.rejectReasons;
           }
         } catch {
           /* non-JSON body — treat as full batch accepted */
@@ -169,9 +182,20 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
         uploaded += Math.max(0, created);
 
         if (created === 0 && rejected > 0) {
-          void appendErrorLog(
-            `flush samples all rejected (${rejected}) shiftId=${sid} — batch dropped`,
-          );
+          const reasons = formatRejectReasons(rejectReasons);
+          const severity = classifySampleRejectBatch(rejectReasons);
+          if (severity === "soft") {
+            // Expected when phone is nearly stationary (<15m dedup) — not a GPS failure.
+            void appendErrorLog(
+              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped (dedup)`,
+              "info",
+            );
+          } else {
+            void appendErrorLog(
+              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
+              severity === "hard" ? "error" : "warn",
+            );
+          }
         }
 
         if (rest.length === 0) break;

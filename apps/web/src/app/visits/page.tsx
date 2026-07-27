@@ -359,10 +359,13 @@ function VisitsPageContent() {
 
   const scheduledVisits = dayVisits;
 
-  const timelineOrderVisitIds = useMemo(
-    () => sortScheduledVisitIds(dayVisits),
-    [dayVisits],
-  );
+  const timelineOrderVisitIds = useMemo(() => {
+    const ownerId = planOwnerOpts?.ownerId;
+    const forPlan = ownerId
+      ? dayVisits.filter((v) => v.ownerId === ownerId)
+      : dayVisits;
+    return sortScheduledVisitIds(forPlan);
+  }, [dayVisits, planOwnerOpts?.ownerId]);
 
   const currentOrderVisitIds = useMemo(() => {
     if (routeOrderIds.length === 0) return timelineOrderVisitIds;
@@ -445,6 +448,8 @@ function VisitsPageContent() {
       autoSaveTimerRef.current = null;
     }
     if (!autoSaveRoutePlan) return;
+    // Multi-owner day view mixes team visits — never auto-save into one person's RoutePlan.
+    if (showMultiOwnerDay) return;
     if (!planOwnerOpts || readOnlyPlan) return;
     if (!hasUnsavedPlanOrder) return;
     if (savingRoute || loading) return;
@@ -464,6 +469,7 @@ function VisitsPageContent() {
     routePlan?.id,
     routePlan?.stops?.length,
     savingRoute,
+    showMultiOwnerDay,
   ]);
 
   const loadMapsConfig = useCallback(async () => {
@@ -510,8 +516,18 @@ function VisitsPageContent() {
       setDayVisits(dayItems);
       setRoutePlan(planRes.plan ?? null);
       setRouteSessionState(sessionRes ?? null);
-      const scheduledIds = sortScheduledVisitIds(dayItems);
-      const planIds = planRes.plan?.stops?.map((s) => s.visitId) ?? [];
+      const planOwnerId = planOwnerOpts?.ownerId;
+      const planOwnerDayItems = planOwnerId
+        ? dayItems.filter((v) => v.ownerId === planOwnerId)
+        : dayItems;
+      const scheduledIds = sortScheduledVisitIds(planOwnerDayItems);
+      const planIds = (planRes.plan?.stops ?? [])
+        .filter((s) => {
+          const visit = dayItems.find((v) => v.id === s.visitId);
+          // Keep stop if we can't resolve owner (single-owner day) or it matches plan owner.
+          return !planOwnerId || !visit || visit.ownerId === planOwnerId;
+        })
+        .map((s) => s.visitId);
       setRouteOrderIds(planIds.length ? mergeRouteOrder(planIds, scheduledIds) : scheduledIds);
     } catch (e) {
       if (generation !== loadGenerationRef.current) return;
@@ -818,9 +834,17 @@ function VisitsPageContent() {
 
   const handleSaveRoute = async () => {
     if (!planOwnerOpts || readOnlyPlan) return;
+    if (showMultiOwnerDay) {
+      pushToast("Оберіть менеджера, щоб зберегти маршрут", "error");
+      return;
+    }
     setSavingRoute(true);
     try {
-      const ids = currentOrderVisitIds;
+      const ownerId = planOwnerOpts.ownerId;
+      const ids = currentOrderVisitIds.filter((id) => {
+        const v = dayVisits.find((x) => x.id === id);
+        return !v || v.ownerId === ownerId;
+      });
       const res = await routePlansApi.saveForDay(dateParam, ids, planOwnerOpts);
       setRoutePlan(res.plan ?? null);
       setRouteOrderIds(ids);
@@ -1919,12 +1943,15 @@ function VisitsPageContent() {
               disabled={
                 !planOwnerOpts ||
                 readOnlyPlan ||
+                showMultiOwnerDay ||
                 savingRoute ||
                 hasScheduledWithoutCoords ||
                 scheduledVisits.length === 0
               }
               title={
-                hasScheduledWithoutCoords
+                showMultiOwnerDay
+                  ? "Оберіть менеджера, щоб зберегти маршрут"
+                  : hasScheduledWithoutCoords
                   ? "Вкажіть точки для всіх"
                   : savingRoute
                     ? "Збереження…"
@@ -1947,16 +1974,22 @@ function VisitsPageContent() {
                 disabled={
                   !planOwnerOpts ||
                   readOnlyPlan ||
+                  showMultiOwnerDay ||
                   savingRoute ||
                   hasScheduledWithoutCoords ||
                   currentOrderVisitIds.length < 3
                 }
                 onClick={async () => {
-                  if (!planOwnerOpts) return;
+                  if (!planOwnerOpts || showMultiOwnerDay) return;
                   try {
+                    const ownerId = planOwnerOpts.ownerId;
+                    const ids = currentOrderVisitIds.filter((id) => {
+                      const v = dayVisits.find((x) => x.id === id);
+                      return !v || v.ownerId === ownerId;
+                    });
                     const optimized = await routePlansApi.optimize(
                       dateParam,
-                      currentOrderVisitIds,
+                      ids,
                       planOwnerOpts,
                     );
                     const res = await routePlansApi.saveForDay(

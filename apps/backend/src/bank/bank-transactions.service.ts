@@ -202,6 +202,13 @@ export class BankTransactionsService {
                 currency: o.currency,
                 expectedAmountUah: o.suggestedAmount,
                 score: top.score,
+                invoiceNumber: top.matchedInvoiceNumber ?? null,
+                waybillNumber: top.matchedWaybillNumber ?? null,
+                documentMatchType: top.reasons.includes("invoice_match")
+                  ? "invoice"
+                  : top.reasons.includes("waybill_match")
+                    ? "waybill"
+                    : null,
               } satisfies MatchSuggestion;
             }
             return this.matching.getSuggestion({
@@ -242,6 +249,8 @@ export class BankTransactionsService {
         suggestion: legacy ? (legacy[i] as MatchSuggestion | null) : undefined,
         suggestions: matchBundle?.suggestions,
         parsedOrders: matchBundle?.parsedOrders,
+        parsedDocuments: matchBundle?.parsedDocuments,
+        documentMatchOrderId: matchBundle?.documentMatchOrderId,
         autoMatchEligible: matchBundle?.autoMatchEligible,
         autoMatchPlan: matchBundle?.autoMatchPlan,
       };

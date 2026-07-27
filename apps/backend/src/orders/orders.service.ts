@@ -59,7 +59,10 @@ import {
   orderStageToDeliveryStatus,
   orderStageToLegacyStatus,
 } from "./order-status-sync.mapper";
-import { orderHasTtnRecord } from "./order-stage-prerequisites";
+import {
+  assertContactExternalCodeToLeaveNew,
+  orderHasTtnRecord,
+} from "./order-stage-prerequisites";
 import { validateOrderStageTransition } from "./order-stage-transitions";
 import { assertOrderReadyForCompletion, getOrderCompletionBlockers } from "./order-completion-guards";
 import { computeFxVarianceSnapshot } from "./fx-variance.utils";
@@ -1822,14 +1825,11 @@ export class OrdersService {
     if (actor) await this.assertOrderAccess(current, actor);
     assertWarehouseStageTransition(actor, current.orderStage, toStage);
 
-    if (current.orderStage === "NEW" && toStage !== "NEW") {
-      const contactCode = current.contact?.externalCode?.trim();
-      if (!contactCode) {
-        throw new BadRequestException(
-          "Cannot change stage from NEW: contact must have externalCode (Код1с)",
-        );
-      }
-    }
+    assertContactExternalCodeToLeaveNew(
+      current.orderStage,
+      toStage,
+      current.contact?.externalCode,
+    );
 
     const hasTtn = orderHasTtnRecord({
       deliveryData: current.deliveryData,

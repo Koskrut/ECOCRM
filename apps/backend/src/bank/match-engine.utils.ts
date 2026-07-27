@@ -10,9 +10,14 @@
 /** Absolute tolerance for multi-order debt/explicit sum vs transaction amount. */
 export const BANK_DEBT_ABS_TOLERANCE = 1;
 
-/** Requires an explicit order marker before a 4–8 digit number. */
+/** Requires an explicit order marker before a 4–8 digit number (NOT invoice/waybill). */
 const ORDER_MARKER =
-  "(?:заказ(?:а|у|ом)?|замовлення|замовл\\.?|оплата|сплата|order|payment|рахунок|рахунку|№|#)";
+  "(?:заказ(?:а|у|ом)?|замовлення|замовл\\.?|оплата|сплата|order|payment|№|#)";
+
+const INVOICE_MARKER = "(?:рахунок|рахунку|счет|счёт|invoice)";
+const WAYBILL_MARKER = "(?:рн|накладна|накладної|waybill)";
+/** 1C-style doc token: letters/digits with optional - / */
+const DOC_TOKEN = "([A-Za-zА-ЯІЇЄҐа-яіїєґ0-9][A-Za-zА-ЯІЇЄҐа-яіїєґ0-9\\-/]{3,31})";
 
 const LABELED_ORDER_PATTERN = new RegExp(
   `${ORDER_MARKER}\\s*#?\\s*(\\d{4,8})\\b`,
@@ -145,15 +150,85 @@ export function extractOrderCandidatesFromDescription(
   }
 
   if (map.size === 0) {
-    // Fallback: standalone 4–8 digit groups in cleaned text (no markers).
+    // Fallback: standalone 4–8 digit groups (skip alphanumeric 1C doc tokens only).
+    let fallbackText = cleaned;
+    const docTokenRe = new RegExp(`\\b${DOC_TOKEN}\\b`, "giu");
+    fallbackText = fallbackText.replace(docTokenRe, (match, token: string) =>
+      /^\d{4,8}$/.test(token.trim()) ? match : " ",
+    );
     FALLBACK_DIGITS.lastIndex = 0;
     let d: RegExpExecArray | null;
-    while ((d = FALLBACK_DIGITS.exec(cleaned)) !== null) {
+    while ((d = FALLBACK_DIGITS.exec(fallbackText)) !== null) {
       pushCandidate(map, d[1]!);
     }
   }
 
   return [...map.values()];
+}
+
+export type DocumentRefs = {
+  invoices: string[];
+  waybills: string[];
+  unlabeled: string[];
+};
+
+function pushDocUnique(list: string[], value: string, allowPureDigits = false): void {
+  const v = value.trim();
+  if (v.length < 4) return;
+  if (!allowPureDigits && /^\d+$/.test(v)) return;
+  if (!list.includes(v)) list.push(v);
+}
+
+function extractLabeledDocRefs(
+  text: string,
+  marker: string,
+  out: string[],
+): void {
+  const re = new RegExp(`${marker}\\s*#?\\s*${DOC_TOKEN}`, "giu");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    pushDocUnique(out, m[1]!, true);
+  }
+}
+
+/** Standalone alphanumeric tokens (4–32) not already captured as order numbers. */
+function extractUnlabeledDocTokens(text: string, exclude: Set<string>): string[] {
+  const re = new RegExp(`\\b${DOC_TOKEN}\\b`, "giu");
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const token = m[1]!.trim();
+    if (exclude.has(token)) continue;
+    // Skip pure 4–8 digit groups (handled as orderNumber candidates).
+    if (/^\d{4,8}$/.test(token)) continue;
+    pushDocUnique(out, token);
+  }
+  return out;
+}
+
+/**
+ * Extract invoice / waybill (РН) reference numbers from bank payment purpose.
+ * Invoice markers: рахунок, счет, invoice. Waybill: РН, накладна, waybill.
+ */
+export function extractDocumentRefsFromDescription(description: string | null): DocumentRefs {
+  if (!description?.trim()) {
+    return { invoices: [], waybills: [], unlabeled: [] };
+  }
+
+  const cleaned = stripDescriptionNoise(description);
+  const invoices: string[] = [];
+  const waybills: string[] = [];
+
+  extractLabeledDocRefs(cleaned, INVOICE_MARKER, invoices);
+  extractLabeledDocRefs(cleaned, WAYBILL_MARKER, waybills);
+
+  const orderNums = new Set(
+    extractOrderCandidatesFromDescription(description).map((c) => c.orderNumber),
+  );
+  const exclude = new Set([...orderNums, ...invoices, ...waybills]);
+  const unlabeled = extractUnlabeledDocTokens(cleaned, exclude);
+
+  return { invoices, waybills, unlabeled };
 }
 
 /**

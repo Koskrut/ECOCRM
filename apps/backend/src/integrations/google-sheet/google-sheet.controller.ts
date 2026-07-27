@@ -51,10 +51,18 @@ export class GoogleSheetController {
     }
 
     const data: OrderDocumentsUpdate = {};
-    if (body.invoiceNumber !== undefined) data.invoiceNumber = String(body.invoiceNumber).trim() || undefined;
-    if (body.invoiceDate !== undefined) data.invoiceDate = String(body.invoiceDate).trim() || undefined;
-    if (body.waybillNumber !== undefined) data.waybillNumber = String(body.waybillNumber).trim() || undefined;
-    if (body.waybillDate !== undefined) data.waybillDate = String(body.waybillDate).trim() || undefined;
+    if (body.invoiceNumber !== undefined) {
+      data.invoiceNumber = String(body.invoiceNumber).trim();
+    }
+    if (body.invoiceDate !== undefined) {
+      data.invoiceDate = String(body.invoiceDate).trim();
+    }
+    if (body.waybillNumber !== undefined) {
+      data.waybillNumber = String(body.waybillNumber).trim();
+    }
+    if (body.waybillDate !== undefined) {
+      data.waybillDate = String(body.waybillDate).trim();
+    }
 
     return this.orderDocumentsService.updateOrderDocuments(orderId.trim(), data);
   }

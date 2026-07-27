@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BadRequestException } from "@nestjs/common";
 import {
+  assertContactExternalCodeToLeaveNew,
   assertNovaPoshtaTtnBeforeConfirmed,
   assertPaymentTypeForForwardTransition,
   isForwardStageTransition,
+  isNewOrderStage,
   orderHasTtnRecord,
 } from "../order-stage-prerequisites";
 import { validateOrderStageTransition } from "../order-stage-transitions";
@@ -45,6 +47,31 @@ describe("order-stage-prerequisites", () => {
     );
     assert.doesNotThrow(() =>
       assertNovaPoshtaTtnBeforeConfirmed("CONFIRMED", "NOVA_POSHTA", true),
+    );
+  });
+
+  it("treats null orderStage as NEW and requires Код 1С to leave", () => {
+    assert.equal(isNewOrderStage(null), true);
+    assert.equal(isNewOrderStage(undefined), true);
+    assert.equal(isNewOrderStage("NEW"), true);
+    assert.equal(isNewOrderStage("CONFIRMED"), false);
+
+    assert.throws(
+      () => assertContactExternalCodeToLeaveNew(null, "AWAITING_STOCK", null),
+      BadRequestException,
+    );
+    assert.throws(
+      () => assertContactExternalCodeToLeaveNew("NEW", "CONFIRMED", "  "),
+      BadRequestException,
+    );
+    assert.doesNotThrow(() =>
+      assertContactExternalCodeToLeaveNew("NEW", "AWAITING_STOCK", "CODE-1C"),
+    );
+    assert.doesNotThrow(() =>
+      assertContactExternalCodeToLeaveNew("NEW", "NEW", null),
+    );
+    assert.doesNotThrow(() =>
+      assertContactExternalCodeToLeaveNew("CONFIRMED", "SHIPPED", null),
     );
   });
 

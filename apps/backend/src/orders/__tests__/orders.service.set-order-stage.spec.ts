@@ -57,6 +57,55 @@ describe("OrdersService.setOrderStage", () => {
     );
   });
 
+  it("rejects stage change when orderStage is null and contact has no Код1с", async () => {
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: null },
+          orderStage: null,
+          status: "NEW",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          debtAmount: 100,
+          paymentDueDate: null,
+        }),
+      },
+    } as unknown as PrismaSvc;
+    const pipeline = {
+      getEffectiveTransitionGraph: async () => ({
+        NEW: ["CONFIRMED"],
+        CONFIRMED: [],
+        AWAITING_PAYMENT: [],
+        AWAITING_STOCK: [],
+        READY_TO_SHIP: [],
+        SHIPPED: [],
+        AWAITING_RECEIPT: [],
+        RECEIVED: [],
+        COMPLETED: [],
+        CANCELED: [],
+        REFUSED: [],
+        RETURN_IN_PROGRESS: [],
+        FULLY_RETURNED: [],
+      }),
+    } as unknown as PipelineSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      {} as SettingsSvc,
+      {} as GoogleSheetSvc,
+      pipeline,
+    );
+
+    await assert.rejects(
+      () => svc.setOrderStage("o1", "CONFIRMED", undefined),
+      BadRequestException,
+    );
+  });
+
   it("rejects RETURN_IN_PROGRESS when order has no active returns", async () => {
     const prisma = {
       order: {

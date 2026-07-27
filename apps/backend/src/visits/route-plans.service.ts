@@ -468,6 +468,44 @@ export class RoutePlansService {
     return date;
   }
 
+  /**
+   * Drop RouteStop rows whose Visit.ownerId ≠ plan owner (heals corrupted plans).
+   * Returns number of deleted stops.
+   */
+  private async purgeForeignRouteStops(routePlanId: string, ownerId: string): Promise<number> {
+    const foreign = await this.prisma.routeStop.findMany({
+      where: {
+        routePlanId,
+        visit: { ownerId: { not: ownerId } },
+      },
+      select: { id: true, visitId: true },
+    });
+    if (foreign.length === 0) return 0;
+    await this.prisma.routeStop.deleteMany({
+      where: { id: { in: foreign.map((s) => s.id) } },
+    });
+    this.logger.warn(
+      `Purged ${foreign.length} foreign RouteStop(s) from plan=${routePlanId} owner=${ownerId}: ${foreign.map((s) => s.visitId).join(",")}`,
+    );
+    return foreign.length;
+  }
+
+  /** Ensure every visitId belongs to ownerId; throw if any are missing or foreign. */
+  private async assertVisitsOwnedBy(ownerId: string, visitIds: string[]): Promise<void> {
+    if (visitIds.length === 0) return;
+    const owned = await this.prisma.visit.findMany({
+      where: { ownerId, id: { in: visitIds } },
+      select: { id: true },
+    });
+    const ownedSet = new Set(owned.map((v) => v.id));
+    const foreignOrMissing = visitIds.filter((id) => !ownedSet.has(id));
+    if (foreignOrMissing.length > 0) {
+      throw new BadRequestException(
+        `Cannot add visits that do not belong to this route plan owner (${foreignOrMissing.length}): ${foreignOrMissing.slice(0, 8).join(", ")}${foreignOrMissing.length > 8 ? "…" : ""}`,
+      );
+    }
+  }
+
   async getForDay(dateStr: string, actor: AuthUser | undefined, requestedOwnerId?: string) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -491,7 +529,20 @@ export class RoutePlansService {
         },
       },
     });
-    return plan ?? null;
+    if (!plan) return null;
+    const purged = await this.purgeForeignRouteStops(plan.id, ownerId);
+    if (purged > 0) {
+      return this.prisma.routePlan.findUnique({
+        where: { id: plan.id },
+        include: {
+          stops: {
+            orderBy: { position: "asc" },
+            include: { visit: true },
+          },
+        },
+      });
+    }
+    return plan;
   }
 
   async upsertForDay(
@@ -512,6 +563,7 @@ export class RoutePlansService {
     const ownerId = await this.resolveOwner(actor, requestedOwnerId);
     const cleanedIds = visitIds.map((id) => String(id)).filter((id) => id.length > 0);
     const uniqueIds = Array.from(new Set(cleanedIds));
+    await this.assertVisitsOwnedBy(ownerId, uniqueIds);
 
     const date = this.parseDate(dateStr);
 
@@ -631,10 +683,15 @@ export class RoutePlansService {
     if (!plan?.stops?.length) {
       throw new BadRequestException("No route plan for this date");
     }
-    const points = plan.stops
+    await this.purgeForeignRouteStops(plan.id, ownerId);
+    const ownedStops = plan.stops.filter((s) => s.visit?.ownerId === ownerId);
+    if (ownedStops.length === 0) {
+      throw new BadRequestException("No route plan for this date");
+    }
+    const points = ownedStops
       .map((s) => effectiveVisitLatLng(s.visit))
       .filter((c): c is { lat: number; lng: number } => c != null);
-    if (points.length !== plan.stops.length) {
+    if (points.length !== ownedStops.length) {
       throw new BadRequestException(
         "Some visits in the route have no coordinates (lat/lng)",
       );
@@ -1056,7 +1113,9 @@ export class RoutePlansService {
     });
 
     if (plan?.stops?.length) {
-      const rows = plan.stops
+      await this.purgeForeignRouteStops(plan.id, ownerId);
+      const ownedStops = plan.stops.filter((s) => s.visit?.ownerId === ownerId);
+      const rows = ownedStops
         .map((s) => {
           const coords = effectiveVisitLatLng(s.visit);
           if (!coords) return null;
@@ -1074,7 +1133,9 @@ export class RoutePlansService {
           };
         })
         .filter(Boolean) as { coords: LatLng; wp: RouteGeometryWaypoint }[];
-      return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
+      if (rows.length > 0) {
+        return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
+      }
     }
 
     const { dayStart, dayEnd } = this.kyivVisitWindow(date);

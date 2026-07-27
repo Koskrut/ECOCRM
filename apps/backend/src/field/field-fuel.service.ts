@@ -86,9 +86,19 @@ export class FieldFuelService {
   private async planVisitIdSet(ownerId: string, date: Date): Promise<Set<string>> {
     const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId, date } },
-      include: { stops: { select: { visitId: true } } },
+      include: {
+        stops: {
+          select: {
+            visitId: true,
+            visit: { select: { ownerId: true } },
+          },
+        },
+      },
     });
-    return new Set((plan?.stops ?? []).map((s) => s.visitId));
+    const ids = (plan?.stops ?? [])
+      .filter((s) => s.visit?.ownerId === ownerId)
+      .map((s) => s.visitId);
+    return new Set(ids);
   }
 
   private buildSnapshot(

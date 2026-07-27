@@ -2690,11 +2690,14 @@ export function OrderModal({
                   {order.items.length === 0 ? (
                     <li className="py-2 text-zinc-500">{t.noItems}</li>
                   ) : (
-                    order.items.map((it) => (
+                    order.items.map((it, index) => (
                       <li
                         key={it.id}
                         className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2 py-1.5 sm:items-center"
                       >
+                        <span className="w-5 shrink-0 pt-0.5 text-xs tabular-nums text-zinc-400">
+                          {index + 1}.
+                        </span>
                         <div className="min-w-0 flex-1 basis-[min(100%,12rem)]">
                           {it.product?.sku ? (
                             <div className="truncate text-[11px] text-zinc-500">{it.product.sku}</div>
@@ -4151,11 +4154,16 @@ export function OrderModal({
                 {(order.items as OrderItem[]).map((it) => (
                   <div
                     key={it.id}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                    className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm sm:items-center"
                   >
-                    <span className="min-w-0 flex-1 truncate text-zinc-800">
-                      {it.productName ?? it.product?.name ?? "—"}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      {it.product?.sku ? (
+                        <div className="truncate text-[11px] text-zinc-500">{it.product.sku}</div>
+                      ) : null}
+                      <span className="block truncate text-zinc-800">
+                        {it.productName ?? it.product?.name ?? "—"}
+                      </span>
+                    </div>
                     <span className="shrink-0 text-zinc-500">{t.maxQty(it.qty)}</span>
                     <input
                       type="number"
