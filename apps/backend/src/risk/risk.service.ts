@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type { RiskBand, RiskDomainId, RiskSubjectType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { RISK_DOMAIN_REGISTRY, RISK_MODEL_VERSION } from "./risk.constants";
+import { DEFAULT_CREDIT_POLICY, RISK_DOMAIN_REGISTRY, RISK_MODEL_VERSION } from "./risk.constants";
 import { RiskCollectorsService } from "./risk-collectors.service";
 import { RiskEriService } from "./risk-eri.service";
 import { RiskExposureService } from "./risk-exposure.service";
@@ -10,6 +10,8 @@ import { RiskPlaybooksService } from "./risk-playbooks.service";
 import { RiskPolicyService } from "./risk-policy.service";
 import { RiskScorecardService } from "./risk-scorecard.service";
 import type { RiskHubResponse, RiskScoreDto } from "./dto/risk.dto";
+
+const SIGNAL_RETENTION_DAYS = 90;
 
 @Injectable()
 export class RiskService {
@@ -26,46 +28,67 @@ export class RiskService {
 
   async recomputeAll() {
     const signals = await this.collectors.collectAll();
-    await this.prisma.riskSignalEvent.createMany({
-      data: signals.map((s) => ({
-        domain: s.domain,
-        signalCode: s.signalCode,
-        severity: s.severity,
-        subjectType: s.subjectType,
-        subjectId: s.subjectId,
-        payload: s.payload as object | undefined,
-      })),
-    });
-
     let scores = this.scorecard.scoreFromSignals(signals);
     scores = this.ml.enrichScores(scores);
 
-    for (const score of scores) {
-      await this.prisma.riskScoreSnapshot.upsert({
-        where: {
-          domain_subjectType_subjectId: {
+    const scoreKeys = new Set(scores.map((s) => `${s.domain}:${s.subjectType}:${s.subjectId}`));
+
+    await this.prisma.$transaction(async (tx) => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - SIGNAL_RETENTION_DAYS);
+      await tx.riskSignalEvent.deleteMany({ where: { occurredAt: { lt: cutoff } } });
+
+      if (signals.length > 0) {
+        await tx.riskSignalEvent.createMany({
+          data: signals.map((s) => ({
+            domain: s.domain,
+            signalCode: s.signalCode,
+            severity: s.severity,
+            subjectType: s.subjectType,
+            subjectId: s.subjectId,
+            payload: s.payload as object | undefined,
+          })),
+        });
+      }
+
+      for (const score of scores) {
+        await tx.riskScoreSnapshot.upsert({
+          where: {
+            domain_subjectType_subjectId: {
+              domain: score.domain,
+              subjectType: score.subjectType,
+              subjectId: score.subjectId,
+            },
+          },
+          create: {
             domain: score.domain,
             subjectType: score.subjectType,
             subjectId: score.subjectId,
+            score: score.score,
+            band: score.band,
+            reasons: score.reasons as object,
+            modelVersion: RISK_MODEL_VERSION,
           },
-        },
-        create: {
-          domain: score.domain,
-          subjectType: score.subjectType,
-          subjectId: score.subjectId,
-          score: score.score,
-          band: score.band,
-          reasons: score.reasons as object,
-          modelVersion: RISK_MODEL_VERSION,
-        },
-        update: {
-          score: score.score,
-          band: score.band,
-          reasons: score.reasons as object,
-          computedAt: new Date(),
-        },
+          update: {
+            score: score.score,
+            band: score.band,
+            reasons: score.reasons as object,
+            computedAt: new Date(),
+            modelVersion: RISK_MODEL_VERSION,
+          },
+        });
+      }
+
+      const existing = await tx.riskScoreSnapshot.findMany({
+        select: { id: true, domain: true, subjectType: true, subjectId: true },
       });
-    }
+      const staleIds = existing
+        .filter((row) => !scoreKeys.has(`${row.domain}:${row.subjectType}:${row.subjectId}`))
+        .map((row) => row.id);
+      if (staleIds.length > 0) {
+        await tx.riskScoreSnapshot.deleteMany({ where: { id: { in: staleIds } } });
+      }
+    });
 
     await this.eri.persistSnapshot(scores);
     await this.playbooks.runForScores(scores.filter((s) => s.band === "HIGH" || s.band === "CRITICAL"));
@@ -73,7 +96,7 @@ export class RiskService {
   }
 
   async getHub(): Promise<RiskHubResponse> {
-    const [latest, trend7d, criticalSubjects, pendingApprovals] = await Promise.all([
+    const [latest, trend7d, criticalSubjects, pendingApprovals, bandAggregates] = await Promise.all([
       this.eri.getLatest(),
       this.eri.getTrend7d(),
       this.prisma.riskScoreSnapshot.findMany({
@@ -86,35 +109,57 @@ export class RiskService {
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
+      this.prisma.riskScoreSnapshot.groupBy({
+        by: ["domain", "band"],
+        _count: { _all: true },
+        _avg: { score: true },
+      }),
     ]);
 
-    const allDomainScores = await this.prisma.riskScoreSnapshot.findMany({
-      select: { domain: true, score: true, band: true },
-    });
+    const domainStats = new Map<
+      RiskDomainId,
+      { totalScore: number; count: number; criticalCount: number; highCount: number; bands: Set<RiskBand> }
+    >();
+    for (const row of bandAggregates) {
+      const current = domainStats.get(row.domain) ?? {
+        totalScore: 0,
+        count: 0,
+        criticalCount: 0,
+        highCount: 0,
+        bands: new Set<RiskBand>(),
+      };
+      const rowCount = row._count._all;
+      current.totalScore += (row._avg.score ?? 0) * rowCount;
+      current.count += rowCount;
+      if (row.band === "CRITICAL") current.criticalCount += rowCount;
+      if (row.band === "HIGH") current.highCount += rowCount;
+      current.bands.add(row.band);
+      domainStats.set(row.domain, current);
+    }
+
     const grouped = RISK_DOMAIN_REGISTRY.map((meta) => {
-      const rows = allDomainScores.filter((r) => r.domain === meta.id);
-      const avgScore =
-        rows.length > 0 ? Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length) : 0;
-      const band: RiskBand = rows.length
-          ? rows.some((r) => r.band === "CRITICAL")
-            ? "CRITICAL"
-            : rows.some((r) => r.band === "HIGH")
-              ? "HIGH"
-              : rows.some((r) => r.band === "MEDIUM")
-                ? "MEDIUM"
-                : "LOW"
-          : "LOW";
+      const stats = domainStats.get(meta.id);
+      const avgScore = stats && stats.count > 0 ? Math.round(stats.totalScore / stats.count) : 0;
+      const band: RiskBand = stats?.bands.has("CRITICAL")
+        ? "CRITICAL"
+        : stats?.bands.has("HIGH")
+          ? "HIGH"
+          : stats?.bands.has("MEDIUM")
+            ? "MEDIUM"
+            : "LOW";
       return {
         domain: meta.id,
         labelUk: meta.labelUk,
         labelEn: meta.labelEn,
         avgScore,
         band,
-        criticalCount: rows.filter((r) => r.band === "CRITICAL").length,
-        highCount: rows.filter((r) => r.band === "HIGH").length,
+        criticalCount: stats?.criticalCount ?? 0,
+        highCount: stats?.highCount ?? 0,
         deepLink: meta.deepLink,
       };
     });
+
+    const enrichedCritical = await this.enrichSubjectLabels(criticalSubjects);
 
     return {
       eri: {
@@ -124,7 +169,7 @@ export class RiskService {
         trend7d,
       },
       domainHeatmap: grouped,
-      criticalSubjects: criticalSubjects.map(mapSnapshot),
+      criticalSubjects: enrichedCritical.map(mapSnapshot),
       pendingApprovals: pendingApprovals.map((d) => ({
         id: d.id,
         domain: d.domain,
@@ -138,10 +183,10 @@ export class RiskService {
         approvedAt: d.approvedAt?.toISOString() ?? null,
       })),
       deepLinks: [
-        { label: "Receivables", href: "/receivables" },
-        { label: "Payments", href: "/payments" },
-        { label: "Planning", href: "/planning" },
-        { label: "Tasks", href: "/tasks" },
+        { labelUk: "Дебіторка", labelEn: "Receivables", href: "/receivables" },
+        { labelUk: "Платежі", labelEn: "Payments", href: "/payments" },
+        { labelUk: "Планування", labelEn: "Planning", href: "/planning" },
+        { labelUk: "Задачі", labelEn: "Tasks", href: "/tasks" },
       ],
     };
   }
@@ -156,11 +201,18 @@ export class RiskService {
       orderBy: { computedAt: "desc" },
       take: 100,
     });
-    return rows.map(mapSnapshot);
+    const enriched = await this.enrichSubjectLabels(rows);
+    return enriched.map(mapSnapshot);
   }
 
-  getExposure(input: { contactId?: string; companyId?: string; additionalAmount?: number }) {
-    return this.exposure.computeExposure(input);
+  getExposure(input: {
+    contactId?: string;
+    companyId?: string;
+    additionalAmount?: number;
+    excludeOrderId?: string;
+    persist?: boolean;
+  }) {
+    return this.exposure.computeExposure({ ...input, persist: input.persist ?? false });
   }
 
   evaluateDeferredGate(input: Parameters<RiskPolicyService["evaluateDeferredGate"]>[0]) {
@@ -175,6 +227,14 @@ export class RiskService {
     return this.policy.approveDecision(decisionId, approverId);
   }
 
+  getCreditPolicy() {
+    return this.policy.getCreditPolicy();
+  }
+
+  updateCreditPolicy(rules: Partial<typeof DEFAULT_CREDIT_POLICY>) {
+    return this.policy.updateCreditPolicy(rules);
+  }
+
   updateCreditProfile(id: string, data: Parameters<RiskExposureService["updateProfile"]>[1]) {
     return this.exposure.updateProfile(id, data);
   }
@@ -185,14 +245,63 @@ export class RiskService {
       orderBy: { score: "desc" },
       take: 20,
     });
-    return critical.map((s) => ({
+    const enriched = await this.enrichSubjectLabels(critical);
+    return enriched.map((s) => ({
       domain: s.domain,
       subjectType: s.subjectType,
       subjectId: s.subjectId,
+      subjectLabel: s.subjectLabel,
       score: s.score,
       band: s.band,
       reasons: s.reasons,
     }));
+  }
+
+  private async enrichSubjectLabels<
+    T extends { subjectType: RiskSubjectType; subjectId: string; reasons: unknown },
+  >(rows: T[]): Promise<Array<T & { subjectLabel?: string }>> {
+    const contactIds = rows.filter((r) => r.subjectType === "CONTACT").map((r) => r.subjectId);
+    const companyIds = rows.filter((r) => r.subjectType === "COMPANY").map((r) => r.subjectId);
+    const orderIds = rows.filter((r) => r.subjectType === "ORDER").map((r) => r.subjectId);
+
+    const [contacts, companies, orders] = await Promise.all([
+      contactIds.length
+        ? this.prisma.contact.findMany({
+            where: { id: { in: contactIds } },
+            select: { id: true, firstName: true, lastName: true },
+          })
+        : Promise.resolve([]),
+      companyIds.length
+        ? this.prisma.company.findMany({
+            where: { id: { in: companyIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
+      orderIds.length
+        ? this.prisma.order.findMany({
+            where: { id: { in: orderIds } },
+            select: { id: true, orderNumber: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const contactMap = new Map(
+      contacts.map((c) => [c.id, [c.firstName, c.lastName].filter(Boolean).join(" ") || c.id]),
+    );
+    const companyMap = new Map(companies.map((c) => [c.id, c.name || c.id]));
+    const orderMap = new Map(orders.map((o) => [o.id, o.orderNumber ?? o.id]));
+
+    return rows.map((row) => {
+      let subjectLabel: string | undefined;
+      if (row.subjectType === "CONTACT") subjectLabel = contactMap.get(row.subjectId);
+      else if (row.subjectType === "COMPANY") subjectLabel = companyMap.get(row.subjectId);
+      else if (row.subjectType === "ORDER") subjectLabel = orderMap.get(row.subjectId);
+      else {
+        const reasons = row.reasons as Array<{ explanationUk?: string }> | null;
+        subjectLabel = reasons?.[0]?.explanationUk;
+      }
+      return { ...row, subjectLabel };
+    });
   }
 }
 
@@ -201,8 +310,9 @@ function mapSnapshot(s: {
   domain: RiskDomainId;
   subjectType: RiskSubjectType;
   subjectId: string;
+  subjectLabel?: string;
   score: number;
-  band: RiskScoreDto["band"];
+  band: RiskBand;
   reasons: unknown;
   computedAt: Date;
 }): RiskScoreDto {
@@ -211,6 +321,7 @@ function mapSnapshot(s: {
     domain: s.domain,
     subjectType: s.subjectType,
     subjectId: s.subjectId,
+    subjectLabel: s.subjectLabel,
     score: s.score,
     band: s.band,
     reasons: s.reasons,

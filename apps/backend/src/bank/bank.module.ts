@@ -17,6 +17,7 @@ import { MatchSuggestionService } from "./match-suggestion.service";
 import { PayerAliasService } from "./payer-alias.service";
 import { PayerAliasesController } from "./payer-aliases.controller";
 import { PaymentMatchingService } from "./payment-matching.service";
+import { BankTransactionClassifierService } from "./bank-transaction-classifier.service";
 
 @Module({
   imports: [PrismaModule, SystemModule, IntegrationPortsModule, forwardRef(() => PaymentsModule)],
@@ -37,6 +38,7 @@ import { PaymentMatchingService } from "./payment-matching.service";
     MatchEngineService,
     BankSyncCron,
     BankIntegrationAdapter,
+    BankTransactionClassifierService,
   ],
   exports: [
     BankProviderRegistry,
@@ -47,6 +49,7 @@ import { PaymentMatchingService } from "./payment-matching.service";
     PayerAliasService,
     PaymentMatchingService,
     BankTransactionsService,
+    BankTransactionClassifierService,
   ],
 })
 export class BankModule {}

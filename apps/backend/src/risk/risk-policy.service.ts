@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type { RiskDecisionOutcome } from "@prisma/client";
+import type { RiskDecisionOutcome, RiskSubjectType } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { DEFAULT_CREDIT_POLICY } from "./risk.constants";
 import { RiskExposureService } from "./risk-exposure.service";
 import { RiskScorecardService } from "./risk-scorecard.service";
 import type { RiskGateEvaluation } from "./risk.types";
+
+const APPROVAL_WINDOW_MS = 72 * 60 * 60 * 1000;
+const DECISION_DEDUP_MS = 24 * 60 * 60 * 1000;
+
+type CreditPolicyRules = typeof DEFAULT_CREDIT_POLICY;
 
 @Injectable()
 export class RiskPolicyService {
@@ -14,6 +19,35 @@ export class RiskPolicyService {
     private readonly prisma: PrismaService,
   ) {}
 
+  async getCreditPolicy(): Promise<CreditPolicyRules> {
+    const row = await this.prisma.riskPolicy.findUnique({ where: { domain: "CLIENT_CREDIT" } });
+    if (!row || !row.enabled) return DEFAULT_CREDIT_POLICY;
+    const rules = row.rules as Partial<CreditPolicyRules>;
+    return { ...DEFAULT_CREDIT_POLICY, ...rules };
+  }
+
+  async ensureCreditPolicySeed() {
+    await this.prisma.riskPolicy.upsert({
+      where: { domain: "CLIENT_CREDIT" },
+      create: {
+        domain: "CLIENT_CREDIT",
+        rules: DEFAULT_CREDIT_POLICY as object,
+        enabled: true,
+      },
+      update: {},
+    });
+  }
+
+  async updateCreditPolicy(rules: Partial<CreditPolicyRules>) {
+    await this.ensureCreditPolicySeed();
+    const current = await this.getCreditPolicy();
+    const merged = { ...current, ...rules };
+    return this.prisma.riskPolicy.update({
+      where: { domain: "CLIENT_CREDIT" },
+      data: { rules: merged as object },
+    });
+  }
+
   async evaluateDeferredGate(input: {
     contactId?: string | null;
     companyId?: string | null;
@@ -21,6 +55,7 @@ export class RiskPolicyService {
     totalAmount: number;
     paymentType: string;
     requestedById?: string;
+    persistDecision?: boolean;
   }): Promise<RiskGateEvaluation> {
     if (input.paymentType !== "DEFERRED") {
       return {
@@ -31,22 +66,30 @@ export class RiskPolicyService {
       };
     }
 
+    await this.ensureCreditPolicySeed();
+    const policy = await this.getCreditPolicy();
+
     const exposure = await this.exposure.computeExposure({
       contactId: input.contactId,
       companyId: input.companyId,
       additionalAmount: input.totalAmount,
+      excludeOrderId: input.orderId ?? undefined,
+      persist: false,
     });
 
     const blocked = exposure.profile?.status === "BLOCKED" || exposure.profile?.status === "HOLD";
+    const subjectType: RiskSubjectType = input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER";
+    const subjectId = input.contactId ?? input.companyId ?? input.orderId ?? "unknown";
+
     const scoreResult = this.scorecard.scoreCreditExposure({
       exposurePct: exposure.exposurePct,
       blocked,
-      subjectType: input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER",
-      subjectId: input.contactId ?? input.companyId ?? input.orderId ?? "unknown",
+      subjectType,
+      subjectId,
     });
 
     let outcome: RiskDecisionOutcome = "ALLOW";
-    const { warnExposurePct, approveExposurePct, blockExposurePct } = DEFAULT_CREDIT_POLICY;
+    const { warnExposurePct, approveExposurePct, blockExposurePct } = policy;
 
     if (blocked || exposure.exposurePct >= blockExposurePct) {
       outcome = "BLOCK";
@@ -56,8 +99,18 @@ export class RiskPolicyService {
       outcome = "WARN";
     }
 
-    const overdueKnockout = await this.hasSevereOverdue(input.contactId, input.companyId);
+    const overdueKnockout = await this.hasSevereOverdue(input.contactId, input.companyId, policy.blockOverdueDays);
     if (overdueKnockout) outcome = "BLOCK";
+
+    const approvalSatisfied =
+      outcome === "REQUIRE_APPROVAL"
+        ? await this.hasApprovedDeferredDecision({
+            contactId: input.contactId,
+            companyId: input.companyId,
+            orderId: input.orderId,
+            totalAmount: input.totalAmount,
+          })
+        : false;
 
     const evaluation: RiskGateEvaluation = {
       outcome,
@@ -66,25 +119,118 @@ export class RiskPolicyService {
       reasons: scoreResult.reasons,
       score: scoreResult.score,
       band: scoreResult.band,
+      approvalSatisfied,
     };
 
-    if (input.orderId) {
-      await this.prisma.riskDecision.create({
+    if (
+      input.persistDecision &&
+      (outcome === "REQUIRE_APPROVAL" || outcome === "BLOCK")
+    ) {
+      const existing = await this.findRecentPendingDecision({
+        contactId: input.contactId,
+        companyId: input.companyId,
+        orderId: input.orderId,
+        totalAmount: input.totalAmount,
+      });
+      if (existing) {
+        evaluation.decisionId = existing.id;
+        return evaluation;
+      }
+
+      const created = await this.prisma.riskDecision.create({
         data: {
           domain: "CLIENT_CREDIT",
           gatePoint: "ORDER_DEFERRED",
           outcome,
-          subjectType: input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER",
-          subjectId: input.contactId ?? input.companyId ?? input.orderId,
-          orderId: input.orderId,
+          subjectType,
+          subjectId,
+          orderId: input.orderId ?? null,
           reasons: scoreResult.reasons as object,
-          scoreSnapshot: { score: scoreResult.score, band: scoreResult.band, exposurePct: exposure.exposurePct },
+          scoreSnapshot: {
+            score: scoreResult.score,
+            band: scoreResult.band,
+            exposurePct: exposure.exposurePct,
+            requestedAmount: input.totalAmount,
+          },
           requestedById: input.requestedById,
         },
       });
+      evaluation.decisionId = created.id;
     }
 
     return evaluation;
+  }
+
+  async hasApprovedDeferredDecision(input: {
+    contactId?: string | null;
+    companyId?: string | null;
+    orderId?: string | null;
+    totalAmount: number;
+  }): Promise<boolean> {
+    const subjectType: RiskSubjectType = input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER";
+    const subjectId = input.contactId ?? input.companyId ?? input.orderId;
+    if (!subjectId) return false;
+
+    const windowStart = new Date(Date.now() - APPROVAL_WINDOW_MS);
+
+    if (input.orderId) {
+      const approved = await this.prisma.riskDecision.findFirst({
+        where: {
+          orderId: input.orderId,
+          gatePoint: "ORDER_DEFERRED",
+          approvedAt: { not: null },
+          outcome: "ALLOW",
+        },
+        orderBy: { approvedAt: "desc" },
+      });
+      if (approved && this.coversAmount(approved.scoreSnapshot, input.totalAmount)) return true;
+    }
+
+    const approved = await this.prisma.riskDecision.findFirst({
+      where: {
+        domain: "CLIENT_CREDIT",
+        gatePoint: "ORDER_DEFERRED",
+        subjectType,
+        subjectId,
+        approvedAt: { not: null },
+        outcome: "ALLOW",
+        createdAt: { gte: windowStart },
+      },
+      orderBy: { approvedAt: "desc" },
+    });
+    return approved != null && this.coversAmount(approved.scoreSnapshot, input.totalAmount);
+  }
+
+  async linkApprovalToOrder(input: {
+    contactId?: string | null;
+    companyId?: string | null;
+    orderId: string;
+    totalAmount: number;
+  }) {
+    const subjectType: RiskSubjectType = input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER";
+    const subjectId = input.contactId ?? input.companyId;
+    if (!subjectId) return;
+
+    const windowStart = new Date(Date.now() - APPROVAL_WINDOW_MS);
+    const approved = await this.prisma.riskDecision.findFirst({
+      where: {
+        domain: "CLIENT_CREDIT",
+        gatePoint: "ORDER_DEFERRED",
+        subjectType,
+        subjectId,
+        orderId: null,
+        approvedAt: { not: null },
+        outcome: "ALLOW",
+        createdAt: { gte: windowStart },
+      },
+      orderBy: { approvedAt: "desc" },
+    });
+    if (!approved || !this.coversAmount(approved.scoreSnapshot, input.totalAmount)) return;
+
+    await this.prisma.riskDecision.update({
+      where: { id: approved.id },
+      data: { orderId: input.orderId },
+    });
   }
 
   async evaluateShipGate(input: { orderId: string; hasTtn: boolean; orderStage?: string | null }) {
@@ -119,9 +265,58 @@ export class RiskPolicyService {
     });
   }
 
-  private async hasSevereOverdue(contactId?: string | null, companyId?: string | null) {
+  private coversAmount(scoreSnapshot: unknown, totalAmount: number): boolean {
+    const snap = scoreSnapshot as { requestedAmount?: number } | null;
+    if (snap?.requestedAmount == null) return true;
+    return snap.requestedAmount >= totalAmount;
+  }
+
+  private async findRecentPendingDecision(input: {
+    contactId?: string | null;
+    companyId?: string | null;
+    orderId?: string | null;
+    totalAmount: number;
+  }) {
+    const since = new Date(Date.now() - DECISION_DEDUP_MS);
+    const subjectType: RiskSubjectType = input.contactId ? "CONTACT" : input.companyId ? "COMPANY" : "ORDER";
+    const subjectId = input.contactId ?? input.companyId ?? input.orderId;
+    if (!subjectId) return null;
+
+    if (input.orderId) {
+      const byOrder = await this.prisma.riskDecision.findFirst({
+        where: {
+          orderId: input.orderId,
+          gatePoint: "ORDER_DEFERRED",
+          outcome: "REQUIRE_APPROVAL",
+          approvedAt: null,
+          createdAt: { gte: since },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (byOrder) return byOrder;
+    }
+
+    return this.prisma.riskDecision.findFirst({
+      where: {
+        domain: "CLIENT_CREDIT",
+        gatePoint: "ORDER_DEFERRED",
+        subjectType,
+        subjectId,
+        outcome: "REQUIRE_APPROVAL",
+        approvedAt: null,
+        createdAt: { gte: since },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  private async hasSevereOverdue(
+    contactId?: string | null,
+    companyId?: string | null,
+    blockOverdueDays = DEFAULT_CREDIT_POLICY.blockOverdueDays,
+  ) {
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - DEFAULT_CREDIT_POLICY.blockOverdueDays);
+    cutoff.setDate(cutoff.getDate() - blockOverdueDays);
     const where = {
       financialStatus: "OVERDUE" as const,
       paymentDueDate: { lt: cutoff },

@@ -120,9 +120,14 @@ export class RiskCollectorsService {
   async collectCashOps(): Promise<CollectorSignal[]> {
     const [unmatched, needsReview] = await Promise.all([
       this.prisma.bankTransaction.count({
-        where: { matchStatus: { in: ["UNMATCHED", "PARTIALLY_MATCHED"] } },
+        where: {
+          direction: "IN",
+          matchStatus: { in: ["UNMATCHED", "PARTIALLY_MATCHED"] },
+        },
       }),
-      this.prisma.bankTransaction.count({ where: { matchStatus: "NEEDS_REVIEW" } }),
+      this.prisma.bankTransaction.count({
+        where: { direction: "IN", matchStatus: "NEEDS_REVIEW" },
+      }),
     ]);
     const signals: CollectorSignal[] = [];
     if (unmatched > 0) {
@@ -227,35 +232,39 @@ export class RiskCollectorsService {
   }
 
   async collectShip(): Promise<CollectorSignal[]> {
-    const refused = await this.prisma.order.count({
+    const refusedOrders = await this.prisma.order.findMany({
       where: { orderStage: "REFUSED" },
+      select: { id: true, orderNumber: true },
+      take: 50,
     });
-    const noTtnReady = await this.prisma.order.count({
+    const noTtnOrders = await this.prisma.order.findMany({
       where: {
         orderStage: { in: ["READY_TO_SHIP", "CONFIRMED"] },
         deliveryMethod: "NOVA_POSHTA",
         ttns: { none: {} },
       },
+      select: { id: true, orderNumber: true },
+      take: 50,
     });
     const signals: CollectorSignal[] = [];
-    if (refused > 0) {
+    for (const o of refusedOrders) {
       signals.push({
         domain: "SHIP",
         signalCode: "ORDERS_REFUSED",
-        severity: refused > 10 ? "HIGH" : "WARNING",
-        subjectType: "SYSTEM",
-        subjectId: "shipping",
-        payload: { count: refused },
+        severity: "WARNING",
+        subjectType: "ORDER",
+        subjectId: o.id,
+        subjectLabel: o.orderNumber ?? o.id,
       });
     }
-    if (noTtnReady > 0) {
+    for (const o of noTtnOrders) {
       signals.push({
         domain: "SHIP",
         signalCode: "MISSING_TTN",
-        severity: noTtnReady > 5 ? "HIGH" : "WARNING",
-        subjectType: "SYSTEM",
-        subjectId: "shipping",
-        payload: { count: noTtnReady },
+        severity: "HIGH",
+        subjectType: "ORDER",
+        subjectId: o.id,
+        subjectLabel: o.orderNumber ?? o.id,
       });
     }
     return signals;
@@ -264,33 +273,49 @@ export class RiskCollectorsService {
   async collectField(): Promise<CollectorSignal[]> {
     const since = new Date();
     since.setDate(since.getDate() - 30);
-    const [outside, noFix] = await Promise.all([
-      this.prisma.visit.count({
+    const [outsideVisits, noFixVisits] = await Promise.all([
+      this.prisma.visit.findMany({
         where: { completeGpsVerification: "OUTSIDE_RADIUS", completedAt: { gte: since } },
+        select: {
+          id: true,
+          contactId: true,
+          contact: { select: { firstName: true, lastName: true } },
+        },
+        take: 50,
       }),
-      this.prisma.visit.count({
+      this.prisma.visit.findMany({
         where: { completeGpsVerification: "NO_FIX", completedAt: { gte: since } },
+        select: {
+          id: true,
+          contactId: true,
+          contact: { select: { firstName: true, lastName: true } },
+        },
+        take: 50,
       }),
     ]);
     const signals: CollectorSignal[] = [];
-    if (outside > 0) {
+    for (const v of outsideVisits) {
       signals.push({
         domain: "FIELD",
         signalCode: "GPS_OUTSIDE_RADIUS",
-        severity: outside > 10 ? "HIGH" : "WARNING",
-        subjectType: "SYSTEM",
-        subjectId: "field",
-        payload: { count: outside },
+        severity: "WARNING",
+        subjectType: "CONTACT",
+        subjectId: v.contactId ?? v.id,
+        subjectLabel: v.contact
+          ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+          : v.id,
       });
     }
-    if (noFix > 0) {
+    for (const v of noFixVisits) {
       signals.push({
         domain: "FIELD",
         signalCode: "GPS_NO_FIX",
-        severity: noFix > 15 ? "HIGH" : "WARNING",
-        subjectType: "SYSTEM",
-        subjectId: "field",
-        payload: { count: noFix },
+        severity: "WARNING",
+        subjectType: "CONTACT",
+        subjectId: v.contactId ?? v.id,
+        subjectLabel: v.contact
+          ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+          : v.id,
       });
     }
     return signals;
@@ -304,11 +329,16 @@ export class RiskCollectorsService {
       this.prisma.task.count({ where: overdueTaskWhere }),
       this.prisma.order.findMany({
         where: stuckBase,
-        select: { id: true, updatedAt: true, statusHistory: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } } },
+        select: {
+          id: true,
+          orderNumber: true,
+          updatedAt: true,
+          statusHistory: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+        },
         take: 600,
       }),
     ]);
-    const stuck = filterStuckOrders(stuckCandidates, new Date()).length;
+    const stuckOrders = filterStuckOrders(stuckCandidates, new Date());
     const signals: CollectorSignal[] = [];
     if (overdueTasks > 0) {
       signals.push({
@@ -317,17 +347,18 @@ export class RiskCollectorsService {
         severity: overdueTasks > 30 ? "HIGH" : "WARNING",
         subjectType: "SYSTEM",
         subjectId: "team",
+        subjectLabel: "Overdue tasks",
         payload: { count: overdueTasks },
       });
     }
-    if (stuck > 0) {
+    for (const o of stuckOrders.slice(0, 50)) {
       signals.push({
         domain: "TEAM",
         signalCode: "STUCK_ORDERS",
-        severity: stuck > 20 ? "HIGH" : "WARNING",
-        subjectType: "SYSTEM",
-        subjectId: "team",
-        payload: { count: stuck },
+        severity: "WARNING",
+        subjectType: "ORDER",
+        subjectId: o.id,
+        subjectLabel: o.orderNumber ?? o.id,
       });
     }
     return signals;

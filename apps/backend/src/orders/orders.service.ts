@@ -170,10 +170,24 @@ export class OrdersService {
       totalAmount: input.totalAmount,
       paymentType: "DEFERRED",
       requestedById: input.requestedById,
+      persistDecision: false,
     });
     if (evaluation.outcome === "BLOCK") {
       const reason = evaluation.reasons[0]?.explanationUk ?? "Credit risk gate blocked deferred payment";
       throw new BadRequestException(reason);
+    }
+    if (evaluation.outcome === "REQUIRE_APPROVAL") {
+      const approved = await this.riskPolicy.hasApprovedDeferredDecision({
+        contactId: input.contactId,
+        companyId: input.companyId,
+        orderId: input.orderId,
+        totalAmount: input.totalAmount,
+      });
+      if (!approved) {
+        throw new BadRequestException(
+          "Потрібне схвалення кредитного ризику в Risk hub перед збереженням відстрочки",
+        );
+      }
     }
   }
 
@@ -1067,6 +1081,14 @@ export class OrdersService {
         : await this.prisma.$transaction((client) => createCore(client));
 
       const mapped = this.mapToEntity(order as unknown as Record<string, unknown>);
+      if (dto.paymentType === "DEFERRED" && this.riskPolicy) {
+        await this.riskPolicy.linkApprovalToOrder({
+          contactId: dto.clientId ?? null,
+          companyId: dto.companyId ?? null,
+          orderId: order.id,
+          totalAmount: a.total,
+        });
+      }
       if (!tx) {
         this.workflowEmitter.emitRecordCreated(
           CustomFieldEntityType.ORDER,
@@ -1849,6 +1871,21 @@ export class OrdersService {
       deliveryMethod: current.deliveryMethod,
       hasTtn,
     }, transitionGraph);
+
+    if (this.riskPolicy && this.modules) {
+      const riskEffective = await this.modules.isEffective(ModuleIds.RiskManagement);
+      if (riskEffective) {
+        const shipEval = await this.riskPolicy.evaluateShipGate({
+          orderId: id,
+          hasTtn,
+          orderStage: toStage,
+        });
+        if (shipEval.outcome === "BLOCK") {
+          const reason = shipEval.reasons[0]?.explanationUk ?? "Risk ship gate blocked stage transition";
+          throw new BadRequestException(reason);
+        }
+      }
+    }
 
     if (toStage === "COMPLETED") {
       const openReturnsCount = await this.prisma.orderReturn.count({

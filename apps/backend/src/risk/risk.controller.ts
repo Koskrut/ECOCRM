@@ -16,13 +16,19 @@ import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 import { RequirePermission } from "../rbac/permissions.decorator";
 import { PermissionKeys } from "../rbac/rbac.constants";
-import type { ApproveDecisionDto, EvaluateDeferredGateDto, UpdateCreditProfileDto } from "./dto/risk.dto";
+import {
+  ApproveDecisionDto,
+  EvaluateDeferredGateDto,
+  GetExposureQueryDto,
+  GetScoresQueryDto,
+  UpdateCreditPolicyDto,
+  UpdateCreditProfileDto,
+} from "./dto/risk.dto";
 import { RiskService } from "./risk.service";
-import type { RiskDomainId, RiskSubjectType } from "@prisma/client";
 
 @Controller("risk")
 @RequireModule(ModuleIds.RiskManagement)
-@Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER, UserRole.WAREHOUSE)
+@Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
 @RequirePermission(PermissionKeys.RiskRead)
 export class RiskController {
   constructor(private readonly risk: RiskService) {}
@@ -33,12 +39,8 @@ export class RiskController {
   }
 
   @Get("scores")
-  getScores(
-    @Query("domain") domain?: RiskDomainId,
-    @Query("subjectType") subjectType?: RiskSubjectType,
-    @Query("subjectId") subjectId?: string,
-  ) {
-    return this.risk.getScores({ domain, subjectType, subjectId });
+  getScores(@Query() query: GetScoresQueryDto) {
+    return this.risk.getScores(query);
   }
 
   @Get("attention")
@@ -54,21 +56,37 @@ export class RiskController {
   }
 
   @Post("evaluate/deferred")
-  evaluateDeferred(@Body() body: EvaluateDeferredGateDto) {
-    return this.risk.evaluateDeferredGate(body);
+  evaluateDeferred(@Body() body: EvaluateDeferredGateDto, @Req() req: Request & { user?: AuthUser }) {
+    return this.risk.evaluateDeferredGate({
+      ...body,
+      requestedById: req.user?.id,
+      persistDecision: body.persistDecision ?? false,
+    });
   }
 
   @Get("exposure")
-  getExposure(
-    @Query("contactId") contactId?: string,
-    @Query("companyId") companyId?: string,
-    @Query("additionalAmount") additionalAmount?: string,
-  ) {
+  getExposure(@Query() query: GetExposureQueryDto) {
     return this.risk.getExposure({
-      contactId,
-      companyId,
-      additionalAmount: additionalAmount ? Number(additionalAmount) : undefined,
+      contactId: query.contactId,
+      companyId: query.companyId,
+      additionalAmount: query.additionalAmount,
+      excludeOrderId: query.excludeOrderId,
+      persist: query.persist ?? false,
     });
+  }
+
+  @Get("policies/CLIENT_CREDIT")
+  @RequirePermission(PermissionKeys.RiskManage)
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  getCreditPolicy() {
+    return this.risk.getCreditPolicy();
+  }
+
+  @Patch("policies/CLIENT_CREDIT")
+  @RequirePermission(PermissionKeys.RiskManage)
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  updateCreditPolicy(@Body() body: UpdateCreditPolicyDto) {
+    return this.risk.updateCreditPolicy(body);
   }
 
   @Patch("credit-profiles/:id")

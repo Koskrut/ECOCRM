@@ -16,7 +16,18 @@ import { HelpHint } from "@/components/help/HelpHint";
 
 const PAGE_SIZE = 50;
 
-type PaymentsView = "payments" | "unmatched" | "fxVariance";
+type PaymentsView = "payments" | "unmatched" | "ignored" | "fxVariance";
+
+const IGNORE_CATEGORY_KEYS = [
+  "BANK_FEE",
+  "TAX",
+  "OWN_TRANSFER",
+  "OWN_COMPANY",
+  "CASH_WITHDRAWAL",
+  "OTHER_EXPENSE",
+  "OTHER",
+] as const;
+type IgnoreCategoryKey = (typeof IGNORE_CATEGORY_KEYS)[number];
 
 type BankAccount = { id: string; name: string; currency: string; provider?: string };
 
@@ -86,6 +97,9 @@ type BankTransaction = {
   paymentId: string | null;
   orderId: string | null;
   matchStatus?: string | null;
+  ignoreCategory?: string | null;
+  ignoreSource?: string | null;
+  ignoredAt?: string | null;
   allocatedAmount?: number;
   remainingAmount?: number;
   suggestion?: {
@@ -293,7 +307,9 @@ function PaymentsContent() {
       ? "payments"
       : viewParam === "fxVariance"
         ? "fxVariance"
-        : "unmatched";
+        : viewParam === "ignored"
+          ? "ignored"
+          : "unmatched";
   const [view, setView] = useState<PaymentsView>(initialView);
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
@@ -325,6 +341,9 @@ function PaymentsContent() {
   const [paymentsLoadingMore, setPaymentsLoadingMore] = useState(false);
   const [unmatchedLoading, setUnmatchedLoading] = useState(false);
   const [unmatchedLoadingMore, setUnmatchedLoadingMore] = useState(false);
+  const [ignoreTxId, setIgnoreTxId] = useState<string | null>(null);
+  const [ignoreCategory, setIgnoreCategory] = useState<IgnoreCategoryKey>("OTHER_EXPENSE");
+  const [ignoring, setIgnoring] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [showAddStatement, setShowAddStatement] = useState(false);
@@ -488,9 +507,10 @@ function PaymentsContent() {
   );
 
   const fetchUnmatched = useCallback(
-    async (opts?: { page?: number; append?: boolean }) => {
+    async (opts?: { page?: number; append?: boolean; ignored?: boolean }) => {
       const page = opts?.page ?? 1;
       const append = opts?.append ?? false;
+      const ignored = opts?.ignored ?? false;
 
       if (append) {
         setUnmatchedLoadingMore(true);
@@ -500,11 +520,15 @@ function PaymentsContent() {
       setError(null);
       try {
         const params = new URLSearchParams({
-          unmatched: "true",
-          suggest: "true",
           page: String(page),
           pageSize: String(PAGE_SIZE),
         });
+        if (ignored) {
+          params.set("ignored", "true");
+        } else {
+          params.set("unmatched", "true");
+          params.set("suggest", "true");
+        }
         if (bankAccountId) params.set("bankAccountId", bankAccountId);
         const q = debouncedSearch.trim();
         if (q) params.set("q", q);
@@ -543,8 +567,53 @@ function PaymentsContent() {
 
   const loadMoreUnmatched = useCallback(() => {
     if (unmatchedLoading || unmatchedLoadingMore || !unmatchedHasMore) return;
-    void fetchUnmatched({ page: unmatchedPage + 1, append: true });
-  }, [unmatchedLoading, unmatchedLoadingMore, unmatchedHasMore, unmatchedPage, fetchUnmatched]);
+    void fetchUnmatched({
+      page: unmatchedPage + 1,
+      append: true,
+      ignored: view === "ignored",
+    });
+  }, [
+    unmatchedLoading,
+    unmatchedLoadingMore,
+    unmatchedHasMore,
+    unmatchedPage,
+    fetchUnmatched,
+    view,
+  ]);
+
+  const refreshQueue = useCallback(() => {
+    return fetchUnmatched({ ignored: view === "ignored" });
+  }, [fetchUnmatched, view]);
+
+  const submitIgnore = async () => {
+    if (!ignoreTxId) return;
+    setIgnoring(ignoreTxId);
+    try {
+      await apiHttp.post(`/bank/transactions/${ignoreTxId}/ignore`, {
+        category: ignoreCategory,
+      });
+      setIgnoreTxId(null);
+      pushToast(t.payments.notClient, "success");
+      await refreshQueue();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : t.payments.errors.load, "error");
+    } finally {
+      setIgnoring(null);
+    }
+  };
+
+  const submitUnignore = async (transactionId: string) => {
+    setIgnoring(transactionId);
+    try {
+      await apiHttp.post(`/bank/transactions/${transactionId}/unignore`, {});
+      pushToast(t.payments.restoreToQueue, "success");
+      await refreshQueue();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : t.payments.errors.load, "error");
+    } finally {
+      setIgnoring(null);
+    }
+  };
 
   const fetchFxVariance = useCallback(async () => {
     setFxQueueLoading(true);
@@ -657,7 +726,9 @@ function PaymentsContent() {
   }, [mode, view, fetchPayments]);
 
   useEffect(() => {
-    if (mode === "fop" && view === "unmatched") fetchUnmatched();
+    if (mode === "fop" && (view === "unmatched" || view === "ignored")) {
+      void fetchUnmatched({ ignored: view === "ignored" });
+    }
   }, [mode, view, fetchUnmatched]);
 
   useEffect(() => {
@@ -1320,7 +1391,7 @@ function PaymentsContent() {
   const loading =
     mode === "cash"
       ? paymentsLoading
-      : mode === "fop" && view === "unmatched"
+      : mode === "fop" && (view === "unmatched" || view === "ignored")
         ? unmatchedLoading
         : mode === "fop" && view === "fxVariance"
           ? fxQueueLoading
@@ -1424,6 +1495,17 @@ function PaymentsContent() {
                     }`}
                   >
                     {t.payments.toAllocateTab}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewWithUrl("ignored")}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                      view === "ignored"
+                        ? "bg-zinc-800 text-white"
+                        : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                  >
+                    {t.payments.ignoredTab}
                   </button>
                   <button
                     type="button"
@@ -2036,6 +2118,16 @@ function PaymentsContent() {
                         >
                           {t.payments.distribute}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIgnoreTxId(tx.id);
+                            setIgnoreCategory("OTHER_EXPENSE");
+                          }}
+                          className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100"
+                        >
+                          {t.payments.notClient}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -2045,6 +2137,85 @@ function PaymentsContent() {
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
                       {t.payments.noUnmatched}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {unmatchedLoadingMore && (
+              <p className="px-4 py-3 text-center text-sm text-zinc-500">{t.common.loading}</p>
+            )}
+            <InfiniteScrollSentinel
+              onVisible={loadMoreUnmatched}
+              disabled={unmatchedLoading || unmatchedLoadingMore || !unmatchedHasMore}
+            />
+          </div>
+        )}
+
+        {!loading && mode === "fop" && view === "ignored" && (
+          <div className="overflow-x-auto">
+            <p className="px-4 py-2 text-sm text-zinc-600">
+              {t.payments.ignoredIntro(unmatchedTotal || unmatched.length)}
+            </p>
+            <table className="w-full text-sm">
+              <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
+                <tr>
+                  <th className="px-4 py-3">{t.payments.date}</th>
+                  <th className="px-4 py-3">{t.payments.fopCol}</th>
+                  <th className="px-4 py-3 text-right">{t.payments.amount}</th>
+                  <th className="px-4 py-3">{t.payments.description}</th>
+                  <th className="px-4 py-3">{t.payments.counterparty}</th>
+                  <th className="px-4 py-3">{t.payments.ignoreCategoryLabel}</th>
+                  <th className="px-4 py-3 w-36">{t.payments.action}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unmatched.map((tx) => {
+                  const cat = tx.ignoreCategory as IgnoreCategoryKey | null | undefined;
+                  const catLabel =
+                    cat && cat in t.payments.ignoreCategories
+                      ? t.payments.ignoreCategories[cat]
+                      : (tx.ignoreCategory ?? t.payments.dash);
+                  const sign = tx.direction === "OUT" ? "−" : "+";
+                  return (
+                    <tr key={tx.id} className="border-t border-zinc-100 hover:bg-zinc-50">
+                      <td className="px-4 py-3 text-zinc-600">{formatDate(tx.bookedAt)}</td>
+                      <td className="px-4 py-3">{tx.bankAccount?.name ?? tx.bankAccountId}</td>
+                      <td className="px-4 py-3 text-right font-medium">
+                        {sign}
+                        {tx.amount.toFixed(2)} {tx.currency}
+                      </td>
+                      <td className="px-4 py-3 max-w-xs truncate" title={tx.description ?? ""}>
+                        {tx.description ?? t.payments.dash}
+                      </td>
+                      <td className="px-4 py-3">{tx.counterpartyName ?? t.payments.dash}</td>
+                      <td className="px-4 py-3 text-xs text-zinc-600">
+                        <div>{catLabel}</div>
+                        <div className="text-zinc-400">
+                          {tx.matchStatus === "TECHNICAL"
+                            ? "auto"
+                            : tx.ignoreSource === "MANUAL"
+                              ? "manual"
+                              : (tx.ignoreSource ?? "")}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          disabled={ignoring === tx.id}
+                          onClick={() => void submitUnignore(tx.id)}
+                          className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50"
+                        >
+                          {ignoring === tx.id ? t.common.loading : t.payments.restoreToQueue}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {unmatched.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-500">
+                      {t.payments.noIgnored}
                     </td>
                   </tr>
                 )}
@@ -2087,7 +2258,49 @@ function PaymentsContent() {
             )}
           </p>
         )}
+        {!loading && mode === "fop" && view === "ignored" && (
+          <p className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500">
+            {t.payments.ignoredIntro(unmatchedTotal || unmatched.length)}
+          </p>
+        )}
       </section>
+
+      {ignoreTxId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-zinc-900">{t.payments.notClient}</h3>
+            <p className="mt-1 text-sm text-zinc-500">{t.payments.ignoreCategoryLabel}</p>
+            <select
+              value={ignoreCategory}
+              onChange={(e) => setIgnoreCategory(e.target.value as IgnoreCategoryKey)}
+              className="mt-3 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            >
+              {IGNORE_CATEGORY_KEYS.map((key) => (
+                <option key={key} value={key}>
+                  {t.payments.ignoreCategories[key]}
+                </option>
+              ))}
+            </select>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIgnoreTxId(null)}
+                className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+              >
+                {t.common.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={!!ignoring}
+                onClick={() => void submitIgnore()}
+                className="rounded-md bg-zinc-900 px-3 py-2 text-sm text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {ignoring ? t.common.loading : t.payments.notClient}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddCashPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

@@ -229,6 +229,25 @@ enum BankTransactionMatchStatus {
   MATCHED
   /// Some COMPLETED payments exist but allocated sum < transaction amount.
   PARTIALLY_MATCHED
+  /// Auto-classified non-client noise (fees, taxes, own FOP, cash desk).
+  TECHNICAL
+  /// Manually marked as non-client (or restored audit dismiss).
+  IGNORED
+}
+
+enum BankIgnoreCategory {
+  BANK_FEE
+  TAX
+  OWN_TRANSFER
+  OWN_COMPANY
+  CASH_WITHDRAWAL
+  OTHER_EXPENSE
+  OTHER
+}
+
+enum BankIgnoreSource {
+  AUTO
+  MANUAL
 }
 
 enum PayerAliasSource {
@@ -629,6 +648,7 @@ model User {
   notificationPreferences    UserNotificationPreference[]
   pushDevices                UserPushDevice[]
   paymentMatchAudits         PaymentMatchAudit[] @relation("PaymentMatchAuditCreatedBy")
+  bankTransactionsIgnored    BankTransaction[]   @relation("BankTransactionIgnoredBy")
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -2968,9 +2988,16 @@ model BankTransaction {
   matchScore         Int?
   suggestedOrderId   String?
 
+  /// Why the tx was marked TECHNICAL/IGNORED (fees, tax, own transfer, …).
+  ignoreCategory   BankIgnoreCategory?
+  ignoreSource     BankIgnoreSource?
+  ignoredAt        DateTime?
+  ignoredByUserId  String?
+
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
   payments    Payment[]
   matchAudits PaymentMatchAudit[]
+  ignoredBy   User?     @relation("BankTransactionIgnoredBy", fields: [ignoredByUserId], references: [id], onDelete: SetNull)
 
   @@unique([bankAccountId, dedupKey])
   @@index([matchStatus])
@@ -2978,6 +3005,7 @@ model BankTransaction {
   @@index([bankAccountId])
   @@index([bookedAt])
   @@index([counterpartyIban])
+  @@index([ignoreCategory])
 }
 
 /// Learned / manual mapping from payer IBAN or normalized name → contact/company.

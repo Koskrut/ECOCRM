@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.121**.)_
+_(планируемые изменения после **0.2.122**.)_
+
+## [0.2.122] — 2026-07-27
+
+### Summary
+
+Патч **0.2.122**: bank technical/ignored transactions; Risk credit gates (deferred approval, ship gate); Risk hub v2; CreditProfile XOR constraint.
+
+### Added
+
+- **Bank transaction classifier**: auto **`TECHNICAL`** / **`IGNORED`** для комиссий, налогов, own transfer, cash withdrawal; миграция **`20260727110000_bank_tx_ignore_technical`** — `BankIgnoreCategory`, `ignoreSource`, manual ignore/unignore API + web tab **Ignored**.
+- **Risk policy gates**: deferred payment **`REQUIRE_APPROVAL`** / **`BLOCK`**; ship gate при смене стадии; approval workflow в Order modal + Risk hub.
+- **Risk hub v2**: signal retention 90d, transactional recompute, exposure/policy collectors, playbooks; tests `risk-exposure`, `risk-policy`.
+- **CreditProfile XOR**: миграция **`20260727160000_credit_profile_xor`** — ровно contact **или** company.
+
+### Changed
+
+- **Bank sync**: классификация при импорте; unmatched list excludes ignored/technical.
+- **Payments web**: view **ignored**, ignore/unignore modal, category labels.
+- **Orders**: deferred save требует approved risk decision; link approval to order on create.
+- **RiskModule** in `AppModuleCore`; docs matrix updated.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.122`**.
+- **Миграции:** `20260727110000_bank_tx_ignore_technical`, `20260727160000_credit_profile_xor`.
 
 ## [0.2.121] — 2026-07-27
 

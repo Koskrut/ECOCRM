@@ -57,7 +57,7 @@ export type RiskHub = {
     createdAt: string;
     approvedAt: string | null;
   }[];
-  deepLinks: { label: string; href: string }[];
+  deepLinks: { labelUk: string; labelEn: string; href: string }[];
 };
 
 export type RiskGateResult = {
@@ -67,6 +67,8 @@ export type RiskGateResult = {
   reasons: { explanationUk?: string; explanationEn?: string; code: string }[];
   score?: number;
   band?: RiskBand;
+  decisionId?: string;
+  approvalSatisfied?: boolean;
 };
 
 export const riskApi = {
@@ -86,6 +88,10 @@ export const riskApi = {
     orderId?: string | null;
     totalAmount: number;
     paymentType: string;
+    persistDecision?: boolean;
   }) => apiPost<RiskGateResult>("/risk/evaluate/deferred", body),
   approveDecision: (id: string) => apiPost(`/risk/decisions/${id}/approve`, {}),
+  getCreditPolicy: () => apiGet<Record<string, number | string>>("/risk/policies/CLIENT_CREDIT"),
+  updateCreditPolicy: (body: Record<string, number | string>) =>
+    apiPatch("/risk/policies/CLIENT_CREDIT", body),
 };

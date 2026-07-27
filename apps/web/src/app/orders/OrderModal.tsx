@@ -787,6 +787,7 @@ export function OrderModal({
   const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
   const [comment, setComment] = useState<string>("");
   const [deferredRiskGate, setDeferredRiskGate] = useState<RiskGateResult | null>(null);
+  const [approvalRequesting, setApprovalRequesting] = useState(false);
 
   // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
@@ -889,6 +890,13 @@ export function OrderModal({
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const npModuleEffective = modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
   const riskModuleEffective = modulesStatus === "ready" && moduleEffective(ModuleIds.RiskManagement);
+
+  const deferredSaveBlocked =
+    riskModuleEffective &&
+    (order?.paymentType ?? paymentType) === "DEFERRED" &&
+    deferredRiskGate != null &&
+    (deferredRiskGate.outcome === "BLOCK" ||
+      (deferredRiskGate.outcome === "REQUIRE_APPROVAL" && !deferredRiskGate.approvalSatisfied));
 
   const canSplitByStock = useMemo(() => {
     if (!order?.items?.length) return false;
@@ -1227,6 +1235,7 @@ export function OrderModal({
         orderId: order?.id,
         totalAmount: Number(order?.totalAmount ?? 0),
         paymentType: "DEFERRED",
+        persistDecision: false,
       })
       .then((gate) => {
         if (!cancelled) setDeferredRiskGate(gate);
@@ -1245,6 +1254,65 @@ export function OrderModal({
     order?.companyId,
     order?.id,
     order?.totalAmount,
+    clientId,
+    companyId,
+  ]);
+
+  const requestDeferredApproval = useCallback(async () => {
+    if (!riskModuleEffective || (order?.paymentType ?? paymentType) !== "DEFERRED") return;
+    setApprovalRequesting(true);
+    try {
+      const gate = await riskApi.evaluateDeferred({
+        contactId: order?.clientId ?? clientId,
+        companyId: order?.companyId ?? companyId,
+        orderId: order?.id,
+        totalAmount: Number(order?.totalAmount ?? 0),
+        paymentType: "DEFERRED",
+        persistDecision: true,
+      });
+      setDeferredRiskGate(gate);
+      pushToast(strings.risk.deferredApprovalPending, "info");
+    } catch {
+      pushToast(strings.common.saveError, "error");
+    } finally {
+      setApprovalRequesting(false);
+    }
+  }, [
+    riskModuleEffective,
+    order?.paymentType,
+    order?.clientId,
+    order?.companyId,
+    order?.id,
+    order?.totalAmount,
+    paymentType,
+    clientId,
+    companyId,
+    pushToast,
+  ]);
+
+  const refreshDeferredRiskGate = useCallback(async () => {
+    if (!riskModuleEffective || (order?.paymentType ?? paymentType) !== "DEFERRED") return;
+    try {
+      const gate = await riskApi.evaluateDeferred({
+        contactId: order?.clientId ?? clientId,
+        companyId: order?.companyId ?? companyId,
+        orderId: order?.id,
+        totalAmount: Number(order?.totalAmount ?? 0),
+        paymentType: "DEFERRED",
+        persistDecision: false,
+      });
+      setDeferredRiskGate(gate);
+    } catch {
+      setDeferredRiskGate(null);
+    }
+  }, [
+    riskModuleEffective,
+    order?.paymentType,
+    order?.clientId,
+    order?.companyId,
+    order?.id,
+    order?.totalAmount,
+    paymentType,
     clientId,
     companyId,
   ]);
@@ -2392,7 +2460,7 @@ export function OrderModal({
                 <button
                   type="button"
                   onClick={() => void createOrder()}
-                  disabled={saving}
+                  disabled={saving || deferredSaveBlocked}
                   className="btn-primary"
                 >
                   {saving ? t.saving : t.create}
@@ -3335,11 +3403,36 @@ export function OrderModal({
                             {deferredRiskGate.outcome === "BLOCK"
                               ? strings.risk.deferredBlock
                               : deferredRiskGate.outcome === "REQUIRE_APPROVAL"
-                                ? strings.risk.deferredApprove
+                                ? deferredRiskGate.approvalSatisfied
+                                  ? strings.risk.deferredApprovalReady
+                                  : strings.risk.deferredApprove
                                 : strings.risk.deferredWarn}
                             {deferredRiskGate.reasons[0]?.explanationUk
                               ? `: ${deferredRiskGate.reasons[0].explanationUk}`
                               : null}
+                            {deferredRiskGate.outcome === "REQUIRE_APPROVAL" &&
+                            !deferredRiskGate.approvalSatisfied ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void requestDeferredApproval()}
+                                  disabled={approvalRequesting || saving}
+                                  className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                                >
+                                  {approvalRequesting
+                                    ? strings.common.loading
+                                    : strings.risk.requestApproval}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void refreshDeferredRiskGate()}
+                                  disabled={approvalRequesting || saving}
+                                  className="rounded-md border border-amber-200 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100/60 disabled:opacity-50"
+                                >
+                                  {strings.risk.checkApproval}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       <div>

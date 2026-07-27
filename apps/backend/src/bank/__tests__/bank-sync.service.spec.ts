@@ -35,7 +35,12 @@ describe("BankSyncService sync cursor handling", () => {
       }),
       isProviderLicensed: async () => true,
     };
-    const service = new BankSyncService(prisma, matchEngine, providerRegistry);
+    const classifier = {
+      getOwnAccountHints: async () => [],
+      technicalCreateFields: () => ({ matchStatus: "UNMATCHED" }),
+      classifyExistingUnmatched: async () => 0,
+    };
+    const service = new BankSyncService(prisma, matchEngine, providerRegistry, classifier);
 
     await service.syncAccount("acc-1", {
       dateFrom: new Date("2024-01-01T00:00:00.000Z"),

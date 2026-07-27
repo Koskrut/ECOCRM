@@ -80,7 +80,7 @@ HTTP-доступ к защищённым маршрутам: глобальны
 | Metadata / ops | `custom-fields`, `layouts`, `dictionaries`, `workflows`, `rbac`, `audit`, `data-import`, `custom-entities` | ✅ |
 | Финансы / банк / платежи | — | `BankModule`, `PaymentsModule`, `FinanceIdempotencyModule` |
 | Интеграции | `IntegrationPortsModule` (порты без тяжёлых адаптеров) | `TelegramModule`, `RingostatModule`, `Bitrix*`, `GoogleSheetModule`, `NpModule` |
-| Расширения | — | `OutboundModule`, `ProductionPlanningModule`, `StoreModule`, `CallsModule`, `ManualCallingModule` |
+| Расширения | `HelpModule`, `RiskModule`, `ReceivablesModule` | `OutboundModule`, `ProductionPlanningModule`, `StoreModule`, `CallsModule`, `ManualCallingModule` |
 
 Образ **`crm-core-api`** собирается с entrypoint `core-main` и импортирует только `AppModuleCore`. CI: workflow **Preflight Release Build** собирает target `core-runner` и валидирует `deployment-manifest.json` через `scripts/validate-deployment-manifest.mjs`; контрактный тест: `apps/backend/src/system/__tests__/deployment-manifest.contract.spec.ts`.
 

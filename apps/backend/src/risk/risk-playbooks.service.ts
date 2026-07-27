@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
-import type { RiskBand, RiskDomainId, RiskSubjectType } from "@prisma/client";
+import { Injectable, Logger, Optional } from "@nestjs/common";
+import type { RiskBand, RiskDomainId, RiskSubjectType, UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { SEED_PLAYBOOKS } from "./risk.constants";
 import type { RiskScoreResult } from "./risk.types";
 
@@ -15,7 +16,10 @@ const BAND_RANK: Record<RiskBand, number> = {
 export class RiskPlaybooksService {
   private readonly logger = new Logger(RiskPlaybooksService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly notifications?: NotificationsService,
+  ) {}
 
   async ensureSeedPlaybooks() {
     for (const pb of SEED_PLAYBOOKS) {
@@ -100,6 +104,12 @@ export class RiskPlaybooksService {
             },
           });
           results.push({ type: a.type, taskId: task.id });
+        } else if (a.type === "NOTIFY_ROLE" && a.role) {
+          const notified = await this.notifyRole(a.role as UserRole, domain, subjectType, subjectId);
+          results.push({ type: a.type, notified });
+        } else if (a.type === "FREEZE_PACKING") {
+          const frozen = await this.freezePacking(domain, subjectType, subjectId);
+          results.push({ type: a.type, frozen });
         } else {
           results.push({ type: a.type, skipped: true });
           this.logger.log(`Playbook action ${a.type} recorded for ${subjectType}:${subjectId}`);
@@ -119,5 +129,50 @@ export class RiskPlaybooksService {
         },
       });
     }
+  }
+
+  private async notifyRole(role: UserRole, domain: RiskDomainId, subjectType: RiskSubjectType, subjectId: string) {
+    const users = await this.prisma.user.findMany({
+      where: { role, isActive: true },
+      select: { id: true },
+    });
+    if (!this.notifications) return { count: 0, reason: "notifications_unavailable" };
+
+    let count = 0;
+    for (const user of users) {
+      const row = await this.notifications.create({
+        userId: user.id,
+        type: "ORDER_STAGE_CHANGED",
+        title: `Risk alert: ${domain}`,
+        body: `${subjectType}:${subjectId} requires attention`,
+        entityType: "risk",
+        entityId: subjectId,
+      });
+      if (row) count += 1;
+    }
+    return { count };
+  }
+
+  private async freezePacking(domain: RiskDomainId, subjectType: RiskSubjectType, subjectId: string) {
+    const admins = await this.prisma.user.findMany({
+      where: { role: "ADMIN", isActive: true },
+      select: { id: true },
+    });
+    let notified = 0;
+    if (this.notifications) {
+      for (const admin of admins) {
+        const row = await this.notifications.create({
+          userId: admin.id,
+          type: "ORDER_STAGE_CHANGED",
+          title: "Risk: packing freeze requested",
+          body: `${domain} ${subjectType}:${subjectId} triggered FREEZE_PACKING`,
+          entityType: "risk",
+          entityId: subjectId,
+          meta: { frozen: true },
+        });
+        if (row) notified += 1;
+      }
+    }
+    return { frozen: true, notified };
   }
 }

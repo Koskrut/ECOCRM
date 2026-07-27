@@ -7,12 +7,12 @@ const SEVERITY_WEIGHT: Record<string, number> = {
   INFO: 8,
   WARNING: 18,
   HIGH: 32,
-  CRITICAL: 45,
+  CRITICAL: 60,
 };
 
 const SIGNAL_EXPLANATIONS: Record<string, { uk: string; en: string; weight?: number }> = {
   DEBT_OVERDUE: { uk: "Є прострочена заборгованість", en: "Overdue debt present", weight: 28 },
-  DEBT_AGED_30: { uk: "Прострочка понад 30 днів", en: "Debt aged over 30 days", weight: 40 },
+  DEBT_AGED_30: { uk: "Прострочка понад 30 днів", en: "Debt aged over 30 days", weight: 60 },
   DORMANT_NO_ORDER_90: { uk: "Клієнт без замовлень 90+ днів", en: "No orders in 90+ days", weight: 22 },
   BANK_UNMATCHED: { uk: "Нерозподілені банківські транзакції", en: "Unmatched bank transactions", weight: 25 },
   BANK_NEEDS_REVIEW: { uk: "Транзакції потребують перевірки", en: "Bank transactions need review", weight: 20 },
@@ -31,10 +31,10 @@ const SIGNAL_EXPLANATIONS: Record<string, { uk: string; en: string; weight?: num
   WIP_SCRAP: { uk: "Scrap у виробництві", en: "Production scrap", weight: 14 },
   LEADS_NEED_ATTENTION: { uk: "Ліди без дотику", en: "Leads need attention", weight: 16 },
   SNAPSHOT_STALE: { uk: "Застарілий snapshot 1C", en: "Stale 1C inventory snapshot", weight: 30 },
-  SNAPSHOT_MISSING: { uk: "Немає snapshot 1C", en: "Missing 1C inventory snapshot", weight: 35 },
+  SNAPSHOT_MISSING: { uk: "Немає snapshot 1C", en: "Missing 1C inventory snapshot", weight: 60 },
   EXPOSURE_HIGH: { uk: "Високе використання ліміту", en: "High credit limit utilization", weight: 30 },
-  EXPOSURE_CRITICAL: { uk: "Ліміт перевищено", en: "Credit limit exceeded", weight: 45 },
-  PROFILE_BLOCKED: { uk: "Кредитний профіль заблоковано", en: "Credit profile blocked", weight: 50 },
+  EXPOSURE_CRITICAL: { uk: "Ліміт перевищено", en: "Credit limit exceeded", weight: 65 },
+  PROFILE_BLOCKED: { uk: "Кредитний профіль заблоковано", en: "Credit profile blocked", weight: 80 },
 };
 
 @Injectable()
@@ -89,7 +89,7 @@ export class RiskScorecardService {
     const reasons: RiskReasonEntry[] = [];
     let score = 0;
     if (input.blocked) {
-      const w = 50;
+      const w = 80;
       score += w;
       reasons.push({
         code: "PROFILE_BLOCKED",
@@ -100,7 +100,7 @@ export class RiskScorecardService {
       });
     }
     if (input.exposurePct >= 100) {
-      const w = 45;
+      const w = 65;
       score += w;
       reasons.push({
         code: "EXPOSURE_CRITICAL",

@@ -1,6 +1,6 @@
 import { RiskBand, RiskDomainId } from "@prisma/client";
 
-export const RISK_MODEL_VERSION = "scorecard-v1";
+export const RISK_MODEL_VERSION = "scorecard-v2";
 export const ERI_MODEL_VERSION = "eri-v1";
 
 export type RiskDomainMeta = {
@@ -35,7 +35,7 @@ export const DEFAULT_CREDIT_POLICY = {
   approveExposurePct: 90,
   blockExposurePct: 100,
   blockOverdueDays: 30,
-  defaultCreditLimit: 100_000,
+  defaultCreditLimit: 0,
   defaultCurrency: "UAH",
 };
 

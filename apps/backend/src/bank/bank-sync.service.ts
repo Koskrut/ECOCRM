@@ -6,6 +6,7 @@ import { BankProviderRegistry } from "./bank-provider.registry";
 import { BankStatementSkipError } from "./providers/types";
 import type { RawBankTransaction } from "./providers/types";
 import { MatchEngineService } from "./match-engine.service";
+import { BankTransactionClassifierService } from "./bank-transaction-classifier.service";
 
 const CURSOR_MAX_AGE_MS = 15 * 60 * 1000;
 
@@ -29,6 +30,7 @@ export class BankSyncService {
     private readonly prisma: PrismaService,
     private readonly matchEngine: MatchEngineService,
     private readonly providerRegistry: BankProviderRegistry,
+    private readonly classifier: BankTransactionClassifierService,
   ) {}
 
   async syncAll(
@@ -40,6 +42,7 @@ export class BankSyncService {
     accounts: number;
     transactionsImported: number;
     matched: number;
+    technicalMarked?: number;
     errors?: { bankAccountId: string; message: string }[];
   }> {
     let dateFrom: Date | undefined;
@@ -111,11 +114,13 @@ export class BankSyncService {
       }
     }
 
+    const technicalMarked = await this.classifier.classifyExistingUnmatched();
     const { matched } = await this.matchEngine.run();
     return {
       accounts: accountsWithIban.length,
       transactionsImported,
       matched,
+      technicalMarked,
       ...(errors.length > 0 && { errors }),
     };
   }
@@ -234,6 +239,7 @@ export class BankSyncService {
       await this.upsertTransaction(bankAccountId, provider, tx);
       count++;
     }
+    await this.classifier.classifyExistingUnmatched();
     await this.matchEngine.run();
     return count;
   }
@@ -246,6 +252,15 @@ export class BankSyncService {
     const stableProviderKey = provider?.resolveStableDedupKey?.(tx) ?? null;
     const dedupKey = stableProviderKey ?? tx.externalId ?? tx.hash ?? computeTxHash(tx);
     const hash = tx.hash ?? computeTxHash(tx);
+    const ownAccounts = await this.classifier.getOwnAccountHints();
+    const classification = this.classifier.technicalCreateFields(
+      {
+        description: tx.description,
+        counterpartyName: tx.counterpartyName,
+        counterpartyIban: tx.counterpartyIban,
+      },
+      ownAccounts,
+    );
     await this.prisma.bankTransaction.upsert({
       where: { bankAccountId_dedupKey: { bankAccountId, dedupKey } },
       create: {
@@ -261,6 +276,10 @@ export class BankSyncService {
         counterpartyName: tx.counterpartyName ?? null,
         counterpartyIban: tx.counterpartyIban ?? null,
         rawPayload: tx.rawPayload ? (tx.rawPayload as object) : undefined,
+        matchStatus: classification.matchStatus,
+        ignoreCategory: classification.ignoreCategory,
+        ignoreSource: classification.ignoreSource,
+        ignoredAt: classification.ignoredAt,
       },
       update: {
         externalId: tx.externalId ?? undefined,

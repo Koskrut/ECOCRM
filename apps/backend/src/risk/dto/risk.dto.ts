@@ -1,4 +1,14 @@
+import {
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from "class-validator";
+import { Transform, Type } from "class-transformer";
 import type { RiskBand, RiskDecisionOutcome, RiskDomainId, RiskSubjectType } from "@prisma/client";
+import { PaymentType } from "@prisma/client";
 
 export type RiskHubResponse = {
   eri: {
@@ -19,7 +29,7 @@ export type RiskHubResponse = {
   }[];
   criticalSubjects: RiskScoreDto[];
   pendingApprovals: RiskDecisionDto[];
-  deepLinks: { label: string; href: string }[];
+  deepLinks: { labelUk: string; labelEn: string; href: string }[];
 };
 
 export type RiskScoreDto = {
@@ -47,36 +57,140 @@ export type RiskDecisionDto = {
   approvedAt: string | null;
 };
 
-export type EvaluateDeferredGateDto = {
+export class EvaluateDeferredGateDto {
+  @IsOptional()
+  @IsString()
   contactId?: string | null;
+
+  @IsOptional()
+  @IsString()
   companyId?: string | null;
+
+  @IsOptional()
+  @IsString()
   orderId?: string | null;
-  totalAmount: number;
-  paymentType: string;
-};
 
-export type CreditProfileDto = {
-  id: string;
-  contactId: string | null;
-  companyId: string | null;
-  creditLimit: number;
-  currency: string;
-  utilizedExposure: number;
-  availableCredit: number;
-  riskClass: string;
-  status: string;
-  paymentTermsDays: number;
-};
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  totalAmount!: number;
 
-export type UpdateCreditProfileDto = {
+  @IsEnum(PaymentType)
+  paymentType!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === "true")
+  @IsBoolean()
+  persistDecision?: boolean;
+}
+
+export class GetExposureQueryDto {
+  @IsOptional()
+  @IsString()
+  contactId?: string;
+
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  additionalAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  excludeOrderId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === "true")
+  @IsBoolean()
+  persist?: boolean;
+}
+
+export class UpdateCreditProfileDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
   creditLimit?: number;
-  currency?: string;
-  riskClass?: string;
-  status?: string;
-  paymentTermsDays?: number;
-  notes?: string | null;
-};
 
-export type ApproveDecisionDto = {
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  riskClass?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  paymentTermsDays?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string | null;
+}
+
+export class ApproveDecisionDto {
+  @IsOptional()
+  @IsString()
   note?: string;
-};
+}
+
+export class UpdateCreditPolicyDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  warnExposurePct?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  approveExposurePct?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  blockExposurePct?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  blockOverdueDays?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  defaultCreditLimit?: number;
+
+  @IsOptional()
+  @IsString()
+  defaultCurrency?: string;
+}
+
+export class GetScoresQueryDto {
+  @IsOptional()
+  @IsString()
+  domain?: RiskDomainId;
+
+  @IsOptional()
+  @IsString()
+  subjectType?: RiskSubjectType;
+
+  @IsOptional()
+  @IsString()
+  subjectId?: string;
+}

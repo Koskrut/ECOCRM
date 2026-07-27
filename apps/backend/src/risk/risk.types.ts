@@ -39,6 +39,8 @@ export type RiskGateEvaluation = {
   reasons: RiskReasonEntry[];
   score?: number;
   band?: RiskBand;
+  decisionId?: string;
+  approvalSatisfied?: boolean;
 };
 
 export type CollectorSignal = {

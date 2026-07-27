@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ShieldAlert, RefreshCw } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
@@ -15,18 +15,31 @@ export default function RiskHubPage() {
   const [hub, setHub] = useState<RiskHub | null>(null);
   const [loading, setLoading] = useState(true);
   const [canManage, setCanManage] = useState(false);
+  const [canRecompute, setCanRecompute] = useState(false);
   const [activeDomain, setActiveDomain] = useState<string>("ALL");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, me] = await Promise.all([
-        riskApi.getHub(),
-        apiGet<{ user?: { role?: string } }>("/auth/me").catch(() => ({ user: undefined })),
-      ]);
+      const me = await apiGet<{ user?: { id?: string; role?: string } }>("/auth/me").catch(() => ({
+        user: undefined,
+      }));
+      const data = await riskApi.getHub();
       setHub(data);
-      const role = me.user?.role;
-      setCanManage(role === "ADMIN" || role === "LEAD");
+
+      if (me.user?.id) {
+        const effective = await apiGet<{ permissions?: string[] }>(
+          `/rbac/users/${me.user.id}/effective`,
+        ).catch(() => ({ permissions: [] }));
+        const permissions = effective.permissions ?? [];
+        setCanManage(
+          permissions.includes("risk.credit.manage") || permissions.includes("risk.manage"),
+        );
+        setCanRecompute(permissions.includes("risk.manage"));
+      } else {
+        setCanManage(false);
+        setCanRecompute(false);
+      }
     } catch {
       setHub(null);
     } finally {
@@ -38,10 +51,20 @@ export default function RiskHubPage() {
     void load();
   }, [load]);
 
+  const visibleDomains = useMemo(
+    () =>
+      (hub?.domainHeatmap ?? []).filter(
+        (d) => d.avgScore > 0 || d.criticalCount > 0 || d.highCount > 0,
+      ),
+    [hub?.domainHeatmap],
+  );
+
   const domains =
     activeDomain === "ALL"
-      ? hub?.domainHeatmap ?? []
-      : (hub?.domainHeatmap ?? []).filter((d) => d.domain === activeDomain);
+      ? visibleDomains
+      : visibleDomains.filter((d) => d.domain === activeDomain);
+
+  const trendMax = Math.max(...(hub?.eri.trend7d ?? [0]), 1);
 
   return (
     <PageShell title={t.pageTitle} subtitle={t.pageSubtitle} icon={ShieldAlert} helpRouteKey="risk">
@@ -55,7 +78,7 @@ export default function RiskHubPage() {
             >
               {t.tabAll}
             </button>
-            {(hub?.domainHeatmap ?? []).map((d) => (
+            {visibleDomains.map((d) => (
               <button
                 key={d.domain}
                 type="button"
@@ -66,7 +89,7 @@ export default function RiskHubPage() {
               </button>
             ))}
           </div>
-          {canManage ? (
+          {canRecompute ? (
             <button
               type="button"
               onClick={() => void riskApi.recompute().then(() => load())}
@@ -93,28 +116,51 @@ export default function RiskHubPage() {
                     {t.updatedAt}: {new Date(hub.eri.computedAt).toLocaleString()}
                   </p>
                 ) : null}
+                {hub.eri.trend7d.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-medium text-zinc-500">{t.trend7d}</p>
+                    <div className="flex h-16 items-end gap-1">
+                      {hub.eri.trend7d.map((value, index) => (
+                        <div
+                          key={`eri-trend-${index}`}
+                          className="flex-1 rounded-sm bg-zinc-200"
+                          style={{ height: `${Math.max(8, (value / trendMax) * 100)}%` }}
+                          title={String(value)}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-1 flex justify-between text-[10px] text-zinc-400">
+                      <span>{hub.eri.trend7d[0]}</span>
+                      <span>{hub.eri.trend7d[hub.eri.trend7d.length - 1]}</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               <div className="md:col-span-2 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
                 <h2 className="mb-4 text-sm font-medium text-zinc-500">{t.domainHeatmap}</h2>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {domains.map((d) => (
-                    <div key={d.domain} className="rounded-lg border border-zinc-100 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-zinc-800">{d.labelUk}</span>
-                        <RiskBandBadge band={d.band} />
+                {domains.length === 0 ? (
+                  <p className="text-sm text-zinc-500">{t.emptyDescription}</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {domains.map((d) => (
+                      <div key={d.domain} className="rounded-lg border border-zinc-100 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-zinc-800">{d.labelUk}</span>
+                          <RiskBandBadge band={d.band} />
+                        </div>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-900">{d.avgScore}</p>
+                        <p className="text-xs text-zinc-500">
+                          {t.bandCritical} {d.criticalCount} · {t.bandHigh} {d.highCount}
+                        </p>
+                        {d.deepLink ? (
+                          <Link href={d.deepLink} className="mt-2 inline-block text-xs text-blue-600 hover:underline">
+                            {t.openQueue}
+                          </Link>
+                        ) : null}
                       </div>
-                      <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-900">{d.avgScore}</p>
-                      <p className="text-xs text-zinc-500">
-                        CRIT {d.criticalCount} · HIGH {d.highCount}
-                      </p>
-                      {d.deepLink ? (
-                        <Link href={d.deepLink} className="mt-2 inline-block text-xs text-blue-600 hover:underline">
-                          {t.openQueue}
-                        </Link>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -148,9 +194,12 @@ export default function RiskHubPage() {
                   <h2 className="mb-4 text-sm font-medium text-zinc-500">{t.criticalSubjects}</h2>
                   <ul className="max-h-80 space-y-2 overflow-y-auto">
                     {hub.criticalSubjects.map((s) => (
-                      <li key={`${s.domain}-${s.subjectType}-${s.subjectId}`} className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 text-sm">
+                      <li
+                        key={`${s.domain}-${s.subjectType}-${s.subjectId}`}
+                        className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 text-sm"
+                      >
                         <span>
-                          {s.domain} · {s.subjectType}:{s.subjectId.slice(0, 8)}
+                          {s.domain} · {s.subjectType}:{s.subjectLabel ?? s.subjectId.slice(0, 8)}
                         </span>
                         <span className="flex items-center gap-2">
                           <span className="font-semibold tabular-nums">{s.score}</span>
@@ -168,7 +217,7 @@ export default function RiskHubPage() {
               <div className="flex flex-wrap gap-3">
                 {hub.deepLinks.map((l) => (
                   <Link key={l.href} href={l.href} className="text-sm text-blue-600 hover:underline">
-                    {l.label}
+                    {l.labelUk}
                   </Link>
                 ))}
               </div>

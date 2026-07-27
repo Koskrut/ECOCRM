@@ -118,6 +118,12 @@ export class PaymentsService {
       include: { payments: { select: { amount: true, status: true } } },
     });
     if (!tx) return;
+    if (
+      tx.matchStatus === BankTransactionMatchStatus.TECHNICAL ||
+      tx.matchStatus === BankTransactionMatchStatus.IGNORED
+    ) {
+      return;
+    }
     const txAmount = Number(tx.amount);
     const allocated = sumBankTransactionAllocations(tx.payments);
     const remaining = remainingBankTransactionAmount(txAmount, tx.payments);
