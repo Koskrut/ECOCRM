@@ -1,7 +1,7 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
+import { FlatList, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 
 import { CompanyRow } from "@/components/CompanyRow";
 import { ContactRow } from "@/components/ContactRow";
@@ -164,31 +164,33 @@ export default function ClientsScreen() {
         }}
       />
 
-      <View style={[styles.quickRow, { marginBottom: theme.spacing.md }]}>
-        <Chip label={t("leads.title")} onPress={() => router.push("/leads")} />
-        <Chip label={t("clients.newOrder")} onPress={() => router.push("/orders/new")} />
-      </View>
-
       <SearchField value={query} onChangeText={setQuery} placeholder={searchPlaceholder} />
 
-      {segment === "contacts" ? (
-        <View style={[styles.presetRow, { marginTop: theme.spacing.sm }]}>
-          {contactPresets.map((p) => (
-            <Chip
-              key={p.key}
-              label={p.label}
-              selected={contactMode === p.key}
-              onPress={() => {
-                setContactMode(p.key);
-                if (p.key !== "search") setQuery("");
-              }}
-            />
-          ))}
-        </View>
-      ) : null}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filtersScroll}
+        contentContainerStyle={styles.filtersRow}
+      >
+        <Chip label={t("leads.title")} onPress={() => router.push("/leads")} />
+        <Chip label={t("clients.newOrder")} onPress={() => router.push("/orders/new")} />
+        {segment === "contacts"
+          ? contactPresets.map((p) => (
+              <Chip
+                key={p.key}
+                label={p.label}
+                selected={contactMode === p.key}
+                onPress={() => {
+                  setContactMode(p.key);
+                  if (p.key !== "search") setQuery("");
+                }}
+              />
+            ))
+          : null}
+      </ScrollView>
 
       {showSkeleton ? (
-        <View style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
+        <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.sm }}>
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
@@ -196,7 +198,7 @@ export default function ClientsScreen() {
       ) : segment === "contacts" ? (
         <FlatList
           data={contacts}
-          style={[styles.list, { marginTop: theme.spacing.md }]}
+          style={[styles.list, { marginTop: theme.spacing.sm }]}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={reloadContacts} tintColor={theme.colors.primary} />
           }
@@ -225,7 +227,7 @@ export default function ClientsScreen() {
       ) : (
         <FlatList
           data={companies}
-          style={[styles.list, { marginTop: theme.spacing.md }]}
+          style={[styles.list, { marginTop: theme.spacing.sm }]}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={reloadCompanies} tintColor={theme.colors.primary} />
           }
@@ -260,7 +262,7 @@ export default function ClientsScreen() {
 }
 
 const styles = StyleSheet.create({
-  quickRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  presetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filtersScroll: { flexGrow: 0, marginBottom: 4 },
+  filtersRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 8 },
   list: { flex: 1 },
 });

@@ -17,6 +17,7 @@ import { NearestVisitHero } from "@/components/today/NearestVisitHero";
 import { ReadyOrderRow } from "@/components/today/ReadyOrderRow";
 import { SectionHeader } from "@/components/today/SectionHeader";
 import { ShiftStatusCard } from "@/components/today/ShiftStatusCard";
+import { TrackingHealthBanner } from "@/components/today/TrackingHealthBanner";
 import { StatTiles, type StatTile } from "@/components/today/StatTiles";
 import { TodayHeader } from "@/components/today/TodayHeader";
 import { TeamVisitFilter } from "@/components/visit/TeamVisitFilter";
@@ -57,6 +58,9 @@ export default function TodayScreen() {
     endShift,
     loading: shiftLoading,
     pendingSamples,
+    trackingMode,
+    backgroundPermission,
+    batteryOptimizationStatus,
   } = useShiftTracking();
 
   const [items, setItems] = useState<VisitSummary[]>([]);
@@ -341,6 +345,14 @@ export default function TodayScreen() {
           onStart={() => void startShift()}
           onEnd={() => void endShift()}
         />
+
+        {activeShift?.status === "ACTIVE" && activeShift.trackingEnabled ? (
+          <TrackingHealthBanner
+            backgroundPermission={backgroundPermission}
+            batteryOptimizationStatus={batteryOptimizationStatus}
+            trackingMode={trackingMode}
+          />
+        ) : null}
 
         {loading && items.length === 0 ? (
           <>

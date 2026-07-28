@@ -27,6 +27,7 @@ import {
   registerBackgroundTrackingWatchdog,
   unregisterBackgroundTrackingWatchdog,
 } from "@/lib/location-tracking-watchdog";
+import type { BatteryOptimizationStatus } from "@/lib/location-tracking-restart";
 import {
   getTrackingPermissionStatus,
   isAndroid,
@@ -49,6 +50,8 @@ type ShiftTrackingCtx = {
   lastFlushAt: string | null;
   trackingHealthy: boolean;
   backgroundTaskStarted: boolean;
+  backgroundPermission: string | null;
+  batteryOptimizationStatus: BatteryOptimizationStatus;
   refresh: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
@@ -67,6 +70,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
   const [trackingHealthy, setTrackingHealthy] = useState(true);
   const [backgroundTaskStarted, setBackgroundTaskStarted] = useState(false);
+  const [backgroundPermission, setBackgroundPermission] = useState<string | null>(null);
+  const [batteryOptimizationStatus, setBatteryOptimizationStatus] =
+    useState<BatteryOptimizationStatus>("unknown");
   const foregroundWarnedRef = useRef(false);
   const flushAlertShownRef = useRef(false);
 
@@ -77,6 +83,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setLastFlushAt(health.lastFlushAt);
       setTrackingHealthy(health.healthy);
       setBackgroundTaskStarted(health.backgroundTaskStarted);
+      setBackgroundPermission(health.backgroundPermission);
+      setBatteryOptimizationStatus(health.batteryOptimizationStatus);
       return health;
     },
     [],
@@ -433,6 +441,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastFlushAt,
       trackingHealthy,
       backgroundTaskStarted,
+      backgroundPermission,
+      batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,
@@ -447,6 +457,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastFlushAt,
       trackingHealthy,
       backgroundTaskStarted,
+      backgroundPermission,
+      batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,

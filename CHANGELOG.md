@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.122**.)_
+_(планируемые изменения после **0.2.123**.)_
+
+## [0.2.123] — 2026-07-28
+
+### Summary
+
+Патч **0.2.123**: order PDF Cyrillic (DejaVu); invoice/waybill header in PDF; GPS keepalive samples; mobile tracking health banner.
+
+### Added
+
+- **Order PDF fonts**: bundled **DejaVu Sans** in Docker (`assets/fonts`); `resolveDocumentFontPaths`; invoice/waybill PDFs render Cyrillic correctly.
+- **PDF header**: `documentHeaderFromOrder` — order #, invoice/waybill numbers and dates from 1C push fields.
+- **GPS keepalive**: `KEEPALIVE_INTERVAL_MS` (3 min) — accept near-duplicate sample after idle (backend + mobile filter in sync).
+- **Mobile `TrackingHealthBanner`**: background location + battery optimization warnings on Today tab.
+
+### Changed
+
+- **Visit complete GPS**: dual-write only checks accuracy, not distance dedup (visit checkpoint always recorded when accurate).
+- **Mobile tracking**: adaptive config tweaks; health exposes `backgroundPermission` / `batteryOptimizationStatus`.
+- **Orders web**: formatted invoice/waybill dates in modal; client column visible below xl breakpoint.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.123`**.
+- **Миграций нет.**
 
 ## [0.2.122] — 2026-07-27
 

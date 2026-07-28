@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { ListItem } from "@/components/ui/ListItem";
 import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
+import { TrackingHealthBanner } from "@/components/today/TrackingHealthBanner";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
 import { useOfflineQueue } from "@/context/offline-queue-context";
@@ -42,6 +43,8 @@ export default function MoreScreen() {
     endShift,
     isTracking,
     backgroundTaskStarted,
+    backgroundPermission,
+    batteryOptimizationStatus,
   } = useShiftTracking();
 
   useFocusEffect(
@@ -113,6 +116,13 @@ export default function MoreScreen() {
         {visitsEnabled ? (
           <>
             <SectionTitle title={t("more.shift")} />
+            {activeShift?.status === "ACTIVE" && activeShift.trackingEnabled ? (
+              <TrackingHealthBanner
+                backgroundPermission={backgroundPermission}
+                batteryOptimizationStatus={batteryOptimizationStatus}
+                trackingMode={trackingMode}
+              />
+            ) : null}
             {isTracking ? (
               <View
                 style={[

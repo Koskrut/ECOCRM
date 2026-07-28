@@ -4,12 +4,14 @@ import * as Location from "expo-location";
 import { STORAGE_KEYS } from "./location-tracking-buffer";
 import { FIELD_LOCATION_TASK } from "./location-tracking-config";
 import {
-  DEFAULT_TIER,
   watchOptionsForTier,
   type SamplingTier,
   type WatchOptions,
 } from "./location-tracking-config";
-import { setPendingAdaptiveTier } from "./location-tracking-restart";
+import {
+  clearPendingAdaptiveTier,
+  setPendingAdaptiveTier,
+} from "./location-tracking-restart";
 
 let currentForegroundTier: SamplingTier = DEFAULT_TIER;
 let foregroundSubscription: Location.LocationSubscription | null = null;
@@ -73,6 +75,19 @@ export async function applyAdaptiveTier(
     | "none"
     | null;
   if (mode === "background") {
+    try {
+      const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+        () => false,
+      );
+      if (started) {
+        await restartBackgroundWatch(tier);
+        setCurrentForegroundTier(tier);
+        await clearPendingAdaptiveTier();
+        return;
+      }
+    } catch {
+      /* fall through to pending tier */
+    }
     await setPendingAdaptiveTier(tier);
     return;
   }

@@ -3688,13 +3688,13 @@ export function OrderModal({
                           {order.invoiceNumber && (
                             <div>
                               {t.invoice} {order.invoiceNumber}
-                              {order.invoiceDate ? ` від ${order.invoiceDate}` : ""}
+                              {order.invoiceDate ? ` від ${formatDate(order.invoiceDate)}` : ""}
                             </div>
                           )}
                           {order.waybillNumber && (
                             <div>
                               {t.waybill} {order.waybillNumber}
-                              {order.waybillDate ? ` від ${order.waybillDate}` : ""}
+                              {order.waybillDate ? ` від ${formatDate(order.waybillDate)}` : ""}
                             </div>
                           )}
                         </div>

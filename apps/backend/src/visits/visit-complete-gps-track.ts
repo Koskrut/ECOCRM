@@ -1,6 +1,6 @@
 import { FieldShiftStatus, type Prisma } from "@prisma/client";
 import { instantToKyivYmd } from "../crm-timezone";
-import { filterGpsSample } from "../field/gps-sample-filter";
+import { TRACK_MAX_ACCURACY_M } from "../field/gps-sample-filter";
 
 type PrismaClientLike = {
   fieldShift: {
@@ -67,12 +67,6 @@ export async function dualWriteCompleteGpsToActiveShift(
     return { created: false, reason: "no_active_tracking_shift" };
   }
 
-  const lastDb = await prisma.fieldLocationSample.findFirst({
-    where: { shiftId: shift.id },
-    orderBy: { clientRecordedAt: "desc" },
-    select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
-  });
-
   const candidate = {
     lat: opts.lat,
     lng: opts.lng,
@@ -83,9 +77,14 @@ export async function dualWriteCompleteGpsToActiveShift(
     clientRecordedAt: opts.clientRecordedAt,
   };
 
-  const verdict = filterGpsSample(lastDb, candidate);
-  if (!verdict.accept) {
-    return { created: false, reason: verdict.reason ?? "filtered" };
+  const acc = candidate.accuracyM;
+  if (
+    acc != null &&
+    typeof acc === "number" &&
+    Number.isFinite(acc) &&
+    acc > TRACK_MAX_ACCURACY_M
+  ) {
+    return { created: false, reason: "bad_accuracy" };
   }
 
   await prisma.fieldLocationSample.create({

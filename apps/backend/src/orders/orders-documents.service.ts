@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { resolveDocumentFontPaths } from "./orders-documents-fonts";
 
 const ORDER_DOCUMENTS_INCLUDE = {
   contact: {
@@ -43,6 +44,34 @@ export type DocumentRequisites = {
   /** Напр. "Платник єдиного податку" */
   taxPayerStatus?: string;
 };
+
+/** Numbers/dates for PDF header — from Google Sheet / 1C push fields on Order. */
+export function documentHeaderFromOrder(order: {
+  orderNumber: string;
+  createdAt: Date | string | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: Date | string | null;
+  waybillNumber?: string | null;
+  waybillDate?: Date | string | null;
+}): {
+  orderNumber: string;
+  orderDate: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  waybillNumber: string;
+  waybillDate: string;
+} {
+  const fmt = (d: Date | string | null | undefined) =>
+    d ? new Date(d).toLocaleDateString("uk-UA") : "—";
+  return {
+    orderNumber: order.orderNumber,
+    orderDate: fmt(order.createdAt),
+    invoiceNumber: order.invoiceNumber ?? "—",
+    invoiceDate: fmt(order.invoiceDate),
+    waybillNumber: order.waybillNumber ?? "—",
+    waybillDate: fmt(order.waybillDate),
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -87,6 +116,9 @@ export class OrdersDocumentsService {
     const hasNewFormat = iban || requisites.address || requisites.edrpou != null;
     if (hasNewFormat) {
       const lines: string[] = [];
+      if (requisites.legalName?.trim()) {
+        lines.push(requisites.legalName.trim());
+      }
       if (iban) {
         lines.push(`П/р ${iban}, Банк Приват, МФО ${mfo}`);
       }
@@ -122,8 +154,17 @@ export class OrdersDocumentsService {
     return order;
   }
 
-  async buildInvoicePdf(orderId: string, actor?: AuthUser): Promise<Buffer> {
-    const order = await this.getOrderForDocument(orderId, actor);
+  private registerFonts(doc: PdfDoc): { regular: string; bold: string } {
+    const fonts = resolveDocumentFontPaths();
+    doc.registerFont("DocSans", fonts.regular);
+    doc.registerFont("DocSans-Bold", fonts.bold);
+    doc.font("DocSans");
+    return { regular: "DocSans", bold: "DocSans-Bold" };
+  }
+
+  private async renderPdf(
+    draw: (doc: PdfDoc) => void,
+  ): Promise<Buffer> {
     const PDFDocument = (await import("pdfkit")).default;
     const doc = new PDFDocument({ size: "A4", margin: 50 });
     const chunks: Buffer[] = [];
@@ -131,34 +172,44 @@ export class OrdersDocumentsService {
     await new Promise<void>((resolve, reject) => {
       doc.on("end", () => resolve());
       doc.on("error", reject);
-      this.drawInvoice(doc, order);
+      draw(doc);
       doc.end();
     });
     return Buffer.concat(chunks);
   }
 
+  async buildInvoicePdf(orderId: string, actor?: AuthUser): Promise<Buffer> {
+    const order = await this.getOrderForDocument(orderId, actor);
+    return this.renderPdf((doc) => this.drawInvoice(doc, order));
+  }
+
   async buildWaybillPdf(orderId: string, actor?: AuthUser): Promise<Buffer> {
     const order = await this.getOrderForDocument(orderId, actor);
-    const PDFDocument = (await import("pdfkit")).default;
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    await new Promise<void>((resolve, reject) => {
-      doc.on("end", () => resolve());
-      doc.on("error", reject);
-      this.drawWaybill(doc, order);
-      doc.end();
-    });
-    return Buffer.concat(chunks);
+    return this.renderPdf((doc) => this.drawWaybill(doc, order));
+  }
+
+  /** Build PDFs from an already-loaded order (tests). */
+  async buildInvoicePdfFromOrder(
+    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
+  ): Promise<Buffer> {
+    return this.renderPdf((doc) => this.drawInvoice(doc, order));
+  }
+
+  async buildWaybillPdfFromOrder(
+    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
+  ): Promise<Buffer> {
+    return this.renderPdf((doc) => this.drawWaybill(doc, order));
   }
 
   private drawInvoice(
     doc: PdfDoc,
     order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
   ) {
+    const fonts = this.registerFonts(doc);
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
     const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
     const buyer = this.buyerName(order.contact);
+    const header = documentHeaderFromOrder(order);
 
     doc.fontSize(14).text("Рахунок", { align: "center" }).moveDown(0.5);
     doc.fontSize(10);
@@ -172,24 +223,17 @@ export class OrdersDocumentsService {
     doc.text("Покупець: " + buyer, 50, doc.y);
     doc.y += 20;
 
-    const orderDate = order.createdAt
-      ? new Date(order.createdAt).toLocaleDateString("uk-UA")
-      : "—";
-    doc.text(`Номер замовлення: ${order.orderNumber}`, 50, doc.y);
+    doc.text(`Номер замовлення: ${header.orderNumber}`, 50, doc.y);
     doc.y += 14;
-    doc.text(`Дата: ${orderDate}`, 50, doc.y);
+    doc.text(`Дата: ${header.orderDate}`, 50, doc.y);
     doc.y += 14;
-    const invNum = order.invoiceNumber ?? "—";
-    const invDate = order.invoiceDate
-      ? new Date(order.invoiceDate).toLocaleDateString("uk-UA")
-      : "—";
-    doc.text(`Номер рахунку: ${invNum}`, 50, doc.y);
+    doc.text(`Номер рахунку: ${header.invoiceNumber}`, 50, doc.y);
     doc.y += 14;
-    doc.text(`Дата рахунку: ${invDate}`, 50, doc.y);
+    doc.text(`Дата рахунку: ${header.invoiceDate}`, 50, doc.y);
     doc.y += 24;
 
     const tableTop = doc.y;
-    doc.font("Helvetica-Bold");
+    doc.font(fonts.bold);
     doc.text("№", 50, tableTop);
     doc.text("Найменування", 70, tableTop);
     doc.text("Кількість", 320, tableTop);
@@ -198,7 +242,7 @@ export class OrdersDocumentsService {
     doc.y += 18;
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 8;
-    doc.font("Helvetica");
+    doc.font(fonts.regular);
 
     order.items.forEach((item, idx) => {
       const name = item.product?.name ?? item.productNameSnapshot ?? "—";
@@ -216,7 +260,7 @@ export class OrdersDocumentsService {
     doc.y += 8;
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 14;
-    doc.font("Helvetica-Bold");
+    doc.font(fonts.bold);
     const totalStr = this.formatDocumentTotal(order);
     doc.text(totalStr, 380, doc.y);
   }
@@ -238,11 +282,13 @@ export class OrdersDocumentsService {
     doc: PdfDoc,
     order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
   ) {
+    const fonts = this.registerFonts(doc);
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
     const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
     const buyer = this.buyerName(order.contact);
+    const header = documentHeaderFromOrder(order);
 
-    doc.fontSize(14).text("Расходная накладная (РН)", { align: "center" }).moveDown(0.5);
+    doc.fontSize(14).text("Видаткова накладна (РН)", { align: "center" }).moveDown(0.5);
     doc.fontSize(10);
     doc.text("Відправник:", 50, doc.y);
     doc.y += 4;
@@ -254,25 +300,17 @@ export class OrdersDocumentsService {
     doc.text("Отримувач: " + buyer, 50, doc.y);
     doc.y += 20;
 
-    const orderDate = order.createdAt
-      ? new Date(order.createdAt).toLocaleDateString("uk-UA")
-      : "—";
-    const waybillNum = order.waybillNumber ?? "—";
-    const waybillDate = order.waybillDate
-      ? new Date(order.waybillDate).toLocaleDateString("uk-UA")
-      : "—";
-
-    doc.text(`Номер замовлення: ${order.orderNumber}`, 50, doc.y);
+    doc.text(`Номер замовлення: ${header.orderNumber}`, 50, doc.y);
     doc.y += 14;
-    doc.text(`Дата замовлення: ${orderDate}`, 50, doc.y);
+    doc.text(`Дата замовлення: ${header.orderDate}`, 50, doc.y);
     doc.y += 14;
-    doc.text(`Номер РН: ${waybillNum}`, 50, doc.y);
+    doc.text(`Номер РН: ${header.waybillNumber}`, 50, doc.y);
     doc.y += 14;
-    doc.text(`Дата РН: ${waybillDate}`, 50, doc.y);
+    doc.text(`Дата РН: ${header.waybillDate}`, 50, doc.y);
     doc.y += 24;
 
     const tableTop = doc.y;
-    doc.font("Helvetica-Bold");
+    doc.font(fonts.bold);
     doc.text("№", 50, tableTop);
     doc.text("Найменування", 70, tableTop);
     doc.text("Кількість", 320, tableTop);
@@ -281,7 +319,7 @@ export class OrdersDocumentsService {
     doc.y += 18;
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 8;
-    doc.font("Helvetica");
+    doc.font(fonts.regular);
 
     order.items.forEach((item, idx) => {
       const name = item.product?.name ?? item.productNameSnapshot ?? "—";
@@ -299,7 +337,7 @@ export class OrdersDocumentsService {
     doc.y += 8;
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
     doc.y += 14;
-    doc.font("Helvetica-Bold");
+    doc.font(fonts.bold);
     const totalStr = this.formatDocumentTotal(order);
     doc.text(totalStr, 380, doc.y);
   }

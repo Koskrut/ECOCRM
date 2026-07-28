@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ActiveWorkBanner } from "@/components/ActiveWorkBanner";
 import { AppTabBar } from "@/components/ui/AppTabBar";
-import { useClientOnlyValue } from "@/components/useClientOnlyValue";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { useTabBarInset } from "@/lib/use-tab-bar-inset";
@@ -18,11 +17,8 @@ function TabNavigator() {
     <Tabs
       tabBar={(props) => <AppTabBar {...props} />}
       screenOptions={{
-        headerShown: useClientOnlyValue(false, true),
-        headerStyle: { backgroundColor: theme.colors.surface },
-        headerTintColor: theme.colors.primary,
-        headerTitleStyle: { ...theme.typography.section, color: theme.colors.text },
-        headerShadowVisible: false,
+        // Custom AppHeader / TodayHeader on each tab — native header would duplicate titles and steal list height.
+        headerShown: false,
         sceneStyle: { backgroundColor: theme.colors.bg, paddingBottom: tabBarInset },
       }}>
         <Tabs.Screen

@@ -785,7 +785,7 @@ function OrdersPageContent() {
                 <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Заказ</th>
-                    <th className="px-4 py-3 hidden xl:table-cell">Клиент/Компания</th>
+                    <th className="px-4 py-3">Клиент/Компания</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Відповідальний</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Склад</th>
                     <th className="px-4 py-3">Дата</th>
@@ -875,7 +875,7 @@ function OrdersPageContent() {
                             <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
                           </div>
                         </td>
-                        <td className="px-4 py-4 hidden xl:table-cell text-zinc-700">
+                        <td className="px-4 py-4 text-zinc-700">
                           {getClientLabel(order)}
                         </td>
                         <td className="px-4 py-4 hidden lg:table-cell text-zinc-700">

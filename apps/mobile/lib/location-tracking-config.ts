@@ -1,11 +1,13 @@
 import * as Location from "expo-location";
 
-export const FIELD_LOCATION_TASK = "FIELD_LOCATION_TASK";
+export {
+  KEEPALIVE_INTERVAL_MS,
+  MAX_IMPLAUSIBLE_SPEED_KMH,
+  MIN_DISTANCE_DEDUP_M,
+  TRACK_MAX_ACCURACY_M,
+} from "./location-sample-filter";
 
-/** Keep in sync with apps/backend/src/field/gps-sample-filter.ts */
-export const TRACK_MAX_ACCURACY_M = 150;
-export const MAX_IMPLAUSIBLE_SPEED_KMH = 150;
-export const MIN_DISTANCE_DEDUP_M = 15;
+export const FIELD_LOCATION_TASK = "FIELD_LOCATION_TASK";
 
 export type SamplingTier = "moving" | "city" | "idle";
 
@@ -30,22 +32,22 @@ export type WatchOptions = {
 export const SAMPLING_TIERS: Record<SamplingTier, WatchOptions> = {
   moving: {
     accuracy: Location.Accuracy.High,
+    timeInterval: 15_000,
+    distanceInterval: 15,
+  },
+  city: {
+    accuracy: Location.Accuracy.High,
     timeInterval: 30_000,
     distanceInterval: 25,
   },
-  city: {
-    accuracy: Location.Accuracy.Balanced,
-    timeInterval: 60_000,
-    distanceInterval: 40,
-  },
   idle: {
-    accuracy: Location.Accuracy.Balanced,
-    timeInterval: 300_000,
+    accuracy: Location.Accuracy.High,
+    timeInterval: 60_000,
     distanceInterval: 0,
   },
 };
 
-export const DEFAULT_TIER: SamplingTier = "city";
+export const DEFAULT_TIER: SamplingTier = "moving";
 
 /** Speed thresholds (km/h) between accepted samples. */
 export const TIER_SPEED_MOVING_KMH = 15;

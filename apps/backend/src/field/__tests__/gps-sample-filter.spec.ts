@@ -45,6 +45,13 @@ describe("filterGpsSample", () => {
     assert.equal(result.accept, true);
   });
 
+  it("accepts keepalive duplicate after KEEPALIVE_INTERVAL_MS", () => {
+    const prev = sample(50.45, 30.52, 0, 20);
+    const next = sample(50.45005, 30.52005, 60 * 3 + 1, 20);
+    const result = filterGpsSample(prev, next);
+    assert.equal(result.accept, true);
+  });
+
   it("rejects duplicate within MIN_DISTANCE_DEDUP_M", () => {
     const prev = sample(50.45, 30.52, 0, 20);
     const next = sample(50.45005, 30.52005, 60, 20);

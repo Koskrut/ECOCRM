@@ -66,7 +66,8 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
     assert.equal(result.reason, "no_active_tracking_shift");
   });
 
-  it("skips when filter rejects duplicate near last sample", async () => {
+  it("creates sample even when near last sample (visit complete anchor)", async () => {
+    const created: unknown[] = [];
     const prisma = {
       fieldShift: {
         findFirst: async () => ({ id: "shift-1" }),
@@ -78,8 +79,9 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
           accuracyM: 10,
           clientRecordedAt: new Date("2026-07-16T11:59:00.000Z"),
         }),
-        create: async () => {
-          throw new Error("should not create");
+        create: async (args: { data: unknown }) => {
+          created.push(args.data);
+          return args.data;
         },
       },
     };
@@ -91,8 +93,32 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
       accuracyM: 10,
       clientRecordedAt: new Date("2026-07-16T12:00:00.000Z"),
     });
+    assert.equal(result.created, true);
+    assert.equal(created.length, 1);
+  });
+
+  it("skips when accuracy is too poor", async () => {
+    const prisma = {
+      fieldShift: {
+        findFirst: async () => ({ id: "shift-1" }),
+      },
+      fieldLocationSample: {
+        findFirst: async () => null,
+        create: async () => {
+          throw new Error("should not create");
+        },
+      },
+    };
+
+    const result = await dualWriteCompleteGpsToActiveShift(prisma, {
+      ownerId: "owner-1",
+      lat: 50.45,
+      lng: 30.52,
+      accuracyM: 200,
+      clientRecordedAt: new Date("2026-07-16T12:00:00.000Z"),
+    });
     assert.equal(result.created, false);
-    assert.equal(result.reason, "duplicate");
+    assert.equal(result.reason, "bad_accuracy");
   });
 
   it("looks up ACTIVE shift by visit Kyiv day (dayRef), not wall-clock today", async () => {

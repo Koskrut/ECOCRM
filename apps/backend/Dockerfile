@@ -16,6 +16,7 @@ RUN npm run prisma:generate --workspace=backend
 
 COPY apps/backend/tsconfig.json ./apps/backend/
 COPY apps/backend/src ./apps/backend/src
+COPY apps/backend/assets ./apps/backend/assets
 COPY scripts/generate-version-file.sh ./scripts/generate-version-file.sh
 RUN npm run build --workspace=backend
 
@@ -46,6 +47,7 @@ COPY --from=builder /repo/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /repo/apps/backend/dist ./dist
 COPY --from=builder /repo/apps/backend/prisma ./prisma
 COPY --from=builder /repo/apps/backend/prisma.config.cjs ./prisma.config.cjs
+COPY --from=builder /repo/apps/backend/assets ./assets
 
 EXPOSE 3001
 

@@ -12,6 +12,9 @@ export const MAX_IMPLAUSIBLE_SPEED_KMH = 150;
 /** Skip consecutive samples closer than this (metres). */
 export const MIN_DISTANCE_DEDUP_M = 15;
 
+/** Accept a near-duplicate sample after this idle span (keepalive for coverage). */
+export const KEEPALIVE_INTERVAL_MS = 3 * 60_000;
+
 export type GpsSamplePoint = {
   lat: number;
   lng: number;
@@ -47,13 +50,20 @@ export function filterGpsSample(
     return { accept: true };
   }
 
+  const prevAt = toTimeMs(prev.clientRecordedAt);
+  const nextAt = toTimeMs(next.clientRecordedAt);
   const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
   if (distM < MIN_DISTANCE_DEDUP_M) {
+    if (
+      Number.isFinite(prevAt) &&
+      Number.isFinite(nextAt) &&
+      nextAt - prevAt >= KEEPALIVE_INTERVAL_MS
+    ) {
+      return { accept: true };
+    }
     return { accept: false, reason: "duplicate" };
   }
 
-  const prevAt = toTimeMs(prev.clientRecordedAt);
-  const nextAt = toTimeMs(next.clientRecordedAt);
   if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
     const dtS = (nextAt - prevAt) / 1000;
     if (dtS > 0) {
