@@ -43,7 +43,7 @@ function PaymentStatusBadge({
   if (!status) return null;
   const cfg: Record<string, { label: string; cls: string }> = {
     UNPAID: { label: "Не оплачено", cls: "bg-zinc-100 text-zinc-700" },
-    PARTIALLY_PAID: { label: "Частично", cls: "bg-amber-100 text-amber-800" },
+    PARTIALLY_PAID: { label: "Частково", cls: "bg-amber-100 text-amber-800" },
     PAID: { label: "Оплачено", cls: "bg-emerald-100 text-emerald-800" },
     OVERPAID: { label: "Переплата", cls: "bg-sky-100 text-sky-800" },
   };

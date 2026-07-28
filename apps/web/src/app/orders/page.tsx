@@ -666,10 +666,10 @@ function OrdersPageContent() {
                 <input
                   value={qInput}
                   onChange={(e) => setQInput(e.target.value)}
-                  placeholder="Поиск по номеру, клиенту, компании, ТТН, товару"
+                  placeholder="Пошук за номером, клієнтом, компанією, ТТН, товаром"
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   type="search"
-                  aria-label="Поиск заказов"
+                  aria-label="Пошук замовлень"
                 />
                 <button
                   type="button"
@@ -727,8 +727,8 @@ function OrdersPageContent() {
                 className="rounded border border-zinc-200 px-2 py-1 text-sm"
               >
                 <option value="">Тип оплати: будь-який</option>
-                <option value="PREPAYMENT">Предоплата</option>
-                <option value="DEFERRED">Отсрочка</option>
+                <option value="PREPAYMENT">Передоплата</option>
+                <option value="DEFERRED">Відтермінування</option>
               </select>
               <label className="flex items-center gap-1 text-sm text-zinc-700">
                 <input
@@ -797,7 +797,7 @@ function OrdersPageContent() {
                     <th className="px-4 py-3 hidden md:table-cell">Оплата</th>
                     <th className="px-4 py-3">Статус</th>
                     <th className="px-4 py-3 text-right hidden lg:table-cell">Товари</th>
-                    <th className="px-4 py-3 text-right">Сумма</th>
+                    <th className="px-4 py-3 text-right">Сума</th>
                     {extraColumns.map((col) => (
                       <th key={col.fieldId} className="px-4 py-3">
                         {col.label}
@@ -837,7 +837,7 @@ function OrdersPageContent() {
                               </span>
                             )}
                             {order.hasTtn && (
-                              <span title="ТТН создана" className="inline-flex text-blue-600">
+                              <span title="ТТН створено" className="inline-flex text-blue-600">
                                 <MailPlus className="h-4 w-4" />
                               </span>
                             )}
@@ -845,7 +845,7 @@ function OrdersPageContent() {
                               <span className="relative inline-flex">
                                 <button
                                   type="button"
-                                  title="Номер ТТН также привязан к другому заказу"
+                                  title="Номер ТТН також привʼязаний до іншого замовлення"
                                   className="inline-flex text-amber-600"
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -865,7 +865,7 @@ function OrdersPageContent() {
                                       ? `Также едет заказ: ${order.ttnSharedWithOrders
                                           ?.map((linkedOrder) => `№${linkedOrder.orderNumber}`)
                                           .join(", ")}`
-                                      : "Номер ТТН также привязан к другому заказу"}
+                                      : "Номер ТТН також привʼязаний до іншого замовлення"}
                                   </div>
                                 )}
                               </span>
@@ -899,7 +899,7 @@ function OrdersPageContent() {
                                   : "inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800"
                               }
                             >
-                              {order.paymentType === "PREPAYMENT" ? "Предоплата" : "Отсрочка"}
+                              {order.paymentType === "PREPAYMENT" ? "Передоплата" : "Відтермінування"}
                             </span>
                           ) : (
                             <span className="text-zinc-400">—</span>

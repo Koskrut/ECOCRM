@@ -5,11 +5,13 @@ import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { orderDisplayStatusLabel } from "@/lib/status-labels";
 
 type OrderItem = {
   id: string;
   orderNumber: string;
   status: string;
+  orderStage?: string | null;
   totalAmount: number;
   currency: string;
   exchangeRate?: number | null;
@@ -111,7 +113,9 @@ export function CompanyOrders({ apiBaseUrl, companyId, onOpenOrder }: Props) {
               className="cursor-pointer hover:bg-zinc-50"
             >
               <td className="px-4 py-3 text-sm font-medium text-zinc-900">{o.orderNumber}</td>
-              <td className="px-4 py-3 text-sm text-zinc-700">{o.status}</td>
+              <td className="px-4 py-3 text-sm text-zinc-700">
+                {orderDisplayStatusLabel(o.orderStage, o.status)}
+              </td>
               <td className="px-4 py-3 text-sm text-zinc-700">
                 {o.client ? `${o.client.lastName} ${o.client.firstName}` : "—"}
               </td>

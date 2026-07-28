@@ -39,7 +39,7 @@ const FLOW: StatusDef[] = [
   },
   {
     id: "SHIPPED",
-    label: "Відправленно",
+    label: "Відправлено",
     color: { bg: "bg-emerald-600", border: "border-emerald-600" },
   },
   {
@@ -55,21 +55,17 @@ const FLOW: StatusDef[] = [
   },
 ];
 
-// Если статус не в FLOW — считаем как NEW
+// Якщо статус не в FLOW — вважаємо як NEW
 function idxOf(status: string) {
   const i = FLOW.findIndex((s) => s.id === status);
   return i >= 0 ? i : 0;
 }
 
 export function OrderStatusBar(props: {
-  value: string; // текущий статус
+  value: string;
   disabled?: boolean;
   className?: string;
-
-  // Если хочешь кликабельные статусы:
   onChange?: (next: OrderStatusId) => void;
-
-  // Можно блокировать отдельные шаги + показывать reason в title
   canGoTo?: (next: OrderStatusId) => { ok: boolean; reason?: string };
 }) {
   const { value, disabled, className, onChange, canGoTo } = props;

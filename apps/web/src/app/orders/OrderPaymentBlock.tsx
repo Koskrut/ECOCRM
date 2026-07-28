@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
+import { payRequestStatusLabel } from "@/lib/status-labels";
 import { strings } from "@/locales";
 
 const pt = strings.orders.modal.paymentBlock;
@@ -245,7 +246,7 @@ export function OrderPaymentBlock({
               <li key={pl.id} className="rounded border border-zinc-100 bg-zinc-50/80 p-2 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-medium text-zinc-800">
-                    {PAY_REQ_STATUS_UA[pl.effectiveStatus] ?? pl.effectiveStatus}
+                    {payRequestStatusLabel(pl.effectiveStatus)}
                   </span>
                   <span className="text-zinc-600">
                     {pl.amount.toFixed(2)} {pl.currency}

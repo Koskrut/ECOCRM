@@ -328,7 +328,7 @@ export function FinancialKanban({
                                   : "rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
                               }
                             >
-                              {o.paymentType === "PREPAYMENT" ? "Предопл." : "Отсрочка"}
+                              {o.paymentType === "PREPAYMENT" ? "Передопл." : "Відтерм."}
                             </span>
                           )}
                         </div>
