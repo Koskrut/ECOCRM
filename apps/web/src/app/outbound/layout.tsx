@@ -6,9 +6,9 @@ import { ModuleIds } from "@/lib/modules/module-ids";
 import { strings } from "@/locales";
 
 const TABS: ModuleSectionTab[] = [
-  { label: "Campaigns", href: "/outbound/campaigns" },
-  { label: "Attempts", href: "/outbound/attempts" },
-  { label: "Review", href: "/outbound/review" },
+  { label: "Кампанії", href: "/outbound/campaigns" },
+  { label: "Спроби", href: "/outbound/attempts" },
+  { label: "Перевірка", href: "/outbound/review" },
 ];
 
 export default function OutboundLayout({ children }: { children: React.ReactNode }) {

@@ -34,13 +34,13 @@ export function deriveUiStepKey(status: LeadStatus): LeadUiStepKey {
   }
 }
 
-/** Matches StatusBadge LEAD_STATUS_MAP labels (list/cards). */
+/** Matches StatusBadge / LEAD_STATUS_UA labels (list/cards). */
 export const DEFAULT_STAGE_LABELS: Record<LeadStatus, string> = {
-  NEW: "Не обработан",
-  IN_PROGRESS: "В работе",
-  WON: "Успешный",
-  NOT_TARGET: "Нецелевой",
-  LOST: "Проваленный",
+  NEW: "Не оброблений",
+  IN_PROGRESS: "В роботі",
+  WON: "Успішний",
+  NOT_TARGET: "Нецільовий",
+  LOST: "Провалений",
   SPAM: "Спам",
 };
 

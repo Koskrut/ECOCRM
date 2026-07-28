@@ -10,6 +10,7 @@ import {
   type QueueItemResponse,
   type SessionDetail,
 } from "@/lib/api/resources/manual-calling";
+import { callQueueStatusLabel, callStatusLabel } from "@/lib/status-labels";
 
 const OUTCOMES: { value: ManualCallOutcome; label: string }[] = [
   { value: "NO_ANSWER", label: "Немає відповіді" },
@@ -263,7 +264,7 @@ export default function CallWorkspacePage() {
                     )}
                   </div>
                   <div className="text-xs text-zinc-500">
-                    {it.status} · {it.target?.phone ?? "без телефону"}
+                    {callQueueStatusLabel(it.status)} · {it.target?.phone ?? "без телефону"}
                   </div>
                 </button>
               </li>
@@ -358,7 +359,7 @@ export default function CallWorkspacePage() {
                 </label>
                 {session.linkedCall && (
                   <p className="text-xs text-emerald-700">
-                    Звʼязано з дзвінком Ringostat · {session.linkedCall.status}
+                    Звʼязано з дзвінком Ringostat · {callStatusLabel(session.linkedCall.status)}
                     {session.linkedCall.durationSec != null
                       ? ` · ${session.linkedCall.durationSec}s`
                       : ""}

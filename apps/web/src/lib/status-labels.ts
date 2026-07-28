@@ -192,3 +192,32 @@ export const PAY_REQUEST_STATUS_UA: Record<string, string> = {
 export function payRequestStatusLabel(status: string | null | undefined): string {
   return pick(PAY_REQUEST_STATUS_UA, status);
 }
+
+/** Manual calling queue item status */
+export const CALL_QUEUE_STATUS_UA: Record<string, string> = {
+  PENDING: "Очікує",
+  IN_PROGRESS: "В роботі",
+  DONE: "Завершено",
+  COMPLETED: "Завершено",
+  SKIPPED: "Пропущено",
+  CANCELED: "Скасовано",
+};
+
+export function callQueueStatusLabel(status: string | null | undefined): string {
+  return pick(CALL_QUEUE_STATUS_UA, status);
+}
+
+/** Telephony / Ringostat call status (UI) */
+export const CALL_STATUS_UA: Record<string, string> = {
+  ANSWERED: "Відповіли",
+  MISSED: "Пропущено",
+  NOANSWER: "Немає відповіді",
+  NO_ANSWER: "Немає відповіді",
+  BUSY: "Зайнято",
+  FAILED: "Помилка",
+  PROPER: "Відповіли",
+};
+
+export function callStatusLabel(status: string | null | undefined): string {
+  return pick(CALL_STATUS_UA, status);
+}
