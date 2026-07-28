@@ -11,12 +11,15 @@ import {
 } from "./bank-allocation.util";
 import {
   amountsMatchWithinTolerance,
+  contactMatchesPerson,
   expectedPaymentAmountInCurrency,
   extractDocumentRefsFromDescription,
   extractOrderCandidatesFromDescription,
   extractOrderNumberFromDescription,
   extractPersonNameFromDescription,
   firstNameVariants,
+  normalizePersonNameToken,
+  personNameQueryVariants,
 } from "./match-engine.utils";
 import {
   documentConflictsWithOrderNumber,
@@ -650,20 +653,32 @@ export class PaymentMatchingService {
       extractPersonNameFromDescription(ctx.counterpartyName);
     if (!person) return [];
 
-    const variants = firstNameVariants(person.firstName);
+    const lastVariants = personNameQueryVariants(person.lastName);
+    const firstVariants = firstNameVariants(person.firstName);
     let contacts = await this.prisma.contact.findMany({
       where: {
-        lastName: { equals: person.lastName, mode: "insensitive" },
-        OR: variants.map((fn) => ({
-          firstName: { equals: fn, mode: "insensitive" as const },
-        })),
+        OR: lastVariants.flatMap((ln) =>
+          firstVariants.map((fn) => ({
+            lastName: { equals: ln, mode: "insensitive" as const },
+            firstName: { equals: fn, mode: "insensitive" as const },
+          })),
+        ),
       },
-      select: { id: true, middleName: true },
+      select: { id: true, firstName: true, lastName: true, middleName: true },
+      take: 40,
     });
+    contacts = contacts.filter(
+      (c) =>
+        c.firstName == null ||
+        c.lastName == null ||
+        contactMatchesPerson(c, person),
+    );
 
     if (contacts.length > 1 && person.middleName) {
-      const mid = person.middleName.toLowerCase();
-      const narrowed = contacts.filter((c) => c.middleName?.toLowerCase() === mid);
+      const mid = normalizePersonNameToken(person.middleName);
+      const narrowed = contacts.filter(
+        (c) => c.middleName && normalizePersonNameToken(c.middleName) === mid,
+      );
       if (narrowed.length > 0) contacts = narrowed;
     }
 

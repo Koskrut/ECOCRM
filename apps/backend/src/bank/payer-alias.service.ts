@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PayerAliasSource, PaymentMatchDecision, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { normalizeCounterpartyName } from "./match-engine.utils";
+import {
+  isSharedOrGatewayCounterparty,
+  normalizeCounterpartyName,
+} from "./match-engine.utils";
 
 export type LearnAliasInput = {
   contactId?: string | null;
@@ -11,6 +14,13 @@ export type LearnAliasInput = {
   source?: PayerAliasSource;
 };
 
+/**
+ * After deploy, purge gateway/transit aliases only (not all PayerAlias rows):
+ *
+ *   DELETE FROM "PayerAlias"
+ *   WHERE "counterpartyNameNormalized" ILIKE '%транз%'
+ *      OR "counterpartyIban" = 'UA293052990000029023866100110';
+ */
 @Injectable()
 export class PayerAliasService {
   constructor(private readonly prisma: PrismaService) {}
@@ -23,6 +33,17 @@ export class PayerAliasService {
     const iban = input.counterpartyIban?.replace(/\s+/g, "").toUpperCase() || null;
     const nameNorm = normalizeCounterpartyName(input.counterpartyName) || null;
     if (!iban && !nameNorm) return;
+
+    // Never bind a client to a shared/transit IBAN or gateway counterparty name.
+    if (isSharedOrGatewayCounterparty(input.counterpartyName, iban)) {
+      return;
+    }
+    if (iban) {
+      const distinctContacts = await this.countDistinctContactsForIban(iban);
+      if (isSharedOrGatewayCounterparty(input.counterpartyName, iban, distinctContacts)) {
+        return;
+      }
+    }
 
     const source = input.source ?? PayerAliasSource.LEARNED;
 
@@ -153,5 +174,26 @@ export class PayerAliasService {
         createdByUserId: input.createdByUserId ?? null,
       },
     });
+  }
+
+  /** Distinct contact/client ids that already received COMPLETED payments from this IBAN. */
+  private async countDistinctContactsForIban(iban: string): Promise<number> {
+    const hist = await this.prisma.payment.findMany({
+      where: {
+        status: "COMPLETED",
+        bankTransaction: { counterpartyIban: { equals: iban, mode: "insensitive" } },
+      },
+      select: {
+        order: { select: { contactId: true, clientId: true } },
+      },
+      take: 100,
+      orderBy: { paidAt: "desc" },
+    });
+    const ids = new Set<string>();
+    for (const p of hist) {
+      const id = p.order?.contactId ?? p.order?.clientId;
+      if (id) ids.add(id);
+    }
+    return ids.size;
   }
 }

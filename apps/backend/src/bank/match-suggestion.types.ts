@@ -4,6 +4,7 @@ export type MatchReasonCode =
   | "invoice_match"
   | "waybill_match"
   | "name_match"
+  | "payer_name_in_purpose"
   | "edrpou"
   | "amount_fit";
 

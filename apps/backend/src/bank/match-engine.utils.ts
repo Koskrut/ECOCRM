@@ -329,13 +329,81 @@ export function amountsMatchAbsolute(
   return Math.abs(a - b) <= tolerance;
 }
 
-/** Return first-name spelling variants (e.g. Микола ↔ Николай). */
+/** Strip apostrophe-like marks so «В'ячеслав» == «Вячеслав». */
+export function stripNameApostrophes(value: string | null | undefined): string {
+  return (value ?? "").replace(/[''`ʼʹ]/g, "");
+}
+
+/** Lowercase person-name token with apostrophes removed (for equals checks). */
+export function normalizePersonNameToken(value: string): string {
+  return stripNameApostrophes(value).toLowerCase().trim();
+}
+
+export function namesMatchIgnoringApostrophe(a: string, b: string): boolean {
+  return normalizePersonNameToken(a) === normalizePersonNameToken(b);
+}
+
+/** Original + apostrophe-stripped forms for Prisma `equals` OR queries. */
+export function personNameQueryVariants(name: string): string[] {
+  const raw = name.trim();
+  if (!raw) return [];
+  const stripped = stripNameApostrophes(raw);
+  return [...new Set([raw, stripped].filter((v) => v.length > 0))];
+}
+
+/**
+ * Gateway / shared-counterparty detector (Privat24 transit, LiqPay, …).
+ * Optional `distinctContactCount` — when IBAN already paid for ≥5 different contacts.
+ */
+export function isSharedOrGatewayCounterparty(
+  counterpartyName: string | null | undefined,
+  _counterpartyIban?: string | null,
+  distinctContactCount?: number,
+): boolean {
+  const raw = (counterpartyName ?? "").toLowerCase();
+  const norm = normalizeCounterpartyName(counterpartyName);
+  const hay = `${raw} ${norm}`;
+  const markers = [
+    "транз",
+    "транзит",
+    "liqpay",
+    "portmone",
+    "wayforpay",
+    "ізісофт",
+    "izisoft",
+    "easypay",
+    "фондовий",
+  ];
+  if (markers.some((m) => hay.includes(m))) return true;
+  if (distinctContactCount != null && distinctContactCount >= 5) return true;
+  return false;
+}
+
+/** True when contact first+last match extracted person (apostrophe-insensitive). */
+export function contactMatchesPerson(
+  contact: { firstName: string; lastName: string },
+  person: ExtractedPersonName,
+): boolean {
+  if (!namesMatchIgnoringApostrophe(contact.lastName, person.lastName)) return false;
+  const variants = new Set(firstNameVariants(person.firstName).map(normalizePersonNameToken));
+  return variants.has(normalizePersonNameToken(contact.firstName));
+}
+
+/** Return first-name spelling variants (e.g. Микола ↔ Николай), apostrophe-normalized. */
 export function firstNameVariants(firstName: string): string[] {
-  const lower = firstName.toLowerCase();
+  const lower = firstName.toLowerCase().trim();
+  const stripped = normalizePersonNameToken(firstName);
+  const out = new Set<string>([lower, stripped]);
   for (const variants of Object.values(FIRST_NAME_ALIASES)) {
-    if (variants.some((v) => v === lower)) return variants;
+    if (variants.some((v) => v === lower || normalizePersonNameToken(v) === stripped)) {
+      for (const v of variants) {
+        out.add(v.toLowerCase());
+        out.add(normalizePersonNameToken(v));
+      }
+      break;
+    }
   }
-  return [lower];
+  return [...out];
 }
 
 /**

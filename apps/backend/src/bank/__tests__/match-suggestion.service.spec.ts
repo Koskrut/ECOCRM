@@ -149,6 +149,9 @@ test("getSuggestions: IBAN history boosts score", async () => {
     company: {
       findMany: mockFn(async () => []),
     },
+    contact: {
+      findMany: mockFn(async () => []),
+    },
   };
   const service = new MatchSuggestionService(prisma as any);
   const result = await service.getSuggestions({
@@ -168,4 +171,147 @@ test("getSuggestions: IBAN history boosts score", async () => {
   assert.ok(top);
   assert.ok(top!.reasons.includes("iban_history"));
   assert.ok(top!.score >= 40);
+});
+
+const TRANSIT_IBAN = "UA293052990000029023866100110";
+
+test("getSuggestions: transit IBAN prefers FIO from description over IBAN history", async () => {
+  const prisma = {
+    order: {
+      findMany: mockFn(async () => []),
+      findUnique: mockFn(async () => null),
+    },
+    payerAlias: {
+      findMany: mockFn(async (args: any) => {
+        // Should not be consulted for IBAN on shared gateway; if called for name, return empty
+        if (args?.where?.counterpartyIban) {
+          return [
+            {
+              contactId: "c-pechenyi",
+              companyId: null,
+              hitCount: 10,
+              lastSeenAt: new Date(),
+              contact: { id: "c-pechenyi", firstName: "Ігор", lastName: "Печений" },
+              company: null,
+            },
+          ];
+        }
+        return [];
+      }),
+    },
+    payment: {
+      findMany: mockFn(async () => [
+        {
+          order: {
+            contactId: "c-pechenyi",
+            clientId: null,
+            companyId: null,
+            company: null,
+            contact: { id: "c-pechenyi", firstName: "Ігор", lastName: "Печений" },
+            client: null,
+          },
+        },
+        {
+          order: {
+            contactId: "c-dementiev",
+            clientId: null,
+            companyId: null,
+            company: null,
+            contact: { id: "c-dementiev", firstName: "Олег", lastName: "Дементьев" },
+            client: null,
+          },
+        },
+      ]),
+    },
+    company: {
+      findMany: mockFn(async () => []),
+    },
+    contact: {
+      findMany: mockFn(async () => [
+        {
+          id: "c-shyman",
+          firstName: "Аурелія",
+          lastName: "Шиман",
+          middleName: "Тарасівна",
+        },
+      ]),
+    },
+  };
+  const service = new MatchSuggestionService(prisma as any);
+  const result = await service.getSuggestions({
+    id: "tx-transit",
+    description: "Сплата за мед товари, Шиман Аурелія Тарасівна",
+    amount: 1500,
+    currency: "UAH",
+    bookedAt: new Date(),
+    counterpartyName: "Транз.рахунок платежi_ DN, DG, DZ",
+    counterpartyIban: TRANSIT_IBAN,
+    payments: [],
+  });
+
+  // Shared gateway must not query IBAN aliases
+  const ibanAliasCalls = prisma.payerAlias.findMany.calls.filter(
+    (c) => c[0]?.where?.counterpartyIban,
+  );
+  assert.strictEqual(ibanAliasCalls.length, 0);
+
+  const top = result.suggestions[0];
+  assert.ok(top);
+  assert.strictEqual(top!.contactId, "c-shyman");
+  assert.ok(top!.reasons.includes("payer_name_in_purpose"));
+  assert.ok(!top!.reasons.includes("iban_history"));
+  assert.ok(
+    !result.suggestions.some(
+      (s) => s.contactId === "c-pechenyi" || s.contactId === "c-dementiev",
+    ),
+  );
+});
+
+test("getSuggestions: ordinary IBAN still applies iban_history", async () => {
+  const prisma = {
+    order: {
+      findMany: mockFn(async () => []),
+    },
+    payerAlias: {
+      findMany: mockFn(async (args: any) => {
+        if (args?.where?.counterpartyIban) {
+          return [
+            {
+              contactId: "c-ivan",
+              companyId: null,
+              hitCount: 2,
+              lastSeenAt: new Date(),
+              contact: { id: "c-ivan", firstName: "Іван", lastName: "Коваленко" },
+              company: null,
+            },
+          ];
+        }
+        return [];
+      }),
+    },
+    payment: {
+      findMany: mockFn(async () => []),
+    },
+    company: {
+      findMany: mockFn(async () => []),
+    },
+    contact: {
+      findMany: mockFn(async () => []),
+    },
+  };
+  const service = new MatchSuggestionService(prisma as any);
+  const result = await service.getSuggestions({
+    id: "tx-ordinary",
+    description: "оплата товарів",
+    amount: 500,
+    currency: "UAH",
+    bookedAt: new Date(),
+    counterpartyName: "Коваленко Іван",
+    counterpartyIban: "UA111122223333444455556666777",
+    payments: [],
+  });
+  const top = result.suggestions[0];
+  assert.ok(top);
+  assert.strictEqual(top!.contactId, "c-ivan");
+  assert.ok(top!.reasons.includes("iban_history"));
 });

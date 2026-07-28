@@ -189,7 +189,10 @@ describe("extractPersonNameFromDescription", () => {
   const {
     extractPersonNameFromDescription,
     amountsMatchWithinTolerance,
+    contactMatchesPerson,
     expectedPaymentAmountInCurrency,
+    isSharedOrGatewayCounterparty,
+    namesMatchIgnoringApostrophe,
   } = require("../match-engine.utils");
 
   it("extracts name after comma in bank description", () => {
@@ -207,11 +210,61 @@ describe("extractPersonNameFromDescription", () => {
     assert.strictEqual(extractPersonNameFromDescription("payment for goods"), null);
   });
 
+  it("apostrophe: Лагута В'ячеслав matches CRM Вячеслав", () => {
+    const person = extractPersonNameFromDescription(
+      "Сплата за медичні товари, Лагута В'ячеслав Олександрович",
+    );
+    assert.ok(person);
+    assert.strictEqual(person.lastName, "Лагута");
+    assert.strictEqual(person.firstName, "В'ячеслав");
+    assert.ok(namesMatchIgnoringApostrophe("В'ячеслав", "Вячеслав"));
+    assert.ok(
+      contactMatchesPerson(
+        { lastName: "Лагута", firstName: "Вячеслав" },
+        person,
+      ),
+    );
+  });
+
   it("matches amount within 1% tolerance using exchange rate", () => {
     const expected = expectedPaymentAmountInCurrency(56, "USD", "UAH", 45);
     assert.strictEqual(expected, 2520);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2520), true);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2510), true);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2400), false);
+  });
+});
+
+describe("isSharedOrGatewayCounterparty", () => {
+  const { isSharedOrGatewayCounterparty } = require("../match-engine.utils");
+
+  it("detects Privat24 transit account name", () => {
+    assert.strictEqual(
+      isSharedOrGatewayCounterparty("Транз.рахунок платежi_ DN, DG, DZ"),
+      true,
+    );
+  });
+
+  it("detects liqpay / portmone markers", () => {
+    assert.strictEqual(isSharedOrGatewayCounterparty("LiqPay Merch"), true);
+    assert.strictEqual(isSharedOrGatewayCounterparty("оплата Portmone"), true);
+  });
+
+  it("treats IBAN with ≥5 distinct contacts as shared", () => {
+    assert.strictEqual(
+      isSharedOrGatewayCounterparty("Іваненко Іван", "UA123", 5),
+      true,
+    );
+    assert.strictEqual(
+      isSharedOrGatewayCounterparty("Іваненко Іван", "UA123", 2),
+      false,
+    );
+  });
+
+  it("ordinary counterparty is not shared", () => {
+    assert.strictEqual(
+      isSharedOrGatewayCounterparty("ШУШАРІН ІГОР ІГОРОВИЧ", "UA999"),
+      false,
+    );
   });
 });

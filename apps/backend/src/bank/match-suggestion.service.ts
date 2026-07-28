@@ -9,12 +9,17 @@ import {
   amountsMatchAbsolute,
   amountsMatchWithinTolerance,
   BANK_DEBT_ABS_TOLERANCE,
+  contactMatchesPerson,
   extractEdrpouFromDescription,
   extractDocumentRefsFromDescription,
   extractOrderCandidatesFromDescription,
+  extractPersonNameFromDescription,
   expectedPaymentAmountInCurrency,
+  isSharedOrGatewayCounterparty,
   nameSimilarity,
   normalizeCounterpartyName,
+  normalizePersonNameToken,
+  personNameQueryVariants,
   resolveOrderCandidates,
 } from "./match-engine.utils";
 import type {
@@ -88,6 +93,7 @@ function clampScore(n: number): number {
 function confidenceFrom(score: number, reasons: MatchReasonCode[], warnings: string[]): MatchConfidence {
   if (warnings.includes("different_clients")) return "low";
   if (
+    (reasons.includes("payer_name_in_purpose") && score >= 60) ||
     (reasons.includes("iban_history") && score >= 70) ||
     (reasons.includes("orders_in_purpose") && reasons.includes("amount_fit") && score >= 75)
   ) {
@@ -222,9 +228,45 @@ export class MatchSuggestionService {
       }
     };
 
-    // 1) IBAN history via PayerAlias + past payments
+    // 1) IBAN history via PayerAlias + past payments (skip shared/transit gateways)
     const iban = tx.counterpartyIban?.replace(/\s+/g, "").toUpperCase() || null;
-    if (iban) {
+    const ibanHistPayments = iban
+      ? await this.prisma.payment.findMany({
+          where: {
+            status: "COMPLETED",
+            bankTransaction: { counterpartyIban: { equals: iban, mode: "insensitive" } },
+          },
+          select: {
+            order: {
+              select: {
+                contactId: true,
+                clientId: true,
+                companyId: true,
+                company: { select: { id: true, name: true } },
+                contact: { select: { id: true, firstName: true, lastName: true } },
+                client: { select: { id: true, firstName: true, lastName: true } },
+              },
+            },
+          },
+          take: 100,
+          orderBy: { paidAt: "desc" },
+        })
+      : [];
+    const distinctIbanContacts = (() => {
+      const ids = new Set<string>();
+      for (const p of ibanHistPayments) {
+        const id = p.order?.contactId ?? p.order?.clientId;
+        if (id) ids.add(id);
+      }
+      return ids.size;
+    })();
+    const sharedGateway = isSharedOrGatewayCounterparty(
+      tx.counterpartyName,
+      iban,
+      distinctIbanContacts || undefined,
+    );
+
+    if (iban && !sharedGateway) {
       const aliases = await this.prisma.payerAlias.findMany({
         where: { counterpartyIban: iban },
         include: {
@@ -258,29 +300,8 @@ export class MatchSuggestionService {
         });
       }
 
-      // Also boost from historical bank payments with same IBAN
-      const hist = await this.prisma.payment.findMany({
-        where: {
-          status: "COMPLETED",
-          bankTransaction: { counterpartyIban: { equals: iban, mode: "insensitive" } },
-        },
-        select: {
-          order: {
-            select: {
-              contactId: true,
-              clientId: true,
-              companyId: true,
-              company: { select: { id: true, name: true } },
-              contact: { select: { id: true, firstName: true, lastName: true } },
-              client: { select: { id: true, firstName: true, lastName: true } },
-            },
-          },
-        },
-        take: 50,
-        orderBy: { paidAt: "desc" },
-      });
       const histCounts = new Map<ClientKey, { n: number; label: string; contactId: string | null; companyId: string | null }>();
-      for (const p of hist) {
+      for (const p of ibanHistPayments.slice(0, 50)) {
         const o = p.order;
         if (!o) continue;
         const key = o.companyId
@@ -374,9 +395,9 @@ export class MatchSuggestionService {
       }
     }
 
-    // 3) Name match (counterparty + alias by normalized name)
+    // 3) Name match (counterparty + alias by normalized name) — skip gateway display names
     const normName = normalizeCounterpartyName(tx.counterpartyName);
-    if (normName.length >= 3) {
+    if (!sharedGateway && normName.length >= 3) {
       const nameAliases = await this.prisma.payerAlias.findMany({
         where: { counterpartyNameNormalized: normName },
         include: {
@@ -427,6 +448,49 @@ export class MatchSuggestionService {
           reason: "name_match",
           scoreAdd: Math.round(20 * sim),
         });
+      }
+    }
+
+    // 3b) Person FIO from payment purpose (transit + ordinary IBAN)
+    const personFromPurpose = extractPersonNameFromDescription(tx.description);
+    let personPurposeKey: ClientKey | null = null;
+    if (personFromPurpose) {
+      const lastVariants = personNameQueryVariants(personFromPurpose.lastName);
+      const candidates = await this.prisma.contact.findMany({
+        where: {
+          OR: lastVariants.map((ln) => ({
+            lastName: { equals: ln, mode: "insensitive" as const },
+          })),
+        },
+        select: { id: true, firstName: true, lastName: true, middleName: true },
+        take: 40,
+      });
+      let matched = candidates.filter((c) => contactMatchesPerson(c, personFromPurpose));
+      if (matched.length > 1 && personFromPurpose.middleName) {
+        const mid = normalizePersonNameToken(personFromPurpose.middleName);
+        const narrowed = matched.filter(
+          (c) => c.middleName && normalizePersonNameToken(c.middleName) === mid,
+        );
+        if (narrowed.length > 0) matched = narrowed;
+      }
+      if (matched.length === 1) {
+        const c = matched[0]!;
+        personPurposeKey = `contact:${c.id}`;
+        bump(personPurposeKey, {
+          contactId: c.id,
+          companyId: null,
+          label: [c.lastName, c.firstName].filter(Boolean).join(" "),
+          reason: "payer_name_in_purpose",
+          scoreAdd: 65,
+        });
+        // Description FIO wins over conflicting IBAN-history / gateway-name hints
+        for (const [key, acc] of byClient) {
+          if (key === personPurposeKey) continue;
+          if (acc.reasons.has("iban_history")) {
+            acc.score = Math.max(0, acc.score - 80);
+            acc.reasons.delete("iban_history");
+          }
+        }
       }
     }
 

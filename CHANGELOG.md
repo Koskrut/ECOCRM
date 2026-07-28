@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.124**.)_
+_(планируемые изменения после **0.2.125**.)_
+
+## [0.2.125] — 2026-07-28
+
+### Summary
+
+Патч **0.2.125**: bank matching v3 — gateway/transit IBAN guard, FIO from purpose, apostrophe-insensitive names.
+
+### Added
+
+- **Gateway detector**: `isSharedOrGatewayCounterparty` — транзит Privat, LiqPay, WayForPay, IBAN с ≥5 разными контактами; IBAN history и alias learn пропускаются.
+- **Purpose FIO match**: `payer_name_in_purpose` — ФИО из назначения платежа матчит контакт (в т.ч. через transit).
+- **Name normalization**: apostrophe-insensitive (`В'ячеслав` = `Вячеслав`); `personNameQueryVariants`, `contactMatchesPerson`.
+
+### Changed
+
+- **PayerAlias learn**: не привязывает клиента к shared/transit IBAN или gateway counterparty.
+- **Payment matching / suggestions**: улучшенный contact lookup по ФИО; IBAN boost только для non-gateway.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.125`**.
+- **Миграций нет.** Опционально после деплоя: purge gateway `PayerAlias` (см. комментарий в `payer-alias.service.ts`).
 
 ## [0.2.124] — 2026-07-28
 
