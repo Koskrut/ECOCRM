@@ -158,3 +158,37 @@ export function orderDisplayStatusLabel(
   }
   return orderStatusLabel(status);
 }
+
+/** PaymentType */
+export const PAYMENT_TYPE_UA: Record<string, string> = {
+  PREPAYMENT: "Передоплата",
+  DEFERRED: "Відтермінування",
+};
+
+export function paymentTypeLabel(type: string | null | undefined): string {
+  return pick(PAYMENT_TYPE_UA, type);
+}
+
+/** Order paymentStatus */
+export const PAYMENT_STATUS_UA: Record<string, string> = {
+  UNPAID: "Не оплачено",
+  PARTIALLY_PAID: "Частково оплачено",
+  PAID: "Оплачено",
+  OVERPAID: "Переплата",
+};
+
+export function paymentStatusLabel(status: string | null | undefined): string {
+  return pick(PAYMENT_STATUS_UA, status);
+}
+
+/** Payment request / link status */
+export const PAY_REQUEST_STATUS_UA: Record<string, string> = {
+  PENDING: "Очікує оплату",
+  PAID: "Оплачено",
+  EXPIRED: "Прострочено",
+  CANCELED: "Скасовано",
+};
+
+export function payRequestStatusLabel(status: string | null | undefined): string {
+  return pick(PAY_REQUEST_STATUS_UA, status);
+}

@@ -66,13 +66,13 @@ export function OrderCard({
               </span>
             )}
             {order.hasTtn && (
-              <span title="ТТН создана" className="inline-flex text-blue-600">
+              <span title="ТТН створено" className="inline-flex text-blue-600">
                 <MailPlus className="h-4 w-4" />
               </span>
             )}
             {order.ttnSharedAcrossOrders && (
               <span
-                title="Номер ТТН также привязан к другому заказу"
+                title="Номер ТТН також привʼязаний до іншого замовлення"
                 className="inline-flex text-amber-600"
               >
                 <AlertTriangle className="h-4 w-4" />

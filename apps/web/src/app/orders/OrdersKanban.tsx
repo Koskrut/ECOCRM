@@ -568,7 +568,7 @@ export function OrdersKanban({
                             <span className="truncate">{o.orderNumber}</span>
                             {o.ttnSharedAcrossOrders ? (
                               <span
-                                title="Номер ТТН также привязан к другому заказу"
+                                title="Номер ТТН також привʼязаний до іншого замовлення"
                                 className="inline-flex shrink-0 text-amber-600"
                               >
                                 <AlertTriangle className="h-3.5 w-3.5" />
@@ -585,7 +585,7 @@ export function OrdersKanban({
                                   : "bg-amber-100 text-amber-800",
                               ].join(" ")}
                             >
-                              {o.paymentType === "PREPAYMENT" ? "Предопл." : "Отсрочка"}
+                              {o.paymentType === "PREPAYMENT" ? "Передопл." : "Відтерм."}
                             </span>
                           )}
                         </div>

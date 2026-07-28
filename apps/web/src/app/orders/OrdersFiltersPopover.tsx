@@ -40,29 +40,29 @@ type Props = {
 
 const SORT_BY_OPTIONS: { value: OrderSortBy; label: string }[] = [
   { value: "createdAt", label: "Дата" },
-  { value: "totalAmount", label: "Сумма" },
+  { value: "totalAmount", label: "Сума" },
   { value: "orderStage", label: "Стадія" },
   { value: "orderNumber", label: "Номер" },
 ];
 
 const PAYMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Любой тип" },
-  { value: "PREPAYMENT", label: "Предоплата" },
-  { value: "DEFERRED", label: "Отсрочка" },
+  { value: "", label: "Будь-який тип" },
+  { value: "PREPAYMENT", label: "Передоплата" },
+  { value: "DEFERRED", label: "Відтермінування" },
 ];
 
 const PAYMENT_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "Будь-який статус оплати" },
-  { value: "UNPAID", label: "Не оплачен" },
-  { value: "PARTIALLY_PAID", label: "Частично оплачен" },
-  { value: "PAID", label: "Оплачен" },
+  { value: "UNPAID", label: "Не оплачено" },
+  { value: "PARTIALLY_PAID", label: "Частково оплачено" },
+  { value: "PAID", label: "Оплачено" },
   { value: "OVERPAID", label: "Переплата" },
 ];
 
 const TTN_OPTIONS: { value: HasTtnFilter; label: string }[] = [
-  { value: "", label: "ТТН: любая" },
-  { value: "true", label: "ТТН есть" },
-  { value: "false", label: "ТТН нет" },
+  { value: "", label: "ТТН: будь-яка" },
+  { value: "true", label: "ТТН є" },
+  { value: "false", label: "ТТН немає" },
 ];
 
 export function OrdersFiltersPopover({
@@ -194,7 +194,7 @@ export function OrdersFiltersPopover({
           <input
             type="number"
             inputMode="decimal"
-            placeholder="Сумма от"
+            placeholder="Сума від"
             value={draft.amountFrom}
             onChange={(e) => setDraft((p) => ({ ...p, amountFrom: e.target.value }))}
             className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
@@ -202,7 +202,7 @@ export function OrdersFiltersPopover({
           <input
             type="number"
             inputMode="decimal"
-            placeholder="Сумма до"
+            placeholder="Сума до"
             value={draft.amountTo}
             onChange={(e) => setDraft((p) => ({ ...p, amountTo: e.target.value }))}
             className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
