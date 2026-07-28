@@ -14,6 +14,7 @@ import { isTextSelected } from "@/lib/dom";
 import { Link2, MessageCircle, Send, User, UserPlus } from "lucide-react";
 import { DateTime } from "luxon";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import { inboxStatusLabel } from "@/lib/status-labels";
 
 const PAGE_SIZE = 50;
 const LIST_PAGE_SIZE = 30;
@@ -339,7 +340,7 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
                         </p>
                       )}
                       <span className="mt-1 inline-block rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
-                        {c.status}
+                        {inboxStatusLabel(c.status)}
                       </span>
                     </button>
                   </li>

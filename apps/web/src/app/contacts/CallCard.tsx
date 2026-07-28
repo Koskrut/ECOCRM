@@ -67,11 +67,11 @@ function statusLabel(
 ): { label: string; variant: "ok" | "missed" | "other" } {
   const s = (status ?? "").toUpperCase();
   const d = (direction ?? "").toUpperCase();
-  if (!s) return { label: "Неизвестно", variant: "other" };
+  if (!s) return { label: "Невідомо", variant: "other" };
   if (s.includes("MISSED") || s === "NOANSWER" || s.includes("NO_ANSWER"))
-    return { label: d === "OUTBOUND" ? "Не дозвонился" : "Пропущен", variant: "missed" };
-  if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Отвечен", variant: "ok" };
-  if (s === "BUSY") return { label: "Занято", variant: "other" };
+    return { label: d === "OUTBOUND" ? "Не додзвонився" : "Пропущений", variant: "missed" };
+  if (s.includes("ANSWER") || s === "ANSWERED") return { label: "Відповіли", variant: "ok" };
+  if (s === "BUSY") return { label: "Зайнято", variant: "other" };
   if (s === "FAILED") return { label: "Помилка", variant: "other" };
   return { label: s, variant: "other" };
 }

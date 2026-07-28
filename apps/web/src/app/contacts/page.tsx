@@ -48,7 +48,7 @@ const WORK_PRESET_OPTIONS: Array<{ value: ContactsWorkPreset; label: string }> =
   { value: "new-no-first-contact", label: "Нові без першого контакту" },
   { value: "debt-control", label: "Контроль оплати / борг" },
   { value: "return-to-work", label: "Повернути в роботу" },
-  { value: "risk-or-dormant", label: "Риск потери / спящие" },
+  { value: "risk-or-dormant", label: "Ризик втрати / сплячі" },
 ];
 
 function scoreTone(score: number) {
@@ -58,7 +58,7 @@ function scoreTone(score: number) {
 }
 
 function formatDaysSinceLastContact(value: number | null): string {
-  if (value == null) return "Без контакта";
+  if (value == null) return "Без контакту";
   return `${value} дн.`;
 }
 

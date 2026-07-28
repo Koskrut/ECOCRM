@@ -15,6 +15,7 @@ import {
 import { OutboundStatusBadge } from "../../_components/OutboundStatusBadge";
 import { OutcomeBadge } from "../../_components/OutcomeBadge";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { leadStatusLabel } from "@/lib/status-labels";
 
 function formatDate(d: string | null | undefined) {
   return formatDateTime(d);
@@ -356,7 +357,7 @@ function ReviewActionsPanel({
                 onClick={() => void createTask()}
                 className="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
-                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Create task"}
+                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Створити завдання"}
               </button>
               <button
                 type="button"
@@ -480,7 +481,7 @@ export default function AttemptDetailPage() {
               <h2 className="text-sm font-semibold text-zinc-700">Details</h2>
             </div>
             <dl className="divide-y divide-zinc-100 px-4">
-              <MetaRow label="Campaign">{attempt.campaign?.name ?? attempt.campaignId}</MetaRow>
+              <MetaRow label="Кампанія">{attempt.campaign?.name ?? attempt.campaignId}</MetaRow>
               <MetaRow label="Scenario">
                 <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
                   {attempt.scenarioCode}
@@ -488,7 +489,7 @@ export default function AttemptDetailPage() {
                 <span className="ml-1.5 text-xs text-zinc-400">v{attempt.scenarioVersion}</span>
               </MetaRow>
               <MetaRow label="Target type">{attempt.targetType}</MetaRow>
-              <MetaRow label="Phone">{attempt.phoneNormalized}</MetaRow>
+              <MetaRow label="Телефон">{attempt.phoneNormalized}</MetaRow>
               <MetaRow label="Runtime provider">
                 {attempt.runtimeProvider ?? attempt.provider ?? "—"}
               </MetaRow>
@@ -606,13 +607,13 @@ export default function AttemptDetailPage() {
             <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
               <div className="border-b border-zinc-100 px-4 py-3">
                 <h2 className="text-sm font-semibold text-zinc-700">
-                  {attempt.lead ? "Lead" : "Contact"}
+                  {attempt.lead ? "Лід" : "Контакт"}
                 </h2>
               </div>
               <dl className="divide-y divide-zinc-100 px-4">
                 {attempt.lead && (
                   <>
-                    <MetaRow label="Name">
+                    <MetaRow label="Імʼя">
                       <Link
                         href={`/leads?leadId=${attempt.lead.id}`}
                         className="font-medium text-zinc-900 hover:underline"
@@ -620,16 +621,16 @@ export default function AttemptDetailPage() {
                         {entityDisplayName(attempt)}
                       </Link>
                     </MetaRow>
-                    <MetaRow label="Status">
+                    <MetaRow label="Статус">
                       <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs">
-                        {attempt.lead.status}
+                        {leadStatusLabel(attempt.lead.status)}
                       </span>
                     </MetaRow>
-                    <MetaRow label="Source">
+                    <MetaRow label="Джерело">
                       <span className="text-xs text-zinc-600">{attempt.lead.source}</span>
                     </MetaRow>
                     {attempt.lead.owner && (
-                      <MetaRow label="Owner">{attempt.lead.owner.fullName}</MetaRow>
+                      <MetaRow label="Власник">{attempt.lead.owner.fullName}</MetaRow>
                     )}
                     {attempt.lead.message && (
                       <MetaRow label="Message">
@@ -640,7 +641,7 @@ export default function AttemptDetailPage() {
                 )}
                 {attempt.contact && (
                   <>
-                    <MetaRow label="Name">
+                    <MetaRow label="Імʼя">
                       <Link
                         href={`/contacts?contactId=${attempt.contact.id}`}
                         className="font-medium text-zinc-900 hover:underline"
@@ -649,14 +650,14 @@ export default function AttemptDetailPage() {
                       </Link>
                     </MetaRow>
                     {attempt.contact.status && (
-                      <MetaRow label="Status">
+                      <MetaRow label="Статус">
                         <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs">
                           {attempt.contact.status}
                         </span>
                       </MetaRow>
                     )}
                     {attempt.contact.owner && (
-                      <MetaRow label="Owner">{attempt.contact.owner.fullName}</MetaRow>
+                      <MetaRow label="Власник">{attempt.contact.owner.fullName}</MetaRow>
                     )}
                     {attempt.contact.email && (
                       <MetaRow label="Email">

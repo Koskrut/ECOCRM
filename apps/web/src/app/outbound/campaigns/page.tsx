@@ -13,8 +13,8 @@ import {
 import { formatDate } from "@/lib/crmDatetime";
 
 const TARGET_LABELS: Record<OutboundTargetType, string> = {
-  LEAD: "Leads",
-  CONTACT_DORMANT: "Dormant contacts",
+  LEAD: "Ліди",
+  CONTACT_DORMANT: "Сплячі контакти",
 };
 
 const SCENARIO_TARGET_MAP: Record<string, OutboundTargetType> = {
@@ -29,14 +29,14 @@ function CampaignStatusBar({ stats }: { stats: Record<string, number> }) {
   const failed = (stats.FAILED ?? 0) + (stats.CANCELED ?? 0);
 
   const items = [
-    { label: "Queued", value: pending, className: "text-blue-700" },
-    { label: "Active", value: dialing, className: "text-amber-600" },
-    { label: "Done", value: completed, className: "text-emerald-700" },
-    { label: "Failed", value: failed, className: "text-red-600" },
+    { label: "У черзі", value: pending, className: "text-blue-700" },
+    { label: "Дзвінок", value: dialing, className: "text-amber-600" },
+    { label: "Готово", value: completed, className: "text-emerald-700" },
+    { label: "Помилка", value: failed, className: "text-red-600" },
   ].filter((i) => i.value > 0);
 
   if (items.length === 0) {
-    return <span className="text-xs text-zinc-400">No attempts yet</span>;
+    return <span className="text-xs text-zinc-400">Ще немає спроб</span>;
   }
   return (
     <span className="flex flex-wrap gap-3">
@@ -103,7 +103,7 @@ function CreateCampaignModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
-          <h2 className="text-base font-semibold text-zinc-900">New campaign</h2>
+          <h2 className="text-base font-semibold text-zinc-900">Нова кампанія</h2>
           <button
             type="button"
             onClick={onClose}
@@ -123,7 +123,7 @@ function CreateCampaignModal({
           {/* Name */}
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Campaign name <span className="text-red-500">*</span>
+              Назва кампанії <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -138,7 +138,7 @@ function CreateCampaignModal({
           {/* Scenario */}
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Scenario <span className="text-red-500">*</span>
+              Сценарій <span className="text-red-500">*</span>
             </label>
             <select
               value={scenarioCode}
@@ -152,7 +152,7 @@ function CreateCampaignModal({
               ))}
             </select>
             <p className="mt-1 text-xs text-zinc-400">
-              Target type: <span className="font-medium text-zinc-600">{TARGET_LABELS[targetType] ?? targetType}</span>
+              Тип цілі: <span className="font-medium text-zinc-600">{TARGET_LABELS[targetType] ?? targetType}</span>
             </p>
           </div>
 
@@ -166,21 +166,21 @@ function CreateCampaignModal({
               className="h-4 w-4 rounded border-zinc-300"
             />
             <label htmlFor="isActive" className="text-sm text-zinc-700">
-              Activate immediately
+              Активувати одразу
             </label>
           </div>
 
           {/* Max calls per day */}
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Max calls per day (optional)
+              Макс. дзвінків на день (необовʼязково)
             </label>
             <input
               type="number"
               min="1"
               value={maxCallsPerDay}
               onChange={(e) => setMaxCallsPerDay(e.target.value)}
-              placeholder="Unlimited"
+              placeholder="Без ліміту"
               className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
@@ -227,7 +227,7 @@ function CreateCampaignModal({
               {busy ? (
                 <RefreshCw className="mx-auto h-4 w-4 animate-spin" />
               ) : (
-                "Create campaign"
+                "Створити кампанію"
               )}
             </button>
             <button
@@ -235,7 +235,7 @@ function CreateCampaignModal({
               onClick={onClose}
               className="rounded-xl border border-zinc-200 px-4 py-2.5 text-sm text-zinc-600 hover:bg-zinc-50"
             >
-              Cancel
+              Скасувати
             </button>
           </div>
         </form>
@@ -300,7 +300,7 @@ export default function CampaignsPage() {
           className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
         >
           <Plus className="h-4 w-4" />
-          New campaign
+          Нова кампанія
         </button>
       </div>
 
