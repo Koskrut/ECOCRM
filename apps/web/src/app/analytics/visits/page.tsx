@@ -9,6 +9,7 @@ import {
   useAnalyticsFetch,
   useAnalyticsFilters,
 } from "../analytics-ui";
+import { visitStatusLabel } from "@/lib/status-labels";
 
 type VisitsResponse = {
   total: number;
@@ -37,14 +38,18 @@ export default function AnalyticsVisitsPage() {
       />
       <AnalyticsState loading={loading} error={error}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <KpiCard title="Visits Total" value={formatNumber(data?.total)} />
-          <KpiCard title="Statuses" value={formatNumber(data?.byStatus.length)} />
-          <KpiCard title="Managers" value={formatNumber(data?.byManager.length)} />
+          <KpiCard title="Усього візитів" value={formatNumber(data?.total)} />
+          <KpiCard title="Статусів" value={formatNumber(data?.byStatus.length)} />
+          <KpiCard title="Менеджерів" value={formatNumber(data?.byManager.length)} />
         </div>
         <SimpleTable
           rows={data?.byStatus ?? []}
           columns={[
-            { key: "status", title: "Статус", render: (row) => row.status },
+            {
+              key: "status",
+              title: "Статус",
+              render: (row) => visitStatusLabel(row.status),
+            },
             { key: "count", title: "Кількість", render: (row) => formatNumber(row.count) },
           ]}
         />
