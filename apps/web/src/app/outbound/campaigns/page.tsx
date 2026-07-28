@@ -314,12 +314,12 @@ export default function CampaignsPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
             <tr>
-              <th className="px-4 py-3">Campaign</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Scenario</th>
-              <th className="px-4 py-3">Attempt stats</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Updated</th>
+              <th className="px-4 py-3">Кампанія</th>
+              <th className="px-4 py-3">Тип</th>
+              <th className="px-4 py-3">Сценарій</th>
+              <th className="px-4 py-3">Спроби</th>
+              <th className="px-4 py-3">Статус</th>
+              <th className="px-4 py-3">Оновлено</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -335,7 +335,7 @@ export default function CampaignsPage() {
                 <td colSpan={7} className="px-4 py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <span className="text-3xl">📋</span>
-                    <p className="font-medium text-zinc-700">No campaigns yet</p>
+                    <p className="font-medium text-zinc-700">Ще немає кампаній</p>
                     <button
                       type="button"
                       onClick={() => setShowCreate(true)}
@@ -391,7 +391,7 @@ export default function CampaignsPage() {
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${c.isActive ? "bg-emerald-500" : "bg-zinc-400"}`}
                       />
-                      {togglingId === c.id ? "…" : c.isActive ? "Active" : "Paused"}
+                      {togglingId === c.id ? "…" : c.isActive ? "Активна" : "Пауза"}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-400">
