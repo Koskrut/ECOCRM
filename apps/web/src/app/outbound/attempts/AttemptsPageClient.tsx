@@ -14,6 +14,7 @@ import {
 import { OutboundStatusBadge } from "../_components/OutboundStatusBadge";
 import { OutcomeBadge } from "../_components/OutcomeBadge";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { OUTBOUND_STATUS_UA } from "@/lib/status-labels";
 
 const PAGE_SIZE = 30;
 const REFRESH_INTERVAL_MS = 30_000;
@@ -35,7 +36,7 @@ function CallLinkBadge({ callId }: { callId: string | null }) {
   if (callId) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-        📞 Linked
+        📞 Звʼязано
       </span>
     );
   }
@@ -79,11 +80,11 @@ type PresetDef = {
 };
 
 const PRESETS: PresetDef[] = [
-  { label: "⚠ Needs review", filters: { needsReview: "true" } },
-  { label: "⊘ Unlinked calls", filters: { callLinked: "false", status: "COMPLETED" } },
-  { label: "✓ Completed", filters: { status: "COMPLETED" } },
-  { label: "Dormant Reactivation", filters: { scenarioCode: "DORMANT_REACTIVATION" } },
-  { label: "Lead Qualification", filters: { scenarioCode: "LEAD_QUALIFICATION" } },
+  { label: "⚠ Потребує перевірки", filters: { needsReview: "true" } },
+  { label: "⊘ Без звʼязаного дзвінка", filters: { callLinked: "false", status: "COMPLETED" } },
+  { label: "✓ Завершені", filters: { status: "COMPLETED" } },
+  { label: "Реактивація сплячих", filters: { scenarioCode: "DORMANT_REACTIVATION" } },
+  { label: "Кваліфікація лідів", filters: { scenarioCode: "LEAD_QUALIFICATION" } },
 ];
 
 function isPresetActive(preset: PresetDef, filters: FiltersState): boolean {
@@ -178,7 +179,7 @@ function FiltersPopover({
         }`}
       >
         <SlidersHorizontal className="h-4 w-4" />
-        Filters
+        Фільтри
         {activeCount > 0 && (
           <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-bold text-zinc-900">
             {activeCount}
@@ -189,18 +190,18 @@ function FiltersPopover({
       {open && (
         <div className="absolute right-0 top-11 z-30 w-72 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-            Filters
+            Фільтри
           </p>
 
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Campaign</label>
+              <label className="mb-1 block text-xs text-zinc-500">Кампанія</label>
               <select
                 className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                 value={draft.campaignId}
                 onChange={(e) => setDraft((d) => ({ ...d, campaignId: e.target.value }))}
               >
-                <option value="">All</option>
+                <option value="">Усі</option>
                 {campaigns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -210,29 +211,29 @@ function FiltersPopover({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Status</label>
+              <label className="mb-1 block text-xs text-zinc-500">Статус</label>
               <select
                 className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                 value={draft.status}
                 onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))}
               >
-                <option value="">All</option>
+                <option value="">Усі</option>
                 {ALL_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {OUTBOUND_STATUS_UA[s] ?? s}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Scenario</label>
+              <label className="mb-1 block text-xs text-zinc-500">Сценарій</label>
               <select
                 className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                 value={draft.scenarioCode}
                 onChange={(e) => setDraft((d) => ({ ...d, scenarioCode: e.target.value }))}
               >
-                <option value="">All</option>
+                <option value="">Усі</option>
                 {scenarios.map((s) => (
                   <option key={s.code} value={s.code}>
                     {s.name}
@@ -242,28 +243,28 @@ function FiltersPopover({
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">QA review</label>
+              <label className="mb-1 block text-xs text-zinc-500">QA-перевірка</label>
               <select
                 className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                 value={draft.needsReview}
                 onChange={(e) => setDraft((d) => ({ ...d, needsReview: e.target.value }))}
               >
-                <option value="">All</option>
-                <option value="true">Needs review</option>
+                <option value="">Усі</option>
+                <option value="true">Потребує перевірки</option>
                 <option value="false">OK</option>
               </select>
             </div>
 
             <div>
-              <label className="mb-1 block text-xs text-zinc-500">Call link</label>
+              <label className="mb-1 block text-xs text-zinc-500">Звʼязок з дзвінком</label>
               <select
                 className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-400"
                 value={draft.callLinked}
                 onChange={(e) => setDraft((d) => ({ ...d, callLinked: e.target.value }))}
               >
-                <option value="">All</option>
-                <option value="true">Linked to call</option>
-                <option value="false">Not linked</option>
+                <option value="">Усі</option>
+                <option value="true">Звʼязано з дзвінком</option>
+                <option value="false">Без дзвінка</option>
               </select>
             </div>
           </div>
@@ -274,14 +275,14 @@ function FiltersPopover({
               onClick={reset}
               className="text-xs text-zinc-400 hover:text-zinc-700"
             >
-              Reset
+              Скинути
             </button>
             <button
               type="button"
               onClick={apply}
               className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700"
             >
-              Apply
+              Застосувати
             </button>
           </div>
         </div>
@@ -440,20 +441,20 @@ export default function AttemptsPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
             <tr>
-              <th className="px-4 py-3">Contact / Phone</th>
-              <th className="px-4 py-3">Campaign</th>
-              <th className="px-4 py-3">Scenario</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Outcome</th>
-              <th className="px-4 py-3">Flags</th>
-              <th className="px-4 py-3">Updated</th>
+              <th className="px-4 py-3">Контакт / телефон</th>
+              <th className="px-4 py-3">Кампанія</th>
+              <th className="px-4 py-3">Сценарій</th>
+              <th className="px-4 py-3">Статус</th>
+              <th className="px-4 py-3">Результат</th>
+              <th className="px-4 py-3">Прапорці</th>
+              <th className="px-4 py-3">Оновлено</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
             {loading ? (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-zinc-400">
-                  Loading…
+                  Завантаження…
                 </td>
               </tr>
             ) : items.length === 0 ? (
@@ -461,8 +462,8 @@ export default function AttemptsPage() {
                 <td colSpan={7} className="px-4 py-12 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <span className="text-3xl">📵</span>
-                    <p className="font-medium text-zinc-700">No attempts found</p>
-                    <p className="text-sm text-zinc-400">Try adjusting the filters.</p>
+                    <p className="font-medium text-zinc-700">Спроб не знайдено</p>
+                    <p className="text-sm text-zinc-400">Спробуйте змінити фільтри.</p>
                   </div>
                 </td>
               </tr>

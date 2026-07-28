@@ -123,7 +123,7 @@ export function PaymentsBySourceTypeChart({
   const empty = data.length === 0;
   return (
     <ChartCard
-      title="Оплати за каналом (COMPLETED)"
+      title="Оплати за каналом (завершені)"
       subtitle={`Поточний період лише. sourceType: BANK / CASH. Сума в ${code}.`}
       empty={empty}
     >

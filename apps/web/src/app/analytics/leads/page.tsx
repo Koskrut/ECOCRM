@@ -174,17 +174,17 @@ export default function AnalyticsLeadsPage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="WON"
-            subtitle="Статус WON у періоді"
+            title="Успішні"
+            subtitle="Статус «Успішний» у періоді"
             tooltip="Не плутати з виручкою замовлень."
             value={formatNumber(kpi?.won)}
             deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.won ?? 0, cmp?.won) : null}
           />
           <KpiDeltaCard
             variant="percent"
-            title="Частка WON (proxy)"
-            subtitle="WON / створені в періоді"
-            tooltip="Це частка лідів зі статусом WON серед створених у періоді, не конверсія в замовлення."
+            title="Частка успішних (proxy)"
+            subtitle="Успішні / створені в періоді"
+            tooltip="Це частка лідів зі статусом «Успішний» серед створених у періоді, не конверсія в замовлення."
             value={formatPercent(kpi?.wonShareProxy)}
             deltaLabel={
               filters.comparePrev
@@ -194,16 +194,16 @@ export default function AnalyticsLeadsPage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="LOST"
-            subtitle="Статус LOST у періоді"
-            tooltip="Лише enum LOST. NOT_TARGET / SPAM — окремі статуси."
+            title="Провалені"
+            subtitle="Статус «Провалений» у періоді"
+            tooltip="Лише статус «Провалений». Нецільовий / Спам — окремі статуси."
             value={formatNumber(kpi?.lost)}
             deltaLabel={filters.comparePrev ? deltaCountLine(kpi?.lost ?? 0, cmp?.lost) : null}
           />
           <KpiDeltaCard
             variant="count"
             title="В роботі"
-            subtitle="IN_PROGRESS, створені в періоді"
+            subtitle="В роботі, створені в періоді"
             value={formatNumber(kpi?.inProgress)}
             deltaLabel={
               filters.comparePrev ? deltaCountLine(kpi?.inProgress ?? 0, cmp?.inProgress) : null
@@ -212,9 +212,9 @@ export default function AnalyticsLeadsPage() {
           {showExact ? (
             <KpiDeltaCard
               variant="percent"
-              title="Exact: лід → замовлення"
-              subtitle={`Записаний зв’язок (convertedOrderId), не статус WON. У періоді: ${formatNumber(kpi?.leadsWithConvertedOrder)} лідів`}
-              tooltip="Частка лідів, створених у періоді, у яких заповнено convertedOrderId після конверсії з замовленням. Не плутати з «Частка WON (proxy)»."
+              title="Точно: лід → замовлення"
+              subtitle={`Записаний зв’язок (convertedOrderId), не статус «Успішний». У періоді: ${formatNumber(kpi?.leadsWithConvertedOrder)} лідів`}
+              tooltip="Частка лідів, створених у періоді, у яких заповнено convertedOrderId після конверсії з замовленням. Не плутати з «Частка успішних (proxy)»."
               value={formatPercent(kpi?.exactConversionRate)}
               deltaLabel={
                 filters.comparePrev
@@ -329,7 +329,7 @@ export default function AnalyticsLeadsPage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="Застарілі IN_PROGRESS"
+            title="Застарілі «В роботі»"
             subtitle="Створені ≥7д тому, без Activity за 7д"
             value={formatNumber(attention?.staleInProgressLeadsCount)}
             deltaLabel={null}
@@ -343,8 +343,8 @@ export default function AnalyticsLeadsPage() {
           />
           <KpiDeltaCard
             variant="risk"
-            title="OTHER (proxy невідомого джерела)"
-            subtitle="Лічильник лідів source=OTHER зараз"
+            title="Інше (proxy невідомого джерела)"
+            subtitle="Лічильник лідів із джерелом «Інше» зараз"
             tooltip="Enum за замовчуванням може маскувати реальне джерело."
             value={formatNumber(attention?.leadsUnknownSourceProxyCount)}
             deltaLabel={null}
@@ -352,7 +352,7 @@ export default function AnalyticsLeadsPage() {
           <KpiDeltaCard
             variant="risk"
             title="Прострочені завдання на лід"
-            subtitle="Task з leadId, OPEN/IN_PROGRESS, dueAt &lt; зараз"
+            subtitle="Завдання з leadId, відкриті / в роботі, dueAt &lt; зараз"
             tooltip="Той самий assignee scope, що й overdue tasks у overview."
             value={formatNumber(attention?.overdueLeadTasksCount)}
             deltaLabel={null}

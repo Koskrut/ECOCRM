@@ -104,7 +104,7 @@ export default function AnalyticsAttentionPage() {
       <section id="overdue-tasks" className="scroll-mt-24 space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">{at.overdueTitle}</h2>
         <p className="text-xs text-zinc-500">
-          OPEN/IN_PROGRESS, дедлайн до сьогодні (календар Kyiv).
+          Відкриті / в роботі, дедлайн до сьогодні (календар Kyiv).
         </p>
         <SimpleTable
           rows={data?.crm.overdueTasks ?? []}

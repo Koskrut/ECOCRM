@@ -105,7 +105,7 @@ export function CollectedPaymentsDrilldownModal({
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Зібрані оплати (деталізація)</h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Ті самі правила, що й KPI: статус COMPLETED, дата{" "}
+              Ті самі правила, що й KPI: статус «Завершено», дата{" "}
               <code className="text-xs">paidAt</code> у періоді, фільтр по власнику замовлення.
             </p>
             {data != null && (

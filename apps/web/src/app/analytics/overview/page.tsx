@@ -144,7 +144,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="money"
             title="Зібрані оплати"
-            subtitle="COMPLETED, дата paidAt → USD"
+            subtitle="Завершені оплати, дата paidAt → USD"
             tooltip="Окремо від booked revenue."
             value={formatMoneyBase(kpi?.collectedPayments, currency)}
             deltaLabel={
@@ -184,7 +184,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="risk"
             title="Прострочений борг"
-            subtitle="OVERDUE + debtAmount за вибраний період"
+            subtitle="Прострочені + борг за вибраний період"
             tooltip="Розрахунок у межах обраного діапазону дат overview."
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
@@ -205,7 +205,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="percent"
             title="Частка успішних (proxy)"
-            subtitle="WON / створені ліди у періоді"
+            subtitle="Успішні / створені ліди у періоді"
             tooltip="Не конверсія в замовлення; API поле leadConversionProxy."
             value={formatPercent(kpi?.leadConversionProxy)}
             deltaLabel={
@@ -261,13 +261,13 @@ export default function AnalyticsOverviewPage() {
             title="Ліди без дотику"
             count={attention?.crm.leadsWithoutTouchCount ?? 0}
             href={`${attentionHref}#leads-without-touch`}
-            hint="NEW / IN_PROGRESS без активності"
+            hint="Нові / в роботі без активності"
           />
           <AttentionTile
             title="Прострочені оплати (замовлення)"
             count={attention?.finance.overdueOrdersCount ?? 0}
             href={`${attentionHref}#finance-overdue`}
-            hint="OVERDUE + debt &gt; 0"
+            hint="Прострочені з боргом &gt; 0"
           />
         </div>
         <div className="mt-4 flex flex-wrap gap-3">

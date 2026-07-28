@@ -62,8 +62,8 @@ const tooltipBox = { borderRadius: "8px", border: "1px solid #e4e4e7", fontSize:
 const LEAD_STATUS_LABELS: Record<string, string> = {
   NEW: "Новий",
   IN_PROGRESS: "В роботі",
-  WON: "Виграно",
-  LOST: "Програно",
+  WON: "Успішний",
+  LOST: "Провалений",
   NOT_TARGET: "Не цільовий",
   SPAM: "Спам",
 };
@@ -184,7 +184,7 @@ export function LeadsByStatusBarChart({ rows }: { rows: { status: string; count:
   return (
     <ChartCard
       title="Ліди за статусом"
-      subtitle="Розподіл у періоді за полем status. LOST — лише enum LOST (не змішувати з NOT_TARGET / SPAM)."
+      subtitle="Розподіл у періоді за полем status. «Провалений» — лише цей статус (не змішувати з Нецільовий / Спам)."
       empty={empty}
     >
       <ResponsiveContainer width="100%" height={Math.max(260, data.length * 28)} minWidth={320}>
@@ -211,8 +211,8 @@ export function LostReasonsBarChart({ rows }: { rows: { reason: string; count: n
   const empty = data.length === 0;
   return (
     <ChartCard
-      title="Причини програшу (LOST)"
-      subtitle="Ліди зі статусом LOST у періоді, згруповані за statusReason. Порожнє або «не вказано» — типова дірка в даних."
+      title="Причини програшу (провалені)"
+      subtitle="Ліди зі статусом «Провалений» у періоді, згруповані за statusReason. Порожнє або «не вказано» — типова дірка в даних."
       empty={empty}
     >
       <ResponsiveContainer width="100%" height={Math.max(260, data.length * 28)} minWidth={320}>

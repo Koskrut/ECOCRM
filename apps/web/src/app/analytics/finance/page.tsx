@@ -154,7 +154,7 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Фінанси — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          <strong>Зібрано</strong> — період (COMPLETED, paidAt).{" "}
+          <strong>Зібрано</strong> — період (завершені, paidAt).{" "}
           <strong>Борг / прострочення</strong> — замовлення з{" "}
           <code className="rounded bg-zinc-100 px-1">createdAt</code> у вибраному періоді; дельта
           «vs попередній» лише для збору платежів. Заброньований дохід тут не показуємо.
@@ -163,7 +163,7 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="money"
             title="Зібрані оплати"
-            subtitle={`COMPLETED → ${currency}, paidAt у періоді`}
+            subtitle={`Завершені → ${currency}, paidAt у періоді`}
             tooltip="Та сама семантика, що Overview / Sales collected."
             value={formatMoneyBase(kpi?.collectedPayments, currency)}
             deltaLabel={
@@ -174,8 +174,8 @@ export default function AnalyticsFinancePage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="Payments count"
-            subtitle="Кількість COMPLETED у періоді"
+            title="Кількість оплат"
+            subtitle="Кількість завершених у періоді"
             value={formatNumber(kpi?.paymentsCount)}
             deltaLabel={
               filters.comparePrev
@@ -185,7 +185,7 @@ export default function AnalyticsFinancePage() {
           />
           <KpiDeltaCard
             variant="money"
-            title="Avg payment size"
+            title="Середній розмір оплати"
             subtitle={`Зібрано / кількість (${currency})`}
             value={formatMoneyBaseFine(kpi?.avgPayment, currency)}
             deltaLabel={
@@ -205,7 +205,7 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="risk"
             title="Прострочений борг"
-            subtitle="OVERDUE + debt за той самий когортний період"
+            subtitle="Прострочені + борг за той самий когортний період"
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}
@@ -214,22 +214,22 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="risk"
             title="Прострочені замовлення"
-            subtitle="Замовлень з боргом і OVERDUE"
+            subtitle="Замовлень з боргом і простроченням"
             value={formatNumber(kpi?.overdueOrdersCount)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
-            title="Customers w/ overdue"
+            title="Клієнти з простроченням"
             subtitle="Унікальні клієнти в когорті прострочених за період"
             value={formatNumber(kpi?.customersWithOverdueCount)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
-            title="Pending payments"
-            subtitle="PENDING на замовленнях, створених у періоді"
-            tooltip="Не сплутувати з COMPLETED collected; очікує підтвердження."
+            title="Оплати в очікуванні"
+            subtitle="Очікують на замовленнях, створених у періоді"
+            tooltip="Не сплутувати із зібраними (завершеними) оплатами; очікує підтвердження."
             value={formatNumber(kpi?.pendingPaymentsCount)}
             deltaLabel={null}
           />
@@ -246,7 +246,7 @@ export default function AnalyticsFinancePage() {
           <CollectedPaymentsTrendChart
             rows={charts?.collectedPaymentsByDay ?? []}
             currency={currency}
-            subtitle="Поточний період finance. COMPLETED; paidAt (UTC). Окремо від booked revenue."
+            subtitle="Поточний період finance. Завершені; paidAt (UTC). Окремо від booked revenue."
           />
           <DebtAgingBucketsChart rows={charts?.debtAgingBuckets ?? []} currency={currency} />
           <div className="lg:col-span-2">
@@ -258,7 +258,7 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0 rounded-xl border border-amber-200/60 bg-amber-50/20 p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Операційні сигнали</h2>
         <p className="mt-1 text-sm text-amber-900/85">
-          Борг, прострочення та PENDING на цій сторінці — у межах обраного періоду (див. KPI).
+          Борг, прострочення та очікуючі оплати на цій сторінці — у межах обраного періоду (див. KPI).
           Детальні черги:{" "}
           <Link
             href={`${attentionHref}#finance-overdue`}

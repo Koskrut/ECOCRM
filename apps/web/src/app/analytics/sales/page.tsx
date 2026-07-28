@@ -420,7 +420,7 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Заброньований дохід"
-              subtitle={`${currency}, createdAt (period-based)`}
+              subtitle={`${currency}, createdAt (за період)`}
               tooltip={`Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → ${currency}.`}
               value={formatMoneyBase(kpi?.bookedRevenue, currency)}
               deltaLabel={
@@ -454,7 +454,7 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Зібрані оплати"
-              subtitle={`${currency}, COMPLETED + paidAt (period-based)`}
+              subtitle={`${currency}, завершені + paidAt (за період)`}
               tooltip="Зібрані оплати ≠ заброньований дохід."
               value={formatMoneyBase(kpi?.collectedPayments, currency)}
               deltaLabel={
@@ -466,7 +466,7 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="risk"
               title={at.overduePeriod}
-              subtitle="OPEN/IN_PROGRESS, dueAt у вибраному діапазоні"
+              subtitle="Відкриті / в роботі, dueAt у вибраному діапазоні"
               tooltip="Узгоджено з overview / managers / attention для того ж періоду."
               value={formatNumber(kpi?.overdueTasksCount)}
               deltaLabel={
@@ -480,7 +480,7 @@ export default function AnalyticsSalesPage() {
 
         <section className="min-w-0 space-y-4">
           <div>
-            <h3 className="text-base font-semibold text-zinc-900">Manager performance</h3>
+            <h3 className="text-base font-semibold text-zinc-900">Ефективність менеджерів</h3>
             <p className="mt-1 text-sm text-zinc-500">
               Сортування по KPI (без proxy / без generic activities).
             </p>
@@ -633,20 +633,20 @@ export default function AnalyticsSalesPage() {
             </div>
 
             <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <h4 className="text-sm font-semibold text-zinc-900">Managers with overdue tasks</h4>
+              <h4 className="text-sm font-semibold text-zinc-900">Менеджери з простроченими завданнями</h4>
               <p className="mt-1 text-xs text-zinc-500">
-                Серед менеджерів, представлених у selected sales period (GET /analytics/managers).
+                Серед менеджерів у вибраному періоді продажів.
               </p>
               {overdueManagersTop.length === 0 ? (
                 <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/40 p-3 text-xs text-zinc-600">
-                  Немає менеджерів з overdue tasks у цьому періоді.
+                  Немає менеджерів з простроченими завданнями у цьому періоді.
                 </div>
               ) : (
                 <div className="mt-3 overflow-x-auto">
                   <table className="min-w-[420px] text-xs">
                     <thead className="bg-zinc-50 text-left text-zinc-500">
                       <tr>
-                        <th className="px-3 py-2 font-medium">Manager</th>
+                        <th className="px-3 py-2 font-medium">Менеджер</th>
                         <th className="px-3 py-2 font-medium text-right">{at.overdueColumn}</th>
                       </tr>
                     </thead>
