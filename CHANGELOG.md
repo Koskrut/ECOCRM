@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.125**.)_
+_(планируемые изменения после **0.2.126**.)_
+
+## [0.2.126] — 2026-07-29
+
+### Summary
+
+Патч **0.2.126**: UA status labels across web — analytics, planning, outbound, visits, orders, contacts; central `status-labels.ts`.
+
+### Added
+
+- **`status-labels.ts`**: centralized UA labels for visit/shift/order/lead/payment/outbound/inbox enums; `StatusBadge` uses shared maps.
+
+### Changed
+
+- **Analytics / planning / outbound**: KPI columns, filters, campaigns, attempts — Ukrainian instead of raw enums.
+- **Visits / fuel / team / history**: visit status, outcome, shift labels.
+- **Orders / leads / contacts / inbox**: StatusBadge, kanban, filters, payment blocks.
+- **Backend lead pipeline**: `DEFAULT_STAGE_LABELS` → Ukrainian (matches web).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.126`**.
+- **Миграций нет.**
 
 ## [0.2.125] — 2026-07-28
 
