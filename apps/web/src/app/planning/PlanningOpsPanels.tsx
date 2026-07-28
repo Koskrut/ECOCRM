@@ -14,6 +14,7 @@ import {
   type StockProjection,
 } from "@/lib/api/resources/planning";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { planningCycleStatusLabel } from "@/lib/status-labels";
 
 function useStableErrorHandler(onError: (msg: string) => void) {
   const ref = useRef(onError);
@@ -441,7 +442,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
       </Panel>
 
       {active ? (
-        <Panel title={`${active.status} · ${formatDateTime(active.cycleStart)}`}>
+        <Panel title={`${planningCycleStatusLabel(active.status)} · ${formatDateTime(active.cycleStart)}`}>
           <SimpleTable
             headers={[
               t.labels.sku,

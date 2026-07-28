@@ -15,7 +15,7 @@ import {
 import { OutboundStatusBadge } from "../../_components/OutboundStatusBadge";
 import { OutcomeBadge } from "../../_components/OutcomeBadge";
 import { formatDateTime } from "@/lib/crmDatetime";
-import { leadStatusLabel } from "@/lib/status-labels";
+import { leadStatusLabel, outboundPipelineStepLabel, outboundTargetTypeLabel } from "@/lib/status-labels";
 
 function formatDate(d: string | null | undefined) {
   return formatDateTime(d);
@@ -48,7 +48,7 @@ function AnalysisSection({ analysis }: { analysis: OutboundOutcomeAnalysis }) {
             {sourceLabels[analysis.analysisSource] ?? analysis.analysisSource}
           </span>
         </MetaRow>
-        <MetaRow label="Needs review">
+        <MetaRow label="Потребує перевірки">
           {analysis.needsReview ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
               ⚠ Yes — manual review needed
@@ -291,7 +291,7 @@ function ReviewActionsPanel({
                 onClick={() => void doReview({ overrideOutcomeKey: overrideKey })}
                 className="flex-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
-                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Apply override"}
+                {busy ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : "Застосувати override"}
               </button>
               <button
                 type="button"
@@ -478,22 +478,22 @@ export default function AttemptDetailPage() {
           {/* Core metadata */}
           <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
             <div className="border-b border-zinc-100 px-4 py-3">
-              <h2 className="text-sm font-semibold text-zinc-700">Details</h2>
+              <h2 className="text-sm font-semibold text-zinc-700">Деталі</h2>
             </div>
             <dl className="divide-y divide-zinc-100 px-4">
               <MetaRow label="Кампанія">{attempt.campaign?.name ?? attempt.campaignId}</MetaRow>
-              <MetaRow label="Scenario">
+              <MetaRow label="Сценарій">
                 <span className="rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
                   {attempt.scenarioCode}
                 </span>
                 <span className="ml-1.5 text-xs text-zinc-400">v{attempt.scenarioVersion}</span>
               </MetaRow>
-              <MetaRow label="Target type">{attempt.targetType}</MetaRow>
+              <MetaRow label="Тип цілі">{outboundTargetTypeLabel(attempt.targetType)}</MetaRow>
               <MetaRow label="Телефон">{attempt.phoneNormalized}</MetaRow>
-              <MetaRow label="Runtime provider">
+              <MetaRow label="Провайдер runtime">
                 {attempt.runtimeProvider ?? attempt.provider ?? "—"}
               </MetaRow>
-              <MetaRow label="Provider session">
+              <MetaRow label="Сесія провайдера">
                 {attempt.providerSessionId ? (
                   <code className="break-all rounded bg-zinc-100 px-1 py-0.5 text-xs">
                     {attempt.providerSessionId}
@@ -503,7 +503,7 @@ export default function AttemptDetailPage() {
                 )}
               </MetaRow>
               {attempt.externalSessionId && (
-                <MetaRow label="External session">
+                <MetaRow label="Зовнішня сесія">
                   <code className="break-all rounded bg-zinc-100 px-1 py-0.5 text-xs">
                     {attempt.externalSessionId}
                   </code>
@@ -537,24 +537,28 @@ export default function AttemptDetailPage() {
                 attempt.summaryStatus ||
                 attempt.classificationStatus ||
                 attempt.transferStatus) && (
-                <MetaRow label="Pipeline status">
+                <MetaRow label="Статус пайплайну">
                   <span className="text-xs text-zinc-600">
                     {[
-                      attempt.transcriptStatus && `transcript: ${attempt.transcriptStatus}`,
-                      attempt.summaryStatus && `summary: ${attempt.summaryStatus}`,
-                      attempt.classificationStatus && `classification: ${attempt.classificationStatus}`,
-                      attempt.transferStatus && `transfer: ${attempt.transferStatus}`,
+                      attempt.transcriptStatus &&
+                        `транскрипт: ${outboundPipelineStepLabel(attempt.transcriptStatus)}`,
+                      attempt.summaryStatus &&
+                        `підсумок: ${outboundPipelineStepLabel(attempt.summaryStatus)}`,
+                      attempt.classificationStatus &&
+                        `класифікація: ${outboundPipelineStepLabel(attempt.classificationStatus)}`,
+                      attempt.transferStatus &&
+                        `трансфер: ${outboundPipelineStepLabel(attempt.transferStatus)}`,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
-                </span>
+                  </span>
                 </MetaRow>
               )}
               {attempt.catalogSentAt && (
-                <MetaRow label="Catalog sent">{formatDate(attempt.catalogSentAt)}</MetaRow>
+                <MetaRow label="Каталог надіслано">{formatDate(attempt.catalogSentAt)}</MetaRow>
               )}
               {(attempt.lastRuntimeEventAt || attempt.lastRuntimeEventType) && (
-                <MetaRow label="Last runtime event">
+                <MetaRow label="Остання runtime-подія">
                   <span className="text-xs">
                     {attempt.lastRuntimeEventType ?? "—"}{" "}
                     {attempt.lastRuntimeEventAt ? `· ${formatDate(attempt.lastRuntimeEventAt)}` : ""}
@@ -562,14 +566,14 @@ export default function AttemptDetailPage() {
                 </MetaRow>
               )}
               {(attempt.failureCode || attempt.failureReason) && (
-                <MetaRow label="Failure">
+                <MetaRow label="Помилка">
                   <span className="text-xs text-red-700">
                     {attempt.failureCode ?? ""}
                     {attempt.failureReason ? ` — ${attempt.failureReason}` : ""}
                   </span>
                 </MetaRow>
               )}
-              <MetaRow label="Linked call">
+              <MetaRow label="Звʼязаний дзвінок">
                 {attempt.callId ? (
                   <span className="inline-flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -759,14 +763,14 @@ export default function AttemptDetailPage() {
           {attempt.call && (
             <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
               <div className="border-b border-zinc-100 px-4 py-3">
-                <h2 className="text-sm font-semibold text-zinc-700">Linked call</h2>
+                <h2 className="text-sm font-semibold text-zinc-700">Звʼязаний дзвінок</h2>
               </div>
               <dl className="divide-y divide-zinc-100 px-4">
-                <MetaRow label="Provider">{attempt.call.provider}</MetaRow>
+                <MetaRow label="Провайдер">{attempt.call.provider}</MetaRow>
                 <MetaRow label="External ID">
                   <code className="text-xs">{attempt.call.externalId}</code>
                 </MetaRow>
-                <MetaRow label="Direction">{attempt.call.direction}</MetaRow>
+                <MetaRow label="Напрямок">{attempt.call.direction}</MetaRow>
                 <MetaRow label="Duration">
                   {attempt.call.durationSec != null
                     ? `${attempt.call.durationSec}s`

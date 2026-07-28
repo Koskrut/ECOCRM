@@ -181,7 +181,7 @@ export function CollectedPaymentsTrendChart({
   const empty = data.length === 0;
   const resolvedSubtitle =
     subtitle ??
-    `Поточний період overview лише. Оплати COMPLETED; дата — paidAt (UTC). Сума в ${code}.`;
+    `Поточний період overview лише. Завершені оплати; дата — paidAt (UTC). Сума в ${code}.`;
   return (
     <ChartCard title={`Зібрані оплати (${code})`} subtitle={resolvedSubtitle} empty={empty}>
       <ResponsiveContainer width="100%" height={260} minWidth={320}>

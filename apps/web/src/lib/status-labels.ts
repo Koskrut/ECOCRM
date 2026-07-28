@@ -221,3 +221,56 @@ export const CALL_STATUS_UA: Record<string, string> = {
 export function callStatusLabel(status: string | null | undefined): string {
   return pick(CALL_STATUS_UA, status);
 }
+
+/** Planning factory cycle status */
+export const PLANNING_CYCLE_STATUS_UA: Record<string, string> = {
+  DRAFT: "Чернетка",
+  APPROVED: "Затверджено",
+  DONE: "Завершено",
+};
+
+export function planningCycleStatusLabel(status: string | null | undefined): string {
+  return pick(PLANNING_CYCLE_STATUS_UA, status);
+}
+
+/** Planning packing list / factory order status */
+export const PLANNING_DOC_STATUS_UA: Record<string, string> = {
+  DRAFT: "Чернетка",
+  OPEN: "Відкрито",
+  PARTIAL: "Частково",
+  CLOSED: "Закрито",
+  CANCELLED: "Скасовано",
+  CANCELED: "Скасовано",
+  APPROVED: "Затверджено",
+  DONE: "Завершено",
+};
+
+export function planningDocStatusLabel(status: string | null | undefined): string {
+  return pick(PLANNING_DOC_STATUS_UA, status);
+}
+
+/** Outbound target type */
+export const OUTBOUND_TARGET_TYPE_UA: Record<string, string> = {
+  LEAD: "Лід",
+  CONTACT_DORMANT: "Сплячий контакт",
+};
+
+export function outboundTargetTypeLabel(type: string | null | undefined): string {
+  return pick(OUTBOUND_TARGET_TYPE_UA, type);
+}
+
+/** Outbound pipeline sub-status (transcript/summary/…) */
+export const OUTBOUND_PIPELINE_STEP_UA: Record<string, string> = {
+  PENDING: "очікує",
+  QUEUED: "у черзі",
+  RUNNING: "в процесі",
+  DONE: "готово",
+  COMPLETED: "готово",
+  FAILED: "помилка",
+  SKIPPED: "пропущено",
+  NONE: "немає",
+};
+
+export function outboundPipelineStepLabel(status: string | null | undefined): string {
+  return pick(OUTBOUND_PIPELINE_STEP_UA, status);
+}

@@ -55,14 +55,14 @@ export default function AnalyticsClientsPage() {
       />
       <AnalyticsState loading={loading} error={error}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <KpiCard title="New Clients" value={formatNumber(data?.newClientsCount)} />
-          <KpiCard title="Repeat Clients" value={formatNumber(data?.repeatClientsCount)} />
-          <KpiCard title="Sleeping Clients" value={formatNumber(data?.sleepingClientsCount)} />
+          <KpiCard title="Нові клієнти" value={formatNumber(data?.newClientsCount)} />
+          <KpiCard title="Повторні клієнти" value={formatNumber(data?.repeatClientsCount)} />
+          <KpiCard title="Сплячі клієнти" value={formatNumber(data?.sleepingClientsCount)} />
         </div>
         <SimpleTable
           rows={data?.topByBookedRevenue ?? []}
           columns={[
-            { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
+            { key: "clientName", title: "Клієнт", render: (row) => row.clientName ?? row.clientId },
             {
               key: "bookedRevenue",
               title: "Заброньований дохід",
@@ -74,7 +74,7 @@ export default function AnalyticsClientsPage() {
         <SimpleTable
           rows={data?.topByCollectedPayments ?? []}
           columns={[
-            { key: "clientName", title: "Client", render: (row) => row.clientName ?? row.clientId },
+            { key: "clientName", title: "Клієнт", render: (row) => row.clientName ?? row.clientId },
             {
               key: "collectedPayments",
               title: "Зібрані оплати",
