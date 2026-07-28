@@ -1,7 +1,7 @@
 import type { VisitSummary } from "@/types/crm";
 import { t } from "@/lib/i18n";
 
-const DONE_STATUSES = new Set(["DONE", "COMPLETED", "CANCELLED"]);
+const DONE_STATUSES = new Set(["DONE", "COMPLETED", "CANCELED", "CANCELLED"]);
 
 export function visitLabel(v: VisitSummary): string {
   if (v.title?.trim()) return v.title.trim();

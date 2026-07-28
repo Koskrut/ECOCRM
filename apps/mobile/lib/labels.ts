@@ -23,11 +23,38 @@ export function visitOutcomeLabel(o: VisitOutcome): string {
   return label === key ? o : label;
 }
 
+export function visitStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  const key = `visitStatus.${status}` as const;
+  const label = t(key);
+  return label === key ? status : label;
+}
+
 export function orderStageLabel(stage: string | null | undefined): string {
   if (!stage) return "";
   const key = `orderStage.${stage}` as const;
   const label = t(key);
   return label === key ? stage : label;
+}
+
+/** Prefer orderStage; fall back to legacy status via same dictionary when possible. */
+export function orderDisplayStatusLabel(
+  orderStage: string | null | undefined,
+  status: string | null | undefined,
+): string {
+  const stage = orderStageLabel(orderStage);
+  if (stage) return stage;
+  if (!status) return "";
+  const key = `orderStage.${status}` as const;
+  const label = t(key);
+  return label === key ? status : label;
+}
+
+export function metricsSourceLabel(source: string | null | undefined): string {
+  if (!source || source === "none") return "";
+  const key = `fuel.metricsSource.${source}` as const;
+  const label = t(key);
+  return label === key ? source : label;
 }
 
 export function clientStageLabel(stage: string | null | undefined): string {

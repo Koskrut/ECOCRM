@@ -29,7 +29,7 @@ import { npApi } from "@/lib/api/np";
 import { ordersApi } from "@/lib/api/orders";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
-import { orderStageLabel } from "@/lib/labels";
+import { orderDisplayStatusLabel } from "@/lib/labels";
 import { formatBaseMoney, formatOrderAmount } from "@/lib/order-currency";
 import type { Contact, Order, OrderItem } from "@/types/crm";
 
@@ -293,7 +293,7 @@ export default function OrderDetailScreen() {
         }>
         <View style={styles.titleRow}>
           <Text style={[theme.typography.title, { flex: 1 }]}>{title}</Text>
-          <StatusPill label={orderStageLabel(order.orderStage) || order.status} tone="info" />
+          <StatusPill label={orderDisplayStatusLabel(order.orderStage, order.status)} tone="info" />
         </View>
         <AppButton
           label={t("orders.edit")}

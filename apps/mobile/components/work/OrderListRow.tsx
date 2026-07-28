@@ -10,7 +10,7 @@ import type { OrderListItem } from "@/lib/api/orders";
 import { useTheme } from "@/lib/design/theme-context";
 import { formatOrderAmount } from "@/lib/order-currency";
 import { t } from "@/lib/i18n";
-import { orderStageLabel } from "@/lib/labels";
+import { orderDisplayStatusLabel, orderStageLabel } from "@/lib/labels";
 
 type Props = {
   item: OrderListItem;
@@ -87,7 +87,7 @@ export function OrderListRow({ item, index = 0 }: Props) {
             </Text>
           </View>
           <StatusPill
-            label={orderStageLabel(item.orderStage) || item.status}
+            label={orderStageLabel(item.orderStage) || orderDisplayStatusLabel(null, item.status)}
             tone={statusTone(item.orderStage)}
           />
         </View>

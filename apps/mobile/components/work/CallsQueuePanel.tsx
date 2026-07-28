@@ -63,7 +63,7 @@ function CallQueueCard({
                 {name}
               </Text>
               {item.source === "MISSED_CALL" ? (
-                <StatusPill label="Пропущений" tone="danger" />
+                <StatusPill label={t("calls.missed")} tone="danger" />
               ) : null}
               <StatusPill label={`#${item.sortOrder}`} tone="warning" />
             </View>

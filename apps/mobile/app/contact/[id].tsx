@@ -25,7 +25,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey, startOfLocalDayIso, endOfLocalDayIso } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
-import { clientStageLabel } from "@/lib/labels";
+import { clientStageLabel, orderDisplayStatusLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
 import type { Contact, Order, VisitSummary } from "@/types/crm";
 
@@ -258,8 +258,7 @@ export default function ContactDetailScreen() {
                   {o.orderNumber ? `#${o.orderNumber}` : t("orders.orderFallback")}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                  {o.status}
-                  {o.orderStage ? ` · ${o.orderStage}` : ""}
+                  {orderDisplayStatusLabel(o.orderStage, o.status)}
                 </Text>
               </Card>
             </AnimatedListItem>

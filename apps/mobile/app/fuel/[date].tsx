@@ -25,7 +25,7 @@ import { useAuth } from "@/context/auth-context";
 import { apiFetch, apiUploadForm } from "@/lib/api";
 import { refuelReceiptUrl, type FuelRefuelEntry, type FuelRefuelTotals } from "@/lib/fuel-refuels";
 import { useTheme } from "@/lib/design/theme-context";
-import { gpsVerificationLabel } from "@/lib/labels";
+import { gpsVerificationLabel, metricsSourceLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
 
 type BreakdownRow = {
@@ -266,7 +266,7 @@ export default function FuelDayScreen() {
                   {data?.compensationFactKind === "fact_gps"
                     ? t("fuel.payoutSourceGps")
                     : t("fuel.payoutSourceVisits")}
-                  {r.metricsSource ? ` · ${r.metricsSource}` : ""}
+                  {r.metricsSource ? ` · ${metricsSourceLabel(r.metricsSource)}` : ""}
                 </Text>
               </Card>
               <Card style={styles.metricCard}>
@@ -277,7 +277,7 @@ export default function FuelDayScreen() {
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                   {t("fuel.trackGpsRef")}
                   {data?.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
-                    ? ` · ${data.factGpsMetrics.source}`
+                    ? ` · ${metricsSourceLabel(data.factGpsMetrics.source)}`
                     : ""}
                 </Text>
               </Card>
