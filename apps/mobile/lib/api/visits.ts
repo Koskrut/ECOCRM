@@ -84,6 +84,9 @@ export const visitsApi = {
       { token },
     ),
 
+  get: (token: string, id: string) =>
+    apiFetch<VisitSummary>(`/visits/${id}`, { token }),
+
   create: (token: string, body: CreateVisitBody) =>
     apiFetch<VisitSummary>("/visits", {
       method: "POST",

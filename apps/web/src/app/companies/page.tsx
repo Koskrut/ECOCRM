@@ -13,6 +13,7 @@ import { strings } from "@/locales";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
+import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -75,29 +76,33 @@ function CompaniesPageContent() {
   }, [qInput]);
 
   const reload = useCallback(
-    async (opts?: { keepPage?: boolean }) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const effectivePage = opts?.keepPage ? page : 1;
-        if (!opts?.keepPage) setPage(1);
+    async (opts?: { keepPage?: boolean; silent?: boolean }) => {
+      const run = async () => {
+        try {
+          if (!opts?.silent) setLoading(true);
+          setError(null);
+          const effectivePage = opts?.keepPage ? page : 1;
+          if (!opts?.keepPage) setPage(1);
 
-        const res: CompaniesResponse = await companiesApi.list({
-          search: q.trim() || undefined,
-          page: effectivePage,
-          pageSize: PAGE_SIZE,
-        });
-        setItems(res.items);
-        setTotal(res.total);
-      } catch (e) {
-        const msg =
-          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Помилка завантаження компаній");
-        setError(msg);
-        setItems([]);
-      } finally {
-        setLoading(false);
-      }
+          const res: CompaniesResponse = await companiesApi.list({
+            search: q.trim() || undefined,
+            page: effectivePage,
+            pageSize: PAGE_SIZE,
+          });
+          setItems(res.items);
+          setTotal(res.total);
+        } catch (e) {
+          const msg =
+            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (e instanceof Error ? e.message : "Помилка завантаження компаній");
+          setError(msg);
+          setItems([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      if (opts?.silent) await withPreservedScroll(run);
+      else await run();
     },
     [page, q],
   );
@@ -184,7 +189,7 @@ function CompaniesPageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("companyId");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(newUrl);
+    router.replace(newUrl, { scroll: false });
   };
 
   const resetAllFilters = () => {
@@ -408,7 +413,7 @@ function CompaniesPageContent() {
           apiBaseUrl="/api"
           companyId={companyId}
           onClose={closeModal}
-          onUpdate={() => void reload({ keepPage: true })}
+          onUpdate={() => void reload({ keepPage: true, silent: true })}
           onOpenContact={(id) => setContactId(id)}
         />
       )}
@@ -424,7 +429,7 @@ function CompaniesPageContent() {
           }
           onClose={() => setContactId(null)}
           onCreated={setContactId}
-          onUpdate={() => void reload({ keepPage: true })}
+          onUpdate={() => void reload({ keepPage: true, silent: true })}
           onOpenCompany={(id) => {
             const params = new URLSearchParams(searchParams.toString());
             params.set("companyId", id);

@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.123**.)_
+_(планируемые изменения после **0.2.124**.)_
+
+## [0.2.124] — 2026-07-28
+
+### Summary
+
+Патч **0.2.124**: web list scroll preserve; payments debt in payment currency; visits mobile layout; mobile visit date picker; Android Maps key guard.
+
+### Added
+
+- **Web `withPreservedScroll`**: списки contacts/leads/orders/payments/companies не прыгают после закрытия модалок.
+- **Payments FX helper**: `debtInPaymentCurrency`, `formatDebtForAllocation` — split/allocate в валюте платежа.
+- **Visits BFF/mobile**: `GET /visits/:id` proxy + `visitsApi.get`.
+- **Mobile visit schedule**: календарь / today-tomorrow-custom при создании и переносе визита.
+- **Mobile Maps**: `app.config.js` inject native Google Maps key; `canUseInteractiveMaps()` — не монтировать MapView без ключа на Android.
+
+### Changed
+
+- **Visits web**: mobile pane backlog/schedule; UA labels; responsive header и owner filter.
+- **Contacts modal**: searchable company picker (`companiesApi.list`).
+- **FixedDropdownPortal**: stopPropagation — nested dropdowns не закрывают parent popover.
+- **Mobile maps/fuel screens**: guard when interactive maps unavailable.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.124`**.
+- **Миграций нет.** Mobile EAS: задайте **`GOOGLE_MAPS_API_KEY`** / **`EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`** для Android MapView.
 
 ## [0.2.123] — 2026-07-28
 

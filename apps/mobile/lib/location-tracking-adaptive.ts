@@ -4,6 +4,7 @@ import * as Location from "expo-location";
 import { STORAGE_KEYS } from "./location-tracking-buffer";
 import { FIELD_LOCATION_TASK } from "./location-tracking-config";
 import {
+  DEFAULT_TIER,
   watchOptionsForTier,
   type SamplingTier,
   type WatchOptions,

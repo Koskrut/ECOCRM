@@ -29,7 +29,7 @@ export default function DayMapScreen() {
   }, [navigation, title]);
 
   return (
-    <Screen contentStyle={styles.screen}>
+    <Screen contentStyle={styles.screen} edges={["left", "right"]}>
       <DayRouteMapPanel
         dateKey={dateKey}
         ownerId={ownerId && ownerId !== user?.id ? ownerId : undefined}

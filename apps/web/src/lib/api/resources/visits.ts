@@ -196,6 +196,11 @@ export const visitsApi = {
     return res.data;
   },
 
+  get: async (id: string): Promise<Visit> => {
+    const res = await apiHttp.get<Visit>(`/visits/${id}`);
+    return res.data;
+  },
+
   history: async (params: {
     from?: string;
     to?: string;

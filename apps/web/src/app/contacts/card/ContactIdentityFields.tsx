@@ -29,6 +29,8 @@ type Props = {
   loadingCompanies: boolean;
   addressRequiredForVisit: boolean;
   onOpenCompany?: (id: string) => void;
+  onCompanySearchQueryChange?: (query: string) => void;
+  onCompanySelected?: (company: { id: string; name: string } | null) => void;
   onPatch: (payload: Record<string, unknown>) => Promise<void>;
   onRefresh: () => void;
   onRegisterCancel: (cancel: (() => void) | null) => void;
@@ -45,6 +47,8 @@ export function ContactIdentityFields({
   loadingCompanies,
   addressRequiredForVisit,
   onOpenCompany,
+  onCompanySearchQueryChange,
+  onCompanySelected,
   onPatch,
   onRefresh,
   onRegisterCancel,
@@ -217,10 +221,18 @@ export function ContactIdentityFields({
             value={companyId ?? ""}
             options={companyOptionsWithEmpty}
             placeholder={t.clickToAdd}
-            disabled={saving || loadingCompanies}
+            disabled={saving}
             isLoading={loadingCompanies}
+            onSearchQueryChange={onCompanySearchQueryChange}
             onChange={async (id) => {
-              await onPatch({ companyId: id === "" ? null : id });
+              const nextId = id === "" ? null : id;
+              if (!nextId) {
+                onCompanySelected?.(null);
+              } else {
+                const opt = companyOptionsWithEmpty.find((o) => o.id === nextId);
+                onCompanySelected?.(opt && opt.id ? { id: opt.id, name: opt.label } : null);
+              }
+              await onPatch({ companyId: nextId });
             }}
             onCreate={onOpenCompany ? () => onOpenCompany("new") : undefined}
             createLabel={createT.createCompany}

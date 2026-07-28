@@ -18,7 +18,9 @@ export function Screen({
   children,
   style,
   contentStyle,
-  edges = ["top", "left", "right"],
+  // Default without "top": stack screens already have a native header (+ edge-to-edge inset).
+  // Tab roots get top inset from (tabs)/_layout. Opt into "top" only for headerless screens.
+  edges = ["left", "right"],
   gradient = true,
   padded = true,
 }: Props) {

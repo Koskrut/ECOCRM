@@ -20,7 +20,7 @@ import { contactsApi } from "@/lib/api/contacts";
 import { visitsApi } from "@/lib/api/visits";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
-import { parseDateKey } from "@/lib/date";
+import { formatHumanDate, formatLocalDateKey, parseDateKey } from "@/lib/date";
 import {
   DEFAULT_VISIT_DURATION_MIN,
   buildEndsAt,
@@ -55,10 +55,10 @@ export default function NewVisitScreen() {
     typeof params.contactId === "string" && params.contactId ? params.contactId : null;
   const preselectedCompanyId =
     typeof params.companyId === "string" && params.companyId ? params.companyId : null;
-  const scheduleDateKey =
+  const initialDateKey =
     typeof params.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
       ? params.date
-      : null;
+      : formatLocalDateKey();
   const defaultToday = params.schedule !== "backlog";
 
   const [step, setStep] = useState<Step>(1);
@@ -68,7 +68,10 @@ export default function NewVisitScreen() {
   const [backlogByCompany, setBacklogByCompany] = useState<Record<string, string>>({});
 
   const [mode, setMode] = useState<VisitScheduleMode>(defaultToday ? "today" : "backlog");
-  const [timeSlot, setTimeSlot] = useState<TimeSlotKey>("next");
+  const [dateKey, setDateKey] = useState(initialDateKey);
+  const [timeSlot, setTimeSlot] = useState<TimeSlotKey>(() =>
+    initialDateKey === formatLocalDateKey() ? "next" : "10",
+  );
   const [customTime, setCustomTime] = useState(() => formatTimeHm(suggestNextSlot()));
   const [purposeKey, setPurposeKey] = useState<VisitPurposeKey | null>(null);
   const [customPurpose, setCustomPurpose] = useState("");
@@ -168,10 +171,8 @@ export default function NewVisitScreen() {
     };
   }, [contact, company, token]);
 
-  const scheduleBase = useMemo(
-    () => (scheduleDateKey ? parseDateKey(scheduleDateKey) : new Date()),
-    [scheduleDateKey],
-  );
+  const scheduleBase = useMemo(() => parseDateKey(dateKey), [dateKey]);
+  const isSelectedToday = dateKey === formatLocalDateKey();
 
   const startsAt = useMemo(
     () => (mode === "today" ? resolveVisitStartsAt(timeSlot, customTime, scheduleBase) : null),
@@ -196,9 +197,19 @@ export default function NewVisitScreen() {
   const footerSummary = useMemo(() => {
     if (!hasEntity) return "";
     if (mode === "backlog") return t("visits.summaryBacklog");
-    if (startsAt) return t("visits.summaryToday", { time: formatTimeHm(startsAt) });
+    if (startsAt) {
+      const time = formatTimeHm(startsAt);
+      if (isSelectedToday) return t("visits.summaryToday", { time });
+      return t("visits.summaryAt", { date: formatHumanDate(scheduleBase), time });
+    }
     return t("visits.timeLabel");
-  }, [hasEntity, mode, startsAt]);
+  }, [hasEntity, mode, startsAt, isSelectedToday, scheduleBase]);
+
+  const submitLabel = useMemo(() => {
+    if (mode === "backlog") return t("visits.backlogAction");
+    if (isSelectedToday) return t("visits.scheduleActionToday");
+    return t("visits.scheduleAction");
+  }, [mode, isSelectedToday]);
 
   function onSelectContact(c: Contact) {
     setContact(c);
@@ -258,7 +269,11 @@ export default function NewVisitScreen() {
       }
 
       const message =
-        mode === "today" ? t("visits.createdToday") : t("visits.createdBacklog");
+        mode === "today"
+          ? isSelectedToday
+            ? t("visits.createdToday")
+            : t("visits.createdScheduled", { date: formatHumanDate(scheduleBase) })
+          : t("visits.createdBacklog");
       Alert.alert(t("common.done"), message, [
         {
           text: t("common.ok"),
@@ -333,6 +348,8 @@ export default function NewVisitScreen() {
               company={company}
               mode={mode}
               onModeChange={setMode}
+              dateKey={dateKey}
+              onDateKeyChange={setDateKey}
               timeSlot={timeSlot}
               onTimeSlotChange={setTimeSlot}
               customTime={customTime}
@@ -375,7 +392,7 @@ export default function NewVisitScreen() {
             style={styles.footerBtn}
           />
           <AppButton
-            label={mode === "today" ? t("visits.scheduleAction") : t("visits.backlogAction")}
+            label={submitLabel}
             onPress={() => void onCreate()}
             loading={busy}
             disabled={!canSubmit}

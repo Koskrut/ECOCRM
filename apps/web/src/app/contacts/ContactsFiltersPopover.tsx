@@ -120,10 +120,14 @@ export function ContactsFiltersPopover({
     lastActiveElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const t = window.setTimeout(() => firstFieldRef.current?.focus(), 0);
     const onMouseDown = (evt: MouseEvent) => {
-      const target = evt.target as Node | null;
-      if (panelRef.current && target && !panelRef.current.contains(target)) {
-        onClose();
+      const target = evt.target;
+      if (!(target instanceof Node) || !panelRef.current) return;
+      if (panelRef.current.contains(target)) return;
+      // NpCitySelect options render in a FixedDropdownPortal on document.body
+      if (target instanceof Element && target.closest("[data-fixed-dropdown-portal]")) {
+        return;
       }
+      onClose();
     };
     const onKeyDown = (evt: KeyboardEvent) => {
       if (evt.key === "Escape") {

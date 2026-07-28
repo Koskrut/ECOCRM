@@ -10,6 +10,7 @@ import { OrderModal } from "../orders/OrderModal";
 import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
+import { companiesApi } from "@/lib/api/resources/companies";
 import { contactsApi } from "@/lib/api/resources/contacts";
 import { formatPhoneInputMask } from "@/lib/formatPhone";
 import { ContactCreateForm, type ContactCreateFormValues } from "./ContactCreateForm";
@@ -133,7 +134,9 @@ export function ContactModal({
   const [stageSuccess, setStageSuccess] = useState<string | null>(null);
 
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string } | null>(null);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
+  const companySearchSeqRef = useRef(0);
   const [users, setUsers] = useState<{ id: string; fullName: string; email: string }[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
@@ -230,16 +233,44 @@ export function ContactModal({
     });
   }, [visitReadyAddresses]);
 
-  const fetchCompanies = useCallback(async () => {
+  const searchCompanies = useCallback(async (query: string) => {
+    const seq = ++companySearchSeqRef.current;
     setLoadingCompanies(true);
     try {
-      const res = await apiHttp.get<{ items?: { id: string; name: string }[] }>(
-        "/companies?page=1&pageSize=200",
+      const res = await companiesApi.list({
+        search: query.trim() || undefined,
+        page: 1,
+        pageSize: 50,
+      });
+      if (seq !== companySearchSeqRef.current) return;
+      setCompanies(
+        (res.items ?? []).map((c) => ({ id: String(c.id), name: c.name })),
       );
-      setCompanies(Array.isArray(res.data?.items) ? res.data.items : []);
+    } catch {
+      if (seq !== companySearchSeqRef.current) return;
+      setCompanies([]);
     } finally {
-      setLoadingCompanies(false);
+      if (seq === companySearchSeqRef.current) setLoadingCompanies(false);
     }
+  }, []);
+
+  const onCompanySearchQueryChange = useCallback(
+    (q: string) => {
+      void searchCompanies(q);
+    },
+    [searchCompanies],
+  );
+
+  const rememberSelectedCompany = useCallback((id: string | null, name?: string) => {
+    if (!id) {
+      setSelectedCompany(null);
+      return;
+    }
+    if (name) {
+      setSelectedCompany({ id, name });
+      return;
+    }
+    setSelectedCompany((prev) => (prev?.id === id ? prev : null));
   }, []);
 
   const fetchUsers = useCallback(async () => {
@@ -276,6 +307,11 @@ export function ContactModal({
         setPosition((data.position ?? "") as string);
         setOwnerId(data.ownerId != null ? String(data.ownerId) : null);
         setCompanyId(data.companyId != null ? String(data.companyId) : null);
+        setSelectedCompany(
+          data.companyId && data.company?.name
+            ? { id: String(data.companyId), name: data.company.name }
+            : null,
+        );
         setExternalCode((data.externalCode ?? "") as string);
         setDocumentDisplayName((data.documentDisplayName ?? "") as string);
         setRegion((data.region ?? "") as string);
@@ -289,7 +325,7 @@ export function ContactModal({
         setNextActionSuccess(null);
         setStageError(null);
         setStageSuccess(null);
-        await Promise.all([fetchCompanies(), fetchUsers()]);
+        await fetchUsers();
       } catch (e) {
         const msg =
           (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -300,7 +336,7 @@ export function ContactModal({
         setLoading(false);
       }
     },
-    [effectiveContactId, fetchCompanies, fetchUsers],
+    [effectiveContactId, fetchUsers],
   );
 
   useEffect(() => {
@@ -324,6 +360,14 @@ export function ContactModal({
         })
         .catch(() => {});
       setCompanyId(initialCreate?.companyId ?? null);
+      setSelectedCompany(null);
+      setCompanies([]);
+      if (initialCreate?.companyId) {
+        void companiesApi
+          .get(initialCreate.companyId)
+          .then((c) => setSelectedCompany({ id: String(c.id), name: c.name }))
+          .catch(() => {});
+      }
       setExternalCode("");
       setRegion("");
       setClientType("");
@@ -336,11 +380,11 @@ export function ContactModal({
       setNextActionSuccess(null);
       setStageError(null);
       setStageSuccess(null);
-      void Promise.all([fetchCompanies(), fetchUsers()]);
+      void fetchUsers();
       return;
     }
     void refresh();
-  }, [isCreate, refresh, fetchCompanies, fetchUsers, initialCreate]);
+  }, [isCreate, refresh, fetchUsers, initialCreate]);
 
   const patchContact = useCallback(
     async (payload: Record<string, unknown>) => {
@@ -367,7 +411,9 @@ export function ContactModal({
         setOwnerId(payload.ownerId != null ? String(payload.ownerId) : null);
       }
       if (payload.companyId !== undefined) {
-        setCompanyId(payload.companyId != null ? String(payload.companyId) : null);
+        const nextId = payload.companyId != null ? String(payload.companyId) : null;
+        setCompanyId(nextId);
+        if (!nextId) setSelectedCompany(null);
       }
       if (payload.externalCode !== undefined) {
         setExternalCode((payload.externalCode as string | null) ?? "");
@@ -471,9 +517,12 @@ export function ContactModal({
         case "status":
           setStatus(value as string);
           break;
-        case "companyId":
-          setCompanyId(value as string | null);
+        case "companyId": {
+          const nextId = value as string | null;
+          setCompanyId(nextId);
+          if (!nextId) setSelectedCompany(null);
           break;
+        }
         case "ownerId":
           setOwnerId(value as string | null);
           break;
@@ -762,10 +811,13 @@ export function ContactModal({
     }
   }, [clientStage, contact, isCreate, onUpdate]);
 
-  const companyOptions = useMemo(
-    () => companies.map((c) => ({ id: String(c.id), label: c.name })),
-    [companies],
-  );
+  const companyOptions = useMemo(() => {
+    const list = companies.map((c) => ({ id: String(c.id), label: c.name }));
+    if (selectedCompany && !list.some((o) => o.id === selectedCompany.id)) {
+      return [{ id: selectedCompany.id, label: selectedCompany.name }, ...list];
+    }
+    return list;
+  }, [companies, selectedCompany]);
 
   const companyOptionsWithEmpty = useMemo(
     () => [{ id: "", label: strings.contacts.create.noCompany }, ...companyOptions],
@@ -879,6 +931,8 @@ export function ContactModal({
               loadingCompanies={loadingCompanies}
               addressRequiredForVisit={addressRequiredForVisit}
               onOpenCompany={onOpenCompany}
+              onCompanySearchQueryChange={onCompanySearchQueryChange}
+              onCompanySelected={(c) => rememberSelectedCompany(c?.id ?? null, c?.name)}
               onPatch={patchContact}
               onRefresh={() => void refresh()}
               onRegisterCancel={registerCancel}
@@ -987,6 +1041,8 @@ export function ContactModal({
           loadingUsers={loadingUsers}
           duplicate={phoneDuplicate}
           onChange={handleCreateFieldChange}
+          onCompanySearchQueryChange={onCompanySearchQueryChange}
+          onCompanySelected={(c) => rememberSelectedCompany(c?.id ?? null, c?.name)}
           onOpenCompany={onOpenCompany}
           onOpenExistingContact={(id) => onCreated?.(id)}
         />

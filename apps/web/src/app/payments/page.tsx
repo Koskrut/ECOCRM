@@ -9,6 +9,11 @@ import { strings as t } from "@/locales";
 import { formatDate } from "@/lib/crmDatetime";
 import { useToast } from "@/components/feedback";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import {
+  debtInPaymentCurrency,
+  formatDebtForAllocation,
+  suggestedAllocationAmount,
+} from "@/lib/debt-in-payment-currency";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
 import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
@@ -219,44 +224,32 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
   return `${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
 }
 
-function getOrderAmounts(order: OrderOption): { usd: number; uah: number } {
-  const amount = Number(order.debtAmount ?? order.totalAmount ?? 0);
-  const currency = String(order.currency ?? "USD").toUpperCase();
-  const rate = Number(order.exchangeRate ?? 0);
-  if (currency === "UAH") {
-    return { usd: rate > 0 ? amount / rate : 0, uah: amount };
-  }
-  if (currency === "USD") {
-    return { usd: amount, uah: rate > 0 ? amount * rate : amount * 41 };
-  }
-  return { usd: amount, uah: rate > 0 ? amount * rate : amount };
-}
-
-function formatOrderAmounts(order: OrderOption): string {
-  const { usd, uah } = getOrderAmounts(order);
-  return `${usd.toFixed(2)} $ / ${uah.toFixed(2)} ₴`;
-}
-
-function getSuggestedAmountUah(order: OrderOption): string {
-  const { uah } = getOrderAmounts(order);
-  return uah > 0 ? uah.toFixed(2) : "";
-}
-
 type SplitRow = { orderId: string; orderNumber: string; amount: string };
 
-function buildSplitRowsFromOrders(orders: OrderOption[], totalAmount: number): SplitRow[] {
+function orderDebtInPaymentCurrency(order: OrderOption, paymentCurrency: string): number {
+  const debt = Number(order.debtAmount ?? 0);
+  if (!(debt > 0)) return 0;
+  return (
+    debtInPaymentCurrency(debt, order.currency, paymentCurrency, order.exchangeRate) ?? 0
+  );
+}
+
+/** Prefill split rows using debts converted into the payment currency. */
+function buildSplitRowsFromOrders(
+  orders: OrderOption[],
+  totalAmount: number,
+  paymentCurrency: string,
+): SplitRow[] {
   const sorted = [...orders].sort(
     (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
   );
-  const totalDebt = sorted.reduce(
-    (s, o) => s + (Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0),
-    0,
-  );
+  const debts = sorted.map((o) => orderDebtInPaymentCurrency(o, paymentCurrency));
+  const totalDebt = debts.reduce((s, d) => s + d, 0);
   let rows: SplitRow[];
   if (totalDebt > 0) {
     let remaining = totalAmount;
-    rows = sorted.map((o) => {
-      const debt = Number(o.debtAmount ?? 0) > 0 ? Number(o.debtAmount) : 0;
+    rows = sorted.map((o, i) => {
+      const debt = debts[i] ?? 0;
       const amount = Math.min(remaining, debt);
       remaining -= amount;
       return {
@@ -281,6 +274,11 @@ function buildSplitRowsFromOrders(orders: OrderOption[], totalAmount: number): S
     }));
   }
   return rows.filter((r) => parseFloat(r.amount) > 0);
+}
+
+function formatOrderOptionAmounts(order: OrderOption, paymentCurrency: string): string {
+  const label = formatDebtForAllocation(order, paymentCurrency);
+  return label ? ` · ${label}` : "";
 }
 
 export default function PaymentsPage() {
@@ -507,21 +505,33 @@ function PaymentsContent() {
   );
 
   const fetchUnmatched = useCallback(
-    async (opts?: { page?: number; append?: boolean; ignored?: boolean }) => {
-      const page = opts?.page ?? 1;
+    async (opts?: {
+      page?: number;
+      append?: boolean;
+      ignored?: boolean;
+      /** Keep the list mounted (no full-page spinner) and restore scroll after. */
+      silent?: boolean;
+      /** When refreshing in place, reload pages 1..N so deep scroll position stays usable. */
+      reloadThroughPage?: number;
+    }) => {
       const append = opts?.append ?? false;
       const ignored = opts?.ignored ?? false;
+      const silent = opts?.silent ?? false;
+      const reloadThroughPage = Math.max(1, opts?.reloadThroughPage ?? opts?.page ?? 1);
+      const page = append ? (opts?.page ?? 1) : 1;
+      const pageSize = append ? PAGE_SIZE : reloadThroughPage * PAGE_SIZE;
 
       if (append) {
         setUnmatchedLoadingMore(true);
-      } else {
+      } else if (!silent) {
         setUnmatchedLoading(true);
       }
       setError(null);
+      const scrollY = silent && typeof window !== "undefined" ? window.scrollY : null;
       try {
         const params = new URLSearchParams({
           page: String(page),
-          pageSize: String(PAGE_SIZE),
+          pageSize: String(pageSize),
         });
         if (ignored) {
           params.set("ignored", "true");
@@ -545,7 +555,7 @@ function PaymentsContent() {
           return merged;
         });
         setUnmatchedTotal(total);
-        setUnmatchedPage(page);
+        setUnmatchedPage(append ? page : reloadThroughPage);
       } catch (e) {
         setError(e instanceof Error ? e.message : t.payments.errors.load);
         if (!append) {
@@ -555,6 +565,11 @@ function PaymentsContent() {
       } finally {
         setUnmatchedLoading(false);
         setUnmatchedLoadingMore(false);
+        if (scrollY != null) {
+          requestAnimationFrame(() => {
+            window.scrollTo(0, scrollY);
+          });
+        }
       }
     },
     [bankAccountId, debouncedSearch, dateFrom, dateTo],
@@ -581,9 +596,16 @@ function PaymentsContent() {
     view,
   ]);
 
-  const refreshQueue = useCallback(() => {
-    return fetchUnmatched({ ignored: view === "ignored" });
-  }, [fetchUnmatched, view]);
+  const refreshQueue = useCallback(
+    (opts?: { silent?: boolean }) => {
+      return fetchUnmatched({
+        ignored: view === "ignored",
+        silent: opts?.silent,
+        reloadThroughPage: unmatchedPage,
+      });
+    },
+    [fetchUnmatched, view, unmatchedPage],
+  );
 
   const submitIgnore = async () => {
     if (!ignoreTxId) return;
@@ -594,7 +616,7 @@ function PaymentsContent() {
       });
       setIgnoreTxId(null);
       pushToast(t.payments.notClient, "success");
-      await refreshQueue();
+      await refreshQueue({ silent: true });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.load, "error");
     } finally {
@@ -607,7 +629,7 @@ function PaymentsContent() {
     try {
       await apiHttp.post(`/bank/transactions/${transactionId}/unignore`, {});
       pushToast(t.payments.restoreToQueue, "success");
-      await refreshQueue();
+      await refreshQueue({ silent: true });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.load, "error");
     } finally {
@@ -1145,9 +1167,8 @@ function PaymentsContent() {
     setAllocating(transactionId);
     try {
       await apiHttp.post("/payments/allocate", { transactionId, orderId });
-      await fetchUnmatched();
-      setViewWithUrl("payments");
-      await fetchPayments();
+      await refreshQueue({ silent: true });
+      void fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
     } finally {
@@ -1172,11 +1193,8 @@ function PaymentsContent() {
         matchMeta: { decision: "MANUAL" },
       });
       closeAllocateModal();
-      await fetchUnmatched();
-      if (remaining == null || remaining >= (allocateTx?.amount ?? 0) - 0.01) {
-        setViewWithUrl("payments");
-      }
-      await fetchPayments();
+      await refreshQueue({ silent: true });
+      void fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
     } finally {
@@ -1232,9 +1250,8 @@ function PaymentsContent() {
     setAllocating(tx.id);
     try {
       await apiHttp.post(`/bank/transactions/${tx.id}/auto-match`, {});
-      await fetchUnmatched();
-      setViewWithUrl("payments");
-      await fetchPayments();
+      await refreshQueue({ silent: true });
+      void fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.allocationFailed, "error");
     } finally {
@@ -1248,7 +1265,7 @@ function PaymentsContent() {
       pushToast(t.payments.noUnpaidOrders, "error");
       return;
     }
-    const rows = buildSplitRowsFromOrders(unpaid, splitTotalAmount);
+    const rows = buildSplitRowsFromOrders(unpaid, splitTotalAmount, splitCurrency || "UAH");
     if (rows.length === 0) {
       pushToast(t.payments.errors.noAmountsSplit, "error");
       return;
@@ -1257,7 +1274,7 @@ function PaymentsContent() {
     setSplitOrderForRowIndex(null);
     setSplitOrderSearch("");
     setSplitOrderCandidates([]);
-  }, [splitClientOrders, splitTotalAmount, pushToast]);
+  }, [splitClientOrders, splitTotalAmount, splitCurrency, pushToast]);
 
   const submitSplit = async () => {
     const valid = splitRows.filter((r) => r.orderId && r.amount.trim());
@@ -1296,13 +1313,12 @@ function PaymentsContent() {
         });
         setSplitTx(null);
         resetSplitContactState();
-        await fetchUnmatched();
-        setViewWithUrl("payments");
+        await refreshQueue({ silent: true });
       }
       setSplitRows([]);
       setSplitOrderForRowIndex(null);
       setSplitOrderSearch("");
-      await fetchPayments();
+      void fetchPayments();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : t.payments.errors.splitFailed, "error");
     } finally {
@@ -2393,8 +2409,7 @@ function PaymentsContent() {
                               }`}
                             >
                               {o.orderNumber}
-                              {o.totalAmount != null ? ` · ${o.totalAmount} UAH` : ""}
-                              {o.debtAmount != null && o.debtAmount > 0 ? t.payments.debtSuffix(o.debtAmount) : ""}
+                              {formatOrderOptionAmounts(o, addCashCurrency)}
                             </button>
                           </li>
                         ))}
@@ -2646,10 +2661,7 @@ function PaymentsContent() {
                               }`}
                             >
                               {o.orderNumber}
-                              {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
-                              {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
-                                : ""}
+                              {formatOrderOptionAmounts(o, allocateTx?.currency ?? "UAH")}
                             </button>
                           </li>
                         ))}
@@ -2839,7 +2851,10 @@ function PaymentsContent() {
                                               ...next[idx]!,
                                               orderId: o.id,
                                               orderNumber: o.orderNumber,
-                                              amount: getSuggestedAmountUah(o),
+                                              amount: suggestedAllocationAmount(
+                                                o,
+                                                splitCurrency || "UAH",
+                                              ),
                                             };
                                             return next;
                                           });
@@ -2850,10 +2865,7 @@ function PaymentsContent() {
                                         className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
                                       >
                                         {o.orderNumber}
-                                        {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
-                                        {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                          ? t.payments.debtSuffix((o as { debtAmount?: number }).debtAmount!)
-                                          : ""}
+                                        {formatOrderOptionAmounts(o, splitCurrency || "UAH")}
                                       </button>
                                     </li>
                                   ))}
@@ -2886,7 +2898,10 @@ function PaymentsContent() {
                                         ...next[idx]!,
                                         orderId: o.id,
                                         orderNumber: o.orderNumber,
-                                        amount: getSuggestedAmountUah(o),
+                                        amount: suggestedAllocationAmount(
+                                          o,
+                                          splitCurrency || "UAH",
+                                        ),
                                       };
                                       return next;
                                     });
@@ -2897,7 +2912,7 @@ function PaymentsContent() {
                                   className="w-full px-2 py-1.5 text-left text-sm hover:bg-zinc-100"
                                 >
                                   {formatOrderSearchLabel(o)}
-                                  {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
+                                  {formatOrderOptionAmounts(o, splitCurrency || "UAH")}
                                 </button>
                               </li>
                             ))}
@@ -3111,7 +3126,11 @@ function PaymentsContent() {
                             type="button"
                             disabled={savingPayment}
                             onClick={async () => {
-                              const valid = buildSplitRowsFromOrders(editContactOrders, editPayment.amount);
+                              const valid = buildSplitRowsFromOrders(
+                                editContactOrders,
+                                editPayment.amount,
+                                editPayment.currency || "UAH",
+                              );
                               if (valid.length === 0) {
                                 pushToast(t.payments.errors.noAmountsSplit, "error");
                                 return;
@@ -3174,12 +3193,10 @@ function PaymentsContent() {
                                 }`}
                               >
                                 {o.orderNumber}
-                                {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
-                                {((o as { debtAmount?: number }).debtAmount ?? 0) > 0
-                                  ? t.payments.debtSuffix(
-                                      (o as { debtAmount?: number }).debtAmount!,
-                                    )
-                                  : ""}
+                                {formatOrderOptionAmounts(
+                                  o,
+                                  editPayment?.currency || editCurrency || "UAH",
+                                )}
                               </button>
                             </li>
                           ))}
@@ -3238,7 +3255,10 @@ function PaymentsContent() {
                               }`}
                             >
                               {o.orderNumber}
-                              {o.totalAmount != null ? ` · ${formatOrderAmounts(o)}` : ""}
+                              {formatOrderOptionAmounts(
+                                o,
+                                editPayment?.currency || editCurrency || "UAH",
+                              )}
                             </button>
                           </li>
                         ))}

@@ -24,7 +24,7 @@ import { SkeletonCard } from "@/components/ui/Skeleton";
 import { useAuth } from "@/context/auth-context";
 import { apiFetch } from "@/lib/api";
 import { openDayRouteInMaps } from "@/lib/linking-actions";
-import { resolveMapsApiKey } from "@/lib/maps-config";
+import { canUseInteractiveMaps, resolveMapsApiKey } from "@/lib/maps-config";
 import {
   buildStaticMapUrl,
   computeMapRegion,
@@ -36,6 +36,8 @@ import {
 } from "@/lib/route-map";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+
+const INTERACTIVE_MAPS_OK = canUseInteractiveMaps();
 
 type LayerKey = "planned" | "fact_visits" | "fact_gps";
 
@@ -90,7 +92,8 @@ export function DayRouteMapPanel({
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
   const [staticImageError, setStaticImageError] = useState(false);
-  const [forceStatic, setForceStatic] = useState(false);
+  /** Android MapView native-crashes without googleMaps.apiKey in the binary. */
+  const [forceStatic, setForceStatic] = useState(!INTERACTIVE_MAPS_OK);
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     planned: true,
     fact_gps: true,
@@ -143,7 +146,9 @@ export function DayRouteMapPanel({
     useCallback(() => {
       if (initialBundle !== undefined) {
         setBundle(initialBundle);
-        void resolveMapsApiKey(token).then(setMapsKey).catch(() => setMapsKey(null));
+        if (token) {
+          void resolveMapsApiKey(token).then(setMapsKey).catch(() => setMapsKey(null));
+        }
         setLoading(false);
         return;
       }

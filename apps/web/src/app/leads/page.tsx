@@ -23,6 +23,7 @@ import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
+import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 
 const ATTENTION_LABELS: Record<LeadAttentionPreset, string> = {
   "without-touch": "Ліди без дотику",
@@ -189,42 +190,46 @@ function LeadsPageContent() {
   }, [qInput]);
 
   const reload = useCallback(
-    async (opts?: { keepPage?: boolean }) => {
-      try {
-        setLoading(true);
-        setError(null);
+    async (opts?: { keepPage?: boolean; silent?: boolean }) => {
+      const run = async () => {
+        try {
+          if (!opts?.silent) setLoading(true);
+          setError(null);
 
-        const effectivePage = opts?.keepPage ? page : 1;
-        if (!opts?.keepPage) setPage(1);
+          const effectivePage = opts?.keepPage ? page : 1;
+          if (!opts?.keepPage) setPage(1);
 
-        const params: Parameters<typeof leadsApi.list>[0] = {
-          page: effectivePage,
-          pageSize,
-        };
-        if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
-        if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
-        if (attention) params.attention = attention as LeadAttentionPreset;
-        if (leadIdsFilter) params.ids = leadIdsFilter;
-        if (q.trim()) params.q = q.trim();
-        if (!attention && !leadIdsFilter && status) params.status = status as LeadStatus;
-        if (source) params.source = source as LeadSource;
-        if (channel) params.channel = channel as LeadChannel;
-        if (ownerId) params.ownerId = ownerId;
-        if (dateFrom) params.dateFrom = dateFrom;
-        if (dateTo) params.dateTo = dateTo;
+          const params: Parameters<typeof leadsApi.list>[0] = {
+            page: effectivePage,
+            pageSize,
+          };
+          if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
+          if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
+          if (attention) params.attention = attention as LeadAttentionPreset;
+          if (leadIdsFilter) params.ids = leadIdsFilter;
+          if (q.trim()) params.q = q.trim();
+          if (!attention && !leadIdsFilter && status) params.status = status as LeadStatus;
+          if (source) params.source = source as LeadSource;
+          if (channel) params.channel = channel as LeadChannel;
+          if (ownerId) params.ownerId = ownerId;
+          if (dateFrom) params.dateFrom = dateFrom;
+          if (dateTo) params.dateTo = dateTo;
 
-        const res: LeadsResponse = await leadsApi.list(params);
-        setItems(res.items);
-        setTotal(res.total);
-      } catch (e) {
-        const msg =
-          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Не вдалося завантажити ліди");
-        setError(msg);
-        setItems([]);
-      } finally {
-        setLoading(false);
-      }
+          const res: LeadsResponse = await leadsApi.list(params);
+          setItems(res.items);
+          setTotal(res.total);
+        } catch (e) {
+          const msg =
+            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (e instanceof Error ? e.message : "Не вдалося завантажити ліди");
+          setError(msg);
+          setItems([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+      if (opts?.silent) await withPreservedScroll(run);
+      else await run();
     },
     [attention, channel, dateFrom, dateTo, leadIdsFilter, ownerId, page, pageSize, q, sortBy, sortOrder, source, status],
   );
@@ -263,7 +268,7 @@ function LeadsPageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("leadId");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(newUrl);
+    router.replace(newUrl, { scroll: false });
   };
 
   const onSearchSubmit = (e: React.FormEvent) => {
@@ -645,7 +650,7 @@ function LeadsPageContent() {
           apiBaseUrl="/api"
           leadId={leadId}
           onClose={closeModal}
-          onUpdated={() => void reload({ keepPage: true })}
+          onUpdated={() => void reload({ keepPage: true, silent: true })}
           userRole={userRole}
         />
       )}
@@ -653,7 +658,7 @@ function LeadsPageContent() {
       {createOpen && (
         <CreateLeadModal
           onClose={() => setCreateOpen(false)}
-          onCreated={() => void reload({ keepPage: true })}
+          onCreated={() => void reload({ keepPage: true, silent: true })}
         />
       )}
     </div>

@@ -242,7 +242,7 @@ export default function FuelDayScreen() {
   const r = data?.report;
 
   return (
-    <Screen contentStyle={styles.flex}>
+    <Screen contentStyle={styles.flex} edges={["left", "right"]}>
       <KeyboardAwareScrollView
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />

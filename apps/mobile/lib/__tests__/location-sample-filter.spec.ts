@@ -7,7 +7,7 @@ const {
   filterLocationSample,
 } = require("../location-sample-filter");
 
-function sample(lat, lng, seconds, accuracyM) {
+function sample(lat: number, lng: number, seconds: number, accuracyM: number) {
   const base = new Date("2026-06-25T08:00:00.000Z");
   return {
     lat,

@@ -1,4 +1,3 @@
-import { useFocusEffect } from "@react-navigation/native";
 import React from "react";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,7 +29,7 @@ export default function MapScreen() {
   const scrollBottom = Math.max(insets.bottom, theme.spacing.md);
 
   return (
-    <Screen padded={false} contentStyle={styles.flex}>
+    <Screen padded={false} contentStyle={styles.flex} edges={["left", "right"]}>
       <DayRouteMapPanel dateKey={dateKey} contentPaddingBottom={scrollBottom} />
     </Screen>
   );

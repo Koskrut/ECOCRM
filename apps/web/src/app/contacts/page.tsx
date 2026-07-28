@@ -15,6 +15,7 @@ import {
   type ContactWorkQueueSummaryResponse,
 } from "@/lib/api/resources/contacts";
 import { isTextSelected } from "@/lib/dom";
+import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/formatPhone";
 import { ContactModal } from "./ContactModal";
 import { CompanyModal } from "../companies/CompanyModal";
@@ -287,71 +288,75 @@ function ContactsPageContent() {
   }, [qInput]);
 
   const reload = useCallback(
-    async (opts?: { keepPage?: boolean }) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const effectivePage = opts?.keepPage ? page : 1;
-        if (!opts?.keepPage) setPage(1);
-        if (workPreset === "all") {
-          const res: ContactsResponse = await contactsApi.list({
-            page: effectivePage,
-            pageSize: PAGE_SIZE,
-            q: q.trim() || undefined,
-            companyId: filterCompanyId || undefined,
-            ownerId: filterOwnerId || undefined,
-            hasPhone:
-              filterHasPhone === "yes" || filterHasPhone === "no" ? filterHasPhone : undefined,
-            hasEmail:
-              filterHasEmail === "yes" || filterHasEmail === "no" ? filterHasEmail : undefined,
-            hasCallToday:
-              filterHasCallToday === "yes" || filterHasCallToday === "no"
-                ? filterHasCallToday
-                : undefined,
-            hasMissedCall:
-              filterHasMissedCall === "yes" || filterHasMissedCall === "no"
-                ? filterHasMissedCall
-                : undefined,
-            regions: filterRegions.length > 0 ? filterRegions : undefined,
-            cities: filterCities.length > 0 ? filterCities : undefined,
-            clientType: filterClientType.trim() || undefined,
-            sortBy,
-            sortDir,
-          });
-          setItems(res.items);
-          setWorkItems([]);
-          setTotal(res.total);
-          setWorkSummary(null);
-        } else {
-          const [queue, summary] = await Promise.all([
-            contactsApi.getWorkQueue({
+    async (opts?: { keepPage?: boolean; silent?: boolean }) => {
+      const run = async () => {
+        try {
+          if (!opts?.silent) setLoading(true);
+          setError(null);
+          const effectivePage = opts?.keepPage ? page : 1;
+          if (!opts?.keepPage) setPage(1);
+          if (workPreset === "all") {
+            const res: ContactsResponse = await contactsApi.list({
               page: effectivePage,
               pageSize: PAGE_SIZE,
               q: q.trim() || undefined,
+              companyId: filterCompanyId || undefined,
               ownerId: filterOwnerId || undefined,
-              preset: workPreset,
-            }),
-            contactsApi.getWorkQueueSummary({
-              q: q.trim() || undefined,
-              ownerId: filterOwnerId || undefined,
-            }),
-          ]);
+              hasPhone:
+                filterHasPhone === "yes" || filterHasPhone === "no" ? filterHasPhone : undefined,
+              hasEmail:
+                filterHasEmail === "yes" || filterHasEmail === "no" ? filterHasEmail : undefined,
+              hasCallToday:
+                filterHasCallToday === "yes" || filterHasCallToday === "no"
+                  ? filterHasCallToday
+                  : undefined,
+              hasMissedCall:
+                filterHasMissedCall === "yes" || filterHasMissedCall === "no"
+                  ? filterHasMissedCall
+                  : undefined,
+              regions: filterRegions.length > 0 ? filterRegions : undefined,
+              cities: filterCities.length > 0 ? filterCities : undefined,
+              clientType: filterClientType.trim() || undefined,
+              sortBy,
+              sortDir,
+            });
+            setItems(res.items);
+            setWorkItems([]);
+            setTotal(res.total);
+            setWorkSummary(null);
+          } else {
+            const [queue, summary] = await Promise.all([
+              contactsApi.getWorkQueue({
+                page: effectivePage,
+                pageSize: PAGE_SIZE,
+                q: q.trim() || undefined,
+                ownerId: filterOwnerId || undefined,
+                preset: workPreset,
+              }),
+              contactsApi.getWorkQueueSummary({
+                q: q.trim() || undefined,
+                ownerId: filterOwnerId || undefined,
+              }),
+            ]);
+            setItems([]);
+            setWorkItems(queue.items);
+            setTotal(queue.total);
+            setWorkSummary(summary);
+          }
+        } catch (e) {
+          const msg =
+            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (e instanceof Error ? e.message : "Помилка завантаження контактів");
+          setError(msg);
           setItems([]);
-          setWorkItems(queue.items);
-          setTotal(queue.total);
-          setWorkSummary(summary);
+          setWorkItems([]);
+          setWorkSummary(null);
+        } finally {
+          setLoading(false);
         }
-      } catch (e) {
-        const msg =
-          (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : "Помилка завантаження контактів");
-        setError(msg);
-        setItems([]);
-        setWorkItems([]);
-        setWorkSummary(null);
-      } finally {
-        setLoading(false);
-      }
+      };
+      if (opts?.silent) await withPreservedScroll(run);
+      else await run();
     },
     [
       page,
@@ -427,7 +432,7 @@ function ContactsPageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("contactId");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(newUrl);
+    router.replace(newUrl, { scroll: false });
   };
 
   const openCompany = (id: string) => {
@@ -1245,7 +1250,7 @@ function ContactsPageContent() {
           onClose={closeModal}
           onCreated={openContact}
           onOpenCompany={openCompany}
-          onUpdate={() => void reload({ keepPage: true })}
+          onUpdate={() => void reload({ keepPage: true, silent: true })}
           userRole={userRole}
         />
       )}
@@ -1255,7 +1260,7 @@ function ContactsPageContent() {
           apiBaseUrl="/api"
           companyId={companyId}
           onClose={closeCompanyModal}
-          onUpdate={() => {}}
+          onUpdate={() => void reload({ keepPage: true, silent: true })}
           zIndex={60}
         />
       )}

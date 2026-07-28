@@ -58,7 +58,6 @@ export default function TodayScreen() {
     endShift,
     loading: shiftLoading,
     pendingSamples,
-    trackingMode,
     backgroundPermission,
     batteryOptimizationStatus,
   } = useShiftTracking();

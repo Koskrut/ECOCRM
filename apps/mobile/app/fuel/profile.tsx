@@ -4,7 +4,6 @@ import { Alert, StyleSheet, Switch, View } from "react-native";
 
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
-import { AppHeader } from "@/components/ui/AppHeader";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
 import { Screen } from "@/components/ui/Screen";
 import { TextField } from "@/components/ui/TextField";
@@ -72,10 +71,8 @@ export default function FuelProfileScreen() {
   };
 
   return (
-    <Screen>
+    <Screen edges={["left", "right"]}>
       <KeyboardAwareScrollView>
-        <AppHeader title={t("fuel.profile")} />
-
         <TextField label={t("fuel.vehicle")} value={vehicle} onChangeText={setVehicle} />
         <TextField
           label={t("fuel.litersLabel")}

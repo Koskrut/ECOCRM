@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 
@@ -74,7 +83,7 @@ type FixedDropdownPortalProps = {
   className?: string;
   /** fixed = portal to body; absolute = in-place under a relative parent; omit = auto (absolute on ≤767px). */
   placement?: "fixed" | "absolute";
-  children: React.ReactNode;
+  children: ReactNode;
 };
 
 const FIXED_CLASS =
@@ -116,12 +125,21 @@ export function FixedDropdownPortal({
 
   if (!open) return null;
 
+  // Keep portaled/absolute panels from being treated as "outside" by parent
+  // popovers that listen for document mousedown/pointerdown (e.g. city filter).
+  const stopOutsideDismiss = {
+    "data-fixed-dropdown-portal": "",
+    onPointerDown: (e: ReactPointerEvent) => e.stopPropagation(),
+    onMouseDown: (e: ReactMouseEvent) => e.stopPropagation(),
+  };
+
   if (effectivePlacement === "absolute") {
     return (
       <div
         ref={panelRef}
         className={mergePanelClass(ABSOLUTE_CLASS, className)}
         style={{ maxHeight }}
+        {...stopOutsideDismiss}
       >
         {children}
       </div>
@@ -140,6 +158,7 @@ export function FixedDropdownPortal({
         width: Math.max(rect.width, minWidth),
         maxHeight: `min(${maxHeight}, calc(100dvh - ${rect.top}px - 8px))`,
       }}
+      {...stopOutsideDismiss}
     >
       {children}
     </div>,

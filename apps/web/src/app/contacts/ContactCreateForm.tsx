@@ -34,6 +34,8 @@ type Props = {
     key: K,
     value: ContactCreateFormValues[K],
   ) => void;
+  onCompanySearchQueryChange?: (query: string) => void;
+  onCompanySelected?: (company: { id: string; name: string } | null) => void;
   onOpenCompany?: (id: string) => void;
   onOpenExistingContact?: (id: string) => void;
 };
@@ -70,6 +72,8 @@ export function ContactCreateForm({
   loadingUsers,
   duplicate,
   onChange,
+  onCompanySearchQueryChange,
+  onCompanySelected,
   onOpenCompany,
   onOpenExistingContact,
 }: Props) {
@@ -196,9 +200,19 @@ export function ContactCreateForm({
                   value={values.companyId ?? ""}
                   options={companyOptionsWithEmpty}
                   placeholder={t.noCompany}
-                  disabled={saving || loadingCompanies}
+                  disabled={saving}
                   isLoading={loadingCompanies}
-                  onChange={(id) => onChange("companyId", id === "" ? null : id)}
+                  onSearchQueryChange={onCompanySearchQueryChange}
+                  onChange={(id) => {
+                    const nextId = id === "" ? null : id;
+                    onChange("companyId", nextId);
+                    if (!nextId) {
+                      onCompanySelected?.(null);
+                      return;
+                    }
+                    const opt = companyOptions.find((o) => o.id === nextId);
+                    onCompanySelected?.(opt ? { id: opt.id, name: opt.label } : null);
+                  }}
                 />
               </div>
               {values.companyId && onOpenCompany ? (

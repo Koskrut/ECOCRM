@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
-import { View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, View } from "react-native";
 
 import { contactDisplayName } from "@/components/ContactRow";
 import { Text } from "@/components/Themed";
@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TextField } from "@/components/ui/TextField";
+import { VisitMonthCalendar } from "@/components/visit/VisitMonthCalendar";
+import { addDays, formatHumanDate, formatLocalDateKey, parseDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import {
@@ -25,11 +27,15 @@ import type { Company, Contact } from "@/types/crm";
 
 export type TimeSlotKey = "next" | "10" | "14" | "16" | "custom";
 
+type DayPreset = "today" | "tomorrow" | "custom";
+
 type Props = {
   contact?: Contact | null;
   company?: Company | null;
   mode: VisitScheduleMode;
   onModeChange: (mode: VisitScheduleMode) => void;
+  dateKey: string;
+  onDateKeyChange: (dateKey: string) => void;
   timeSlot: TimeSlotKey;
   onTimeSlotChange: (slot: TimeSlotKey) => void;
   customTime: string;
@@ -54,6 +60,18 @@ function purposeLabel(key: VisitPurposeKey): string {
     other: t("visits.purposeOther"),
   };
   return map[key];
+}
+
+function monthAnchorFromDateKey(dateKey: string): string {
+  const d = parseDateKey(dateKey);
+  return formatLocalDateKey(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+function inferDayPreset(dateKey: string): DayPreset {
+  const today = formatLocalDateKey();
+  if (dateKey === today) return "today";
+  if (dateKey === formatLocalDateKey(addDays(new Date(), 1))) return "tomorrow";
+  return "custom";
 }
 
 export function resolveVisitStartsAt(
@@ -93,6 +111,8 @@ export function VisitScheduleSection({
   company,
   mode,
   onModeChange,
+  dateKey,
+  onDateKeyChange,
   timeSlot,
   onTimeSlotChange,
   customTime,
@@ -108,21 +128,52 @@ export function VisitScheduleSection({
 }: Props) {
   const theme = useTheme();
   const router = useRouter();
+  const todayKey = formatLocalDateKey();
+  const isSelectedToday = dateKey === todayKey;
+
+  const [dayPreset, setDayPreset] = useState<DayPreset>(() => inferDayPreset(dateKey));
+  const [monthAnchorKey, setMonthAnchorKey] = useState(() => monthAnchorFromDateKey(dateKey));
+  const [calendarExpanded, setCalendarExpanded] = useState(() => inferDayPreset(dateKey) === "custom");
+
+  useEffect(() => {
+    setDayPreset(inferDayPreset(dateKey));
+    setMonthAnchorKey(monthAnchorFromDateKey(dateKey));
+  }, [dateKey]);
+
+  useEffect(() => {
+    if (!isSelectedToday && timeSlot === "next") {
+      onTimeSlotChange("10");
+    }
+  }, [isSelectedToday, timeSlot, onTimeSlotChange]);
+
+  const scheduleBase = useMemo(() => parseDateKey(dateKey), [dateKey]);
+
   const startsAt = useMemo(
-    () => (mode === "today" ? resolveVisitStartsAt(timeSlot, customTime) : null),
-    [mode, timeSlot, customTime],
+    () => (mode === "today" ? resolveVisitStartsAt(timeSlot, customTime, scheduleBase) : null),
+    [mode, timeSlot, customTime, scheduleBase],
   );
 
   const timeChips: Array<{ key: TimeSlotKey; label: string }> = useMemo(() => {
-    const next = suggestNextSlot();
-    return [
-      { key: "next", label: `${t("visits.slotNext")} · ${formatTimeHm(next)}` },
+    const chips: Array<{ key: TimeSlotKey; label: string }> = [];
+    if (isSelectedToday) {
+      const next = suggestNextSlot();
+      chips.push({ key: "next", label: `${t("visits.slotNext")} · ${formatTimeHm(next)}` });
+    }
+    chips.push(
       { key: "10", label: "10:00" },
       { key: "14", label: "14:00" },
       { key: "16", label: "16:00" },
       { key: "custom", label: t("visits.slotCustom") },
-    ];
-  }, []);
+    );
+    return chips;
+  }, [isSelectedToday]);
+
+  const summaryText = useMemo(() => {
+    if (!startsAt) return null;
+    const time = formatTimeHm(startsAt);
+    if (isSelectedToday) return t("visits.summaryToday", { time });
+    return t("visits.summaryAt", { date: formatHumanDate(scheduleBase), time });
+  }, [startsAt, isSelectedToday, scheduleBase]);
 
   const entityTitle = company ? company.name : contact ? contactDisplayName(contact) : "";
   const entitySub = company
@@ -130,6 +181,30 @@ export function VisitScheduleSection({
     : contact
       ? (contact.company?.name ?? contact.address ?? contact.phone ?? "")
       : "";
+
+  function selectPreset(preset: DayPreset) {
+    setDayPreset(preset);
+    if (preset === "today") {
+      onDateKeyChange(todayKey);
+      setMonthAnchorKey(monthAnchorFromDateKey(todayKey));
+      setCalendarExpanded(false);
+      return;
+    }
+    if (preset === "tomorrow") {
+      const tomorrow = formatLocalDateKey(addDays(new Date(), 1));
+      onDateKeyChange(tomorrow);
+      setMonthAnchorKey(monthAnchorFromDateKey(tomorrow));
+      setCalendarExpanded(false);
+      return;
+    }
+    setCalendarExpanded(true);
+  }
+
+  function selectCalendarDate(nextDateKey: string) {
+    setDayPreset(inferDayPreset(nextDateKey));
+    onDateKeyChange(nextDateKey);
+    setMonthAnchorKey(monthAnchorFromDateKey(nextDateKey));
+  }
 
   return (
     <View>
@@ -167,15 +242,17 @@ export function VisitScheduleSection({
           <Text style={[theme.typography.caption, { color: theme.colors.primaryText }]}>
             {t("visits.hasBacklog")}
           </Text>
-          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-            {t("visits.summaryToday", { time: startsAt ? formatTimeHm(startsAt) : "—" })}
-          </Text>
+          {summaryText ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+              {summaryText}
+            </Text>
+          ) : null}
         </Card>
       ) : null}
 
       <SegmentedControl
         options={[
-          { value: "today" as const, label: t("visits.modeToday") },
+          { value: "today" as const, label: t("visits.modeScheduled") },
           { value: "backlog" as const, label: t("visits.modeBacklog") },
         ]}
         value={mode}
@@ -184,6 +261,43 @@ export function VisitScheduleSection({
 
       {mode === "today" ? (
         <>
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
+            {t("visits.dateLabel")}
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            <Chip
+              label={t("visits.goToday")}
+              selected={dayPreset === "today"}
+              onPress={() => selectPreset("today")}
+            />
+            <Chip
+              label={t("tasks.tomorrow")}
+              selected={dayPreset === "tomorrow"}
+              onPress={() => selectPreset("tomorrow")}
+            />
+            <Chip
+              label={t("visit.pickDate")}
+              selected={dayPreset === "custom"}
+              onPress={() => selectPreset("custom")}
+            />
+          </View>
+
+          {calendarExpanded ? (
+            <VisitMonthCalendar
+              monthAnchorKey={monthAnchorKey}
+              selectedDateKey={dateKey}
+              visitCounts={{}}
+              onMonthChange={setMonthAnchorKey}
+              onSelectDate={selectCalendarDate}
+            />
+          ) : dayPreset === "custom" ? (
+            <Pressable onPress={() => setCalendarExpanded(true)} style={{ marginBottom: theme.spacing.md }}>
+              <Text style={[theme.typography.body, { color: theme.colors.primary }]}>
+                {formatHumanDate(scheduleBase)}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
             {t("visits.timeLabel")}
           </Text>
@@ -206,10 +320,9 @@ export function VisitScheduleSection({
               style={{ marginBottom: theme.spacing.md }}
             />
           ) : null}
-          {startsAt ? (
+          {summaryText ? (
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.md }]}>
-              {t("visits.summaryToday", { time: formatTimeHm(startsAt) })} ·{" "}
-              {t("visits.duration", { min: DEFAULT_VISIT_DURATION_MIN })}
+              {summaryText} · {t("visits.duration", { min: DEFAULT_VISIT_DURATION_MIN })}
             </Text>
           ) : null}
         </>

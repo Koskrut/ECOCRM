@@ -2,12 +2,12 @@
 
 Контекст: install bundle вроде **`/opt/crm`**, env **`suprex/.env`**, манифест с CP или **`deployment-manifest.json`**.
 
-Актуализировано под зелёный релиз **`v0.2.123`** (полный манифест CI: **store** + overlays модулей, **`composeFileUrls`**, NP и Google Drive в Settings — см. **`CHANGELOG.md` [0.2.123]**).
+Актуализировано под зелёный релиз **`v0.2.124`** (полный манифест CI: **store** + overlays модулей, **`composeFileUrls`**, NP и Google Drive в Settings — см. **`CHANGELOG.md` [0.2.124]**).
 
 ## 0. Rollout после зелёного **Publish Registry Release** (CP → сервер)
 
-1. **Control Plane:** для установки выставлен целевой релиз **`0.2.123`**; **`rollouts/next`** (или выдача **`MANIFEST_URL`**) возвращает JSON с **`version`: `0.2.123`**, полным **`composeFiles`** (в т.ч. **`compose.modules.store.yml`**) и **`composeFileUrls`** на каждый путь.
-2. **Сервер:** в **`suprex/.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.123`** (и остальные секреты без изменений, если не требует релиз).
+1. **Control Plane:** для установки выставлен целевой релиз **`0.2.124`**; **`rollouts/next`** (или выдача **`MANIFEST_URL`**) возвращает JSON с **`version`: `0.2.124`**, полным **`composeFiles`** (в т.ч. **`compose.modules.store.yml`**) и **`composeFileUrls`** на каждый путь.
+2. **Сервер:** в **`suprex/.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.124`** (и остальные секреты без изменений, если не требует релиз).
 3. **Синк compose + образы:**  
    `cd /opt/crm && ENV_FILE=suprex/.env MANIFEST_URL='…' ./suprex/client-pull-agent.sh`  
    (или **`DEPLOYMENT_MANIFEST_PATH`** / локальный **`deployment-manifest.json`**).
@@ -30,7 +30,7 @@
 |------|----------|
 | **`composeFiles`** | Непустой массив; для полного релиза **0.2.x** с модулями — не только `compose.base.yml` + `compose.client.yml`, но и **`compose.modules.*.yml`** (несколько штук). |
 | **`composeFileUrls`** | Объект; **у каждого** имени из **`composeFiles`** есть строка **`https://…`**. |
-| **`images`** | Есть строки с ролями **`module`** / **`module_outbound`** / **`store`** и тегами **`…:ВАША_ВЕРСИЯ`** (для текущего патча — **`0.2.123`**). |
+| **`images`** | Есть строки с ролями **`module`** / **`module_outbound`** / **`store`** и тегами **`…:ВАША_ВЕРСИЯ`** (для текущего патча — **`0.2.124`**). |
 | **`moduleCodes`** | Содержит **`core.crm`** и коды модулей (**`ext.voice_outbound`**, **`int.google_sheet`**, …), если модули заявлены в релизе. |
 
 Если **`composeFiles`** короткий — проблема на стороне CP (сохранение/отдача манифеста) или устаревший JSON; см. **`docs/cp-v0.2.3.md`**.
@@ -56,7 +56,7 @@ jq -r '.composeFiles[]' "$MANIFEST" | while read -r f; do test -f "$f" && echo "
 
 **Проверить:**
 
-- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с релизом в registry (целевой патч линии **0.2.x**, сейчас **`0.2.123`**).
+- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с релизом в registry (целевой патч линии **0.2.x**, сейчас **`0.2.124`**).
 - При необходимости имена образов модулей (**`*_MODULE_IMAGE_NAME`**) — см. соответствующие **`compose.modules.*.yml`**.
 
 ## 4. Docker: тот же набор `-f`, что в манифесте

@@ -31,7 +31,7 @@ export function VisitsSubNav() {
   ];
 
   return (
-    <nav className="mb-4 flex flex-wrap gap-2 border-b border-zinc-200 pb-2">
+    <nav className="-mx-1 mb-3 flex gap-2 overflow-x-auto border-b border-zinc-200 px-1 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mb-4 md:flex-wrap md:overflow-visible">
       {links.map((link) => {
         const active =
           link.exact === true
@@ -41,7 +41,7 @@ export function VisitsSubNav() {
           <Link
             key={link.href}
             href={link.href}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+            className={`shrink-0 rounded-md px-3 py-1.5 text-sm font-medium ${
               active
                 ? "bg-emerald-100 text-emerald-900"
                 : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"

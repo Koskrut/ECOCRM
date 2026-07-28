@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 
+import { EmptyState } from "@/components/EmptyState";
 import { EntityActionBar } from "@/components/EntityActionBar";
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
@@ -54,6 +55,7 @@ export default function VisitDetailScreen() {
 
   const [visit, setVisit] = useState<VisitSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [editingComment, setEditingComment] = useState(false);
@@ -70,11 +72,13 @@ export default function VisitDetailScreen() {
     if (!token || !visitId) {
       setLoading(false);
       setVisit(null);
+      setLoadError(null);
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
-      const row = await apiFetch<VisitSummary>(`/visits/${visitId}`, { token });
+      const row = await visitsApi.get(token, visitId);
       setVisit(row);
       if (row.contactId) {
         try {
@@ -92,6 +96,10 @@ export default function VisitDetailScreen() {
       if (row.status === "IN_PROGRESS") {
         setActiveVisit(row.id, visitLabel(row));
       }
+    } catch (e) {
+      setVisit(null);
+      setContact(null);
+      setLoadError(e instanceof Error ? e.message : t("visit.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -274,7 +282,7 @@ export default function VisitDetailScreen() {
     }
   }
 
-  if (loading || !visit) {
+  if (loading) {
     return (
       <Screen gradient={false} padded={false}>
         <View style={styles.centered}>
@@ -282,6 +290,20 @@ export default function VisitDetailScreen() {
           <Text style={[theme.typography.body, { color: theme.colors.textMuted, marginTop: theme.spacing.md }]}>
             {t("common.loading")}
           </Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!visit) {
+    return (
+      <Screen gradient={false} padded={false}>
+        <View style={styles.centered}>
+          <EmptyState
+            message={loadError ?? t("visit.notFound")}
+            onRetry={loadError ? () => void load() : undefined}
+          />
+          <AppButton label={t("common.back")} onPress={() => router.back()} variant="ghost" />
         </View>
       </Screen>
     );

@@ -10,7 +10,6 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 
 import { Text } from "@/components/Themed";
-import { AppHeader } from "@/components/ui/AppHeader";
 import { Card } from "@/components/ui/Card";
 import { IconButton } from "@/components/ui/IconButton";
 import { Screen } from "@/components/ui/Screen";
@@ -110,15 +109,13 @@ export default function FuelMonthScreen() {
   }
 
   return (
-    <Screen contentStyle={styles.flex}>
+    <Screen contentStyle={styles.flex} edges={["left", "right"]}>
       <ScrollView
         style={styles.flex}
         contentContainerStyle={{ paddingBottom: theme.spacing.xl }}
         refreshControl={
           <RefreshControl refreshing={loading} onRefresh={reload} tintColor={theme.colors.primary} />
         }>
-        <AppHeader title={t("fuel.title")} />
-
         <View style={styles.headerRow}>
           <IconButton name="chevron-back" onPress={() => setMonthKey(shiftMonth(monthKey, -1))} />
           <Text style={theme.typography.title}>{monthKey}</Text>

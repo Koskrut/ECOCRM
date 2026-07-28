@@ -26,6 +26,7 @@ import {
 } from "./OrdersFiltersPopover";
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
+import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 
 type OrderSummary = {
   id: string;
@@ -345,58 +346,62 @@ function OrdersPageContent() {
 
   const isWarehouse = userRole === "WAREHOUSE";
 
-  const fetchOrders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchOrders = useCallback(async (opts?: { silent?: boolean }) => {
+    const run = async () => {
+      if (!opts?.silent) setLoading(true);
+      setError(null);
 
-    try {
-      const params: Record<string, string | number | boolean> = {
-        page,
-        pageSize,
-        withCompanyClient: true,
-      };
-      if (attention) params.attention = attention;
-      if (attention === "stuck") params.attentionPeriod = attentionPeriod;
-      if (orderIdsFilter) params.ids = orderIdsFilter;
-      if (!attention && !orderIdsFilter && financialStatusFilter) {
-        params.financialStatus = financialStatusFilter;
-      }
-      if (orderStageFilter) params.orderStage = orderStageFilter;
-      if (ownerIdFilter) params.ownerId = ownerIdFilter;
-      if (paymentTypeFilter) params.paymentType = paymentTypeFilter;
-      if (paymentStatusFilter) params.paymentStatus = paymentStatusFilter;
-      if (hasTtnFilter) params.hasTtn = hasTtnFilter;
-      if (amountFrom) params.amountFrom = amountFrom;
-      if (amountTo) params.amountTo = amountTo;
-      if (q.trim()) params.q = q.trim();
-      if (dateFrom) params.dateFrom = dateFrom;
-      if (dateTo) params.dateTo = dateTo;
-      params.sortBy = sortBy;
-      params.sortDir = sortDir;
-
-      const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
-
-      const nextItems = res.data?.items || [];
-      setOrders((prev) => {
-        if (!appendOnNextFetch) return nextItems;
-        const merged = [...prev];
-        const seen = new Set(merged.map((o) => o.id));
-        for (const item of nextItems) {
-          if (!seen.has(item.id)) {
-            merged.push(item);
-            seen.add(item.id);
-          }
+      try {
+        const params: Record<string, string | number | boolean> = {
+          page,
+          pageSize,
+          withCompanyClient: true,
+        };
+        if (attention) params.attention = attention;
+        if (attention === "stuck") params.attentionPeriod = attentionPeriod;
+        if (orderIdsFilter) params.ids = orderIdsFilter;
+        if (!attention && !orderIdsFilter && financialStatusFilter) {
+          params.financialStatus = financialStatusFilter;
         }
-        return merged;
-      });
-      setTotal(res.data?.total ?? 0);
-    } catch (err) {
-      setError(getErrMessage(err, "Error loading orders"));
-      if (!appendOnNextFetch) setOrders([]);
-    } finally {
-      setAppendOnNextFetch(false);
-      setLoading(false);
-    }
+        if (orderStageFilter) params.orderStage = orderStageFilter;
+        if (ownerIdFilter) params.ownerId = ownerIdFilter;
+        if (paymentTypeFilter) params.paymentType = paymentTypeFilter;
+        if (paymentStatusFilter) params.paymentStatus = paymentStatusFilter;
+        if (hasTtnFilter) params.hasTtn = hasTtnFilter;
+        if (amountFrom) params.amountFrom = amountFrom;
+        if (amountTo) params.amountTo = amountTo;
+        if (q.trim()) params.q = q.trim();
+        if (dateFrom) params.dateFrom = dateFrom;
+        if (dateTo) params.dateTo = dateTo;
+        params.sortBy = sortBy;
+        params.sortDir = sortDir;
+
+        const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
+
+        const nextItems = res.data?.items || [];
+        setOrders((prev) => {
+          if (!appendOnNextFetch) return nextItems;
+          const merged = [...prev];
+          const seen = new Set(merged.map((o) => o.id));
+          for (const item of nextItems) {
+            if (!seen.has(item.id)) {
+              merged.push(item);
+              seen.add(item.id);
+            }
+          }
+          return merged;
+        });
+        setTotal(res.data?.total ?? 0);
+      } catch (err) {
+        setError(getErrMessage(err, "Error loading orders"));
+        if (!appendOnNextFetch) setOrders([]);
+      } finally {
+        setAppendOnNextFetch(false);
+        setLoading(false);
+      }
+    };
+    if (opts?.silent) await withPreservedScroll(run);
+    else await run();
   }, [
     appendOnNextFetch,
     amountFrom,
@@ -473,7 +478,7 @@ function OrdersPageContent() {
   const closeOrderModal = () => {
     setOrderModalOpen(false);
     setActiveOrderId(null);
-    void fetchOrders();
+    void fetchOrders({ silent: true });
     setKanbanRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("orderId");
@@ -1082,7 +1087,7 @@ function OrdersPageContent() {
           orderId={activeOrderId}
           onClose={closeOrderModal}
           onSaved={() => {
-            void fetchOrders();
+            void fetchOrders({ silent: true });
             setKanbanRefreshKey((k) => k + 1);
             if (view === "returns") setReturnsRefreshKey((k) => k + 1);
           }}
