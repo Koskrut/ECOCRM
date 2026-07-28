@@ -5,6 +5,7 @@ import type {
   FieldTeamDevicePresence,
   FieldTeamGpsStatus,
 } from "@/lib/api/resources/field-shifts";
+import { visitStatusLabel } from "@/lib/status-labels";
 import { strings } from "@/locales";
 
 const t = strings.visitsTeam;
@@ -166,7 +167,7 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                   <p>
                     {t.visitLabel}:{" "}
                     <span className="font-medium">{item.currentVisit.title ?? "—"}</span> (
-                    {item.currentVisit.status})
+                    {visitStatusLabel(item.currentVisit.status)})
                   </p>
                 ) : (
                   <p className="text-zinc-400">{t.noCurrentVisit}</p>

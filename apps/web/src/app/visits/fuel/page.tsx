@@ -12,6 +12,7 @@ import {
   type UserFieldProfile,
 } from "@/lib/api/resources/field-fuel";
 import { CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
+import { fuelStatusLabel } from "@/lib/status-labels";
 import { strings } from "@/locales";
 import { ManagerSelect } from "@/components/visits/ManagerSelect";
 import { FuelRefuelList, FuelRefuelModal } from "@/components/visits/FuelRefuelPanel";
@@ -19,14 +20,6 @@ import { VisitsSubNav } from "../VisitsSubNav";
 
 type MeUser = { role?: string };
 type UserRow = { id: string; fullName: string; email: string; role: string };
-
-const STATUS_LABELS: Record<string, string> = {
-  DRAFT: "Чернетка",
-  SUBMITTED: "Надіслано",
-  APPROVED: "Затверджено",
-  REJECTED: "Відхилено",
-  PAID: "Виплачено",
-};
 
 const GPS_LABELS: Record<string, string> = {
   VERIFIED: "GPS ✓",
@@ -44,7 +37,7 @@ function warningText(code: string): string | null {
   if (code.startsWith("visit_gps_review:")) return "Було попередження GPS — керівник може уточнити.";
   if (code === "metrics_unavailable") return "Не вдалося порахувати маршрут.";
   if (code === "route_anchors_not_configured") {
-    return "Старт/фініш не задані в профілі (Сотрудники → Маршрут візитів). Пробіг рахується між першим і останнім візитом.";
+    return "Старт/фініш не задані в профілі (Співробітники → Маршрут візитів). Пробіг рахується між першим і останнім візитом.";
   }
   if (code === "gps_track_degraded") {
     return "GPS-трек слабкий — для виплати використано факт по завершених візитах.";
@@ -407,7 +400,7 @@ function DayDetailPanel({
                 {formatMoney(r?.amountEstimated)}
               </div>
               <div className="text-sm text-emerald-800">
-                {STATUS_LABELS[r?.compensationStatus ?? "DRAFT"] ?? r?.compensationStatus}
+                {fuelStatusLabel(r?.compensationStatus ?? "DRAFT")}
               </div>
             </div>
           </div>
@@ -803,7 +796,7 @@ export default function VisitsFuelPage() {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    {STATUS_LABELS[d.report.compensationStatus] ?? d.report.compensationStatus}
+                    {fuelStatusLabel(d.report.compensationStatus)}
                   </td>
                 </tr>
               ))}

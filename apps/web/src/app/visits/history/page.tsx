@@ -391,7 +391,7 @@ export default function VisitsHistoryPage() {
                     : "text-zinc-600 hover:bg-zinc-50"
                 }`}
               >
-                Календарь
+                Календар
               </button>
             </div>
             <Link href="/visits" className="text-sm font-medium text-emerald-700 hover:underline">
@@ -402,11 +402,11 @@ export default function VisitsHistoryPage() {
 
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           {[
-            { label: "Всего", value: summary.total, sub: `из ${total} в базе` },
+            { label: "Усього", value: summary.total, sub: `з ${total} у базі` },
             { label: "Успішні", value: summary.success, className: "text-emerald-700" },
-            { label: "Follow-up", value: summary.followUp, className: "text-amber-700" },
+            { label: "Дозвон", value: summary.followUp, className: "text-amber-700" },
             { label: "Проблемні", value: summary.problem, className: "text-red-700" },
-            { label: "След. шаг", value: summary.nextAction, className: "text-zinc-700" },
+            { label: "Наст. крок", value: summary.nextAction, className: "text-zinc-700" },
           ].map((c) => (
             <div
               key={c.label}
@@ -429,9 +429,9 @@ export default function VisitsHistoryPage() {
           <div className="flex flex-wrap gap-2">
             {(
               [
-                ["today", "Сегодня"],
-                ["7d", "7 дней"],
-                ["30d", "30 дней"],
+                ["today", "Сьогодні"],
+                ["7d", "7 днів"],
+                ["30d", "30 днів"],
                 ["month", "Цей місяць"],
               ] as const
             ).map(([k, label]) => (
@@ -497,7 +497,7 @@ export default function VisitsHistoryPage() {
               >
                 <option value="all">Все</option>
                 <option value="success">Успішні</option>
-                <option value="follow_up">Follow-up</option>
+                <option value="follow_up">Дозвон / повтор</option>
                 <option value="problem">Проблемні</option>
               </select>
             </div>
@@ -621,7 +621,7 @@ export default function VisitsHistoryPage() {
                 </button>
                 <span className="text-zinc-600">
                   Стр. {page} · всего {total}
-                  {outcomeFilter !== "all" ? ` · на странице ${filteredItems.length}` : ""}
+                  {outcomeFilter !== "all" ? ` · на сторінці ${filteredItems.length}` : ""}
                 </span>
                 <button
                   type="button"

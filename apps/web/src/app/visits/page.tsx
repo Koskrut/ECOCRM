@@ -35,6 +35,7 @@ import {
   visitLocationHasCoords,
   type VisitLocationValue,
 } from "@/lib/visits/visit-location.types";
+import { VISIT_OUTCOME_UA } from "@/lib/status-labels";
 import { strings } from "@/locales";
 
 function formatHmKyiv(iso: string): string {
@@ -480,7 +481,7 @@ function VisitsPageContent() {
       const key = res.data?.mapsApiKey ?? null;
       if (!key) {
         setMapsConfigError(
-          "Google Maps API key is not configured. Ask ADMIN to set it in Settings → Google Maps.",
+          "Google Maps API key не налаштовано. Попросіть ADMIN задати його в Налаштування → Google Maps.",
         );
       } else {
         setMapsApiKey(key);
@@ -1011,7 +1012,7 @@ function VisitsPageContent() {
       setBacklog((prev) => [updated, ...prev.filter((v) => v.id !== visit.id)]);
       setRouteOrderIds((prev) => prev.filter((id) => id !== visit.id));
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Не вдалося перемістити візит to backlog", "error");
+      pushToast(e instanceof Error ? e.message : "Не вдалося перемістити візит у backlog", "error");
       void loadData();
     }
   };
@@ -1019,9 +1020,9 @@ function VisitsPageContent() {
   const handleRemoveVisit = useCallback(
     async (visit: Visit) => {
       const ok = await confirm({
-        title: "Remove visit",
-        message: "Remove this visit from the plan?",
-        confirmText: "Remove",
+        title: "Видалити візит",
+        message: "Прибрати цей візит із плану?",
+        confirmText: "Видалити",
         destructive: true,
       });
       if (!ok) return;
@@ -1040,7 +1041,7 @@ function VisitsPageContent() {
 
   const handleResultSubmit = async () => {
     if (!resultModalVisit || !resultOutcome.trim() || !resultNote.trim()) {
-      pushToast("Вкажіть результат (outcome) і коментар (resultNote).", "error");
+      pushToast("Вкажіть результат і коментар.", "error");
       return;
     }
     try {
@@ -1072,13 +1073,9 @@ function VisitsPageContent() {
     }
   };
 
-  const OUTCOME_OPTIONS = [
-    { value: "SUCCESS", label: "Успех" },
-    { value: "FOLLOW_UP", label: "Дозвон / повтор" },
-    { value: "NO_DECISION", label: "Без рішення" },
-    { value: "NOT_RELEVANT", label: "Не релевантно" },
-    { value: "FAILED", label: "Неудача" },
-  ] as const;
+  const OUTCOME_OPTIONS = (
+    Object.entries(VISIT_OUTCOME_UA) as [keyof typeof VISIT_OUTCOME_UA, string][]
+  ).map(([value, label]) => ({ value, label }));
 
   const handleCreateBacklogFromContact = async () => {
     if (!pendingContactId) return;
@@ -1269,7 +1266,7 @@ function VisitsPageContent() {
                   Маршрут і км — оберіть конкретного менеджера. Зараз показано візити всіх.
                 </p>
               ) : readOnlyPlan ? (
-                <p className="text-xs text-zinc-600">Режим просмотра чужого плана</p>
+                <p className="text-xs text-zinc-600">Режим перегляду чужого плану</p>
               ) : null}
             </div>
           ) : null}
@@ -1372,7 +1369,7 @@ function VisitsPageContent() {
                     );
                     window.open(url, "_blank");
                   } catch (e) {
-                    pushToast(e instanceof Error ? e.message : "No coordinates", "error");
+                    pushToast(e instanceof Error ? e.message : "Немає координат", "error");
                   }
                 }}
                 className="rounded-md border border-zinc-300 px-2 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 sm:py-1.5"
@@ -1453,7 +1450,7 @@ function VisitsPageContent() {
               </button>
             </div>
             <div className="w-full shrink-0 overflow-auto md:max-w-xs">
-              <div className="text-xs font-semibold uppercase text-zinc-500">Точки маршрута</div>
+              <div className="text-xs font-semibold uppercase text-zinc-500">Точки маршруту</div>
               <p className="mt-0.5 text-[10px] text-zinc-500">
                 Можна змінювати порядок і додавати візити протягом дня
               </p>
@@ -1489,8 +1486,8 @@ function VisitsPageContent() {
                               disabled={idx === routeListVisits.length - 1 || savingRoute}
                               onClick={() => moveInRouteOrder(v.id, 1)}
                               className="rounded border border-zinc-200 bg-white px-0.5 py-0 text-zinc-600 hover:bg-zinc-50 disabled:opacity-30"
-                              title="Ниже в маршруте"
-                              aria-label="Ниже в маршруте"
+                              title="Нижче в маршруті"
+                              aria-label="Нижче в маршруті"
                             >
                               <ChevronDown className="h-3 w-3" />
                             </button>
@@ -1499,7 +1496,7 @@ function VisitsPageContent() {
                         <button
                           type="button"
                           disabled={isDone || routeSessionLoading}
-                          title={isDone ? undefined : "Сделать текущей встречей"}
+                          title={isDone ? undefined : "Зробити поточною зустріччю"}
                           onClick={async () => {
                             if (isDone || isCurrent) return;
                             setRouteSessionLoading(true);
@@ -1529,7 +1526,7 @@ function VisitsPageContent() {
                                     : "bg-zinc-100 text-zinc-700",
                           ].join(" ")}
                         >
-                          {idx + 1}. {v.title || v.addressText || "Visit"}
+                          {idx + 1}. {v.title || v.addressText || "Візит"}
                           {v.startsAt ? ` · ${formatHmKyiv(v.startsAt)}` : ""}
                           {isDone
                             ? isUnsuccessfulOutcome
@@ -1819,8 +1816,8 @@ function VisitsPageContent() {
                               void handleRemoveVisit(v);
                             }}
                             className="min-h-[36px] min-w-[36px] rounded-md px-1 py-1 text-base font-medium leading-none text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 sm:min-h-[28px] sm:min-w-[28px]"
-                            title="Remove visit"
-                            aria-label="Remove visit"
+                            title="Видалити візит"
+                            aria-label="Видалити візит"
                           >
                             ×
                           </button>
@@ -1880,13 +1877,13 @@ function VisitsPageContent() {
               routeListVisits.length > 0 &&
               !readOnlyPlan ? (
                 <div className="mt-2 hidden max-h-32 overflow-auto rounded border border-zinc-100 bg-zinc-50/80 p-2 md:block">
-                  <div className="text-[11px] font-medium text-zinc-600">Порядок маршрута</div>
+                  <div className="text-[11px] font-medium text-zinc-600">Порядок маршруту</div>
                   <ul className="mt-1 space-y-1">
                     {routeListVisits.map((v, idx) => (
                       <li key={v.id} className="flex items-center gap-1 text-[11px]">
                         <span className="w-4 shrink-0 tabular-nums text-zinc-400">{idx + 1}.</span>
                         <span className="min-w-0 flex-1 truncate text-zinc-800">
-                          {v.title || v.addressText || "Visit"}
+                          {v.title || v.addressText || "Візит"}
                           {v.startsAt ? ` · ${formatHmKyiv(v.startsAt)}` : ""}
                         </span>
                         <button
@@ -1903,7 +1900,7 @@ function VisitsPageContent() {
                           disabled={idx === routeListVisits.length - 1 || savingRoute}
                           onClick={() => moveInRouteOrder(v.id, 1)}
                           className="rounded border border-zinc-200 bg-white p-0.5 disabled:opacity-30"
-                          title="Ниже"
+                          title="Нижче"
                         >
                           <ChevronDown className="h-3 w-3" />
                         </button>
@@ -1945,7 +1942,7 @@ function VisitsPageContent() {
                       ) : null}
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-zinc-900">
-                          {idx + 1}. {v.title || v.addressText || "Visit"}
+                          {idx + 1}. {v.title || v.addressText || "Візит"}
                         </div>
                         <div className="tabular-nums text-zinc-600">
                           {v.startsAt ? formatHmKyiv(v.startsAt) : "—"}
@@ -2295,7 +2292,7 @@ function VisitsPageContent() {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0 truncate font-medium text-zinc-900">
-                                {v.title || v.addressText || "Visit"}
+                                {v.title || v.addressText || "Візит"}
                               </div>
                               <span className="shrink-0 text-[10px] text-zinc-500">
                                 {v.startsAt && v.endsAt
@@ -2385,7 +2382,7 @@ function VisitsPageContent() {
 
         <section
           className="max-md:hidden flex min-h-0 min-w-0 flex-col rounded-lg border border-zinc-200 bg-white md:min-h-[min(560px,calc(100vh-200px))]"
-          aria-label="Карта маршрута"
+          aria-label="Карта маршруту"
         >
           <div className="shrink-0 border-b border-zinc-200 px-3 py-2">
             <div className="flex flex-col gap-2">
@@ -2432,7 +2429,7 @@ function VisitsPageContent() {
                 <p className="text-[10px] text-amber-700">
                   {mapsApiKey
                     ? "Плановий маршрут приблизний — перевірте Routes API в Google Cloud."
-                    : "Настройте Google Maps API key (Settings) для маршрутов по дорогам."}
+                    : "Налаштуйте Google Maps API key (Налаштування) для маршрутів по дорогах."}
                 </p>
               ) : null}
               {routeGeometryBundle ? (

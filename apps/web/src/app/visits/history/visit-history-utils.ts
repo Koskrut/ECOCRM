@@ -10,23 +10,27 @@ import {
   startOfWeek,
 } from "date-fns";
 import type { VisitHistoryItem } from "@/lib/api/resources/visits";
+import { visitOutcomeLabel } from "@/lib/status-labels";
 
 export type ViewMode = "list" | "calendar";
 export type OutcomeFilter = "all" | "success" | "follow_up" | "problem";
 
 export type OutcomeMeta = { label: string; badgeClass: string };
 
-const OUTCOME_META: Record<string, OutcomeMeta> = {
-  SUCCESS: { label: "Успішно", badgeClass: "bg-emerald-100 text-emerald-800" },
-  FOLLOW_UP: { label: "Повторний контакт", badgeClass: "bg-amber-100 text-amber-800" },
-  NO_DECISION: { label: "Без рішення", badgeClass: "bg-zinc-100 text-zinc-700" },
-  NOT_RELEVANT: { label: "Не релевантно", badgeClass: "bg-zinc-100 text-zinc-600" },
-  FAILED: { label: "Провалено", badgeClass: "bg-red-100 text-red-800" },
+const OUTCOME_BADGE: Record<string, string> = {
+  SUCCESS: "bg-emerald-100 text-emerald-800",
+  FOLLOW_UP: "bg-amber-100 text-amber-800",
+  NO_DECISION: "bg-zinc-100 text-zinc-700",
+  NOT_RELEVANT: "bg-zinc-100 text-zinc-600",
+  FAILED: "bg-red-100 text-red-800",
 };
 
 export function outcomeMeta(outcome: string | null | undefined): OutcomeMeta {
-  if (!outcome) return { label: "Без результата", badgeClass: "bg-zinc-100 text-zinc-600" };
-  return OUTCOME_META[outcome] ?? { label: outcome, badgeClass: "bg-zinc-100 text-zinc-700" };
+  if (!outcome) return { label: visitOutcomeLabel(null), badgeClass: "bg-zinc-100 text-zinc-600" };
+  return {
+    label: visitOutcomeLabel(outcome),
+    badgeClass: OUTCOME_BADGE[outcome] ?? "bg-zinc-100 text-zinc-700",
+  };
 }
 
 export function visitDisplayTitle(v: VisitHistoryItem): string {

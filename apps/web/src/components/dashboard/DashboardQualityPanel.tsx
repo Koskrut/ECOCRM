@@ -13,13 +13,10 @@ import { formatNumber } from "@/app/analytics/analytics-ui";
 import type { DashboardV2Quality } from "@/lib/api/resources/dashboard";
 import { DateTime } from "luxon";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import { VISIT_OUTCOME_UA } from "@/lib/status-labels";
 
 const OUTCOME_LABELS: Record<string, string> = {
-  SUCCESS: "Успіх",
-  FOLLOW_UP: "Follow-up",
-  NO_DECISION: "Без рішення",
-  NOT_RELEVANT: "Не релевантно",
-  FAILED: "Невдача",
+  ...VISIT_OUTCOME_UA,
   UNKNOWN: "Невідомо",
 };
 
