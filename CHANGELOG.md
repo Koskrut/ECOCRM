@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.127**.)_
+_(планируемые изменения после **0.2.128**.)_
+
+## [0.2.128] — 2026-07-29
+
+### Summary
+
+Патч **0.2.128**: mobile Android Google Maps — native API key gate, lazy MapView load, static fallback.
+
+### Fixed
+
+- **Mobile app.config.js**: `android.config.googleMaps.apiKey` через Expo config-plugins (SDK 54 / rn-maps 1.20); флаг **`enableInteractiveGoogleMaps`** в `extra`.
+- **Mobile maps-config**: `canUseInteractiveMaps()` на Android требует baked Manifest key + build-time flag.
+- **DayRouteMapPanel**: lazy `require(RouteMapView)`; не монтирует MapView без native key (static preview вместо SIGABRT).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.128`** (registry; для этого патча изменений backend/web нет).
+- **Mobile**: новый **native EAS build** с `GOOGLE_MAPS_API_KEY` (OTA недостаточно для интерактивной карты на Android).
+- **Миграций нет.**
 
 ## [0.2.127] — 2026-07-29
 

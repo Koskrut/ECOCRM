@@ -1,6 +1,14 @@
 /**
  * Extends app.json and injects native Google Maps API keys when provided via EAS/env.
- * Without android.config.googleMaps.apiKey, mounting MapView crashes the Android process.
+ *
+ * Expo SDK 54 ships react-native-maps@1.20.1, which has NO config plugin
+ * (`androidGoogleMapsApiKey` requires rn-maps >= 1.22). Use Expo's built-in
+ * `android.config.googleMaps.apiKey` / `ios.config.googleMapsApiKey` instead —
+ * `@expo/config-plugins` writes `com.google.android.geo.API_KEY` into AndroidManifest.
+ *
+ * Without that meta-data, mounting MapView kills the Android process.
+ * Set EAS secret `GOOGLE_MAPS_API_KEY` (preferred) or `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`,
+ * then run a NEW native EAS build (OTA/JS-only is not enough).
  */
 const appJson = require("./app.json");
 
@@ -10,6 +18,7 @@ const googleMapsApiKey = (
   ""
 ).trim();
 
+const hasNativeGoogleMapsKey = googleMapsApiKey.length > 0;
 const expo = appJson.expo;
 
 module.exports = {
@@ -17,7 +26,7 @@ module.exports = {
     ...expo,
     ios: {
       ...expo.ios,
-      ...(googleMapsApiKey
+      ...(hasNativeGoogleMapsKey
         ? {
             config: {
               ...(expo.ios?.config ?? {}),
@@ -28,7 +37,7 @@ module.exports = {
     },
     android: {
       ...expo.android,
-      ...(googleMapsApiKey
+      ...(hasNativeGoogleMapsKey
         ? {
             config: {
               ...(expo.android?.config ?? {}),
@@ -39,6 +48,11 @@ module.exports = {
             },
           }
         : {}),
+    },
+    extra: {
+      ...(expo.extra ?? {}),
+      /** Runtime gate for DayRouteMapPanel — true only when key was baked at native build time. */
+      enableInteractiveGoogleMaps: hasNativeGoogleMapsKey,
     },
   },
 };

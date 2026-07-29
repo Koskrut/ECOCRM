@@ -15,7 +15,6 @@ import {
 import { Text } from "@/components/Themed";
 import { EmptyState } from "@/components/EmptyState";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
-import { RouteMapView } from "@/components/RouteMapView";
 import { StatTiles, type StatTile } from "@/components/today/StatTiles";
 import { AppButton } from "@/components/ui/AppButton";
 import { Card } from "@/components/ui/Card";
@@ -36,8 +35,6 @@ import {
 } from "@/lib/route-map";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
-
-const INTERACTIVE_MAPS_OK = canUseInteractiveMaps();
 
 type LayerKey = "planned" | "fact_visits" | "fact_gps";
 
@@ -92,8 +89,11 @@ export function DayRouteMapPanel({
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
   const [staticImageError, setStaticImageError] = useState(false);
-  /** Android MapView native-crashes without googleMaps.apiKey in the binary. */
-  const [forceStatic, setForceStatic] = useState(!INTERACTIVE_MAPS_OK);
+  /**
+   * Android MapView SIGABRTs without com.google.android.geo.API_KEY in the binary.
+   * Default to static; only flip off when the native build baked a Maps key.
+   */
+  const [forceStatic, setForceStatic] = useState(() => !canUseInteractiveMaps());
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>({
     planned: true,
     fact_gps: true,
@@ -307,6 +307,9 @@ export function DayRouteMapPanel({
   }
 
   function renderInteractiveMap() {
+    // Lazy-require so Android builds without a native Maps key never load MapView.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { RouteMapView } = require("@/components/RouteMapView") as typeof import("@/components/RouteMapView");
     return (
       <MapErrorBoundary onFallback={() => setForceStatic(true)}>
         <RouteMapView
@@ -325,7 +328,8 @@ export function DayRouteMapPanel({
     if (!hasMapContent) {
       return <EmptyState message={t("map.emptyRoute")} onRetry={() => void reload()} />;
     }
-    if (forceStatic) {
+    // Belt-and-suspenders: never mount MapView on Android without a confirmed native key.
+    if (forceStatic || !canUseInteractiveMaps()) {
       return renderStaticMap();
     }
     return renderInteractiveMap();

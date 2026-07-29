@@ -1,4 +1,4 @@
-# Control Plane и сервер: манифест релиза (**0.2.127+**), compose, лицензия
+# Control Plane и сервер: манифест релиза (**0.2.128+**), compose, лицензия
 
 Кратко для операторов. Расширенный preflight по CP — в репозитории **Control Plane**: **`docs/releasing-manifest.md`** (в т.ч. §8 preflight CP, §9 события **`/rollouts/.../events`**), **`docs/deployment-manifest-compose-patch.md`**.
 
@@ -35,7 +35,7 @@
 
 ## Сервер (install bundle / Suprex)
 
-1. **Репозиторий и тег** — согласованы с релизом (например **`v0.2.127`**), есть **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**.
+1. **Репозиторий и тег** — согласованы с релизом (например **`v0.2.128`**), есть **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**.
 2. **Манифест на вход агента** — полный JSON с **`composeFileUrls`** (например **16** файлов для полного **0.2.x** с store и всеми модулями: base + client + **store** + overlays). Нормально **не** класть **`deployment-manifest.json`** в корень bundle, если всегда задаёте **`MANIFEST_URL`** или **`DEPLOYMENT_MANIFEST_PATH`**. Не подсовывать **старый** JSON без **`composeFileUrls`**, если sync должен тянуть YAML с GitHub.
 3. **`.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** = версия релиза; **`CORS_ORIGIN`**, **`PUBLIC_BASE_URL`**, секреты БД; **`*_MODULE_IMAGE_NAME`** можно не задавать (дефолты в compose).
 4. **`MODULE_GATING_ENABLED`** — если не задан / пусто, гейтинг по env обычно не включает жёсткий режим; при **`true`** дополнительно проверяйте pilot / enabled в БД и health апстримов (как в вашем чеклисте).

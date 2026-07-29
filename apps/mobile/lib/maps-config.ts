@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 
 import { apiFetch } from "@/lib/api";
 
-/** Build-time fallback (EAS env EXPO_PUBLIC_GOOGLE_MAPS_API_KEY). */
+/** Build-time fallback for Static Maps URLs (EAS env EXPO_PUBLIC_GOOGLE_MAPS_API_KEY). */
 export function getEmbeddedMapsApiKey(): string | null {
   const raw = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
   if (typeof raw === "string" && raw.trim()) return raw.trim();
@@ -27,14 +27,26 @@ export function getNativeGoogleMapsApiKey(): string | null {
   return null;
 }
 
-/** True when interactive MapView is safe to mount (won't SIGABRT for missing API key). */
+function nativeBuildOptedIntoInteractiveMaps(): boolean {
+  const extra = Constants.expoConfig?.extra as
+    | { enableInteractiveGoogleMaps?: unknown }
+    | undefined;
+  return extra?.enableInteractiveGoogleMaps === true;
+}
+
+/**
+ * True when interactive MapView is safe to mount (won't SIGABRT for missing API key).
+ * Android: require BOTH the baked Manifest key and the build-time extra flag.
+ * iOS: Apple Maps provider works without a Google key.
+ */
 export function canUseInteractiveMaps(): boolean {
-  if (Platform.OS === "ios") return true; // Apple Maps provider works without Google key
+  if (Platform.OS === "ios") return true;
   if (Platform.OS !== "android") return false;
+  if (!nativeBuildOptedIntoInteractiveMaps()) return false;
   return getNativeGoogleMapsApiKey() != null;
 }
 
-/** Server key from CRM settings, then embedded env fallback. */
+/** Server key from CRM settings, then embedded env fallback (Static Maps / Places only). */
 export async function resolveMapsApiKey(token: string): Promise<string | null> {
   try {
     const cfg = await apiFetch<{ mapsApiKey?: string | null }>("/settings/google-maps/public", {
