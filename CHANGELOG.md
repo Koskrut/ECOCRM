@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.126**.)_
+_(планируемые изменения после **0.2.127**.)_
+
+## [0.2.127] — 2026-07-29
+
+### Summary
+
+Патч **0.2.127**: public Google Maps config endpoint; web soft 401 on maps probe; mobile map routing fix.
+
+### Fixed
+
+- **Google Maps public config**: `GET /settings/google-maps/public` — `@Public()` (maps work before login).
+- **Web api client**: 401 на `/settings/google-maps/public`, `/presence/heartbeat`, `/presence/end` не редиректит на login.
+- **Mobile map routing**: убран `(tabs)/map`; `/map` → redirect `/map/[date]`; Today/More открывают dated map; `MapErrorBoundary` auto-fallback на static preview.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.127`**.
+- **Миграций нет.**
 
 ## [0.2.126] — 2026-07-29
 

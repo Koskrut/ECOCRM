@@ -146,7 +146,7 @@ function RootLayoutNav() {
         <Stack.Screen name="leads/index" options={{ title: t("leads.title"), headerShown: true }} />
         <Stack.Screen name="leads/[id]" options={{ title: t("leads.detail"), headerShown: true }} />
         <Stack.Screen name="leads/new" options={{ title: t("leads.new"), headerShown: true }} />
-        <Stack.Screen name="map" options={{ title: t("map.title"), headerShown: true }} />
+        <Stack.Screen name="map" options={{ headerShown: false }} />
         <Stack.Screen name="map/[date]" options={{ title: t("map.title"), headerShown: true }} />
         <Stack.Screen name="catalog/index" options={{ title: t("catalog.title"), headerShown: true }} />
         <Stack.Screen name="calls/queue" options={{ title: t("calls.queueTitle"), headerShown: true }} />

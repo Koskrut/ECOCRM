@@ -19,13 +19,24 @@ apiHttp.interceptors.request.use((config) => {
   return config;
 });
 
+/** Endpoints that may 401 without meaning the CRM session is dead (optional probes / soft fail). */
+function isSoftAuthFailureUrl(url: unknown): boolean {
+  if (typeof url !== "string") return false;
+  return (
+    url.includes("/settings/google-maps/public") ||
+    url.includes("/presence/heartbeat") ||
+    url.includes("/presence/end")
+  );
+}
+
 apiHttp.interceptors.response.use(
   (r) => r,
   (e) => {
     const err = mapAxiosError(e);
     if (typeof window !== "undefined" && err.status === 401) {
       const pathname = window.location.pathname;
-      if (pathname !== "/login") {
+      const reqUrl = (e as { config?: { url?: string } })?.config?.url;
+      if (!isSoftAuthFailureUrl(reqUrl) && pathname !== "/login") {
         const from = encodeURIComponent(pathname);
         window.location.href = `/login?from=${from}`;
       }

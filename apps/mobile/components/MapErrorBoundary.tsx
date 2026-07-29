@@ -1,10 +1,4 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
-
-import { Text } from "@/components/Themed";
-import { AppButton } from "@/components/ui/AppButton";
-import { useTheme } from "@/lib/design/theme-context";
-import { t } from "@/lib/i18n";
 
 type Props = {
   children: React.ReactNode;
@@ -13,7 +7,11 @@ type Props = {
 
 type State = { hasError: boolean };
 
-/** Catches native map render failures and falls back to static preview. */
+/**
+ * Catches JS errors while mounting/rendering MapView and switches to static preview.
+ * Native SIGABRT (e.g. missing Android Google Maps API key) is not catchable here —
+ * use canUseInteractiveMaps() before mounting RouteMapView.
+ */
 export class MapErrorBoundary extends React.Component<Props, State> {
   state: State = { hasError: false };
 
@@ -23,39 +21,14 @@ export class MapErrorBoundary extends React.Component<Props, State> {
 
   componentDidCatch(error: Error): void {
     if (__DEV__) console.warn("[MapErrorBoundary]", error.message);
+    // Auto-switch to static preview on the next tick so parent can remount the slot.
+    queueMicrotask(() => this.props.onFallback());
   }
 
   render(): React.ReactNode {
     if (this.state.hasError) {
-      return <MapErrorFallback onFallback={this.props.onFallback} />;
+      return null;
     }
     return this.props.children;
   }
 }
-
-function MapErrorFallback({ onFallback }: { onFallback: () => void }) {
-  const theme = useTheme();
-  return (
-    <View style={[styles.wrap, { backgroundColor: theme.colors.surfaceMuted }]}>
-      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, textAlign: "center" }]}>
-        {t("map.interactiveFailed")}
-      </Text>
-      <AppButton
-        label={t("map.useStaticPreview")}
-        onPress={onFallback}
-        variant="secondary"
-        style={{ marginTop: theme.spacing.sm, alignSelf: "center" }}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    padding: 16,
-  },
-});

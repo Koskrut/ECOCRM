@@ -228,7 +228,7 @@ export default function TodayScreen() {
         icon: "map-outline",
         color: theme.colors.success,
         bg: theme.colors.successMuted,
-        onPress: () => router.push("/map"),
+        onPress: () => router.push(`/map/${dateKey}`),
       });
     }
     if (fuelLabel) {

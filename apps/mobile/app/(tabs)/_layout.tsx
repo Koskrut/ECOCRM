@@ -34,12 +34,6 @@ function TabNavigator() {
           }}
         />
         <Tabs.Screen
-          name="map"
-          options={{
-            href: null,
-          }}
-        />
-        <Tabs.Screen
           name="clients"
           options={{
             title: t("tabs.clients"),

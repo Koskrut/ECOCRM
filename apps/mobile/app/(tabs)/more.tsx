@@ -16,6 +16,7 @@ import { useOfflineQueue } from "@/context/offline-queue-context";
 import { useServerConfig } from "@/context/server-config-context";
 import { useShiftTracking } from "@/context/shift-tracking-context";
 import { getApiBaseUrl } from "@/lib/config";
+import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { getErrorLog, type ErrorLogEntry } from "@/lib/error-log";
 import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location-tracking";
@@ -106,7 +107,10 @@ export default function MoreScreen() {
 
         <SectionTitle title={t("more.menu")} />
         <ListItem title={t("leads.title")} onPress={() => router.push("/leads")} />
-        <ListItem title={t("map.title")} onPress={() => router.push("/map")} />
+        <ListItem
+          title={t("map.title")}
+          onPress={() => router.push(`/map/${formatLocalDateKey()}`)}
+        />
         <ListItem
           title={t("tabs.work")}
           subtitle={t("more.workSubtitle")}

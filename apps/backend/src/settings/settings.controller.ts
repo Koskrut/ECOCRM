@@ -95,6 +95,7 @@ export class SettingsController {
   }
 
   @Get("google-maps/public")
+  @Public()
   getGoogleMapsPublicConfig() {
     return this.settings.getGoogleMapsPublicConfig();
   }
