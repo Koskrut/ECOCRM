@@ -1,13 +1,19 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
+import { NpModule } from "../np/np.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { OrderReturnsController } from "./order-returns.controller";
 import { OrderReturnsService } from "./order-returns.service";
+import { ReturnPackagesController } from "./return-packages.controller";
+import { ReturnPackagesService } from "./return-packages.service";
 
 @Module({
-  imports: [PrismaModule, IntegrationPortsModule],
-  controllers: [OrderReturnsController],
-  providers: [OrderReturnsService],
-  exports: [OrderReturnsService],
+  imports: [PrismaModule, IntegrationPortsModule, forwardRef(() => NpModule)],
+  controllers: [OrderReturnsController, ReturnPackagesController],
+  providers: [
+    ReturnPackagesService,
+    OrderReturnsService,
+  ],
+  exports: [OrderReturnsService, ReturnPackagesService],
 })
 export class OrderReturnsModule {}

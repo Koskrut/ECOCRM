@@ -1,4 +1,4 @@
-import { IsBoolean, IsObject, IsOptional, IsString, MaxLength, ValidateIf } from "class-validator";
+import { IsBoolean, IsObject, IsOptional, IsString, MaxLength } from "class-validator";
 
 export class StoreAttributionDto {
   @IsOptional()
@@ -53,19 +53,14 @@ export class CreateStoreLeadDto {
   @MaxLength(160)
   name!: string;
 
-  @IsOptional()
   @IsString()
   @MaxLength(100)
-  phone?: string;
+  phone!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(160)
   email?: string;
-
-  @ValidateIf((o: CreateStoreLeadDto) => !o.phone && !o.email)
-  @IsString()
-  phoneOrEmailRequired?: string;
 
   @IsOptional()
   @IsString()

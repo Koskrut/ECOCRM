@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { OrderStage, Prisma } from "@prisma/client";
 import type { ReturnStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
@@ -15,6 +15,13 @@ import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dt
 import type { SettleReturnDto } from "../client-balances/dto/settle-return.dto";
 import { computeReturnAdjustmentAmount } from "./order-return-adjustment.utils";
 import { computeReturnCoverage } from "./order-return-coverage.utils";
+import {
+  assertWarehouseReturnCreate,
+  assertWarehouseReturnSettlement,
+  assertWarehouseReturnStatusUpdate,
+} from "./order-return-warehouse-role";
+import { normalizeTtnNumber } from "./return-package-np-status.utils";
+import { ReturnPackagesService } from "./return-packages.service";
 
 const ALLOWED_TRANSITIONS: Record<ReturnStatus, ReturnStatus[]> = {
   REQUESTED: ["APPROVED"],
@@ -33,9 +40,11 @@ export class OrderReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrations: IntegrationPortsService,
+    @Inject(forwardRef(() => ReturnPackagesService))
+    private readonly returnPackages: ReturnPackagesService,
   ) {}
 
-  private async syncOrderStateFromReturns(orderId: string) {
+  async syncOrderStateFromReturns(orderId: string) {
     const [openCount, allReturns, orderSnapshot] = await Promise.all([
       this.prisma.orderReturn.count({
         where: { orderId, status: { not: CLOSED_RETURN_STATUS } },
@@ -152,6 +161,8 @@ export class OrderReturnsService {
   }
 
   async create(orderId: string, dto: CreateOrderReturnDto, actor?: AuthUser) {
+    assertWarehouseReturnCreate(actor);
+
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -174,63 +185,100 @@ export class OrderReturnsService {
       );
     }
 
-    if (!dto.items?.length) {
-      throw new BadRequestException("At least one item is required");
+    const itemsPending = dto.itemsPending === true;
+    const hasItems = (dto.items?.length ?? 0) > 0;
+    const ttnNumber = dto.ttnNumber ? normalizeTtnNumber(dto.ttnNumber) : undefined;
+
+    if (itemsPending && hasItems) {
+      throw new BadRequestException("Cannot provide items when itemsPending is true");
+    }
+    if (!itemsPending && !hasItems) {
+      throw new BadRequestException("At least one item is required unless itemsPending is set");
     }
 
-    const orderItemIds = new Map(order.items.map((i) => [i.id, i]));
-    const merged = new Map<string, number>();
-    for (const it of dto.items) {
-      const oi = orderItemIds.get(it.orderItemId);
-      if (!oi) {
-        throw new BadRequestException(`Order item ${it.orderItemId} not found in order`);
+    let returnItems: { orderItemId: string; qtyReturned: number }[] = [];
+    if (hasItems) {
+      const orderItemIds = new Map(order.items.map((i) => [i.id, i]));
+      const merged = new Map<string, number>();
+      for (const it of dto.items!) {
+        const oi = orderItemIds.get(it.orderItemId);
+        if (!oi) {
+          throw new BadRequestException(`Order item ${it.orderItemId} not found in order`);
+        }
+        const qty = Math.min(Math.max(1, Math.floor(it.qtyReturned)), oi.qty);
+        merged.set(oi.id, Math.min((merged.get(oi.id) ?? 0) + qty, oi.qty));
       }
-      const qty = Math.min(Math.max(1, Math.floor(it.qtyReturned)), oi.qty);
-      merged.set(oi.id, Math.min((merged.get(oi.id) ?? 0) + qty, oi.qty));
-    }
-    const returnItems = Array.from(merged.entries()).map(([orderItemId, qtyReturned]) => ({
-      orderItemId,
-      qtyReturned,
-    }));
+      returnItems = Array.from(merged.entries()).map(([orderItemId, qtyReturned]) => ({
+        orderItemId,
+        qtyReturned,
+      }));
 
-    const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
-      by: ["orderItemId"],
-      where: {
-        orderItemId: { in: returnItems.map((it) => it.orderItemId) },
-        orderReturn: { orderId },
-      },
-      _sum: { qtyReturned: true },
-    });
-    const returnedByItem = new Map<string, number>(
-      alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
-    );
-    for (const item of returnItems) {
-      const orderItem = orderItemIds.get(item.orderItemId)!;
-      const totalReturned = (returnedByItem.get(item.orderItemId) ?? 0) + item.qtyReturned;
-      if (totalReturned > orderItem.qty) {
-        throw new BadRequestException(
-          `Return quantity exceeds purchased quantity for item ${item.orderItemId}: ${totalReturned} > ${orderItem.qty}`,
-        );
+      const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
+        by: ["orderItemId"],
+        where: {
+          orderItemId: { in: returnItems.map((it) => it.orderItemId) },
+          orderReturn: { orderId },
+        },
+        _sum: { qtyReturned: true },
+      });
+      const returnedByItem = new Map<string, number>(
+        alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
+      );
+      for (const item of returnItems) {
+        const orderItem = orderItemIds.get(item.orderItemId)!;
+        const totalReturned = (returnedByItem.get(item.orderItemId) ?? 0) + item.qtyReturned;
+        if (totalReturned > orderItem.qty) {
+          throw new BadRequestException(
+            `Return quantity exceeds purchased quantity for item ${item.orderItemId}: ${totalReturned} > ${orderItem.qty}`,
+          );
+        }
       }
     }
+
+    const initialStatus: ReturnStatus =
+      ttnNumber && (itemsPending || returnItems.length === 0)
+        ? "IN_TRANSIT_BACK"
+        : "REQUESTED";
 
     const created = await this.prisma.$transaction(async (tx) => {
+      let returnPackageId: string | undefined;
+      if (ttnNumber) {
+        const pkg = await this.returnPackages.findOrCreatePackageByTtn(
+          ttnNumber,
+          { contactId: order.clientId ?? order.contactId ?? undefined },
+          tx,
+        );
+        returnPackageId = pkg.id;
+      }
+
       const createdReturn = await tx.orderReturn.create({
         data: {
           orderId,
-          status: "REQUESTED",
-          items: {
-            create: returnItems.map((r) => ({
-              orderItemId: r.orderItemId,
-              qtyReturned: r.qtyReturned,
-            })),
-          },
+          status: initialStatus,
+          itemsPending,
+          returnPackageId,
+          ...(returnItems.length
+            ? {
+                items: {
+                  create: returnItems.map((r) => ({
+                    orderItemId: r.orderItemId,
+                    qtyReturned: r.qtyReturned,
+                  })),
+                },
+              }
+            : {}),
         },
         include: {
           items: { include: { orderItem: true } },
           order: { select: { id: true, orderNumber: true } },
+          returnPackage: true,
         },
       });
+
+      if (returnPackageId) {
+        await this.returnPackages.syncLinkedReturnsLogistics(returnPackageId, "IN_TRANSIT_BACK", tx);
+      }
+
       return createdReturn;
     });
 
@@ -270,6 +318,15 @@ export class OrderReturnsService {
             },
           },
           items: { include: { orderItem: { select: { id: true, qty: true, price: true, lineTotal: true, productNameSnapshot: true } } } },
+          returnPackage: {
+            select: {
+              id: true,
+              ttnNumber: true,
+              status: true,
+              ttnStatusCode: true,
+              ttnStatusText: true,
+            },
+          },
         },
       }),
       this.prisma.orderReturn.count({ where }),
@@ -291,6 +348,15 @@ export class OrderReturnsService {
       orderBy: { createdAt: "desc" },
       include: {
         items: { include: { orderItem: { select: { id: true, qty: true, price: true, lineTotal: true, productNameSnapshot: true } } } },
+        returnPackage: {
+          select: {
+            id: true,
+            ttnNumber: true,
+            status: true,
+            ttnStatusCode: true,
+            ttnStatusText: true,
+          },
+        },
       },
     });
     return { items };
@@ -307,6 +373,7 @@ export class OrderReturnsService {
           },
         },
         items: { include: { orderItem: { include: { product: { select: { id: true, name: true, sku: true } } } } } },
+        returnPackage: true,
       },
     });
     if (!r) throw new NotFoundException("Return not found");
@@ -329,6 +396,15 @@ export class OrderReturnsService {
     });
     if (!r) throw new NotFoundException("Return not found");
     this.assertAccess(r.order, actor);
+
+    assertWarehouseReturnStatusUpdate(actor, status);
+    if (settlement) assertWarehouseReturnSettlement(actor);
+
+    if (status === CLOSED_RETURN_STATUS) {
+      if (r.itemsPending || r.items.length === 0) {
+        throw new BadRequestException("Cannot close a return without item breakdown");
+      }
+    }
 
     const allowed = ALLOWED_TRANSITIONS[r.status];
     if (!allowed?.includes(status)) {

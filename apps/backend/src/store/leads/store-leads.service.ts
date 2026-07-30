@@ -21,15 +21,15 @@ export class StoreLeadsService {
 
     const phone = dto.phone?.trim();
     const email = dto.email?.trim();
-    if (!phone && !email) {
-      throw new BadRequestException("Вкажіть телефон або email");
+    const phoneCanonical = phone ? normalizePhoneToE164(phone) : null;
+    if (!phone || !phoneCanonical) {
+      throw new BadRequestException("Вкажіть телефон");
     }
     if (!dto.consent) {
       throw new BadRequestException("Потрібна згода на обробку персональних даних");
     }
 
-    const phoneCanonical = phone ? normalizePhoneToE164(phone) ?? phone : null;
-    const phoneNormalized = phone ? getPhoneNormalizedDigits(phone) ?? null : null;
+    const phoneNormalized = getPhoneNormalizedDigits(phone);
 
     const sourceMeta: Prisma.InputJsonValue = {
       intake: "store_public_form",

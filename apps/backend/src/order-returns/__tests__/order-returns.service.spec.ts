@@ -5,6 +5,7 @@ import { OrderReturnsService } from "../order-returns.service";
 
 type PrismaSvc = import("../../prisma/prisma.service").PrismaService;
 type IntegrationPorts = import("../../integration-ports/integration-ports.service").IntegrationPortsService;
+type ReturnPackagesSvc = import("../return-packages.service").ReturnPackagesService;
 
 function mockIntegrations(onRecalc?: (orderId: string) => void | Promise<void>) {
   return {
@@ -14,6 +15,17 @@ function mockIntegrations(onRecalc?: (orderId: string) => void | Promise<void>) 
     getReturnSettlementPreview: async () => ({ requiresSettlement: false }),
     settleReturn: async () => ({}),
   } as unknown as IntegrationPorts;
+}
+
+function mockReturnPackages() {
+  return {
+    findOrCreatePackageByTtn: async () => ({ id: "pkg1" }),
+    syncLinkedReturnsLogistics: async () => {},
+  } as unknown as ReturnPackagesSvc;
+}
+
+function createService(prisma: PrismaSvc, integrations = mockIntegrations()) {
+  return new OrderReturnsService(prisma, integrations, mockReturnPackages());
 }
 
 describe("OrderReturnsService", () => {
@@ -70,7 +82,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
@@ -133,7 +145,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 3 }] });
 
@@ -152,7 +164,14 @@ describe("OrderReturnsService", () => {
           orderId: "o1",
           status: "REFUND_OR_ADJUSTMENT",
           order: { ownerId: "u1" },
-          items: [],
+          itemsPending: false,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 2,
+              orderItem: { qty: 4, lineTotal: 400, price: 100 },
+            },
+          ],
         }),
         update: async () => ({ id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} }),
         count: async () => 0,
@@ -189,7 +208,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(
+    const svc = createService(
       prisma,
       mockIntegrations((orderId) => {
         recalcCalled = true;
@@ -216,7 +235,14 @@ describe("OrderReturnsService", () => {
           orderId: "o1",
           status: "REFUND_OR_ADJUSTMENT",
           order: { ownerId: "u1" },
-          items: [],
+          itemsPending: false,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 2,
+              orderItem: { qty: 4, lineTotal: 400, price: 100 },
+            },
+          ],
         }),
         update: async () => ({ id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} }),
         count: async () => 0,
@@ -241,7 +267,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.updateStatus("r1", "CLOSED");
     assert.ok(stageUpdates.includes("COMPLETED"));
@@ -256,7 +282,14 @@ describe("OrderReturnsService", () => {
           orderId: "o1",
           status: "REFUND_OR_ADJUSTMENT",
           order: { ownerId: "u1" },
-          items: [],
+          itemsPending: false,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 2,
+              orderItem: { qty: 4, lineTotal: 400, price: 100 },
+            },
+          ],
         }),
         update: async () => ({ id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} }),
         count: async () => 0,
@@ -293,7 +326,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.updateStatus("r1", "CLOSED");
     assert.ok(stageUpdates.includes("FULLY_RETURNED"));
@@ -361,7 +394,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
@@ -377,7 +410,14 @@ describe("OrderReturnsService", () => {
           orderId: "o1",
           status: "REFUND_OR_ADJUSTMENT",
           order: { ownerId: "u1" },
-          items: [],
+          itemsPending: false,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 2,
+              orderItem: { qty: 4, lineTotal: 400, price: 100 },
+            },
+          ],
         }),
         update: async () => ({ id: "r2", status: "CLOSED", orderId: "o1", items: [], order: {} }),
         count: async () => 0,
@@ -425,7 +465,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await svc.updateStatus("r2", "CLOSED");
     assert.ok(stageUpdates.includes("FULLY_RETURNED"));
@@ -447,7 +487,7 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
     const result = await svc.list({ status: "REQUESTED" as never, page: 1, pageSize: 3 });
 
     assert.equal(result.pageSize, 3);
@@ -481,12 +521,79 @@ describe("OrderReturnsService", () => {
       },
     } as unknown as PrismaSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations());
+    const svc = createService(prisma);
 
     await assert.rejects(
       () => svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] }),
       BadRequestException,
     );
     assert.equal(created, false);
+  });
+
+  it("create with itemsPending and ttn skips item validation", async () => {
+    let createdPayload: Record<string, unknown> | null = null;
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          orderStage: "RECEIVED",
+          clientId: "c1",
+          contactId: null,
+          items: [{ id: "i1", qty: 3 }],
+          company: null,
+          client: null,
+        }),
+        update: async () => ({}),
+      },
+      orderReturnItem: { groupBy: async () => [] },
+      $transaction: async (
+        cb: (tx: {
+          orderReturn: { create: (args: { data: Record<string, unknown> }) => Promise<unknown> };
+        }) => Promise<unknown>,
+      ) =>
+        cb({
+          orderReturn: {
+            create: async (args: { data: Record<string, unknown> }) => {
+              createdPayload = args.data;
+              return { id: "r-pending", ...args.data };
+            },
+          },
+        }),
+      orderReturn: { count: async () => 1, findMany: async () => [] },
+    } as unknown as PrismaSvc;
+
+    const returnPackages = {
+      findOrCreatePackageByTtn: async () => ({ id: "pkg1" }),
+      syncLinkedReturnsLogistics: async () => {},
+    } as unknown as ReturnPackagesSvc;
+
+    const svc = new OrderReturnsService(prisma, mockIntegrations(), returnPackages);
+    await svc.create("o1", { itemsPending: true, ttnNumber: "20450000000000" });
+
+    assert.equal(createdPayload?.itemsPending, true);
+    assert.equal(createdPayload?.returnPackageId, "pkg1");
+    assert.equal(createdPayload?.status, "IN_TRANSIT_BACK");
+  });
+
+  it("updateStatus rejects CLOSED when items are pending", async () => {
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          orderId: "o1",
+          status: "REFUND_OR_ADJUSTMENT",
+          itemsPending: true,
+          order: { ownerId: "u1" },
+          items: [],
+        }),
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await assert.rejects(
+      () => svc.updateStatus("r1", "CLOSED"),
+      BadRequestException,
+    );
   });
 });

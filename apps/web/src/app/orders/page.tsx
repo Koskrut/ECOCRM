@@ -16,6 +16,7 @@ import { FinancialKanban } from "./FinancialKanban";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
 import { ReturnsKanban } from "./ReturnsKanban";
+import { IncomingReturnPackageModal } from "./IncomingReturnPackageModal";
 import {
   OrdersFiltersPopover,
   type HasTtnFilter,
@@ -222,6 +223,7 @@ function OrdersPageContent() {
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
+  const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
@@ -705,6 +707,7 @@ function OrdersPageContent() {
           <ReturnsKanban
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
             refreshKey={returnsRefreshKey}
+            onRegisterIncoming={() => setShowIncomingReturnPackage(true)}
           />
         ) : view === "financial" ? (
           <div className="space-y-3">
@@ -1097,6 +1100,17 @@ function OrdersPageContent() {
           userRole={userRole}
         />
       )}
+      <IncomingReturnPackageModal
+        open={showIncomingReturnPackage}
+        onClose={() => setShowIncomingReturnPackage(false)}
+        onCreated={() => setReturnsRefreshKey((k) => k + 1)}
+        contactSearch={async (q) => {
+          const res = await apiHttp.get<{
+            items?: Array<{ id: string; firstName: string; lastName: string; phone: string }>;
+          }>("/contacts", { params: { q, page: 1, pageSize: 20 } });
+          return res.data?.items ?? [];
+        }}
+      />
     </div>
   );
 }

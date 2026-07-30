@@ -493,6 +493,11 @@ enum ReturnStatus {
   CLOSED
 }
 
+enum ReturnPackageStatus {
+  IN_TRANSIT_BACK
+  RECEIVED_BY_WAREHOUSE
+}
+
 enum ProductKind {
   KIT
   PART
@@ -913,6 +918,7 @@ model Contact {
   receivablesSnapshotLines ReceivablesSnapshotLine[]
   creditProfile        CreditProfile?
   payerAliases         PayerAlias[]
+  returnPackages       ReturnPackage[]
 
   @@unique([phoneNormalized])
   @@unique([legacySource, legacyId])
@@ -2029,6 +2035,28 @@ model OrderTtnItem {
   @@index([orderItemId])
 }
 
+/// Inbound return shipment grouped by TTN (may span multiple orders).
+model ReturnPackage {
+  id            String              @id @default(cuid())
+  ttnNumber     String              @unique
+  carrier       Carrier             @default(NOVA_POSHTA)
+  ttnStatusCode String?
+  ttnStatusText String?
+  ttnSyncedAt   DateTime?
+  contactId     String?
+  note          String?
+  status        ReturnPackageStatus @default(IN_TRANSIT_BACK)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  contact Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  returns OrderReturn[]
+
+  @@index([status])
+  @@index([contactId])
+  @@index([ttnSyncedAt])
+}
+
 /// Return request for an order (Phase 1: new model).
 model OrderReturn {
   id          String       @id @default(cuid())
@@ -2041,10 +2069,13 @@ model OrderReturn {
   refundAmount     Float?
   settledAt        DateTime?
   settledByUserId  String?
+  returnPackageId  String?
+  itemsPending     Boolean      @default(false)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
   order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  returnPackage ReturnPackage? @relation(fields: [returnPackageId], references: [id], onDelete: SetNull)
   items OrderReturnItem[]
   balanceTransactions ClientBalanceTransaction[]
 
@@ -2052,6 +2083,7 @@ model OrderReturn {
 
   @@index([orderId])
   @@index([status])
+  @@index([returnPackageId])
 }
 
 model OrderReturnItem {

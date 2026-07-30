@@ -860,6 +860,8 @@ export function OrderModal({
   const [showCreateReturnForm, setShowCreateReturnForm] = useState(false);
   const [createReturnSubmitting, setCreateReturnSubmitting] = useState(false);
   const [returnItemQtys, setReturnItemQtys] = useState<Record<string, number>>({});
+  const [returnTtnNumber, setReturnTtnNumber] = useState("");
+  const [returnItemsPending, setReturnItemsPending] = useState(false);
   const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
   const [returnStatusUpdatingId, setReturnStatusUpdatingId] = useState<string | null>(null);
@@ -4242,7 +4244,34 @@ export function OrderModal({
             </h3>
             <p className="mt-1 text-sm text-zinc-600">{t.returnItems}</p>
 
-            {(order.items as OrderItem[] | undefined)?.length ? (
+            <label className="mt-3 block text-sm font-medium text-zinc-700">
+              {t.returnTtnLabel}
+              <input
+                type="text"
+                value={returnTtnNumber}
+                onChange={(e) => setReturnTtnNumber(e.target.value)}
+                placeholder="20450000000000"
+                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label className="mt-3 flex items-start gap-2 text-sm text-zinc-700">
+              <input
+                type="checkbox"
+                checked={returnItemsPending}
+                onChange={(e) => setReturnItemsPending(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                {t.returnItemsPending}
+                <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                  {t.returnItemsPendingHint}
+                </span>
+              </span>
+            </label>
+
+            {!returnItemsPending ? (
+              (order.items as OrderItem[] | undefined)?.length ? (
               <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
                 {(order.items as OrderItem[]).map((it) => (
                   <div
@@ -4277,11 +4306,15 @@ export function OrderModal({
                   </div>
                 ))}
               </div>
+              ) : (
+                <p className="mt-4 text-sm text-zinc-500">У замовленні немає позицій</p>
+              )
             ) : (
-              <p className="mt-4 text-sm text-zinc-500">У замовленні немає позицій</p>
+              <p className="mt-4 text-sm text-zinc-500">{t.returnItemsPendingHint}</p>
             )}
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              {!returnItemsPending ? (
               <button
                 type="button"
                 disabled={!(order.items as OrderItem[] | undefined)?.length}
@@ -4296,6 +4329,7 @@ export function OrderModal({
               >
                 {t.returnAll}
               </button>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -4303,6 +4337,8 @@ export function OrderModal({
                   onClick={() => {
                     setShowCreateReturnForm(false);
                     setReturnItemQtys({});
+                    setReturnTtnNumber("");
+                    setReturnItemsPending(false);
                   }}
                   className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
                 >
@@ -4311,17 +4347,26 @@ export function OrderModal({
                 <button
                   type="button"
                   disabled={
-                    createReturnSubmitting || !(order.items as OrderItem[] | undefined)?.length
+                    createReturnSubmitting ||
+                    (!returnItemsPending &&
+                      !(order.items as OrderItem[] | undefined)?.length) ||
+                    (returnItemsPending && !returnTtnNumber.trim())
                   }
                   onClick={async () => {
-                    const items = (order.items as OrderItem[])
-                      .map((it) => ({
-                        orderItemId: it.id,
-                        qtyReturned: returnItemQtys[it.id] ?? 0,
-                      }))
-                      .filter((x) => x.qtyReturned > 0);
-                    if (items.length === 0) {
+                    const items = returnItemsPending
+                      ? []
+                      : (order.items as OrderItem[])
+                          .map((it) => ({
+                            orderItemId: it.id,
+                            qtyReturned: returnItemQtys[it.id] ?? 0,
+                          }))
+                          .filter((x) => x.qtyReturned > 0);
+                    if (!returnItemsPending && items.length === 0) {
                       pushToast("Оберіть кількість хоча б по одній позиції", "error");
+                      return;
+                    }
+                    if (returnItemsPending && !returnTtnNumber.trim()) {
+                      pushToast("Вкажіть номер ТТН", "error");
                       return;
                     }
                     setCreateReturnSubmitting(true);
@@ -4329,7 +4374,11 @@ export function OrderModal({
                       const r = await fetch(`${apiBaseUrl}/orders/${orderId}/returns`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ items }),
+                        body: JSON.stringify({
+                          items,
+                          itemsPending: returnItemsPending,
+                          ttnNumber: returnTtnNumber.trim() || undefined,
+                        }),
                         credentials: "include",
                       });
                       if (!r.ok) {
@@ -4341,6 +4390,8 @@ export function OrderModal({
                       }
                       setShowCreateReturnForm(false);
                       setReturnItemQtys({});
+                      setReturnTtnNumber("");
+                      setReturnItemsPending(false);
                       await Promise.all([refreshReturns(), refreshOrder()]);
                       onSaved?.();
                     } catch (e) {

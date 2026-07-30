@@ -1,6 +1,7 @@
 "use client";
 
 import { getAttributionSnapshot } from "@/lib/attribution";
+import { normalizePhone } from "@/lib/formatPhone";
 
 export const ROLE_OPTIONS = [
   { value: "clinic", label: "Клініка" },
@@ -13,10 +14,10 @@ export const ROLE_OPTIONS = [
 export const inputClass =
   "mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2.5 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]";
 
-export function validatePhoneOrEmail(phone: string, email: string): string | null {
-  const phoneTrim = phone.trim();
+/** Phone is required; email is optional but must be valid when provided. */
+export function validateRequiredPhone(phone: string, email: string): string | null {
+  if (!normalizePhone(phone)) return "Вкажіть телефон";
   const emailTrim = email.trim();
-  if (!phoneTrim && !emailTrim) return "Вкажіть телефон або email";
   if (emailTrim && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) return "Невірний формат email";
   return null;
 }
@@ -48,4 +49,3 @@ export async function submitLead(params: SubmitLeadParams) {
   }
   return data;
 }
-

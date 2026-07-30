@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { inputClass, ROLE_OPTIONS, submitLead, validatePhoneOrEmail } from "@/components/forms/lead-form.shared";
+import { inputClass, ROLE_OPTIONS, submitLead, validateRequiredPhone } from "@/components/forms/lead-form.shared";
 import { trackEvent } from "@/lib/tracking";
 
 export function CompatibilityForm() {
@@ -30,7 +30,7 @@ export function CompatibilityForm() {
       onSubmit={async (e) => {
         e.preventDefault();
         setError(null);
-        const validationError = validatePhoneOrEmail(phone, email);
+        const validationError = validateRequiredPhone(phone, email);
         if (validationError) {
           setError(validationError);
           return;
@@ -71,8 +71,8 @@ export function CompatibilityForm() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label className="text-sm text-zinc-700">Телефон</label>
-          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <label className="text-sm text-zinc-700">Телефон *</label>
+          <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} required />
         </div>
         <div>
           <label className="text-sm text-zinc-700">Email</label>

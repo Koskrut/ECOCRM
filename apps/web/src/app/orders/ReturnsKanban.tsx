@@ -5,6 +5,7 @@ import { apiHttp } from "../../lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDate } from "@/lib/crmDatetime";
+import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import {
   KanbanLoadSentinel,
   KANBAN_COLUMN_BODY_CLASS,
@@ -50,8 +51,16 @@ type ReturnCard = {
   requestedAt: string;
   closedAt?: string | null;
   createdAt: string;
+  itemsPending?: boolean;
   order: ReturnOrder & { id?: string };
   items: ReturnItem[];
+  returnPackage?: {
+    id: string;
+    ttnNumber: string;
+    status: string;
+    ttnStatusCode?: string | null;
+    ttnStatusText?: string | null;
+  } | null;
 };
 
 type ReturnsListResponse = {
@@ -85,11 +94,13 @@ export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
   refreshKey = 0,
+  onRegisterIncoming,
 }: {
   onOpenOrder: (orderId: string) => void;
   onOpenReturn?: (returnId: string) => void;
   /** Increment to force refetch (e.g. after creating a return from order modal). */
   refreshKey?: number;
+  onRegisterIncoming?: () => void;
 }) {
   const [dragging, setDragging] = useState<{ returnId: string; from: ReturnStatus } | null>(null);
   const [dragOver, setDragOver] = useState<ReturnStatus | null>(null);
@@ -169,9 +180,20 @@ export function ReturnsKanban({
 
   return (
     <div className="max-w-full min-w-0 space-y-4">
-      <p className="text-xs text-zinc-500">
-        Канбан повернень. Перетягування змінює статус (переходи валідуються на сервері).
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-zinc-500">
+          Канбан повернень. Перетягування змінює статус (переходи валідуються на сервері).
+        </p>
+        {onRegisterIncoming ? (
+          <button
+            type="button"
+            onClick={onRegisterIncoming}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            {strings.orders.modal.createIncomingPackage}
+          </button>
+        ) : null}
+      </div>
       <div className="flex flex-nowrap gap-4 overflow-x-auto pb-2">
         {columns.map((col) => (
           <div
@@ -236,8 +258,22 @@ export function ReturnsKanban({
                       <div className="font-medium text-zinc-900">{r.order.orderNumber}</div>
                       <div className="mt-0.5 text-xs text-zinc-500">{clientName}</div>
                       <div className="mt-1.5 text-xs text-zinc-500">
-                        {formatDate(r.requestedAt)} · {r.items.length} поз. · {totalUnits(r)} од.
+                        {formatDate(r.requestedAt)} ·{" "}
+                        {r.itemsPending && r.items.length === 0
+                          ? "очікує розбору"
+                          : `${r.items.length} поз. · ${totalUnits(r)} од.`}
                       </div>
+                      {r.returnPackage?.ttnNumber ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-zinc-500">
+                            ТТН {r.returnPackage.ttnNumber}
+                          </span>
+                          <TtnStatusBadge
+                            statusCode={r.returnPackage.ttnStatusCode}
+                            statusText={r.returnPackage.ttnStatusText}
+                          />
+                        </div>
+                      ) : null}
                       {r.order.debtAmount != null && (
                         <div className="mt-1 text-xs text-amber-700">
                           Борг:{" "}

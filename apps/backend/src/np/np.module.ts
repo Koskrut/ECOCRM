@@ -1,7 +1,8 @@
 // src/np/np.module.ts
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
+import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsServiceModule } from "../settings/settings-service.module";
 import { SystemModule } from "../system/system.module";
@@ -17,13 +18,20 @@ import { NpIntegrationAdapter } from "./np-integration.adapter";
 import { StoreNpController } from "../store/np/store-np.controller";
 
 @Module({
-  imports: [PrismaModule, IntegrationPortsModule, SystemModule, ScheduleModule.forRoot(), SettingsServiceModule],
+  imports: [
+    PrismaModule,
+    IntegrationPortsModule,
+    SystemModule,
+    ScheduleModule.forRoot(),
+    SettingsServiceModule,
+    forwardRef(() => OrderReturnsModule),
+  ],
   controllers: [
     NpController, // /np/cities /np/warehouses /np/streets /np/sync
     NpTtnController, // /np/ttn/:orderId + /np/sender/check
     StoreNpController, // /store/np/* (catalog search for checkout)
   ],
   providers: [NpClient, NpTtnService, NpSyncService, NpSyncCron, NpTtnCron, NpIntegrationAdapter],
-  exports: [NpTtnService, NpSyncService],
+  exports: [NpTtnService, NpSyncService, NpClient],
 })
 export class NpModule {}

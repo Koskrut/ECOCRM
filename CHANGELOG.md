@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.128**.)_
+_(планируемые изменения после **0.2.129**.)_
+
+## [0.2.129] — 2026-07-30
+
+### Summary
+
+Патч **0.2.129**: return packages (вхідні ТТН повернень), складська черга, NP sync; store lead phone required.
+
+### Added
+
+- **ReturnPackage**: модель + миграция `20260730110000_return_packages`; прив'язка `OrderReturn` до пакета, `itemsPending`.
+- **API `/return-packages`**: create/list/warehouse-queue/receive/add-items; ролі manager/warehouse.
+- **NP cron**: sync статусів return packages (auto `RECEIVED_BY_WAREHOUSE` по NP status).
+- **Web**: `/work/warehouse/returns`, `IncomingReturnPackageModal`; OrderModal — TTN + «позиції пізніше»; ReturnsKanban + sidebar.
+
+### Changed
+
+- **Store leads**: `phone` обов'язковий у формах/API (прибрано phone-or-email XOR).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.129`**.
+- **Миграция:** `20260730110000_return_packages` — **`prisma migrate deploy`** до **`up`**.
 
 ## [0.2.128] — 2026-07-29
 

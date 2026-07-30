@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { withAuditSource } from "../audit/audit-context";
+import { ReturnPackagesService } from "../order-returns/return-packages.service";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
 import { withRetryOnConnectionClosed } from "../prisma/db-retry";
@@ -13,6 +14,7 @@ export class NpTtnCron {
 
   constructor(
     @Inject(NpTtnService) private readonly ttn: NpTtnService,
+    @Inject(ReturnPackagesService) private readonly returnPackages: ReturnPackagesService,
     private readonly prisma: PrismaService,
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
@@ -35,6 +37,19 @@ export class NpTtnCron {
       });
       this.logger.log(
         `NP TTN sync done: checked=${res.checked}, updatedOrders=${res.updatedOrders}, skipped=${res.skipped}`,
+      );
+
+      const returnRes = await withRetryOnConnectionClosed(
+        () => this.returnPackages.syncActiveReturnPackages({ limit: 100 }),
+        {
+          onBeforeRetry: async () => {
+            await this.prisma.$disconnect();
+            await this.prisma.$connect();
+          },
+        },
+      );
+      this.logger.log(
+        `NP return package sync done: checked=${returnRes.checked}, updated=${returnRes.updatedPackages}, received=${returnRes.received}, skipped=${returnRes.skipped}`,
       );
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -16,8 +16,8 @@ type LeadPayload = {
 
 function isValid(payload: LeadPayload): { ok: true } | { ok: false; message: string } {
   if (!payload.name?.trim()) return { ok: false, message: "Вкажіть ім'я" };
-  if (!payload.phone?.trim() && !payload.email?.trim()) {
-    return { ok: false, message: "Вкажіть телефон або email" };
+  if (!payload.phone?.trim()) {
+    return { ok: false, message: "Вкажіть телефон" };
   }
   if (!payload.formType?.trim()) return { ok: false, message: "Невірний тип форми" };
   if (payload.consent !== true) return { ok: false, message: "Потрібна згода на обробку даних" };

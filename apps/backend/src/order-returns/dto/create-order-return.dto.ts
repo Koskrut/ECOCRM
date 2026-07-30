@@ -1,5 +1,14 @@
 import { Type } from "class-transformer";
-import { IsArray, IsInt, IsString, Min, ValidateNested } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+  ValidateNested,
+} from "class-validator";
 
 export class CreateOrderReturnItemDto {
   @IsString()
@@ -11,8 +20,18 @@ export class CreateOrderReturnItemDto {
 }
 
 export class CreateOrderReturnDto {
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateOrderReturnItemDto)
-  items!: CreateOrderReturnItemDto[];
+  items?: CreateOrderReturnItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  itemsPending?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(4)
+  ttnNumber?: string;
 }

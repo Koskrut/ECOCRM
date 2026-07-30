@@ -92,6 +92,7 @@ const warehouseMenuItems = (base: MenuItem[]): MenuItem[] => {
   const t = strings.nav;
   return [
     { label: t.warehouseWork, icon: Boxes, href: "/work/warehouse", exact: true },
+    { label: t.warehouseReturns, icon: Package, href: "/work/warehouse/returns", exact: true },
     { label: t.orders, icon: Package, href: "/orders" },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
     { label: t.help, icon: BookOpen, href: "/help" },

@@ -134,14 +134,22 @@ export class OrdersController {
   createReturn(
     @Param("id") id: string,
     @Body() dto: CreateOrderReturnDto,
-    @Req() req: Request & { user?: AuthUser; body?: { items?: Array<{ orderItemId: string; qtyReturned: number }> } },
+    @Req() req: Request & { user?: AuthUser; body?: { items?: Array<{ orderItemId: string; qtyReturned: number }>; itemsPending?: boolean; ttnNumber?: string } },
   ) {
     // Workaround: ValidationPipe/class-transformer can strip nested items; use raw body fallback
     const raw = req.body ?? {};
     const items =
       (Array.isArray(dto?.items) && dto.items.length > 0 ? dto.items : null) ??
-      (Array.isArray(raw.items) ? raw.items : []);
-    return this.orderReturns.create(id, { items }, req.user);
+      (Array.isArray(raw.items) ? raw.items : undefined);
+    return this.orderReturns.create(
+      id,
+      {
+        items,
+        itemsPending: dto.itemsPending ?? raw.itemsPending,
+        ttnNumber: dto.ttnNumber ?? raw.ttnNumber,
+      },
+      req.user,
+    );
   }
 
   @Get(":id/timeline")
