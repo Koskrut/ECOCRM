@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { OrderStage, Prisma, ReturnReason, ReturnStatus } from "@prisma/client";
+import type { OrderSource, OrderStage, Prisma, ReturnReason, ReturnStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
@@ -678,7 +678,7 @@ export class OrderReturnsService {
       companyId: string | null;
       clientId: string | null;
       contactId: string | null;
-      orderSource: string;
+      orderSource: OrderSource;
       currency: string;
       deliveryMethod: string | null;
       paymentMethod: string | null;
