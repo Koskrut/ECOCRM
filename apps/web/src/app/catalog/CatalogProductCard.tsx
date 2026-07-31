@@ -12,6 +12,7 @@ type CatalogProductCardProps = {
   onShowOnStoreChange: (checked: boolean) => void | Promise<void>;
   warehouseNames: readonly string[];
   qtyAtWarehouse: (p: ProductCatalogItem, name: string) => number;
+  stockTitleAtWarehouse?: (p: ProductCatalogItem, name: string) => string | undefined;
   deleteButton: ReactNode;
   editButton: ReactNode;
   activateButton: ReactNode;
@@ -25,6 +26,7 @@ export function CatalogProductCard({
   onShowOnStoreChange,
   warehouseNames,
   qtyAtWarehouse,
+  stockTitleAtWarehouse,
   deleteButton,
   editButton,
   activateButton,
@@ -87,7 +89,7 @@ export function CatalogProductCard({
 
           <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs tabular-nums text-zinc-700">
             {warehouseNames.map((wh, i) => (
-              <span key={wh}>
+              <span key={wh} title={stockTitleAtWarehouse?.(p, wh)}>
                 {i > 0 ? <span className="text-zinc-300"> · </span> : null}
                 <span className="text-zinc-500">{wh}</span> {qtyAtWarehouse(p, wh)}
               </span>

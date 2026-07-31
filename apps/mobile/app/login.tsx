@@ -15,7 +15,7 @@ import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, sessionExpired } = useAuth();
   const { apiUrl } = useServerConfig();
   const router = useRouter();
   const theme = useTheme();
@@ -76,6 +76,19 @@ export default function LoginScreen() {
               },
             ]}>
             <Text style={theme.typography.title}>{t("login.title")}</Text>
+
+            {sessionExpired ? (
+              <Text
+                style={[
+                  theme.typography.caption,
+                  {
+                    color: theme.colors.dangerText,
+                    marginBottom: theme.spacing.sm,
+                  },
+                ]}>
+                {t("gps.sessionExpiredHint")}
+              </Text>
+            ) : null}
 
             {apiUrl ? (
               <Pressable onPress={onChangeServer} disabled={loading} style={styles.serverRow}>

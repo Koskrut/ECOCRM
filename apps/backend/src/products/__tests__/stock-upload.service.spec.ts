@@ -103,6 +103,43 @@ describe("stock-upload.service", () => {
     assert.strictEqual(entries[0].warehouseId, "wh-dnipro");
   });
 
+  it("empty header never matches a warehouse (regression: '' included in every name)", () => {
+    const buffer = buildWorkbookBuffer([
+      ["sku", "", ""],
+      ["TPS", 150, 999],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, warehouses);
+    assert.strictEqual(entries.length, 0);
+    const matched = service.getMatchedWarehouseColumns(buffer, warehouses);
+    assert.strictEqual(matched.length, 0);
+  });
+
+  it("sku column is never used as warehouse qty", () => {
+    // If empty/loose matching wrongly claimed col0, numeric SKU-like cells would become qty.
+    const buffer = buildWorkbookBuffer([
+      ["sku", "Днепр"],
+      ["TPS", 150],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, [warehouses[0]]);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].sku, "TPS");
+    assert.strictEqual(entries[0].qty, 150);
+    assert.strictEqual(entries[0].warehouseId, "wh-dnipro");
+  });
+
+  it("one column maps to at most one warehouse (usedColIndexes)", () => {
+    const buffer = buildWorkbookBuffer([
+      ["Артикул", "Днепр"],
+      ["TPS", 150],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, warehouses);
+    const dnipro = entries.filter((e) => e.warehouseId === "wh-dnipro");
+    assert.strictEqual(dnipro.length, 1);
+    assert.strictEqual(dnipro[0].qty, 150);
+    // No other warehouse should reuse the Днепр column.
+    assert.strictEqual(entries.length, 1);
+  });
+
   it("01.011 as Excel number 1.011 resolves to product 01.011", () => {
     const buffer = buildWorkbookBuffer([["Артикул", "Днепр"], [null, 4]], {
       A2: { t: "n", v: 1.011, w: "01.011" },

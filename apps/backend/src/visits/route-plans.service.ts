@@ -31,7 +31,7 @@ import type {
 } from "./route-geometry.types";
 import { effectiveVisitLatLng } from "./visit-coordinates";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
-import { filterGpsTrack } from "../field/gps-sample-filter";
+import { sanitizeGpsTrack } from "../field/gps-sample-filter";
 import { kyivDayBounds } from "../crm-timezone";
 
 export type RoutePlanScopeOpts = {
@@ -1249,6 +1249,8 @@ export class RoutePlansService {
         shiftDurationMin: null as number | null,
         hasTrackingEnabledShift: false,
         lastSampleAt: null as Date | null,
+        droppedReasons: {} as Record<string, number>,
+        reanchorUsed: false,
       };
     }
 
@@ -1259,7 +1261,8 @@ export class RoutePlansService {
       select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
     });
 
-    const filtered = filterGpsTrack(samples);
+    const sanitized = sanitizeGpsTrack(samples);
+    const filtered = sanitized.samples;
     const fullPath: LatLng[] = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
     const firstShift = trackingShifts[0]!;
     const lastShift = trackingShifts[trackingShifts.length - 1]!;
@@ -1300,6 +1303,8 @@ export class RoutePlansService {
       shiftDurationMin,
       hasTrackingEnabledShift: true,
       lastSampleAt,
+      droppedReasons: sanitized.droppedReasons,
+      reanchorUsed: sanitized.reanchorUsed,
     };
   }
 
@@ -1358,6 +1363,8 @@ export class RoutePlansService {
           lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
           lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
           rawDistanceKm: gps.distanceKm,
+          droppedReasons: gps.droppedReasons,
+          reanchorUsed: gps.reanchorUsed,
         },
       };
     }
@@ -1421,6 +1428,8 @@ export class RoutePlansService {
         lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
         maxStitchGapKm,
         hasUnfilledGaps,
+        droppedReasons: gps.droppedReasons,
+        reanchorUsed: gps.reanchorUsed,
       },
     };
   }

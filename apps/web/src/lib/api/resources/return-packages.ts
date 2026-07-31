@@ -6,12 +6,16 @@ export type ReturnPackageReturnItem = {
   id: string;
   orderItemId: string;
   qtyReturned: number;
+  disposition?: string;
+  actualProductId?: string | null;
+  actualProduct?: { id: string; name: string; sku: string | null } | null;
   orderItem?: {
     id: string;
     qty: number;
     price: number;
     lineTotal: number;
     productNameSnapshot?: string | null;
+    product?: { id: string; name: string; sku: string | null } | null;
   };
 };
 
@@ -19,6 +23,7 @@ export type ReturnPackageLinkedReturn = {
   id: string;
   orderId: string;
   status: string;
+  reason?: string;
   itemsPending: boolean;
   items: ReturnPackageReturnItem[];
   order: {
@@ -97,6 +102,20 @@ export const returnPackagesApi = {
       `/return-packages/${id}/complete-inspection`,
       {},
     );
+    return res.data;
+  },
+
+  updateDispositions: async (
+    id: string,
+    body: {
+      items: Array<{
+        returnItemId: string;
+        disposition: "RESTOCK" | "QUARANTINE" | "WRITE_OFF";
+        actualProductId?: string;
+      }>;
+    },
+  ) => {
+    const res = await apiHttp.patch<ReturnPackage>(`/return-packages/${id}/dispositions`, body);
     return res.data;
   },
 };

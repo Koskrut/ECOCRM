@@ -149,6 +149,7 @@ export default function VisitsTeamPage() {
     }
     try {
       const res = await fieldShiftsApi.getTrackGeometry(selectedItem.shift.id);
+      // Backend sanitizes (UA geo + reanchor). Show osrm/fallback; hide empty/none.
       setShiftOnlyPath(res.path.length >= 2 ? res.path : null);
     } catch {
       setShiftOnlyPath(null);

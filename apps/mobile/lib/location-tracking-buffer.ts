@@ -12,9 +12,15 @@ import {
 import {
   classifySampleRejectBatch,
   formatRejectReasons,
+  isWrongDayBatch,
   type SampleRejectReasons,
 } from "./location-sample-reject";
 import { enqueueOfflineJob } from "./offline-queue";
+import {
+  setAuthRequired,
+  setFlushBlockReason,
+  validateAuthToken,
+} from "./session-auth";
 
 const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
@@ -25,6 +31,7 @@ export const STORAGE_KEYS = {
   ACTIVE_SHIFT_DAY_KEY: "field_active_shift_day_key",
   TRACKING_MODE: "field_tracking_mode",
   LAST_FLUSH_AT: "field_last_flush_at",
+  LAST_ACCEPTED_AT: "field_last_accepted_at",
 } as const;
 
 export type PendingLocationSample = {
@@ -73,6 +80,21 @@ function trimPending(samples: PendingLocationSample[]): PendingLocationSample[] 
   return samples.slice(samples.length - MAX_PENDING_SAMPLES);
 }
 
+export async function purgePendingSamples(): Promise<void> {
+  return withBufferLock(async () => {
+    await writePending([]);
+  });
+}
+
+export async function getLastAcceptedAt(): Promise<string | null> {
+  return AsyncStorage.getItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
+}
+
+/** Server accepted samples OR soft-filtered (dedup) — pipeline is alive. */
+async function markPipelineAlive(): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
+}
+
 async function applyFlushFailure(
   action: FlushErrorAction,
   pending: PendingLocationSample[],
@@ -83,16 +105,24 @@ async function applyFlushFailure(
   if (action === "retry") {
     return;
   }
+  if (action === "auth_required") {
+    // Keep entire pending buffer — never silent discard on 401 (Грибовская).
+    void appendErrorLog(`flush samples auth required (401): ${message}`, "error");
+    setAuthRequired(true, "auth_401");
+    return;
+  }
   if (action === "discard_all") {
     await writePending([]);
-    void appendErrorLog(`flush samples discarded all: ${message}`);
+    void appendErrorLog(`flush samples discarded all: ${message}`, "error");
     return;
   }
   if (action === "discard_batch") {
-    const rest = pending.slice(batch.length);
-    await writePending(rest);
-    await AsyncStorage.removeItem(STORAGE_KEYS.ACTIVE_SHIFT_ID).catch(() => undefined);
-    void appendErrorLog(`flush samples discarded batch (${batch.length}): ${message}`);
+    // 400 after failed retarget — KEEP buffer, stop ingest. Do not drain 100-by-100.
+    void appendErrorLog(
+      `flush samples blocked on 400 (${batch.length} kept): ${message}`,
+      "error",
+    );
+    setFlushBlockReason("stale_gps");
     return;
   }
   const rest = pending.slice(batch.length);
@@ -102,12 +132,26 @@ async function applyFlushFailure(
     items: batch,
   });
   await writePending(rest);
-  void appendErrorLog(`flush samples enqueued offline (${batch.length}): ${message}`);
+  void appendErrorLog(`flush samples enqueued offline (${batch.length}): ${message}`, "warn");
 }
 
 export async function appendPendingSample(sample: PendingLocationSample): Promise<number> {
   return withBufferLock(async () => {
-    const pending = trimPending([...(await readPending()), sample]);
+    const { getLastFlushBlockReason } = await import("./session-auth");
+    const block = getLastFlushBlockReason();
+    // Under auth/wrong_day/stale — do not grow buffer (esp. trim-at-500 silent loss).
+    if (block === "auth_401" || block === "wrong_day" || block === "stale_gps") {
+      return (await readPending()).length;
+    }
+    const current = await readPending();
+    if (current.length >= MAX_PENDING_SAMPLES) {
+      void appendErrorLog(
+        `append pending skipped: buffer full (${MAX_PENDING_SAMPLES})`,
+        "warn",
+      );
+      return current.length;
+    }
+    const pending = trimPending([...current, sample]);
     await writePending(pending);
     return pending.length;
   });
@@ -119,16 +163,59 @@ export async function getPendingCount(): Promise<number> {
 
 export { getAuthToken };
 
+/**
+ * Resolve shift id for flush: explicit arg → storage → GET /field/shifts/active.
+ * Needed after 401 pause cleared tracking mode but buffer still has points.
+ */
+async function resolveFlushShiftId(
+  shiftId: string | undefined,
+  token: string,
+): Promise<string | null> {
+  if (shiftId) return shiftId;
+  const stored = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (stored) return stored;
+  try {
+    const activeRes = await fetch(`${getApiBaseUrl()}/field/shifts/active`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!activeRes.ok) return null;
+    const body = (await activeRes.json()) as { shift?: { id?: string } | null };
+    const id = body.shift?.id;
+    if (typeof id === "string" && id.length > 0) {
+      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, id);
+      return id;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export async function flushPendingSamples(shiftId?: string): Promise<number> {
   return withBufferLock(async () => {
-    const sid = shiftId ?? (await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID));
-    if (!sid) return 0;
-
     await hydrateApiBaseUrl();
-    const token = await getAuthToken();
-    if (!token) return 0;
+    let token = await getAuthToken();
+    if (!token) {
+      // Do NOT setAuthRequired here — empty SecureStore also happens on voluntary logout.
+      // auth_required is only set from a real HTTP 401 response.
+      void appendErrorLog("flush samples skipped: no auth token (buffer kept)", "warn");
+      return 0;
+    }
+
+    let sid = await resolveFlushShiftId(shiftId, token);
+    if (!sid) {
+      const pending = await readPending();
+      if (pending.length > 0) {
+        void appendErrorLog(
+          `flush samples blocked: ${pending.length} pending but no active shift id`,
+          "warn",
+        );
+      }
+      return 0;
+    }
 
     let uploaded = 0;
+    let retargetAttempted = false;
 
     while (true) {
       const pending = await readPending();
@@ -151,6 +238,54 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const text = await res.text();
           const message = text || `Upload failed (${res.status})`;
           const action = classifyFlushHttpStatus(res.status);
+
+          if (action === "auth_required") {
+            // Attempt lightweight "refresh": re-validate; if fail → force re-login UI.
+            const stillValid = await validateAuthToken(token, getApiBaseUrl());
+            if (stillValid) {
+              // Race / transient — keep pending and retry later.
+              void appendErrorLog(
+                `flush samples 401 but /auth/me ok — keep buffer, retry later`,
+                "warn",
+              );
+              break;
+            }
+            // Clear dead JWT so AuthProvider forces login; buffer stays.
+            try {
+              const SecureStore = await import("expo-secure-store");
+              await SecureStore.deleteItemAsync("crm_manager_jwt");
+            } catch {
+              /* ignore */
+            }
+            await applyFlushFailure(action, pending, batch, sid, message);
+            break;
+          }
+
+          // Dead shift after re-login: retarget once to today's active shift.
+          if (action === "discard_batch" && !retargetAttempted) {
+            retargetAttempted = true;
+            try {
+              const activeRes = await fetch(`${getApiBaseUrl()}/field/shifts/active`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (activeRes.ok) {
+                const body = (await activeRes.json()) as { shift?: { id?: string } | null };
+                const newSid = body.shift?.id;
+                if (typeof newSid === "string" && newSid.length > 0 && newSid !== sid) {
+                  await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, newSid);
+                  void appendErrorLog(
+                    `flush retarget shift ${sid} → ${newSid} after 400`,
+                    "warn",
+                  );
+                  sid = newSid;
+                  continue;
+                }
+              }
+            } catch {
+              /* fall through to discard_batch */
+            }
+          }
+
           await applyFlushFailure(action, pending, batch, sid, message);
           break;
         }
@@ -177,6 +312,21 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           /* non-JSON body — treat as full batch accepted */
         }
 
+        // Ісанчев: wrong_day batches must leave the buffer immediately (no forever retry).
+        if (created === 0 && isWrongDayBatch(rejectReasons, rejected)) {
+          await writePending(rest);
+          await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
+          // Force accept-stale so watchdog shows «Перезапустити зміну» immediately.
+          await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
+          setFlushBlockReason("wrong_day");
+          void appendErrorLog(
+            `flush samples wrong_day purged (${rejected}) shiftId=${sid} rejectReasons=${formatRejectReasons(rejectReasons)} — restart shift`,
+            "error",
+          );
+          if (rest.length === 0) break;
+          continue;
+        }
+
         await writePending(rest);
         await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
         uploaded += Math.max(0, created);
@@ -185,17 +335,25 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const reasons = formatRejectReasons(rejectReasons);
           const severity = classifySampleRejectBatch(rejectReasons);
           if (severity === "soft") {
-            // Expected when phone is nearly stationary (<15m dedup) — not a GPS failure.
+            // Михайлів: duplicate-only — info, never ERROR. Still counts as healthy pipeline.
+            await markPipelineAlive();
             void appendErrorLog(
               `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped (dedup)`,
               "info",
             );
+          } else if (severity === "hard") {
+            void appendErrorLog(
+              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
+              "error",
+            );
           } else {
             void appendErrorLog(
               `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
-              severity === "hard" ? "error" : "warn",
+              "warn",
             );
           }
+        } else if (created > 0) {
+          await markPipelineAlive();
         }
 
         if (rest.length === 0) break;

@@ -7,6 +7,7 @@ import {
   isTrackEligibleForCompensation,
 } from "../../visits/route-routing.util";
 import { haversineDistanceM } from "../../visits/visit-gps.verification";
+import { sanitizeGpsTrack } from "../gps-sample-filter";
 
 function pickCompensationFactKind(factGps: {
   quality: {
@@ -101,6 +102,65 @@ describe("fuel compensationFactKind selection (v2 eligibility)", () => {
         hasTrackingEnabledShift: true,
         sampleCount: 2,
         rawDistanceKm: rawKm,
+      },
+    });
+    assert.equal(kind, "fact_gps");
+  });
+});
+
+describe("fuel dirty Lima track → fact_visits (not cosmic km)", () => {
+  it("sanitize drops Lima; remaining UA track short → fact_visits", () => {
+    const base = Date.parse("2026-07-31T08:00:00.000Z");
+    const dirty = [
+      ...Array.from({ length: 11 }, (_, i) => ({
+        lat: -12.04 - i * 0.0001,
+        lng: -77.05 - i * 0.0001,
+        accuracyM: 20,
+        clientRecordedAt: new Date(base + i * 60_000).toISOString(),
+      })),
+      {
+        lat: 46.4825,
+        lng: 30.7233,
+        accuracyM: 20,
+        clientRecordedAt: new Date(base + 12 * 60_000).toISOString(),
+      },
+    ];
+    const sanitized = sanitizeGpsTrack(dirty);
+    assert.ok((sanitized.droppedReasons.out_of_region ?? 0) >= 11);
+    assert.equal(sanitized.filteredSampleCount, 1);
+    const rawKm = pathDistanceKm(sanitized.samples);
+    // Single point → 0 km; not eligible for fact_gps
+    assert.ok(rawKm < MIN_TRACK_COMPENSATION_KM);
+    const kind = pickCompensationFactKind({
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: sanitized.filteredSampleCount,
+        rawDistanceKm: rawKm || null,
+        coverageRatio: 0.1,
+      },
+    });
+    assert.equal(kind, "fact_visits");
+  });
+
+  it("clean UA track with enough samples → fact_gps", () => {
+    const base = Date.parse("2026-07-31T08:00:00.000Z");
+    const clean = Array.from({ length: 20 }, (_, i) => ({
+      lat: 46.48 + i * 0.001,
+      lng: 30.72 + i * 0.001,
+      accuracyM: 20,
+      clientRecordedAt: new Date(base + i * 120_000).toISOString(),
+    }));
+    const sanitized = sanitizeGpsTrack(clean);
+    assert.equal(sanitized.reanchorUsed, false);
+    assert.ok(sanitized.filteredSampleCount >= MIN_TRACK_COMPENSATION_SAMPLES);
+    const rawKm = pathDistanceKm(sanitized.samples);
+    assert.ok(rawKm >= MIN_TRACK_COMPENSATION_KM);
+    const kind = pickCompensationFactKind({
+      quality: {
+        hasTrackingEnabledShift: true,
+        sampleCount: sanitized.filteredSampleCount,
+        rawDistanceKm: rawKm,
+        coverageRatio: 0.9,
       },
     });
     assert.equal(kind, "fact_gps");

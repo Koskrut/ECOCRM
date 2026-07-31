@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Package, Search, X } from "lucide-react";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
+import { HelpHint } from "@/components/help/HelpHint";
 import { OrderModal } from "@/app/orders/OrderModal";
 import {
   returnPackagesApi,
@@ -12,6 +13,11 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { strings } from "@/locales";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
+import {
+  DISPOSITION_OPTIONS,
+  dispositionLabel,
+  returnReasonLabel,
+} from "@/lib/returns/return-labels";
 
 type SearchOrder = {
   id: string;
@@ -60,12 +66,24 @@ export default function WarehouseReturnsPage() {
   const [orderSearchLoading, setOrderSearchLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<SearchOrder | null>(null);
   const [itemQtyDrafts, setItemQtyDrafts] = useState<Record<string, string>>({});
+  const [dispositionDrafts, setDispositionDrafts] = useState<
+    Record<string, "RESTOCK" | "QUARANTINE" | "WRITE_OFF">
+  >({});
   const [orderModalId, setOrderModalId] = useState<string | null>(null);
 
   const selected = useMemo(
     () => items.find((p) => p.id === selectedId) ?? null,
     [items, selectedId],
   );
+
+  const misPickReturnItems = useMemo(() => {
+    if (!selected) return [];
+    return selected.returns.flatMap((ret) =>
+      ret.reason === "WRONG_ITEM"
+        ? ret.items.map((it) => ({ ...it, returnId: ret.id, orderNumber: ret.order.orderNumber }))
+        : [],
+    );
+  }, [selected]);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -100,6 +118,20 @@ export default function WarehouseReturnsPage() {
     }
     setItemQtyDrafts(drafts);
   }, [selectedOrder]);
+
+  useEffect(() => {
+    if (!selected) {
+      setDispositionDrafts({});
+      return;
+    }
+    const drafts: Record<string, "RESTOCK" | "QUARANTINE" | "WRITE_OFF"> = {};
+    for (const it of misPickReturnItems) {
+      if (it.disposition && it.disposition !== "PENDING") {
+        drafts[it.id] = it.disposition as "RESTOCK" | "QUARANTINE" | "WRITE_OFF";
+      }
+    }
+    setDispositionDrafts(drafts);
+  }, [selected, misPickReturnItems]);
 
   const searchOrders = useCallback(async () => {
     const q = orderSearch.trim();
@@ -174,6 +206,26 @@ export default function WarehouseReturnsPage() {
     );
   };
 
+  const handleSaveDispositions = () => {
+    if (!selected) return;
+    const items = misPickReturnItems
+      .map((it) => ({
+        returnItemId: it.id,
+        disposition: dispositionDrafts[it.id],
+      }))
+      .filter((x): x is { returnItemId: string; disposition: "RESTOCK" | "QUARANTINE" | "WRITE_OFF" } =>
+        Boolean(x.disposition),
+      );
+    if (items.length === 0) {
+      setErr("Оберіть дію для хоча б однієї позиції пересорту");
+      return;
+    }
+    void runAction(
+      () => returnPackagesApi.updateDispositions(selected.id, { items }),
+      "Дії по пересорту збережено",
+    );
+  };
+
   const handleCompleteInspection = () => {
     if (!selected) return;
     void runAction(
@@ -184,11 +236,14 @@ export default function WarehouseReturnsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-zinc-900">Повернення на склад</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Вхідні посилки з ТТН: прийом, розбір по замовленнях, передача на перевірку.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-zinc-900">Повернення на склад</h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            Вхідні посилки з ТТН: прийом, розбір по замовленнях, передача на перевірку.
+          </p>
+        </div>
+        <HelpHint routeKey="work.warehouse.returns" />
       </div>
 
       {info ? (
@@ -293,6 +348,15 @@ export default function WarehouseReturnsPage() {
                       >
                         Замовлення {ret.order.orderNumber}
                       </button>
+                      {ret.reason === "WRONG_ITEM" ? (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                          {strings.returns.misPickBadge}
+                        </span>
+                      ) : ret.reason ? (
+                        <span className="ml-2 text-[10px] text-zinc-500">
+                          {returnReasonLabel(ret.reason)}
+                        </span>
+                      ) : null}
                       <div className="mt-1 text-xs text-zinc-500">
                         {ret.itemsPending && ret.items.length === 0
                           ? "Очікує розбору позицій"
@@ -377,6 +441,77 @@ export default function WarehouseReturnsPage() {
                           />
                         </div>
                       ))}
+                    </div>
+                  ) : null}
+
+                  {misPickReturnItems.length > 0 ? (
+                    <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                      <h3 className="text-sm font-medium text-zinc-800">
+                        {strings.returns.misPickBadge}
+                      </h3>
+                      {misPickReturnItems.map((it) => {
+                        const expected =
+                          it.orderItem?.productNameSnapshot ??
+                          it.orderItem?.product?.name ??
+                          "—";
+                        const actual =
+                          it.actualProduct?.name ?? it.actualProduct?.sku ?? "—";
+                        return (
+                          <div
+                            key={it.id}
+                            className="rounded border border-zinc-200 bg-white px-2 py-2 text-sm"
+                          >
+                            <div className="text-xs text-zinc-500">
+                              {it.orderNumber} · {it.qtyReturned} од.
+                            </div>
+                            <div className="mt-1 grid gap-1 sm:grid-cols-2">
+                              <div>
+                                <span className="text-[11px] text-zinc-500">
+                                  {strings.returns.expectedProduct}:{" "}
+                                </span>
+                                <span className="text-zinc-800">{expected}</span>
+                              </div>
+                              <div>
+                                <span className="text-[11px] text-zinc-500">
+                                  {strings.returns.actualProduct}:{" "}
+                                </span>
+                                <span className="text-zinc-800">{actual}</span>
+                              </div>
+                            </div>
+                            <label className="mt-2 block text-xs text-zinc-600">
+                              {dispositionLabel(dispositionDrafts[it.id] ?? "PENDING")}
+                              <select
+                                value={dispositionDrafts[it.id] ?? ""}
+                                onChange={(e) =>
+                                  setDispositionDrafts((prev) => ({
+                                    ...prev,
+                                    [it.id]: e.target.value as
+                                      | "RESTOCK"
+                                      | "QUARANTINE"
+                                      | "WRITE_OFF",
+                                  }))
+                                }
+                                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm"
+                              >
+                                <option value="">{strings.returns.dispositionPending}</option>
+                                {DISPOSITION_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        disabled={actionLoading}
+                        onClick={handleSaveDispositions}
+                        className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        Зберегти дії по пересорту
+                      </button>
                     </div>
                   ) : null}
                 </div>

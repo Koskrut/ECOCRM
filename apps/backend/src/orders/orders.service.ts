@@ -74,6 +74,7 @@ import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.s
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
 import { computeLineTotal } from "./order-line-total.utils";
+import { syncMisPickOutboundForReplacementOrder } from "../order-returns/order-return-replacement.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
 import { ModuleIds } from "../modules/module-ids";
 import { ModuleStateService } from "../modules/module-state.service";
@@ -1983,6 +1984,8 @@ export class OrdersService {
       toStage,
       actor,
     });
+
+    await syncMisPickOutboundForReplacementOrder(this.prisma, id, toStage);
 
     return this.mapToEntity(updated);
   }

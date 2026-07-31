@@ -15,7 +15,13 @@ import {
   assertCanAccessOwner,
   getAllowedOwnerIds,
 } from "../visits/visits-owner-scope";
-import { filterGpsSample, filterGpsTrack, sortGpsSamplesByTime } from "./gps-sample-filter";
+import {
+  GpsTrackFilterSession,
+  isInUaFieldRegion,
+  lastInRegionSample,
+  sanitizeGpsTrack,
+  sortGpsSamplesByTime,
+} from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
 import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
 import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field-shifts.types";
@@ -194,16 +200,23 @@ export class FieldShiftsService {
       select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
     });
 
-    let prev: {
-      lat: number;
-      lng: number;
-      accuracyM?: number | null;
-      clientRecordedAt: Date;
-    } | null = lastDb;
+    // Anchor only on in-region samples so Lima/mock prev cannot poison the day.
+    let anchorPrev = lastDb;
+    if (anchorPrev && !isInUaFieldRegion(anchorPrev.lat, anchorPrev.lng)) {
+      const lastUa = await this.prisma.fieldLocationSample.findMany({
+        where: { shiftId },
+        orderBy: { clientRecordedAt: "desc" },
+        take: 50,
+        select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
+      });
+      anchorPrev = lastInRegionSample(lastUa);
+    }
 
+    const session = new GpsTrackFilterSession(anchorPrev);
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
     let rejected = 0;
     const rejectReasons: Record<string, number> = {};
+    let reanchorCount = 0;
     const shiftDayYmd = instantToKyivYmd(shift.date);
     const sortedItems = sortGpsSamplesByTime(items);
 
@@ -230,12 +243,19 @@ export class FieldShiftsService {
         clientRecordedAt,
       };
 
-      const verdict = filterGpsSample(prev, candidate);
+      const verdict = session.consider(candidate);
       if (!verdict.accept) {
         rejected += 1;
         const reason = verdict.reason ?? "unknown";
         rejectReasons[reason] = (rejectReasons[reason] ?? 0) + 1;
         continue;
+      }
+
+      if (verdict.reanchor) {
+        reanchorCount += 1;
+        this.logger.log(
+          `appendSamples reanchor shiftId=${shiftId} ownerId=${actor.id} lat=${candidate.lat} lng=${candidate.lng}`,
+        );
       }
 
       rows.push({
@@ -245,16 +265,15 @@ export class FieldShiftsService {
         accuracyM: candidate.accuracyM,
         clientRecordedAt,
       });
-      prev = candidate;
     }
 
     if (rows.length > 0) {
       await this.prisma.fieldLocationSample.createMany({ data: rows });
     }
 
-    if (rejected > 0 || rows.length > 0) {
+    if (rejected > 0 || rows.length > 0 || reanchorCount > 0) {
       this.logger.log(
-        `appendSamples shiftId=${shiftId} ownerId=${actor.id} created=${rows.length} rejected=${rejected} rejectReasons=${JSON.stringify(rejectReasons)}`,
+        `appendSamples shiftId=${shiftId} ownerId=${actor.id} created=${rows.length} rejected=${rejected} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount}`,
       );
     }
 
@@ -352,10 +371,45 @@ export class FieldShiftsService {
     ]);
 
     const lastByShift = new Map<string, (typeof samples)[number]>();
+    const rawLastByShift = new Map<string, (typeof samples)[number]>();
+    const hasAbroadByShift = new Set<string>();
+    const samplesByShift = new Map<string, (typeof samples)[number][]>();
     for (const s of samples) {
-      if (!lastByShift.has(s.shiftId)) {
-        lastByShift.set(s.shiftId, s);
+      if (!rawLastByShift.has(s.shiftId)) {
+        rawLastByShift.set(s.shiftId, s);
       }
+      if (!isInUaFieldRegion(s.lat, s.lng)) {
+        hasAbroadByShift.add(s.shiftId);
+      }
+      const list = samplesByShift.get(s.shiftId);
+      if (list) list.push(s);
+      else samplesByShift.set(s.shiftId, [s]);
+    }
+    // Marker = last point of sanitized UA track (matches polyline region).
+    for (const [shiftId, rows] of samplesByShift) {
+      // rows arrive newest-first; cap for team poll cost.
+      const recent = rows.length > 400 ? rows.slice(0, 400) : rows;
+      const sanitized = sanitizeGpsTrack(
+        recent.map((r) => ({
+          lat: r.lat,
+          lng: r.lng,
+          accuracyM: r.accuracyM,
+          clientRecordedAt: r.clientRecordedAt,
+        })),
+      );
+      const lastClean = sanitized.samples[sanitized.samples.length - 1];
+      if (!lastClean) continue;
+      const at =
+        lastClean.clientRecordedAt instanceof Date
+          ? lastClean.clientRecordedAt
+          : new Date(lastClean.clientRecordedAt);
+      lastByShift.set(shiftId, {
+        shiftId,
+        lat: lastClean.lat,
+        lng: lastClean.lng,
+        accuracyM: lastClean.accuracyM ?? null,
+        clientRecordedAt: at,
+      });
     }
 
     const countByShift = new Map(
@@ -409,11 +463,29 @@ export class FieldShiftsService {
     const nowMs = Date.now();
     const items: FieldShiftTeamItem[] = shifts.map((shift) => {
       const last = lastByShift.get(shift.id);
+      const rawLast = rawLastByShift.get(shift.id);
+      const sampleCount = countByShift.get(shift.id) ?? 0;
       const session = sessionByOwner.get(shift.ownerId);
       const visit = session?.currentVisitId ? visitById.get(session.currentVisitId) : undefined;
       const presence = presenceByOwner.get(shift.ownerId);
       const restartCount = restartCountByShift.get(shift.id) ?? 0;
       const lastRestart = lastRestartByShift.get(shift.id);
+
+      let gpsWarning: FieldShiftTeamItem["gpsWarning"] = null;
+      if (hasAbroadByShift.has(shift.id)) {
+        gpsWarning = "region_mismatch";
+      } else if (sampleCount > 0 && !last) {
+        gpsWarning = "empty_track";
+      } else if (
+        rawLast &&
+        last &&
+        (!isInUaFieldRegion(rawLast.lat, rawLast.lng) ||
+          Math.abs(rawLast.lat - last.lat) > 2 ||
+          Math.abs(rawLast.lng - last.lng) > 2)
+      ) {
+        gpsWarning = "region_mismatch";
+      }
+
       return {
         shift: {
           id: shift.id,
@@ -434,7 +506,7 @@ export class FieldShiftsService {
               clientRecordedAt: last.clientRecordedAt.toISOString(),
             }
           : null,
-        sampleCountToday: countByShift.get(shift.id) ?? 0,
+        sampleCountToday: sampleCount,
         currentVisit: visit
           ? {
               id: visit.id,
@@ -448,6 +520,7 @@ export class FieldShiftsService {
           last?.clientRecordedAt ?? null,
           nowMs,
         ),
+        gpsWarning,
         trackingRestart:
           restartCount > 0
             ? {
@@ -632,7 +705,7 @@ export class FieldShiftsService {
       },
     });
 
-    const filtered = filterGpsTrack(
+    const sanitized = sanitizeGpsTrack(
       rows.map((s) => ({
         lat: s.lat,
         lng: s.lng,
@@ -640,16 +713,40 @@ export class FieldShiftsService {
         clientRecordedAt: s.clientRecordedAt,
       })),
     );
+    const rawPath = sanitized.samples.map((s) => ({ lat: s.lat, lng: s.lng }));
+    if (sanitized.samples.length < 2) {
+      return {
+        sampleCount: sanitized.samples.length,
+        path: rawPath,
+        source: "none" as const,
+        distanceKm: null,
+        droppedReasons: sanitized.droppedReasons,
+        reanchorUsed: sanitized.reanchorUsed,
+      };
+    }
     const geometry = await this.routePlans.snapGpsPathToRoads(
-      filtered.map((s) => ({
+      sanitized.samples.map((s) => ({
         lat: s.lat,
         lng: s.lng,
         clientRecordedAt: s.clientRecordedAt,
       })),
     );
+    // Never hide a clean UA track when OSRM/match fails — show sanitized polyline.
+    if (geometry.source === "none" || geometry.path.length < 2) {
+      return {
+        sampleCount: sanitized.samples.length,
+        path: rawPath,
+        source: "fallback" as const,
+        distanceKm: geometry.distanceKm,
+        droppedReasons: sanitized.droppedReasons,
+        reanchorUsed: sanitized.reanchorUsed,
+      };
+    }
     return {
-      sampleCount: filtered.length,
+      sampleCount: sanitized.samples.length,
       ...geometry,
+      droppedReasons: sanitized.droppedReasons,
+      reanchorUsed: sanitized.reanchorUsed,
     };
   }
 }

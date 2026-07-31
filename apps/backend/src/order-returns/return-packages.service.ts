@@ -481,6 +481,9 @@ export class ReturnPackagesService {
     await this.prisma.$transaction(async (tx) => {
       for (const ret of activeReturns) {
         if (ret.status === "RECEIVED_BY_WAREHOUSE") {
+          if (ret.reason === "WRONG_ITEM") {
+            await this.orderReturns.finalizeMisPickInbound(ret.id, tx);
+          }
           await tx.orderReturn.update({
             where: { id: ret.id },
             data: { status: "INSPECTION", itemsPending: false },
@@ -604,8 +607,10 @@ export class ReturnPackagesService {
                   price: true,
                   lineTotal: true,
                   productNameSnapshot: true,
+                  product: { select: { id: true, name: true, sku: true } },
                 },
               },
+              actualProduct: { select: { id: true, name: true, sku: true } },
             },
           },
           order: {
@@ -621,5 +626,52 @@ export class ReturnPackagesService {
         },
       },
     } satisfies Prisma.ReturnPackageInclude;
+  }
+
+  async updateDispositions(
+    id: string,
+    dto: import("./dto/return-package.dto").UpdateReturnPackageDispositionsDto,
+    actor?: AuthUser,
+  ) {
+    assertWarehousePackageItems(actor);
+
+    const pkg = await this.prisma.returnPackage.findUnique({
+      where: { id },
+      include: { returns: { include: { items: true } } },
+    });
+    if (!pkg) throw new NotFoundException("Return package not found");
+    if (pkg.status !== "RECEIVED_BY_WAREHOUSE") {
+      throw new BadRequestException("Disposition can only be set while package is on warehouse");
+    }
+
+    const returnItemById = new Map(
+      pkg.returns.flatMap((r) => r.items.map((it) => [it.id, r] as const)),
+    );
+
+    for (const patch of dto.items) {
+      const owner = returnItemById.get(patch.returnItemId);
+      if (!owner) {
+        throw new BadRequestException(`Return item ${patch.returnItemId} not found in package`);
+      }
+      if (owner.reason !== "WRONG_ITEM") {
+        throw new BadRequestException("Disposition updates apply only to mis-pick returns");
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const patch of dto.items) {
+        await tx.orderReturnItem.update({
+          where: { id: patch.returnItemId },
+          data: {
+            disposition: patch.disposition,
+            ...(patch.actualProductId !== undefined
+              ? { actualProductId: patch.actualProductId || null }
+              : {}),
+          },
+        });
+      }
+    });
+
+    return this.getById(id, actor);
   }
 }

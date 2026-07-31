@@ -498,6 +498,24 @@ enum ReturnPackageStatus {
   RECEIVED_BY_WAREHOUSE
 }
 
+enum ReturnReason {
+  CUSTOMER_CHANGE
+  DEFECT
+  WRONG_ITEM
+}
+
+enum ReplacementMode {
+  REPLACE_FIRST
+  RETURN_FIRST
+}
+
+enum ReturnItemDisposition {
+  PENDING
+  RESTOCK
+  QUARANTINE
+  WRITE_OFF
+}
+
 enum ProductKind {
   KIT
   PART
@@ -1654,6 +1672,7 @@ model Product {
   salesHistoryLines      SalesHistoryLine[]
   packingListLines       PackingListLine[]
   factoryOrderLines      FactoryOrderLine[]
+  actualReturnItems      OrderReturnItem[]       @relation("ReturnItemActualProduct")
 
   @@index([primaryImageId])
   @@index([kind])
@@ -1843,6 +1862,7 @@ model Order {
   parentOrderId String?
   parentOrder   Order?  @relation("OrderSplit", fields: [parentOrderId], references: [id], onDelete: SetNull)
   childOrders   Order[] @relation("OrderSplit")
+  replacementForReturns OrderReturn[] @relation("OrderReplacement")
 
   company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
   owner       User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
@@ -2062,6 +2082,15 @@ model OrderReturn {
   id          String       @id @default(cuid())
   orderId     String
   status      ReturnStatus
+  reason      ReturnReason @default(CUSTOMER_CHANGE)
+  replacementMode ReplacementMode?
+  replacementOrderId String?
+  inboundDoneAt DateTime?
+  outboundDoneAt DateTime?
+  inboundWaivedAt DateTime?
+  inboundWaiveReason String?
+  outboundWaivedAt DateTime?
+  outboundWaiveReason String?
   requestedAt DateTime     @default(now())
   closedAt    DateTime?
   settlementType   ReturnSettlementType?
@@ -2075,6 +2104,7 @@ model OrderReturn {
   updatedAt   DateTime     @updatedAt
 
   order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  replacementOrder Order? @relation("OrderReplacement", fields: [replacementOrderId], references: [id], onDelete: SetNull)
   returnPackage ReturnPackage? @relation(fields: [returnPackageId], references: [id], onDelete: SetNull)
   items OrderReturnItem[]
   balanceTransactions ClientBalanceTransaction[]
@@ -2084,6 +2114,8 @@ model OrderReturn {
   @@index([orderId])
   @@index([status])
   @@index([returnPackageId])
+  @@index([replacementOrderId])
+  @@index([reason])
 }
 
 model OrderReturnItem {
@@ -2091,15 +2123,19 @@ model OrderReturnItem {
   orderReturnId String
   orderItemId   String
   qtyReturned   Int
+  actualProductId String?
+  disposition   ReturnItemDisposition @default(PENDING)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   orderReturn OrderReturn @relation(fields: [orderReturnId], references: [id], onDelete: Cascade)
   orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  actualProduct Product? @relation("ReturnItemActualProduct", fields: [actualProductId], references: [id], onDelete: SetNull)
 
   @@unique([orderReturnId, orderItemId])
   @@index([orderReturnId])
   @@index([orderItemId])
+  @@index([actualProductId])
 }
 
 model Activity {

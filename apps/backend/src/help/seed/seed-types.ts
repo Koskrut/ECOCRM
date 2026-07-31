@@ -23,4 +23,4 @@ export type HelpSeedArticle = {
   seedRevision?: number;
 };
 
-export const HELP_SEED_REVISION = 2;
+export const HELP_SEED_REVISION = 3;

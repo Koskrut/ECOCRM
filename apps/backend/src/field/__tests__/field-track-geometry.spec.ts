@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { FieldShiftsService } from "../field-shifts.service";
-import { filterGpsTrack } from "../gps-sample-filter";
+import { sanitizeGpsTrack } from "../gps-sample-filter";
 
 function actor(role: UserRole, id = "u1"): AuthUser {
   return {
@@ -51,7 +51,7 @@ describe("FieldShiftsService.getTrackGeometry", () => {
     const svc = new FieldShiftsService(prisma as never, routePlans as never, eventEmitter as never);
     const result = await svc.getTrackGeometry(actor(UserRole.MANAGER), "shift1");
 
-    const filtered = filterGpsTrack(
+    const filtered = sanitizeGpsTrack(
       samples.map((s) => ({
         lat: s.lat,
         lng: s.lng,
@@ -60,7 +60,7 @@ describe("FieldShiftsService.getTrackGeometry", () => {
       })),
     );
 
-    assert.equal(result.sampleCount, filtered.length);
+    assert.equal(result.sampleCount, filtered.filteredSampleCount);
     assert.ok(result.sampleCount > 500);
     assert.equal(result.path.length, 2);
     assert.equal(result.source, "osrm");

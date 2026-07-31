@@ -6,6 +6,7 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDate } from "@/lib/crmDatetime";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
+import { returnReasonLabel } from "@/lib/returns/return-labels";
 import {
   KanbanLoadSentinel,
   KANBAN_COLUMN_BODY_CLASS,
@@ -48,6 +49,7 @@ type ReturnCard = {
   id: string;
   orderId?: string;
   status: ReturnStatus;
+  reason?: string;
   requestedAt: string;
   closedAt?: string | null;
   createdAt: string;
@@ -236,13 +238,12 @@ export function ReturnsKanban({
                       type="button"
                       onClick={() => {
                         if (isTextSelected()) return;
-                        const oid = r.orderId ?? r.order?.id;
-                        if (!oid) return;
                         if (onOpenReturn) {
                           onOpenReturn(r.id);
-                        } else {
-                          onOpenOrder(oid);
+                          return;
                         }
+                        const oid = r.orderId ?? r.order?.id;
+                        if (oid) onOpenOrder(oid);
                       }}
                       draggable
                       onDragStart={(e) => {
@@ -256,6 +257,15 @@ export function ReturnsKanban({
                       }`}
                     >
                       <div className="font-medium text-zinc-900">{r.order.orderNumber}</div>
+                      {r.reason === "WRONG_ITEM" ? (
+                        <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                          {strings.returns.misPickBadge}
+                        </span>
+                      ) : r.reason ? (
+                        <div className="mt-0.5 text-[10px] text-zinc-500">
+                          {returnReasonLabel(r.reason)}
+                        </div>
+                      ) : null}
                       <div className="mt-0.5 text-xs text-zinc-500">{clientName}</div>
                       <div className="mt-1.5 text-xs text-zinc-500">
                         {formatDate(r.requestedAt)} ·{" "}

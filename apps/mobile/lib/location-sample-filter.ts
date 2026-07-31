@@ -75,6 +75,9 @@ export function filterLocationSample(
       if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
         return { accept: false, reason: "teleport" };
       }
+    } else {
+      // Same-ts / older-ts jump — match backend (would otherwise skip speed check).
+      return { accept: false, reason: "teleport" };
     }
   }
 

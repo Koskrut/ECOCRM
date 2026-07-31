@@ -11,6 +11,7 @@ import {
 import { processLocationUpdate } from "./location-tracking-processor";
 import { hydrateApiBaseUrl } from "./config";
 import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
+import { getLastFlushBlockReason } from "./session-auth";
 import type { SamplingTier } from "./location-tracking-config";
 
 export { FIELD_LOCATION_TASK };
@@ -33,11 +34,34 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
     const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
     if (!locations?.length) return;
 
+    const block = getLastFlushBlockReason();
+    if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
+      return;
+    }
+
     for (const loc of locations) {
       const c = loc.coords;
+      const mocked =
+        (loc as { mocked?: boolean }).mocked === true ||
+        (loc as { isFromMockProvider?: boolean }).isFromMockProvider === true;
+      if (mocked) {
+        continue;
+      }
+      const lat = c.latitude;
+      const lng = c.longitude;
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng) ||
+        lat < 44 ||
+        lat > 53 ||
+        lng < 22 ||
+        lng > 41
+      ) {
+        continue;
+      }
       const result = await processLocationUpdate({
-        lat: c.latitude,
-        lng: c.longitude,
+        lat,
+        lng,
         accuracyM:
           typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
         clientRecordedAt: new Date(loc.timestamp).toISOString(),

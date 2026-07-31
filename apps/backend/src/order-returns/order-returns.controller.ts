@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import type { ReturnStatus } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { OrderReturnsService } from "./order-returns.service";
 import { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
+import { UpdateReturnItemsDto, WaiveMisPickChecklistDto } from "./dto/mis-pick.dto";
 import { UpdateReturnStatusDto } from "./dto/update-return-status.dto";
 
 @Controller("order-returns")
@@ -37,5 +38,23 @@ export class OrderReturnsController {
   @Get(":id/settlement-preview")
   settlementPreview(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.orderReturns.getSettlementPreview(id, req.user);
+  }
+
+  @Patch(":id/items")
+  updateItems(
+    @Param("id") id: string,
+    @Body() dto: UpdateReturnItemsDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orderReturns.updateReturnItems(id, dto, req.user);
+  }
+
+  @Patch(":id/waive-checklist")
+  waiveChecklist(
+    @Param("id") id: string,
+    @Body() dto: WaiveMisPickChecklistDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orderReturns.waiveChecklist(id, dto, req.user);
   }
 }

@@ -4,10 +4,11 @@ const { describe, it } = require("node:test");
 const {
   classifySampleRejectBatch,
   formatRejectReasons,
+  isWrongDayBatch,
 } = require("../location-sample-reject");
 
 describe("classifySampleRejectBatch", () => {
-  it("treats duplicate-only as soft", () => {
+  it("treats duplicate-only as soft (Mykhailiv — not ERROR)", () => {
     assert.equal(classifySampleRejectBatch({ duplicate: 3 }), "soft");
   });
 
@@ -17,6 +18,10 @@ describe("classifySampleRejectBatch", () => {
 
   it("treats wrong_day as hard", () => {
     assert.equal(classifySampleRejectBatch({ wrong_day: 1 }), "hard");
+  });
+
+  it("treats out_of_region as hard", () => {
+    assert.equal(classifySampleRejectBatch({ out_of_region: 5 }), "hard");
   });
 
   it("treats teleport as hard", () => {
@@ -31,6 +36,28 @@ describe("classifySampleRejectBatch", () => {
     assert.equal(classifySampleRejectBatch(undefined), "unknown");
     assert.equal(classifySampleRejectBatch(null), "unknown");
     assert.equal(classifySampleRejectBatch({}), "unknown");
+  });
+
+  it("treats unrecognized server reasons as unknown (not soft/healthy)", () => {
+    assert.equal(classifySampleRejectBatch({ mysterious: 2 }), "unknown");
+  });
+});
+
+describe("isWrongDayBatch", () => {
+  it("detects Isanchev wrong_day-dominated flush", () => {
+    assert.equal(isWrongDayBatch({ wrong_day: 40 }, 40), true);
+  });
+
+  it("purges when wrong_day is majority even with stray duplicates", () => {
+    assert.equal(isWrongDayBatch({ wrong_day: 30, duplicate: 10 }, 40), true);
+  });
+
+  it("ignores mixed batches with few wrong_day", () => {
+    assert.equal(isWrongDayBatch({ wrong_day: 1, duplicate: 20 }, 21), false);
+  });
+
+  it("treats exactly 50% wrong_day as purge candidate", () => {
+    assert.equal(isWrongDayBatch({ wrong_day: 10, duplicate: 10 }, 20), true);
   });
 });
 

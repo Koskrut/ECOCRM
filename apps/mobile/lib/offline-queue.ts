@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import { retargetShiftSamplesBatchJob } from "@/lib/location-flush-errors";
+import { setAuthRequired } from "@/lib/session-auth";
 
 export type OfflineJobKind =
   | "visitStart"
@@ -146,11 +147,22 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       const shiftId = String(job.payload.shiftId ?? "");
       const items = job.payload.items;
       const clientMutationId = String(job.payload.clientMutationId ?? job.id);
-      await apiFetch(`/field/shifts/${encodeURIComponent(shiftId)}/samples`, {
+      const body = await apiFetch<{
+        created?: number;
+        rejected?: number;
+        rejectReasons?: Record<string, number>;
+      }>(`/field/shifts/${encodeURIComponent(shiftId)}/samples`, {
         method: "POST",
         body: JSON.stringify({ items, clientMutationId }),
         token,
       });
+      const created = typeof body?.created === "number" ? body.created : undefined;
+      const rejected = typeof body?.rejected === "number" ? body.rejected : 0;
+      const reasons = body?.rejectReasons;
+      if (created === 0 && reasons && (reasons.wrong_day ?? 0) >= Math.ceil(rejected * 0.5)) {
+        const { setFlushBlockReason } = await import("@/lib/session-auth");
+        setFlushBlockReason("wrong_day");
+      }
       return;
     }
   }
@@ -177,6 +189,17 @@ export async function flushOfflineJobs(opts: {
       await runJob(job, opts.token);
       sent += 1;
     } catch (e) {
+      // Грибовская: never drop GPS jobs on 401 — force re-login, keep queue.
+      if (e instanceof ApiError && e.status === 401) {
+        setAuthRequired(true, "auth_401");
+        lastError = e.message;
+        next.push({ ...job, attempts: job.attempts + 1, lastError: e.message });
+        for (const remaining of jobs.slice(jobs.indexOf(job) + 1)) {
+          next.push(remaining);
+        }
+        break;
+      }
+
       if (
         job.kind === "shiftSamplesBatch" &&
         e instanceof ApiError &&

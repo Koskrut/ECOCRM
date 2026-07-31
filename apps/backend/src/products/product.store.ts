@@ -109,6 +109,8 @@ export type PrepareBulkWarehouseStockResult = {
   matchedSkus: string[];
   skuCorrections: SkuCorrection[];
   resolved: ResolvedStockSku[];
+  /** File SKUs that appear more than once (last row wins on apply). */
+  duplicateSkus: string[];
 };
 
 export type BulkStockUpdateResult = {
@@ -444,6 +446,8 @@ export class ProductStore {
     const correctionMap = new Map<string, string>();
     const resolvedMap = new Map<string, ResolvedStockSku>();
     const updateMap = new Map<string, { productId: string; warehouseId: string; qty: number }>();
+    const seenKeys = new Set<string>();
+    const duplicateSkuSet = new Set<string>();
 
     for (const { sku, fileSku, name, warehouseId, qty } of entries) {
       const skuTrim = sku.trim();
@@ -452,11 +456,19 @@ export class ProductStore {
 
       const ref = resolveStockSkuToProduct(skuTrim, index);
       const rawFileSku = (fileSku ?? skuTrim).trim();
+      const dupKey = `${skuTrim}:${whId}`;
+      if (seenKeys.has(dupKey)) duplicateSkuSet.add(rawFileSku || skuTrim);
+      else seenKeys.add(dupKey);
+
       if (!ref) {
         notFoundSet.add(rawFileSku);
         const existing = missingBySku.get(skuTrim);
         const warehouseStocks = existing?.warehouseStocks ?? [];
-        warehouseStocks.push({ warehouseId: whId, qty: Math.max(0, Math.floor(qty)) });
+        // Last-wins for missing product warehouse stocks too.
+        const whIdx = warehouseStocks.findIndex((s) => s.warehouseId === whId);
+        const nextQty = Math.max(0, Math.floor(qty));
+        if (whIdx >= 0) warehouseStocks[whIdx] = { warehouseId: whId, qty: nextQty };
+        else warehouseStocks.push({ warehouseId: whId, qty: nextQty });
         missingBySku.set(skuTrim, {
           sku: skuTrim,
           fileSku: rawFileSku || undefined,
@@ -503,6 +515,7 @@ export class ProductStore {
       matchedSkus: Array.from(matchedSkuSet).sort(),
       skuCorrections,
       resolved,
+      duplicateSkus: Array.from(duplicateSkuSet).sort(),
     };
   }
 

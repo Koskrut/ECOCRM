@@ -90,6 +90,8 @@ export type StockUploadResult = {
   missingProducts?: MissingStockProduct[];
   skuCorrections?: Array<{ fileSku: string; dbSku: string }>;
   resolved?: Array<{ fileSku: string; dbSku: string; productId: string }>;
+  /** SKUs that appear more than once in the file (last row wins). */
+  duplicateSkus?: string[];
 };
 
 export type CreateMissingStockResult = {

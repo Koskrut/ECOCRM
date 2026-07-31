@@ -13,8 +13,8 @@ describe("classifyFlushHttpStatus", () => {
     assert.equal(classifyFlushHttpStatus(503), "retry");
   });
 
-  it("enqueues offline on 401 (does not wipe pending)", () => {
-    assert.equal(classifyFlushHttpStatus(401), "enqueue_offline");
+  it("auth_required on 401 (does not wipe pending — Hrybovska)", () => {
+    assert.equal(classifyFlushHttpStatus(401), "auth_required");
   });
 
   it("discards all on 404", () => {

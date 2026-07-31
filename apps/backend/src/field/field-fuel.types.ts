@@ -35,6 +35,12 @@ export type FuelCalculationSnapshot = {
   /** Visit-order route distance (km), reference / fallback. */
   visitRouteKm?: number | null;
   routeAnchors?: FuelRouteAnchorsSnapshot;
+  /** Samples kept after geo + reanchor + relative filter. */
+  filteredSampleCount?: number;
+  /** Reject reason counts from sanitizeGpsTrack. */
+  droppedReasons?: Record<string, number>;
+  /** True when GPS filter reanchored during the day. */
+  reanchorUsed?: boolean;
 };
 
 export function resolveTrackMetricsSource(

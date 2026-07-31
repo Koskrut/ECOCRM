@@ -1,7 +1,9 @@
+import { ReplacementMode, ReturnReason } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -17,6 +19,10 @@ export class CreateOrderReturnItemDto {
   @IsInt()
   @Min(1)
   qtyReturned!: number;
+
+  @IsOptional()
+  @IsString()
+  actualProductId?: string;
 }
 
 export class CreateOrderReturnDto {
@@ -34,4 +40,12 @@ export class CreateOrderReturnDto {
   @IsString()
   @MinLength(4)
   ttnNumber?: string;
+
+  @IsOptional()
+  @IsEnum(ReturnReason)
+  reason?: ReturnReason;
+
+  @IsOptional()
+  @IsEnum(ReplacementMode)
+  replacementMode?: ReplacementMode;
 }

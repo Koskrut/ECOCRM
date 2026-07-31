@@ -179,6 +179,12 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                     .replace("{samples}", samplesSuffix)}
                 </p>
                 {restartDetail ? <p className="text-amber-700">{restartDetail}</p> : null}
+                {item.gpsWarning === "region_mismatch" ? (
+                  <p className="text-amber-800">{t.gpsWarningRegion}</p>
+                ) : null}
+                {item.gpsWarning === "empty_track" ? (
+                  <p className="text-amber-800">{t.gpsWarningEmpty}</p>
+                ) : null}
               </div>
             </button>
           </li>

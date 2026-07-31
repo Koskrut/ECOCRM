@@ -1,7 +1,9 @@
+import { ReturnItemDisposition } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -58,6 +60,25 @@ export class AddReturnPackageItemsDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderReturnItemDto)
   items!: CreateOrderReturnItemDto[];
+}
+
+export class UpdateReturnPackageItemDispositionDto {
+  @IsString()
+  returnItemId!: string;
+
+  @IsOptional()
+  @IsString()
+  actualProductId?: string;
+
+  @IsEnum(ReturnItemDisposition)
+  disposition!: ReturnItemDisposition;
+}
+
+export class UpdateReturnPackageDispositionsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateReturnPackageItemDispositionDto)
+  items!: UpdateReturnPackageItemDispositionDto[];
 }
 
 export class ListReturnPackagesQueryDto {

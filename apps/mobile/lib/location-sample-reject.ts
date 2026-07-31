@@ -2,7 +2,15 @@
 export type SampleRejectReasons = Record<string, number>;
 
 /** Reasons that indicate a real tracking/GPS problem (not expected dedup). */
-const HARD_REJECT_REASONS = new Set(["bad_accuracy", "wrong_day", "teleport"]);
+const HARD_REJECT_REASONS = new Set([
+  "bad_accuracy",
+  "wrong_day",
+  "teleport",
+  "out_of_region",
+]);
+
+/** Soft / expected filter noise — never surface as ERROR in diagnostics. */
+const SOFT_REJECT_REASONS = new Set(["duplicate", "keepalive"]);
 
 export type SampleRejectSeverity = "hard" | "soft" | "unknown";
 
@@ -19,7 +27,9 @@ export function classifySampleRejectBatch(
   );
   if (keys.length === 0) return "unknown";
   if (keys.some((k) => HARD_REJECT_REASONS.has(k))) return "hard";
-  return "soft";
+  if (keys.every((k) => SOFT_REJECT_REASONS.has(k))) return "soft";
+  // Unknown server reasons must not look like "healthy dedup".
+  return "unknown";
 }
 
 export function formatRejectReasons(rejectReasons: SampleRejectReasons | undefined | null): string {
@@ -29,4 +39,24 @@ export function formatRejectReasons(rejectReasons: SampleRejectReasons | undefin
   } catch {
     return "{}";
   }
+}
+
+export function rejectReasonCount(
+  rejectReasons: SampleRejectReasons | undefined | null,
+  reason: string,
+): number {
+  if (!rejectReasons || typeof rejectReasons !== "object") return 0;
+  const n = rejectReasons[reason];
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
+/** Batch is dominated by wrong_day (Ісанчев loop) — purge, do not retry forever. */
+export function isWrongDayBatch(
+  rejectReasons: SampleRejectReasons | undefined | null,
+  rejected: number,
+): boolean {
+  const wrong = rejectReasonCount(rejectReasons, "wrong_day");
+  if (wrong <= 0 || rejected <= 0) return false;
+  // Majority (>=50%) so a stray duplicate in the same batch still purges.
+  return wrong >= Math.ceil(rejected * 0.5);
 }

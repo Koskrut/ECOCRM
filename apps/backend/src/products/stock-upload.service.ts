@@ -46,8 +46,17 @@ function headerMatchesWarehouse(headerNorm: string, warehouseName: string): bool
   );
 }
 
-export function findWarehouseColumnIndex(headerRow: string[], warehouseName: string): number {
-  return headerRow.findIndex((h) => headerMatchesWarehouse(normalizeHeader(h), warehouseName));
+export function findWarehouseColumnIndex(
+  headerRow: string[],
+  warehouseName: string,
+  usedColIndexes?: Set<number>,
+): number {
+  return headerRow.findIndex((h, i) => {
+    if (usedColIndexes?.has(i)) return false;
+    const hNorm = normalizeHeader(h);
+    if (!hNorm) return false;
+    return headerMatchesWarehouse(hNorm, warehouseName);
+  });
 }
 
 function parseNumber(v: unknown): number {
@@ -177,10 +186,17 @@ export class StockUploadService {
     const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
     if (skuIdx < 0) return [];
 
+    // One column → one warehouse; never treat sku/name/empty headers as qty.
+    const usedColIndexes = new Set<number>([skuIdx]);
+    if (nameIdx >= 0) usedColIndexes.add(nameIdx);
+
     const warehouseColIndices: { warehouseId: string; colIndex: number }[] = [];
     for (const wh of warehouses) {
-      const idx = findWarehouseColumnIndex(headerRow, wh.name);
-      if (idx >= 0) warehouseColIndices.push({ warehouseId: wh.id, colIndex: idx });
+      const idx = findWarehouseColumnIndex(headerRow, wh.name, usedColIndexes);
+      if (idx >= 0) {
+        usedColIndexes.add(idx);
+        warehouseColIndices.push({ warehouseId: wh.id, colIndex: idx });
+      }
     }
 
     const entries: StockByWarehouseEntry[] = [];
@@ -215,10 +231,17 @@ export class StockUploadService {
     if (!parsed || warehouses.length === 0) return [];
 
     const { headerRow } = parsed;
+    const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
+    const usedColIndexes = new Set<number>();
+    if (skuIdx >= 0) usedColIndexes.add(skuIdx);
+    if (nameIdx >= 0) usedColIndexes.add(nameIdx);
+
     const matched: Array<{ warehouseId: string; warehouseName: string; columnHeader: string }> = [];
     for (const wh of warehouses) {
-      const idx = findWarehouseColumnIndex(headerRow, wh.name);
+      const idx = findWarehouseColumnIndex(headerRow, wh.name, usedColIndexes);
       if (idx >= 0) {
+        usedColIndexes.add(idx);
         matched.push({
           warehouseId: wh.id,
           warehouseName: wh.name,
@@ -234,12 +257,9 @@ export class StockUploadService {
     buffer: Buffer,
     warehouses: WarehouseForUpload[],
   ): string[] {
-    const parsed = readFirstSheet(buffer);
-    if (!parsed || warehouses.length === 0) return warehouses.map((w) => w.name);
-
-    const { headerRow } = parsed;
-    return warehouses
-      .filter((wh) => findWarehouseColumnIndex(headerRow, wh.name) < 0)
-      .map((wh) => wh.name);
+    const matchedIds = new Set(
+      this.getMatchedWarehouseColumns(buffer, warehouses).map((m) => m.warehouseId),
+    );
+    return warehouses.filter((wh) => !matchedIds.has(wh.id)).map((wh) => wh.name);
   }
 }

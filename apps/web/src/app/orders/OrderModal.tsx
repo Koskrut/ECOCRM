@@ -31,8 +31,15 @@ import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
 import { riskApi, type RiskGateResult } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
+import {
+  REPLACEMENT_MODE_OPTIONS,
+  RETURN_REASON_OPTIONS,
+  type ReplacementModeCode,
+  type ReturnReasonCode,
+} from "@/lib/returns/return-labels";
 
 const t = strings.orders.modal;
+const tr = strings.returns;
 
 // =====================
 // Small local UI helpers
@@ -862,6 +869,15 @@ export function OrderModal({
   const [returnItemQtys, setReturnItemQtys] = useState<Record<string, number>>({});
   const [returnTtnNumber, setReturnTtnNumber] = useState("");
   const [returnItemsPending, setReturnItemsPending] = useState(false);
+  const [returnReason, setReturnReason] = useState<ReturnReasonCode>("CUSTOMER_CHANGE");
+  const [replacementMode, setReplacementMode] = useState<ReplacementModeCode>("REPLACE_FIRST");
+  const [actualProductByItemId, setActualProductByItemId] = useState<
+    Record<string, { id: string; name: string; sku?: string | null }>
+  >({});
+  const [actualProductSearch, setActualProductSearch] = useState<Record<string, string>>({});
+  const [actualProductResults, setActualProductResults] = useState<
+    Record<string, Array<{ id: string; name: string; sku: string | null }>>
+  >({});
   const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
   const [returnStatusUpdatingId, setReturnStatusUpdatingId] = useState<string | null>(null);
@@ -4245,6 +4261,42 @@ export function OrderModal({
             <p className="mt-1 text-sm text-zinc-600">{t.returnItems}</p>
 
             <label className="mt-3 block text-sm font-medium text-zinc-700">
+              {tr.returnReasonLabel}
+              <select
+                value={returnReason}
+                onChange={(e) => {
+                  const next = e.target.value as ReturnReasonCode;
+                  setReturnReason(next);
+                  if (next === "WRONG_ITEM") setReturnItemsPending(false);
+                }}
+                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              >
+                {RETURN_REASON_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {returnReason === "WRONG_ITEM" ? (
+              <label className="mt-3 block text-sm font-medium text-zinc-700">
+                {tr.replacementModeLabel}
+                <select
+                  value={replacementMode}
+                  onChange={(e) => setReplacementMode(e.target.value as ReplacementModeCode)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                >
+                  {REPLACEMENT_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <label className="mt-3 block text-sm font-medium text-zinc-700">
               {t.returnTtnLabel}
               <input
                 type="text"
@@ -4259,6 +4311,7 @@ export function OrderModal({
               <input
                 type="checkbox"
                 checked={returnItemsPending}
+                disabled={returnReason === "WRONG_ITEM"}
                 onChange={(e) => setReturnItemsPending(e.target.checked)}
                 className="mt-0.5"
               />
@@ -4303,6 +4356,95 @@ export function OrderModal({
                       }
                       className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm"
                     />
+                    {returnReason === "WRONG_ITEM" && (returnItemQtys[it.id] ?? 0) > 0 ? (
+                      <div className="w-full basis-full space-y-1 pt-1">
+                        <div className="text-[11px] font-medium text-zinc-600">
+                          {tr.actualProductLabel}
+                        </div>
+                        {actualProductByItemId[it.id] ? (
+                          <div className="flex items-center justify-between gap-2 rounded border border-zinc-200 bg-white px-2 py-1 text-xs">
+                            <span className="truncate">
+                              {actualProductByItemId[it.id]?.sku
+                                ? `${actualProductByItemId[it.id]?.sku} · `
+                                : ""}
+                              {actualProductByItemId[it.id]?.name}
+                            </span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-zinc-500 hover:text-zinc-800"
+                              onClick={() =>
+                                setActualProductByItemId((prev) => {
+                                  const next = { ...prev };
+                                  delete next[it.id];
+                                  return next;
+                                })
+                              }
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              type="search"
+                              value={actualProductSearch[it.id] ?? ""}
+                              placeholder={tr.selectProduct}
+                              onChange={(e) =>
+                                setActualProductSearch((prev) => ({
+                                  ...prev,
+                                  [it.id]: e.target.value,
+                                }))
+                              }
+                              onBlur={async () => {
+                                const q = (actualProductSearch[it.id] ?? "").trim();
+                                if (q.length < 2) return;
+                                try {
+                                  const r = await fetch(
+                                    `${apiBaseUrl}/products?catalog=1&search=${encodeURIComponent(q)}&page=1&pageSize=8`,
+                                    { credentials: "include" },
+                                  );
+                                  if (!r.ok) return;
+                                  const data = (await r.json()) as {
+                                    items?: Array<{ id: string; name: string; sku: string | null }>;
+                                  };
+                                  setActualProductResults((prev) => ({
+                                    ...prev,
+                                    [it.id]: data.items ?? [],
+                                  }));
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                              className="w-full rounded border border-zinc-300 px-2 py-1 text-xs"
+                            />
+                            {(actualProductResults[it.id]?.length ?? 0) > 0 ? (
+                              <div className="max-h-24 overflow-y-auto rounded border border-zinc-200 bg-white">
+                                {actualProductResults[it.id]?.map((p) => (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    className="block w-full px-2 py-1 text-left text-xs hover:bg-zinc-50"
+                                    onClick={() => {
+                                      setActualProductByItemId((prev) => ({
+                                        ...prev,
+                                        [it.id]: p,
+                                      }));
+                                      setActualProductResults((prev) => ({
+                                        ...prev,
+                                        [it.id]: [],
+                                      }));
+                                    }}
+                                  >
+                                    {p.sku ? `${p.sku} · ` : ""}
+                                    {p.name}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -4365,6 +4507,14 @@ export function OrderModal({
                       pushToast("Оберіть кількість хоча б по одній позиції", "error");
                       return;
                     }
+                    if (returnReason === "WRONG_ITEM") {
+                      for (const row of items) {
+                        if (!actualProductByItemId[row.orderItemId]?.id) {
+                          pushToast("Для пересорту вкажіть фактичний товар по кожній позиції", "error");
+                          return;
+                        }
+                      }
+                    }
                     if (returnItemsPending && !returnTtnNumber.trim()) {
                       pushToast("Вкажіть номер ТТН", "error");
                       return;
@@ -4375,9 +4525,18 @@ export function OrderModal({
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                          items,
+                          items: items.map((row) => ({
+                            ...row,
+                            actualProductId:
+                              returnReason === "WRONG_ITEM"
+                                ? actualProductByItemId[row.orderItemId]?.id
+                                : undefined,
+                          })),
                           itemsPending: returnItemsPending,
                           ttnNumber: returnTtnNumber.trim() || undefined,
+                          reason: returnReason,
+                          replacementMode:
+                            returnReason === "WRONG_ITEM" ? replacementMode : undefined,
                         }),
                         credentials: "include",
                       });
@@ -4392,6 +4551,11 @@ export function OrderModal({
                       setReturnItemQtys({});
                       setReturnTtnNumber("");
                       setReturnItemsPending(false);
+                      setReturnReason("CUSTOMER_CHANGE");
+                      setReplacementMode("REPLACE_FIRST");
+                      setActualProductByItemId({});
+                      setActualProductSearch({});
+                      setActualProductResults({});
                       await Promise.all([refreshReturns(), refreshOrder()]);
                       onSaved?.();
                     } catch (e) {

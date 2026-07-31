@@ -30,13 +30,19 @@ describe("shouldRestartBackgroundTask", () => {
 
 describe("restart decision aligns with reconcileTrackingHealth", () => {
   it("shouldRestartBackground matches shouldRestartBackgroundTask", () => {
-    const health = reconcileTrackingHealth("background", false, false);
+    const health = reconcileTrackingHealth("background", false, false, {
+      requireRecentAccept: false,
+    });
     assert.equal(health.shouldRestartBackground, shouldRestartBackgroundTask("background", false));
     assert.equal(health.shouldRestartBackground, true);
   });
 
   it("healthy background task does not need restart", () => {
-    const health = reconcileTrackingHealth("background", true, false);
+    const now = Date.now();
+    const health = reconcileTrackingHealth("background", true, false, {
+      lastAcceptedAt: new Date(now).toISOString(),
+      nowMs: now,
+    });
     assert.equal(shouldRestartBackgroundTask("background", true), false);
     assert.equal(health.shouldRestartBackground, false);
     assert.equal(health.healthy, true);

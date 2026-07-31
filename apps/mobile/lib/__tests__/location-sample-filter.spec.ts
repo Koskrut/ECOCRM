@@ -40,4 +40,20 @@ describe("filterLocationSample", () => {
     assert.equal(result.accept, false);
     assert.equal(result.reason, "bad_accuracy");
   });
+
+  it("rejects same-timestamp jump beyond dedup (match backend)", () => {
+    const prev = sample(50.45, 30.52, 0, 20);
+    const next = sample(50.46, 30.53, 0, 20);
+    const result = filterLocationSample(prev, next);
+    assert.equal(result.accept, false);
+    assert.equal(result.reason, "teleport");
+  });
+
+  it("rejects older-timestamp jump beyond dedup (match backend)", () => {
+    const prev = sample(50.45, 30.52, 60, 20);
+    const next = sample(50.46, 30.53, 0, 20);
+    const result = filterLocationSample(prev, next);
+    assert.equal(result.accept, false);
+    assert.equal(result.reason, "teleport");
+  });
 });

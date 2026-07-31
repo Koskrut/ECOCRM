@@ -4,7 +4,36 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.129**.)_
+_(планируемые изменения после **0.2.130**.)_
+
+## [0.2.130] — 2026-07-31
+
+### Summary
+
+Патч **0.2.130**: mis-pick returns (пересорт) + replacement orders; GPS UA region filter & teleport reanchor; mobile session-auth on flush 401; stock upload column fix.
+
+### Added
+
+- **Mis-pick returns**: `ReturnReason` / `ReplacementMode` / `ReturnItemDisposition`; replacement child order; inbound/outbound checklist + waive; `ReturnModal` web; warehouse disposition UI.
+- **GPS filter**: UA bounding box (`out_of_region`), teleport cluster reanchor (`sanitizeGpsTrack`); backend + mobile parity.
+- **Mobile session-auth**: 401 flush blocks tracking until re-login; buffer keeps samples.
+- **Help center**: expanded CRM guides seed (returns / warehouse flows).
+
+### Changed
+
+- **Stock upload**: one Excel column → one warehouse (no sku/name column reuse).
+- **Catalog**: physical vs reserved qty tooltip per warehouse.
+- **Field shifts**: append samples + fuel/route geometry alignment with new GPS filter.
+
+### Fixed
+
+- **Order replacement**: `OrderSource` typing (CRM/STORE only).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.130`**.
+- **Миграция:** `20260731101500_order_return_mis_pick` — **`prisma migrate deploy`** до **`up`**.
+- **Mobile**: новый EAS build рекомендуется (GPS filter + session-auth).
 
 ## [0.2.129] — 2026-07-30
 

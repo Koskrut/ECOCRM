@@ -1,15 +1,21 @@
 /** How to handle a failed sample upload. */
-export type FlushErrorAction = "retry" | "enqueue_offline" | "discard_all" | "discard_batch";
+export type FlushErrorAction =
+  | "retry"
+  | "enqueue_offline"
+  | "discard_all"
+  | "discard_batch"
+  /** Keep buffer in place; require token refresh / re-login (Грибовская). */
+  | "auth_required";
 
 /**
  * Classify HTTP status from POST /field/shifts/:id/samples.
- * - 401: keep pending / offline (do not wipe buffer — token may refresh)
+ * - 401: keep pending, do NOT wipe / do NOT silent discard — force re-auth
  * - 404: shift gone → discard all
  * - 400: usually "shift not active" → discard this batch, clear local shift id
  */
 export function classifyFlushHttpStatus(status: number): FlushErrorAction {
   if (status === 401) {
-    return "enqueue_offline";
+    return "auth_required";
   }
   if (status === 404) {
     return "discard_all";

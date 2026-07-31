@@ -247,6 +247,9 @@ export class FieldFuelService {
     snapshot.trackKm = factGpsMetrics.distanceKm;
     snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
     snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
+    snapshot.filteredSampleCount = geometryBundle.factGps.quality.sampleCount;
+    snapshot.droppedReasons = geometryBundle.factGps.quality.droppedReasons ?? {};
+    snapshot.reanchorUsed = geometryBundle.factGps.quality.reanchorUsed ?? false;
     snapshot.routeAnchors = {
       startLabel: routeAnchors.startLabel,
       endLabel: routeAnchors.endLabel,

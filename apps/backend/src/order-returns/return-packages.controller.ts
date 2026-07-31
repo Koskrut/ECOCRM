@@ -14,6 +14,7 @@ import {
   AddReturnPackageItemsDto,
   CreateReturnPackageDto,
   ListReturnPackagesQueryDto,
+  UpdateReturnPackageDispositionsDto,
   UpdateReturnPackageTtnDto,
 } from "./dto/return-package.dto";
 import { ReturnPackagesService } from "./return-packages.service";
@@ -77,5 +78,14 @@ export class ReturnPackagesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.returnPackages.completeInspection(id, req.user);
+  }
+
+  @Patch(":id/dispositions")
+  updateDispositions(
+    @Param("id") id: string,
+    @Body() dto: UpdateReturnPackageDispositionsDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.returnPackages.updateDispositions(id, dto, req.user);
   }
 }

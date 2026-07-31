@@ -23,6 +23,10 @@ export type RouteGeometryQuality = {
   maxStitchGapKm?: number | null;
   /** True when a straight gap > 1 km remains after OSRM stitch attempts. */
   hasUnfilledGaps?: boolean;
+  /** Counts of samples dropped during sanitize (geo / teleport / …). */
+  droppedReasons?: Record<string, number>;
+  /** True when filter reanchored after a teleport cluster. */
+  reanchorUsed?: boolean;
 };
 
 export type RouteGeometryWaypoint = LatLng & {

@@ -7,8 +7,10 @@ import { formatKyivDateKey } from "./date";
 import {
   appendPendingSample,
   flushPendingSamples,
+  getLastAcceptedAt,
   getPendingCount,
   maybeFlushAfterAppend,
+  purgePendingSamples,
   STORAGE_KEYS,
   FLUSH_INTERVAL_MS,
   type PendingLocationSample,
@@ -36,6 +38,7 @@ import {
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
 import { reconcileTrackingHealth } from "./location-tracking-health";
+import { clearFlushBlockReason, getLastFlushBlockReason } from "./session-auth";
 import {
   clearPendingAdaptiveTier,
   getPendingAdaptiveTier,
@@ -55,7 +58,14 @@ export type { TrackingPermissionStatus };
 export { shouldMaintainOnAppState } from "./location-tracking-restart";
 export type { TrackingRestartReason } from "./location-tracking-restart";
 
-export { appendPendingSample, flushPendingSamples, getPendingCount, STORAGE_KEYS };
+export {
+  appendPendingSample,
+  flushPendingSamples,
+  getLastAcceptedAt,
+  getPendingCount,
+  purgePendingSamples,
+  STORAGE_KEYS,
+};
 export type { PendingLocationSample };
 
 export type TrackingMode = "background" | "foreground" | "none";
@@ -69,6 +79,8 @@ export type TrackingDiagnostics = {
   backgroundPermission: string | null;
   backgroundTaskStarted: boolean;
   healthy: boolean;
+  acceptStale?: boolean;
+  flushBlockReason?: string | null;
   lastRestartAt: string | null;
   restartCountToday: number;
   lastRestartReason: TrackingRestartReason | null;
@@ -101,12 +113,44 @@ function notifyListeners(result: Awaited<ReturnType<typeof processLocationUpdate
   }
 }
 
+function isMockLocation(pos: {
+  mocked?: boolean | null;
+  coords?: { latitude?: number; longitude?: number };
+}): boolean {
+  if (pos.mocked === true) return true;
+  // Android LocationObject.mocked; some builds expose isFromMockProvider via extras.
+  const anyPos = pos as { isFromMockProvider?: boolean };
+  return anyPos.isFromMockProvider === true;
+}
+
 async function handleRawLocation(input: {
   lat: number;
   lng: number;
   accuracyM?: number | null;
   clientRecordedAt: string;
+  mocked?: boolean;
 }): Promise<void> {
+  if (input.mocked) {
+    void appendErrorLog("location sample skipped: mock provider", "warn");
+    return;
+  }
+  // Client-side UA bbox — don't buffer Lima/emulator points (server would out_of_region).
+  if (
+    !Number.isFinite(input.lat) ||
+    !Number.isFinite(input.lng) ||
+    input.lat < 44 ||
+    input.lat > 53 ||
+    input.lng < 22 ||
+    input.lng > 41
+  ) {
+    void appendErrorLog("location sample skipped: out_of_region", "warn");
+    return;
+  }
+  // Stop feeding a blocked shift (wrong_day / 401 / dead-shift 400).
+  const block = getLastFlushBlockReason();
+  if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
+    return;
+  }
   const result = await processLocationUpdate(input);
   if (result.accepted && result.sample) {
     const count = await appendPendingSample(result.sample);
@@ -147,6 +191,7 @@ async function startForegroundWatch(tier: SamplingTier = DEFAULT_TIER): Promise<
       accuracyM:
         typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
       clientRecordedAt: new Date(pos.timestamp).toISOString(),
+      mocked: isMockLocation(pos),
     });
   });
   setForegroundSubscription(sub);
@@ -219,13 +264,23 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
   }
 }
 
-export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
+export async function startLocationTracking(
+  shiftId: string,
+  opts?: { graceAccept?: boolean },
+): Promise<TrackingMode> {
   try {
     setForegroundWatchStarter(startForegroundWatch);
     await registerFieldLocationTask();
     await resetLocationProcessorState();
+    clearFlushBlockReason();
+    const prevShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+    const isNewShift = prevShiftId !== shiftId;
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY, formatKyivDateKey());
+    // Grace only for a true new shift start — not auth-resume (would mask failed flush).
+    if (opts?.graceAccept !== false && isNewShift) {
+      await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
+    }
 
     const { foreground, background } = await requestTrackingPermissionsWithRationale();
     if (foreground !== "granted") {
@@ -292,6 +347,27 @@ export async function stopLocationTracking(): Promise<void> {
   }
 }
 
+/**
+ * Stop native GPS on session expiry without wiping buffer / shift id.
+ * After re-login, flushPendingSamples can still target the same shift.
+ */
+export async function pauseLocationTrackingKeepBuffer(): Promise<void> {
+  try {
+    stopFlushTimer();
+    await stopForegroundWatch();
+    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+      () => false,
+    );
+    if (started) {
+      await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
+    }
+    // Keep ACTIVE_SHIFT_ID + PENDING_SAMPLES; only mark mode none so UI/watchdogs idle.
+    await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+  } catch {
+    /* best-effort pause */
+  }
+}
+
 export async function resumeTrackingIfNeeded(
   shift: { id: string; trackingEnabled: boolean; status: string; date?: string } | null,
 ): Promise<TrackingMode> {
@@ -301,15 +377,19 @@ export async function resumeTrackingIfNeeded(
     }
     const todayKey = formatKyivDateKey();
     const shiftDayKey = shift.date?.slice(0, 10) ?? null;
+    // Stale ACTIVE shift from yesterday — do NOT keep writing samples (wrong_day loop).
+    // Caller (refresh) should end the shift; we only clear local binding.
     if (shiftDayKey && shiftDayKey !== todayKey) {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.ACTIVE_SHIFT_ID,
         STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
         STORAGE_KEYS.TRACKING_MODE,
       ]);
-      return startLocationTracking(shift.id);
+      await purgePendingSamples();
+      return "none";
     }
     const boundDay = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY);
+    // Local day rolled over but shift is still today (timezone edge) — rebind cleanly.
     if (boundDay && boundDay !== todayKey) {
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.ACTIVE_SHIFT_ID,
@@ -365,19 +445,30 @@ export async function getTrackingState(): Promise<{
 }
 
 export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth> {
-  const [state, perms, activeShiftId, backgroundTaskStarted, restartDiagnostics, batteryStatus] =
-    await Promise.all([
-      getTrackingState(),
-      getTrackingPermissionStatus(),
-      AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
-      Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
-      getTrackingRestartDiagnostics(),
-      readBatteryOptimizationStatus(),
-    ]);
+  const [
+    state,
+    perms,
+    activeShiftId,
+    backgroundTaskStarted,
+    restartDiagnostics,
+    batteryStatus,
+    lastAcceptedAt,
+  ] = await Promise.all([
+    getTrackingState(),
+    getTrackingPermissionStatus(),
+    AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
+    Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
+    getTrackingRestartDiagnostics(),
+    readBatteryOptimizationStatus(),
+    getLastAcceptedAt(),
+  ]);
   void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
   const foregroundWatchActive = !!getForegroundSubscription();
-  const health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive);
+  const health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive, {
+    lastAcceptedAt,
+    requireRecentAccept: !!activeShiftId && state.mode !== "none",
+  });
 
   return {
     mode: state.mode,
@@ -391,6 +482,8 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     backgroundTaskStarted,
     foregroundWatchActive,
     healthy: health.healthy,
+    acceptStale: health.acceptStale,
+    flushBlockReason: getLastFlushBlockReason(),
     lastRestartAt: restartDiagnostics.lastRestartAt,
     restartCountToday: restartDiagnostics.restartCountToday,
     lastRestartReason: restartDiagnostics.lastRestartReason,
@@ -462,13 +555,26 @@ async function ensureBackgroundTaskRunning(
   }
 
   void appendErrorLog(`${context}: background task dead, restarting`, "warn");
-  const result = await startLocationTracking(shiftId);
-  if (result === "background") {
-    void sendTrackingRestartEvent(shiftId, reason);
-  } else {
-    void appendErrorLog(`${context}: restart failed → ${result}`);
+  // Light restart — do NOT reset LAST_ACCEPTED_AT / processor (would mask stale GPS).
+  try {
+    await registerFieldLocationTask();
+    setForegroundWatchStarter(startForegroundWatch);
+    const taskStarted = await startBackgroundUpdates(getCurrentForegroundTier(), {
+      forceRestart: true,
+    });
+    if (taskStarted) {
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
+      startFlushTimer();
+      void sendTrackingRestartEvent(shiftId, reason);
+      return "background";
+    }
+    void appendErrorLog(`${context}: restart failed → none`);
+    return "none";
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    void appendErrorLog(`${context}: restart failed → ${message}`);
+    return "none";
   }
-  return result;
 }
 
 /** Keep foreground watch or background task alive after resume / screen unlock. */

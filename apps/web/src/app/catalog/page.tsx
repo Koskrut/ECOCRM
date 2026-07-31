@@ -46,14 +46,34 @@ function warehouseDisplayOrder(name: string): number {
   return idx >= 0 ? idx : WAREHOUSE_ORDER.length;
 }
 
+/** Physical on-hand qty (catalog columns). Orders/store keep using availableQty. */
+function stockAtWarehouse(
+  p: ProductCatalogItem,
+  warehouseName: string,
+): { qty: number; available: number; reserved: number } {
+  const w = p.stockByWarehouse?.find(
+    (x) => x.warehouseName.toLowerCase() === warehouseName.toLowerCase(),
+  );
+  const qty = w?.qty ?? 0;
+  const available = w?.availableQty ?? qty;
+  const reserved = Math.max(0, qty - available);
+  return { qty, available, reserved };
+}
+
 function qtyAtWarehouse(
   p: ProductCatalogItem,
   warehouseName: string,
 ): number {
-  const w = p.stockByWarehouse?.find(
-    (x) => x.warehouseName.toLowerCase() === warehouseName.toLowerCase(),
-  );
-  return w?.availableQty ?? w?.qty ?? 0;
+  return stockAtWarehouse(p, warehouseName).qty;
+}
+
+function stockTitleAtWarehouse(
+  p: ProductCatalogItem,
+  warehouseName: string,
+): string | undefined {
+  const { qty, available, reserved } = stockAtWarehouse(p, warehouseName);
+  if (reserved <= 0) return undefined;
+  return `физический: ${qty} / резерв: ${reserved} / доступно: ${available}`;
 }
 
 /** Первые два символа артикула (группа товара). */
@@ -950,6 +970,10 @@ function StockUploadByWarehousesModal({
           )}{" "}
           (допускаются заголовки вида «Остаток Днепр»).
         </p>
+        <p className="mb-4 text-sm text-amber-800">
+          Режим overwrite: для складов из файла остатки артикулов, которых нет в файле, обнуляются.
+          При повторе артикула в файле побеждает последняя строка (в т.ч. если она 0).
+        </p>
         <form onSubmit={handleSubmit}>
           <input
             type="file"
@@ -1014,6 +1038,15 @@ function StockUploadByWarehousesModal({
                 <p className="mt-2 text-amber-800">
                   В файле нет колонок для складов:{" "}
                   {result.unmatchedWarehouseNames.join(", ")}
+                </p>
+              )}
+              {result.duplicateSkus && result.duplicateSkus.length > 0 && (
+                <p className="mt-2 text-amber-800">
+                  Дубликаты артикулов (последняя строка побеждает):{" "}
+                  {result.duplicateSkus.slice(0, 15).join(", ")}
+                  {result.duplicateSkus.length > 15
+                    ? ` і ще ${result.duplicateSkus.length - 15}`
+                    : ""}
                 </p>
               )}
             </div>
@@ -1565,7 +1598,11 @@ function CatalogPageContent() {
                           <td className="px-4 py-3 text-zinc-600">{p.unit}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.basePrice}</td>
                           {sortedWarehouseNames.map((wh) => (
-                            <td key={wh} className="px-4 py-3 text-right tabular-nums text-zinc-700">
+                            <td
+                              key={wh}
+                              className="px-4 py-3 text-right tabular-nums text-zinc-700"
+                              title={stockTitleAtWarehouse(p, wh)}
+                            >
                               {qtyAtWarehouse(p, wh)}
                             </td>
                           ))}
@@ -1659,6 +1696,7 @@ function CatalogPageContent() {
                         onShowOnStoreChange={(checked) => handleShowOnStoreChange(p.id, checked)}
                         warehouseNames={sortedWarehouseNames}
                         qtyAtWarehouse={qtyAtWarehouse}
+                        stockTitleAtWarehouse={stockTitleAtWarehouse}
                         editButton={
                           <CatalogRowEditButton
                             productName={p.name}

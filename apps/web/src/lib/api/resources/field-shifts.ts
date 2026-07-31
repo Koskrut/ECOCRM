@@ -32,6 +32,8 @@ export type FieldTeamDevicePresence = {
 
 export type FieldTeamGpsStatus = "ok" | "stale" | "none" | "disabled";
 
+export type FieldTeamGpsWarning = "region_mismatch" | "empty_track" | null;
+
 export type FieldTeamTrackingRestartReason =
   | "os_kill"
   | "tier_change"
@@ -52,6 +54,7 @@ export type FieldShiftTeamItem = {
   currentVisit: FieldShiftCurrentVisit | null;
   device: FieldTeamDevicePresence | null;
   gpsStatus: FieldTeamGpsStatus;
+  gpsWarning?: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
 };
 
@@ -69,6 +72,8 @@ export type FieldTrackGeometry = {
   path: Array<{ lat: number; lng: number }>;
   source: "osrm" | "fallback" | "none";
   distanceKm: number | null;
+  droppedReasons?: Record<string, number>;
+  reanchorUsed?: boolean;
 };
 
 export const fieldShiftsApi = {

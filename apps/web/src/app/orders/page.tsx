@@ -16,6 +16,7 @@ import { FinancialKanban } from "./FinancialKanban";
 import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
 import { ReturnsKanban } from "./ReturnsKanban";
+import { ReturnModal } from "./ReturnModal";
 import { IncomingReturnPackageModal } from "./IncomingReturnPackageModal";
 import {
   OrdersFiltersPopover,
@@ -133,6 +134,7 @@ function OrdersPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const orderIdFromUrl = searchParams.get("orderId");
+  const returnIdFromUrl = searchParams.get("returnId");
 
   // ВАЖНО: apiHttp уже работает с baseURL="/api"
   const apiBaseUrl = "/api";
@@ -221,6 +223,8 @@ function OrdersPageContent() {
 
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [activeReturnId, setActiveReturnId] = useState<string | null>(null);
   const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
   const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
@@ -234,6 +238,7 @@ function OrdersPageContent() {
   useEffect(() => {
     const params = new URLSearchParams();
     if (orderIdFromUrl) params.set("orderId", orderIdFromUrl);
+    if (returnIdFromUrl) params.set("returnId", returnIdFromUrl);
     if (view !== "list") params.set("view", view);
     if (attention) params.set("attention", attention);
     if (attention === "stuck" && attentionPeriod !== "month") {
@@ -272,6 +277,7 @@ function OrdersPageContent() {
     amountFrom,
     amountTo,
     orderIdFromUrl,
+    returnIdFromUrl,
     ownerIdFilter,
     page,
     pathname,
@@ -301,6 +307,13 @@ function OrdersPageContent() {
       setOrderModalOpen(true);
     }
   }, [orderIdFromUrl]);
+
+  useEffect(() => {
+    if (returnIdFromUrl) {
+      setActiveReturnId(returnIdFromUrl);
+      setReturnModalOpen(true);
+    }
+  }, [returnIdFromUrl]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -440,11 +453,33 @@ function OrdersPageContent() {
   }, [ttnHintOrderId]);
 
   const openExistingOrder = (id: string) => {
+    setReturnModalOpen(false);
+    setActiveReturnId(null);
     setActiveOrderId(id);
     setOrderModalOpen(true);
     const params = new URLSearchParams(searchParams.toString());
     params.set("orderId", id);
+    params.delete("returnId");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const openReturn = (id: string) => {
+    setActiveReturnId(id);
+    setReturnModalOpen(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("returnId", id);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
+
+  const closeReturnModal = () => {
+    setReturnModalOpen(false);
+    setActiveReturnId(null);
+    setReturnsRefreshKey((k) => k + 1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("returnId");
+    router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, {
+      scroll: false,
+    });
   };
 
   const openNewOrder = async () => {
@@ -706,6 +741,7 @@ function OrdersPageContent() {
         {view === "returns" ? (
           <ReturnsKanban
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
+            onOpenReturn={(returnId) => openReturn(returnId)}
             refreshKey={returnsRefreshKey}
             onRegisterIncoming={() => setShowIncomingReturnPackage(true)}
           />
@@ -1084,6 +1120,14 @@ function OrdersPageContent() {
         </button>
       ) : null}
 
+      {returnModalOpen && activeReturnId ? (
+        <ReturnModal
+          returnId={activeReturnId}
+          onClose={closeReturnModal}
+          onSaved={() => setReturnsRefreshKey((k) => k + 1)}
+          onOpenOrder={(id) => openExistingOrder(id)}
+        />
+      ) : null}
       {orderModalOpen && activeOrderId && (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
