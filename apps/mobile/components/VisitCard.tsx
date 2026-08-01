@@ -5,6 +5,7 @@ import { Text } from "@/components/Themed";
 import { AnimatedListItem } from "@/components/ui/AnimatedListItem";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { useTheme } from "@/lib/design/theme-context";
+import { visitStatusLabel } from "@/lib/labels";
 import { visitLabel, visitTimeRange } from "@/lib/visit-utils";
 import type { VisitSummary } from "@/types/crm";
 
@@ -39,7 +40,7 @@ export function VisitCard({ visit, onPress, highlight, index = 0, ownerLabel }: 
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
               {visitTimeRange(visit)}
             </Text>
-            <StatusPill label={visit.status} tone="info" />
+            <StatusPill label={visitStatusLabel(visit.status)} tone="info" />
           </View>
           {ownerLabel ? (
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>

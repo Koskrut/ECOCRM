@@ -341,6 +341,13 @@ export const uk = {
     NOT_RELEVANT: "Не релевантно",
     FAILED: "Неуспішно",
   },
+  visitStatus: {
+    SCHEDULED: "Запланований",
+    IN_PROGRESS: "В процесі",
+    DONE: "Завершено",
+    CANCELED: "Скасовано",
+    PLANNED_UNASSIGNED: "Без виконавця",
+  },
   map: {
     title: "Карта",
     planned: "План",
@@ -496,6 +503,15 @@ export const uk = {
     payout: "Виплата",
     payoutSourceGps: "GPS-трек",
     payoutSourceVisits: "порядок візитів",
+    metricsSource: {
+      track: "трек",
+      visits: "візити",
+      osrm: "OSRM",
+      google: "Google",
+      raw_gps: "сирий GPS",
+      fallback: "приблизно",
+      none: "",
+    },
     trackGps: "GPS-трек",
     trackGpsRef: "довідково",
     visitRoute: "Маршрут по візитах",
@@ -578,6 +594,7 @@ export const uk = {
     callbackPlaceholder: "Дата передзвону (ISO або текст)",
     playbook: "Скрипт",
     callFallback: "дзвінок",
+    missed: "Пропущений",
   },
   workQueue: {
     attention: "Увага",

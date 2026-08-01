@@ -23,6 +23,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+import { orderDisplayStatusLabel } from "@/lib/labels";
 import type { Company, CompanyAddress, Contact, Order } from "@/types/crm";
 
 function Field({
@@ -201,8 +202,7 @@ export default function CompanyDetailScreen() {
                   {o.orderNumber ? `#${o.orderNumber}` : t("orders.orderFallback")}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                  {o.status}
-                  {o.orderStage ? ` · ${o.orderStage}` : ""}
+                  {orderDisplayStatusLabel(o.orderStage, o.status)}
                 </Text>
               </Card>
             </AnimatedListItem>
