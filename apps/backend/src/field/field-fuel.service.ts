@@ -14,10 +14,12 @@ import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import type { FuelCalculationSnapshot, FuelVisitSnapshotRow } from "./field-fuel.types";
 import { resolveTrackMetricsSource } from "./field-fuel.types";
+import { estimateFuelFromKm } from "./field-fuel.estimate";
 import type { FuelRefuelTotals } from "./field-fuel-refuels.types";
 import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
 import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner-scope";
+import { assessPlannedKm } from "../visits/route-routing.util";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -73,7 +75,10 @@ export class FieldFuelService {
       where: {
         ownerId,
         status: VisitStatus.DONE,
-        startsAt: { gte: dayStart, lte: dayEnd },
+        OR: [
+          { completedAt: { gte: dayStart, lte: dayEnd } },
+          { completedAt: null, startsAt: { gte: dayStart, lte: dayEnd } },
+        ],
       },
       include: {
         contact: { select: { firstName: true, lastName: true, lat: true, lng: true } },
@@ -160,19 +165,7 @@ export class FieldFuelService {
     compensationKm: number | null,
     profile: { fuelLitersPer100km: number; fuelPricePerLiter: Prisma.Decimal | null },
   ): { litersEstimated: number | null; amountEstimated: Prisma.Decimal | null } {
-    if (compensationKm == null || !Number.isFinite(compensationKm)) {
-      return { litersEstimated: null, amountEstimated: null };
-    }
-    const liters = (compensationKm * profile.fuelLitersPer100km) / 100;
-    if (!Number.isFinite(liters)) {
-      return { litersEstimated: null, amountEstimated: null };
-    }
-    const litersRounded = Math.round(liters * 1000) / 1000;
-    if (!profile.fuelPricePerLiter) {
-      return { litersEstimated: litersRounded, amountEstimated: null };
-    }
-    const amount = new Prisma.Decimal(litersRounded).mul(profile.fuelPricePerLiter);
-    return { litersEstimated: litersRounded, amountEstimated: amount };
+    return estimateFuelFromKm(compensationKm, profile);
   }
 
   private async getOrCreateProfile(ownerId: string) {
@@ -232,10 +225,23 @@ export class FieldFuelService {
         ? factGpsMetrics.distanceKm
         : factVisitsMetrics.distanceKm;
     const actualKm = compensationKm;
-    const plannedKm = plannedMetrics.distanceKm;
+    const plannedKmRaw = plannedMetrics.distanceKm;
+    const plannedAssessment = assessPlannedKm({
+      plannedKm: plannedKmRaw,
+      factKm: compensationKm,
+    });
+    const plannedKm = plannedAssessment.plannedKm;
     const factMetrics = factVisitsMetrics;
+    // Persist a stable source label even when visit metrics are "none" but we still
+    // have compensation km from a soft GPS payout (or liters-only estimate).
     const metricsSource =
-      compensationFactKind === "fact_gps" ? "track" : factVisitsMetrics.source;
+      compensationFactKind === "fact_gps"
+        ? "track"
+        : factVisitsMetrics.source !== "none"
+          ? factVisitsMetrics.source
+          : compensationKm != null
+            ? "fallback"
+            : "none";
     const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
@@ -247,9 +253,13 @@ export class FieldFuelService {
     snapshot.trackKm = factGpsMetrics.distanceKm;
     snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
     snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
+    snapshot.compensationIneligibleReason =
+      geometryBundle.compensationIneligibleReason ?? null;
+    snapshot.coverageRatio = geometryBundle.factGps.quality.coverageRatio ?? null;
     snapshot.filteredSampleCount = geometryBundle.factGps.quality.sampleCount;
     snapshot.droppedReasons = geometryBundle.factGps.quality.droppedReasons ?? {};
     snapshot.reanchorUsed = geometryBundle.factGps.quality.reanchorUsed ?? false;
+    snapshot.plannedKmDegraded = plannedAssessment.degraded;
     snapshot.routeAnchors = {
       startLabel: routeAnchors.startLabel,
       endLabel: routeAnchors.endLabel,
@@ -260,45 +270,28 @@ export class FieldFuelService {
 
     const { litersEstimated, amountEstimated } = this.estimateFuel(compensationKm, profile);
 
-    const report = await this.prisma.fuelDayReport.upsert({
-      where: { ownerId_date: { ownerId, date } },
-      create: {
-        ownerId,
-        date,
-        shiftId: dayShift?.id ?? undefined,
-        plannedKm: plannedKm ?? undefined,
-        actualKm: actualKm ?? undefined,
-        compensationKm: compensationKm ?? undefined,
-        litersEstimated: litersEstimated ?? undefined,
-        amountEstimated: amountEstimated ?? undefined,
-        metricsSource,
-        visitCount,
-        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-        compensationStatus: FuelCompensationStatus.DRAFT,
-      },
-      update: {
-        shiftId: dayShift?.id ?? undefined,
-        plannedKm: plannedKm ?? undefined,
-        actualKm: actualKm ?? undefined,
-        compensationKm: compensationKm ?? undefined,
-        litersEstimated: litersEstimated ?? undefined,
-        amountEstimated: amountEstimated ?? undefined,
-        metricsSource,
-        visitCount,
-        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-      },
-    });
-
-    if (dayShift && plannedKm != null) {
-      await this.prisma.fieldShift.update({
-        where: { id: dayShift.id },
-        data: { plannedDistanceKm: plannedKm },
-      });
-    }
-
     const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors);
     if (geometryBundle.factGps.quality.degradedReason === "gps_partial_coverage") {
       warnings.push("gps_partial_coverage");
+    }
+    for (const w of geometryBundle.compensationWarnings ?? []) {
+      const softCode =
+        w === "gps_low_coverage"
+          ? "gps_low_coverage_partial_payout"
+          : w === "gps_ended_before_last_visit"
+            ? "gps_ended_early_partial_payout"
+            : w;
+      if (!warnings.includes(softCode)) warnings.push(softCode);
+    }
+    if (plannedAssessment.warning && !warnings.includes(plannedAssessment.warning)) {
+      warnings.push(plannedAssessment.warning);
+    }
+    if (
+      litersEstimated != null &&
+      amountEstimated == null &&
+      (profile.fuelPricePerLiter == null || Number(profile.fuelPricePerLiter) <= 0)
+    ) {
+      warnings.push("fuel_price_missing_for_uah_estimate");
     }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source !== "none") {
       const ineligibleReason = geometryBundle.compensationIneligibleReason;
@@ -314,13 +307,52 @@ export class FieldFuelService {
         warnings.push("gps_track_too_short");
       } else if (geometryBundle.factGps.quality.degraded) {
         warnings.push("gps_track_degraded");
-      } else {
+      } else if (ineligibleReason) {
         warnings.push("gps_track_ineligible");
       }
     }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source === "none") {
       warnings.push("gps_track_unavailable");
     }
+    snapshot.warnings = [...warnings];
+
+    const report = await this.prisma.fuelDayReport.upsert({
+      where: { ownerId_date: { ownerId, date } },
+      create: {
+        ownerId,
+        date,
+        shiftId: dayShift?.id ?? undefined,
+        plannedKm: plannedKm ?? undefined,
+        actualKm: actualKm ?? undefined,
+        compensationKm: compensationKm ?? undefined,
+        litersEstimated: litersEstimated ?? undefined,
+        // Always persist amount when estimate produced it (incl. metricsSource=none paths).
+        amountEstimated: amountEstimated,
+        metricsSource,
+        visitCount,
+        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        compensationStatus: FuelCompensationStatus.DRAFT,
+      },
+      update: {
+        shiftId: dayShift?.id ?? undefined,
+        plannedKm: plannedKm,
+        actualKm: actualKm,
+        compensationKm: compensationKm,
+        litersEstimated: litersEstimated,
+        amountEstimated: amountEstimated,
+        metricsSource,
+        visitCount,
+        calculationSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    if (dayShift && plannedKm != null && !plannedAssessment.degraded) {
+      await this.prisma.fieldShift.update({
+        where: { id: dayShift.id },
+        data: { plannedDistanceKm: plannedKm },
+      });
+    }
+
     const refuelData = await this.refuels.listForDay(actor, dateStr, ownerId);
     return {
       report,

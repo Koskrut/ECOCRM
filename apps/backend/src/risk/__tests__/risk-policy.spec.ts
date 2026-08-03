@@ -135,4 +135,38 @@ describe("RiskPolicyService", () => {
     assert.equal(result.outcome, "REQUIRE_APPROVAL");
     assert.equal(result.approvalSatisfied, true);
   });
+
+  it("ship gate allows READY_TO_SHIP without TTN for pickup", async () => {
+    const svc = makePolicyService({});
+    const result = await svc.evaluateShipGate({
+      orderId: "o1",
+      hasTtn: false,
+      orderStage: "READY_TO_SHIP",
+      deliveryMethod: "PICKUP",
+    });
+    assert.equal(result.outcome, "ALLOW");
+  });
+
+  it("ship gate blocks READY_TO_SHIP without TTN for Nova Poshta", async () => {
+    const svc = makePolicyService({});
+    const result = await svc.evaluateShipGate({
+      orderId: "o1",
+      hasTtn: false,
+      orderStage: "READY_TO_SHIP",
+      deliveryMethod: "NOVA_POSHTA",
+    });
+    assert.equal(result.outcome, "BLOCK");
+    assert.equal(result.reasons[0]?.code, "MISSING_TTN");
+  });
+
+  it("ship gate allows READY_TO_SHIP with TTN for Nova Poshta", async () => {
+    const svc = makePolicyService({});
+    const result = await svc.evaluateShipGate({
+      orderId: "o1",
+      hasTtn: true,
+      orderStage: "READY_TO_SHIP",
+      deliveryMethod: "NOVA_POSHTA",
+    });
+    assert.equal(result.outcome, "ALLOW");
+  });
 });

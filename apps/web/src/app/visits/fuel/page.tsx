@@ -57,14 +57,29 @@ function warningText(code: string): string | null {
   if (code === "gps_low_coverage") {
     return "Покриття GPS нижче 70% — для виплати використано маршрут по візитах.";
   }
+  if (code === "gps_low_coverage_partial_payout") {
+    return "Покриття GPS часткове — компенсацію пораховано по GPS-треку (перевірте день).";
+  }
   if (code === "gps_ended_before_last_visit") {
     return "GPS-трек обірвався до останнього візиту — для виплати використано маршрут по візитах.";
+  }
+  if (code === "gps_ended_early_partial_payout") {
+    return "GPS-трек обірвався раніше — компенсацію все одно пораховано по доступному треку.";
   }
   if (code === "gps_implausibly_short_vs_visits") {
     return "GPS-км значно менші за маршрут по візитах — для виплати використано факт по візитах.";
   }
   if (code === "gps_implausibly_long_vs_visits") {
     return "GPS-км значно більші за маршрут по візитах — для виплати використано факт по візитах.";
+  }
+  if (code === "planned_km_implausibly_large") {
+    return "Плановий пробіг виглядає помилковим (>500 км) — не орієнтуйтесь на нього як на норму.";
+  }
+  if (code === "planned_km_vs_fact_outlier") {
+    return "Плановий пробіг у рази більший за факт — план позначено як підозрілий.";
+  }
+  if (code === "fuel_price_missing_for_uah_estimate") {
+    return "Вкажіть ціну грн/л у профілі, щоб порахувати оцінку компенсації в ₴. Км уже збережено.";
   }
   if (code === "report_stale") {
     return "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».";
@@ -117,6 +132,7 @@ function ProfileBar({
 }) {
   const price =
     profile.fuelPricePerLiter != null ? Number(profile.fuelPricePerLiter) : null;
+  // Price is manager-set for compensation ₴ estimate only — never auto-filled from receipts.
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm">
       <div className="text-zinc-700">
@@ -126,9 +142,15 @@ function ProfileBar({
         {price != null && Number.isFinite(price) ? (
           <>
             <span className="text-zinc-400"> · </span>
-            {price.toLocaleString("uk-UA")} грн/л
+            {price.toLocaleString("uk-UA")} грн/л{" "}
+            <span className="text-zinc-400">(оцінка компенсації)</span>
           </>
-        ) : null}
+        ) : (
+          <>
+            <span className="text-zinc-400"> · </span>
+            <span className="text-amber-700">ціна для оцінки ₴ не задана</span>
+          </>
+        )}
       </div>
       <button
         type="button"
@@ -326,14 +348,6 @@ function DayDetailPanel({
 
       {data ? (
         <>
-          <p className="mb-3 text-xs text-zinc-600">
-            План — збережений маршрут. До виплати —{" "}
-            {data.compensationFactKind === "fact_gps"
-              ? "фактичний GPS-трек (≥ 0.5 км, ≥ 2 точки)"
-              : "факт по порядку завершених візитів"}
-            .
-          </p>
-
           {data.routeAnchors?.usesSettingsAnchors ? (
             <p className="mb-3 rounded border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
               Маршрут:{" "}
@@ -356,54 +370,72 @@ function DayDetailPanel({
             </ul>
           ) : null}
 
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-zinc-200 bg-white p-3">
-              <div className="text-xs font-medium uppercase text-zinc-500">Пробіг (виплата)</div>
-              <div className="mt-1 text-xl font-semibold text-zinc-900">
-                {r?.compensationKm != null ? `${r.compensationKm} км` : "—"}
+          <section className="mb-4 rounded-xl border border-zinc-200 bg-white p-4">
+            <h3 className="text-sm font-semibold text-zinc-900">A. Компенсація (км)</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Оцінка за пробіг особистого авто (км × л/100км × ціна в профілі). Не сума чеків.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+                <div className="text-xs font-medium uppercase text-emerald-800">Компенсація км</div>
+                <div className="mt-1 text-xl font-semibold text-zinc-900">
+                  {r?.compensationKm != null ? `${r.compensationKm} км` : "—"}
+                </div>
+                <div className="text-sm text-zinc-600">
+                  {r?.litersEstimated != null ? `${r.litersEstimated} л (оцінка)` : "—"}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  {data.compensationFactKind === "fact_gps" ? "GPS-трек" : "порядок візитів"}
+                  {r?.metricsSource ? ` · ${r.metricsSource}` : ""}
+                </div>
               </div>
-              <div className="text-sm text-zinc-600">
-                {r?.litersEstimated != null ? `${r.litersEstimated} л` : "—"}
+              <div
+                className={`rounded-lg border p-3 ${
+                  (data.warnings ?? []).some((w) => w.startsWith("planned_km_"))
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-zinc-200 bg-zinc-50"
+                }`}>
+                <div className="text-xs font-medium uppercase text-zinc-500">План (окремо)</div>
+                <div className="mt-1 text-xl font-semibold text-zinc-700">
+                  {r?.plannedKm != null ? `${r.plannedKm} км` : "—"}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  {(data.warnings ?? []).some((w) => w.startsWith("planned_km_"))
+                    ? "підозрілий план — не норма"
+                    : data.plannedMetrics.source !== "none"
+                      ? data.plannedMetrics.source
+                      : "—"}
+                </div>
               </div>
-              <div className="text-xs text-zinc-400">
-                {data.compensationFactKind === "fact_gps" ? "GPS-трек" : "порядок візитів"}
-                {r?.metricsSource ? ` · ${r.metricsSource}` : ""}
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-medium uppercase text-zinc-500">Факт (деталізація)</div>
+                <div className="mt-1 flex flex-col gap-1 text-sm text-zinc-700">
+                  <span>
+                    GPS: {data.factGpsMetrics?.distanceKm ?? "—"} км
+                    {data.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
+                      ? ` (${data.factGpsMetrics.source})`
+                      : ""}
+                  </span>
+                  <span>
+                    Візити:{" "}
+                    {data.factVisitsMetrics?.distanceKm ?? data.factMetrics.distanceKm ?? "—"} км
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                <div className="text-xs font-medium uppercase text-emerald-800">Оцінка ₴</div>
+                <div className="mt-1 text-xl font-semibold text-emerald-900">
+                  {formatMoney(r?.amountEstimated)}
+                </div>
+                <div className="text-sm text-emerald-800">
+                  {fuelStatusLabel(r?.compensationStatus ?? "DRAFT")}
+                </div>
+                {r?.amountEstimated == null && r?.compensationKm != null ? (
+                  <div className="mt-1 text-xs text-amber-800">Вкажіть ціну в профілі для оцінки ₴</div>
+                ) : null}
               </div>
             </div>
-            <div className="rounded-lg border border-zinc-200 bg-white p-3">
-              <div className="text-xs font-medium uppercase text-zinc-500">План</div>
-              <div className="mt-1 text-xl font-semibold text-zinc-700">
-                {r?.plannedKm != null ? `${r.plannedKm} км` : "—"}
-              </div>
-              <div className="text-xs text-zinc-400">
-                {data.plannedMetrics.source !== "none" ? data.plannedMetrics.source : "—"}
-              </div>
-            </div>
-            <div className="rounded-lg border border-zinc-200 bg-white p-3">
-              <div className="text-xs font-medium uppercase text-zinc-500">Факт (деталізація)</div>
-              <div className="mt-1 flex flex-wrap gap-4 text-sm text-zinc-700">
-                <span>
-                  GPS: {data.factGpsMetrics?.distanceKm ?? "—"} км
-                  {data.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
-                    ? ` (${data.factGpsMetrics.source})`
-                    : ""}
-                </span>
-                <span>
-                  Візити: {data.factVisitsMetrics?.distanceKm ?? data.factMetrics.distanceKm ?? "—"}{" "}
-                  км
-                </span>
-              </div>
-            </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-              <div className="text-xs font-medium uppercase text-emerald-800">До виплати</div>
-              <div className="mt-1 text-xl font-semibold text-emerald-900">
-                {formatMoney(r?.amountEstimated)}
-              </div>
-              <div className="text-sm text-emerald-800">
-                {fuelStatusLabel(r?.compensationStatus ?? "DRAFT")}
-              </div>
-            </div>
-          </div>
+          </section>
 
           {r?.compensationStatus === "DRAFT" ? (
             <div className="mb-4">
@@ -421,36 +453,41 @@ function DayDetailPanel({
             </p>
           ) : null}
 
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="text-sm font-semibold text-zinc-800">Заправки</h3>
-              {data.refuelTotals ? (
+          <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900">B. Чеки заправок</h3>
                 <p className="text-xs text-zinc-500">
-                  {data.refuelTotals.count} заправок · {data.refuelTotals.liters} л ·{" "}
-                  {formatMoney(data.refuelTotals.amount)}
+                  Реальні витрати з чека (фото + літри + сума). Окремо від компенсації км.
                 </p>
+                {data.refuelTotals ? (
+                  <p className="mt-1 text-xs text-zinc-600">
+                    {data.refuelTotals.count} заправок · {data.refuelTotals.liters} л ·{" "}
+                    {formatMoney(data.refuelTotals.amount)}
+                  </p>
+                ) : null}
+              </div>
+              {canManageRefuels ? (
+                <button
+                  type="button"
+                  onClick={() => setRefuelModalOpen(true)}
+                  className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
+                  Заправка
+                </button>
               ) : null}
             </div>
-            {canManageRefuels ? (
-              <button
-                type="button"
-                onClick={() => setRefuelModalOpen(true)}
-                className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700">
-                Заправка
-              </button>
-            ) : null}
-          </div>
-          <FuelRefuelList
-            items={data.refuels ?? []}
-            canDelete={canManageRefuels}
-            onDelete={async (id) => {
-              await fieldFuelApi.deleteRefuel(id);
-              await load();
-              onRefreshMonth();
-            }}
-          />
+            <FuelRefuelList
+              items={data.refuels ?? []}
+              canDelete={canManageRefuels}
+              onDelete={async (id) => {
+                await fieldFuelApi.deleteRefuel(id);
+                await load();
+                onRefreshMonth();
+              }}
+            />
+          </section>
 
-          <h3 className="mb-2 mt-6 text-sm font-semibold text-zinc-800">Маршрут за фактом (порядок завершення)</h3>
+          <h3 className="mb-2 mt-2 text-sm font-semibold text-zinc-800">Маршрут за фактом (порядок завершення)</h3>
           <VisitBreakdownList rows={data.breakdown} />
         </>
       ) : null}
@@ -573,6 +610,7 @@ export default function VisitsFuelPage() {
   const [err, setErr] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [onlyWithCompensationKm, setOnlyWithCompensationKm] = useState(false);
 
   const { from, to } = useMemo(() => monthBounds(monthKey), [monthKey]);
   const showOwnerFilter = role === "ADMIN" || role === "LEAD";
@@ -642,7 +680,9 @@ export default function VisitsFuelPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold text-zinc-900">{strings.nav.visitsFuel}</h1>
-            <p className="text-sm text-zinc-500">Компенсація за пробіг по завершених візитах</p>
+            <p className="text-sm text-zinc-500">
+              Компенсація км (оцінка) та чеки заправок — окремі контури
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -682,6 +722,14 @@ export default function VisitsFuelPage() {
               />
             </div>
           ) : null}
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={onlyWithCompensationKm}
+              onChange={(e) => setOnlyWithCompensationKm(e.target.checked)}
+            />
+            Лише з compensation km
+          </label>
           <button
             type="button"
             disabled={exporting}
@@ -771,13 +819,31 @@ export default function VisitsFuelPage() {
               </tr>
             </thead>
             <tbody>
-              {(range?.days ?? []).map((d) => (
+              {(range?.days ?? [])
+                .filter((d) =>
+                  onlyWithCompensationKm
+                    ? d.report.compensationKm != null && Number(d.report.compensationKm) > 0
+                    : true,
+                )
+                .map((d) => {
+                const dayWarnings = d.warnings ?? [];
+                const hasWarn =
+                  dayWarnings.length > 0 ||
+                  Boolean(d.report.calculationSnapshot?.plannedKmDegraded);
+                return (
                 <tr
                   key={d.date}
-                  className="cursor-pointer border-t border-zinc-50 hover:bg-emerald-50/50"
+                  className={`cursor-pointer border-t border-zinc-50 hover:bg-emerald-50/50 ${
+                    hasWarn ? "bg-amber-50/40" : ""
+                  }`}
                   onClick={() => openDay(d.date)}>
                   <td className="px-3 py-2 font-medium text-zinc-900">
                     {DateTime.fromISO(d.date).setZone(CRM_TIME_ZONE).toFormat("dd.MM")}
+                    {hasWarn ? (
+                      <span className="ml-1 text-xs text-amber-700" title={dayWarnings.join(", ")}>
+                        ⚠
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2">{d.report.visitCount ?? "—"}</td>
                   <td className="px-3 py-2">{d.report.compensationKm ?? "—"}</td>
@@ -786,7 +852,7 @@ export default function VisitsFuelPage() {
                   <td className="px-3 py-2 text-xs text-zinc-600">
                     {d.refuelCount ? (
                       <>
-                        ⛽ {d.refuelCount}
+                        {d.refuelCount}
                         {d.refuelAmountTotal != null && d.refuelAmountTotal > 0
                           ? ` · ${d.refuelAmountTotal.toLocaleString("uk-UA")} грн`
                           : ""}
@@ -799,7 +865,8 @@ export default function VisitsFuelPage() {
                     {fuelStatusLabel(d.report.compensationStatus)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {!loading && (range?.days.length ?? 0) === 0 ? (

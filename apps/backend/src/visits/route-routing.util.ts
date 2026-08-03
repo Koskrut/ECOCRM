@@ -132,8 +132,7 @@ export type TrackCompensationEligibility = {
   reason: string | null;
 };
 
-/** Whether a day's GPS track qualifies for payout (v2 policy). */
-export function isTrackEligibleForCompensation(opts: {
+export type TrackCompensationInput = {
   hasTrackingEnabledShift: boolean;
   filteredSampleCount: number;
   rawPolylineDistanceKm: number | null;
@@ -150,7 +149,12 @@ export function isTrackEligibleForCompensation(opts: {
   snappedTrackDistanceKm?: number | null;
   /** fact_visits OSRM distance for the same day. */
   visitRouteDistanceKm?: number | null;
-}): TrackCompensationEligibility {
+};
+
+/** Whether a day's GPS track qualifies for payout (v2 policy). */
+export function isTrackEligibleForCompensation(
+  opts: TrackCompensationInput,
+): TrackCompensationEligibility {
   if (!opts.hasTrackingEnabledShift) {
     return { eligible: false, reason: "no_tracking_shift" };
   }
@@ -198,6 +202,110 @@ export function isTrackEligibleForCompensation(opts: {
   }
 
   return { eligible: true, reason: null };
+}
+
+/** Soft reasons: track is usable for payout when visits cannot pay (Hrybovska-like). */
+const GPS_SOFT_INELIGIBLE = new Set([
+  "gps_low_coverage",
+  "gps_ended_before_last_visit",
+]);
+
+function trackKmUsable(opts: TrackCompensationInput): boolean {
+  if (!opts.hasTrackingEnabledShift) return false;
+  if (opts.filteredSampleCount < MIN_TRACK_COMPENSATION_SAMPLES) return false;
+  const raw = opts.rawPolylineDistanceKm;
+  if (raw == null || !Number.isFinite(raw) || raw < MIN_TRACK_COMPENSATION_KM) return false;
+  const snapped = opts.snappedTrackDistanceKm;
+  if (snapped != null && Number.isFinite(snapped) && snapped < MIN_TRACK_COMPENSATION_KM) {
+    return false;
+  }
+  return true;
+}
+
+function visitsKmUsable(visitRouteDistanceKm: number | null | undefined): boolean {
+  return (
+    visitRouteDistanceKm != null &&
+    Number.isFinite(visitRouteDistanceKm) &&
+    visitRouteDistanceKm >= MIN_TRACK_COMPENSATION_KM
+  );
+}
+
+export type CompensationFactSelection = {
+  kind: "fact_gps" | "fact_visits";
+  /** Set when kind is fact_visits due to GPS ineligibility. */
+  ineligibleReason: string | null;
+  /** Soft GPS issues that still allow fact_gps payout. */
+  warnings: string[];
+};
+
+/**
+ * Pick payout source. Soft GPS failures (low coverage / ended early) still pay
+ * fact_gps when visits cannot (no/too-short visit route) — Hrybovska 31.07.
+ * When visits can pay, keep falling back to fact_visits (Gumenyuk).
+ */
+export function selectCompensationFactKind(
+  opts: TrackCompensationInput,
+): CompensationFactSelection {
+  const eligibility = isTrackEligibleForCompensation(opts);
+  if (eligibility.eligible) {
+    return { kind: "fact_gps", ineligibleReason: null, warnings: [] };
+  }
+
+  const reason = eligibility.reason;
+  const trackOk = trackKmUsable(opts);
+  const visitsOk = visitsKmUsable(opts.visitRouteDistanceKm);
+
+  if (trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason) && !visitsOk) {
+    return { kind: "fact_gps", ineligibleReason: null, warnings: [reason] };
+  }
+
+  if (
+    trackOk &&
+    visitsOk &&
+    reason != null &&
+    GPS_SOFT_INELIGIBLE.has(reason)
+  ) {
+    const gpsKm =
+      opts.snappedTrackDistanceKm != null && Number.isFinite(opts.snappedTrackDistanceKm)
+        ? opts.snappedTrackDistanceKm
+        : (opts.rawPolylineDistanceKm ?? 0);
+    if (gpsKm >= (opts.visitRouteDistanceKm ?? 0)) {
+      return { kind: "fact_gps", ineligibleReason: null, warnings: [reason] };
+    }
+  }
+
+  return {
+    kind: "fact_visits",
+    ineligibleReason: reason,
+    warnings: [],
+  };
+}
+
+/** Planned km above this (or > 3× fact) is treated as garbage plan (Bondarenko). */
+export const MAX_SANE_PLANNED_KM = 500;
+export const PLANNED_VS_FACT_MAX_RATIO = 3;
+
+export function assessPlannedKm(opts: {
+  plannedKm: number | null | undefined;
+  factKm: number | null | undefined;
+}): { plannedKm: number | null; degraded: boolean; warning: string | null } {
+  const planned = opts.plannedKm;
+  if (planned == null || !Number.isFinite(planned)) {
+    return { plannedKm: null, degraded: false, warning: null };
+  }
+  if (planned > MAX_SANE_PLANNED_KM) {
+    return { plannedKm: planned, degraded: true, warning: "planned_km_implausibly_large" };
+  }
+  const fact = opts.factKm;
+  if (
+    fact != null &&
+    Number.isFinite(fact) &&
+    fact >= MIN_TRACK_COMPENSATION_KM &&
+    planned > fact * PLANNED_VS_FACT_MAX_RATIO
+  ) {
+    return { plannedKm: planned, degraded: true, warning: "planned_km_vs_fact_outlier" };
+  }
+  return { plannedKm: planned, degraded: false, warning: null };
 }
 
 /**

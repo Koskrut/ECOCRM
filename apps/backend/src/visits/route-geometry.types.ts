@@ -57,4 +57,6 @@ export type RouteGeometryBundle = {
   compensationFactKind: "fact_gps" | "fact_visits";
   /** Set when compensationFactKind is fact_visits due to GPS eligibility failure. */
   compensationIneligibleReason: string | null;
+  /** Soft GPS issues when still paying fact_gps (e.g. gps_low_coverage). */
+  compensationWarnings?: string[];
 };

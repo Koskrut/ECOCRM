@@ -4,30 +4,37 @@ import { describe, it } from "node:test";
 import {
   MIN_TRACK_COMPENSATION_KM,
   MIN_TRACK_COMPENSATION_SAMPLES,
-  isTrackEligibleForCompensation,
+  assessPlannedKm,
+  selectCompensationFactKind,
 } from "../../visits/route-routing.util";
 import { haversineDistanceM } from "../../visits/visit-gps.verification";
 import { sanitizeGpsTrack } from "../gps-sample-filter";
+import { estimateFuelFromKm } from "../field-fuel.estimate";
 
-function pickCompensationFactKind(factGps: {
-  quality: {
-    hasTrackingEnabledShift?: boolean;
-    sampleCount: number;
-    rawDistanceKm?: number | null;
-    coverageRatio?: number | null;
-    lastSampleAt?: string | null;
-    lastDoneVisitCompletedAt?: string | null;
-  };
-}): "fact_gps" | "fact_visits" {
-  const eligibility = isTrackEligibleForCompensation({
+function pickCompensationFactKind(
+  factGps: {
+    quality: {
+      hasTrackingEnabledShift?: boolean;
+      sampleCount: number;
+      rawDistanceKm?: number | null;
+      coverageRatio?: number | null;
+      lastSampleAt?: string | null;
+      lastDoneVisitCompletedAt?: string | null;
+    };
+  },
+  visitRouteDistanceKm: number | null = null,
+  snappedTrackDistanceKm?: number | null,
+): "fact_gps" | "fact_visits" {
+  return selectCompensationFactKind({
     hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
     filteredSampleCount: factGps.quality.sampleCount,
     rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
     coverageRatio: factGps.quality.coverageRatio,
     lastSampleAt: factGps.quality.lastSampleAt,
     lastDoneVisitCompletedAt: factGps.quality.lastDoneVisitCompletedAt,
-  });
-  return eligibility.eligible ? "fact_gps" : "fact_visits";
+    snappedTrackDistanceKm: snappedTrackDistanceKm ?? factGps.quality.rawDistanceKm ?? null,
+    visitRouteDistanceKm,
+  }).kind;
 }
 
 function pathDistanceKm(points: { lat: number; lng: number }[]): number {
@@ -175,5 +182,69 @@ describe("fuel estimateFuel liters", () => {
   it("computes liters from km and profile", () => {
     assert.equal(estimateFuelLiters(100, 8.5), 8.5);
     assert.equal(estimateFuelLiters(47.3, 7), 3.311);
+  });
+});
+
+describe("Hrybovska-like soft GPS payout", () => {
+  it("low coverage + usable track + no visits → fact_gps with warning", () => {
+    const selection = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 14,
+      rawPolylineDistanceKm: 18.8,
+      coverageRatio: 0.54,
+      snappedTrackDistanceKm: 18.8,
+      visitRouteDistanceKm: null,
+    });
+    assert.equal(selection.kind, "fact_gps");
+    assert.equal(selection.ineligibleReason, null);
+    assert.ok(selection.warnings.includes("gps_low_coverage"));
+  });
+
+  it("low coverage + usable visits → still prefer fact_visits (Gumenyuk)", () => {
+    const selection = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 180,
+      rawPolylineDistanceKm: 18,
+      coverageRatio: 0.52,
+      snappedTrackDistanceKm: 18,
+      visitRouteDistanceKm: 35.1,
+    });
+    assert.equal(selection.kind, "fact_visits");
+    assert.equal(selection.ineligibleReason, "gps_low_coverage");
+  });
+});
+
+describe("amountEstimated persist when price+liters (metricsSource=none path)", () => {
+  it("always computes amount when compensationKm + liters + price exist", () => {
+    const r = estimateFuelFromKm(18.8, {
+      fuelLitersPer100km: 8,
+      fuelPricePerLiter: 78.9,
+    });
+    assert.equal(r.litersEstimated, 1.504);
+    assert.ok(r.amountEstimated != null);
+    assert.ok(Math.abs(Number(r.amountEstimated) - 1.504 * 78.9) < 0.001);
+  });
+
+  it("keeps liters without amount when price missing (ok for manager)", () => {
+    const r = estimateFuelFromKm(18.8, {
+      fuelLitersPer100km: 8,
+      fuelPricePerLiter: null,
+    });
+    assert.equal(r.litersEstimated, 1.504);
+    assert.equal(r.amountEstimated, null);
+  });
+});
+
+describe("plannedKm sanitize", () => {
+  it("flags Bondarenko-like 5000+ plan", () => {
+    const a = assessPlannedKm({ plannedKm: 5289, factKm: 20 });
+    assert.equal(a.degraded, true);
+    assert.equal(a.warning, "planned_km_implausibly_large");
+  });
+
+  it("flags plan > 3× fact", () => {
+    const a = assessPlannedKm({ plannedKm: 120, factKm: 30 });
+    assert.equal(a.degraded, true);
+    assert.equal(a.warning, "planned_km_vs_fact_outlier");
   });
 });

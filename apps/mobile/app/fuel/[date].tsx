@@ -93,6 +93,7 @@ export default function FuelDayScreen() {
   const [refuelLiters, setRefuelLiters] = useState("");
   const [refuelAmount, setRefuelAmount] = useState("");
   const [refuelPhoto, setRefuelPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [updateProfilePrice, setUpdateProfilePrice] = useState(false);
 
   function formatFallback(): string {
     return new Date().toISOString().slice(0, 10);
@@ -124,11 +125,25 @@ export default function FuelDayScreen() {
   const canManageRefuels =
     data?.report.compensationStatus != null && data.report.compensationStatus !== "PAID";
 
+  const refuelLitersNum = Number(refuelLiters.replace(",", "."));
+  const refuelAmountNum = Number(refuelAmount.replace(",", "."));
+  const impliedPricePerLiter =
+    Number.isFinite(refuelLitersNum) &&
+    refuelLitersNum > 0 &&
+    Number.isFinite(refuelAmountNum) &&
+    refuelAmountNum > 0
+      ? refuelAmountNum / refuelLitersNum
+      : null;
+
   const canSubmitRefuel = useMemo(() => {
-    const l = Number(refuelLiters.replace(",", "."));
-    const a = Number(refuelAmount.replace(",", "."));
-    return Boolean(refuelPhoto) && Number.isFinite(l) && l > 0 && Number.isFinite(a) && a > 0;
-  }, [refuelLiters, refuelAmount, refuelPhoto]);
+    return (
+      Boolean(refuelPhoto) &&
+      Number.isFinite(refuelLitersNum) &&
+      refuelLitersNum > 0 &&
+      Number.isFinite(refuelAmountNum) &&
+      refuelAmountNum > 0
+    );
+  }, [refuelPhoto, refuelLitersNum, refuelAmountNum]);
 
   const pickPhoto = async (useCamera: boolean) => {
     const perm = useCamera
@@ -151,8 +166,8 @@ export default function FuelDayScreen() {
     setBusy(true);
     try {
       const form = new FormData();
-      form.append("liters", refuelLiters.replace(",", "."));
-      form.append("amount", refuelAmount.replace(",", "."));
+      form.append("liters", String(refuelLitersNum));
+      form.append("amount", String(refuelAmountNum));
       const name = refuelPhoto.fileName ?? `receipt-${Date.now()}.jpg`;
       const type = refuelPhoto.mimeType ?? "image/jpeg";
       form.append("file", {
@@ -165,10 +180,20 @@ export default function FuelDayScreen() {
         form,
         { token },
       );
+      if (updateProfilePrice && impliedPricePerLiter != null) {
+        await apiFetch("/field/profile", {
+          method: "PATCH",
+          token,
+          body: JSON.stringify({
+            fuelPricePerLiter: Math.round(impliedPricePerLiter * 100) / 100,
+          }),
+        });
+      }
       setRefuelOpen(false);
       setRefuelLiters("");
       setRefuelAmount("");
       setRefuelPhoto(null);
+      setUpdateProfilePrice(false);
       await reload();
       Alert.alert(t("common.done"), t("fuel.refuelSaved"));
     } catch (e) {
@@ -253,6 +278,10 @@ export default function FuelDayScreen() {
 
         {r ? (
           <>
+            <Text style={[theme.typography.section, { marginBottom: 4 }]}>{t("fuel.compensationBlock")}</Text>
+            <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
+              {t("fuel.compensationHint")}
+            </Text>
             <View style={styles.cards}>
               <Card style={[styles.metricCard, { backgroundColor: theme.colors.primaryMuted, borderColor: theme.colors.primary }]}>
                 <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{t("fuel.payout")}</Text>
@@ -296,6 +325,11 @@ export default function FuelDayScreen() {
                 <Text style={[theme.typography.title, { marginTop: 4 }]}>
                   {r.plannedKm ?? "—"} {t("common.km")}
                 </Text>
+                {(data?.warnings ?? []).some((w) => w.startsWith("planned_km_")) ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginTop: 2 }]}>
+                    {t("fuel.planSuspect")}
+                  </Text>
+                ) : null}
               </Card>
               <Card style={[styles.metricCard, { backgroundColor: theme.colors.surface }]}>
                 <Text style={[theme.typography.label, { color: theme.colors.textMuted }]}>{t("fuel.amount")}</Text>
@@ -304,12 +338,20 @@ export default function FuelDayScreen() {
                     ? `${Number(r.amountEstimated)} ${t("common.currency")}`
                     : "—"}
                 </Text>
+                {r.amountEstimated == null && r.compensationKm != null ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginTop: 2 }]}>
+                    {t("fuel.amountNeedPrice")}
+                  </Text>
+                ) : null}
               </Card>
             </View>
 
             <View style={styles.refuelHeader}>
               <View style={styles.flex}>
-                <Text style={theme.typography.section}>{t("fuel.refuelsTitle")}</Text>
+                <Text style={theme.typography.section}>{t("fuel.refuelsBlock")}</Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                  {t("fuel.refuelsHint")}
+                </Text>
                 {data.refuelTotals ? (
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
                     {t("fuel.refuelsTotals", {
@@ -446,6 +488,31 @@ export default function FuelDayScreen() {
               keyboardType="decimal-pad"
               style={{ marginTop: 8 }}
             />
+            {impliedPricePerLiter != null ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 8 }]}>
+                {t("fuel.impliedPrice", {
+                  value: Math.round(impliedPricePerLiter * 100) / 100,
+                })}
+              </Text>
+            ) : null}
+            <Pressable
+              onPress={() => setUpdateProfilePrice((v) => !v)}
+              disabled={impliedPricePerLiter == null}
+              style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+              <View
+                style={{
+                  width: 18,
+                  height: 18,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  borderRadius: 4,
+                  backgroundColor: updateProfilePrice ? theme.colors.primary : "transparent",
+                }}
+              />
+              <Text style={[theme.typography.caption, { color: theme.colors.text, flex: 1 }]}>
+                {t("fuel.updateProfilePrice")}
+              </Text>
+            </Pressable>
             <View style={styles.refuelPhotoRow}>
               <AppButton label={t("fuel.refuelCamera")} onPress={() => void pickPhoto(true)} variant="secondary" />
               <AppButton label={t("fuel.refuelGallery")} onPress={() => void pickPhoto(false)} variant="secondary" />

@@ -34,6 +34,10 @@ export type FuelCalculationSnapshot = {
   trackMetricsSource?: TrackMetricsSource;
   /** Visit-order route distance (km), reference / fallback. */
   visitRouteKm?: number | null;
+  /** Why GPS was not used when falling back to visits (hard reject). */
+  compensationIneligibleReason?: string | null;
+  /** 0–1 GPS coverage of shift duration. */
+  coverageRatio?: number | null;
   routeAnchors?: FuelRouteAnchorsSnapshot;
   /** Samples kept after geo + reanchor + relative filter. */
   filteredSampleCount?: number;
@@ -41,6 +45,10 @@ export type FuelCalculationSnapshot = {
   droppedReasons?: Record<string, number>;
   /** True when GPS filter reanchored during the day. */
   reanchorUsed?: boolean;
+  /** Soft / product warnings (low coverage payout, planned outlier, …). */
+  warnings?: string[];
+  /** Planned km kept for display but marked unreliable. */
+  plannedKmDegraded?: boolean;
 };
 
 export function resolveTrackMetricsSource(

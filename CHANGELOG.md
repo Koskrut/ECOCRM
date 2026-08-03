@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.130**.)_
+_(планируемые изменения после **0.2.131**.)_
+
+## [0.2.131] — 2026-08-03
+
+### Summary
+
+Патч **0.2.131**: fuel compensation GPS partial payout + planned-km sanity; risk ship gate skip TTN for pickup; fuel UI polish.
+
+### Changed
+
+- **Fuel compensation**: GPS partial payout (soft warnings); `assessPlannedKm` for outlier plan; richer warning codes; `estimateFuelFromKm` extracted; visit day by `completedAt`.
+- **Risk ship gate**: `READY_TO_SHIP` без TTN только для **NOVA_POSHTA** (pickup не блокируется).
+- **Web fuel**: warning labels, compensation vs receipt price clarity, day detail UX.
+- **Mobile fuel**: aligned fuel day warnings/labels.
+- **Payments**: allocate/split modals scroll on small screens.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.131`**.
+- **Миграций нет.**
 
 ## [0.2.130] — 2026-07-31
 

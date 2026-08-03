@@ -39,6 +39,10 @@ export type FuelDayReport = {
   compensationStatus: FuelCompensationStatus;
   submittedAt: string | null;
   managerNote: string | null;
+  calculationSnapshot?: {
+    warnings?: string[];
+    plannedKmDegraded?: boolean;
+  } | null;
 };
 
 export type UserFieldProfile = {

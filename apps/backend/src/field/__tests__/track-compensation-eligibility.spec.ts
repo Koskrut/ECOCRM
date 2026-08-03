@@ -7,6 +7,7 @@ import {
   MIN_TRACK_COVERAGE_RATIO,
   TRACK_END_GRACE_MIN,
   isTrackEligibleForCompensation,
+  selectCompensationFactKind,
 } from "../../visits/route-routing.util";
 
 describe("isTrackEligibleForCompensation", () => {
@@ -225,5 +226,46 @@ describe("isTrackEligibleForCompensation", () => {
     });
     assert.equal(result.eligible, false);
     assert.equal(result.reason, "gps_implausibly_short_vs_visits");
+  });
+});
+
+describe("selectCompensationFactKind", () => {
+  it("Hrybovska 31.07: track 18.8 + low coverage + no visits → fact_gps", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 14,
+      rawPolylineDistanceKm: 18.8,
+      coverageRatio: 0.54,
+      snappedTrackDistanceKm: 18.8,
+      visitRouteDistanceKm: null,
+    });
+    assert.equal(sel.kind, "fact_gps");
+    assert.deepEqual(sel.warnings, ["gps_low_coverage"]);
+  });
+
+  it("Gumenyuk: low coverage with usable visits → fact_visits", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 180,
+      rawPolylineDistanceKm: 18,
+      coverageRatio: 0.52,
+      snappedTrackDistanceKm: 18,
+      visitRouteDistanceKm: 35.1,
+    });
+    assert.equal(sel.kind, "fact_visits");
+    assert.equal(sel.ineligibleReason, "gps_low_coverage");
+  });
+
+  it("soft payout when GPS km exceeds visits under low coverage", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 40,
+      rawPolylineDistanceKm: 40,
+      coverageRatio: 0.5,
+      snappedTrackDistanceKm: 40,
+      visitRouteDistanceKm: 12,
+    });
+    assert.equal(sel.kind, "fact_gps");
+    assert.ok(sel.warnings.includes("gps_low_coverage"));
   });
 });

@@ -18,8 +18,8 @@ import {
   assessGpsTrackQuality,
   concatPaths,
   downsamplePathUniform,
-  isTrackEligibleForCompensation,
   MIN_TRACK_COMPENSATION_KM,
+  selectCompensationFactKind,
   splitRouteLegs,
   sumLegMetrics,
 } from "./route-routing.util";
@@ -401,12 +401,15 @@ export class RoutePlansService {
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const { dayStart, dayEnd } = this.kyivVisitWindowFromStr(dateStr);
 
-    // "Факт" = порядок завершения визитов за день (если completedAt нет — fallback на endsAt/startsAt).
+    // Fuel fact: Kyiv day by completedAt (startsAt fallback only when completedAt missing).
     const done = await this.prisma.visit.findMany({
       where: {
         ownerId,
         status: "DONE",
-        startsAt: { gte: dayStart, lte: dayEnd },
+        OR: [
+          { completedAt: { gte: dayStart, lte: dayEnd } },
+          { completedAt: null, startsAt: { gte: dayStart, lte: dayEnd } },
+        ],
       },
       select: {
         id: true,
@@ -1174,7 +1177,10 @@ export class RoutePlansService {
       where: {
         ownerId,
         status: "DONE",
-        startsAt: { gte: dayStart, lte: dayEnd },
+        OR: [
+          { completedAt: { gte: dayStart, lte: dayEnd } },
+          { completedAt: null, startsAt: { gte: dayStart, lte: dayEnd } },
+        ],
       },
       select: {
         id: true,
@@ -1215,8 +1221,7 @@ export class RoutePlansService {
       where: {
         ownerId,
         status: "DONE",
-        startsAt: { gte: dayStart, lte: dayEnd },
-        completedAt: { not: null },
+        completedAt: { gte: dayStart, lte: dayEnd },
       },
       orderBy: { completedAt: "desc" },
       select: { completedAt: true },
@@ -1468,7 +1473,7 @@ export class RoutePlansService {
       this.getRouteGeometry(dateStr, "fact_gps", actor, opts),
     ]);
 
-    const eligibility = isTrackEligibleForCompensation({
+    const selection = selectCompensationFactKind({
       hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
       filteredSampleCount: factGps.quality.sampleCount,
       rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
@@ -1479,17 +1484,15 @@ export class RoutePlansService {
       visitRouteDistanceKm: factVisits.distanceKm,
     });
 
-    const compensationFactKind: RouteGeometryBundle["compensationFactKind"] =
-      eligibility.eligible ? "fact_gps" : "fact_visits";
-
     return {
       date: dateStr,
       ownerId,
       planned,
       factVisits,
       factGps,
-      compensationFactKind,
-      compensationIneligibleReason: eligibility.eligible ? null : eligibility.reason,
+      compensationFactKind: selection.kind,
+      compensationIneligibleReason: selection.ineligibleReason,
+      compensationWarnings: selection.warnings,
     };
   }
 

@@ -233,8 +233,15 @@ export class RiskPolicyService {
     });
   }
 
-  async evaluateShipGate(input: { orderId: string; hasTtn: boolean; orderStage?: string | null }) {
-    if (input.orderStage === "READY_TO_SHIP" && !input.hasTtn) {
+  async evaluateShipGate(input: {
+    orderId: string;
+    hasTtn: boolean;
+    orderStage?: string | null;
+    deliveryMethod?: string | null;
+  }) {
+    // Pickup (самовивіз) does not use Nova Poshta — TTN is not required.
+    const requiresTtn = input.deliveryMethod === "NOVA_POSHTA";
+    if (input.orderStage === "READY_TO_SHIP" && requiresTtn && !input.hasTtn) {
       return {
         outcome: "BLOCK" as RiskDecisionOutcome,
         domain: "SHIP" as const,

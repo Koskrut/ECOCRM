@@ -2562,8 +2562,8 @@ function PaymentsContent() {
       )}
 
       {allocateTxId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+          <div className="my-auto max-h-[min(90vh,100%)] w-full max-w-md overflow-y-auto rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
             <h3 className="text-lg font-semibold text-zinc-900">{t.payments.allocateModalTitle}</h3>
             <p className="mt-1 text-sm text-zinc-500">{t.payments.allocateModalHint}</p>
             <div className="mt-4 space-y-3">
@@ -2734,8 +2734,8 @@ function PaymentsContent() {
       )}
 
       {(splitTx || splitFromEditPayment) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:items-center">
+          <div className="my-auto max-h-[min(90vh,100%)] w-full max-w-lg overflow-y-auto rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
             <h3 className="text-lg font-semibold text-zinc-900">{t.payments.distributeModalTitle}</h3>
             <p className="mt-1 text-sm text-zinc-500">
               {t.payments.distributeModalHint(

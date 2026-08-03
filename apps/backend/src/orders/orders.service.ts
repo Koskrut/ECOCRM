@@ -1880,6 +1880,7 @@ export class OrdersService {
           orderId: id,
           hasTtn,
           orderStage: toStage,
+          deliveryMethod: current.deliveryMethod,
         });
         if (shipEval.outcome === "BLOCK") {
           const reason = shipEval.reasons[0]?.explanationUk ?? "Risk ship gate blocked stage transition";

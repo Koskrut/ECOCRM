@@ -87,6 +87,7 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [updateProfilePrice, setUpdateProfilePrice] = useState(false);
 
   useEffect(() => {
     if (!file) {
@@ -98,11 +99,25 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  const litersNum = Number(liters.replace(",", "."));
+  const amountNum = Number(amount.replace(",", "."));
+  const impliedPricePerLiter =
+    Number.isFinite(litersNum) &&
+    litersNum > 0 &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0
+      ? amountNum / litersNum
+      : null;
+
   const canSubmit = useMemo(() => {
-    const l = Number(liters.replace(",", "."));
-    const a = Number(amount.replace(",", "."));
-    return Boolean(file) && Number.isFinite(l) && l > 0 && Number.isFinite(a) && a > 0;
-  }, [liters, amount, file]);
+    return (
+      Boolean(file) &&
+      Number.isFinite(litersNum) &&
+      litersNum > 0 &&
+      Number.isFinite(amountNum) &&
+      amountNum > 0
+    );
+  }, [file, litersNum, amountNum]);
 
   const submit = async () => {
     if (!file || !canSubmit) return;
@@ -113,12 +128,17 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
       await fieldFuelApi.createRefuel(
         date,
         {
-          liters: Number(liters.replace(",", ".")),
-          amount: Number(amount.replace(",", ".")),
+          liters: litersNum,
+          amount: amountNum,
           file: prepared,
         },
         ownerId,
       );
+      if (updateProfilePrice && impliedPricePerLiter != null && !ownerId) {
+        await fieldFuelApi.updateProfile({
+          fuelPricePerLiter: Math.round(impliedPricePerLiter * 100) / 100,
+        });
+      }
       onCreated();
       onClose();
     } catch (e) {
@@ -131,8 +151,10 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-lg">
-        <h2 className="text-lg font-semibold text-zinc-900">Заправка</h2>
-        <p className="mt-1 text-xs text-zinc-500">Фото чека обов&apos;язкове.</p>
+        <h2 className="text-lg font-semibold text-zinc-900">Чек заправки</h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Реальна витрата з чека. Не змінює компенсацію км автоматично.
+        </p>
         {err ? <p className="mt-2 text-sm text-red-600">{err}</p> : null}
         <div className="mt-4 space-y-3 text-sm">
           <div>
@@ -157,6 +179,29 @@ export function FuelRefuelModal({ date, ownerId, onClose, onCreated }: FuelRefue
               className="mt-1 w-full rounded border border-zinc-200 px-2 py-1.5"
             />
           </div>
+          {impliedPricePerLiter != null ? (
+            <p className="rounded border border-zinc-100 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-700">
+              Ціна з чека:{" "}
+              <span className="font-semibold">
+                {impliedPricePerLiter.toLocaleString("uk-UA", { maximumFractionDigits: 2 })} грн/л
+              </span>
+            </p>
+          ) : null}
+          {!ownerId ? (
+            <label className="flex items-start gap-2 text-xs text-zinc-700">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={updateProfilePrice}
+                onChange={(e) => setUpdateProfilePrice(e.target.checked)}
+                disabled={impliedPricePerLiter == null}
+              />
+              <span>
+                Оновити ціну в профілі (для оцінки компенсації км). Лише за вашою згодою — не
+                застосовується автоматично.
+              </span>
+            </label>
+          ) : null}
           <div>
             <label className="text-xs font-medium text-zinc-600">Фото чека</label>
             <input
