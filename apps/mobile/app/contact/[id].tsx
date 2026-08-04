@@ -77,12 +77,14 @@ export default function ContactDetailScreen() {
       const c = await contactsApi.getById(token, contactId);
       setContact(c);
       const phonesRes = await contactsApi.getPhones(token, contactId).catch(() => null);
+      const primary =
+        typeof phonesRes?.primary === "string"
+          ? phonesRes.primary
+          : phonesRes?.primary?.phone ?? null;
       const phoneList = [
-        phonesRes?.primary ?? null,
+        primary,
         ...(phonesRes?.additional?.map((p) => p.phone) ?? []),
-      ]
-        .filter(Boolean)
-        .map((p) => String(p));
+      ].filter((p): p is string => Boolean(p?.trim()));
       setPhones([...new Set(phoneList)]);
       if (visitsEnabled) {
         const day = await visitsApi
@@ -178,13 +180,19 @@ export default function ContactDetailScreen() {
           </Text>
         ) : null}
         <Field label={t("clients.email")} value={contact.email} theme={theme} />
+        <Field label={t("clients.position")} value={contact.position} theme={theme} />
         <Field label={t("clients.company")} value={contact.company?.name} theme={theme} />
+        <Field label={t("clients.region")} value={contact.region} theme={theme} />
+        <Field label={t("clients.city")} value={contact.city} theme={theme} />
         <Field label={t("clients.address")} value={contact.address} theme={theme} />
+        <Field label={t("clients.clientType")} value={contact.clientType} theme={theme} />
+        <Field label={t("clients.status")} value={contact.status} theme={theme} />
         <Field
           label={t("clients.stage")}
-          value={clientStageLabel(contact.clientStage) || contact.status}
+          value={clientStageLabel(contact.clientStage) || null}
           theme={theme}
         />
+        <Field label={t("clients.owner")} value={contact.owner?.fullName} theme={theme} />
 
         <AppButton
           label={t("contacts.noteAdd")}

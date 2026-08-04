@@ -1,11 +1,13 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 
 import { CompanyRow } from "@/components/CompanyRow";
 import { ContactRow } from "@/components/ContactRow";
 import { EmptyState } from "@/components/EmptyState";
+import { Text } from "@/components/Themed";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { Chip } from "@/components/ui/Chip";
 import { Screen } from "@/components/ui/Screen";
@@ -38,6 +40,7 @@ export default function ClientsScreen() {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [contactMode, setContactMode] = useState<ContactMode>("browse");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
@@ -121,10 +124,21 @@ export default function ClientsScreen() {
     }, [reload]),
   );
 
-  const contactPresets: Array<{ key: ContactMode; label: string }> = [
-    { key: "browse", label: t("clients.browseAll") },
-    ...CONTACT_WORK_QUEUE_PRESETS.map((p) => ({ key: p as ContactMode, label: workQueuePresetLabel(p) })),
-  ];
+  const contactPresets: Array<{ key: ContactMode; label: string }> = useMemo(
+    () => [
+      { key: "browse", label: t("clients.browseAll") },
+      ...CONTACT_WORK_QUEUE_PRESETS.map((p) => ({
+        key: p as ContactMode,
+        label: workQueuePresetLabel(p),
+      })),
+    ],
+    [],
+  );
+
+  const activeFilterLabel = useMemo(() => {
+    if (contactMode === "search") return t("common.search");
+    return contactPresets.find((p) => p.key === contactMode)?.label ?? t("clients.browseAll");
+  }, [contactMode, contactPresets]);
 
   const searchPlaceholder =
     segment === "contacts" ? t("clients.searchHint") : t("companies.searchHint");
@@ -139,6 +153,79 @@ export default function ClientsScreen() {
 
   const showSkeleton = loading && (segment === "contacts" ? contacts.length === 0 : companies.length === 0);
 
+  const listHeader = (
+    <View style={styles.headerBlock}>
+      <SegmentedControl
+        options={[
+          { value: "contacts", label: t("clients.segContacts") },
+          { value: "companies", label: t("clients.segCompanies") },
+        ]}
+        value={segment}
+        onChange={(next) => {
+          setSegment(next);
+          setQuery("");
+          setDebounced("");
+          setFiltersOpen(false);
+          if (next === "contacts") setContactMode("browse");
+        }}
+      />
+
+      <SearchField value={query} onChangeText={setQuery} placeholder={searchPlaceholder} />
+
+      <View style={[styles.toolbar, { marginBottom: filtersOpen ? theme.spacing.sm : 0 }]}>
+        <Pressable
+          onPress={() => setFiltersOpen((v) => !v)}
+          accessibilityRole="button"
+          style={[
+            styles.filterToggle,
+            {
+              backgroundColor: theme.colors.surfaceMuted,
+              borderColor: filtersOpen || (segment === "contacts" && contactMode !== "browse")
+                ? theme.colors.primary
+                : theme.colors.border,
+            },
+          ]}>
+          <Ionicons
+            name="options-outline"
+            size={16}
+            color={theme.colors.text}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={[styles.filterToggleText, { color: theme.colors.text }]} numberOfLines={1}>
+            {segment === "contacts"
+              ? `${t("clients.filters")}: ${activeFilterLabel}`
+              : t("clients.filters")}
+          </Text>
+          <Ionicons
+            name={filtersOpen ? "chevron-up" : "chevron-down"}
+            size={16}
+            color={theme.colors.textMuted}
+            style={{ marginLeft: 4 }}
+          />
+        </Pressable>
+        <Chip label={t("leads.title")} onPress={() => router.push("/leads")} />
+        <Chip label={t("clients.newOrder")} onPress={() => router.push("/orders/new")} />
+      </View>
+
+      {filtersOpen && segment === "contacts" ? (
+        <View style={styles.filtersWrap}>
+          {contactPresets.map((p) => (
+            <Chip
+              key={p.key}
+              label={p.label}
+              selected={contactMode === p.key}
+              onPress={() => {
+                setContactMode(p.key);
+                if (p.key !== "search") setQuery("");
+                setFiltersOpen(false);
+              }}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+
   return (
     <Screen>
       <AppHeader
@@ -150,59 +237,25 @@ export default function ClientsScreen() {
         large={false}
       />
 
-      <SegmentedControl
-        options={[
-          { value: "contacts", label: t("clients.segContacts") },
-          { value: "companies", label: t("clients.segCompanies") },
-        ]}
-        value={segment}
-        onChange={(next) => {
-          setSegment(next);
-          setQuery("");
-          setDebounced("");
-          if (next === "contacts") setContactMode("browse");
-        }}
-      />
-
-      <SearchField value={query} onChangeText={setQuery} placeholder={searchPlaceholder} />
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filtersScroll}
-        contentContainerStyle={styles.filtersRow}
-      >
-        <Chip label={t("leads.title")} onPress={() => router.push("/leads")} />
-        <Chip label={t("clients.newOrder")} onPress={() => router.push("/orders/new")} />
-        {segment === "contacts"
-          ? contactPresets.map((p) => (
-              <Chip
-                key={p.key}
-                label={p.label}
-                selected={contactMode === p.key}
-                onPress={() => {
-                  setContactMode(p.key);
-                  if (p.key !== "search") setQuery("");
-                }}
-              />
-            ))
-          : null}
-      </ScrollView>
-
       {showSkeleton ? (
-        <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.sm }}>
-          <SkeletonCard />
-          <SkeletonCard />
-          <SkeletonCard />
+        <View style={{ flex: 1 }}>
+          {listHeader}
+          <View style={{ marginTop: theme.spacing.sm, gap: theme.spacing.sm }}>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </View>
         </View>
       ) : segment === "contacts" ? (
         <FlatList
           data={contacts}
-          style={[styles.list, { marginTop: theme.spacing.sm }]}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={reloadContacts} tintColor={theme.colors.primary} />
           }
           keyExtractor={(item) => item.id}
+          ListHeaderComponent={listHeader}
           ListEmptyComponent={
             <EmptyState message={emptyMessage} onRetry={error ? reloadContacts : undefined} />
           }
@@ -227,11 +280,13 @@ export default function ClientsScreen() {
       ) : (
         <FlatList
           data={companies}
-          style={[styles.list, { marginTop: theme.spacing.sm }]}
+          style={styles.list}
+          contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={reloadCompanies} tintColor={theme.colors.primary} />
           }
           keyExtractor={(item) => item.id}
+          ListHeaderComponent={listHeader}
           ListEmptyComponent={
             <EmptyState message={emptyMessage} onRetry={error ? reloadCompanies : undefined} />
           }
@@ -262,7 +317,40 @@ export default function ClientsScreen() {
 }
 
 const styles = StyleSheet.create({
-  filtersScroll: { flexGrow: 0, marginBottom: 4 },
-  filtersRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingRight: 8 },
+  headerBlock: {
+    flexShrink: 0,
+  },
+  toolbar: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  filterToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    maxWidth: "100%",
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 140,
+  },
+  filterToggleText: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    fontFamily: "Inter_600SemiBold",
+  },
+  filtersWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingBottom: 8,
+  },
   list: { flex: 1 },
+  listContent: { flexGrow: 1, paddingBottom: 16 },
 });

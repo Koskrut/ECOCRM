@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.134**.)_
+_(планируемые изменения после **0.2.135**.)_
+
+## [0.2.135] — 2026-08-04
+
+### Summary
+
+Патч **0.2.135**: mobile contact edit v2 (phones, addresses, company picker); contact card `middleName`.
+
+### Added
+
+- **Mobile contact edit**: полная форма — телефоны, адреса, компания, stage/status/region, owner; `ContactPhonesEditor`, `ContactAddressesEditor`, `CompanyPickerField`, `SelectField`.
+- **Mobile clients list**: поиск и UX улучшения.
+
+### Fixed
+
+- **Contact card summary**: `middleName` в ответе API.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.135`**.
+- **Миграций нет.**
+- **Mobile**: новый EAS build рекомендуется.
 
 ## [0.2.134] — 2026-08-04
 

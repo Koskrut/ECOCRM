@@ -1616,6 +1616,7 @@ export class ContactsService {
       companyId: contact.companyId,
       firstName: contact.firstName,
       lastName: contact.lastName,
+      middleName: contact.middleName ?? null,
       phone: contact.phone,
       phoneNormalized: contact.phoneNormalized ?? null,
       email: contact.email,

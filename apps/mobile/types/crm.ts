@@ -95,10 +95,23 @@ export type Contact = {
   email?: string | null;
   position?: string | null;
   address?: string | null;
+  addressInfo?: string | null;
+  city?: string | null;
+  region?: string | null;
   lat?: number | null;
   lng?: number | null;
+  googlePlaceId?: string | null;
   clientStage?: ContactClientStage | null;
+  clientType?: string | null;
   status?: string | null;
+  ownerId?: string | null;
+  owner?: { id: string; fullName: string } | null;
+  externalCode?: string | null;
+  documentDisplayName?: string | null;
+  nextActionType?: string | null;
+  nextActionAt?: string | null;
+  nextActionNote?: string | null;
+  marketingCallOptOut?: boolean;
   company?: { id: string; name: string; phone?: string | null } | null;
   phones?: { id: string; phone: string; label?: string | null }[];
 };
@@ -111,7 +124,7 @@ export type ListContactsResponse = {
 };
 
 export type ContactPhonesResponse = {
-  primary: string | null;
+  primary: { phone: string; phoneNormalized?: string | null } | string | null;
   additional: { id: string; phone: string; label?: string | null }[];
 };
 
