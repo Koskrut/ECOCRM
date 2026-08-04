@@ -41,11 +41,14 @@ import { appendErrorLog } from "./error-log";
 import { reconcileTrackingHealth } from "./location-tracking-health";
 import { clearFlushBlockReason, getLastFlushBlockReason } from "./session-auth";
 import {
+  canStartLocationForegroundService,
   clearPendingAdaptiveTier,
   getPendingAdaptiveTier,
   getTrackingRestartDiagnostics,
+  isFgsBlockedFromBackgroundError,
   mapRestartContextToReason,
   recordRestartAttempt,
+  reportedModeAfterBackgroundRestartAttempt,
   resetTrackingRestartDiagnostics,
   setBatteryOptimizationStatus,
   type TrackingRestartReason,
@@ -56,7 +59,11 @@ import { sendTrackingRestartEvent } from "./tracking-telemetry";
 export { registerFieldLocationTask };
 export { requestTrackingPermissionsWithRationale as requestTrackingPermissions };
 export type { TrackingPermissionStatus };
-export { shouldMaintainOnAppState } from "./location-tracking-restart";
+export {
+  canStartLocationForegroundService,
+  reportedModeAfterBackgroundRestartAttempt,
+  shouldMaintainOnAppState,
+} from "./location-tracking-restart";
 export type { TrackingRestartReason } from "./location-tracking-restart";
 
 export {
@@ -221,6 +228,13 @@ async function startBackgroundUpdates(
   if (started && !opts?.forceRestart) {
     return true;
   }
+
+  // Android 12+: starting a location FGS while backgrounded always fails.
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    void appendErrorLog("skip_fgs_start_while_background", "info");
+    return false;
+  }
+
   if (started) {
     await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
   }
@@ -247,6 +261,11 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
   );
   if (!started) {
     await clearPendingAdaptiveTier();
+    return;
+  }
+
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    // Keep pending tier; apply on next foreground resume.
     return;
   }
 
@@ -349,14 +368,72 @@ export async function captureImmediateFixAndFlush(): Promise<boolean> {
   }
 }
 
-/** Light restart of native tracking without ending the shift. */
-export async function restartTrackingPipeline(): Promise<TrackingMode> {
+export type RestartTrackingResult = {
+  ok: boolean;
+  mode: TrackingMode;
+  backgroundTaskStarted: boolean;
+  errorCode?: "no_shift" | "app_not_active" | "start_failed";
+  /** Raw / plain-language failure detail for Alert. */
+  errorDetail?: string;
+};
+
+/**
+ * Manual "Restart tracking" — bypasses cooldown, only from foreground.
+ * Success requires hasStartedLocationUpdatesAsync === true when claiming background.
+ */
+export async function restartTrackingPipeline(): Promise<RestartTrackingResult> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
-  if (!shiftId) return "none";
+  if (!shiftId) {
+    return { ok: false, mode: "none", backgroundTaskStarted: false, errorCode: "no_shift" };
+  }
+
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    return {
+      ok: false,
+      mode: "none",
+      backgroundTaskStarted: false,
+      errorCode: "app_not_active",
+    };
+  }
+
   clearFlushBlockReason();
-  const mode = await ensureTrackingContinuity();
-  void captureImmediateFixAndFlush().catch(() => undefined);
-  return mode;
+  const claimed =
+    ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
+
+  let mode: TrackingMode;
+  if (claimed === "background") {
+    mode = await ensureBackgroundTaskRunning(shiftId, "manualRestart", {
+      bypassCooldown: true,
+    });
+  } else {
+    mode = await ensureTrackingContinuity();
+  }
+
+  await captureImmediateFixAndFlush().catch(() => false);
+
+  const backgroundTaskStarted = await Location.hasStartedLocationUpdatesAsync(
+    FIELD_LOCATION_TASK,
+  ).catch(() => false);
+
+  if (claimed === "background" || mode === "background") {
+    if (!backgroundTaskStarted) {
+      return {
+        ok: false,
+        mode: reportedModeAfterBackgroundRestartAttempt("background", false),
+        backgroundTaskStarted: false,
+        errorCode: "start_failed",
+        errorDetail: "fgs_or_os_rejected",
+      };
+    }
+    return { ok: true, mode: "background", backgroundTaskStarted: true };
+  }
+
+  return {
+    ok: mode !== "none",
+    mode,
+    backgroundTaskStarted,
+    errorCode: mode === "none" ? "start_failed" : undefined,
+  };
 }
 
 export async function stopLocationTracking(): Promise<void> {
@@ -588,6 +665,7 @@ export async function maybeUpgradeToBackgroundTracking(): Promise<TrackingMode> 
 async function ensureBackgroundTaskRunning(
   shiftId: string,
   context: string,
+  opts?: { bypassCooldown?: boolean },
 ): Promise<TrackingMode> {
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode !== "background") {
@@ -601,11 +679,19 @@ async function ensureBackgroundTaskRunning(
     return "background";
   }
 
+  // Never attempt FGS start while minimized — Android 12+ rejects it.
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    void appendErrorLog(`${context}: skip_fgs_start_while_background`, "info");
+    return reportedModeAfterBackgroundRestartAttempt("background", false);
+  }
+
   const reason = mapRestartContextToReason(context);
-  const attempt = await recordRestartAttempt(reason);
+  const attempt = await recordRestartAttempt(reason, Date.now(), {
+    bypassCooldown: opts?.bypassCooldown === true,
+  });
   if (!attempt.allowed) {
     void appendErrorLog(`${context}: restart skipped (cooldown)`, "info");
-    return "background";
+    return reportedModeAfterBackgroundRestartAttempt("background", false);
   }
 
   void appendErrorLog(`${context}: background task dead, restarting`, "warn");
@@ -622,12 +708,16 @@ async function ensureBackgroundTaskRunning(
       void sendTrackingRestartEvent(shiftId, reason);
       return "background";
     }
-    void appendErrorLog(`${context}: restart failed → none`);
-    return "none";
+    void appendErrorLog(`${context}: restart failed → task still dead`, "warn");
+    return reportedModeAfterBackgroundRestartAttempt("background", false);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    void appendErrorLog(`${context}: restart failed → ${message}`);
-    return "none";
+    if (isFgsBlockedFromBackgroundError(message)) {
+      void appendErrorLog(`${context}: skip_fgs_start_while_background (${message})`, "info");
+    } else {
+      void appendErrorLog(`${context}: restart failed → ${message}`);
+    }
+    return reportedModeAfterBackgroundRestartAttempt("background", false);
   }
 }
 
@@ -637,8 +727,13 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
 
   const upgraded = await maybeUpgradeToBackgroundTracking();
   if (upgraded === "background") {
-    startFlushTimer();
-    return "background";
+    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+      () => false,
+    );
+    if (started) {
+      startFlushTimer();
+      return "background";
+    }
   }
 
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
@@ -647,7 +742,10 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode === "background") {
     const restarted = await ensureBackgroundTaskRunning(shiftId, "ensureTrackingContinuity");
-    startFlushTimer();
+    if (restarted === "background") {
+      startFlushTimer();
+      void captureImmediateFixAndFlush().catch(() => undefined);
+    }
     return restarted;
   }
 
@@ -664,7 +762,9 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
 }
 
 /**
- * When the app goes to background: flush samples and restart a dead background task.
+ * App went to background: flush pending samples only.
+ * Do NOT call startLocationUpdatesAsync — Android 12+ rejects FGS start here.
+ * Dead tasks are recovered when AppState becomes active.
  */
 export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
@@ -672,20 +772,31 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
 
-  if (mode === "background") {
+  if (mode === "background" || mode === "foreground") {
     void flushPendingSamples().catch(() => undefined);
-    return ensureBackgroundTaskRunning(shiftId, "maintainBackgroundTracking");
+  }
+
+  if (mode === "background") {
+    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+      () => false,
+    );
+    if (!started) {
+      void appendErrorLog("maintainBackgroundTracking: skip_fgs_start_while_background", "info");
+    }
+    return reportedModeAfterBackgroundRestartAttempt("background", started);
   }
 
   if (mode === "foreground") {
-    void flushPendingSamples().catch(() => undefined);
     return "foreground";
   }
 
   return mode ?? "none";
 }
 
-/** Health-only restart used by background fetch watchdog. */
+/**
+ * Background-fetch watchdog: flush only. Never start FGS from background.
+ * Foreground AppState / in-app watchdog perform the actual restart.
+ */
 export async function runBackgroundTrackingWatchdog(): Promise<void> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   if (!shiftId) return;
@@ -693,7 +804,13 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode !== "background") return;
 
-  await ensureBackgroundTaskRunning(shiftId, "backgroundWatchdog");
+  void flushPendingSamples().catch(() => undefined);
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (!started) {
+    void appendErrorLog("backgroundWatchdog: skip_fgs_start_while_background", "info");
+  }
 }
 
 /** @deprecated Use maintainBackgroundTracking on background and maybeUpgradeToBackgroundTracking on active. */

@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.135**.)_
+_(планируемые изменения после **0.2.136**.)_
+
+## [0.2.136] — 2026-08-04
+
+### Summary
+
+Патч **0.2.136**: mobile GPS Android 12+ FGS restart policy; foreground recovery.
+
+### Fixed
+
+- **Mobile GPS (Android 12+)**: не вызывать `startLocationUpdatesAsync` / FGS restart в background/inactive (`skip_fgs_start_while_background`); восстановление dead background task на foreground resume + immediate fix/flush; ручной «Перезапустити трекінг» обходит cooldown и показывает реальный success/failure.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.136`** (образы без функциональных изменений backend/web).
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен (политика AppState / FGS restart).
 
 ## [0.2.135] — 2026-08-04
 

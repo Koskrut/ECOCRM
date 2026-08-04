@@ -8,7 +8,10 @@ const {
 const {
   RESTART_COOLDOWN_MS,
   canRestartNow,
+  canStartLocationForegroundService,
+  isFgsBlockedFromBackgroundError,
   mapRestartContextToReason,
+  reportedModeAfterBackgroundRestartAttempt,
   shouldMaintainOnAppState,
   shouldPromptBatteryForRestarts,
 } = require("../location-tracking-restart");
@@ -54,6 +57,36 @@ describe("shouldMaintainOnAppState", () => {
     assert.equal(shouldMaintainOnAppState("background"), true);
     assert.equal(shouldMaintainOnAppState("inactive"), false);
     assert.equal(shouldMaintainOnAppState("active"), false);
+  });
+});
+
+describe("canStartLocationForegroundService", () => {
+  it("allows FGS start only while app is active", () => {
+    assert.equal(canStartLocationForegroundService("active"), true);
+    assert.equal(canStartLocationForegroundService("background"), false);
+    assert.equal(canStartLocationForegroundService("inactive"), false);
+  });
+});
+
+describe("reportedModeAfterBackgroundRestartAttempt", () => {
+  it("does not fake background when OS task is still dead (cooldown lie)", () => {
+    assert.equal(reportedModeAfterBackgroundRestartAttempt("background", false), "none");
+  });
+
+  it("reports background only when task actually started", () => {
+    assert.equal(reportedModeAfterBackgroundRestartAttempt("background", true), "background");
+  });
+});
+
+describe("isFgsBlockedFromBackgroundError", () => {
+  it("detects Android FGS-from-background rejection", () => {
+    assert.equal(
+      isFgsBlockedFromBackgroundError(
+        "ExpoLocation.startLocationUpdatesAsync rejected: Couldn't start the foreground service. Foreground service cannot be started when the application is in the background",
+      ),
+      true,
+    );
+    assert.equal(isFgsBlockedFromBackgroundError("network timeout"), false);
   });
 });
 

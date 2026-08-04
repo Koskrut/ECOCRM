@@ -3,12 +3,19 @@ export const enGps = {
   trackingUnhealthy: "GPS tracking needs attention",
   backgroundTaskDeadTitle: "Background tracking stopped",
   backgroundTaskDeadHint:
-    "The system stopped background GPS. Tap Restart tracking or close and reopen the shift. This is not a battery issue if Unrestricted is already set.",
+    "Android will not start the GPS service while the app is minimized. Open CRM in the foreground and tap Restart tracking. This is not a battery issue if Unrestricted is already set.",
+  openAppFirstTitle: "Open the app",
+  openAppFirstHint:
+    "To restart background GPS, bring CRM to the foreground first — Android blocks starting the service while the app is minimized.",
+  restartFailedTitle: "Could not restart GPS",
+  restartFailedHint:
+    "Background tracking did not start. Keep CRM open and tap Restart tracking again. If that fails, close and reopen the shift. Do not open battery settings if Unrestricted is already set.",
+  restartTrackingOk: "Background GPS is running again.",
   foregroundWatchDeadHint:
     "Foreground GPS watch stopped. Restart tracking or grant Always location permission.",
   taskFailedTitle: "Background tracking did not start",
   taskFailedHint:
-    "Background GPS did not start. Try Restart tracking. If it fails again, grant Always location permission.",
+    "Background GPS did not start. Open the app and tap Restart tracking. Android does not allow starting the service from a minimized window.",
   trackingForegroundOnly:
     "Tracking only while the app is open — allow Always in settings",
   backgroundHint:

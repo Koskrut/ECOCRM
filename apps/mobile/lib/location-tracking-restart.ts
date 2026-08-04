@@ -70,6 +70,38 @@ export function shouldMaintainOnAppState(state: string): boolean {
   return state === "background";
 }
 
+/**
+ * Android 12+ forbids starting a location FGS while the app is backgrounded.
+ * Only attempt Location.startLocationUpdatesAsync when AppState is active.
+ */
+export function canStartLocationForegroundService(appState: string): boolean {
+  return appState === "active";
+}
+
+/**
+ * After a skipped/failed background restart, never report `"background"` if the
+ * OS task is still dead (cooldown used to lie and look like a silent success).
+ */
+export function reportedModeAfterBackgroundRestartAttempt(
+  claimedMode: "background" | "foreground" | "none",
+  taskStarted: boolean,
+): "background" | "foreground" | "none" {
+  if (taskStarted && claimedMode === "background") return "background";
+  if (claimedMode === "foreground") return "foreground";
+  if (claimedMode === "none") return "none";
+  // claimed background + dead task
+  return "none";
+}
+
+export function isFgsBlockedFromBackgroundError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("couldn't start the foreground service") ||
+    m.includes("foreground service cannot be started") ||
+    (m.includes("startlocationupdatesasync") && m.includes("foreground service"))
+  );
+}
+
 export function canRestartNow(nowMs = Date.now()): boolean {
   return nowMs - inMemoryLastRestartAt >= RESTART_COOLDOWN_MS;
 }
@@ -78,6 +110,7 @@ export function mapRestartContextToReason(context: string): TrackingRestartReaso
   const normalized = context.toLowerCase();
   if (normalized.includes("watchdog")) return "watchdog";
   if (normalized.includes("tier")) return "tier_change";
+  if (normalized.includes("manual")) return "os_kill";
   if (normalized.includes("maintainbackgroundtracking") || normalized.includes("appstate")) {
     return "appstate";
   }
@@ -107,8 +140,9 @@ export async function setBatteryOptimizationStatus(
 export async function recordRestartAttempt(
   reason: TrackingRestartReason,
   nowMs = Date.now(),
+  opts?: { bypassCooldown?: boolean },
 ): Promise<{ allowed: boolean; diagnostics: TrackingRestartDiagnostics }> {
-  if (!canRestartNow(nowMs)) {
+  if (!opts?.bypassCooldown && !canRestartNow(nowMs)) {
     const diagnostics = await getTrackingRestartDiagnostics();
     return { allowed: false, diagnostics };
   }

@@ -185,22 +185,25 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   }, []);
 
   /**
-   * Dead background task: force-restart location updates first.
-   * Only mention battery if still dead AND status is restricted/unknown (never unrestricted).
+   * Dead background task while app is foreground: force-restart + immediate fix.
+   * Battery prompt only if still dead after that AND restricted/unknown (never unrestricted).
    */
   const recoverDeadBackgroundTask = useCallback(async () => {
+    if (AppState.currentState !== "active") return;
+
     let health = await getTrackingRuntimeHealth();
     if (health.claimedMode !== "background" || health.backgroundTaskStarted) return;
 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
 
-    // Prefer restart over blaming OEM battery.
     const mode = await ensureTrackingContinuity();
     setTrackingMode(mode);
+    await captureImmediateFixAndFlush().catch(() => undefined);
     health = await syncTrackingHealth();
     if (health.backgroundTaskStarted) return;
 
+    // Do not block GPS recovery on battery module; only mention after foreground restart failed.
     if (!isAndroid()) return;
     if (health.batteryOptimizationStatus === "unrestricted") return;
     if (
@@ -234,9 +237,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         text: t("gps.restartTracking"),
         onPress: () => {
           void restartTrackingPipeline()
-            .then(async (mode) => {
-              setTrackingMode(mode);
+            .then(async (result) => {
+              setTrackingMode(result.mode);
               await syncTrackingHealth();
+              if (!result.ok) {
+                if (result.errorCode === "app_not_active") {
+                  Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
+                } else {
+                  Alert.alert(t("gps.restartFailedTitle"), t("gps.restartFailedHint"));
+                }
+              }
             })
             .catch(() => undefined);
         },
@@ -478,13 +488,25 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   ]);
 
   const restartTracking = useCallback(async () => {
+    if (AppState.currentState !== "active") {
+      Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
+      return;
+    }
     setLoading(true);
     try {
       clearFlushBlockReason();
       staleAlertShownRef.current = false;
-      const mode = await restartTrackingPipeline();
-      setTrackingMode(mode);
-      await syncTrackingHealth();
+      const result = await restartTrackingPipeline();
+      setTrackingMode(result.mode);
+      const health = await syncTrackingHealth();
+      if (result.ok && (health.backgroundTaskStarted || result.mode === "foreground")) {
+        return;
+      }
+      if (result.errorCode === "app_not_active") {
+        Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
+        return;
+      }
+      Alert.alert(t("gps.restartFailedTitle"), t("gps.restartFailedHint"));
     } catch (e) {
       Alert.alert(t("common.error"), String(e));
     } finally {
