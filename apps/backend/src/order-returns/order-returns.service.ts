@@ -34,6 +34,7 @@ import {
 } from "./order-return-warehouse-role";
 import { normalizeTtnNumber } from "./return-package-np-status.utils";
 import { ReturnPackagesService } from "./return-packages.service";
+import { resolveReturnWarehouseId } from "./return-warehouse.utils";
 
 const CLOSED_RETURN_STATUS: ReturnStatus = "CLOSED";
 
@@ -56,6 +57,7 @@ const RETURN_DETAIL_INCLUDE = {
   replacementOrder: {
     select: { id: true, orderNumber: true, orderStage: true },
   },
+  warehouse: { select: { id: true, name: true } },
 } as const;
 
 @Injectable()
@@ -300,13 +302,20 @@ export class OrderReturnsService {
         : "REQUESTED";
 
     const changedBy = actor?.id ?? "system";
+    const returnWarehouseId = await resolveReturnWarehouseId(this.prisma, {
+      warehouseId: dto.warehouseId,
+      orderId,
+    });
 
     const created = await this.prisma.$transaction(async (tx) => {
       let returnPackageId: string | undefined;
       if (ttnNumber) {
         const pkg = await this.returnPackages.findOrCreatePackageByTtn(
           ttnNumber,
-          { contactId: order.clientId ?? order.contactId ?? undefined },
+          {
+            contactId: order.clientId ?? order.contactId ?? undefined,
+            warehouseId: returnWarehouseId,
+          },
           tx,
         );
         returnPackageId = pkg.id;
@@ -331,6 +340,7 @@ export class OrderReturnsService {
           replacementOrderId,
           itemsPending,
           returnPackageId,
+          warehouseId: returnWarehouseId,
           ...(returnItems.length
             ? {
                 items: {

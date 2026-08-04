@@ -121,12 +121,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     const batteryRisky =
       health.batteryOptimizationStatus === "unknown" ||
       health.batteryOptimizationStatus === "restricted";
-    const taskUnreliable =
-      !health.backgroundTaskStarted ||
-      shouldPromptBatteryForRestarts(health.restartCountToday, health.lastRestartReason);
 
-    // Only nag when battery status is risky AND background tracking looks unreliable.
-    if (batteryRisky && taskUnreliable && !batteryUnknownAlertShownRef.current) {
+    // Warn on restricted/unknown battery policy even when the task looks alive —
+    // OEM killers often report "started" while samples never arrive.
+    if (batteryRisky && !batteryUnknownAlertShownRef.current) {
       batteryUnknownAlertShownRef.current = true;
       Alert.alert(
         t("gps.batteryTitle"),

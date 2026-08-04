@@ -27,6 +27,59 @@ export type PlanningSettings = {
   demandMix: "HARD_PLUS_FORECAST_BEYOND_COVERED" | "MAX_FORECAST_HARD";
 };
 
+export type PlanningCapacityConfig = {
+  monthlyPartsQuota: number;
+};
+
+export type PlanningHorizonConfig = {
+  coverMonths: number;
+  velocityLookbackMonths: number;
+  warnCoverDays: number;
+  criticalCoverDays: number;
+  softPipelineFactor: number;
+  defaultPackLeadDays: number;
+};
+
+export type MrpLineType = "PRODUCTION" | "PACK" | "SEMI_REORDER" | "CRITICAL" | "CAN_PACK";
+
+export type MrpRunLine = {
+  id: string;
+  productId: string;
+  sku: string;
+  name: string;
+  kind: string;
+  lineType: MrpLineType;
+  qty: number;
+  suggestedLaunchQty: number;
+  priority: number;
+  monthBucket: number | null;
+  coverDays: number | null;
+  reason: string | null;
+  details: Record<string, unknown>;
+  batchId: string | null;
+};
+
+export type MrpRun = {
+  id: string;
+  mode: "FULL" | "CRITICAL";
+  computedAt: string;
+  coverMonths: number;
+  monthlyPartsQuota: number;
+  velocityLookbackMonths: number;
+  snapshotId: string | null;
+  summary: {
+    criticalCount?: number;
+    productionCount?: number;
+    packCount?: number;
+    semiCount?: number;
+    canPackCount?: number;
+    quotaUsedMonth0?: number;
+    quotaOverflowCount?: number;
+  };
+  freshness: SnapshotFreshness | null;
+  lines: MrpRunLine[];
+};
+
 export type SnapshotFreshness = {
   snapshotId: string | null;
   postedAt: string | null;
@@ -143,6 +196,7 @@ export type KitCapacity = {
     qtyPerKit: number;
     available: number;
     ratio: number;
+    constrainsCapacity?: boolean;
     product: { sku: string; name: string } | null;
   }>;
 };
@@ -562,5 +616,83 @@ export const planningApi = {
   },
   exportFactoryOrder: async (id: string) => {
     await downloadBlob(`/planning/factory/orders/${id}/export.xlsx`, `factory-order-${id.slice(0, 8)}.xlsx`);
+  },
+  getCapacityConfig: async (): Promise<PlanningCapacityConfig> => {
+    const res = await apiHttp.get<PlanningCapacityConfig>("/planning/config/capacity");
+    return res.data;
+  },
+  updateCapacityConfig: async (
+    payload: Partial<PlanningCapacityConfig>,
+  ): Promise<PlanningCapacityConfig> => {
+    const res = await apiHttp.patch<PlanningCapacityConfig>("/planning/config/capacity", payload);
+    return res.data;
+  },
+  getHorizonConfig: async (): Promise<PlanningHorizonConfig> => {
+    const res = await apiHttp.get<PlanningHorizonConfig>("/planning/config/horizon");
+    return res.data;
+  },
+  updateHorizonConfig: async (
+    payload: Partial<PlanningHorizonConfig>,
+  ): Promise<PlanningHorizonConfig> => {
+    const res = await apiHttp.patch<PlanningHorizonConfig>("/planning/config/horizon", payload);
+    return res.data;
+  },
+  runMrp: async (mode: "FULL" | "CRITICAL" = "FULL"): Promise<MrpRun> => {
+    const res = await apiHttp.post<MrpRun>("/planning/mrp/run", { mode });
+    return res.data;
+  },
+  getLatestMrp: async (mode?: "FULL" | "CRITICAL"): Promise<MrpRun | null> => {
+    const res = await apiHttp.get<MrpRun | null>("/planning/mrp/latest", {
+      params: mode ? { mode } : undefined,
+    });
+    return res.data;
+  },
+  getMrpCritical: async (): Promise<{
+    runId: string | null;
+    computedAt: string | null;
+    freshness?: SnapshotFreshness | null;
+    summary?: MrpRun["summary"];
+    lines: MrpRunLine[];
+  }> => {
+    const res = await apiHttp.get("/planning/mrp/critical");
+    return res.data;
+  },
+  getMrpProductionOrders: async (
+    month?: number,
+  ): Promise<{
+    runId: string | null;
+    computedAt: string | null;
+    monthlyPartsQuota: number | null;
+    quotaUsedMonth0?: number;
+    lines: MrpRunLine[];
+  }> => {
+    const res = await apiHttp.get("/planning/mrp/production-orders", {
+      params: month != null ? { month } : undefined,
+    });
+    return res.data;
+  },
+  getMrpPackaging: async (): Promise<{
+    runId: string | null;
+    computedAt: string | null;
+    needPack: MrpRunLine[];
+    canPack: MrpRunLine[];
+  }> => {
+    const res = await apiHttp.get("/planning/mrp/packaging");
+    return res.data;
+  },
+  getMrpSemiFinished: async (): Promise<{
+    runId: string | null;
+    computedAt: string | null;
+    lines: MrpRunLine[];
+  }> => {
+    const res = await apiHttp.get("/planning/mrp/semi-finished");
+    return res.data;
+  },
+  createBatchFromMrpLine: async (
+    lineId: string,
+    payload?: { code?: string; qtyPlanned?: number; dueAt?: string },
+  ): Promise<{ lineId: string; batch: ProductionBatch }> => {
+    const res = await apiHttp.post(`/planning/mrp/lines/${lineId}/create-batch`, payload ?? {});
+    return res.data;
   },
 };

@@ -48,4 +48,8 @@ export class CreateOrderReturnDto {
   @IsOptional()
   @IsEnum(ReplacementMode)
   replacementMode?: ReplacementMode;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
 }

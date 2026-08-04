@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 
 /** Parts/packaging live outside the sales catalog (Product.kind=PART, showOnStore=false). */
 
+/**
+ * Synthetic packaging SKUs from BOM import (`PKG:блистер-...`).
+ * Not inventoried in 1C snapshots — must not constrain kit capacity / packing qty.
+ */
+export function isNonInventoriedPackagingSku(sku: string | null | undefined): boolean {
+  return typeof sku === "string" && sku.trim().toUpperCase().startsWith("PKG:");
+}
+
 export function buildPackagingPartSku(name: string): string {
   const slug = name
     .trim()

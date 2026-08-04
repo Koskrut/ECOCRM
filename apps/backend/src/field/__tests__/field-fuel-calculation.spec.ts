@@ -198,6 +198,7 @@ describe("Hrybovska-like soft GPS payout", () => {
     assert.equal(selection.kind, "fact_gps");
     assert.equal(selection.ineligibleReason, null);
     assert.ok(selection.warnings.includes("gps_low_coverage"));
+    assert.ok(selection.warnings.includes("gps_partial_coverage"));
   });
 
   it("low coverage + usable visits → still prefer fact_visits (Gumenyuk)", () => {
@@ -211,6 +212,18 @@ describe("Hrybovska-like soft GPS payout", () => {
     });
     assert.equal(selection.kind, "fact_visits");
     assert.equal(selection.ineligibleReason, "gps_low_coverage");
+  });
+
+  it("GPS-only eligible day at thresholds → fact_gps (not null)", () => {
+    const selection = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: MIN_TRACK_COMPENSATION_SAMPLES,
+      rawPolylineDistanceKm: MIN_TRACK_COMPENSATION_KM,
+      coverageRatio: 0.5,
+      snappedTrackDistanceKm: MIN_TRACK_COMPENSATION_KM,
+      visitRouteDistanceKm: null,
+    });
+    assert.equal(selection.kind, "fact_gps");
   });
 });
 

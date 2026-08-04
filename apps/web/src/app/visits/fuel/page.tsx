@@ -57,8 +57,11 @@ function warningText(code: string): string | null {
   if (code === "gps_low_coverage") {
     return "Покриття GPS нижче 70% — для виплати використано маршрут по візитах.";
   }
-  if (code === "gps_low_coverage_partial_payout") {
+  if (code === "gps_low_coverage_partial_payout" || code === "gps_partial_coverage") {
     return "Покриття GPS часткове — компенсацію пораховано по GPS-треку (перевірте день).";
+  }
+  if (code === "gps_raw_payout_after_short_snap") {
+    return "OSRM-маршрут обірвався — компенсацію пораховано по сирому GPS-треку.";
   }
   if (code === "gps_ended_before_last_visit") {
     return "GPS-трек обірвався до останнього візиту — для виплати використано маршрут по візитах.";

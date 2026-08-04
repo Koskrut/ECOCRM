@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import { isNonInventoriedPackagingSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -98,12 +99,15 @@ export class FactoryOrderService {
 
       const bom = await this.prisma.kitBom.findFirst({
         where: { kitProductId: kitId, isActive: true },
-        include: { lines: true },
+        include: {
+          lines: { include: { component: { select: { sku: true } } } },
+        },
         orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
       });
       if (!bom) continue;
 
       for (const line of bom.lines) {
+        if (isNonInventoriedPackagingSku(line.component?.sku)) continue;
         const per = line.qtyPerKit.toNumber();
         const scrap = line.scrapPct?.toNumber() ?? 0;
         const gross = kitDemand * per * (1 + scrap / 100);

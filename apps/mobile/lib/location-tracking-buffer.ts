@@ -118,6 +118,8 @@ async function applyFlushFailure(
   }
   if (action === "discard_batch") {
     // 400 after failed retarget — KEEP buffer, stop ingest. Do not drain 100-by-100.
+    // Clear accept timestamp so watchdog CTA appears immediately (like wrong_day).
+    await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
     void appendErrorLog(
       `flush samples blocked on 400 (${batch.length} kept): ${message}`,
       "error",

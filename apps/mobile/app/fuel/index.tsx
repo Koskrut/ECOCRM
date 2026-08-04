@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -37,6 +38,7 @@ type FuelRangeResponse = {
   };
   days: Array<{
     date: string;
+    warnings?: string[];
     refuelCount?: number;
     refuelAmountTotal?: number;
     report: {
@@ -45,6 +47,7 @@ type FuelRangeResponse = {
       amountEstimated: string | number | null;
       compensationStatus: string;
       visitCount: number | null;
+      plannedKm?: number | null;
     };
   }>;
 };
@@ -78,6 +81,7 @@ export default function FuelMonthScreen() {
   const [monthKey, setMonthKey] = useState(() => formatLocalDateKey().slice(0, 7));
   const [data, setData] = useState<FuelRangeResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onlyWithKm, setOnlyWithKm] = useState(false);
 
   const { from, to } = useMemo(() => monthBounds(monthKey), [monthKey]);
 
@@ -152,25 +156,68 @@ export default function FuelMonthScreen() {
           </Card>
         ) : null}
 
-        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.md }]}>
+        <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
           {t("fuel.exportHint")}
         </Text>
 
+        <Pressable
+          onPress={() => setOnlyWithKm((v) => !v)}
+          style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: theme.spacing.md }}>
+          <View
+            style={{
+              width: 18,
+              height: 18,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              borderRadius: 4,
+              backgroundColor: onlyWithKm ? theme.colors.primary : "transparent",
+            }}
+          />
+          <Text style={[theme.typography.caption, { color: theme.colors.text }]}>
+            {t("fuel.filterHasCompensationKm")}
+          </Text>
+        </Pressable>
+
         {loading && !data ? <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} /> : null}
 
-        {data?.days.map((d) => (
+        {data?.days
+          .filter((d) =>
+            onlyWithKm
+              ? d.report.compensationKm != null && Number(d.report.compensationKm) > 0
+              : true,
+          )
+          .map((d) => {
+          const warns = d.warnings ?? [];
+          const hugePlan =
+            d.report.plannedKm != null && Number(d.report.plannedKm) > 500;
+          const hasWarn =
+            warns.length > 0 ||
+            hugePlan ||
+            warns.some((w) => w.startsWith("planned_km_"));
+          return (
           <Card
             key={d.date}
             onPress={() => router.push(`/fuel/${d.date}`)}
-            style={{ marginBottom: theme.spacing.sm }}>
+            style={{
+              marginBottom: theme.spacing.sm,
+              ...(hasWarn
+                ? { borderColor: theme.colors.warning, borderWidth: 1 }
+                : null),
+            }}>
             <View style={styles.dayRow}>
               <View style={styles.flex}>
-                <Text style={theme.typography.bodyMedium}>{d.date}</Text>
+                <Text style={theme.typography.bodyMedium}>
+                  {d.date}
+                  {hasWarn ? " ⚠" : ""}
+                </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
                   {t("fuel.visitsKm", {
                     visits: d.report.visitCount ?? 0,
                     km: d.report.compensationKm ?? "—",
                   })}
+                  {hugePlan
+                    ? ` · ${t("fuel.planSuspect")} (${d.report.plannedKm} км)`
+                    : ""}
                   {d.refuelCount && d.refuelCount > 0
                     ? ` · ${t("fuel.refuelBadge", {
                         count: d.refuelCount,
@@ -191,7 +238,8 @@ export default function FuelMonthScreen() {
               </View>
             </View>
           </Card>
-        ))}
+          );
+        })}
       </ScrollView>
     </Screen>
   );

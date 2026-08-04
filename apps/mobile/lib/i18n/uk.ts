@@ -511,6 +511,7 @@ export const uk = {
     refuelsHint: "Реальні витрати з чека",
     impliedPrice: "Ціна з чека: {value} грн/л",
     updateProfilePrice: "Оновити ціну в профілі",
+    filterHasCompensationKm: "Лише з compensation km",
     insufficientVisits:
       "Завершіть мінімум 2 візити з адресою на карті — тоді порахуємо пробіг.",
     notePlaceholder: "Примітка (необов'язково)",

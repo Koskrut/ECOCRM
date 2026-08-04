@@ -52,7 +52,11 @@ export function subscribeSessionAuth(cb: () => void): () => void {
   return () => listeners.delete(cb);
 }
 
-/** Try /auth/me; returns true if token still valid. */
+/**
+ * Lightweight session refresh probe after flush 401.
+ * Backend has no refresh-token endpoint — re-validate via /auth/me.
+ * True → keep buffer and retry later; false → force «Увійдіть знову».
+ */
 export async function validateAuthToken(
   token: string,
   apiBaseUrl: string,

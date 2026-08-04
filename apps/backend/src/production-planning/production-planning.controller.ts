@@ -15,6 +15,7 @@ import {
   FactoryOrderStatus,
   OrderStage,
   PlanningDemandMix,
+  PlanningRunMode,
   ProductionStageCode,
   UserRole,
 } from "@prisma/client";
@@ -28,8 +29,10 @@ import { DemandRulesService } from "./demand-rules.service";
 import { FactoryOrderService } from "./factory-order.service";
 import { ForecastService } from "./forecast.service";
 import { InventorySnapshotService } from "./inventory-snapshot.service";
+import { MrpConfigService } from "./mrp-config.service";
 import { PackingListService } from "./packing-list.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
+import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { ProductionService } from "./production.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
@@ -42,6 +45,7 @@ export class ProductionPlanningController {
   constructor(
     private readonly demandRules: DemandRulesService,
     private readonly planningSettings: PlanningSettingsService,
+    private readonly mrpConfig: MrpConfigService,
     private readonly bomImport: BomImportService,
     private readonly bomService: BomService,
     private readonly snapshots: InventorySnapshotService,
@@ -50,6 +54,7 @@ export class ProductionPlanningController {
     private readonly packingLists: PackingListService,
     private readonly factoryOrders: FactoryOrderService,
     private readonly production: ProductionService,
+    private readonly planningRuns: PlanningRunService,
     private readonly weeklyJob: WeeklyPlanningJob,
   ) {}
 
@@ -367,5 +372,91 @@ export class ProductionPlanningController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   runWeeklyPlan() {
     return this.weeklyJob.runNow();
+  }
+
+  @Get("config/capacity")
+  getCapacityConfig() {
+    return this.mrpConfig.getCapacity();
+  }
+
+  @Patch("config/capacity")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  setCapacityConfig(@Body() body: { monthlyPartsQuota?: number }) {
+    return this.mrpConfig.setCapacity(body ?? {});
+  }
+
+  @Get("config/horizon")
+  getHorizonConfig() {
+    return this.mrpConfig.getHorizon();
+  }
+
+  @Patch("config/horizon")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  setHorizonConfig(
+    @Body()
+    body: {
+      coverMonths?: number;
+      velocityLookbackMonths?: number;
+      warnCoverDays?: number;
+      criticalCoverDays?: number;
+      softPipelineFactor?: number;
+      defaultPackLeadDays?: number;
+    },
+  ) {
+    return this.mrpConfig.setHorizon(body ?? {});
+  }
+
+  @Post("mrp/run")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  runMrp(@Body() body?: { mode?: string }) {
+    const mode =
+      body?.mode === "CRITICAL" ? PlanningRunMode.CRITICAL : PlanningRunMode.FULL;
+    return this.planningRuns.runAndPersist(mode);
+  }
+
+  @Get("mrp/latest")
+  getLatestMrp(@Query("mode") mode?: string) {
+    const parsed =
+      mode === "CRITICAL"
+        ? PlanningRunMode.CRITICAL
+        : mode === "FULL"
+          ? PlanningRunMode.FULL
+          : undefined;
+    return this.planningRuns.getLatest(parsed);
+  }
+
+  @Get("mrp/critical")
+  getMrpCritical() {
+    return this.planningRuns.getCritical();
+  }
+
+  @Get("mrp/production-orders")
+  getMrpProductionOrders(@Query("month") month?: string) {
+    const parsed =
+      month != null && month !== ""
+        ? Number.parseInt(month, 10)
+        : undefined;
+    return this.planningRuns.getProductionOrders(
+      Number.isFinite(parsed) ? parsed : undefined,
+    );
+  }
+
+  @Get("mrp/packaging")
+  getMrpPackaging() {
+    return this.planningRuns.getPackaging();
+  }
+
+  @Get("mrp/semi-finished")
+  getMrpSemiFinished() {
+    return this.planningRuns.getSemiFinished();
+  }
+
+  @Post("mrp/lines/:id/create-batch")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  createBatchFromMrpLine(
+    @Param("id") id: string,
+    @Body() body?: { code?: string; qtyPlanned?: number; dueAt?: string },
+  ) {
+    return this.planningRuns.createBatchFromLine(id, body);
   }
 }

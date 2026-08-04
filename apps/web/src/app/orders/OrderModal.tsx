@@ -871,6 +871,7 @@ export function OrderModal({
   const [returnItemsPending, setReturnItemsPending] = useState(false);
   const [returnReason, setReturnReason] = useState<ReturnReasonCode>("CUSTOMER_CHANGE");
   const [replacementMode, setReplacementMode] = useState<ReplacementModeCode>("REPLACE_FIRST");
+  const [returnWarehouseId, setReturnWarehouseId] = useState<string>("");
   const [actualProductByItemId, setActualProductByItemId] = useState<
     Record<string, { id: string; name: string; sku?: string | null }>
   >({});
@@ -2165,6 +2166,7 @@ export function OrderModal({
                         onClick={() => {
                           setReturnsDocsMenuOpen(false);
                           setShowCreateReturnForm(true);
+                          setReturnWarehouseId(order.warehouseId ?? warehouseId ?? "");
                           setReturnItemQtys(
                             Object.fromEntries((order.items ?? []).map((it) => [it.id, 0])),
                           );
@@ -4297,6 +4299,25 @@ export function OrderModal({
             ) : null}
 
             <label className="mt-3 block text-sm font-medium text-zinc-700">
+              {tr.returnWarehouseLabel}
+              <select
+                value={returnWarehouseId}
+                onChange={(e) => setReturnWarehouseId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              >
+                <option value="">{strings.orders.modal.notSpecified}</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                {tr.returnWarehouseHint}
+              </span>
+            </label>
+
+            <label className="mt-3 block text-sm font-medium text-zinc-700">
               {t.returnTtnLabel}
               <input
                 type="text"
@@ -4537,6 +4558,7 @@ export function OrderModal({
                           reason: returnReason,
                           replacementMode:
                             returnReason === "WRONG_ITEM" ? replacementMode : undefined,
+                          warehouseId: returnWarehouseId || undefined,
                         }),
                         credentials: "include",
                       });
@@ -4553,6 +4575,7 @@ export function OrderModal({
                       setReturnItemsPending(false);
                       setReturnReason("CUSTOMER_CHANGE");
                       setReplacementMode("REPLACE_FIRST");
+                      setReturnWarehouseId("");
                       setActualProductByItemId({});
                       setActualProductSearch({});
                       setActualProductResults({});

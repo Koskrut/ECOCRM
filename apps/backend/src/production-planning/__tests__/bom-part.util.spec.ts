@@ -4,8 +4,17 @@ import {
   buildArticlePartSku,
   buildPackagingPartSku,
   buildPartDisplayName,
+  isNonInventoriedPackagingSku,
   uniquifyPartSku,
 } from "../bom-part.util";
+
+test("isNonInventoriedPackagingSku matches PKG: prefix", () => {
+  assert.equal(isNonInventoriedPackagingSku("PKG:блистер-suprex-(костя)"), true);
+  assert.equal(isNonInventoriedPackagingSku("pkg:этикетка"), true);
+  assert.equal(isNonInventoriedPackagingSku("ND-TB-2.5x3.5mm"), false);
+  assert.equal(isNonInventoriedPackagingSku(""), false);
+  assert.equal(isNonInventoriedPackagingSku(null), false);
+});
 
 test("buildPackagingPartSku slugs Cyrillic packaging names", () => {
   assert.equal(

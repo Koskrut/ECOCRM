@@ -573,6 +573,19 @@ enum PlanningItemType {
   LAUNCH_LIST
 }
 
+enum PlanningRunMode {
+  FULL
+  CRITICAL
+}
+
+enum PlanningRunLineType {
+  PRODUCTION
+  PACK
+  SEMI_REORDER
+  CRITICAL
+  CAN_PACK
+}
+
 enum PackingListStatus {
   DRAFT
   APPROVED
@@ -1630,6 +1643,8 @@ model Warehouse {
   productWarehouseStocks ProductWarehouseStock[]
   snapshotLines          InventorySnapshotLine[]
   reservations           MaterialReservation[]
+  returnPackages         ReturnPackage[]
+  orderReturns           OrderReturn[]
 
   @@index([sortOrder])
 }
@@ -1673,6 +1688,8 @@ model Product {
   packingListLines       PackingListLine[]
   factoryOrderLines      FactoryOrderLine[]
   actualReturnItems      OrderReturnItem[]       @relation("ReturnItemActualProduct")
+  planningParams         PlanningProductParams?
+  planningRunLines       PlanningRunLine[]
 
   @@index([primaryImageId])
   @@index([kind])
@@ -2065,16 +2082,19 @@ model ReturnPackage {
   ttnSyncedAt   DateTime?
   contactId     String?
   note          String?
+  warehouseId   String?
   status        ReturnPackageStatus @default(IN_TRANSIT_BACK)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
-  contact Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  returns OrderReturn[]
+  contact   Contact?   @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  returns   OrderReturn[]
 
   @@index([status])
   @@index([contactId])
   @@index([ttnSyncedAt])
+  @@index([warehouseId])
 }
 
 /// Return request for an order (Phase 1: new model).
@@ -2099,6 +2119,7 @@ model OrderReturn {
   settledAt        DateTime?
   settledByUserId  String?
   returnPackageId  String?
+  warehouseId      String?
   itemsPending     Boolean      @default(false)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -2106,6 +2127,7 @@ model OrderReturn {
   order Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   replacementOrder Order? @relation("OrderReplacement", fields: [replacementOrderId], references: [id], onDelete: SetNull)
   returnPackage ReturnPackage? @relation(fields: [returnPackageId], references: [id], onDelete: SetNull)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   items OrderReturnItem[]
   balanceTransactions ClientBalanceTransaction[]
 
@@ -2116,6 +2138,7 @@ model OrderReturn {
   @@index([returnPackageId])
   @@index([replacementOrderId])
   @@index([reason])
+  @@index([warehouseId])
 }
 
 model OrderReturnItem {
@@ -2872,6 +2895,63 @@ model WeeklyPlanItem {
   @@index([batchId])
   @@index([productId])
   @@index([orderId])
+}
+
+model PlanningProductParams {
+  id                      String   @id @default(cuid())
+  productId               String   @unique
+  safetyStock             Int      @default(0)
+  productionLeadDays      Int      @default(90)
+  packLeadDays            Int?
+  isPlanned               Boolean  @default(true)
+  monthlyForecastOverride Float?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([isPlanned])
+}
+
+model PlanningRun {
+  id                     String          @id @default(cuid())
+  mode                   PlanningRunMode
+  computedAt             DateTime        @default(now())
+  coverMonths            Int
+  monthlyPartsQuota      Int
+  velocityLookbackMonths Int
+  snapshotId             String?
+  details                Json?
+  createdAt              DateTime        @default(now())
+
+  lines PlanningRunLine[]
+
+  @@index([computedAt])
+  @@index([mode, computedAt])
+}
+
+model PlanningRunLine {
+  id                 String              @id @default(cuid())
+  runId              String
+  productId          String
+  lineType           PlanningRunLineType
+  qty                Int
+  suggestedLaunchQty Int                 @default(0)
+  priority           Int                 @default(100)
+  monthBucket        Int?
+  coverDays          Float?
+  reason             String?
+  details            Json?
+  batchId            String?
+  createdAt          DateTime            @default(now())
+
+  run     PlanningRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  product Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([runId, lineType])
+  @@index([runId, monthBucket])
+  @@index([productId])
+  @@index([lineType, priority])
 }
 
 model KitDemandForecast {

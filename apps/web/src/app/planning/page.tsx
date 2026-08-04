@@ -23,6 +23,12 @@ import {
   FactoryPanel,
   ForecastPanel,
   FreshnessBanner,
+  MrpConfigPanel,
+  MrpCriticalPanel,
+  MrpDashboardPanel,
+  MrpPackagingPanel,
+  MrpProductionPanel,
+  MrpSemiFinishedPanel,
   PackingPanel,
   PlanningDashboardPanel,
   PlanningSettingsPanel,
@@ -30,6 +36,11 @@ import {
 
 type PlanningTab =
   | "dashboard"
+  | "mrp"
+  | "mrpProduction"
+  | "mrpPack"
+  | "mrpSemi"
+  | "mrpCritical"
   | "inventory"
   | "snapshots"
   | "bom"
@@ -506,6 +517,11 @@ export default function PlanningPage() {
         {(
           [
             "dashboard",
+            "mrp",
+            "mrpProduction",
+            "mrpPack",
+            "mrpSemi",
+            "mrpCritical",
             "inventory",
             "snapshots",
             "bom",
@@ -543,6 +559,12 @@ export default function PlanningPage() {
           {activeTab === "dashboard" && (
             <PlanningDashboardPanel dashboard={planningDashboard} projection={projection} />
           )}
+
+          {activeTab === "mrp" && <MrpDashboardPanel onError={handleOpsError} />}
+          {activeTab === "mrpProduction" && <MrpProductionPanel onError={handleOpsError} />}
+          {activeTab === "mrpPack" && <MrpPackagingPanel onError={handleOpsError} />}
+          {activeTab === "mrpSemi" && <MrpSemiFinishedPanel onError={handleOpsError} />}
+          {activeTab === "mrpCritical" && <MrpCriticalPanel onError={handleOpsError} />}
 
           {activeTab === "forecast" && (
             <ForecastPanel onError={handleOpsError} />
@@ -1083,6 +1105,7 @@ export default function PlanningPage() {
 
           {activeTab === "settings" && (
             <div className="space-y-4">
+              <MrpConfigPanel onError={handleOpsError} />
               <PlanningSettingsPanel
                 settings={planningSettings}
                 onSaved={(s) => {

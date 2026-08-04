@@ -7,8 +7,12 @@ import {
   type FactoryOrder,
   type FactoryRecommendation,
   type ForecastRow,
+  type MrpRun,
+  type MrpRunLine,
   type PackingList,
+  type PlanningCapacityConfig,
   type PlanningDashboard,
+  type PlanningHorizonConfig,
   type PlanningSettings,
   type SnapshotFreshness,
   type StockProjection,
@@ -606,6 +610,436 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           ])}
           noDataLabel={t.states.noFactoryOrders}
         />
+      </Panel>
+    </div>
+  );
+}
+
+function QuotaBar({ used, quota }: { used: number; quota: number }) {
+  const pct = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-xs text-zinc-600">
+        <span>
+          {used} / {quota}
+        </span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+        <div
+          className={pct >= 95 ? "h-full bg-rose-500" : pct >= 70 ? "h-full bg-amber-500" : "h-full bg-cyan-600"}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MrpLinesTable({
+  lines,
+  onCreateBatch,
+  creatingId,
+  showMonth,
+}: {
+  lines: MrpRunLine[];
+  onCreateBatch?: (line: MrpRunLine) => void;
+  creatingId?: string | null;
+  showMonth?: boolean;
+}) {
+  const t = strings.planning;
+  const headers = [
+    t.labels.sku,
+    t.labels.name,
+    t.labels.qty,
+    t.labels.suggestedLaunch,
+    ...(showMonth ? [t.labels.monthBucket] : []),
+    t.labels.coverDays,
+    t.labels.reason,
+    ...(onCreateBatch ? [t.labels.actions] : []),
+  ];
+  return (
+    <SimpleTable
+      headers={headers}
+      rows={lines.map((line) => [
+        line.sku,
+        line.name,
+        String(line.qty),
+        String(line.suggestedLaunchQty),
+        ...(showMonth ? [line.monthBucket != null ? String(line.monthBucket) : "—"] : []),
+        line.coverDays != null ? String(line.coverDays) : "—",
+        line.reason ?? "—",
+        ...(onCreateBatch
+          ? [
+              line.batchId ? (
+                <span className="text-xs text-emerald-700">{t.labels.batchCreated}</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={creatingId === line.id || line.suggestedLaunchQty <= 0}
+                  className="rounded-md bg-cyan-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                  onClick={() => onCreateBatch(line)}
+                >
+                  {creatingId === line.id ? strings.common.loading : t.actions.createBatch}
+                </button>
+              ),
+            ]
+          : []),
+      ])}
+      noDataLabel={t.states.noData}
+    />
+  );
+}
+
+export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [run, setRun] = useState<MrpRun | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      setRun(await planningApi.getLatestMrp());
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+    } finally {
+      setBusy(false);
+    }
+  }, [reportError, t.errors.loadMrp]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const quota = run?.monthlyPartsQuota ?? 7000;
+  const used = run?.summary?.quotaUsedMonth0 ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                setRun(await planningApi.runMrp("FULL"));
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.runMrp);
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          {t.actions.runMrp}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
+          onClick={() => void load()}
+        >
+          {t.actions.refresh}
+        </button>
+        {run?.computedAt ? (
+          <span className="text-xs text-zinc-500">
+            {t.labels.lastMrpRun}: {formatDateTime(run.computedAt)}
+          </span>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard title={t.labels.criticalSku} value={String(run?.summary?.criticalCount ?? 0)} />
+        <StatCard title={t.labels.productionOrders} value={String(run?.summary?.productionCount ?? 0)} />
+        <StatCard title={t.labels.packQueueMrp} value={String(run?.summary?.packCount ?? 0)} />
+        <StatCard title={t.labels.semiReorder} value={String(run?.summary?.semiCount ?? 0)} />
+      </div>
+      <Panel title={t.labels.monthlyQuota}>
+        <QuotaBar used={used} quota={quota} />
+        {(run?.summary?.quotaOverflowCount ?? 0) > 0 ? (
+          <p className="mt-2 text-sm text-amber-700">
+            {t.messages.quotaOverflow(run?.summary?.quotaOverflowCount ?? 0)}
+          </p>
+        ) : null}
+      </Panel>
+    </div>
+  );
+}
+
+export function MrpProductionPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [month, setMonth] = useState(0);
+  const [data, setData] = useState<Awaited<ReturnType<typeof planningApi.getMrpProductionOrders>> | null>(
+    null,
+  );
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setData(await planningApi.getMrpProductionOrders(month));
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+    }
+  }, [month, reportError, t.errors.loadMrp]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-sm text-zinc-700">
+          {t.labels.monthBucket}
+          <select
+            className="ml-2 rounded-lg border border-zinc-200 px-3 py-1.5"
+            value={month}
+            onChange={(e) => setMonth(Number(e.target.value))}
+          >
+            {[0, 1, 2, 3, 4, 5].map((m) => (
+              <option key={m} value={m}>
+                +{m}
+              </option>
+            ))}
+          </select>
+        </label>
+        {data?.monthlyPartsQuota != null ? (
+          <div className="min-w-[220px] flex-1">
+            <QuotaBar used={data.quotaUsedMonth0 ?? 0} quota={data.monthlyPartsQuota} />
+          </div>
+        ) : null}
+      </div>
+      <Panel title={t.tabs.mrpProduction}>
+        <MrpLinesTable
+          lines={data?.lines ?? []}
+          showMonth
+          creatingId={creatingId}
+          onCreateBatch={(line) => {
+            void (async () => {
+              setCreatingId(line.id);
+              try {
+                await planningApi.createBatchFromMrpLine(line.id);
+                await load();
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.createBatch);
+              } finally {
+                setCreatingId(null);
+              }
+            })();
+          }}
+        />
+      </Panel>
+    </div>
+  );
+}
+
+export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [needPack, setNeedPack] = useState<MrpRunLine[]>([]);
+  const [canPack, setCanPack] = useState<MrpRunLine[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await planningApi.getMrpPackaging();
+        setNeedPack(res.needPack);
+        setCanPack(res.canPack);
+      } catch (e) {
+        reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+      }
+    })();
+  }, [reportError, t.errors.loadMrp]);
+
+  return (
+    <div className="space-y-4">
+      <Panel title={t.labels.needPack}>
+        <MrpLinesTable lines={needPack} />
+      </Panel>
+      <Panel title={t.labels.canPack}>
+        <MrpLinesTable lines={canPack} />
+      </Panel>
+    </div>
+  );
+}
+
+export function MrpSemiFinishedPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [lines, setLines] = useState<MrpRunLine[]>([]);
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setLines((await planningApi.getMrpSemiFinished()).lines);
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+    }
+  }, [reportError, t.errors.loadMrp]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <Panel title={t.tabs.mrpSemi}>
+      <MrpLinesTable
+        lines={lines}
+        creatingId={creatingId}
+        onCreateBatch={(line) => {
+          void (async () => {
+            setCreatingId(line.id);
+            try {
+              await planningApi.createBatchFromMrpLine(line.id);
+              await load();
+            } catch (e) {
+              reportError(e instanceof Error ? e.message : t.errors.createBatch);
+            } finally {
+              setCreatingId(null);
+            }
+          })();
+        }}
+      />
+    </Panel>
+  );
+}
+
+export function MrpCriticalPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [lines, setLines] = useState<MrpRunLine[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setLines((await planningApi.getMrpCritical()).lines);
+      } catch (e) {
+        reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+      }
+    })();
+  }, [reportError, t.errors.loadMrp]);
+
+  return (
+    <Panel title={t.tabs.mrpCritical}>
+      <MrpLinesTable lines={lines} />
+    </Panel>
+  );
+}
+
+export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) {
+  const t = strings.planning;
+  const reportError = useStableErrorHandler(onError);
+  const [capacity, setCapacity] = useState<PlanningCapacityConfig | null>(null);
+  const [horizon, setHorizon] = useState<PlanningHorizonConfig | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [c, h] = await Promise.all([
+          planningApi.getCapacityConfig(),
+          planningApi.getHorizonConfig(),
+        ]);
+        setCapacity(c);
+        setHorizon(h);
+      } catch (e) {
+        reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+      }
+    })();
+  }, [reportError, t.errors.loadMrp]);
+
+  if (!capacity || !horizon) return <p className="text-sm text-zinc-500">{t.states.noData}</p>;
+
+  return (
+    <div className="space-y-4">
+      <Panel title={t.labels.monthlyQuota}>
+        <label className="text-sm text-zinc-700">
+          {t.labels.monthlyPartsQuota}
+          <input
+            type="number"
+            className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+            value={capacity.monthlyPartsQuota}
+            onChange={(e) =>
+              setCapacity({ monthlyPartsQuota: Number(e.target.value) })
+            }
+          />
+        </label>
+        <button
+          type="button"
+          disabled={busy}
+          className="mt-3 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                setCapacity(await planningApi.updateCapacityConfig(capacity));
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.saveSettings);
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          {t.actions.saveSettings}
+        </button>
+      </Panel>
+      <Panel title={t.labels.mrpHorizon}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {(
+            [
+              ["coverMonths", t.labels.coverMonths],
+              ["velocityLookbackMonths", t.labels.velocityLookback],
+              ["warnCoverDays", t.labels.warnCoverDays],
+              ["criticalCoverDays", t.labels.criticalCoverDays],
+              ["defaultPackLeadDays", t.labels.defaultPackLeadDays],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="text-sm text-zinc-700">
+              {label}
+              <input
+                type="number"
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+                value={horizon[key]}
+                onChange={(e) => setHorizon({ ...horizon, [key]: Number(e.target.value) })}
+              />
+            </label>
+          ))}
+          <label className="text-sm text-zinc-700">
+            {t.labels.softPipelineFactor}
+            <input
+              type="number"
+              step="0.1"
+              className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+              value={horizon.softPipelineFactor}
+              onChange={(e) =>
+                setHorizon({ ...horizon, softPipelineFactor: Number(e.target.value) })
+              }
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          className="mt-3 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          onClick={() => {
+            void (async () => {
+              setBusy(true);
+              try {
+                setHorizon(await planningApi.updateHorizonConfig(horizon));
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.saveSettings);
+              } finally {
+                setBusy(false);
+              }
+            })();
+          }}
+        >
+          {t.actions.saveSettings}
+        </button>
       </Panel>
     </div>
   );

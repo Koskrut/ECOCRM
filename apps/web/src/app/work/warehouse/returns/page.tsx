@@ -10,6 +10,7 @@ import {
   type ReturnPackage,
   type ReturnPackageLinkedReturn,
 } from "@/lib/api/resources/return-packages";
+import { listWarehouses, type WarehouseItem } from "@/lib/api/resources/warehouses";
 import { apiHttp } from "@/lib/api/client";
 import { strings } from "@/locales";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
@@ -54,8 +55,29 @@ function linkedOrdersLabel(returns: ReturnPackageLinkedReturn[]): string {
   return returns.map((r) => r.order.orderNumber).join(", ");
 }
 
+const WAREHOUSE_FILTER_STORAGE_KEY = "warehouse.returns.selectedIds";
+
+function loadStoredWarehouseIds(): string[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(WAREHOUSE_FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredWarehouseIds(ids: string[]) {
+  localStorage.setItem(WAREHOUSE_FILTER_STORAGE_KEY, JSON.stringify(ids));
+}
+
 export default function WarehouseReturnsPage() {
   const [items, setItems] = useState<ReturnPackage[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
+  const [selectedWarehouseIds, setSelectedWarehouseIds] = useState<string[]>([]);
+  const [receiveWarehouseId, setReceiveWarehouseId] = useState("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -89,7 +111,11 @@ export default function WarehouseReturnsPage() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await returnPackagesApi.listWarehouseQueue();
+      const filterIds =
+        selectedWarehouseIds.length > 0 && selectedWarehouseIds.length < warehouses.length
+          ? selectedWarehouseIds
+          : undefined;
+      const data = await returnPackagesApi.listWarehouseQueue(filterIds);
       setItems(data.items ?? []);
       setSelectedId((prev) => {
         if (prev && data.items?.some((p) => p.id === prev)) return prev;
@@ -101,6 +127,21 @@ export default function WarehouseReturnsPage() {
     } finally {
       setLoading(false);
     }
+  }, [selectedWarehouseIds, warehouses.length]);
+
+  useEffect(() => {
+    void listWarehouses()
+      .then((list) => {
+        setWarehouses(list);
+        const stored = loadStoredWarehouseIds();
+        const allIds = list.map((w) => w.id);
+        if (stored && stored.length > 0) {
+          setSelectedWarehouseIds(stored.filter((id) => allIds.includes(id)));
+        } else {
+          setSelectedWarehouseIds(allIds);
+        }
+      })
+      .catch(() => setWarehouses([]));
   }, []);
 
   useEffect(() => {
@@ -122,8 +163,14 @@ export default function WarehouseReturnsPage() {
   useEffect(() => {
     if (!selected) {
       setDispositionDrafts({});
+      setReceiveWarehouseId("");
       return;
     }
+    setReceiveWarehouseId(
+      selected.warehouseId ??
+        selected.returns.find((r) => r.warehouseId)?.warehouseId ??
+        "",
+    );
     const drafts: Record<string, "RESTOCK" | "QUARANTINE" | "WRITE_OFF"> = {};
     for (const it of misPickReturnItems) {
       if (it.disposition && it.disposition !== "PENDING") {
@@ -179,7 +226,10 @@ export default function WarehouseReturnsPage() {
   const handleReceive = () => {
     if (!selected) return;
     void runAction(
-      () => returnPackagesApi.receive(selected.id),
+      () =>
+        returnPackagesApi.receive(selected.id, {
+          warehouseId: receiveWarehouseId || undefined,
+        }),
       "Посилку позначено як прийняту",
     );
   };
@@ -246,6 +296,38 @@ export default function WarehouseReturnsPage() {
         <HelpHint routeKey="work.warehouse.returns" />
       </div>
 
+      {warehouses.length > 1 ? (
+        <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-3">
+          <div className="text-xs font-medium text-zinc-600">{strings.returns.returnWarehouseLabel}</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {warehouses.map((w) => {
+              const checked = selectedWarehouseIds.includes(w.id);
+              return (
+                <label
+                  key={w.id}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-zinc-200 px-2.5 py-1 text-xs"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      setSelectedWarehouseIds((prev) => {
+                        const next = checked
+                          ? prev.filter((id) => id !== w.id)
+                          : [...prev, w.id];
+                        saveStoredWarehouseIds(next);
+                        return next;
+                      });
+                    }}
+                  />
+                  {w.name}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {info ? (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           {info}
@@ -279,6 +361,11 @@ export default function WarehouseReturnsPage() {
                   <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
                     {STATUS_LABELS[pkg.status] ?? pkg.status}
                   </span>
+                  {pkg.warehouse?.name ? (
+                    <span className="rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-800">
+                      {pkg.warehouse.name}
+                    </span>
+                  ) : null}
                   <TtnStatusBadge
                     statusCode={pkg.ttnStatusCode}
                     statusText={pkg.ttnStatusText}
@@ -332,6 +419,28 @@ export default function WarehouseReturnsPage() {
                   size="md"
                 />
               </div>
+
+              {selected.status === "IN_TRANSIT_BACK" ? (
+                <label className="block text-sm text-zinc-700">
+                  {strings.returns.returnWarehouseLabel}
+                  <select
+                    value={receiveWarehouseId}
+                    onChange={(e) => setReceiveWarehouseId(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">{strings.orders.modal.notSpecified}</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : selected.warehouse?.name ? (
+                <p className="text-sm text-zinc-600">
+                  {strings.returns.returnWarehouseLabel}: {selected.warehouse.name}
+                </p>
+              ) : null}
 
               {selected.returns.length > 0 ? (
                 <div className="space-y-2">

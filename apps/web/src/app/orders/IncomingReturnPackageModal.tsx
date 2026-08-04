@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { returnPackagesApi } from "@/lib/api/resources/return-packages";
+import { listWarehouses, type WarehouseItem } from "@/lib/api/resources/warehouses";
 import { strings } from "@/locales";
 
 type ContactOption = {
@@ -17,6 +18,7 @@ export function IncomingReturnPackageModal({
   onCreated,
   defaultOrderId,
   defaultContactId,
+  defaultWarehouseId,
   contactSearch,
 }: {
   open: boolean;
@@ -24,10 +26,13 @@ export function IncomingReturnPackageModal({
   onCreated?: () => void;
   defaultOrderId?: string;
   defaultContactId?: string;
+  defaultWarehouseId?: string;
   contactSearch?: (q: string) => Promise<ContactOption[]>;
 }) {
   const [ttnNumber, setTtnNumber] = useState("");
   const [note, setNote] = useState("");
+  const [warehouseId, setWarehouseId] = useState(defaultWarehouseId ?? "");
+  const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
   const [contactQuery, setContactQuery] = useState("");
   const [contactId, setContactId] = useState(defaultContactId ?? "");
   const [contactOptions, setContactOptions] = useState<ContactOption[]>([]);
@@ -35,9 +40,18 @@ export function IncomingReturnPackageModal({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!open) return;
+    setWarehouseId(defaultWarehouseId ?? "");
+    void listWarehouses()
+      .then(setWarehouses)
+      .catch(() => setWarehouses([]));
+  }, [open, defaultWarehouseId]);
+
   if (!open) return null;
 
   const t = strings.orders.modal;
+  const tr = strings.returns;
 
   const searchContacts = async () => {
     if (!contactSearch || contactQuery.trim().length < 2) return;
@@ -66,12 +80,14 @@ export function IncomingReturnPackageModal({
         contactId: contactId || undefined,
         orderId: defaultOrderId,
         note: note.trim() || undefined,
+        warehouseId: warehouseId || undefined,
         itemsPending: !!defaultOrderId,
       });
       setTtnNumber("");
       setNote("");
       setContactQuery("");
       setContactId(defaultContactId ?? "");
+      setWarehouseId(defaultWarehouseId ?? "");
       setContactOptions([]);
       onCreated?.();
       onClose();
@@ -108,6 +124,22 @@ export function IncomingReturnPackageModal({
             placeholder="20450000000000"
             className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
           />
+        </label>
+
+        <label className="mt-3 block text-sm font-medium text-zinc-700">
+          {tr.returnWarehouseLabel}
+          <select
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value)}
+            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          >
+            <option value="">{t.notSpecified}</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
         </label>
 
         {contactSearch ? (

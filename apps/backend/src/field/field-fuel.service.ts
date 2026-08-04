@@ -19,7 +19,7 @@ import type { FuelRefuelTotals } from "./field-fuel-refuels.types";
 import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
 import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner-scope";
-import { assessPlannedKm } from "../visits/route-routing.util";
+import { assessPlannedKm, resolveUsableGpsKm } from "../visits/route-routing.util";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -220,9 +220,13 @@ export class FieldFuelService {
       ]);
 
     const compensationFactKind = geometryBundle.compensationFactKind;
+    const gpsCompensationKm = resolveUsableGpsKm({
+      snappedTrackDistanceKm: factGpsMetrics.distanceKm,
+      rawPolylineDistanceKm: geometryBundle.factGps.quality.rawDistanceKm ?? null,
+    });
     const compensationKm =
-      compensationFactKind === "fact_gps" && factGpsMetrics.distanceKm != null
-        ? factGpsMetrics.distanceKm
+      compensationFactKind === "fact_gps" && gpsCompensationKm != null
+        ? gpsCompensationKm
         : factVisitsMetrics.distanceKm;
     const actualKm = compensationKm;
     const plannedKmRaw = plannedMetrics.distanceKm;
@@ -250,7 +254,7 @@ export class FieldFuelService {
     snapshot.factVisitsMetricsSource = factVisitsMetrics.source;
     snapshot.factGpsMetricsSource = factGpsMetrics.source;
     snapshot.compensationFactKind = compensationFactKind;
-    snapshot.trackKm = factGpsMetrics.distanceKm;
+    snapshot.trackKm = gpsCompensationKm ?? factGpsMetrics.distanceKm;
     snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
     snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
     snapshot.compensationIneligibleReason =
@@ -280,7 +284,9 @@ export class FieldFuelService {
           ? "gps_low_coverage_partial_payout"
           : w === "gps_ended_before_last_visit"
             ? "gps_ended_early_partial_payout"
-            : w;
+            : w === "gps_implausibly_short_vs_visits"
+              ? "gps_raw_payout_after_short_snap"
+              : w;
       if (!warnings.includes(softCode)) warnings.push(softCode);
     }
     if (plannedAssessment.warning && !warnings.includes(plannedAssessment.warning)) {
@@ -396,9 +402,13 @@ export class FieldFuelService {
 
     const snapshot = (report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
     const liveKind = geometryBundle.compensationFactKind;
+    const liveGpsKm = resolveUsableGpsKm({
+      snappedTrackDistanceKm: factGpsMetrics.distanceKm,
+      rawPolylineDistanceKm: geometryBundle.factGps.quality.rawDistanceKm ?? null,
+    });
     const liveKm =
-      liveKind === "fact_gps" && factGpsMetrics.distanceKm != null
-        ? factGpsMetrics.distanceKm
+      liveKind === "fact_gps" && liveGpsKm != null
+        ? liveGpsKm
         : factVisitsMetrics.distanceKm;
     const storedKind = snapshot.compensationFactKind;
     const storedKm = report.compensationKm;

@@ -73,6 +73,7 @@ type ReturnDetails = {
   refundAmount?: number | null;
   settledAt?: string | null;
   settlementType?: string | null;
+  warehouse?: { id: string; name: string } | null;
   replacementOrder?: {
     id: string;
     orderNumber: string;
@@ -371,6 +372,14 @@ export function ReturnModal({
             <div className="mt-1 text-sm text-zinc-800">
               {replacementModeLabel(ret.replacementMode)}
             </div>
+          </div>
+        ) : null}
+        {ret.warehouse?.name ? (
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              {tr.returnWarehouseLabel}
+            </div>
+            <div className="mt-1 text-sm text-zinc-800">{ret.warehouse.name}</div>
           </div>
         ) : null}
       </div>

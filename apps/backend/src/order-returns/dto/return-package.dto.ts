@@ -44,6 +44,10 @@ export class CreateReturnPackageDto {
   @IsArray()
   @IsString({ each: true })
   returnIds?: string[];
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
 }
 
 export class UpdateReturnPackageTtnDto {
@@ -79,6 +83,18 @@ export class UpdateReturnPackageDispositionsDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateReturnPackageItemDispositionDto)
   items!: UpdateReturnPackageItemDispositionDto[];
+}
+
+export class ReceiveReturnPackageDto {
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+}
+
+export class ListWarehouseQueueQueryDto {
+  @IsOptional()
+  @IsString()
+  warehouseIds?: string;
 }
 
 export class ListReturnPackagesQueryDto {

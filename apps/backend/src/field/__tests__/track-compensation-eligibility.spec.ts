@@ -240,7 +240,34 @@ describe("selectCompensationFactKind", () => {
       visitRouteDistanceKm: null,
     });
     assert.equal(sel.kind, "fact_gps");
-    assert.deepEqual(sel.warnings, ["gps_low_coverage"]);
+    assert.ok(sel.warnings.includes("gps_low_coverage"));
+    assert.ok(sel.warnings.includes("gps_partial_coverage"));
+  });
+
+  it("GPS-only: usable raw + tiny snap + no visits → fact_gps (not null)", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 20,
+      rawPolylineDistanceKm: 2.3,
+      coverageRatio: 0.85,
+      snappedTrackDistanceKm: 0.2,
+      visitRouteDistanceKm: null,
+    });
+    assert.equal(sel.kind, "fact_gps");
+    assert.ok(sel.warnings.includes("gps_implausibly_short_vs_visits"));
+  });
+
+  it("below MIN track + no visits → fact_visits (null km expected)", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 2,
+      rawPolylineDistanceKm: 0.3,
+      coverageRatio: 0.9,
+      snappedTrackDistanceKm: 0.3,
+      visitRouteDistanceKm: null,
+    });
+    assert.equal(sel.kind, "fact_visits");
+    assert.equal(sel.ineligibleReason, "track_too_short");
   });
 
   it("Gumenyuk: low coverage with usable visits → fact_visits", () => {

@@ -29,13 +29,18 @@ export function TrackingHealthBanner({
   const needsBackground =
     backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
   const needsBattery =
-    isAndroid() && batteryOptimizationStatus === "restricted" && trackingMode !== "none";
+    isAndroid() &&
+    trackingMode !== "none" &&
+    (batteryOptimizationStatus === "restricted" ||
+      batteryOptimizationStatus === "unknown");
 
   if (!needsBackground && !needsBattery) {
     return null;
   }
 
-  const title = needsBackground ? t("gps.backgroundHint") : t("gps.batteryHint");
+  const batteryTitle =
+    batteryOptimizationStatus === "unknown" ? t("gps.batteryUnknownHint") : t("gps.batteryHint");
+  const title = needsBackground ? t("gps.backgroundHint") : batteryTitle;
   const actionLabel = needsBackground ? t("gps.openSettings") : t("gps.batteryOpen");
   const onPress = needsBackground
     ? () => void openLocationPermissionSettings()

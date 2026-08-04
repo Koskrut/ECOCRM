@@ -9,6 +9,7 @@ import {
   ReservationStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { isNonInventoriedPackagingSku } from "./bom-part.util";
 import { DemandRulesService } from "./demand-rules.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
@@ -101,7 +102,11 @@ export class PlanningCalculationService {
   async getKitCapacity(kitProductId: string) {
     const bom = await this.prisma.kitBom.findFirst({
       where: { kitProductId, isActive: true },
-      include: { lines: true },
+      include: {
+        lines: {
+          include: { component: { select: { id: true, sku: true, name: true } } },
+        },
+      },
       orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
     });
     if (!bom || bom.lines.length === 0) {
@@ -113,31 +118,43 @@ export class PlanningCalculationService {
       qtyPerKit: number;
       available: number;
       ratio: number;
+      constrainsCapacity: boolean;
+      product: { id: string; sku: string; name: string } | null;
     }> = [];
     for (const line of bom.lines) {
-      const availability = await this.getAvailability(line.componentProductId);
-      const ratio = line.qtyPerKit.toNumber() > 0 ? availability.available / line.qtyPerKit.toNumber() : 0;
+      const sku = line.component?.sku ?? "";
+      const constrainsCapacity = !isNonInventoriedPackagingSku(sku);
+      const availability = constrainsCapacity
+        ? await this.getAvailability(line.componentProductId)
+        : { available: 0 };
+      const ratio =
+        constrainsCapacity && line.qtyPerKit.toNumber() > 0
+          ? availability.available / line.qtyPerKit.toNumber()
+          : Number.POSITIVE_INFINITY;
       components.push({
         componentProductId: line.componentProductId,
         qtyPerKit: line.qtyPerKit.toNumber(),
         available: availability.available,
         ratio,
+        constrainsCapacity,
+        product: line.component
+          ? { id: line.component.id, sku: line.component.sku, name: line.component.name }
+          : null,
       });
     }
 
-    const componentIds = [...new Set(components.map((c) => c.componentProductId))];
-    const componentProducts = await this.prisma.product.findMany({
-      where: { id: { in: componentIds } },
-      select: { id: true, sku: true, name: true },
-    });
-    const componentById = new Map(componentProducts.map((p) => [p.id, { sku: p.sku, name: p.name }]));
-
-    const enriched = components.map((c) => ({
+    const constraining = components
+      .filter((c) => c.constrainsCapacity)
+      .sort((a, b) => a.ratio - b.ratio);
+    const bottleneck = constraining[0] ?? null;
+    // Keep PKG lines in the response (UI/debug) but sort constraining first by ratio.
+    const enriched = [
+      ...constraining,
+      ...components.filter((c) => !c.constrainsCapacity),
+    ].map((c) => ({
       ...c,
-      product: componentById.get(c.componentProductId) ?? null,
+      ratio: Number.isFinite(c.ratio) ? c.ratio : 0,
     }));
-    enriched.sort((a, b) => a.ratio - b.ratio);
-    const bottleneck = enriched[0] ?? null;
     return {
       kitProductId,
       maxBuildNow: bottleneck ? Math.max(0, Math.floor(bottleneck.ratio)) : 0,
@@ -402,10 +419,13 @@ export class PlanningCalculationService {
         kitStock.set(line.kitProductId, (kitStock.get(line.kitProductId) ?? 0) + line.qtyApproved);
         const bom = await this.prisma.kitBom.findFirst({
           where: { kitProductId: line.kitProductId, isActive: true },
-          include: { lines: true },
+          include: {
+            lines: { include: { component: { select: { sku: true } } } },
+          },
         });
         if (!bom) continue;
         for (const bl of bom.lines) {
+          if (isNonInventoriedPackagingSku(bl.component?.sku)) continue;
           const use = line.qtyApproved * bl.qtyPerKit.toNumber();
           partStock.set(bl.componentProductId, (partStock.get(bl.componentProductId) ?? 0) - use);
         }

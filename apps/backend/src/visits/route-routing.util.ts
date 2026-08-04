@@ -208,18 +208,31 @@ export function isTrackEligibleForCompensation(
 const GPS_SOFT_INELIGIBLE = new Set([
   "gps_low_coverage",
   "gps_ended_before_last_visit",
+  /** Truncated OSRM match with usable raw polyline — pay GPS when visits cannot. */
+  "gps_implausibly_short_vs_visits",
 ]);
+
+/** Best usable GPS km for soft payout (prefer snapped, fall back to raw). */
+export function resolveUsableGpsKm(opts: {
+  snappedTrackDistanceKm?: number | null;
+  rawPolylineDistanceKm?: number | null;
+}): number | null {
+  const snapped = opts.snappedTrackDistanceKm;
+  const raw = opts.rawPolylineDistanceKm;
+  if (snapped != null && Number.isFinite(snapped) && snapped >= MIN_TRACK_COMPENSATION_KM) {
+    return snapped;
+  }
+  if (raw != null && Number.isFinite(raw) && raw >= MIN_TRACK_COMPENSATION_KM) {
+    return raw;
+  }
+  return null;
+}
 
 function trackKmUsable(opts: TrackCompensationInput): boolean {
   if (!opts.hasTrackingEnabledShift) return false;
   if (opts.filteredSampleCount < MIN_TRACK_COMPENSATION_SAMPLES) return false;
-  const raw = opts.rawPolylineDistanceKm;
-  if (raw == null || !Number.isFinite(raw) || raw < MIN_TRACK_COMPENSATION_KM) return false;
-  const snapped = opts.snappedTrackDistanceKm;
-  if (snapped != null && Number.isFinite(snapped) && snapped < MIN_TRACK_COMPENSATION_KM) {
-    return false;
-  }
-  return true;
+  // Tiny/failed OSRM snap must not block soft payout when raw polyline is usable.
+  return resolveUsableGpsKm(opts) != null;
 }
 
 function visitsKmUsable(visitRouteDistanceKm: number | null | undefined): boolean {
@@ -256,7 +269,11 @@ export function selectCompensationFactKind(
   const visitsOk = visitsKmUsable(opts.visitRouteDistanceKm);
 
   if (trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason) && !visitsOk) {
-    return { kind: "fact_gps", ineligibleReason: null, warnings: [reason] };
+    const warnings = [reason];
+    if (reason === "gps_low_coverage") {
+      warnings.push("gps_partial_coverage");
+    }
+    return { kind: "fact_gps", ineligibleReason: null, warnings };
   }
 
   if (
@@ -265,12 +282,13 @@ export function selectCompensationFactKind(
     reason != null &&
     GPS_SOFT_INELIGIBLE.has(reason)
   ) {
-    const gpsKm =
-      opts.snappedTrackDistanceKm != null && Number.isFinite(opts.snappedTrackDistanceKm)
-        ? opts.snappedTrackDistanceKm
-        : (opts.rawPolylineDistanceKm ?? 0);
+    const gpsKm = resolveUsableGpsKm(opts) ?? 0;
     if (gpsKm >= (opts.visitRouteDistanceKm ?? 0)) {
-      return { kind: "fact_gps", ineligibleReason: null, warnings: [reason] };
+      const warnings = [reason];
+      if (reason === "gps_low_coverage") {
+        warnings.push("gps_partial_coverage");
+      }
+      return { kind: "fact_gps", ineligibleReason: null, warnings };
     }
   }
 

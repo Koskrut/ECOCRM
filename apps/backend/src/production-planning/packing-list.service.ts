@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import { isNonInventoriedPackagingSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -153,7 +154,7 @@ export class PackingListService {
     const partStock = new Map<string, number>();
     const bomByKit = new Map<
       string,
-      Array<{ componentProductId: string; qtyPerKit: number }>
+      Array<{ componentProductId: string; qtyPerKit: number; sku: string }>
     >();
 
     const loadBom = async (kitProductId: string) => {
@@ -161,14 +162,20 @@ export class PackingListService {
       if (bom) return bom;
       const row = await this.prisma.kitBom.findFirst({
         where: { kitProductId, isActive: true },
-        include: { lines: true },
+        include: {
+          lines: { include: { component: { select: { sku: true } } } },
+        },
         orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
       });
+      // PKG:* packaging is not in 1C snapshots — ignore for parts capacity.
       bom =
-        row?.lines.map((l) => ({
-          componentProductId: l.componentProductId,
-          qtyPerKit: l.qtyPerKit.toNumber(),
-        })) ?? [];
+        row?.lines
+          .filter((l) => !isNonInventoriedPackagingSku(l.component?.sku))
+          .map((l) => ({
+            componentProductId: l.componentProductId,
+            qtyPerKit: l.qtyPerKit.toNumber(),
+            sku: l.component?.sku ?? "",
+          })) ?? [];
       bomByKit.set(kitProductId, bom);
       return bom;
     };

@@ -28,6 +28,7 @@ import {
   normalizeTtnNumber,
 } from "./return-package-np-status.utils";
 import { OrderReturnsService } from "./order-returns.service";
+import { resolveReturnWarehouseId } from "./return-warehouse.utils";
 
 const WAREHOUSE_QUEUE_STATUSES: ReturnPackageStatus[] = [
   "IN_TRANSIT_BACK",
@@ -127,7 +128,7 @@ export class ReturnPackagesService {
 
   async findOrCreatePackageByTtn(
     ttnNumber: string,
-    opts?: { contactId?: string; note?: string },
+    opts?: { contactId?: string; note?: string; warehouseId?: string | null },
     tx?: Prisma.TransactionClient,
   ) {
     const normalized = normalizeTtnNumber(ttnNumber);
@@ -136,12 +137,21 @@ export class ReturnPackagesService {
     }
     const db = tx ?? this.prisma;
     const existing = await db.returnPackage.findUnique({ where: { ttnNumber: normalized } });
-    if (existing) return existing;
+    if (existing) {
+      if (opts?.warehouseId && !existing.warehouseId) {
+        return db.returnPackage.update({
+          where: { id: existing.id },
+          data: { warehouseId: opts.warehouseId },
+        });
+      }
+      return existing;
+    }
     return db.returnPackage.create({
       data: {
         ttnNumber: normalized,
         contactId: opts?.contactId,
         note: opts?.note,
+        warehouseId: opts?.warehouseId ?? undefined,
         status: "IN_TRANSIT_BACK",
       },
     });
@@ -207,6 +217,19 @@ export class ReturnPackagesService {
       throw new BadRequestException("orderId is required when items are provided");
     }
 
+    let orderWarehouseId: string | null = null;
+    if (dto.orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: dto.orderId },
+        select: { warehouseId: true },
+      });
+      orderWarehouseId = order?.warehouseId ?? null;
+    }
+    const warehouseId = await resolveReturnWarehouseId(this.prisma, {
+      warehouseId: dto.warehouseId,
+      orderId: dto.orderId,
+    });
+
     let returnItems: { orderItemId: string; qtyReturned: number }[] = [];
     if (hasItems && dto.orderId) {
       returnItems = await this.validateReturnItems(dto.orderId, dto.items!);
@@ -215,14 +238,22 @@ export class ReturnPackagesService {
     const created = await this.prisma.$transaction(async (tx) => {
       const pkg = await this.findOrCreatePackageByTtn(
         ttnNumber,
-        { contactId: dto.contactId, note: dto.note },
+        { contactId: dto.contactId, note: dto.note, warehouseId },
         tx,
       );
 
       if (dto.contactId && !pkg.contactId) {
         await tx.returnPackage.update({
           where: { id: pkg.id },
-          data: { contactId: dto.contactId },
+          data: {
+            contactId: dto.contactId,
+            ...(warehouseId && !pkg.warehouseId ? { warehouseId } : {}),
+          },
+        });
+      } else if (warehouseId && !pkg.warehouseId) {
+        await tx.returnPackage.update({
+          where: { id: pkg.id },
+          data: { warehouseId },
         });
       }
 
@@ -238,6 +269,7 @@ export class ReturnPackagesService {
             returnPackageId: pkg.id,
             itemsPending,
             status: initialStatus,
+            warehouseId: warehouseId ?? orderWarehouseId,
             ...(returnItems.length
               ? {
                   items: {
@@ -265,7 +297,10 @@ export class ReturnPackagesService {
           }
           await tx.orderReturn.update({
             where: { id: returnId },
-            data: { returnPackageId: pkg.id },
+            data: {
+              returnPackageId: pkg.id,
+              ...(warehouseId ? { warehouseId } : {}),
+            },
           });
         }
       }
@@ -345,13 +380,26 @@ export class ReturnPackagesService {
     return { items, total, page, pageSize };
   }
 
-  async listWarehouseQueue(actor?: AuthUser) {
+  async listWarehouseQueue(actor?: AuthUser, warehouseIds?: string[]) {
     if (actor && actor.role !== UserRole.WAREHOUSE && actor.role !== UserRole.ADMIN) {
       // allow managers/admins to preview; warehouse primary user
     }
 
+    const where: Prisma.ReturnPackageWhereInput = {
+      status: { in: WAREHOUSE_QUEUE_STATUSES },
+    };
+    if (warehouseIds?.length) {
+      where.OR = [
+        { warehouseId: { in: warehouseIds } },
+        {
+          warehouseId: null,
+          returns: { some: { warehouseId: { in: warehouseIds } } },
+        },
+      ];
+    }
+
     const items = await this.prisma.returnPackage.findMany({
-      where: { status: { in: WAREHOUSE_QUEUE_STATUSES } },
+      where,
       orderBy: [{ status: "asc" }, { createdAt: "asc" }],
       include: this.packageInclude(),
     });
@@ -376,10 +424,45 @@ export class ReturnPackagesService {
     return pkg;
   }
 
-  async receive(id: string, actor?: AuthUser) {
+  async receive(id: string, actor?: AuthUser, warehouseId?: string) {
     assertWarehousePackageReceive(actor);
-    const pkg = await this.prisma.returnPackage.findUnique({ where: { id } });
+    const pkg = await this.prisma.returnPackage.findUnique({
+      where: { id },
+      include: { returns: { select: { orderId: true, warehouseId: true } } },
+    });
     if (!pkg) throw new NotFoundException("Return package not found");
+
+    const resolvedWarehouseId =
+      warehouseId ??
+      pkg.warehouseId ??
+      (pkg.returns.find((r) => r.warehouseId)?.warehouseId ?? null) ??
+      (pkg.returns[0]?.orderId
+        ? (
+            await this.prisma.order.findUnique({
+              where: { id: pkg.returns[0].orderId },
+              select: { warehouseId: true },
+            })
+          )?.warehouseId ?? null
+        : null);
+
+    if (warehouseId) {
+      await resolveReturnWarehouseId(this.prisma, { warehouseId });
+    }
+
+    if (resolvedWarehouseId && resolvedWarehouseId !== pkg.warehouseId) {
+      await this.prisma.returnPackage.update({
+        where: { id },
+        data: { warehouseId: resolvedWarehouseId },
+      });
+      await this.prisma.orderReturn.updateMany({
+        where: {
+          returnPackageId: id,
+          OR: [{ warehouseId: null }, { warehouseId: { not: resolvedWarehouseId } }],
+        },
+        data: { warehouseId: resolvedWarehouseId },
+      });
+    }
+
     if (pkg.status === "RECEIVED_BY_WAREHOUSE") {
       return this.getById(id, actor);
     }
@@ -408,12 +491,17 @@ export class ReturnPackagesService {
       );
 
       if (!orderReturn) {
+        const order = await tx.order.findUnique({
+          where: { id: dto.orderId },
+          select: { warehouseId: true },
+        });
         orderReturn = await tx.orderReturn.create({
           data: {
             orderId: dto.orderId,
             returnPackageId: id,
             itemsPending: false,
             status: "RECEIVED_BY_WAREHOUSE",
+            warehouseId: pkg.warehouseId ?? order?.warehouseId ?? undefined,
           },
         });
       } else {
@@ -596,8 +684,10 @@ export class ReturnPackagesService {
   private packageInclude() {
     return {
       contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      warehouse: { select: { id: true, name: true } },
       returns: {
         include: {
+          warehouse: { select: { id: true, name: true } },
           items: {
             include: {
               orderItem: {

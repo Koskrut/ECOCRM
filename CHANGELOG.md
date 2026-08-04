@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.131**.)_
+_(планируемые изменения после **0.2.132**.)_
+
+## [0.2.132] — 2026-08-04
+
+### Summary
+
+Патч **0.2.132**: MRP planning runs (FULL/CRITICAL); return warehouse binding; fuel bulk recalc script.
+
+### Added
+
+- **MRP extension**: `PlanningProductParams`, `PlanningRun` / `PlanningRunLine`; `MrpCalculationService`, config capacity/horizon; API `POST /planning/mrp/run`; web **PlanningOpsPanels** (runs, quota, horizon).
+- **Return warehouse**: `warehouseId` on `ReturnPackage` / `OrderReturn`; resolve from order or explicit pick; warehouse returns UI.
+- **Script**: `bulk-recalculate-fuel-range.ts` for backfill fuel reports.
+
+### Changed
+
+- **Planning**: weekly job integrates MRP; BOM PART packaging filter; factory/packing tweaks.
+- **Fuel / mobile**: minor compensation + tracking health polish.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.132`**.
+- **Миграции:** `20260803150000_return_warehouse`, `20260804120000_mrp_extension` — **`prisma migrate deploy`** до **`up`**.
 
 ## [0.2.131] — 2026-08-03
 

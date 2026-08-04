@@ -14,6 +14,8 @@ import {
   AddReturnPackageItemsDto,
   CreateReturnPackageDto,
   ListReturnPackagesQueryDto,
+  ListWarehouseQueueQueryDto,
+  ReceiveReturnPackageDto,
   UpdateReturnPackageDispositionsDto,
   UpdateReturnPackageTtnDto,
 } from "./dto/return-package.dto";
@@ -32,8 +34,14 @@ export class ReturnPackagesController {
   }
 
   @Get("warehouse-queue")
-  listWarehouseQueue(@Req() req: Request & { user?: AuthUser }) {
-    return this.returnPackages.listWarehouseQueue(req.user);
+  listWarehouseQueue(
+    @Query() q: ListWarehouseQueueQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const warehouseIds = q.warehouseIds
+      ? q.warehouseIds.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    return this.returnPackages.listWarehouseQueue(req.user, warehouseIds);
   }
 
   @Get()
@@ -59,8 +67,12 @@ export class ReturnPackagesController {
   }
 
   @Post(":id/receive")
-  receive(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    return this.returnPackages.receive(id, req.user);
+  receive(
+    @Param("id") id: string,
+    @Body() dto: ReceiveReturnPackageDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.returnPackages.receive(id, req.user, dto.warehouseId);
   }
 
   @Post(":id/items")

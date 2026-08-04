@@ -78,16 +78,22 @@ export default function LoginScreen() {
             <Text style={theme.typography.title}>{t("login.title")}</Text>
 
             {sessionExpired ? (
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    color: theme.colors.dangerText,
-                    marginBottom: theme.spacing.sm,
-                  },
-                ]}>
-                {t("gps.sessionExpiredHint")}
-              </Text>
+              <View style={{ marginBottom: theme.spacing.sm }}>
+                <Text
+                  style={[
+                    theme.typography.bodyMedium,
+                    { color: theme.colors.dangerText, fontWeight: "700" },
+                  ]}>
+                  {t("gps.sessionExpiredTitle")}
+                </Text>
+                <Text
+                  style={[
+                    theme.typography.caption,
+                    { color: theme.colors.dangerText, marginTop: 4 },
+                  ]}>
+                  {t("gps.sessionExpiredHint")}
+                </Text>
+              </View>
             ) : null}
 
             {apiUrl ? (

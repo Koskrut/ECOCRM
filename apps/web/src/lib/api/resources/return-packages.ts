@@ -24,6 +24,8 @@ export type ReturnPackageLinkedReturn = {
   orderId: string;
   status: string;
   reason?: string;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
   itemsPending: boolean;
   items: ReturnPackageReturnItem[];
   order: {
@@ -44,6 +46,8 @@ export type ReturnPackage = {
   ttnSyncedAt?: string | null;
   contactId?: string | null;
   note?: string | null;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string } | null;
   status: ReturnPackageStatus;
   createdAt: string;
   updatedAt: string;
@@ -57,9 +61,14 @@ export type ReturnPackage = {
 };
 
 export const returnPackagesApi = {
-  listWarehouseQueue: async () => {
+  listWarehouseQueue: async (warehouseIds?: string[]) => {
+    const params =
+      warehouseIds && warehouseIds.length > 0
+        ? { warehouseIds: warehouseIds.join(",") }
+        : undefined;
     const res = await apiHttp.get<{ items: ReturnPackage[] }>(
       "/return-packages/warehouse-queue",
+      { params },
     );
     return res.data ?? { items: [] };
   },
@@ -74,6 +83,7 @@ export const returnPackagesApi = {
     contactId?: string;
     orderId?: string;
     note?: string;
+    warehouseId?: string;
     itemsPending?: boolean;
     items?: Array<{ orderItemId: string; qtyReturned: number }>;
   }) => {
@@ -81,8 +91,8 @@ export const returnPackagesApi = {
     return res.data;
   },
 
-  receive: async (id: string) => {
-    const res = await apiHttp.post<ReturnPackage>(`/return-packages/${id}/receive`, {});
+  receive: async (id: string, body?: { warehouseId?: string }) => {
+    const res = await apiHttp.post<ReturnPackage>(`/return-packages/${id}/receive`, body ?? {});
     return res.data;
   },
 
