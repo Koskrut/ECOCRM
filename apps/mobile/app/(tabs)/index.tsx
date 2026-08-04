@@ -54,8 +54,10 @@ export default function TodayScreen() {
     isTracking,
     trackingMode,
     trackingHealthy,
+    acceptStale,
     startShift,
     endShift,
+    restartShift,
     loading: shiftLoading,
     pendingSamples,
     backgroundPermission,
@@ -339,10 +341,12 @@ export default function TodayScreen() {
           isTracking={isTracking}
           trackingMode={trackingMode}
           trackingHealthy={trackingHealthy}
+          acceptStale={acceptStale}
           pendingSamples={pendingSamples}
           loading={shiftLoading}
           onStart={() => void startShift()}
           onEnd={() => void endShift()}
+          onRestartShift={() => void restartShift()}
         />
 
         {activeShift?.status === "ACTIVE" && activeShift.trackingEnabled ? (

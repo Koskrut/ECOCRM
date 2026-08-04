@@ -592,6 +592,8 @@ export const en = {
       moveStage: "Move stage",
       runWeeklyPlan: "Run weekly WIP plan",
       runMrp: "Run MRP",
+      openFullGuide: "Full guide",
+      toggleHowTo: "How to use",
       saveRules: "Save demand rules",
       saveSettings: "Save planning settings",
       calculateCapacity: "Calculate capacity",
@@ -779,6 +781,29 @@ export const en = {
       salesImportResult: (imported: number, resolved: number) =>
         `Imported ${imported} rows, ${resolved} resolved to products.`,
       quotaOverflow: (n: number) => `${n} production lines did not fully fit the monthly quota.`,
+      mrpStaleConfig: (liveQuota: number, runQuota: number) =>
+        `Live capacity is ${liveQuota} but this MRP run used ${runQuota}. Save capacity/horizon again or re-run MRP.`,
+      mrpReranAfterConfig: (runId: string) =>
+        `Settings saved and FULL MRP re-run (${runId.slice(0, 8)}…).`,
+    },
+    howTo: {
+      title: "How to use planning",
+      intro:
+        "This section answers what to launch in production and what to pack, using 1C stock, open orders, and the monthly parts quota.",
+      stepsTitle: "Quick start (weekly)",
+      steps: [
+        "1C snapshots → upload stock file → Publish. Without a fresh snapshot the plan is wrong.",
+        "BOM — kits need an active bill of materials (PKG:… packaging does not block capacity).",
+        "MRP tab → Run MRP — the main 3-month calculation.",
+        "Critical → triage the red list; Production / Semi-finished → Create batch.",
+        "As needed: Packing (biweekly list) and Factory (~90-day part orders).",
+      ],
+      tabsTitle: "What the tabs mean",
+      tabsHint:
+        "MRP — summary and quota; Production — launches by month (0 = this month); Critical — real shortages only; Settings — ~7000 quota and horizon.",
+      tipTitle: "Tip",
+      tipBody:
+        "After changing the quota or snapshot, always re-run MRP. The full guide with examples is in the Instructions center.",
     },
     errors: {
       loadDashboard: "Failed to load planning dashboard",
@@ -1138,11 +1163,13 @@ export const en = {
         today: "Today",
         team: "Team",
         sales: "Sales",
+        activity: "Activity",
       },
       tabHints: {
         today: "Actions, risks, and your day — without extra analytics.",
         team: "Daily activity and team results for the period.",
         sales: "Full KPIs and charts for the selected period.",
+        activity: "What each person did in CRM for the selected day: payments, orders, tasks, visits.",
       },
       heroKpis: {
         title: "Period pulse",
@@ -1181,6 +1208,37 @@ export const en = {
         debt1C: "Debt per 1C",
         debtCrm: "Debt per CRM",
         delta: "Delta (1C − CRM)",
+      },
+    },
+    employeeActivity: {
+      title: "Employee daily activity",
+      hint: "Calendar day (Kyiv). Click a row for the detailed timeline.",
+      empty: "No actions today",
+      loading: "Loading…",
+      allTeams: "All teams",
+      sortActiveTime: "By online time",
+      sortPayments: "By payment amount",
+      sortActions: "By action count",
+      payments: "Payments",
+      orders: "Orders",
+      tasks: "Tasks",
+      crm: "Contacts/leads/visits",
+      ttn: "TTN",
+      matchAudits: "matches",
+      closed: "closed",
+      created: "created",
+      including: "incl.",
+      taskPaymentControl: "payment control",
+      taskCallback: "callbacks",
+      presence: {
+        online: "online",
+        absent: "did not log in",
+      },
+      timeline: {
+        subtitle: "Day timeline",
+        loading: "Loading timeline…",
+        empty: "No events for this day",
+        systemSideEffect: "System event",
       },
     },
     manager: {

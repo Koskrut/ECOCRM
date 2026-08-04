@@ -161,7 +161,16 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       const reasons = body?.rejectReasons;
       if (created === 0 && reasons && (reasons.wrong_day ?? 0) >= Math.ceil(rejected * 0.5)) {
         const { setFlushBlockReason } = await import("@/lib/session-auth");
+        const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
+        const { STORAGE_KEYS } = await import("@/lib/location-tracking-buffer");
+        // Mirror flushPendingSamples: force accept-stale so watchdog CTA fires.
+        await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
         setFlushBlockReason("wrong_day");
+        const { appendErrorLog } = await import("@/lib/error-log");
+        void appendErrorLog(
+          `offline shiftSamplesBatch wrong_day purged (${rejected}) shiftId=${shiftId}`,
+          "error",
+        );
       }
       return;
     }

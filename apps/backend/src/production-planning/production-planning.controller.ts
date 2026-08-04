@@ -96,7 +96,7 @@ export class ProductionPlanningController {
 
   @Patch("config/settings")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  setPlanningSettings(
+  async setPlanningSettings(
     @Body()
     body: {
       packCycleDays?: number;
@@ -111,10 +111,13 @@ export class ProductionPlanningController {
     if (body.demandMix != null && !demandMixValues.has(body.demandMix as PlanningDemandMix)) {
       throw new BadRequestException("Invalid demandMix");
     }
-    return this.planningSettings.setSettings({
+    const settings = await this.planningSettings.setSettings({
       ...body,
       demandMix: body.demandMix as PlanningDemandMix | undefined,
     });
+    // demandMix / lead / safety affect MRP — refresh FULL run so UI matches live config.
+    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
+    return { ...settings, mrpRunId: mrpRun.id, mrpSummary: mrpRun.summary };
   }
 
   @Get("freshness")
@@ -381,8 +384,16 @@ export class ProductionPlanningController {
 
   @Patch("config/capacity")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  setCapacityConfig(@Body() body: { monthlyPartsQuota?: number }) {
-    return this.mrpConfig.setCapacity(body ?? {});
+  async setCapacityConfig(@Body() body: { monthlyPartsQuota?: number }) {
+    const capacity = await this.mrpConfig.setCapacity(body ?? {});
+    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
+    return {
+      ...capacity,
+      mrpRunId: mrpRun.id,
+      monthlyPartsQuota: mrpRun.monthlyPartsQuota,
+      mrpSummary: mrpRun.summary,
+      stale: mrpRun.stale,
+    };
   }
 
   @Get("config/horizon")
@@ -392,7 +403,7 @@ export class ProductionPlanningController {
 
   @Patch("config/horizon")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  setHorizonConfig(
+  async setHorizonConfig(
     @Body()
     body: {
       coverMonths?: number;
@@ -403,7 +414,14 @@ export class ProductionPlanningController {
       defaultPackLeadDays?: number;
     },
   ) {
-    return this.mrpConfig.setHorizon(body ?? {});
+    const horizon = await this.mrpConfig.setHorizon(body ?? {});
+    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
+    return {
+      ...horizon,
+      mrpRunId: mrpRun.id,
+      mrpSummary: mrpRun.summary,
+      stale: mrpRun.stale,
+    };
   }
 
   @Post("mrp/run")
@@ -416,12 +434,9 @@ export class ProductionPlanningController {
 
   @Get("mrp/latest")
   getLatestMrp(@Query("mode") mode?: string) {
+    // Default FULL — CRITICAL-only daily runs must not starve packaging/dashboard.
     const parsed =
-      mode === "CRITICAL"
-        ? PlanningRunMode.CRITICAL
-        : mode === "FULL"
-          ? PlanningRunMode.FULL
-          : undefined;
+      mode === "CRITICAL" ? PlanningRunMode.CRITICAL : PlanningRunMode.FULL;
     return this.planningRuns.getLatest(parsed);
   }
 

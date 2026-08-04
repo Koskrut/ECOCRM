@@ -12,10 +12,13 @@ type Props = {
   isTracking: boolean;
   trackingMode?: "background" | "foreground" | "none";
   trackingHealthy?: boolean;
+  /** True when no successful GPS accept for >10 min (ACTIVE shift). */
+  acceptStale?: boolean;
   pendingSamples: number;
   loading: boolean;
   onStart: () => void;
   onEnd: () => void;
+  onRestartShift?: () => void;
 };
 
 export function ShiftStatusCard({
@@ -23,21 +26,23 @@ export function ShiftStatusCard({
   isTracking,
   trackingMode = "none",
   trackingHealthy = true,
+  acceptStale = false,
   pendingSamples,
   loading,
   onStart,
   onEnd,
+  onRestartShift,
 }: Props) {
   const theme = useTheme();
   const trackingBroken =
-    activeShift && trackingMode !== "none" && !trackingHealthy;
+    activeShift && trackingMode !== "none" && (!trackingHealthy || acceptStale);
 
   return (
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>
       {activeShift ? (
         <View style={{ gap: theme.spacing.sm }}>
           <Text style={theme.typography.bodyMedium}>{t("today.shiftActive")}</Text>
-          {isTracking ? (
+          {isTracking && !trackingBroken ? (
             <Text style={[theme.typography.caption, { color: theme.colors.primaryText }]}>
               {t("today.trackingActive")}
               {pendingSamples > 0 ? ` · ${t("today.queuePending", { count: pendingSamples })}` : ""}
@@ -45,10 +50,19 @@ export function ShiftStatusCard({
           ) : null}
           {trackingBroken ? (
             <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
-              {t("gps.trackingUnhealthy")}
+              {acceptStale ? t("gps.staleGpsHint") : t("gps.trackingUnhealthy")}
             </Text>
           ) : null}
-          {isTracking && trackingMode === "foreground" ? (
+          {trackingBroken && onRestartShift ? (
+            <AppButton
+              label={t("gps.restartShift")}
+              onPress={onRestartShift}
+              variant="secondary"
+              loading={loading}
+              disabled={loading}
+            />
+          ) : null}
+          {isTracking && trackingMode === "foreground" && !trackingBroken ? (
             <Text style={[theme.typography.caption, { color: theme.colors.warningText }]}>
               {t("gps.trackingForegroundOnly")}
             </Text>

@@ -32,7 +32,6 @@ export class DemandForecastService {
     const horizon = await this.mrpConfig.getHorizon();
     const lookbackMonths = horizon.velocityLookbackMonths;
     const coverMonths = horizon.coverMonths;
-    const softFactor = horizon.softPipelineFactor;
 
     const since = new Date();
     since.setMonth(since.getMonth() - lookbackMonths);
@@ -93,8 +92,8 @@ export class DemandForecastService {
       const avgDailySold = avgMonthlySold / 30;
       const hardNeed = backlog.get(productId)?.hard ?? 0;
       const softNeed = backlog.get(productId)?.soft ?? 0;
-      const forecastDemand =
-        avgMonthlySold * coverMonths + softNeed * softFactor;
+      // Velocity-only; soft pipeline is mixed in MrpCalculationService (avoids double-count).
+      const forecastDemand = avgMonthlySold * coverMonths;
 
       out.set(productId, {
         productId,

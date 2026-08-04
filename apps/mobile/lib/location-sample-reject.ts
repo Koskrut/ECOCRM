@@ -32,6 +32,21 @@ export function classifySampleRejectBatch(
   return "unknown";
 }
 
+/**
+ * Whether a soft-rejected batch should refresh LAST_ACCEPTED_AT.
+ * Server keepalive is accept:true (created>0) — not a reject reason.
+ * Duplicate-only must NOT keep healthy forever (Ісанчев stale mask).
+ */
+export function softRejectCountsAsAccept(
+  rejectReasons: SampleRejectReasons | undefined | null,
+): boolean {
+  if (!rejectReasons || typeof rejectReasons !== "object") return false;
+  const keepalive = rejectReasonCount(rejectReasons, "keepalive");
+  if (keepalive <= 0) return false;
+  // Only if no hard reasons mixed in.
+  return classifySampleRejectBatch(rejectReasons) === "soft";
+}
+
 export function formatRejectReasons(rejectReasons: SampleRejectReasons | undefined | null): string {
   if (!rejectReasons || typeof rejectReasons !== "object") return "{}";
   try {

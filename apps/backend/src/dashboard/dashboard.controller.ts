@@ -3,6 +3,7 @@ import {
   Get,
   HttpException,
   InternalServerErrorException,
+  Param,
   Query,
   Req,
 } from "@nestjs/common";
@@ -18,7 +19,12 @@ import {
 } from "./dashboard.service";
 import { DashboardV2Service } from "./dashboard-v2.service";
 import type { DashboardV2Response } from "./dashboard-v2.types";
+import { EmployeeDailyActivityService } from "./employee-daily-activity.service";
 import { ManagerDashboardService } from "./manager-dashboard.service";
+import type {
+  EmployeeDailyActivityPayload,
+  EmployeeTimelinePayload,
+} from "./employee-daily-activity.types";
 import type {
   ManagerInboxResponse,
   ManagerScorecardResponse,
@@ -30,6 +36,7 @@ export class DashboardController {
     private readonly dashboard: DashboardService,
     private readonly dashboardV2: DashboardV2Service,
     private readonly managerDashboard: ManagerDashboardService,
+    private readonly employeeDailyActivity: EmployeeDailyActivityService,
   ) {}
 
   /**
@@ -126,6 +133,49 @@ export class DashboardController {
         period: periodRaw,
         compare: compareRaw === "true" || compareRaw === "1",
       });
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  @Get("employee-daily-activity")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  async getEmployeeDailyActivity(
+    @Query("date") dateRaw: string | undefined,
+    @Query("leadId") leadId: string | undefined,
+    @Query("sort") sortRaw: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<EmployeeDailyActivityPayload> {
+    if (!req.user) {
+      throw new InternalServerErrorException("Missing user");
+    }
+    try {
+      return await this.employeeDailyActivity.getSummary(req.user, {
+        dateRaw,
+        leadId,
+        sortRaw,
+      });
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      const message = e instanceof Error ? e.message : String(e);
+      throw new InternalServerErrorException(message);
+    }
+  }
+
+  @Get("employee-daily-activity/:userId/timeline")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  async getEmployeeDailyActivityTimeline(
+    @Param("userId") userId: string,
+    @Query("date") dateRaw: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<EmployeeTimelinePayload> {
+    if (!req.user) {
+      throw new InternalServerErrorException("Missing user");
+    }
+    try {
+      return await this.employeeDailyActivity.getTimeline(req.user, userId, dateRaw);
     } catch (e) {
       if (e instanceof HttpException) throw e;
       const message = e instanceof Error ? e.message : String(e);

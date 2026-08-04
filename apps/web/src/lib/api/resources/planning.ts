@@ -77,6 +77,14 @@ export type MrpRun = {
     quotaOverflowCount?: number;
   };
   freshness: SnapshotFreshness | null;
+  stale?: boolean;
+  liveCapacity?: { monthlyPartsQuota: number };
+  liveHorizon?: { coverMonths: number; velocityLookbackMonths: number };
+  runCapacity?: {
+    monthlyPartsQuota: number;
+    coverMonths: number;
+    velocityLookbackMonths: number;
+  };
   lines: MrpRunLine[];
 };
 
@@ -623,8 +631,8 @@ export const planningApi = {
   },
   updateCapacityConfig: async (
     payload: Partial<PlanningCapacityConfig>,
-  ): Promise<PlanningCapacityConfig> => {
-    const res = await apiHttp.patch<PlanningCapacityConfig>("/planning/config/capacity", payload);
+  ): Promise<PlanningCapacityConfig & { mrpRunId?: string; mrpSummary?: MrpRun["summary"] }> => {
+    const res = await apiHttp.patch("/planning/config/capacity", payload);
     return res.data;
   },
   getHorizonConfig: async (): Promise<PlanningHorizonConfig> => {
@@ -633,8 +641,8 @@ export const planningApi = {
   },
   updateHorizonConfig: async (
     payload: Partial<PlanningHorizonConfig>,
-  ): Promise<PlanningHorizonConfig> => {
-    const res = await apiHttp.patch<PlanningHorizonConfig>("/planning/config/horizon", payload);
+  ): Promise<PlanningHorizonConfig & { mrpRunId?: string; mrpSummary?: MrpRun["summary"] }> => {
+    const res = await apiHttp.patch("/planning/config/horizon", payload);
     return res.data;
   },
   runMrp: async (mode: "FULL" | "CRITICAL" = "FULL"): Promise<MrpRun> => {

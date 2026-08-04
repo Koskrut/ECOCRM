@@ -282,6 +282,16 @@ export default function FuelDayScreen() {
             <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: 8 }]}>
               {t("fuel.compensationHint")}
             </Text>
+            {(data?.warnings ?? []).includes("planned_km_implausibly_large") ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginBottom: 8 }]}>
+                {t("fuel.planHugeWarning")}
+              </Text>
+            ) : null}
+            {(data?.warnings ?? []).includes("planned_km_vs_fact_outlier") ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginBottom: 8 }]}>
+                {t("fuel.planVsFactWarning")}
+              </Text>
+            ) : null}
             <View style={styles.cards}>
               <Card style={[styles.metricCard, { backgroundColor: theme.colors.primaryMuted, borderColor: theme.colors.primary }]}>
                 <Text style={[theme.typography.label, { color: theme.colors.primaryText }]}>{t("fuel.payout")}</Text>
@@ -382,6 +392,13 @@ export default function FuelDayScreen() {
                     <Text style={[theme.typography.bodyMedium, { marginTop: 8 }]}>
                       {item.liters} л · {item.amount} {t("common.currency")}
                     </Text>
+                    {item.liters > 0 ? (
+                      <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                        {t("fuel.impliedPrice", {
+                          value: Math.round((item.amount / item.liters) * 100) / 100,
+                        })}
+                      </Text>
+                    ) : null}
                     {canManageRefuels ? (
                       <Pressable onPress={() => deleteRefuel(item.id)} hitSlop={8}>
                         <Text style={[theme.typography.caption, { color: theme.colors.danger, marginTop: 4 }]}>

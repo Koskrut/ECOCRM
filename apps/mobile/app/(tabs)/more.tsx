@@ -42,7 +42,10 @@ export default function MoreScreen() {
     lastFlushAt,
     startShift,
     endShift,
+    restartShift,
     isTracking,
+    trackingHealthy,
+    acceptStale,
     backgroundTaskStarted,
     backgroundPermission,
     batteryOptimizationStatus,
@@ -82,6 +85,8 @@ export default function MoreScreen() {
 
   const backgroundTaskDead =
     !!activeShift && trackingMode === "background" && !backgroundTaskStarted;
+  const gpsStale =
+    !!activeShift && activeShift.status === "ACTIVE" && (acceptStale || !trackingHealthy);
 
   return (
     <Screen padded={false}>
@@ -153,14 +158,21 @@ export default function MoreScreen() {
               />
             ) : (
               <>
-                {backgroundTaskDead ? (
-                  <Text
-                    style={[
-                      theme.typography.caption,
-                      { color: theme.colors.dangerText, marginBottom: theme.spacing.sm },
-                    ]}>
-                    {t("gps.trackingUnhealthy")}
-                  </Text>
+                {backgroundTaskDead || gpsStale ? (
+                  <View style={{ marginBottom: theme.spacing.sm, gap: 8 }}>
+                    <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                      {acceptStale ? t("gps.staleGpsHint") : t("gps.trackingUnhealthy")}
+                    </Text>
+                    {gpsStale ? (
+                      <AppButton
+                        label={t("gps.restartShift")}
+                        onPress={() => void restartShift()}
+                        disabled={loading}
+                        loading={loading}
+                        variant="secondary"
+                      />
+                    ) : null}
+                  </View>
                 ) : null}
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginBottom: theme.spacing.sm }]}>
                   {t("more.shiftActive")} · {trackingLabel}

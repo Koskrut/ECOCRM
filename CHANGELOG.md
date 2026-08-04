@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.132**.)_
+_(планируемые изменения после **0.2.133**.)_
+
+## [0.2.133] — 2026-08-04
+
+### Summary
+
+Патч **0.2.133**: employee daily activity dashboard; MRP SKU calc refactor; mobile GPS/tracking polish.
+
+### Added
+
+- **Dashboard employee activity**: `GET /dashboard/employee-daily-activity` + timeline; presence, payments, orders, shipping, tasks, CRM aggregates; web **EmployeeDailyActivityPanel** + timeline drawer.
+- **MRP**: `mrp-sku-calc.util` (cover metrics, net need, critical lines); planning-run quota persistence; help guide for MRP.
+
+### Changed
+
+- **MRP calculation**: kit-dependent gross, cover WARN/CRITICAL, PlanningOpsPanels refresh.
+- **Mobile**: location reject/buffer/offline-queue tweaks; fuel day + shift status labels.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.133`**.
+- **Миграций нет.**
 
 ## [0.2.132] — 2026-08-04
 

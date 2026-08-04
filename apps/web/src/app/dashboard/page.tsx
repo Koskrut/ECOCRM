@@ -25,6 +25,7 @@ import {
   type DashboardLeadershipTab,
 } from "@/components/dashboard/DashboardTabBar";
 import { DashboardTeamPulse } from "@/components/dashboard/DashboardTeamPulse";
+import { EmployeeDailyActivityPanel } from "@/components/dashboard/EmployeeDailyActivityPanel";
 import { ManagerDashboardView } from "@/components/dashboard/manager/ManagerDashboardView";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import type { BaseCurrency } from "@/lib/base-currency";
@@ -37,7 +38,7 @@ import { receivablesApi } from "@/lib/api/resources/receivables";
 type ManagerOption = { id: string; fullName: string };
 
 function parseLeadershipTab(raw: string | null): DashboardLeadershipTab {
-  if (raw === "team" || raw === "sales") return raw;
+  if (raw === "team" || raw === "sales" || raw === "activity") return raw;
   return "today";
 }
 
@@ -65,6 +66,7 @@ function DashboardPageContent() {
   const [userName, setUserName] = useState<string | null>(null);
   const [roleLoaded, setRoleLoaded] = useState(false);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
+  const [leads, setLeads] = useState<ManagerOption[]>([]);
   const [morningOpen, setMorningOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
@@ -117,8 +119,29 @@ function DashboardPageContent() {
       .catch(() => setManagers([]));
   }, [userRole]);
 
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    void apiGet<{ items?: { id: string; fullName?: string | null }[] }>("/users", {
+      role: "LEAD",
+      pageSize: 200,
+    })
+      .then((res) => {
+        setLeads(
+          (res.items ?? []).map((u) => ({
+            id: u.id,
+            fullName: u.fullName?.trim() || u.id,
+          })),
+        );
+      })
+      .catch(() => setLeads([]));
+  }, [userRole]);
+
   const load = useCallback(async () => {
     if (userRole === "MANAGER") {
+      setLoading(false);
+      return;
+    }
+    if (tab === "activity") {
       setLoading(false);
       return;
     }
@@ -139,7 +162,7 @@ function DashboardPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [period, activityDate, compare, managerId, refreshKey, userRole]);
+  }, [period, activityDate, compare, managerId, refreshKey, userRole, tab]);
 
   useEffect(() => {
     void load();
@@ -223,15 +246,15 @@ function DashboardPageContent() {
     return <ManagerDashboardView userName={userName} userRole={userRole} />;
   }
 
-  if (loading && !data) {
+  if (loading && !data && tab !== "activity") {
     return <PageLoading />;
   }
 
-  if (error && !data) {
+  if (error && !data && tab !== "activity") {
     return <ErrorPanel message={error} onRetry={() => void load()} />;
   }
 
-  if (!data) {
+  if (!data && tab !== "activity") {
     return <ErrorPanel message="Немає даних" onRetry={() => void load()} />;
   }
 
@@ -274,7 +297,7 @@ function DashboardPageContent() {
         </p>
       ) : null}
 
-      {tab === "today" ? (
+      {tab === "today" && data ? (
         <div className="space-y-8">
           <DashboardHeroKpis sales={data.sales} currency={currency} compareEnabled={compare} />
           <DashboardAttentionPanel
@@ -304,7 +327,7 @@ function DashboardPageContent() {
         </div>
       ) : null}
 
-      {tab === "team" ? (
+      {tab === "team" && data ? (
         <div className="space-y-8">
           <DashboardTeamPulse
             date={activityDate}
@@ -325,7 +348,11 @@ function DashboardPageContent() {
         </div>
       ) : null}
 
-      {tab === "sales" ? (
+      {tab === "activity" ? (
+        <EmployeeDailyActivityPanel userRole={userRole} leads={leads} />
+      ) : null}
+
+      {tab === "sales" && data ? (
         <div className="space-y-8">
           <DashboardExecutiveKpis
             sales={data.sales}

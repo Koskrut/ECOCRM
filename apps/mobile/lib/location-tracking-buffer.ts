@@ -13,6 +13,7 @@ import {
   classifySampleRejectBatch,
   formatRejectReasons,
   isWrongDayBatch,
+  softRejectCountsAsAccept,
   type SampleRejectReasons,
 } from "./location-sample-reject";
 import { enqueueOfflineJob } from "./offline-queue";
@@ -337,8 +338,12 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const reasons = formatRejectReasons(rejectReasons);
           const severity = classifySampleRejectBatch(rejectReasons);
           if (severity === "soft") {
-            // Михайлів: duplicate-only — info, never ERROR. Still counts as healthy pipeline.
-            await markPipelineAlive();
+            // Михайлів: duplicate → info, never ERROR.
+            // Healthy only if server reported keepalive rejects (legacy); duplicate alone
+            // must NOT refresh LAST_ACCEPTED_AT — that masked stale GPS.
+            if (softRejectCountsAsAccept(rejectReasons)) {
+              await markPipelineAlive();
+            }
             void appendErrorLog(
               `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped (dedup)`,
               "info",
@@ -355,6 +360,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             );
           }
         } else if (created > 0) {
+          // Keepalive on server is accept:true → created>0 (not a reject reason).
           await markPipelineAlive();
         }
 

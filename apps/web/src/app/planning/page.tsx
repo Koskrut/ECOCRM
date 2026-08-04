@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { strings } from "@/locales";
+import { HelpHint } from "@/components/help/HelpHint";
 import {
   planningApi,
   type ActiveBom,
@@ -31,6 +33,7 @@ import {
   MrpSemiFinishedPanel,
   PackingPanel,
   PlanningDashboardPanel,
+  PlanningHowToPanel,
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
 
@@ -72,6 +75,7 @@ const PRODUCTION_STAGE_VALUES = ["MECH", "DEGREASE", "QC", "PACK", "TRANSFER"] a
 export default function PlanningPage() {
   const t = strings.planning;
   const [activeTab, setActiveTab] = useState<PlanningTab>("dashboard");
+  const [howToOpen, setHowToOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -492,7 +496,21 @@ export default function PlanningPage() {
           <h1 className="text-2xl font-semibold text-zinc-900">{t.pageTitle}</h1>
           <p className="mt-1 text-sm text-zinc-600">{t.pageSubtitle}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHowToOpen((v) => !v)}
+            className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-900 hover:bg-cyan-100"
+          >
+            {t.actions.toggleHowTo}
+          </button>
+          <Link
+            href="/help/planning-mrp-guide"
+            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            {t.actions.openFullGuide}
+          </Link>
+          <HelpHint routeKey="planning" />
           <button
             type="button"
             onClick={() => void handleRefresh()}
@@ -510,6 +528,8 @@ export default function PlanningPage() {
           </button>
         </div>
       </div>
+
+      <PlanningHowToPanel open={howToOpen} />
 
       <FreshnessBanner freshness={freshness} />
 

@@ -5,6 +5,7 @@ const {
   classifySampleRejectBatch,
   formatRejectReasons,
   isWrongDayBatch,
+  softRejectCountsAsAccept,
 } = require("../location-sample-reject");
 
 describe("classifySampleRejectBatch", () => {
@@ -68,5 +69,20 @@ describe("formatRejectReasons", () => {
 
   it("falls back to empty object", () => {
     assert.equal(formatRejectReasons(undefined), "{}");
+  });
+});
+
+describe("softRejectCountsAsAccept", () => {
+  it("duplicate-only does NOT count as accept (must not mask stale)", () => {
+    assert.equal(softRejectCountsAsAccept({ duplicate: 5 }), false);
+  });
+
+  it("legacy keepalive soft reject counts as accept", () => {
+    assert.equal(softRejectCountsAsAccept({ keepalive: 1 }), true);
+    assert.equal(softRejectCountsAsAccept({ keepalive: 1, duplicate: 2 }), true);
+  });
+
+  it("hard reasons never count as accept", () => {
+    assert.equal(softRejectCountsAsAccept({ keepalive: 1, wrong_day: 1 }), false);
   });
 });

@@ -91,7 +91,11 @@ export function coverStatus(
   return "OK";
 }
 
-export function coverDays(available: number, avgDailySold: number): number {
-  const daily = avgDailySold > 0 ? avgDailySold : 1e-9;
-  return available / daily;
+/**
+ * Days of cover from available / daily velocity.
+ * Zero / missing velocity → null (do not treat as CRITICAL forever).
+ */
+export function coverDays(available: number, avgDailySold: number): number | null {
+  if (!(avgDailySold > 0)) return null;
+  return available / avgDailySold;
 }

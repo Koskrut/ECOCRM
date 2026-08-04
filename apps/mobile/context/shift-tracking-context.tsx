@@ -56,12 +56,15 @@ type ShiftTrackingCtx = {
   pendingSamples: number;
   lastFlushAt: string | null;
   trackingHealthy: boolean;
+  /** No successful GPS accept (created>0 / keepalive) for >10 min. */
+  acceptStale: boolean;
   backgroundTaskStarted: boolean;
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
   refresh: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
+  restartShift: () => Promise<void>;
   isTracking: boolean;
 };
 
@@ -76,6 +79,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [pendingSamples, setPendingSamples] = useState(0);
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
   const [trackingHealthy, setTrackingHealthy] = useState(true);
+  const [acceptStale, setAcceptStale] = useState(false);
   const [backgroundTaskStarted, setBackgroundTaskStarted] = useState(false);
   const [backgroundPermission, setBackgroundPermission] = useState<string | null>(null);
   const [batteryOptimizationStatus, setBatteryOptimizationStatus] =
@@ -91,6 +95,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setPendingSamples(health.pendingSamples);
       setLastFlushAt(health.lastFlushAt);
       setTrackingHealthy(health.healthy);
+      setAcceptStale(health.acceptStale === true);
       setBackgroundTaskStarted(health.backgroundTaskStarted);
       setBackgroundPermission(health.backgroundPermission);
       setBatteryOptimizationStatus(health.batteryOptimizationStatus);
@@ -515,6 +520,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setActiveShift(null);
       setTrackingMode("none");
       setTrackingHealthy(true);
+      setAcceptStale(false);
       setBackgroundTaskStarted(false);
       await syncTrackingHealth();
     } catch (e) {
@@ -523,6 +529,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setLoading(false);
     }
   }, [token, activeShift, syncTrackingHealth]);
+
+  const restartShift = restartShiftAfterGpsBlock;
 
   const isTracking =
     trackingMode !== "none" && activeShift?.status === "ACTIVE" && trackingHealthy;
@@ -537,12 +545,14 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       pendingSamples,
       lastFlushAt,
       trackingHealthy,
+      acceptStale,
       backgroundTaskStarted,
       backgroundPermission,
       batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,
+      restartShift,
       isTracking,
     }),
     [
@@ -553,12 +563,14 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       pendingSamples,
       lastFlushAt,
       trackingHealthy,
+      acceptStale,
       backgroundTaskStarted,
       backgroundPermission,
       batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,
+      restartShift,
       isTracking,
     ],
   );

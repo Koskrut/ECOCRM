@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { strings } from "@/locales";
 import {
   planningApi,
@@ -87,6 +88,53 @@ function SimpleTable({
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+export function PlanningHowToPanel({ open }: { open: boolean }) {
+  const t = strings.planning;
+  if (!open) return null;
+  return (
+    <div className="rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-900">{t.howTo.title}</h2>
+          <p className="mt-1 text-sm text-zinc-700">{t.howTo.intro}</p>
+        </div>
+        <Link
+          href="/help/planning-mrp-guide"
+          className="shrink-0 rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan-700"
+        >
+          {t.actions.openFullGuide}
+        </Link>
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            {t.howTo.stepsTitle}
+          </p>
+          <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-zinc-800">
+            {t.howTo.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              {t.howTo.tabsTitle}
+            </p>
+            <p className="mt-2 text-sm text-zinc-800">{t.howTo.tabsHint}</p>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+              {t.howTo.tipTitle}
+            </p>
+            <p className="mt-1 text-sm text-amber-950">{t.howTo.tipBody}</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -711,8 +759,10 @@ export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void 
     void load();
   }, [load]);
 
-  const quota = run?.monthlyPartsQuota ?? 7000;
+  // Prefer FULL run snapshot for the bar (same source as production-orders month0Qty).
+  const quota = run?.monthlyPartsQuota ?? run?.runCapacity?.monthlyPartsQuota ?? 7000;
   const used = run?.summary?.quotaUsedMonth0 ?? 0;
+  const liveQuota = run?.liveCapacity?.monthlyPartsQuota;
 
   return (
     <div className="space-y-4">
@@ -750,6 +800,11 @@ export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void 
           </span>
         ) : null}
       </div>
+      {run?.stale && liveQuota != null ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {t.messages.mrpStaleConfig(liveQuota, quota)}
+        </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title={t.labels.criticalSku} value={String(run?.summary?.criticalCount ?? 0)} />
         <StatCard title={t.labels.productionOrders} value={String(run?.summary?.productionCount ?? 0)} />
@@ -935,6 +990,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
   const [capacity, setCapacity] = useState<PlanningCapacityConfig | null>(null);
   const [horizon, setHorizon] = useState<PlanningHorizonConfig | null>(null);
   const [busy, setBusy] = useState(false);
+  const [lastRerun, setLastRerun] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -955,6 +1011,9 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
 
   return (
     <div className="space-y-4">
+      {lastRerun ? (
+        <p className="text-sm text-emerald-700">{t.messages.mrpReranAfterConfig(lastRerun)}</p>
+      ) : null}
       <Panel title={t.labels.monthlyQuota}>
         <label className="text-sm text-zinc-700">
           {t.labels.monthlyPartsQuota}
@@ -975,7 +1034,9 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
             void (async () => {
               setBusy(true);
               try {
-                setCapacity(await planningApi.updateCapacityConfig(capacity));
+                const res = await planningApi.updateCapacityConfig(capacity);
+                setCapacity({ monthlyPartsQuota: res.monthlyPartsQuota });
+                setLastRerun(res.mrpRunId ?? "ok");
               } catch (e) {
                 reportError(e instanceof Error ? e.message : t.errors.saveSettings);
               } finally {
@@ -984,7 +1045,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
             })();
           }}
         >
-          {t.actions.saveSettings}
+          {busy ? strings.common.loading : t.actions.saveSettings}
         </button>
       </Panel>
       <Panel title={t.labels.mrpHorizon}>
@@ -1029,7 +1090,16 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
             void (async () => {
               setBusy(true);
               try {
-                setHorizon(await planningApi.updateHorizonConfig(horizon));
+                const res = await planningApi.updateHorizonConfig(horizon);
+                setHorizon({
+                  coverMonths: res.coverMonths,
+                  velocityLookbackMonths: res.velocityLookbackMonths,
+                  warnCoverDays: res.warnCoverDays,
+                  criticalCoverDays: res.criticalCoverDays,
+                  softPipelineFactor: res.softPipelineFactor,
+                  defaultPackLeadDays: res.defaultPackLeadDays,
+                });
+                setLastRerun(res.mrpRunId ?? "ok");
               } catch (e) {
                 reportError(e instanceof Error ? e.message : t.errors.saveSettings);
               } finally {
@@ -1038,7 +1108,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
             })();
           }}
         >
-          {t.actions.saveSettings}
+          {busy ? strings.common.loading : t.actions.saveSettings}
         </button>
       </Panel>
     </div>

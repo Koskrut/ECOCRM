@@ -2,14 +2,14 @@
 
 import { strings } from "@/locales";
 
-export type DashboardLeadershipTab = "today" | "team" | "sales";
+export type DashboardLeadershipTab = "today" | "team" | "sales" | "activity";
 
 type Props = {
   tab: DashboardLeadershipTab;
   onTabChange: (tab: DashboardLeadershipTab) => void;
 };
 
-const TABS: DashboardLeadershipTab[] = ["today", "team", "sales"];
+const TABS: DashboardLeadershipTab[] = ["today", "team", "sales", "activity"];
 
 export function DashboardTabBar({ tab, onTabChange }: Props) {
   const t = strings.dashboard.leadership.tabs;

@@ -1,5 +1,6 @@
 import type { HelpSeedArticle, HelpSeedCategory } from "./seed-types";
 import { MANAGER_PLAYBOOK_ARTICLES } from "./manager-playbook-articles";
+import { PLANNING_MRP_GUIDE } from "./planning-mrp-guide";
 import { REWRITTEN_OVERVIEW_BY_KEY } from "./rewritten-overview-articles";
 
 export type { HelpSeedArticle, HelpSeedCategory } from "./seed-types";
@@ -712,6 +713,7 @@ function withSeedRevision(article: HelpSeedArticle): HelpSeedArticle {
 export const HELP_SEED_ARTICLES: HelpSeedArticle[] = [
   ...BASE_HELP_SEED_ARTICLES.map(withSeedRevision),
   ...MANAGER_PLAYBOOK_ARTICLES,
+  PLANNING_MRP_GUIDE,
 ];
 
 export function getSeedArticleByKey(seedKey: string): HelpSeedArticle | undefined {
