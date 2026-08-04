@@ -205,4 +205,75 @@ describe("OrdersService.setOrderStage", () => {
       BadRequestException,
     );
   });
+
+  it("recalculates finance when order is canceled", async () => {
+    let recalcCalled = false;
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C", ownerId: "u1" },
+          orderStage: "READY_TO_SHIP",
+          status: "READY_TO_SHIP",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          subtotalAmount: 100,
+          debtAmount: 100,
+          returnAdjustmentAmount: 0,
+          fxWriteOffAmount: 0,
+          paymentDueDate: null,
+          financialStatus: "AWAITING_PAYMENT",
+          deliveryMethod: "NP_WAREHOUSE",
+          deliveryData: null,
+          ttns: [],
+          shipments: [],
+        }),
+        update: async () => ({
+          id: "o1",
+          orderNumber: "ORD-1",
+          orderStage: "CANCELED",
+        }),
+      },
+      orderStatusHistory: { create: async () => ({}) },
+      materialReservation: { updateMany: async () => ({ count: 0 }) },
+    } as unknown as PrismaSvc;
+    const integrations = {
+      recalcOrderFinance: async (orderId: string) => {
+        recalcCalled = true;
+        assert.equal(orderId, "o1");
+      },
+    };
+    const pipeline = {
+      getEffectiveTransitionGraph: async () => ({
+        NEW: [],
+        CONFIRMED: [],
+        AWAITING_PAYMENT: [],
+        AWAITING_STOCK: [],
+        READY_TO_SHIP: ["CANCELED"],
+        SHIPPED: [],
+        AWAITING_RECEIPT: [],
+        RECEIVED: [],
+        COMPLETED: [],
+        CANCELED: [],
+        REFUSED: [],
+        RETURN_IN_PROGRESS: [],
+        FULLY_RETURNED: [],
+      }),
+    } as unknown as PipelineSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      {} as SettingsSvc,
+      integrations as never,
+      pipeline,
+      {} as never,
+      { notifyStageChanged: async () => undefined } as never,
+    );
+
+    await svc.setOrderStage("o1", "CANCELED", undefined, "test cancel");
+    assert.equal(recalcCalled, true);
+  });
 });

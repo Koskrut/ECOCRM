@@ -39,6 +39,7 @@ import {
   planKeysFromItems,
 } from "./daily-agenda.suggestions";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
+import { buildOperationalDebtOrderWhere } from "../receivables/receivables-scope.util";
 import type {
   AgendaPlanItem,
   AgendaPlanItemInput,
@@ -710,7 +711,10 @@ export class DailyAgendaService {
 
   private async loadOverdueOrders(ownerId: string) {
     const rows = await this.prisma.order.findMany({
-      where: { ownerId, ...financialOverdueWhere() },
+      where: buildOperationalDebtOrderWhere({
+        ownerId,
+        ...financialOverdueWhere(),
+      }),
       orderBy: { paymentDueDate: "asc" },
       take: 5,
       select: {

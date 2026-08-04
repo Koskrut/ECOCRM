@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { RECEIVABLES_DEBT_ORDER_STAGES } from "../receivables.constants";
 import {
+  buildOperationalDebtOrderWhere,
   computeReconcileStatus,
   isReceivablesDeltaStatus,
 } from "../receivables-scope.util";
@@ -19,5 +20,10 @@ assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("AWAITING_STOCK" as never), 
 assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("CONFIRMED" as never), false);
 assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("NEW" as never), false);
 assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("AWAITING_PAYMENT" as never), false);
+assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("CANCELED" as never), false);
+
+const operationalWhere = buildOperationalDebtOrderWhere({ clientId: "c1" });
+assert.ok(Array.isArray(operationalWhere.AND));
+assert.equal((operationalWhere.AND as unknown[]).length, 3);
 
 console.log("receivables-scope.util.spec: ok");

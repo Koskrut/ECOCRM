@@ -1,4 +1,4 @@
-import type { Prisma, ReceivablesReconcileStatus } from "@prisma/client";
+import type { OrderStage, Prisma, ReceivablesReconcileStatus } from "@prisma/client";
 import type { AnalyticsScope } from "../analytics/analytics-scope.service";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 import { RECEIVABLES_DEBT_ORDER_STAGES } from "./receivables.constants";
@@ -12,26 +12,46 @@ export function excludeBitrixLegacyWhere(): Prisma.OrderWhereInput {
   };
 }
 
+/** Canonical operational receivables stages + non-legacy filter (shared across UI surfaces). */
+export function buildOperationalDebtOrderWhere(
+  extra?: Prisma.OrderWhereInput,
+): Prisma.OrderWhereInput {
+  const parts: Prisma.OrderWhereInput[] = [
+    { orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] } },
+    excludeBitrixLegacyWhere(),
+  ];
+  if (extra) parts.push(extra);
+  return { AND: parts };
+}
+
+export function isOperationalDebtOrder(order: {
+  orderStage?: OrderStage | null;
+  legacySource?: string | null;
+}): boolean {
+  if (order.legacySource === "bitrix") return false;
+  return (
+    order.orderStage != null &&
+    RECEIVABLES_DEBT_ORDER_STAGES.includes(order.orderStage)
+  );
+}
+
 function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhereInput {
-  const where: Prisma.OrderWhereInput = {
+  const extra: Prisma.OrderWhereInput = {
     debtAmount: { gt: 0 },
     clientId: { not: null },
-    orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] },
   };
 
   if (scope.orderScope.managerId) {
-    where.ownerId = scope.orderScope.managerId;
+    extra.ownerId = scope.orderScope.managerId;
   } else if (scope.orderScope.allowedOwnerIds !== undefined) {
-    where.ownerId = { in: scope.orderScope.allowedOwnerIds };
+    extra.ownerId = { in: scope.orderScope.allowedOwnerIds };
   }
 
-  return where;
+  return buildOperationalDebtOrderWhere(extra);
 }
 
 export function buildReceivablesDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
-  return {
-    AND: [buildReceivablesDebtOrderBase(scope), excludeBitrixLegacyWhere()],
-  };
+  return buildReceivablesDebtOrderBase(scope);
 }
 
 export function buildBitrixLegacyDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {

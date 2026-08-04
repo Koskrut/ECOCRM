@@ -24,7 +24,6 @@ import {
   RECEIVABLES_COMMENT_STALE_DAYS,
   RECEIVABLES_COMMENT_TITLE,
   RECEIVABLES_DELTA_TOLERANCE,
-  RECEIVABLES_DEBT_ORDER_STAGES,
   type Receivables1CCurrency,
 } from "./receivables.constants";
 import {
@@ -35,10 +34,10 @@ import {
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 import {
   buildBitrixLegacyDebtOrderWhere,
+  buildOperationalDebtOrderWhere,
   buildOverdueDebtOrderWhere,
   buildReceivablesDebtOrderWhere,
   computeReconcileStatus,
-  excludeBitrixLegacyWhere,
   isReceivablesDeltaStatus,
 } from "./receivables-scope.util";
 
@@ -286,16 +285,10 @@ export class ReceivablesService {
   ) {
     const orderWhere: Prisma.OrderWhereInput = scope
       ? buildReceivablesDebtOrderWhere(scope)
-      : {
-          AND: [
-            {
-              debtAmount: { gt: 0 },
-              clientId: { not: null },
-              orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] },
-            },
-            excludeBitrixLegacyWhere(),
-          ],
-        };
+      : buildOperationalDebtOrderWhere({
+          debtAmount: { gt: 0 },
+          clientId: { not: null },
+        });
 
     const orders = await this.prisma.order.findMany({
       where: orderWhere,

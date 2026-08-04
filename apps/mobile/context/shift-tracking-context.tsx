@@ -14,12 +14,14 @@ import { apiFetch } from "@/lib/api";
 import { formatKyivDateKey } from "@/lib/date";
 import { t } from "@/lib/i18n";
 import {
+  captureImmediateFixAndFlush,
   ensureTrackingContinuity,
   flushPendingSamples,
   getTrackingRuntimeHealth,
   maintainBackgroundTracking,
   pauseLocationTrackingKeepBuffer,
   purgePendingSamples,
+  restartTrackingPipeline,
   resumeTrackingIfNeeded,
   startLocationTracking,
   stopLocationTracking,
@@ -42,6 +44,10 @@ import {
   openLocationPermissionSettings,
 } from "@/lib/location-permissions";
 import { shouldPromptBatteryForRestarts } from "@/lib/location-tracking-restart";
+import {
+  resolveTrackingUnhealthyReason,
+  type TrackingUnhealthyReason,
+} from "@/lib/location-tracking-health";
 import type { FieldShift } from "@/types/crm";
 
 const WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
@@ -58,13 +64,18 @@ type ShiftTrackingCtx = {
   trackingHealthy: boolean;
   /** No successful GPS accept (created>0 / keepalive) for >10 min. */
   acceptStale: boolean;
+  /** Mapped CTA reason — never conflates unrestricted battery with dead task. */
+  unhealthyReason: TrackingUnhealthyReason;
+  flushBlockReason: string | null;
   backgroundTaskStarted: boolean;
+  foregroundWatchActive: boolean;
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
   refresh: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
   restartShift: () => Promise<void>;
+  restartTracking: () => Promise<void>;
   isTracking: boolean;
 };
 
@@ -80,7 +91,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
   const [trackingHealthy, setTrackingHealthy] = useState(true);
   const [acceptStale, setAcceptStale] = useState(false);
+  const [flushBlockReason, setFlushBlockReason] = useState<string | null>(null);
   const [backgroundTaskStarted, setBackgroundTaskStarted] = useState(false);
+  const [foregroundWatchActive, setForegroundWatchActive] = useState(false);
   const [backgroundPermission, setBackgroundPermission] = useState<string | null>(null);
   const [batteryOptimizationStatus, setBatteryOptimizationStatus] =
     useState<BatteryOptimizationStatus>("unknown");
@@ -96,12 +109,36 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setLastFlushAt(health.lastFlushAt);
       setTrackingHealthy(health.healthy);
       setAcceptStale(health.acceptStale === true);
+      setFlushBlockReason(health.flushBlockReason ?? null);
       setBackgroundTaskStarted(health.backgroundTaskStarted);
+      setForegroundWatchActive(health.foregroundWatchActive);
       setBackgroundPermission(health.backgroundPermission);
       setBatteryOptimizationStatus(health.batteryOptimizationStatus);
       return health;
     },
     [],
+  );
+
+  const unhealthyReason = useMemo(
+    () =>
+      resolveTrackingUnhealthyReason({
+        healthy: trackingHealthy,
+        claimedMode: trackingMode,
+        backgroundTaskStarted,
+        foregroundWatchActive,
+        acceptStale,
+        backgroundPermission,
+        flushBlockReason,
+      }),
+    [
+      trackingHealthy,
+      trackingMode,
+      backgroundTaskStarted,
+      foregroundWatchActive,
+      acceptStale,
+      backgroundPermission,
+      flushBlockReason,
+    ],
   );
 
   const syncTrackingHealth = useCallback(async () => {
@@ -123,57 +160,55 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
 
+    // Unrestricted → never open battery settings / never blame battery.
+    if (health.batteryOptimizationStatus === "unrestricted") return;
+
     const batteryRisky =
       health.batteryOptimizationStatus === "unknown" ||
       health.batteryOptimizationStatus === "restricted";
+    if (!batteryRisky || batteryUnknownAlertShownRef.current) return;
 
-    // Warn on restricted/unknown battery policy even when the task looks alive —
-    // OEM killers often report "started" while samples never arrive.
-    if (batteryRisky && !batteryUnknownAlertShownRef.current) {
-      batteryUnknownAlertShownRef.current = true;
-      Alert.alert(
-        t("gps.batteryTitle"),
-        health.batteryOptimizationStatus === "unknown"
-          ? t("gps.batteryUnknownHint")
-          : t("gps.batteryHint"),
-        [
-          {
-            text: t("gps.batteryOpen"),
-            onPress: () => void openBatteryOptimizationSettings(),
-          },
-          { text: t("common.later"), style: "cancel" },
-        ],
-      );
-      return;
-    }
-
-    if (health.backgroundTaskStarted) return;
-    if (
-      !shouldPromptBatteryForRestarts(
-        health.restartCountToday,
-        health.lastRestartReason,
-      )
-    ) {
-      return;
-    }
-
-    Alert.alert(t("gps.batteryTitle"), t("gps.batteryHint"), [
-      {
-        text: t("gps.batteryOpen"),
-        onPress: () => void openBatteryOptimizationSettings(),
-      },
-      { text: t("common.later"), style: "cancel" },
-    ]);
+    batteryUnknownAlertShownRef.current = true;
+    Alert.alert(
+      t("gps.batteryTitle"),
+      health.batteryOptimizationStatus === "unknown"
+        ? t("gps.batteryUnknownHint")
+        : t("gps.batteryHint"),
+      [
+        {
+          text: t("gps.batteryOpen"),
+          onPress: () => void openBatteryOptimizationSettings(),
+        },
+        { text: t("common.later"), style: "cancel" },
+      ],
+    );
   }, []);
 
-  const maybePromptBatteryIfTaskDead = useCallback(async () => {
-    if (!isAndroid()) return;
-    const health = await getTrackingRuntimeHealth();
-    if (health.backgroundTaskStarted) return;
+  /**
+   * Dead background task: force-restart location updates first.
+   * Only mention battery if still dead AND status is restricted/unknown (never unrestricted).
+   */
+  const recoverDeadBackgroundTask = useCallback(async () => {
+    let health = await getTrackingRuntimeHealth();
+    if (health.claimedMode !== "background" || health.backgroundTaskStarted) return;
 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
 
+    // Prefer restart over blaming OEM battery.
+    const mode = await ensureTrackingContinuity();
+    setTrackingMode(mode);
+    health = await syncTrackingHealth();
+    if (health.backgroundTaskStarted) return;
+
+    if (!isAndroid()) return;
+    if (health.batteryOptimizationStatus === "unrestricted") return;
+    if (
+      health.batteryOptimizationStatus !== "restricted" &&
+      health.batteryOptimizationStatus !== "unknown"
+    ) {
+      return;
+    }
     if (
       !shouldPromptBatteryForRestarts(
         health.restartCountToday,
@@ -190,15 +225,25 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       },
       { text: t("common.later"), style: "cancel" },
     ]);
-  }, []);
+  }, [syncTrackingHealth]);
 
   const alertBackgroundTaskStatus = useCallback((started: boolean) => {
     if (started) return;
-    Alert.alert(t("gps.taskFailedTitle"), t("gps.taskFailedHint"), [
-      { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
+    Alert.alert(t("gps.backgroundTaskDeadTitle"), t("gps.backgroundTaskDeadHint"), [
+      {
+        text: t("gps.restartTracking"),
+        onPress: () => {
+          void restartTrackingPipeline()
+            .then(async (mode) => {
+              setTrackingMode(mode);
+              await syncTrackingHealth();
+            })
+            .catch(() => undefined);
+        },
+      },
       { text: t("common.later"), style: "cancel" },
     ]);
-  }, []);
+  }, [syncTrackingHealth]);
 
   const refresh = useCallback(async () => {
     if (!token) {
@@ -307,19 +352,24 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
     const onAppState = (state: AppStateStatus) => {
       if (state === "active") {
-        void ensureTrackingContinuity()
-          .then(async (mode) => {
-            setTrackingMode(mode);
-            if (mode === "foreground" && !foregroundWarnedRef.current) {
-              foregroundWarnedRef.current = true;
-              promptOpenSettings(t("gps.foregroundOnlyHint"));
+        void (async () => {
+          try {
+            const before = await getTrackingRuntimeHealth();
+            if (before.claimedMode === "background" && !before.backgroundTaskStarted) {
+              await recoverDeadBackgroundTask();
+            } else {
+              const mode = await ensureTrackingContinuity();
+              setTrackingMode(mode);
+              if (mode === "foreground" && !foregroundWarnedRef.current) {
+                foregroundWarnedRef.current = true;
+                promptOpenSettings(t("gps.foregroundOnlyHint"));
+              }
+              await syncTrackingHealth();
             }
-            const health = await syncTrackingHealth();
-            if (!health.healthy) {
-              void maybePromptBatteryIfTaskDead();
-            }
-          })
-          .catch(() => undefined);
+          } catch {
+            /* best-effort */
+          }
+        })();
         return;
       }
       if (state === "background") {
@@ -343,7 +393,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     activeShift,
     syncTrackingHealth,
     promptOpenSettings,
-    maybePromptBatteryIfTaskDead,
+    recoverDeadBackgroundTask,
   ]);
 
   const startShift = useCallback(async () => {
@@ -353,6 +403,21 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     staleAlertShownRef.current = false;
     clearFlushBlockReason();
     try {
+      // Reuse today's ACTIVE instead of stacking empty shifts (backend also idempotent).
+      if (activeShift?.status === "ACTIVE") {
+        if (trackingEnabled) {
+          const mode = await startLocationTracking(activeShift.id);
+          setTrackingMode(mode);
+          await captureImmediateFixAndFlush();
+          await syncTrackingHealth();
+          if (mode === "background") {
+            void registerBackgroundTrackingWatchdog();
+            await maybePromptBatteryOptimization();
+          }
+        }
+        return;
+      }
+
       let plannedDistanceKm: number | null = null;
       const dateKey = formatKyivDateKey();
       try {
@@ -377,6 +442,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (trackingEnabled) {
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
+        await captureImmediateFixAndFlush();
         const health = await syncTrackingHealth();
 
         if (mode === "foreground") {
@@ -403,6 +469,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     }
   }, [
     token,
+    activeShift,
     trackingEnabled,
     syncTrackingHealth,
     promptOpenSettings,
@@ -410,8 +477,24 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     alertBackgroundTaskStatus,
   ]);
 
+  const restartTracking = useCallback(async () => {
+    setLoading(true);
+    try {
+      clearFlushBlockReason();
+      staleAlertShownRef.current = false;
+      const mode = await restartTrackingPipeline();
+      setTrackingMode(mode);
+      await syncTrackingHealth();
+    } catch (e) {
+      Alert.alert(t("common.error"), String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [syncTrackingHealth]);
+
   const restartShiftAfterGpsBlock = useCallback(async () => {
     try {
+      setLoading(true);
       await stopLocationTracking();
       await purgePendingSamples();
       clearFlushBlockReason();
@@ -424,11 +507,46 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setActiveShift(null);
       staleAlertShownRef.current = false;
       flushAlertShownRef.current = false;
-      await startShift();
+      // Explicit end+start — do not reuse the ended shift id.
+      const prev = activeShift;
+      if (!token) return;
+      const dateKey = formatKyivDateKey();
+      let plannedDistanceKm: number | null = null;
+      try {
+        const m = await apiFetch<{ distanceKm: number | null }>(
+          `/route-plans/metrics?date=${encodeURIComponent(dateKey)}`,
+          { token },
+        );
+        if (m.distanceKm != null && Number.isFinite(m.distanceKm)) {
+          plannedDistanceKm = m.distanceKm;
+        }
+      } catch {
+        /* optional */
+      }
+      const res = await apiFetch<{ shift: FieldShift }>("/field/shifts/start", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          plannedDistanceKm,
+          trackingEnabled: prev?.trackingEnabled ?? trackingEnabled,
+        }),
+      });
+      setActiveShift(res.shift);
+      if (res.shift.trackingEnabled) {
+        const mode = await startLocationTracking(res.shift.id);
+        setTrackingMode(mode);
+        await captureImmediateFixAndFlush();
+        await syncTrackingHealth();
+        if (mode === "background") {
+          void registerBackgroundTrackingWatchdog();
+        }
+      }
     } catch (e) {
       Alert.alert(t("common.error"), String(e));
+    } finally {
+      setLoading(false);
     }
-  }, [activeShift, token, startShift]);
+  }, [activeShift, token, trackingEnabled, syncTrackingHealth]);
 
   useEffect(() => {
     if (!token || !activeShift || activeShift.status !== "ACTIVE" || !activeShift.trackingEnabled) {
@@ -440,19 +558,26 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
       const health = await syncTrackingHealth();
 
-      if (!health.healthy && health.claimedMode !== "none") {
+      // Dead background task → forceRestart before any battery blame.
+      if (health.claimedMode === "background" && !health.backgroundTaskStarted) {
+        await recoverDeadBackgroundTask();
+      } else if (!health.healthy && health.claimedMode !== "none") {
         const mode = await ensureTrackingContinuity();
         setTrackingMode(mode);
-        await syncTrackingHealth();
-        if (health.claimedMode === "background") {
-          void maybePromptBatteryIfTaskDead();
+        if (health.acceptStale) {
+          // ACTIVE + 0 accepts: poke native pipeline + one foreground fix.
+          void captureImmediateFixAndFlush().catch(() => undefined);
         }
+        await syncTrackingHealth();
       }
 
+      const after = await getTrackingRuntimeHealth();
+      applyHealth(after);
+
       const flushStale =
-        health.pendingSamples > 0 &&
-        (!health.lastFlushAt ||
-          Date.now() - new Date(health.lastFlushAt).getTime() > FLUSH_STALE_MS);
+        after.pendingSamples > 0 &&
+        (!after.lastFlushAt ||
+          Date.now() - new Date(after.lastFlushAt).getTime() > FLUSH_STALE_MS);
 
       if (flushStale && !flushAlertShownRef.current) {
         flushAlertShownRef.current = true;
@@ -467,9 +592,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         ]);
       }
 
-      // ACTIVE + no accepted samples >10 min → CTA by last error (wrong_day vs 401).
-      const blockReason = health.flushBlockReason ?? getLastFlushBlockReason();
-      if (health.acceptStale === true && !staleAlertShownRef.current) {
+      // ACTIVE + no accepted samples >10 min → CTA (banner is persistent; alert once).
+      const blockReason = after.flushBlockReason ?? getLastFlushBlockReason();
+      if (after.acceptStale === true && !staleAlertShownRef.current) {
         staleAlertShownRef.current = true;
         if (blockReason === "auth_401") {
           Alert.alert(t("gps.sessionExpiredTitle"), t("gps.sessionExpiredHint"), [
@@ -478,15 +603,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         } else if (blockReason === "wrong_day") {
           Alert.alert(t("gps.wrongDayTitle"), t("gps.wrongDayHint"), [
             {
-              text: t("gps.restartShift"),
+              text: t("gps.closeAndReopenShift"),
               onPress: () => void restartShiftAfterGpsBlock(),
             },
             { text: t("common.later"), style: "cancel" },
           ]);
         } else {
-          Alert.alert(t("gps.staleGpsTitle"), t("gps.staleGpsHint"), [
+          Alert.alert(t("gps.gpsNotWriting"), t("gps.gpsNotWritingHint"), [
             {
-              text: t("gps.restartShift"),
+              text: t("gps.restartTracking"),
+              onPress: () => void restartTracking(),
+            },
+            {
+              text: t("gps.closeAndReopenShift"),
               onPress: () => void restartShiftAfterGpsBlock(),
             },
             { text: t("common.later"), style: "cancel" },
@@ -504,8 +633,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     token,
     activeShift,
     syncTrackingHealth,
-    maybePromptBatteryIfTaskDead,
+    applyHealth,
+    recoverDeadBackgroundTask,
     restartShiftAfterGpsBlock,
+    restartTracking,
   ]);
 
   const endShift = useCallback(async () => {
@@ -546,13 +677,17 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastFlushAt,
       trackingHealthy,
       acceptStale,
+      unhealthyReason,
+      flushBlockReason,
       backgroundTaskStarted,
+      foregroundWatchActive,
       backgroundPermission,
       batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,
       restartShift,
+      restartTracking,
       isTracking,
     }),
     [
@@ -564,13 +699,17 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastFlushAt,
       trackingHealthy,
       acceptStale,
+      unhealthyReason,
+      flushBlockReason,
       backgroundTaskStarted,
+      foregroundWatchActive,
       backgroundPermission,
       batteryOptimizationStatus,
       refresh,
       startShift,
       endShift,
       restartShift,
+      restartTracking,
       isTracking,
     ],
   );

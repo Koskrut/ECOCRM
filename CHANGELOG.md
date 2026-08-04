@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.133**.)_
+_(планируемые изменения после **0.2.134**.)_
+
+## [0.2.134] — 2026-08-04
+
+### Summary
+
+Патч **0.2.134**: canceled orders zero debt + credit; unified receivables scope; mobile GPS tracking health v2.
+
+### Fixed
+
+- **Canceled orders**: `debtAmount=0`, `creditAmount=paid`; не попадают в receivables/contacts debt; data migration для существующих CANCELED.
+- **Receivables scope**: `buildOperationalDebtOrderWhere` / `isOperationalDebtOrder` — contacts, dashboard, daily-agenda, receivables.
+
+### Changed
+
+- **Mobile GPS tracking**: unhealthy reason resolution, restart pipeline, immediate fix+flush; ShiftStatusCard/TrackingHealthBanner; i18n en/ru GPS strings; buffer purge.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.134`**.
+- **Миграция:** `20260804150000_zero_canceled_order_debt` (data fix) — **`prisma migrate deploy`** до **`up`**.
+- **Mobile**: новый EAS build рекомендуется.
 
 ## [0.2.133] — 2026-08-04
 

@@ -8,6 +8,7 @@ import {
   appendPendingSample,
   flushPendingSamples,
   getLastAcceptedAt,
+  getLastRejectReason,
   getPendingCount,
   maybeFlushAfterAppend,
   purgePendingSamples,
@@ -74,6 +75,8 @@ export type TrackingDiagnostics = {
   mode: TrackingMode;
   pendingSamples: number;
   lastFlushAt: string | null;
+  lastAcceptedAt: string | null;
+  lastRejectReason: string | null;
   activeShiftId: string | null;
   foregroundPermission: string;
   backgroundPermission: string | null;
@@ -131,7 +134,7 @@ async function handleRawLocation(input: {
   mocked?: boolean;
 }): Promise<void> {
   if (input.mocked) {
-    void appendErrorLog("location sample skipped: mock provider", "warn");
+    void appendErrorLog("location sample skipped: reason=mock", "warn");
     return;
   }
   // Client-side UA bbox — don't buffer Lima/emulator points (server would out_of_region).
@@ -264,23 +267,16 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
   }
 }
 
-export async function startLocationTracking(
-  shiftId: string,
-  opts?: { graceAccept?: boolean },
-): Promise<TrackingMode> {
+export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
     setForegroundWatchStarter(startForegroundWatch);
     await registerFieldLocationTask();
     await resetLocationProcessorState();
     clearFlushBlockReason();
-    const prevShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
-    const isNewShift = prevShiftId !== shiftId;
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
     await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY, formatKyivDateKey());
-    // Grace only for a true new shift start — not auth-resume (would mask failed flush).
-    if (opts?.graceAccept !== false && isNewShift) {
-      await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
-    }
+    // Do NOT seed LAST_ACCEPTED_AT — honest healthy requires real created>0
+    // (grace seed masked Ісанчев ACTIVE+0 samples as healthy for 10 min).
 
     const { foreground, background } = await requestTrackingPermissionsWithRationale();
     if (foreground !== "granted") {
@@ -301,6 +297,8 @@ export async function startLocationTracking(
       await stopForegroundWatch();
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
       startFlushTimer();
+      // Cold start: one foreground fix + flush so first point hits server quickly.
+      void captureImmediateFixAndFlush().catch(() => undefined);
       return "background";
     }
 
@@ -308,6 +306,7 @@ export async function startLocationTracking(
     await startForegroundWatch(initialTier);
     await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "foreground");
     startFlushTimer();
+    void captureImmediateFixAndFlush().catch(() => undefined);
     return "foreground";
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -315,6 +314,49 @@ export async function startLocationTracking(
     await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none").catch(() => undefined);
     return "none";
   }
+}
+
+/** One-shot foreground GPS + buffer append + flush (does not wait for background task). */
+export async function captureImmediateFixAndFlush(): Promise<boolean> {
+  try {
+    const block = getLastFlushBlockReason();
+    if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
+      return false;
+    }
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    if (isMockLocation(pos)) {
+      void appendErrorLog("immediate fix skipped: reason=mock", "warn");
+      return false;
+    }
+    await handleRawLocation({
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracyM:
+        typeof pos.coords.accuracy === "number" && Number.isFinite(pos.coords.accuracy)
+          ? pos.coords.accuracy
+          : undefined,
+      clientRecordedAt: new Date(pos.timestamp).toISOString(),
+      mocked: false,
+    });
+    const uploaded = await flushPendingSamples();
+    return uploaded > 0;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    void appendErrorLog(`captureImmediateFixAndFlush failed: ${message}`, "warn");
+    return false;
+  }
+}
+
+/** Light restart of native tracking without ending the shift. */
+export async function restartTrackingPipeline(): Promise<TrackingMode> {
+  const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (!shiftId) return "none";
+  clearFlushBlockReason();
+  const mode = await ensureTrackingContinuity();
+  void captureImmediateFixAndFlush().catch(() => undefined);
+  return mode;
 }
 
 export async function stopLocationTracking(): Promise<void> {
@@ -453,6 +495,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     restartDiagnostics,
     batteryStatus,
     lastAcceptedAt,
+    lastRejectReason,
   ] = await Promise.all([
     getTrackingState(),
     getTrackingPermissionStatus(),
@@ -461,6 +504,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     getTrackingRestartDiagnostics(),
     readBatteryOptimizationStatus(),
     getLastAcceptedAt(),
+    getLastRejectReason(),
   ]);
   void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
@@ -488,20 +532,30 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     restartCountToday: restartDiagnostics.restartCountToday,
     lastRestartReason: restartDiagnostics.lastRestartReason,
     batteryOptimizationStatus: batteryStatus,
+    lastAcceptedAt,
+    lastRejectReason,
   };
 }
 
 export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
   const health = await getTrackingRuntimeHealth();
+  const [lastAcceptedAt, lastRejectReason] = await Promise.all([
+    getLastAcceptedAt(),
+    getLastRejectReason(),
+  ]);
   return {
     mode: health.mode,
     pendingSamples: health.pendingSamples,
     lastFlushAt: health.lastFlushAt,
+    lastAcceptedAt,
+    lastRejectReason,
     activeShiftId: health.activeShiftId,
     foregroundPermission: health.foregroundPermission,
     backgroundPermission: health.backgroundPermission,
     backgroundTaskStarted: health.backgroundTaskStarted,
     healthy: health.healthy,
+    acceptStale: health.acceptStale,
+    flushBlockReason: health.flushBlockReason,
     lastRestartAt: health.lastRestartAt,
     restartCountToday: health.restartCountToday,
     lastRestartReason: health.lastRestartReason,

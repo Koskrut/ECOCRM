@@ -1955,6 +1955,9 @@ export class OrdersService {
       },
       include: ORDER_INCLUDE,
     });
+    if (toStage === "CANCELED") {
+      await this.integrations.recalcOrderFinance(id);
+    }
     if (OrdersService.STAGES_RELEASE_RESERVATION.has(toStage)) {
       await this.prisma.materialReservation.updateMany({
         where: { orderId: id, status: ReservationStatus.ACTIVE },

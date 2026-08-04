@@ -6,6 +6,7 @@ import type {
   ContactExclusionCode,
   ContactScoringSignal,
 } from "./types/contacts-priority.types";
+import { isOperationalDebtOrder } from "../receivables/receivables-scope.util";
 
 type ContactSummaryRow = {
   id: string;
@@ -134,6 +135,8 @@ export class ContactsInsightsService {
             returnAdjustmentAmount: true,
             debtAmount: true,
             creditAmount: true,
+            orderStage: true,
+            legacySource: true,
           },
         }),
         this.prisma.order.findMany({
@@ -195,12 +198,14 @@ export class ContactsInsightsService {
       const id = o.clientId ?? null;
       if (!id) continue;
       ordersCountAllById.set(id, (ordersCountAllById.get(id) ?? 0) + 1);
-      debtById.set(
-        id,
-        (debtById.get(id) ?? 0) +
-          Math.max(0, Number(o.debtAmount ?? 0)) -
-          Math.max(0, Number(o.creditAmount ?? 0)),
-      );
+      if (isOperationalDebtOrder(o)) {
+        debtById.set(
+          id,
+          (debtById.get(id) ?? 0) +
+            Math.max(0, Number(o.debtAmount ?? 0)) -
+            Math.max(0, Number(o.creditAmount ?? 0)),
+        );
+      }
       const prev = lastOrderAtById.get(id) ?? null;
       if (!prev || o.createdAt > prev) {
         lastOrderAtById.set(id, o.createdAt);

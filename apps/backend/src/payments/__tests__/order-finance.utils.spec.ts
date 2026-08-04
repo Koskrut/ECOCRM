@@ -58,6 +58,17 @@ describe("computeOrderDebtAndCredit", () => {
     assert.equal(r.creditAmount, 300);
     assert.equal(r.debtAmount, 0);
   });
+
+  it("canceled order has zero debt and paid amount becomes credit", () => {
+    const r = computeOrderDebtAndCredit({
+      totalAmount: 1000,
+      paidAmount: 300,
+      orderStage: "CANCELED",
+    });
+    assert.equal(r.effectiveTotal, 0);
+    assert.equal(r.debtAmount, 0);
+    assert.equal(r.creditAmount, 300);
+  });
 });
 
 describe("roundMoney", () => {

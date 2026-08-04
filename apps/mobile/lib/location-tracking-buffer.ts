@@ -33,6 +33,7 @@ export const STORAGE_KEYS = {
   TRACKING_MODE: "field_tracking_mode",
   LAST_FLUSH_AT: "field_last_flush_at",
   LAST_ACCEPTED_AT: "field_last_accepted_at",
+  LAST_REJECT_REASON: "field_last_reject_reason",
 } as const;
 
 export type PendingLocationSample = {
@@ -91,9 +92,22 @@ export async function getLastAcceptedAt(): Promise<string | null> {
   return AsyncStorage.getItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
 }
 
-/** Server accepted samples OR soft-filtered (dedup) — pipeline is alive. */
+export async function getLastRejectReason(): Promise<string | null> {
+  return AsyncStorage.getItem(STORAGE_KEYS.LAST_REJECT_REASON);
+}
+
+/** Only real server accepts (created>0 / keepalive accept) refresh healthy. */
 async function markPipelineAlive(): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
+}
+
+async function rememberRejectReasons(
+  rejectReasons: SampleRejectReasons | undefined,
+): Promise<void> {
+  if (!rejectReasons) return;
+  const summary = formatRejectReasons(rejectReasons);
+  if (summary === "{}") return;
+  await AsyncStorage.setItem(STORAGE_KEYS.LAST_REJECT_REASON, summary);
 }
 
 async function applyFlushFailure(
@@ -219,6 +233,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
 
     let uploaded = 0;
     let retargetAttempted = false;
+    let authRetryAttempted = false;
 
     while (true) {
       const pending = await readPending();
@@ -243,17 +258,20 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const action = classifyFlushHttpStatus(res.status);
 
           if (action === "auth_required") {
-            // Attempt lightweight "refresh": re-validate; if fail → force re-login UI.
-            const stillValid = await validateAuthToken(token, getApiBaseUrl());
-            if (stillValid) {
-              // Race / transient — keep pending and retry later.
-              void appendErrorLog(
-                `flush samples 401 but /auth/me ok — keep buffer, retry later`,
-                "warn",
-              );
-              break;
+            // Re-validate session once, then retry this batch. Fail → re-login UI, keep buffer.
+            if (!authRetryAttempted) {
+              authRetryAttempted = true;
+              const stillValid = await validateAuthToken(token, getApiBaseUrl());
+              if (stillValid) {
+                const refreshed = await getAuthToken();
+                if (refreshed) token = refreshed;
+                void appendErrorLog(
+                  `flush samples 401 → session ok, retry once (buffer kept)`,
+                  "warn",
+                );
+                continue;
+              }
             }
-            // Clear dead JWT so AuthProvider forces login; buffer stays.
             try {
               const SecureStore = await import("expo-secure-store");
               await SecureStore.deleteItemAsync("crm_manager_jwt");
@@ -315,21 +333,24 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           /* non-JSON body — treat as full batch accepted */
         }
 
+        await rememberRejectReasons(rejectReasons);
+
         // Ісанчев: wrong_day batches must leave the buffer immediately (no forever retry).
         if (created === 0 && isWrongDayBatch(rejectReasons, rejected)) {
           await writePending(rest);
           await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
-          // Force accept-stale so watchdog shows «Перезапустити зміну» immediately.
           await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
           setFlushBlockReason("wrong_day");
           void appendErrorLog(
-            `flush samples wrong_day purged (${rejected}) shiftId=${sid} rejectReasons=${formatRejectReasons(rejectReasons)} — restart shift`,
+            `flush samples wrong_day purged count=${rejected} shiftId=${sid} rejectReasons=${formatRejectReasons(rejectReasons)}`,
             "error",
           );
           if (rest.length === 0) break;
           continue;
         }
 
+        // Drop this batch from buffer (accepted or rejected). Hard geo rejects must not
+        // block subsequent fresh points — only wrong_day / 401 / dead-shift set a block.
         await writePending(rest);
         await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
         uploaded += Math.max(0, created);
@@ -338,9 +359,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const reasons = formatRejectReasons(rejectReasons);
           const severity = classifySampleRejectBatch(rejectReasons);
           if (severity === "soft") {
-            // Михайлів: duplicate → info, never ERROR.
-            // Healthy only if server reported keepalive rejects (legacy); duplicate alone
-            // must NOT refresh LAST_ACCEPTED_AT — that masked stale GPS.
+            // Михайлів: duplicate → info. Do NOT refresh LAST_ACCEPTED_AT on duplicate-only.
             if (softRejectCountsAsAccept(rejectReasons)) {
               await markPipelineAlive();
             }
@@ -349,6 +368,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
               "info",
             );
           } else if (severity === "hard") {
+            // teleport / out_of_region / bad_accuracy: drop batch, keep ingest open.
             void appendErrorLog(
               `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
               "error",
@@ -360,7 +380,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             );
           }
         } else if (created > 0) {
-          // Keepalive on server is accept:true → created>0 (not a reject reason).
+          // Keepalive on server is accept:true → created>0.
           await markPipelineAlive();
         }
 

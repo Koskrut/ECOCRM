@@ -122,7 +122,10 @@ test("getCardSummary: uses canonical Order.clientId scope and visibility note", 
           totalAmount: 1000,
           returnAdjustmentAmount: 100,
           debtAmount: 200,
+          creditAmount: 0,
           financialStatus: "OVERDUE",
+          orderStage: "SHIPPED",
+          legacySource: null,
         },
       ]),
       count: mockFn(async () => 2),
@@ -190,6 +193,8 @@ test("getCardSummary: nets order credit against debt", async () => {
           debtAmount: 0,
           creditAmount: 300,
           financialStatus: "PAID",
+          orderStage: "COMPLETED",
+          legacySource: null,
         },
         {
           createdAt: new Date("2026-03-02T10:00:00.000Z"),
@@ -198,6 +203,8 @@ test("getCardSummary: nets order credit against debt", async () => {
           debtAmount: 200,
           creditAmount: 0,
           financialStatus: "AWAITING_PAYMENT",
+          orderStage: "READY_TO_SHIP",
+          legacySource: null,
         },
       ]),
       count: mockFn(async () => 2),
@@ -212,6 +219,63 @@ test("getCardSummary: nets order credit against debt", async () => {
   const result = await service.getCardSummary("c-net", manager("m1"));
   assert.equal(result.kpi.orderCredit, 300);
   assert.equal(result.kpi.debt, 0); // max(0, 200 - 300)
+});
+
+test("getCardSummary: excludes canceled order debt from KPI", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c-cancel",
+        ownerId: "m1",
+        firstName: "Cancel",
+        lastName: "Test",
+        status: null,
+        clientType: null,
+        city: null,
+        region: null,
+        email: null,
+        phone: "+380111111111",
+        companyId: null,
+        company: null,
+        owner: { id: "m1", fullName: "Manager" },
+        phones: [],
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          createdAt: new Date("2026-03-01T10:00:00.000Z"),
+          totalAmount: 1000,
+          returnAdjustmentAmount: 0,
+          debtAmount: 500,
+          creditAmount: 0,
+          financialStatus: "CLOSED",
+          orderStage: "CANCELED",
+          legacySource: null,
+        },
+        {
+          createdAt: new Date("2026-03-02T10:00:00.000Z"),
+          totalAmount: 800,
+          returnAdjustmentAmount: 0,
+          debtAmount: 100,
+          creditAmount: 0,
+          financialStatus: "AWAITING_PAYMENT",
+          orderStage: "SHIPPED",
+          legacySource: null,
+        },
+      ]),
+      count: mockFn(async () => 2),
+    },
+    activity: { findFirst: mockFn(async () => null) },
+    task: {
+      count: mockFn(async () => 0),
+      findFirst: mockFn(async () => null),
+    },
+  });
+
+  const result = await service.getCardSummary("c-cancel", manager("m1"));
+  assert.equal(result.kpi.debt, 100);
+  assert.equal(result.kpi.overdue, 0);
 });
 
 test("getCardSummary: ADMIN sees full scope without finance restriction", async () => {
@@ -241,14 +305,20 @@ test("getCardSummary: ADMIN sees full scope without finance restriction", async 
           totalAmount: 1000,
           returnAdjustmentAmount: 0,
           debtAmount: 0,
+          creditAmount: 0,
           financialStatus: "PAID",
+          orderStage: "COMPLETED",
+          legacySource: null,
         },
         {
           createdAt: new Date("2026-03-02T10:00:00.000Z"),
           totalAmount: 2000,
           returnAdjustmentAmount: 500,
           debtAmount: 150,
+          creditAmount: 0,
           financialStatus: "AWAITING_PAYMENT",
+          orderStage: "RECEIVED",
+          legacySource: null,
         },
       ]),
       count: mockFn(async () => 2),

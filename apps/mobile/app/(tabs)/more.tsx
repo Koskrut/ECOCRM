@@ -20,6 +20,10 @@ import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { getErrorLog, type ErrorLogEntry } from "@/lib/error-log";
 import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location-tracking";
+import {
+  unhealthyReasonMessageKeys,
+} from "@/lib/location-tracking-health";
+import { openLocationPermissionSettings } from "@/lib/location-permissions";
 import { t } from "@/lib/i18n";
 
 export default function MoreScreen() {
@@ -43,10 +47,9 @@ export default function MoreScreen() {
     startShift,
     endShift,
     restartShift,
+    restartTracking,
     isTracking,
-    trackingHealthy,
-    acceptStale,
-    backgroundTaskStarted,
+    unhealthyReason,
     backgroundPermission,
     batteryOptimizationStatus,
   } = useShiftTracking();
@@ -83,10 +86,11 @@ export default function MoreScreen() {
         ? t("more.trackForeground")
         : t("more.trackOff");
 
-  const backgroundTaskDead =
-    !!activeShift && trackingMode === "background" && !backgroundTaskStarted;
-  const gpsStale =
-    !!activeShift && activeShift.status === "ACTIVE" && (acceptStale || !trackingHealthy);
+  const trackingBroken =
+    !!activeShift &&
+    activeShift.status === "ACTIVE" &&
+    unhealthyReason !== "none";
+  const unhealthyMsg = unhealthyReasonMessageKeys(unhealthyReason);
 
   return (
     <Screen padded={false}>
@@ -158,19 +162,53 @@ export default function MoreScreen() {
               />
             ) : (
               <>
-                {backgroundTaskDead || gpsStale ? (
+                {trackingBroken && unhealthyMsg ? (
                   <View style={{ marginBottom: theme.spacing.sm, gap: 8 }}>
-                    <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
-                      {acceptStale ? t("gps.staleGpsHint") : t("gps.trackingUnhealthy")}
+                    <Text
+                      style={[
+                        theme.typography.caption,
+                        { color: theme.colors.dangerText, fontWeight: "700" },
+                      ]}>
+                      {t(unhealthyMsg.titleKey)}
                     </Text>
-                    {gpsStale ? (
+                    <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                      {t(unhealthyMsg.bodyKey)}
+                    </Text>
+                    {unhealthyReason === "background_permission" ? (
                       <AppButton
-                        label={t("gps.restartShift")}
+                        label={t("gps.openSettings")}
+                        onPress={() => void openLocationPermissionSettings()}
+                        disabled={loading}
+                        loading={loading}
+                        variant="secondary"
+                      />
+                    ) : null}
+                    {unhealthyReason === "background_task_dead" ||
+                    unhealthyReason === "foreground_watch_dead" ||
+                    unhealthyReason === "accept_stale" ? (
+                      <AppButton
+                        label={t("gps.restartTracking")}
+                        onPress={() => void restartTracking()}
+                        disabled={loading}
+                        loading={loading}
+                        variant="secondary"
+                      />
+                    ) : null}
+                    {unhealthyReason === "background_task_dead" ||
+                    unhealthyReason === "accept_stale" ||
+                    unhealthyReason === "accept_stale_wrong_day" ? (
+                      <AppButton
+                        label={t("gps.closeAndReopenShift")}
                         onPress={() => void restartShift()}
                         disabled={loading}
                         loading={loading}
                         variant="secondary"
                       />
+                    ) : null}
+                    {unhealthyReason === "accept_stale_auth_401" ? (
+                      <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                        {t("gps.loginAgain")}
+                      </Text>
                     ) : null}
                   </View>
                 ) : null}
@@ -281,6 +319,19 @@ export default function MoreScreen() {
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugHealthy", { status: trackingDebug.healthy ? "yes" : "no" })}
+                  {trackingDebug.acceptStale ? " · stale" : ""}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("gps.lastAcceptedAt", {
+                    value: trackingDebug.lastAcceptedAt
+                      ? new Date(trackingDebug.lastAcceptedAt).toLocaleString()
+                      : t("gps.neverAccepted"),
+                  })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("gps.lastRejectReason", {
+                    value: trackingDebug.lastRejectReason ?? "—",
+                  })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugBatteryOpt", { status: trackingDebug.batteryOptimizationStatus })}

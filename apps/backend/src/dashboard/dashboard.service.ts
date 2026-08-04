@@ -8,6 +8,7 @@ import { SettingsService } from "../settings/settings.service";
 import { getBaseCurrency, paymentToBase } from "../common/currency.util";
 import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
 import { DayPlanService } from "../day-plan/day-plan.service";
+import { buildOperationalDebtOrderWhere } from "../receivables/receivables-scope.util";
 import type { DayPlanStatus } from "../day-plan/day-plan.types";
 
 export type DashboardPeriod = "week" | "month";
@@ -107,6 +108,7 @@ export class DashboardService {
 
     const [
       ordersAgg,
+      debtAgg,
       ordersCount,
       ordersByStageRows,
       leadsCount,
@@ -117,7 +119,11 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.order.aggregate({
         where: orderWhere,
-        _sum: { totalAmount: true, debtAmount: true },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.order.aggregate({
+        where: buildOperationalDebtOrderWhere(orderWhere),
+        _sum: { debtAmount: true },
       }),
       this.prisma.order.count({ where: orderWhere }),
       this.prisma.order.groupBy({
@@ -144,7 +150,7 @@ export class DashboardService {
 
     // KPI revenue: gross totalAmount (debtTotal already reflects returnAdjustmentAmount via recalcOrder)
     const revenue = Number(ordersAgg._sum.totalAmount ?? 0);
-    const debtTotal = Number(ordersAgg._sum.debtAmount ?? 0);
+    const debtTotal = Number(debtAgg._sum.debtAmount ?? 0);
     const conversionPercent = leadsCount > 0 ? Math.round((leadsWonCount / leadsCount) * 100) : 0;
 
     return {

@@ -14,6 +14,90 @@ export type TrackingHealthSnapshot = {
   acceptStale: boolean;
 };
 
+/** Primary reason for red / CTA UI — never conflate with battery unrestricted. */
+export type TrackingUnhealthyReason =
+  | "none"
+  | "background_permission"
+  | "background_task_dead"
+  | "foreground_watch_dead"
+  | "accept_stale"
+  | "accept_stale_wrong_day"
+  | "accept_stale_auth_401";
+
+export type ResolveUnhealthyReasonInput = {
+  healthy: boolean;
+  claimedMode: TrackingMode;
+  backgroundTaskStarted: boolean;
+  foregroundWatchActive: boolean;
+  acceptStale: boolean;
+  backgroundPermission?: string | null;
+  flushBlockReason?: string | null;
+};
+
+/**
+ * Map health bits → one UI reason (priority order).
+ * Battery status is intentionally NOT a reason here — shown only via TrackingHealthBanner
+ * when restricted/unknown.
+ */
+export function resolveTrackingUnhealthyReason(
+  input: ResolveUnhealthyReasonInput,
+): TrackingUnhealthyReason {
+  if (input.healthy && !input.acceptStale) return "none";
+
+  const modeActive = input.claimedMode !== "none";
+  if (
+    modeActive &&
+    input.backgroundPermission != null &&
+    input.backgroundPermission !== "granted"
+  ) {
+    return "background_permission";
+  }
+
+  if (input.claimedMode === "background" && !input.backgroundTaskStarted) {
+    return "background_task_dead";
+  }
+
+  if (input.claimedMode === "foreground" && !input.foregroundWatchActive) {
+    return "foreground_watch_dead";
+  }
+
+  if (input.acceptStale) {
+    if (input.flushBlockReason === "wrong_day") return "accept_stale_wrong_day";
+    if (input.flushBlockReason === "auth_401") return "accept_stale_auth_401";
+    return "accept_stale";
+  }
+
+  if (!input.healthy) {
+    if (input.claimedMode === "background") return "background_task_dead";
+    if (input.claimedMode === "foreground") return "foreground_watch_dead";
+  }
+
+  return "none";
+}
+
+/** i18n path for title/body of the unhealthy banner (uk dict under gps.*). */
+export function unhealthyReasonMessageKeys(reason: TrackingUnhealthyReason): {
+  titleKey: string;
+  bodyKey: string;
+} | null {
+  switch (reason) {
+    case "background_permission":
+      return { titleKey: "gps.trackingForegroundOnly", bodyKey: "gps.backgroundHint" };
+    case "background_task_dead":
+      return { titleKey: "gps.backgroundTaskDeadTitle", bodyKey: "gps.backgroundTaskDeadHint" };
+    case "foreground_watch_dead":
+      return { titleKey: "gps.gpsNotWriting", bodyKey: "gps.foregroundWatchDeadHint" };
+    case "accept_stale_wrong_day":
+      return { titleKey: "gps.wrongDayTitle", bodyKey: "gps.wrongDayHint" };
+    case "accept_stale_auth_401":
+      return { titleKey: "gps.sessionExpiredTitle", bodyKey: "gps.sessionExpiredHint" };
+    case "accept_stale":
+      return { titleKey: "gps.gpsNotWriting", bodyKey: "gps.gpsNotWritingHint" };
+    default:
+      return null;
+  }
+}
+
 export function shouldRestartBackgroundTask(
   claimedMode: TrackingMode,
   backgroundTaskStarted: boolean,

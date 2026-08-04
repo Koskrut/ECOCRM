@@ -1127,6 +1127,7 @@ export class PaymentsService {
       returnAdjustmentAmount: order.returnAdjustmentAmount,
       paidAmount,
       fxWriteOffAmount: order.fxWriteOffAmount,
+      orderStage: order.orderStage,
     });
     const financialStatus = computeFinancialStatusFromOrder({
       paymentType: order.paymentType,

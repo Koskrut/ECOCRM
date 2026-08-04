@@ -45,6 +45,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
         (loc as { mocked?: boolean }).mocked === true ||
         (loc as { isFromMockProvider?: boolean }).isFromMockProvider === true;
       if (mocked) {
+        // Do not buffer mock/Lima emulator points (reason=mock).
         continue;
       }
       const lat = c.latitude;

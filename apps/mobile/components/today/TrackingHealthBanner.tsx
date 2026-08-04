@@ -28,9 +28,11 @@ export function TrackingHealthBanner({
 
   const needsBackground =
     backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
+  // Never prompt battery when already Unrestricted — that was the misleading UX.
   const needsBattery =
     isAndroid() &&
     trackingMode !== "none" &&
+    !needsBackground &&
     (batteryOptimizationStatus === "restricted" ||
       batteryOptimizationStatus === "unknown");
 

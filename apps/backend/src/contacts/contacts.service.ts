@@ -41,6 +41,10 @@ import type {
   ContactCardSummaryResponse,
 } from "./contact-card-summary.types";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import {
+  buildOperationalDebtOrderWhere,
+  isOperationalDebtOrder,
+} from "../receivables/receivables-scope.util";
 
 function shallowFieldChanges(
   keys: string[],
@@ -178,6 +182,8 @@ export class ContactsService {
             debtAmount: true,
             creditAmount: true,
             financialStatus: true,
+            orderStage: true,
+            legacySource: true,
           },
         }),
         this.prisma.order.count({ where: { clientId: id } }),
@@ -215,10 +221,12 @@ export class ContactsService {
     const clientBalance = balanceRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     for (const order of visibleOrders) {
       revenue += Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0));
-      debt += Math.max(0, Number(order.debtAmount ?? 0));
       orderCredit += Math.max(0, Number(order.creditAmount ?? 0));
-      if (order.financialStatus === "OVERDUE" && Number(order.debtAmount ?? 0) > 0) {
-        overdue += Number(order.debtAmount ?? 0);
+      if (isOperationalDebtOrder(order)) {
+        debt += Math.max(0, Number(order.debtAmount ?? 0));
+        if (order.financialStatus === "OVERDUE" && Number(order.debtAmount ?? 0) > 0) {
+          overdue += Number(order.debtAmount ?? 0);
+        }
       }
       if (!lastOrderAt || order.createdAt > lastOrderAt) lastOrderAt = order.createdAt;
     }
@@ -714,9 +722,9 @@ export class ContactsService {
         }),
         this.prisma.order.groupBy({
           by: ["clientId"],
-          where: {
+          where: buildOperationalDebtOrderWhere({
             clientId: { in: contactIds },
-          },
+          }),
           _sum: { debtAmount: true, creditAmount: true },
         }),
       ]);

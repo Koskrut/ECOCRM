@@ -6,6 +6,11 @@ import { AppButton } from "@/components/ui/AppButton";
 import { Card } from "@/components/ui/Card";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
+import {
+  unhealthyReasonMessageKeys,
+  type TrackingUnhealthyReason,
+} from "@/lib/location-tracking-health";
+import { openLocationPermissionSettings } from "@/lib/location-permissions";
 
 type Props = {
   activeShift: boolean;
@@ -14,10 +19,14 @@ type Props = {
   trackingHealthy?: boolean;
   /** True when no successful GPS accept for >10 min (ACTIVE shift). */
   acceptStale?: boolean;
+  unhealthyReason?: TrackingUnhealthyReason;
   pendingSamples: number;
   loading: boolean;
   onStart: () => void;
   onEnd: () => void;
+  /** Light: restart native tracking + immediate fix (keep shift). */
+  onRestartTracking?: () => void;
+  /** Hard: end shift + start new. */
   onRestartShift?: () => void;
 };
 
@@ -27,15 +36,38 @@ export function ShiftStatusCard({
   trackingMode = "none",
   trackingHealthy = true,
   acceptStale = false,
+  unhealthyReason = "none",
   pendingSamples,
   loading,
   onStart,
   onEnd,
+  onRestartTracking,
   onRestartShift,
 }: Props) {
   const theme = useTheme();
   const trackingBroken =
-    activeShift && trackingMode !== "none" && (!trackingHealthy || acceptStale);
+    activeShift &&
+    trackingMode !== "none" &&
+    (!trackingHealthy || acceptStale || unhealthyReason !== "none");
+
+  const msg = unhealthyReasonMessageKeys(
+    unhealthyReason !== "none"
+      ? unhealthyReason
+      : acceptStale
+        ? "accept_stale"
+        : "none",
+  );
+
+  const showRestartTracking =
+    unhealthyReason === "background_task_dead" ||
+    unhealthyReason === "foreground_watch_dead" ||
+    unhealthyReason === "accept_stale";
+  const showRestartShift =
+    unhealthyReason === "background_task_dead" ||
+    unhealthyReason === "accept_stale" ||
+    unhealthyReason === "accept_stale_wrong_day";
+  const showPermissionCta = unhealthyReason === "background_permission";
+  const showLoginHint = unhealthyReason === "accept_stale_auth_401";
 
   return (
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>
@@ -48,19 +80,57 @@ export function ShiftStatusCard({
               {pendingSamples > 0 ? ` · ${t("today.queuePending", { count: pendingSamples })}` : ""}
             </Text>
           ) : null}
-          {trackingBroken ? (
-            <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
-              {acceptStale ? t("gps.staleGpsHint") : t("gps.trackingUnhealthy")}
-            </Text>
-          ) : null}
-          {trackingBroken && onRestartShift ? (
-            <AppButton
-              label={t("gps.restartShift")}
-              onPress={onRestartShift}
-              variant="secondary"
-              loading={loading}
-              disabled={loading}
-            />
+          {trackingBroken && msg ? (
+            <View
+              style={{
+                gap: theme.spacing.sm,
+                padding: theme.spacing.sm,
+                borderRadius: theme.radius.md,
+                backgroundColor: theme.colors.dangerMuted,
+              }}>
+              <Text
+                style={[
+                  theme.typography.caption,
+                  { color: theme.colors.dangerText, fontWeight: "700" },
+                ]}>
+                {t(msg.titleKey)}
+              </Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                {t(msg.bodyKey)}
+              </Text>
+              {showPermissionCta ? (
+                <AppButton
+                  label={t("gps.openSettings")}
+                  onPress={() => void openLocationPermissionSettings()}
+                  variant="secondary"
+                  loading={loading}
+                  disabled={loading}
+                />
+              ) : null}
+              {showRestartTracking && onRestartTracking ? (
+                <AppButton
+                  label={t("gps.restartTracking")}
+                  onPress={onRestartTracking}
+                  variant="secondary"
+                  loading={loading}
+                  disabled={loading}
+                />
+              ) : null}
+              {showRestartShift && onRestartShift ? (
+                <AppButton
+                  label={t("gps.closeAndReopenShift")}
+                  onPress={onRestartShift}
+                  variant="secondary"
+                  loading={loading}
+                  disabled={loading}
+                />
+              ) : null}
+              {showLoginHint ? (
+                <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                  {t("gps.loginAgain")}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
           {isTracking && trackingMode === "foreground" && !trackingBroken ? (
             <Text style={[theme.typography.caption, { color: theme.colors.warningText }]}>

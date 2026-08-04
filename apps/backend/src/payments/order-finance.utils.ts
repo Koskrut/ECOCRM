@@ -1,3 +1,4 @@
+import type { OrderStage } from "@prisma/client";
 import type { OrderPaymentContext } from "../orders/order-payment-guards";
 import { computeEffectiveTotal } from "../orders/order-payment-guards";
 
@@ -7,9 +8,13 @@ export function computeOrderDebtAndCredit(ctx: {
   returnAdjustmentAmount?: number | null;
   paidAmount?: number | null;
   fxWriteOffAmount?: number | null;
+  orderStage?: OrderStage | null;
 }): { effectiveTotal: number; debtAmount: number; creditAmount: number } {
-  const effectiveTotal = computeEffectiveTotal(ctx as OrderPaymentContext);
   const paid = Number(ctx.paidAmount ?? 0);
+  if (ctx.orderStage === "CANCELED") {
+    return { effectiveTotal: 0, debtAmount: 0, creditAmount: paid };
+  }
+  const effectiveTotal = computeEffectiveTotal(ctx as OrderPaymentContext);
   const fxWriteOff = Math.max(0, Number(ctx.fxWriteOffAmount ?? 0));
   const creditAmount = Math.max(0, paid - effectiveTotal);
   const debtAmount = Math.max(0, effectiveTotal - paid - fxWriteOff);

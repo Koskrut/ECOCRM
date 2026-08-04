@@ -55,9 +55,11 @@ export default function TodayScreen() {
     trackingMode,
     trackingHealthy,
     acceptStale,
+    unhealthyReason,
     startShift,
     endShift,
     restartShift,
+    restartTracking,
     loading: shiftLoading,
     pendingSamples,
     backgroundPermission,
@@ -342,10 +344,12 @@ export default function TodayScreen() {
           trackingMode={trackingMode}
           trackingHealthy={trackingHealthy}
           acceptStale={acceptStale}
+          unhealthyReason={unhealthyReason}
           pendingSamples={pendingSamples}
           loading={shiftLoading}
           onStart={() => void startShift()}
           onEnd={() => void endShift()}
+          onRestartTracking={() => void restartTracking()}
           onRestartShift={() => void restartShift()}
         />
 
