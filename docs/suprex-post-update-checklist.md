@@ -56,7 +56,7 @@ jq -r '.composeFiles[]' "$MANIFEST" | while read -r f; do test -f "$f" && echo "
 
 **Проверить:**
 
-- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с rелизом в registry (целевой патч линии **0.2.x**, сейчас **`0.2.137`**).
+- **`BACKEND_VERSION`**, **`WEB_VERSION`**, **`STORE_VERSION`** — совпадают с релизом в registry (целевой патч линии **0.2.x**, сейчас **`0.2.137`**).
 - При необходимости имена образов модулей (**`*_MODULE_IMAGE_NAME`**) — см. соответствующие **`compose.modules.*.yml`**.
 
 ## 4. Docker: тот же набор `-f`, что в манифесте

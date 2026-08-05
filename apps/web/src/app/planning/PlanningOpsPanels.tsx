@@ -1353,6 +1353,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
                 setHorizon({
                   coverMonths: res.coverMonths,
                   velocityLookbackMonths: res.velocityLookbackMonths,
+                  safetyMonths: res.safetyMonths,
                   warnCoverDays: res.warnCoverDays,
                   criticalCoverDays: res.criticalCoverDays,
                   softPipelineFactor: res.softPipelineFactor,
