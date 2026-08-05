@@ -39,6 +39,7 @@ export default function VisitsTeamPage() {
     planned: false,
     fact_visits: false,
     fact_gps: true,
+    fact_visits_gps: false,
   });
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

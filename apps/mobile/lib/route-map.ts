@@ -98,8 +98,13 @@ export type RouteGeometryBundle = {
   planned: RouteGeometryResult;
   factVisits: RouteGeometryResult;
   factGps: RouteGeometryResult;
-  compensationFactKind: "fact_gps" | "fact_visits";
+  factVisitsGps?: RouteGeometryResult;
+  compensationFactKind: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
   compensationIneligibleReason?: string | null;
+  shiftActive?: boolean;
+  incompleteTour?: boolean;
+  planIncludesScheduled?: boolean;
+  lastSampleNearHome?: boolean | null;
 };
 
 const EMPTY_GEOMETRY: RouteGeometryResult = {
@@ -146,8 +151,22 @@ export function normalizeGeometryBundle(raw: unknown): RouteGeometryBundle | nul
     planned: normalizeGeometry(b.planned, "planned"),
     factVisits: normalizeGeometry(b.factVisits, "fact_visits"),
     factGps: normalizeGeometry(b.factGps, "fact_gps"),
+    factVisitsGps: b.factVisitsGps
+      ? normalizeGeometry(b.factVisitsGps, "fact_visits_gps")
+      : undefined,
+    shiftActive: b.shiftActive === true ? true : undefined,
+    incompleteTour: b.incompleteTour === true ? true : undefined,
+    planIncludesScheduled: b.planIncludesScheduled === true ? true : undefined,
+    lastSampleNearHome:
+      typeof b.lastSampleNearHome === "boolean" ? b.lastSampleNearHome : undefined,
     compensationFactKind:
-      b.compensationFactKind === "fact_gps" ? "fact_gps" : "fact_visits",
+      b.compensationFactKind === "fact_gps"
+        ? "fact_gps"
+        : b.compensationFactKind === "fact_visits_gps"
+          ? "fact_visits_gps"
+          : b.compensationFactKind === "none"
+            ? "none"
+            : "fact_visits",
     compensationIneligibleReason:
       typeof b.compensationIneligibleReason === "string"
         ? b.compensationIneligibleReason

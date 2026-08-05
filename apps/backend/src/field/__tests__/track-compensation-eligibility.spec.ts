@@ -244,7 +244,7 @@ describe("selectCompensationFactKind", () => {
     assert.ok(sel.warnings.includes("gps_partial_coverage"));
   });
 
-  it("GPS-only: usable raw + tiny snap + no visits → fact_gps (not null)", () => {
+  it("GPS-only: tiny snap + no visits → fact_visits (no raw payout)", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 20,
@@ -253,8 +253,36 @@ describe("selectCompensationFactKind", () => {
       snappedTrackDistanceKm: 0.2,
       visitRouteDistanceKm: null,
     });
-    assert.equal(sel.kind, "fact_gps");
-    assert.ok(sel.warnings.includes("gps_implausibly_short_vs_visits"));
+    assert.equal(sel.kind, "fact_visits");
+    assert.equal(sel.ineligibleReason, "gps_implausibly_short_vs_visits");
+  });
+
+  it("loop collapse: long raw + tiny snap + inflated visits → none (review)", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 180,
+      coverageRatio: 0.92,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: 261,
+      snapFailureReason: "gps_snap_loop_collapse",
+    });
+    assert.equal(sel.kind, "none");
+    assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
+    assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
+  });
+
+  it("loop symptom without explicit flag → none when raw≥30 and snap≪raw", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 180,
+      coverageRatio: 0.92,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: 261,
+    });
+    assert.equal(sel.kind, "none");
+    assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
   });
 
   it("below MIN track + no visits → fact_visits (null km expected)", () => {

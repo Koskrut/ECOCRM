@@ -10,6 +10,7 @@ import {
 import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
+import { strings } from "@/locales";
 
 type Props = {
   dateKey: string;
@@ -35,9 +36,9 @@ function stopMarkersFromWaypoints(
 
 function defaultLayers(mode: "default" | "history"): Record<RouteLayerKey, boolean> {
   if (mode === "history") {
-    return { planned: false, fact_visits: true, fact_gps: false };
+    return { planned: false, fact_visits: true, fact_gps: false, fact_visits_gps: false };
   }
-  return { planned: true, fact_visits: false, fact_gps: true };
+  return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
 }
 
 export function DayRouteMapPanel({
@@ -48,6 +49,7 @@ export function DayRouteMapPanel({
   mapHeightClass = "h-[320px]",
   mode = "default",
 }: Props) {
+  const t = strings.visitsRouteMap;
   const [bundle, setBundle] = useState<RouteGeometryBundle | null>(null);
   const [loading, setLoading] = useState(false);
   const [layers, setLayers] = useState<Record<RouteLayerKey, boolean>>(() => defaultLayers(mode));
@@ -76,29 +78,85 @@ export function DayRouteMapPanel({
     void load();
   }, [load]);
 
+  const hybridAvailable = useMemo(
+    () => (bundle?.factVisitsGps?.path?.length ?? 0) >= 2,
+    [bundle?.factVisitsGps?.path?.length],
+  );
+
+  useEffect(() => {
+    if (!bundle) return;
+    if (bundle.factGps.source !== "osrm") {
+      setLayers((p) => ({ ...p, fact_gps: false }));
+    }
+  }, [bundle?.factGps.source]);
+
   const compareKpi = useMemo(() => {
     if (!bundle) return null;
     const plan = bundle.planned.distanceKm;
     const factGps = bundle.factGps.distanceKm;
     const factVisits = bundle.factVisits.distanceKm;
-    const fact =
-      bundle.compensationFactKind === "fact_gps" && factGps != null ? factGps : factVisits;
+    const compensationKm =
+      bundle.compensationFactKind === "fact_gps" && factGps != null
+        ? factGps
+        : bundle.compensationFactKind === "fact_visits_gps"
+          ? bundle.factVisitsGps?.distanceKm ?? null
+          : bundle.compensationFactKind === "none"
+            ? null
+            : factVisits;
     const deviationPct =
-      plan != null && fact != null && plan > 0
-        ? Math.round(((fact - plan) / plan) * 100)
+      plan != null && compensationKm != null && plan > 0
+        ? Math.round(((compensationKm - plan) / plan) * 100)
         : null;
-    return { plan, factGps, factVisits, deviationPct };
+    return { plan, factGps, factVisits, compensationKm, deviationPct };
   }, [bundle]);
 
   const layerStats = useMemo(() => {
     if (!bundle) return [];
-    const rows: Array<{ key: RouteLayerKey; label: string; km: number | null; min: number | null; source: string | null }> = [
-      { key: "planned", label: "План", km: bundle.planned.distanceKm, min: bundle.planned.durationMin, source: routeSourceLabel(bundle.planned.source) },
-      { key: "fact_gps", label: "Факт (GPS)", km: bundle.factGps.distanceKm, min: bundle.factGps.durationMin, source: routeSourceLabel(bundle.factGps.source, bundle.factGps.quality) },
-      { key: "fact_visits", label: "Факт (візити)", km: bundle.factVisits.distanceKm, min: bundle.factVisits.durationMin, source: routeSourceLabel(bundle.factVisits.source) },
+    const planLabel = bundle.planIncludesScheduled ? t.layerPlanAllStops : t.layerPlan;
+    const rows: Array<{
+      key: RouteLayerKey;
+      label: string;
+      km: number | null;
+      min: number | null;
+      source: string | null;
+    }> = [
+      {
+        key: "planned",
+        label: planLabel,
+        km: bundle.planned.distanceKm,
+        min: bundle.planned.durationMin,
+        source: routeSourceLabel(bundle.planned.source, bundle.planned.quality, bundle.planned.kind),
+      },
+      {
+        key: "fact_gps",
+        label: t.layerFactGps,
+        km: bundle.factGps.distanceKm,
+        min: bundle.factGps.durationMin,
+        source: routeSourceLabel(bundle.factGps.source, bundle.factGps.quality, bundle.factGps.kind),
+      },
+      {
+        key: "fact_visits",
+        label: t.layerFactVisits,
+        km: bundle.factVisits.distanceKm,
+        min: bundle.factVisits.durationMin,
+        source: routeSourceLabel(bundle.factVisits.source, bundle.factVisits.quality, bundle.factVisits.kind),
+      },
     ];
+    if (hybridAvailable && bundle.factVisitsGps) {
+      rows.push({
+        key: "fact_visits_gps",
+        label: t.layerFactVisitsGps,
+        km: bundle.factVisitsGps.distanceKm,
+        min: bundle.factVisitsGps.durationMin,
+        source: routeSourceLabel(
+          bundle.factVisitsGps.source,
+          bundle.factVisitsGps.quality,
+          bundle.factVisitsGps.kind,
+        ),
+      });
+    }
     return rows;
-  }, [bundle]);
+  }, [bundle, hybridAvailable, t]);
 
   const mapCenter = useMemo(() => {
     if (mode === "history") {
@@ -136,11 +194,19 @@ export function DayRouteMapPanel({
           : [];
     return wps.map((wp, i) => ({
       n: i + 1,
-      name: wp.label?.trim() || `Стоп ${i + 1}`,
+      name: wp.label?.trim() || t.stopN(i + 1),
     }));
-  }, [bundle, layers.fact_visits, layers.planned, mode]);
+  }, [bundle, layers.fact_visits, layers.planned, mode, t]);
 
   const gpsQuality = bundle?.factGps?.quality;
+
+  const compensationLabel = useMemo(() => {
+    if (!bundle?.compensationFactKind) return "";
+    if (bundle.compensationFactKind === "fact_gps") return t.compensationGps;
+    if (bundle.compensationFactKind === "fact_visits_gps") return t.compensationHybrid;
+    if (bundle.compensationFactKind === "none") return t.compensationReview;
+    return t.compensationVisits;
+  }, [bundle?.compensationFactKind, t]);
 
   return (
     <div>
@@ -151,39 +217,44 @@ export function DayRouteMapPanel({
               href={`/visits/team?owner=${ownerId}`}
               className="mb-1 inline-block text-xs font-medium text-blue-700 hover:underline"
             >
-              Відкрити live-карту команди
+              {t.openLiveTeam}
             </Link>
           ) : null}
           {compareKpi ? (
             <p className="text-xs text-zinc-600">
-              План: {compareKpi.plan ?? "—"} км · Факт GPS: {compareKpi.factGps ?? "—"} км · Факт
-              (візити): {compareKpi.factVisits ?? "—"} км
-              {compareKpi.deviationPct != null ? (
+              {t.kpiPlan}: {compareKpi.plan ?? "—"} км · {t.kpiFactGps}: {compareKpi.factGps ?? "—"} км ·{" "}
+              {t.kpiFactVisits}: {compareKpi.factVisits ?? "—"} км
+              {compareKpi.deviationPct != null && compareKpi.compensationKm != null ? (
                 <span className="ml-1 font-medium">
-                  · відхилення {compareKpi.deviationPct > 0 ? "+" : ""}
+                  · {t.deviation} {compareKpi.deviationPct > 0 ? "+" : ""}
                   {compareKpi.deviationPct}%
                 </span>
               ) : null}
             </p>
           ) : !loading ? (
-            <p className="text-xs text-zinc-500">Немає даних маршруту за цей день.</p>
+            <p className="text-xs text-zinc-500">{t.noData}</p>
+          ) : null}
+          {bundle?.incompleteTour ? (
+            <p className="mt-1 text-xs text-amber-800">{t.incompleteTourFootnote}</p>
           ) : null}
         </div>
         <RouteLayerControls
           layers={layers}
           onToggle={(key) => setLayers((p) => ({ ...p, [key]: !p[key] }))}
           disabled={loading}
+          planIncludesScheduled={bundle?.planIncludesScheduled}
+          hybridAvailable={hybridAvailable}
         />
       </div>
 
       <div className={`overflow-hidden rounded-md border border-zinc-100 ${mapHeightClass}`}>
         {!mapsApiKey ? (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-            Карта недоступна (немає Google Maps API key)
+            {t.mapUnavailable}
           </div>
         ) : loading ? (
           <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-            Завантаження маршруту…
+            {t.loading}
           </div>
         ) : (
           <VisitsRouteMap
@@ -194,8 +265,10 @@ export function DayRouteMapPanel({
               planned: bundle?.planned ?? null,
               fact_visits: bundle?.factVisits ?? null,
               fact_gps: bundle?.factGps ?? null,
+              fact_visits_gps: bundle?.factVisitsGps ?? null,
             }}
             markers={markers}
+            loadingLabel={t.loading}
           />
         )}
       </div>
@@ -212,7 +285,7 @@ export function DayRouteMapPanel({
       ) : null}
 
       {bundle && layerStats.length > 0 ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {layerStats.map((row) => (
             <div key={row.key} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs">
               <div className="font-medium text-zinc-700">{row.label}</div>
@@ -227,25 +300,25 @@ export function DayRouteMapPanel({
 
       {gpsQuality ? (
         <p className="mt-2 text-xs text-zinc-500">
-          GPS: {gpsQuality.sampleCount} точок
+          {t.gpsPoints(gpsQuality.sampleCount)}
           {gpsQuality.coverageRatio != null
-            ? ` · покриття ${Math.round(gpsQuality.coverageRatio * 100)}%`
+            ? t.coverage(Math.round(gpsQuality.coverageRatio * 100))
             : ""}
           {bundle?.compensationIneligibleReason === "gps_ended_before_last_visit" ||
           (gpsQuality.lastSampleAt &&
             gpsQuality.lastDoneVisitCompletedAt &&
             new Date(gpsQuality.lastSampleAt).getTime() <
               new Date(gpsQuality.lastDoneVisitCompletedAt).getTime() - 45 * 60_000)
-            ? " · трек обірвався"
-            : gpsQuality.degradedReason === "gps_stitch_gaps" ||
-                gpsQuality.hasUnfilledGaps
-              ? " · GPS із пропусками"
+            ? t.trackTruncated
+            : gpsQuality.degradedReason === "gps_stitch_gaps" || gpsQuality.hasUnfilledGaps
+              ? t.gpsGaps
               : gpsQuality.degraded &&
-                !(gpsQuality.coverageRatio != null && gpsQuality.coverageRatio < 0.7)
-              ? " · слабкий сигнал GPS"
-              : ""}
-          {bundle?.compensationFactKind
-            ? ` · компенсація: ${bundle.compensationFactKind === "fact_gps" ? "GPS" : "візити"}`
+                  !(gpsQuality.coverageRatio != null && gpsQuality.coverageRatio < 0.7)
+                ? t.weakGps
+                : ""}
+          {compensationLabel}
+          {bundle?.compensationIneligibleReason === "gps_snap_loop_collapse"
+            ? t.loopCollapseReview
             : ""}
         </p>
       ) : null}

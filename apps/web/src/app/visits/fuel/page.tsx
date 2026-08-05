@@ -30,63 +30,12 @@ const GPS_LABELS: Record<string, string> = {
 };
 
 function warningText(code: string): string | null {
-  if (code === "insufficient_completed_visits") {
-    return "Завершіть мінімум 2 візити з адресою на карті — тоді порахуємо пробіг.";
+  const w = strings.visitsFuelPage.warnings;
+  if (code in w) {
+    return w[code as keyof typeof w];
   }
-  if (code.startsWith("visit_no_coordinates:")) return "Візит без координат — не в маршруті.";
-  if (code.startsWith("visit_gps_review:")) return "Було попередження GPS — керівник може уточнити.";
-  if (code === "metrics_unavailable") return "Не вдалося порахувати маршрут.";
-  if (code === "route_anchors_not_configured") {
-    return "Старт/фініш не задані в профілі (Співробітники → Маршрут візитів). Пробіг рахується між першим і останнім візитом.";
-  }
-  if (code === "gps_track_degraded") {
-    return "GPS-трек слабкий — для виплати використано факт по завершених візитах.";
-  }
-  if (code === "gps_track_too_short") {
-    return "GPS-трек коротший за 0.5 км — для виплати використано маршрут по візитах.";
-  }
-  if (code === "gps_track_ineligible") {
-    return "GPS-трек недостатній для виплати — використано маршрут по візитах.";
-  }
-  if (code === "gps_track_unavailable") {
-    return "GPS-трек відсутній — для виплати використано факт по завершених візитах.";
-  }
-  if (code === "gps_partial_coverage") {
-    return "GPS-трек покриває лише частину зміни — перевірте якість треку.";
-  }
-  if (code === "gps_low_coverage") {
-    return "Покриття GPS нижче 70% — виплата по візитах (GPS недостатній для компенсації).";
-  }
-  if (code === "gps_low_coverage_partial_payout" || code === "gps_partial_coverage") {
-    return "Часткове покриття GPS — виплата по GPS-треку (менше за повний день; перевірте трек).";
-  }
-  if (code === "gps_raw_payout_after_short_snap") {
-    return "OSRM-маршрут обірвався — компенсацію пораховано по сирому GPS-треку.";
-  }
-  if (code === "gps_ended_before_last_visit") {
-    return "GPS-трек обірвався до останнього візиту — для виплати використано маршрут по візитах.";
-  }
-  if (code === "gps_ended_early_partial_payout") {
-    return "GPS-трек обірвався раніше — компенсацію все одно пораховано по доступному треку.";
-  }
-  if (code === "gps_implausibly_short_vs_visits") {
-    return "GPS-км значно менші за маршрут по візитах — для виплати використано факт по візитах.";
-  }
-  if (code === "gps_implausibly_long_vs_visits") {
-    return "GPS-км значно більші за маршрут по візитах — для виплати використано факт по візитах.";
-  }
-  if (code === "planned_km_implausibly_large") {
-    return "Плановий пробіг виглядає помилковим (>500 км) — не орієнтуйтесь на нього як на норму.";
-  }
-  if (code === "planned_km_vs_fact_outlier") {
-    return "Плановий пробіг у рази більший за факт — план позначено як підозрілий.";
-  }
-  if (code === "fuel_price_missing_for_uah_estimate") {
-    return "Вкажіть ціну грн/л у профілі, щоб порахувати оцінку компенсації в ₴. Км уже збережено.";
-  }
-  if (code === "report_stale") {
-    return "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».";
-  }
+  if (code.startsWith("visit_no_coordinates:")) return w.visit_no_coordinates;
+  if (code.startsWith("visit_gps_review:")) return w.visit_gps_review;
   return null;
 }
 
@@ -388,7 +337,16 @@ function DayDetailPanel({
                   {r?.litersEstimated != null ? `${r.litersEstimated} л (оцінка)` : "—"}
                 </div>
                 <div className="text-xs text-zinc-400">
-                  {data.compensationFactKind === "fact_gps" ? "GPS-трек" : "порядок візитів"}
+                                    {data.compensationFactKind === "fact_gps"
+                    ? strings.visitsFuelPage.compensationGps
+                    : data.compensationFactKind === "fact_visits_gps"
+                      ? strings.visitsFuelPage.compensationHybrid
+                      : data.compensationFactKind === "none"
+                        ? strings.visitsFuelPage.compensationReview
+                        : strings.visitsFuelPage.compensationVisits}
+                  {data.snapFailureReason === "gps_snap_loop_collapse"
+                    ? strings.visitsFuelPage.loopCollapseBadge
+                    : ""}
                   {r?.metricsSource ? ` · ${r.metricsSource}` : ""}
                 </div>
               </div>
@@ -414,13 +372,14 @@ function DayDetailPanel({
                 <div className="text-xs font-medium uppercase text-zinc-500">Факт (деталізація)</div>
                 <div className="mt-1 flex flex-col gap-1 text-sm text-zinc-700">
                   <span>
-                    GPS: {data.factGpsMetrics?.distanceKm ?? "—"} км
-                    {data.factGpsMetrics?.source && data.factGpsMetrics.source !== "none"
-                      ? ` (${data.factGpsMetrics.source})`
+                    {strings.visitsFuelPage.trackSnapKm}:{" "}
+                    {data.snappedTrackDistanceKm ?? data.factGpsMetrics?.distanceKm ?? "—"} км
+                    {data.rawPolylineDistanceKm != null
+                      ? ` · ${strings.visitsFuelPage.trackRawKm} ${data.rawPolylineDistanceKm} км`
                       : ""}
                   </span>
                   <span>
-                    Візити:{" "}
+                    {strings.visitsFuelPage.visitsKm}:{" "}
                     {data.factVisitsMetrics?.distanceKm ?? data.factMetrics.distanceKm ?? "—"} км
                   </span>
                 </div>

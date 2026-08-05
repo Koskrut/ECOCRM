@@ -107,7 +107,7 @@ export type RouteOptimizeResponse = {
 
 export type RouteGeometryPoint = { lat: number; lng: number };
 
-export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps";
+export type RouteGeometryKind = "planned" | "fact_visits" | "fact_gps" | "fact_visits_gps";
 
 export type RouteGeometrySource = "osrm" | "fallback" | "raw_gps" | "none";
 
@@ -149,11 +149,15 @@ export type RouteGeometryResult = RouteGeometryLayer & {
 export type RouteGeometryBundle = {
   date: string;
   ownerId: string;
-  compensationFactKind: "fact_gps" | "fact_visits";
+  compensationFactKind: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
   compensationIneligibleReason?: string | null;
+  compensationWarnings?: string[];
+  shiftActive?: boolean;
+  incompleteTour?: boolean;
   planned: RouteGeometryLayer;
   factVisits: RouteGeometryLayer;
   factGps: RouteGeometryLayer;
+  factVisitsGps?: RouteGeometryLayer;
 };
 
 export type VisitHistoryItem = Visit & {

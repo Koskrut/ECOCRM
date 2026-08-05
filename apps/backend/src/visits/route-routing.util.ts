@@ -1,3 +1,7 @@
+import {
+  LOOP_MIN_TRIP_KM,
+  LOOP_SNAP_VS_SIMPLIFIED_RATIO,
+} from "../routing/gps-track-snap.util";
 import type { LatLng } from "./route-geometry";
 
 /**
@@ -149,6 +153,10 @@ export type TrackCompensationInput = {
   snappedTrackDistanceKm?: number | null;
   /** fact_visits OSRM distance for the same day. */
   visitRouteDistanceKm?: number | null;
+  /** Set when road snap failed (loop collapse, etc.). */
+  snapFailureReason?: string | null;
+  /** Planned km warning from assessPlannedKm. */
+  plannedKmWarning?: string | null;
 };
 
 /** Whether a day's GPS track qualifies for payout (v2 policy). */
@@ -208,22 +216,16 @@ export function isTrackEligibleForCompensation(
 const GPS_SOFT_INELIGIBLE = new Set([
   "gps_low_coverage",
   "gps_ended_before_last_visit",
-  /** Truncated OSRM match with usable raw polyline — pay GPS when visits cannot. */
-  "gps_implausibly_short_vs_visits",
 ]);
 
-/** Best usable GPS km for soft payout (prefer snapped, fall back to raw). */
+/** Best usable GPS km for compensation — OSRM snapped only (never raw haversine). */
 export function resolveUsableGpsKm(opts: {
   snappedTrackDistanceKm?: number | null;
   rawPolylineDistanceKm?: number | null;
 }): number | null {
   const snapped = opts.snappedTrackDistanceKm;
-  const raw = opts.rawPolylineDistanceKm;
   if (snapped != null && Number.isFinite(snapped) && snapped >= MIN_TRACK_COMPENSATION_KM) {
     return snapped;
-  }
-  if (raw != null && Number.isFinite(raw) && raw >= MIN_TRACK_COMPENSATION_KM) {
-    return raw;
   }
   return null;
 }
@@ -244,8 +246,8 @@ function visitsKmUsable(visitRouteDistanceKm: number | null | undefined): boolea
 }
 
 export type CompensationFactSelection = {
-  kind: "fact_gps" | "fact_visits";
-  /** Set when kind is fact_visits due to GPS ineligibility. */
+  kind: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
+  /** Set when kind is fact_visits due to GPS ineligibility, or none for manual review. */
   ineligibleReason: string | null;
   /** Soft GPS issues that still allow fact_gps payout. */
   warnings: string[];
@@ -257,16 +259,48 @@ export type CompensationFactSelection = {
  * When visits can pay, keep falling back to fact_visits (Gumenyuk).
  */
 export function selectCompensationFactKind(
-  opts: TrackCompensationInput,
+  opts: TrackCompensationInput & {
+    factVisitsGpsDistanceKm?: number | null;
+  },
 ): CompensationFactSelection {
+  if (opts.snapFailureReason === "gps_snap_loop_collapse") {
+    return {
+      kind: "none",
+      ineligibleReason: "gps_snap_loop_collapse",
+      warnings: ["gps_snap_loop_collapse"],
+    };
+  }
+
   const eligibility = isTrackEligibleForCompensation(opts);
   if (eligibility.eligible) {
     return { kind: "fact_gps", ineligibleReason: null, warnings: [] };
   }
 
   const reason = eligibility.reason;
+
+  if (
+    reason === "gps_implausibly_short_vs_visits" &&
+    opts.rawPolylineDistanceKm != null &&
+    opts.rawPolylineDistanceKm >= LOOP_MIN_TRIP_KM &&
+    opts.snappedTrackDistanceKm != null &&
+    opts.snappedTrackDistanceKm < opts.rawPolylineDistanceKm * LOOP_SNAP_VS_SIMPLIFIED_RATIO
+  ) {
+    return {
+      kind: "none",
+      ineligibleReason: "gps_snap_loop_collapse",
+      warnings: ["gps_snap_loop_collapse"],
+    };
+  }
+
   const trackOk = trackKmUsable(opts);
   const visitsOk = visitsKmUsable(opts.visitRouteDistanceKm);
+  const hybridKm = opts.factVisitsGpsDistanceKm;
+  const hybridOk =
+    hybridKm != null && Number.isFinite(hybridKm) && hybridKm >= MIN_TRACK_COMPENSATION_KM;
+
+  if (hybridOk && trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason)) {
+    return { kind: "fact_visits_gps", ineligibleReason: null, warnings: [reason] };
+  }
 
   if (trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason) && !visitsOk) {
     const warnings = [reason];

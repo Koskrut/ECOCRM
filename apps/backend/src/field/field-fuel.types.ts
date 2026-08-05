@@ -27,10 +27,16 @@ export type FuelCalculationSnapshot = {
   factMetricsSource: string | null;
   factVisitsMetricsSource?: string | null;
   factGpsMetricsSource?: string | null;
-  /** fact_gps | fact_visits — which source was used for compensationKm. */
-  compensationFactKind?: "fact_gps" | "fact_visits";
+  /** fact_gps | fact_visits | fact_visits_gps | none — payout source for compensationKm. */
+  compensationFactKind?: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
   /** GPS track distance (km), regardless of payout source. */
   trackKm?: number | null;
+  /** Raw filtered polyline before road snap (km). */
+  rawPolylineDistanceKm?: number | null;
+  /** OSRM-snapped track distance (km). */
+  snappedTrackDistanceKm?: number | null;
+  /** When road snap failed (loop collapse, etc.). */
+  snapFailureReason?: string | null;
   trackMetricsSource?: TrackMetricsSource;
   /** Visit-order route distance (km), reference / fallback. */
   visitRouteKm?: number | null;

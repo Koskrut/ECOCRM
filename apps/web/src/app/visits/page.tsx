@@ -252,6 +252,7 @@ function VisitsPageContent() {
     planned: true,
     fact_visits: false,
     fact_gps: false,
+    fact_visits_gps: false,
   });
 
   const [autoSaveRoutePlan, setAutoSaveRoutePlan] = useState(true);

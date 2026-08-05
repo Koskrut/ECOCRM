@@ -61,7 +61,7 @@ export type FuelRouteAnchors = {
   usesSettingsAnchors: boolean;
 };
 
-export type CompensationFactKind = "fact_gps" | "fact_visits";
+export type CompensationFactKind = "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
 
 export type FuelRefuelEntry = {
   id: string;
@@ -95,6 +95,9 @@ export type FuelDayResponse = {
   factVisitsMetrics?: RouteMetrics;
   factGpsMetrics?: RouteMetrics;
   compensationFactKind?: CompensationFactKind;
+  snapFailureReason?: string | null;
+  rawPolylineDistanceKm?: number | null;
+  snappedTrackDistanceKm?: number | null;
   routeAnchors?: FuelRouteAnchors;
   refuels?: FuelRefuelEntry[];
   refuelTotals?: FuelRefuelTotals;

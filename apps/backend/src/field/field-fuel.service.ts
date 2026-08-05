@@ -220,14 +220,23 @@ export class FieldFuelService {
       ]);
 
     const compensationFactKind = geometryBundle.compensationFactKind;
+    const rawPolylineDistanceKm = geometryBundle.factGps.quality.rawDistanceKm ?? null;
+    const snappedTrackDistanceKm =
+      geometryBundle.factGps.quality.snappedDistanceKm ?? factGpsMetrics.distanceKm;
+    const snapFailureReason = geometryBundle.factGps.quality.snapFailureReason ?? null;
     const gpsCompensationKm = resolveUsableGpsKm({
-      snappedTrackDistanceKm: factGpsMetrics.distanceKm,
-      rawPolylineDistanceKm: geometryBundle.factGps.quality.rawDistanceKm ?? null,
+      snappedTrackDistanceKm,
+      rawPolylineDistanceKm,
     });
+    const hybridKm = geometryBundle.factVisitsGps?.distanceKm ?? null;
     const compensationKm =
-      compensationFactKind === "fact_gps" && gpsCompensationKm != null
-        ? gpsCompensationKm
-        : factVisitsMetrics.distanceKm;
+      compensationFactKind === "none"
+        ? null
+        : compensationFactKind === "fact_gps" && gpsCompensationKm != null
+          ? gpsCompensationKm
+          : compensationFactKind === "fact_visits_gps" && hybridKm != null
+            ? hybridKm
+            : factVisitsMetrics.distanceKm;
     const actualKm = compensationKm;
     const plannedKmRaw = plannedMetrics.distanceKm;
     const plannedAssessment = assessPlannedKm({
@@ -239,13 +248,15 @@ export class FieldFuelService {
     // Persist a stable source label even when visit metrics are "none" but we still
     // have compensation km from a soft GPS payout (or liters-only estimate).
     const metricsSource =
-      compensationFactKind === "fact_gps"
+      compensationFactKind === "fact_gps" || compensationFactKind === "fact_visits_gps"
         ? "track"
-        : factVisitsMetrics.source !== "none"
-          ? factVisitsMetrics.source
-          : compensationKm != null
-            ? "fallback"
-            : "none";
+        : compensationFactKind === "none"
+          ? "none"
+          : factVisitsMetrics.source !== "none"
+            ? factVisitsMetrics.source
+            : compensationKm != null
+              ? "fallback"
+              : "none";
     const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
@@ -254,7 +265,10 @@ export class FieldFuelService {
     snapshot.factVisitsMetricsSource = factVisitsMetrics.source;
     snapshot.factGpsMetricsSource = factGpsMetrics.source;
     snapshot.compensationFactKind = compensationFactKind;
-    snapshot.trackKm = gpsCompensationKm ?? factGpsMetrics.distanceKm;
+    snapshot.rawPolylineDistanceKm = rawPolylineDistanceKm;
+    snapshot.snappedTrackDistanceKm = snappedTrackDistanceKm;
+    snapshot.snapFailureReason = snapFailureReason;
+    snapshot.trackKm = snappedTrackDistanceKm ?? gpsCompensationKm;
     snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
     snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
     snapshot.compensationIneligibleReason =
@@ -285,7 +299,7 @@ export class FieldFuelService {
           : w === "gps_ended_before_last_visit"
             ? "gps_ended_early_partial_payout"
             : w === "gps_implausibly_short_vs_visits"
-              ? "gps_raw_payout_after_short_snap"
+              ? "gps_implausibly_short_vs_visits"
               : w;
       if (!warnings.includes(softCode)) warnings.push(softCode);
     }
@@ -298,6 +312,13 @@ export class FieldFuelService {
       (profile.fuelPricePerLiter == null || Number(profile.fuelPricePerLiter) <= 0)
     ) {
       warnings.push("fuel_price_missing_for_uah_estimate");
+    }
+    if (compensationFactKind === "none") {
+      if (snapFailureReason === "gps_snap_loop_collapse") {
+        warnings.push("gps_snap_loop_collapse");
+      } else {
+        warnings.push("compensation_review_required");
+      }
     }
     if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source !== "none") {
       const ineligibleReason = geometryBundle.compensationIneligibleReason;
@@ -370,6 +391,9 @@ export class FieldFuelService {
       factVisitsMetrics,
       factGpsMetrics,
       compensationFactKind,
+      snapFailureReason: snapshot.snapFailureReason ?? geometryBundle.factGps.quality.snapFailureReason ?? null,
+      rawPolylineDistanceKm: snapshot.rawPolylineDistanceKm ?? geometryBundle.factGps.quality.rawDistanceKm ?? null,
+      snappedTrackDistanceKm: snapshot.snappedTrackDistanceKm ?? geometryBundle.factGps.quality.snappedDistanceKm ?? null,
       routeAnchors: snapshot.routeAnchors,
       refuels: refuelData.items,
       refuelTotals: refuelData.totals,
@@ -407,9 +431,13 @@ export class FieldFuelService {
       rawPolylineDistanceKm: geometryBundle.factGps.quality.rawDistanceKm ?? null,
     });
     const liveKm =
-      liveKind === "fact_gps" && liveGpsKm != null
-        ? liveGpsKm
-        : factVisitsMetrics.distanceKm;
+      liveKind === "none"
+        ? null
+        : liveKind === "fact_gps" && liveGpsKm != null
+          ? liveGpsKm
+          : liveKind === "fact_visits_gps"
+            ? geometryBundle.factVisitsGps?.distanceKm ?? null
+            : factVisitsMetrics.distanceKm;
     const storedKind = snapshot.compensationFactKind;
     const storedKm = report.compensationKm;
     const kmStale =
@@ -459,6 +487,9 @@ export class FieldFuelService {
       factVisitsMetrics,
       factGpsMetrics,
       compensationFactKind: geometryBundle.compensationFactKind,
+      snapFailureReason: snapshot.snapFailureReason ?? geometryBundle.factGps.quality.snapFailureReason ?? null,
+      rawPolylineDistanceKm: snapshot.rawPolylineDistanceKm ?? geometryBundle.factGps.quality.rawDistanceKm ?? null,
+      snappedTrackDistanceKm: snapshot.snappedTrackDistanceKm ?? geometryBundle.factGps.quality.snappedDistanceKm ?? null,
       routeAnchors: routeAnchorsSnapshot,
       refuels: refuelData.items,
       refuelTotals: refuelData.totals,

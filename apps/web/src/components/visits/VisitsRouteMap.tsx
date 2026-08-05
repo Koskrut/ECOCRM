@@ -26,6 +26,7 @@ export type VisitsRouteMapProps = {
     planned?: RouteGeometryLayer | null;
     fact_visits?: RouteGeometryLayer | null;
     fact_gps?: RouteGeometryLayer | null;
+    fact_visits_gps?: RouteGeometryLayer | null;
   };
   markers?: Array<{ lat: number; lng: number; label?: string; title?: string }>;
   overlayMarkers?: VisitsRouteMapOverlayMarker[];
@@ -40,6 +41,13 @@ function layerPath(geom: RouteGeometryLayer | null | undefined): google.maps.Lat
   if (!geom?.path?.length) return [];
   return geom.path.map((p) => ({ lat: p.lat, lng: p.lng }));
 }
+
+const LAYER_DRAW_ORDER: RouteLayerKey[] = [
+  "planned",
+  "fact_visits_gps",
+  "fact_visits",
+  "fact_gps",
+];
 
 export function VisitsRouteMap({
   mapsApiKey,
@@ -61,7 +69,7 @@ export function VisitsRouteMap({
 
   const bounds = useMemo(() => {
     const pts: google.maps.LatLngLiteral[] = [];
-    for (const key of ["planned", "fact_visits", "fact_gps"] as RouteLayerKey[]) {
+    for (const key of LAYER_DRAW_ORDER) {
       if (!layers[key]) continue;
       const g = geometries[key];
       if (g?.path) pts.push(...g.path.map((p) => ({ lat: p.lat, lng: p.lng })));
@@ -115,24 +123,19 @@ export function VisitsRouteMap({
         <Marker position={routeAnchors.end} label="B" />
       ) : null}
 
-      {layers.planned && layerPath(geometries.planned).length > 1 ? (
-        <Polyline
-          path={layerPath(geometries.planned)}
-          options={routePolylineOptions(geometries.planned, "planned")}
-        />
-      ) : null}
-      {layers.fact_visits && layerPath(geometries.fact_visits).length > 1 ? (
-        <Polyline
-          path={layerPath(geometries.fact_visits)}
-          options={routePolylineOptions(geometries.fact_visits, "fact_visits")}
-        />
-      ) : null}
-      {layers.fact_gps && layerPath(geometries.fact_gps).length > 1 ? (
-        <Polyline
-          path={layerPath(geometries.fact_gps)}
-          options={routePolylineOptions(geometries.fact_gps, "fact_gps")}
-        />
-      ) : null}
+      {LAYER_DRAW_ORDER.map((key) => {
+        if (!layers[key]) return null;
+        const geom = geometries[key];
+        const path = layerPath(geom);
+        if (path.length < 2) return null;
+        return (
+          <Polyline
+            key={key}
+            path={path}
+            options={routePolylineOptions(geom, key)}
+          />
+        );
+      })}
 
       {extraPaths.map((extra, idx) =>
         extra.path.length > 1 ? (

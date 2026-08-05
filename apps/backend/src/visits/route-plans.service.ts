@@ -6,6 +6,11 @@ import { OsrmRoutingService } from "../routing/osrm-routing.service";
 import { RouteResultCache } from "../routing/route-result-cache";
 import {
   asTrackedSamples,
+  bboxDiagonalKm,
+  isLoopSnapCollapsed,
+  isLoopTripSuspicious,
+  LOOP_ENDPOINT_NEAR_KM,
+  LOOP_MIN_TRIP_KM,
   splitSamplesByTimeGap,
   stitchPathGaps,
   STITCH_GAP_THRESHOLD_KM,
@@ -16,6 +21,7 @@ import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./rou
 import { pathFromWaypoints } from "./polyline.util";
 import {
   assessGpsTrackQuality,
+  assessPlannedKm,
   concatPaths,
   downsamplePathUniform,
   MIN_TRACK_COMPENSATION_KM,
@@ -758,39 +764,38 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Match one GPS chunk to roads (OSRM match → single A→B leg → haversine). */
+  /** Match one GPS chunk to roads (OSRM match → single A→B leg; no haversine payout). */
   private async matchGpsChunkToRoads(
     points: LatLng[],
+    opts?: { loopSuspicious?: boolean; referencePathKm?: number | null },
   ): Promise<{ path: LatLng[]; source: "osrm" | "fallback"; distanceKm: number | null }> {
     if (points.length < 2) {
       return { path: points, source: "fallback", distanceKm: null };
     }
 
     const sampled = downsamplePathUniform(points, 80);
+    const simplifiedKm = this.pathDistanceKm(sampled);
+    const rawKm = this.pathDistanceKm(points);
+    const referenceKm = opts?.referencePathKm ?? simplifiedKm ?? rawKm;
+
     if (sampled.length < 2) {
       const origin = points[0]!;
       const destination = points[points.length - 1]!;
-      const straightKm = this.haversineKm(
-        origin.lat,
-        origin.lng,
-        [],
-        destination.lat,
-        destination.lng,
-      );
       return {
         path: [origin, destination],
         source: "fallback",
-        distanceKm: Math.round(straightKm * 10) / 10,
+        distanceKm: null,
       };
     }
 
     try {
       const matched = await this.osrm.matchTrack(sampled);
-      const rawKm = this.pathDistanceKm(points);
       const matchTooTiny =
         matched?.distanceKm != null &&
         (matched.distanceKm < MIN_TRACK_COMPENSATION_KM ||
-          (rawKm != null && rawKm >= MIN_TRACK_COMPENSATION_KM && matched.distanceKm < rawKm * 0.25));
+          (referenceKm != null &&
+            referenceKm >= MIN_TRACK_COMPENSATION_KM &&
+            matched.distanceKm < referenceKm * 0.25));
       if (matched?.source === "osrm" && matched.path.length >= 2 && !matchTooTiny) {
         return {
           path: matched.path,
@@ -800,7 +805,7 @@ export class RoutePlansService {
       }
       if (matchTooTiny) {
         this.logger.warn(
-          `snapGpsPathToRoads: match_too_tiny km=${matched?.distanceKm} rawKm=${rawKm}`,
+          `snapGpsPathToRoads: match_too_tiny km=${matched?.distanceKm} refKm=${referenceKm}`,
         );
       }
     } catch (e) {
@@ -810,6 +815,18 @@ export class RoutePlansService {
 
     const origin = sampled[0]!;
     const destination = sampled[sampled.length - 1]!;
+    const endpointsNear =
+      this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng) <=
+      LOOP_ENDPOINT_NEAR_KM;
+
+    if (opts?.loopSuspicious && endpointsNear && (referenceKm ?? 0) >= LOOP_MIN_TRIP_KM) {
+      this.logger.warn("snapGpsPathToRoads: loop_chunk_reject_ab_route");
+      return {
+        path: points,
+        source: "fallback",
+        distanceKm: null,
+      };
+    }
 
     try {
       const routed = await this.computeRouteMultiLeg({
@@ -826,17 +843,10 @@ export class RoutePlansService {
       }
       if (routed?.source === "fallback") {
         this.logger.warn("snapGpsPathToRoads: partial_chunk_failure");
-        const straightKm = this.haversineKm(
-          origin.lat,
-          origin.lng,
-          [],
-          destination.lat,
-          destination.lng,
-        );
         return {
           path: routed.path.length >= 2 ? routed.path : [origin, destination],
           source: "fallback",
-          distanceKm: routed.distanceKm ?? Math.round(straightKm * 10) / 10,
+          distanceKm: null,
         };
       }
     } catch (e) {
@@ -844,17 +854,10 @@ export class RoutePlansService {
       this.logger.warn(`snapGpsPathToRoads: api_error ${message}`);
     }
 
-    const straightKm = this.haversineKm(
-      origin.lat,
-      origin.lng,
-      [],
-      destination.lat,
-      destination.lng,
-    );
     return {
       path: [origin, destination],
       source: "fallback",
-      distanceKm: Math.round(straightKm * 10) / 10,
+      distanceKm: null,
     };
   }
 
@@ -867,6 +870,8 @@ export class RoutePlansService {
     distanceKm: number | null;
     maxStitchGapKm: number;
     hasUnfilledGaps: boolean;
+    snapFailureReason: string | null;
+    simplifiedPathDistanceKm: number | null;
   }> {
     const tracked = asTrackedSamples(points);
     const noneResult = {
@@ -875,12 +880,26 @@ export class RoutePlansService {
       distanceKm: null,
       maxStitchGapKm: 0,
       hasUnfilledGaps: false,
+      snapFailureReason: null as string | null,
+      simplifiedPathDistanceKm: null as number | null,
     };
 
     if (tracked.length < 2) {
       this.logger.warn("snapGpsPathToRoads: insufficient_points");
       return noneResult;
     }
+
+    const trackPoints = tracked.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const simplifiedPath = downsamplePathUniform(trackPoints, 80);
+    const simplifiedPathDistanceKm = this.pathDistanceKm(simplifiedPath);
+    const rawPolylineDistanceKm = this.pathDistanceKm(trackPoints);
+    const loopSuspicious = isLoopTripSuspicious({
+      first: trackPoints[0]!,
+      last: trackPoints[trackPoints.length - 1]!,
+      rawPolylineDistanceKm,
+      simplifiedPathDistanceKm,
+      bboxDiagonalKm: bboxDiagonalKm(trackPoints),
+    });
 
     const chunks = splitSamplesByTimeGap(tracked, TRACK_SEGMENT_GAP_MIN);
     const chunkResults: Array<{
@@ -894,11 +913,15 @@ export class RoutePlansService {
 
     for (const chunk of chunks) {
       const chunkPoints = chunk.map((s) => ({ lat: s.lat, lng: s.lng }));
-      const matched = await this.matchGpsChunkToRoads(chunkPoints);
+      const chunkRefKm = this.pathDistanceKm(downsamplePathUniform(chunkPoints, 80));
+      const matched = await this.matchGpsChunkToRoads(chunkPoints, {
+        loopSuspicious,
+        referencePathKm: chunkRefKm ?? simplifiedPathDistanceKm,
+      });
       chunkResults.push(matched);
       if (matched.source === "osrm") usedOsrm = true;
       if (matched.source === "fallback") usedFallback = true;
-      if (matched.distanceKm != null && Number.isFinite(matched.distanceKm)) {
+      if (matched.source === "osrm" && matched.distanceKm != null && Number.isFinite(matched.distanceKm)) {
         totalKm += matched.distanceKm;
       }
     }
@@ -920,23 +943,20 @@ export class RoutePlansService {
           destination,
           intermediates: [],
         });
-        if (routed?.distanceKm != null && Number.isFinite(routed.distanceKm)) {
+        if (routed?.source === "osrm" && routed.distanceKm != null && Number.isFinite(routed.distanceKm)) {
           totalKm += routed.distanceKm;
-          if (routed.source === "osrm") usedOsrm = true;
-          else usedFallback = true;
-        } else {
-          totalKm += this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng);
+          usedOsrm = true;
+        } else if (routed?.source === "fallback") {
           usedFallback = true;
         }
       } catch {
-        totalKm += this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng);
         usedFallback = true;
       }
     }
 
     let merged = concatPaths(chunkResults.map((r) => r.path));
     if (merged.length < 2) {
-      merged = tracked.map((s) => ({ lat: s.lat, lng: s.lng }));
+      merged = trackPoints;
     }
 
     const routeLeg = async (origin: LatLng, destination: LatLng) => {
@@ -961,16 +981,36 @@ export class RoutePlansService {
     };
 
     const stitched = await stitchPathGaps(merged, routeLeg, STITCH_GAP_THRESHOLD_KM);
-    const distanceKm =
-      totalKm > 0 ? Math.round(totalKm * 10) / 10 : this.pathDistanceKm(tracked);
+    let distanceKm = totalKm > 0 ? Math.round(totalKm * 10) / 10 : null;
+
+    let snapFailureReason: string | null = null;
+    if (
+      isLoopSnapCollapsed({
+        snappedDistanceKm: distanceKm,
+        simplifiedPathDistanceKm,
+        loopSuspicious,
+      }) ||
+      (loopSuspicious &&
+        distanceKm == null &&
+        simplifiedPathDistanceKm != null &&
+        simplifiedPathDistanceKm >= LOOP_MIN_TRIP_KM)
+    ) {
+      snapFailureReason = "gps_snap_loop_collapse";
+      distanceKm = null;
+      this.logger.warn(
+        `snapGpsPathToRoads: loop_collapse simplified=${simplifiedPathDistanceKm} snapped=${totalKm}`,
+      );
+    }
 
     if (stitched.path.length < 2) {
       return {
-        path: tracked.map((s) => ({ lat: s.lat, lng: s.lng })),
+        path: trackPoints,
         source: "fallback",
         distanceKm,
         maxStitchGapKm: stitched.maxStitchGapKm,
         hasUnfilledGaps: stitched.hasUnfilledGaps,
+        snapFailureReason,
+        simplifiedPathDistanceKm,
       };
     }
 
@@ -982,6 +1022,8 @@ export class RoutePlansService {
       distanceKm,
       maxStitchGapKm: stitched.maxStitchGapKm,
       hasUnfilledGaps: stitched.hasUnfilledGaps,
+      snapFailureReason,
+      simplifiedPathDistanceKm,
     };
   }
 
@@ -1212,6 +1254,210 @@ export class RoutePlansService {
     return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
   }
 
+  private async loadFactVisitRows(ownerId: string, date: Date) {
+    const { dayStart, dayEnd } = this.kyivVisitWindow(date);
+    const done = await this.prisma.visit.findMany({
+      where: {
+        ownerId,
+        status: "DONE",
+        OR: [
+          { completedAt: { gte: dayStart, lte: dayEnd } },
+          { completedAt: null, startsAt: { gte: dayStart, lte: dayEnd } },
+        ],
+      },
+      select: {
+        id: true,
+        lat: true,
+        lng: true,
+        title: true,
+        completedAt: true,
+        endsAt: true,
+        startsAt: true,
+        contact: { select: { lat: true, lng: true, firstName: true, lastName: true } },
+        company: { select: { lat: true, lng: true, name: true } },
+      },
+      orderBy: [{ completedAt: "asc" }, { endsAt: "asc" }, { startsAt: "asc" }],
+    });
+    return done
+      .map((v) => {
+        const coords = effectiveVisitLatLng(v);
+        if (!coords) return null;
+        const label =
+          v.title?.trim() ||
+          (v.contact
+            ? [v.contact.firstName, v.contact.lastName].filter(Boolean).join(" ")
+            : null) ||
+          v.company?.name ||
+          null;
+        return {
+          coords,
+          wp: { lat: coords.lat, lng: coords.lng, label, visitId: v.id } satisfies RouteGeometryWaypoint,
+          completedAt: v.completedAt,
+          endsAt: v.endsAt,
+          startsAt: v.startsAt,
+        };
+      })
+      .filter(Boolean) as Array<{
+      coords: LatLng;
+      wp: RouteGeometryWaypoint;
+      completedAt: Date | null;
+      endsAt: Date | null;
+      startsAt: Date | null;
+    }>;
+  }
+
+  private filterTrackedSamplesInWindow(
+    samples: Array<{ lat: number; lng: number; clientRecordedAt: Date }>,
+    t0: Date | null,
+    t1: Date | null,
+  ): TrackedGpsSample[] {
+    const t0ms = t0?.getTime() ?? Number.NEGATIVE_INFINITY;
+    const t1ms = t1?.getTime() ?? Number.POSITIVE_INFINITY;
+    return samples.filter((s) => {
+      const t = s.clientRecordedAt.getTime();
+      return t >= t0ms && t <= t1ms;
+    });
+  }
+
+  /** Visit-order legs: OSRM match when GPS samples exist in window, else visit→visit route. */
+  private async buildFactVisitsGpsGeometry(
+    ownerId: string,
+    date: Date,
+  ): Promise<RouteGeometryResult> {
+    const kind: RouteGeometryKind = "fact_visits_gps";
+    const visits = await this.loadFactVisitRows(ownerId, date);
+    if (visits.length < 2) {
+      return this.emptyGeometry(kind, "insufficient_completed_visits");
+    }
+
+    const [gps, anchors] = await Promise.all([
+      this.loadGpsTrack(ownerId, date),
+      this.getRouteAnchors(ownerId),
+    ]);
+    const tracked = gps.trackedSamples;
+
+    type Leg = { from: LatLng; to: LatLng; t0: Date | null; t1: Date | null };
+    const legs: Leg[] = [];
+
+    for (let i = 0; i < visits.length - 1; i++) {
+      const a = visits[i]!;
+      const b = visits[i + 1]!;
+      legs.push({
+        from: a.coords,
+        to: b.coords,
+        t0: a.completedAt ?? a.endsAt ?? a.startsAt,
+        t1: b.completedAt ?? b.endsAt ?? b.startsAt,
+      });
+    }
+
+    const firstVisit = visits[0]!;
+    const lastVisit = visits[visits.length - 1]!;
+    if (anchors.origin && anchors.hasExplicitStart) {
+      const t1 = firstVisit.completedAt ?? firstVisit.endsAt ?? firstVisit.startsAt;
+      const windowSamples = this.filterTrackedSamplesInWindow(tracked, null, t1);
+      if (windowSamples.length >= 2) {
+        legs.unshift({
+          from: anchors.origin,
+          to: firstVisit.coords,
+          t0: null,
+          t1,
+        });
+      }
+    }
+    if (anchors.destination && anchors.hasExplicitEnd) {
+      const t0 = lastVisit.completedAt ?? lastVisit.endsAt ?? lastVisit.startsAt;
+      const windowSamples = this.filterTrackedSamplesInWindow(tracked, t0, null);
+      if (windowSamples.length >= 2) {
+        legs.push({
+          from: lastVisit.coords,
+          to: anchors.destination,
+          t0,
+          t1: null,
+        });
+      }
+    }
+
+    let totalKm = 0;
+    let usedOsrm = false;
+    const paths: LatLng[][] = [];
+
+    for (const leg of legs) {
+      const windowSamples = this.filterTrackedSamplesInWindow(tracked, leg.t0, leg.t1);
+      if (windowSamples.length >= 2) {
+        const snapped = await this.snapGpsPathToRoads(windowSamples);
+        if (snapped.source === "osrm" && snapped.distanceKm != null) {
+          totalKm += snapped.distanceKm;
+          usedOsrm = true;
+        }
+        if (snapped.path.length >= 2) paths.push(snapped.path);
+      } else {
+        const routed = await this.computeRouteMultiLeg({
+          origin: leg.from,
+          destination: leg.to,
+          intermediates: [],
+        });
+        if (routed?.source === "osrm" && routed.distanceKm != null) {
+          totalKm += routed.distanceKm;
+          usedOsrm = true;
+        }
+        if (routed?.path && routed.path.length >= 2) paths.push(routed.path);
+      }
+    }
+
+    const path = concatPaths(paths);
+    return {
+      kind,
+      source: usedOsrm ? "osrm" : "none",
+      distanceKm: totalKm > 0 ? Math.round(totalKm * 10) / 10 : null,
+      durationMin: null,
+      path,
+      encodedPolyline: null,
+      waypoints: visits.map((v) => v.wp),
+      quality: {
+        sampleCount: visits.length,
+        coverageRatio: gps.coverageRatio,
+        degraded: !usedOsrm,
+        degradedReason: usedOsrm ? null : "hybrid_route_unavailable",
+      },
+    };
+  }
+
+  private async loadShiftActive(ownerId: string, date: Date): Promise<boolean> {
+    const open = await this.prisma.fieldShift.findFirst({
+      where: { ownerId, date, endedAt: null },
+      select: { id: true },
+    });
+    return open != null;
+  }
+
+  /** True when today's route plan still has stops not yet DONE. */
+  private async loadPlanIncludesScheduled(ownerId: string, date: Date): Promise<boolean> {
+    const plan = await this.prisma.routePlan.findUnique({
+      where: { ownerId_date: { ownerId, date } },
+      include: {
+        stops: {
+          include: { visit: { select: { status: true, ownerId: true } } },
+        },
+      },
+    });
+    if (!plan?.stops.length) return false;
+    const openStatuses = new Set(["SCHEDULED", "IN_PROGRESS", "PLANNED_UNASSIGNED"]);
+    return plan.stops.some(
+      (s) => s.visit?.ownerId === ownerId && openStatuses.has(s.visit.status),
+    );
+  }
+
+  private computeLastSampleNearHome(
+    anchors: RouteAnchorConfig,
+    lastSample: { lat: number; lng: number } | null | undefined,
+  ): boolean | null {
+    if (!lastSample) return null;
+    const home = anchors.destination ?? anchors.origin;
+    if (!home) return null;
+    const km = this.haversineKm(lastSample.lat, lastSample.lng, [], home.lat, home.lng);
+    return km <= LOOP_ENDPOINT_NEAR_KM;
+  }
+
   private async loadLastDoneVisitCompletedAt(
     ownerId: string,
     date: Date,
@@ -1381,11 +1627,13 @@ export class RoutePlansService {
     let degraded = coverageDegraded;
     let degradedReason = coverageReason;
 
-    let distanceKm = gps.distanceKm;
+    let distanceKm: number | null = null;
     let path = gps.path;
     let source: RouteGeometryResult["source"] = "raw_gps";
     let maxStitchGapKm: number | null = null;
     let hasUnfilledGaps = false;
+    let snapFailureReason: string | null = null;
+    let snappedDistanceKm: number | null = null;
 
     if (!fallbackOnly) {
       const snapped = await this.snapGpsPathToRoads(
@@ -1395,23 +1643,37 @@ export class RoutePlansService {
           clientRecordedAt: s.clientRecordedAt,
         })),
       );
-      if (snapped.source !== "none" && snapped.distanceKm != null) {
+      snapFailureReason = snapped.snapFailureReason;
+      snappedDistanceKm = snapped.distanceKm;
+      maxStitchGapKm = snapped.maxStitchGapKm;
+      hasUnfilledGaps = snapped.hasUnfilledGaps;
+
+      if (snapFailureReason === "gps_snap_loop_collapse") {
+        degraded = true;
+        degradedReason = "gps_snap_loop_collapse";
+        source = "none";
+        distanceKm = null;
+        path = gps.fullPath.length >= 2 ? gps.fullPath : gps.path;
+      } else if (snapped.source === "osrm" && snapped.distanceKm != null) {
         distanceKm = snapped.distanceKm;
         if (snapped.path.length >= 2) {
           path = snapped.path;
         }
-        source = snapped.source === "osrm" ? "osrm" : "raw_gps";
+        source = "osrm";
+      } else if (snapped.path.length >= 2) {
+        path = snapped.path;
+        source = "raw_gps";
+        distanceKm = null;
       }
-      maxStitchGapKm = snapped.maxStitchGapKm;
-      hasUnfilledGaps = snapped.hasUnfilledGaps;
+
       if (hasUnfilledGaps || (maxStitchGapKm != null && maxStitchGapKm > 1)) {
         degraded = true;
-        degradedReason = "gps_stitch_gaps";
+        if (degradedReason == null) degradedReason = "gps_stitch_gaps";
       }
-    }
-
-    if (distanceKm == null) {
-      distanceKm = this.pathDistanceKm(gps.fullPath);
+    } else {
+      path = gps.fullPath.length >= 2 ? gps.fullPath : gps.path;
+      source = "raw_gps";
+      distanceKm = null;
     }
 
     return {
@@ -1428,6 +1690,8 @@ export class RoutePlansService {
         degraded,
         degradedReason,
         rawDistanceKm: gps.distanceKm,
+        snappedDistanceKm,
+        snapFailureReason,
         hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
         lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
         lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
@@ -1466,12 +1730,33 @@ export class RoutePlansService {
   ): Promise<RouteGeometryBundle> {
     if (!actor) throw new BadRequestException("User is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
+    const date = this.parseDate(dateStr);
 
-    const [planned, factVisits, factGps] = await Promise.all([
-      this.getRouteGeometry(dateStr, "planned", actor, opts),
-      this.getRouteGeometry(dateStr, "fact_visits", actor, opts),
-      this.getRouteGeometry(dateStr, "fact_gps", actor, opts),
-    ]);
+    const [planned, factVisits, factGps, factVisitsGps, shiftActive, anchors, planIncludesScheduled, gpsMeta] =
+      await Promise.all([
+        this.getRouteGeometry(dateStr, "planned", actor, opts),
+        this.getRouteGeometry(dateStr, "fact_visits", actor, opts),
+        this.getRouteGeometry(dateStr, "fact_gps", actor, opts),
+        this.buildFactVisitsGpsGeometry(ownerId, date),
+        this.loadShiftActive(ownerId, date),
+        this.getRouteAnchors(ownerId),
+        this.loadPlanIncludesScheduled(ownerId, date),
+        this.loadGpsTrack(ownerId, date),
+      ]);
+
+    const snapFailureReason = factGps.quality.snapFailureReason ?? null;
+    const lastTracked = gpsMeta.trackedSamples[gpsMeta.trackedSamples.length - 1];
+    const lastSampleNearHome = this.computeLastSampleNearHome(
+      anchors,
+      lastTracked ? { lat: lastTracked.lat, lng: lastTracked.lng } : null,
+    );
+
+    const compensationFactKm =
+      factGps.distanceKm ?? factVisits.distanceKm ?? factVisitsGps.distanceKm;
+    const plannedAssessment = assessPlannedKm({
+      plannedKm: planned.distanceKm,
+      factKm: compensationFactKm,
+    });
 
     const selection = selectCompensationFactKind({
       hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
@@ -1480,9 +1765,25 @@ export class RoutePlansService {
       coverageRatio: factGps.quality.coverageRatio,
       lastSampleAt: factGps.quality.lastSampleAt ?? null,
       lastDoneVisitCompletedAt: factGps.quality.lastDoneVisitCompletedAt ?? null,
-      snappedTrackDistanceKm: factGps.distanceKm,
+      snappedTrackDistanceKm: factGps.quality.snappedDistanceKm ?? factGps.distanceKm,
       visitRouteDistanceKm: factVisits.distanceKm,
+      snapFailureReason,
+      plannedKmWarning: plannedAssessment.warning,
+      factVisitsGpsDistanceKm: factVisitsGps.distanceKm,
     });
+
+    const compensationWarnings = [...(selection.warnings ?? [])];
+    if (plannedAssessment.warning && !compensationWarnings.includes(plannedAssessment.warning)) {
+      compensationWarnings.push(plannedAssessment.warning);
+    }
+
+    const visitKm = factVisits.distanceKm ?? 0;
+    const gpsKm = factGps.distanceKm ?? 0;
+    const incompleteTour =
+      shiftActive ||
+      (lastSampleNearHome === false &&
+        (factGps.quality.hasTrackingEnabledShift ?? false) &&
+        visitKm > gpsKm * 1.1);
 
     return {
       date: dateStr,
@@ -1490,9 +1791,15 @@ export class RoutePlansService {
       planned,
       factVisits,
       factGps,
+      factVisitsGps,
       compensationFactKind: selection.kind,
       compensationIneligibleReason: selection.ineligibleReason,
-      compensationWarnings: selection.warnings,
+      compensationWarnings,
+      shiftActive,
+      incompleteTour,
+      planIncludesScheduled,
+      lastSampleNearHome,
+      plannedKmWarning: plannedAssessment.warning,
     };
   }
 

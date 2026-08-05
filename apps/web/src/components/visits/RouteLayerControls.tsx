@@ -137,18 +137,23 @@ type RouteSourceQuality = RouteGeometryResult["quality"] | RouteGeometryLayer["q
 export function routeSourceLabel(
   source: RouteGeometryResult["source"] | undefined,
   quality?: RouteSourceQuality,
+  kind?: RouteGeometryResult["kind"],
 ): string | null {
   if (source === "osrm") {
-    if (
-      quality?.hasUnfilledGaps === true ||
-      quality?.degradedReason === "gps_stitch_gaps" ||
-      (quality?.maxStitchGapKm != null && quality.maxStitchGapKm > 1)
-    ) {
-      return "GPS із пропусками";
+    if (kind === "fact_gps") {
+      if (
+        quality?.hasUnfilledGaps === true ||
+        quality?.degradedReason === "gps_stitch_gaps" ||
+        (quality?.maxStitchGapKm != null && quality.maxStitchGapKm > 1)
+      ) {
+        return "osrm_match · пропуски";
+      }
+      return "osrm_match";
     }
-    return "по дорогах";
+    return "osrm_route";
   }
   if (source === "fallback") return "приблизно";
   if (source === "raw_gps") return "GPS без доріг";
+  if (source === "none") return "none";
   return null;
 }

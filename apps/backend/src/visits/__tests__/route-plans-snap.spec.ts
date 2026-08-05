@@ -92,4 +92,71 @@ describe("RoutePlansService.snapGpsPathToRoads", () => {
     assert.equal(result.distanceKm, chunkKm);
     assert.ok(result.path.length > 50);
   });
+
+  it("loop home→away→home: rejects collapsed A→B snap km (Mykhailiv symptom)", async () => {
+    const home = { lat: 49.233, lng: 28.468 };
+    const far = { lat: 49.85, lng: 29.55 };
+    const points: LatLng[] = [home];
+    for (let i = 1; i <= 50; i++) {
+      const t = i / 50;
+      points.push({
+        lat: home.lat + (far.lat - home.lat) * t,
+        lng: home.lng + (far.lng - home.lng) * t,
+      });
+    }
+    for (let i = 1; i <= 50; i++) {
+      const t = i / 50;
+      points.push({
+        lat: far.lat + (home.lat - far.lat) * t,
+        lng: far.lng + (home.lng - far.lng) * t,
+      });
+    }
+    points.push({ lat: home.lat + 0.008, lng: home.lng + 0.006 });
+
+    const osrm = {
+      matchTrack: async () => ({
+        source: "osrm" as const,
+        path: [home, points[points.length - 1]!],
+        distanceKm: 1.4,
+        durationMin: null,
+      }),
+      routeLeg: async (opts: { origin: LatLng; destination: LatLng }) => ({
+        source: "osrm" as const,
+        path: [opts.origin, opts.destination],
+        distanceKm: 1.4,
+        durationMin: null,
+      }),
+    };
+
+    const svc = new RoutePlansService({} as never, osrm as never);
+    const result = await svc.snapGpsPathToRoads(points);
+
+    assert.equal(result.snapFailureReason, "gps_snap_loop_collapse");
+    assert.equal(result.distanceKm, null);
+  });
+
+  it("parking jitter: snapped km well below raw polyline sum", async () => {
+    const points = jitterParkingChunk();
+    const start = points[0]!;
+    const end = points[points.length - 1]!;
+    const straightKm = haversineKm(start, end);
+    const chunkKm = Math.round(straightKm * 1.05 * 10) / 10;
+
+    const osrm = {
+      matchTrack: async () => ({
+        source: "osrm" as const,
+        path: [start, end],
+        distanceKm: chunkKm,
+        durationMin: null,
+      }),
+      routeLeg: async () => null,
+    };
+
+    const svc = new RoutePlansService({} as never, osrm as never);
+    const result = await svc.snapGpsPathToRoads(points);
+
+    assert.ok(result.distanceKm != null);
+    assert.ok(result.distanceKm <= straightKm * 1.2);
+    assert.ok(result.distanceKm < 50);
+  });
 });

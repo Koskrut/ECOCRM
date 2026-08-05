@@ -605,24 +605,14 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
           <SimpleTable
             headers={[
               t.labels.sku,
-              t.labels.targetPack,
               t.labels.qtySuggested,
               t.labels.qtyApproved,
               t.labels.maxFromParts,
-              t.labels.bottleneck,
               t.labels.hardShort,
               t.labels.forecast14,
             ]}
             rows={(active.lines ?? []).map((line) => [
-              <>
-                {`${line.kitProduct.sku} — ${line.kitProduct.name}`}
-                {line.partsBlocked ? (
-                  <span className="ml-2 text-xs text-amber-700" title={t.labels.partsBlockedHint}>
-                    ⚠
-                  </span>
-                ) : null}
-              </>,
-              String(line.targetPack ?? "—"),
+              `${line.kitProduct.sku} — ${line.kitProduct.name}`,
               String(line.qtySuggested),
               active.status === "DRAFT" ? (
                 <input
@@ -637,7 +627,6 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                 String(line.qtyApproved)
               ),
               String(line.maxFromParts),
-              line.bottleneckSku ?? "—",
               String(line.hardNeed),
               String(line.forecastNeed),
             ])}

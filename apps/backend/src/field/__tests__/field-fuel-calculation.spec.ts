@@ -248,6 +248,22 @@ describe("amountEstimated persist when price+liters (metricsSource=none path)", 
   });
 });
 
+describe("fuel snapshot fields (GPS contour)", () => {
+  it("selectCompensationFactKind exposes loop collapse for fuel review", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 100,
+      rawPolylineDistanceKm: 165,
+      coverageRatio: 0.88,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: 261,
+      snapFailureReason: "gps_snap_loop_collapse",
+    });
+    assert.equal(sel.kind, "none");
+    assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
+  });
+});
+
 describe("plannedKm sanitize", () => {
   it("flags Bondarenko-like 5000+ plan", () => {
     const a = assessPlannedKm({ plannedKm: 5289, factKm: 20 });
