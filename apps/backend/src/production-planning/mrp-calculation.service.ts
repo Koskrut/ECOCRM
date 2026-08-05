@@ -8,7 +8,7 @@ import {
   ProductionStageCode,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { isNonInventoriedPackagingSku } from "./bom-part.util";
+import { constrainsKitCapacity, isNonInventoriedPackagingSku } from "./bom-part.util";
 import { DemandForecastService } from "./demand-forecast.service";
 import { MrpConfigService } from "./mrp-config.service";
 import { allocateMonthlyQuota } from "./mrp-quota.util";
@@ -283,7 +283,7 @@ export class MrpCalculationService {
       if (row.product.kind !== ProductKind.KIT || row.netNeed <= 0 || !row.hasBom) continue;
       const bom = bomByKit.get(row.product.id)!;
       for (const line of bom.lines) {
-        if (isNonInventoriedPackagingSku(line.component?.sku)) continue;
+        if (!constrainsKitCapacity({ sku: line.component?.sku, name: line.component?.name })) continue;
         const per = line.qtyPerKit.toNumber();
         const scrap = line.scrapPct?.toNumber() ?? 0;
         const need = row.netNeed * per * (1 + scrap / 100);
@@ -322,7 +322,7 @@ export class MrpCalculationService {
       }
 
       const product = productById.get(partId);
-      if (!product || isNonInventoriedPackagingSku(product.sku)) continue;
+      if (!product || !constrainsKitCapacity({ sku: product.sku, name: product.name })) continue;
 
       const availability = await this.calculations.getAvailability(partId);
       const forecast = forecastMap.get(partId);
@@ -441,17 +441,36 @@ export class MrpCalculationService {
 
       if (row.product.kind === ProductKind.KIT && row.hasBom) {
         const kitCapacity = await this.calculations.getKitCapacity(row.product.id);
-        if (kitCapacity.maxBuildNow > 0) {
+        const bottleneckSku = kitCapacity.components.find(
+          (c) => c.componentProductId === kitCapacity.bottleneckComponentId,
+        )?.product?.sku;
+        const unmetPackNeed = Math.max(0, Math.ceil(row.netNeed));
+        const packDetails = {
+          ...baseDetails(row),
+          maxBuildNow: kitCapacity.maxBuildNow,
+          unmetPackNeed,
+          packNeed: unmetPackNeed,
+          bottleneckComponentId: kitCapacity.bottleneckComponentId,
+          bottleneckSku: bottleneckSku ?? null,
+        };
+        if (unmetPackNeed > 0) {
           lines.push(
-            draftLine(row, PlanningRunLineType.CAN_PACK, kitCapacity.maxBuildNow, {
-              reason: "Parts on hand can assemble kit",
-              details: {
-                ...baseDetails(row),
-                maxBuildNow: kitCapacity.maxBuildNow,
-                bottleneckComponentId: kitCapacity.bottleneckComponentId,
-              },
+            draftLine(row, PlanningRunLineType.PACK, unmetPackNeed, {
+              reason: "Pack need from forecast and pipeline",
+              details: packDetails,
+              priority: 35,
+              suggestedLaunchQty: unmetPackNeed,
+            }),
+          );
+        }
+        const packQty = Math.min(kitCapacity.maxBuildNow, unmetPackNeed);
+        if (packQty > 0 && kitCapacity.maxBuildNow > 0) {
+          lines.push(
+            draftLine(row, PlanningRunLineType.CAN_PACK, packQty, {
+              reason: "Feasible kit assembly from inventoried parts",
+              details: packDetails,
               priority: 50,
-              suggestedLaunchQty: kitCapacity.maxBuildNow,
+              suggestedLaunchQty: packQty,
             }),
           );
         }

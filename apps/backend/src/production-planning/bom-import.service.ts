@@ -11,6 +11,7 @@ import {
   buildArticlePartSku,
   buildPackagingPartSku,
   buildPartDisplayName,
+  looksLikeComponentSku,
   uniquifyPartSku,
 } from "./bom-part.util";
 import {
@@ -369,9 +370,11 @@ export class BomImportService {
       const displayName = buildPartDisplayName(row);
       if (!displayName) return {};
 
-      const preferredSku = row.componentName
-        ? buildPackagingPartSku(displayName)
-        : buildArticlePartSku(row.componentSku || row.componentSkuRaw);
+      const rawForKind = row.componentName ?? row.componentSkuRaw ?? row.componentSku;
+      const isArticle = looksLikeComponentSku(rawForKind);
+      const preferredSku = isArticle
+        ? buildArticlePartSku(row.componentSku || row.componentSkuRaw)
+        : buildPackagingPartSku(displayName);
       const sku = uniquifyPartSku(preferredSku, displayName, takenSkus);
 
       const created = await this.prisma.product.create({

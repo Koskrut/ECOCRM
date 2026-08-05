@@ -239,7 +239,18 @@ export function PlanningDashboardPanel({
       </div>
       <Panel title={t.labels.daysOfCover}>
         <SimpleTable
-          headers={[t.labels.sku, t.labels.name, t.labels.available, t.labels.daysOfCover, t.labels.maxBuildNow]}
+          headers={[
+            t.labels.sku,
+            t.labels.name,
+            t.labels.available,
+            t.labels.daysOfCover,
+            <>
+              {t.labels.maxBuildNow}
+              <span className="ml-1 text-xs font-normal text-zinc-500" title={t.labels.maxBuildNowHint}>
+                ⓘ
+              </span>
+            </>,
+          ]}
           rows={dashboard.kitCoverage.map((row) => [
             row.sku,
             row.name,
@@ -594,14 +605,24 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
           <SimpleTable
             headers={[
               t.labels.sku,
+              t.labels.targetPack,
               t.labels.qtySuggested,
               t.labels.qtyApproved,
               t.labels.maxFromParts,
+              t.labels.bottleneck,
               t.labels.hardShort,
               t.labels.forecast14,
             ]}
             rows={(active.lines ?? []).map((line) => [
-              `${line.kitProduct.sku} — ${line.kitProduct.name}`,
+              <>
+                {`${line.kitProduct.sku} — ${line.kitProduct.name}`}
+                {line.partsBlocked ? (
+                  <span className="ml-2 text-xs text-amber-700" title={t.labels.partsBlockedHint}>
+                    ⚠
+                  </span>
+                ) : null}
+              </>,
+              String(line.targetPack ?? "—"),
               String(line.qtySuggested),
               active.status === "DRAFT" ? (
                 <input
@@ -616,6 +637,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                 String(line.qtyApproved)
               ),
               String(line.maxFromParts),
+              line.bottleneckSku ?? "—",
               String(line.hardNeed),
               String(line.forecastNeed),
             ])}
@@ -794,6 +816,81 @@ function exportActionListCsv(items: ActionListItem[], filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function PackagingActionListTable({
+  items,
+  lineById,
+  creatingId,
+  onCreateBatch,
+  onProposePacking,
+  proposingId,
+}: {
+  items: ActionListItem[];
+  lineById?: Map<string, MrpRunLine>;
+  creatingId?: string | null;
+  onCreateBatch?: (line: MrpRunLine) => void;
+  onProposePacking?: () => void;
+  proposingId?: string | null;
+}) {
+  const t = strings.planning;
+  const headers = [
+    t.labels.sku,
+    t.labels.name,
+    t.labels.packNeed,
+    t.labels.maxFromParts,
+    t.labels.packQty,
+    t.labels.desiredDate,
+    t.labels.bottleneck,
+    t.labels.reason,
+    t.labels.actions,
+  ];
+  return (
+    <SimpleTable
+      headers={headers}
+      rows={items.map((item) => {
+        const line = lineById?.get(item.lineId);
+        return [
+          item.sku,
+          item.name,
+          item.packNeed != null ? String(item.packNeed) : "—",
+          item.maxFromParts != null ? String(item.maxFromParts) : "0",
+          String(item.qty),
+          item.desiredDate,
+          item.bottleneckSku ?? "—",
+          <>
+            {item.reason || "—"}
+            {item.blockers?.length ? (
+              <span className="ml-1 text-xs text-amber-700">{item.blockers.join(", ")}</span>
+            ) : null}
+          </>,
+          <>
+            {item.canCreateBatch && line && onCreateBatch ? (
+              <button
+                type="button"
+                disabled={creatingId === item.lineId}
+                className="rounded-md bg-cyan-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                onClick={() => onCreateBatch(line)}
+              >
+                {creatingId === item.lineId ? strings.common.loading : t.actions.createBatch}
+              </button>
+            ) : null}
+            {item.lineType === "CAN_PACK" && onProposePacking ? (
+              <button
+                type="button"
+                disabled={proposingId === item.lineId}
+                className="ml-1 rounded-md border border-cyan-600 px-2 py-1 text-xs font-medium text-cyan-700 disabled:opacity-40"
+                onClick={() => onProposePacking()}
+              >
+                {t.actions.proposePacking}
+              </button>
+            ) : null}
+          </>,
+        ];
+      })}
+      noDataLabel={t.states.noData}
+    />
+  );
 }
 
 function ActionListTable({
@@ -1106,9 +1203,11 @@ export function MrpProductionPanel({ onError }: { onError: (msg: string) => void
 export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
+  const [needItems, setNeedItems] = useState<ActionListItem[]>([]);
+  const [canItems, setCanItems] = useState<ActionListItem[]>([]);
+  const [blockedItems, setBlockedItems] = useState<ActionListItem[]>([]);
   const [needPack, setNeedPack] = useState<MrpRunLine[]>([]);
   const [canPack, setCanPack] = useState<MrpRunLine[]>([]);
-  const [items, setItems] = useState<ActionListItem[]>([]);
   const [creatingId, setCreatingId] = useState<string | null>(null);
   const [proposing, setProposing] = useState(false);
 
@@ -1117,7 +1216,9 @@ export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void 
       const res = await planningApi.getMrpPackaging();
       setNeedPack(res.needPack);
       setCanPack(res.canPack);
-      setItems(res.items);
+      setNeedItems(res.needItems ?? res.items.filter((i) => i.lineType === "PACK"));
+      setCanItems(res.canItems ?? res.items.filter((i) => i.lineType === "CAN_PACK"));
+      setBlockedItems(res.blockedItems ?? []);
     } catch (e) {
       reportError(e instanceof Error ? e.message : t.errors.loadMrp);
     }
@@ -1129,6 +1230,8 @@ export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void 
 
   const lineById = new Map([...needPack, ...canPack].map((l) => [l.id, l]));
 
+  const exportItems = [...needItems, ...canItems, ...blockedItems];
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-zinc-600">{t.messages.packListHint}</p>
@@ -1136,14 +1239,17 @@ export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void 
         <button
           type="button"
           className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700"
-          onClick={() => exportActionListCsv(items, "packing.csv")}
+          onClick={() => exportActionListCsv(exportItems, "packing.csv")}
         >
           {t.actions.exportCsv}
         </button>
       </div>
-      <Panel title={t.labels.actionListPacking}>
-        <ActionListTable
-          items={items}
+      <Panel title={t.labels.needPack}>
+        <PackagingActionListTable items={needItems} lineById={lineById} />
+      </Panel>
+      <Panel title={t.labels.canPack}>
+        <PackagingActionListTable
+          items={canItems}
           lineById={lineById}
           creatingId={creatingId}
           proposingId={proposing ? "all" : null}
@@ -1174,6 +1280,11 @@ export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void 
           }}
         />
       </Panel>
+      {blockedItems.length > 0 ? (
+        <Panel title={t.labels.blockedPack}>
+          <PackagingActionListTable items={blockedItems} lineById={lineById} />
+        </Panel>
+      ) : null}
     </div>
   );
 }

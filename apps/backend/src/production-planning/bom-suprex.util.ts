@@ -1,4 +1,7 @@
 import * as XLSX from "xlsx";
+import { looksLikeComponentSku } from "./bom-part.util";
+
+export { looksLikeComponentSku, looksLikePackagingName } from "./bom-part.util";
 
 export const SUPREX_SKIP_SHEETS = new Set(["Инструмент", "Преміли", "Временная"]);
 
@@ -48,13 +51,6 @@ export function normalizeProductName(value: string, stripParens = false): string
     normalized = normalized.replace(/\s*\([^)]*\)\s*/g, " ").trim();
   }
   return normalized.trim();
-}
-
-export function looksLikeComponentSku(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (/^\d+\.\d+$/.test(trimmed)) return true;
-  return /^[A-Z]{2,}[-/][A-Z0-9./-]+$/i.test(trimmed);
 }
 
 function parseNumber(value: unknown): number | null {

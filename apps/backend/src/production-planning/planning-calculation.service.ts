@@ -10,7 +10,7 @@ import {
   SalesHistoryUploadStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { isNonInventoriedPackagingSku } from "./bom-part.util";
+import { constrainsKitCapacity } from "./bom-part.util";
 import { DemandForecastService } from "./demand-forecast.service";
 import { DemandRulesService } from "./demand-rules.service";
 import { PlanningSettingsService } from "./planning-settings.service";
@@ -127,7 +127,10 @@ export class PlanningCalculationService {
     }> = [];
     for (const line of bom.lines) {
       const sku = line.component?.sku ?? "";
-      const constrainsCapacity = !isNonInventoriedPackagingSku(sku);
+      const constrainsCapacity = constrainsKitCapacity({
+        sku,
+        name: line.component?.name,
+      });
       const availability = constrainsCapacity
         ? await this.getAvailability(line.componentProductId)
         : { available: 0 };
@@ -460,7 +463,7 @@ export class PlanningCalculationService {
         });
         if (!bom) continue;
         for (const bl of bom.lines) {
-          if (isNonInventoriedPackagingSku(bl.component?.sku)) continue;
+          if (!constrainsKitCapacity({ sku: bl.component?.sku, name: bl.component?.name })) continue;
           const use = line.qtyApproved * bl.qtyPerKit.toNumber();
           partStock.set(bl.componentProductId, (partStock.get(bl.componentProductId) ?? 0) - use);
         }

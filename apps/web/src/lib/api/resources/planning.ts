@@ -141,6 +141,9 @@ export type ActionListItem = {
   monthOffset?: number;
   canCreateBatch?: boolean;
   blockers?: string[];
+  packNeed?: number;
+  maxFromParts?: number;
+  bottleneckSku?: string | null;
 };
 
 export type ForecastBreakdown = {
@@ -355,6 +358,10 @@ export type PackingListLine = {
   forecastNeed: number;
   stockKits: number;
   kitProduct: { id: string; sku: string; name: string };
+  /** Live from getKitCapacity when list is loaded. */
+  bottleneckSku?: string | null;
+  targetPack?: number;
+  partsBlocked?: boolean;
 };
 
 export type PackingList = {
@@ -812,6 +819,9 @@ export const planningApi = {
     computedAt: string | null;
     needPack: MrpRunLine[];
     canPack: MrpRunLine[];
+    needItems: ActionListItem[];
+    canItems: ActionListItem[];
+    blockedItems: ActionListItem[];
     items: ActionListItem[];
   }> => {
     const res = await apiHttp.get("/planning/mrp/packaging");

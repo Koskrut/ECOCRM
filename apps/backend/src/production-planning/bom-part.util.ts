@@ -2,12 +2,93 @@ import { createHash } from "node:crypto";
 
 /** Parts/packaging live outside the sales catalog (Product.kind=PART, showOnStore=false). */
 
+const PACKAGING_TOKENS = [
+  "блистер",
+  "blister",
+  "этикет",
+  "етикет",
+  "label",
+  "короб",
+  "box",
+  "инструк",
+  "instruction",
+  "подлож",
+  "tyvek",
+  "тайвек",
+  "пакет",
+  "упаков",
+  "sticker",
+  "наклей",
+  "leaflet",
+  "manual",
+];
+
+/** Cyrillic / Latin packaging descriptions — not inventoriable metal parts. */
+export function looksLikePackagingName(value: string): boolean {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\u00a0\u202f]/g, " ")
+    .replace(/[«»""'']/g, "")
+    .replace(/\s+/g, " ");
+  if (!normalized) return false;
+  return PACKAGING_TOKENS.some((token) => normalized.includes(token));
+}
+
+/**
+ * True when a BOM cell value is a real inventoriable article (metal part, screw, platform),
+ * not packaging prose like «Блистер Suprex…».
+ */
+export function looksLikeComponentSku(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (trimmed.toUpperCase().startsWith("PKG:")) return false;
+  if (looksLikePackagingName(trimmed)) return false;
+  if (/^\d+\.\d+$/.test(trimmed)) return true;
+  // MG-PF-CAD_CAM-MU, MG-SF-M2.0, ST-RC-AN, OS-TB-LNK-1x6 D4.5, MG-HA 4030, OS-ATS-MU-1 mm
+  if (/^[A-Z]{2,}[-/_][A-Z0-9._\s×x/+-]+$/i.test(trimmed)) return true;
+  // Space inside article: MG-HA 4030, ST-SF-RA 1
+  if (/^[A-Z]{2,}-[A-Z0-9]+(?:\s+[A-Z0-9./+-]+)+$/i.test(trimmed)) return true;
+  return false;
+}
+
+/** Derive article SKU from a false PKG slug or product name (e.g. PKG:mg-pf-cadcam-mu → MG-PF-CAD_CAM-MU). */
+export function inferArticleSkuFromFalsePkg(sku: string, name?: string | null): string | null {
+  if (!sku.trim().toUpperCase().startsWith("PKG:")) return null;
+  const source = (name?.trim() || sku.slice(4).replace(/-/g, " ")).trim();
+  if (!source || looksLikePackagingName(source)) return null;
+  if (!looksLikeComponentSku(source) && !/^(MG|ND|ST|OS|RC|PF|SF|TB|HA|NC|ATS)/i.test(source)) {
+    return null;
+  }
+  return source.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Synthetic packaging SKUs from BOM import (`PKG:блистер-...`).
- * Not inventoried in 1C snapshots — must not constrain kit capacity / packing qty.
+ * Metal parts mis-imported as PKG:* still constrain capacity (hardening).
  */
-export function isNonInventoriedPackagingSku(sku: string | null | undefined): boolean {
-  return typeof sku === "string" && sku.trim().toUpperCase().startsWith("PKG:");
+export function isNonInventoriedPackagingSku(
+  sku: string | null | undefined,
+  name?: string | null,
+): boolean {
+  if (typeof sku !== "string") return false;
+  const s = sku.trim();
+  if (!s.toUpperCase().startsWith("PKG:")) return false;
+  const label = name?.trim() || s.slice(4).replace(/-/g, " ");
+  if (looksLikeComponentSku(label) && !looksLikePackagingName(label)) {
+    return false;
+  }
+  const inferred = inferArticleSkuFromFalsePkg(s, name);
+  if (inferred && looksLikeComponentSku(inferred)) return false;
+  return true;
+}
+
+/** Whether this BOM component limits kit capacity / packing / MRP explode. */
+export function constrainsKitCapacity(component: {
+  sku?: string | null;
+  name?: string | null;
+}): boolean {
+  return !isNonInventoriedPackagingSku(component.sku, component.name);
 }
 
 export function buildPackagingPartSku(name: string): string {

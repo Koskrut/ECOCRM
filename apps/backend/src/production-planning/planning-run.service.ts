@@ -184,19 +184,26 @@ export class PlanningRunService {
         computedAt: null,
         needPack: [],
         canPack: [],
+        needItems: [],
+        canItems: [],
+        blockedItems: [],
         items: [],
         stale: false,
       };
     }
     const needPack = latest.lines.filter((l) => l.lineType === PlanningRunLineType.PACK);
     const canPack = latest.lines.filter((l) => l.lineType === PlanningRunLineType.CAN_PACK);
-    const items = await this.actionList.mapPackagingLines(needPack, canPack);
+    const { needItems, canItems, blockedItems, items } =
+      await this.actionList.mapPackagingLines(needPack, canPack);
     return {
       runId: latest.id,
       computedAt: latest.computedAt,
       stale: latest.stale,
       needPack,
       canPack,
+      needItems,
+      canItems,
+      blockedItems,
       items,
     };
   }

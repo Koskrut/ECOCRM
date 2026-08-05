@@ -652,7 +652,15 @@ export const uk = {
       unresolvedWarehouses: "Нерозпізнані склади",
       horizon: "Горизонт",
       bottleneck: "Вузьке місце",
-      maxBuildNow: "Можна зібрати зараз",
+      maxBuildNow: "Можна зібрати з деталей",
+      maxBuildNowHint:
+        "Скільки комплектів можна зібрати з наявних inventoriable деталей BOM. Упаковка (PKG блистер/етикетка) не обмежує.",
+      packNeed: "Потрібно",
+      maxFromParts: "Макс. з деталей",
+      packQty: "До упаковки",
+      blockedPack: "Заблоковано (немає деталей)",
+      targetPack: "Ціль упаковки",
+      partsBlockedHint: "Немає деталей для цільової кількості",
       product: "Позиція",
       sku: "Артикул",
       name: "Назва",
@@ -821,7 +829,7 @@ export const uk = {
         "MRP старіший за останній снапшот або продажі. Натисніть «Перерахувати MRP».",
       mrpRecalculated: "MRP перераховано.",
       packListHint:
-        "PACK — деталі на QC/PACK; CAN_PACK — можна зібрати з наявних деталей. packCount=0 при canPack>0 — нормально.",
+        "Потрібно запакувати — потреба з прогнозу та замовлень. Можна зараз — min(потреба, макс. з деталей). Заблоковано — потреба є, але inventoriable деталей не вистачає.",
     },
     howTo: {
       title: "Як користуватися плануванням",
@@ -2197,6 +2205,86 @@ export const uk = {
     mapsKeyRequired: "Для пошуку місць потрібен Google Maps API key.",
     changeLocation: "Змінити місце зустрічі",
     saveLocation: "Зберегти місце",
+  },
+  visitsRouteMap: {
+    layerPlan: "План",
+    layerPlanAllStops: "План (усі зупинки)",
+    layerFactVisits: "Факт (візити)",
+    layerFactGps: "Факт (GPS)",
+    layerFactVisitsGps: "Факт (GPS+візити)",
+    noData: "Немає даних маршруту за цей день.",
+    loading: "Завантаження маршруту…",
+    mapUnavailable: "Карта недоступна (немає Google Maps API key)",
+    openLiveTeam: "Відкрити live-карту команди",
+    kpiPlan: "План",
+    kpiFactGps: "Факт GPS",
+    kpiFactVisits: "Факт (візити)",
+    deviation: "відхилення",
+    incompleteTourFootnote:
+      "GPS — спостережений шлях; візити — повний тур з поверненням. Відхилення від плану може бути заниженим, доки зміна не завершена.",
+    stopN: (n: number) => `Стоп ${n}`,
+    gpsPoints: (n: number) => `GPS: ${n} точок`,
+    coverage: (pct: number) => ` · покриття ${pct}%`,
+    trackTruncated: " · трек обірвався",
+    gpsGaps: " · GPS із пропусками",
+    weakGps: " · слабкий сигнал GPS",
+    compensationGps: " · компенсація: GPS",
+    compensationHybrid: " · компенсація: GPS+візити",
+    compensationReview: " · компенсація: перевірка",
+    compensationVisits: " · компенсація: візити",
+    loopCollapseReview: " · loop collapse — потрібна перевірка",
+    sourceOsrmMatch: "osrm_match",
+    sourceOsrmMatchGaps: "osrm_match · пропуски",
+    sourceOsrmRoute: "osrm_route",
+    sourceApprox: "приблизно",
+    sourceRawGps: "GPS без доріг",
+    sourceNone: "none",
+  },
+  visitsFuelPage: {
+    compensationGps: "GPS-трек (osrm_match)",
+    compensationHybrid: "GPS+візити (hybrid)",
+    compensationReview: "перевірка — без автовиплати",
+    compensationVisits: "порядок візитів",
+    loopCollapseBadge: " · loop collapse",
+    trackSnapKm: "GPS (snap)",
+    trackRawKm: "raw",
+    visitsKm: "Візити",
+    warnings: {
+      insufficient_completed_visits:
+        "Завершіть мінімум 2 візити з адресою на карті — тоді порахуємо пробіг.",
+      visit_no_coordinates: "Візит без координат — не в маршруті.",
+      visit_gps_review: "Було попередження GPS — керівник може уточнити.",
+      metrics_unavailable: "Не вдалося порахувати маршрут.",
+      route_anchors_not_configured:
+        "Старт/фініш не задані в профілі (Співробітники → Маршрут візитів). Пробіг рахується між першим і останнім візитом.",
+      gps_track_degraded: "GPS-трек слабкий — для виплати використано факт по завершених візитах.",
+      gps_track_too_short: "GPS-трек коротший за 0.5 км — для виплати використано маршрут по візитах.",
+      gps_track_ineligible: "GPS-трек недостатній для виплати — використано маршрут по візитах.",
+      gps_track_unavailable: "GPS-трек відсутній — для виплати використано факт по завершених візитах.",
+      gps_partial_coverage: "GPS-трек покриває лише частину зміни — перевірте якість треку.",
+      gps_low_coverage: "Покриття GPS нижче 70% — виплата по візитах (GPS недостатній для компенсації).",
+      gps_low_coverage_partial_payout:
+        "Часткове покриття GPS — виплата по GPS-треку (менше за повний день; перевірте трек).",
+      gps_snap_loop_collapse:
+        "GPS згорнувся в короткий loop (home→…→home) — автоматична виплата по візитах заблокована; потрібна ручна перевірка.",
+      compensation_review_required:
+        "Компенсацію не пораховано автоматично — потрібна ручна перевірка менеджером.",
+      gps_raw_payout_after_short_snap: "OSRM-маршрут обірвався — компенсацію пораховано по сирому GPS-треку.",
+      gps_ended_before_last_visit:
+        "GPS-трек обірвався до останнього візиту — для виплати використано маршрут по візитах.",
+      gps_ended_early_partial_payout:
+        "GPS-трек обірвався раніше — компенсацію все одно пораховано по доступному треку.",
+      gps_implausibly_short_vs_visits:
+        "GPS-км значно менші за маршрут по візитах — для виплати використано факт по візитах.",
+      gps_implausibly_long_vs_visits:
+        "GPS-км значно більші за маршрут по візитах — для виплати використано факт по візитах.",
+      planned_km_implausibly_large:
+        "Плановий пробіг виглядає помилковим (>500 км) — не орієнтуйтесь на нього як на норму.",
+      planned_km_vs_fact_outlier: "Плановий пробіг у рази більший за факт — план позначено як підозрілий.",
+      fuel_price_missing_for_uah_estimate:
+        "Вкажіть ціну грн/л у профілі, щоб порахувати оцінку компенсації в ₴. Км уже збережено.",
+      report_stale: "Збережені км не збігаються з актуальним джерелом — натисніть «Перерахувати».",
+    },
   },
   visitsTeam: {
     empty: "Немає активних змін у команді",

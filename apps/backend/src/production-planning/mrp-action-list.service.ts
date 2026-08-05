@@ -41,6 +41,21 @@ export class MrpActionListService {
       filtered = filtered.filter((l) => l.monthBucket === monthBucket);
     }
 
+    const productionProductIds = new Set(
+      filtered
+        .filter(
+          (l) =>
+            l.lineType === PlanningRunLineType.PRODUCTION ||
+            l.lineType === PlanningRunLineType.SEMI_REORDER,
+        )
+        .map((l) => l.productId),
+    );
+    filtered = filtered.filter(
+      (l) =>
+        l.lineType !== PlanningRunLineType.CRITICAL ||
+        !productionProductIds.has(l.productId),
+    );
+
     const items = await Promise.all(
       filtered.map((line) =>
         this.toActionItem(line, {
@@ -56,7 +71,12 @@ export class MrpActionListService {
   async mapPackagingLines(
     needPack: MrpLine[],
     canPack: MrpLine[],
-  ): Promise<ActionListItem[]> {
+  ): Promise<{
+    needItems: ActionListItem[];
+    canItems: ActionListItem[];
+    blockedItems: ActionListItem[];
+    items: ActionListItem[];
+  }> {
     const [settings, horizon] = await Promise.all([
       this.settings.getSettings(),
       this.mrpConfig.getHorizon(),
@@ -65,10 +85,58 @@ export class MrpActionListService {
       packCycleDays: settings.packCycleDays,
       defaultPackLeadDays: horizon.defaultPackLeadDays,
     };
-    const items = await Promise.all(
-      [...needPack, ...canPack].map((line) => this.toActionItem(line, ctx)),
+
+    const canByProduct = new Map(canPack.map((l) => [l.productId, l]));
+    const needItems: ActionListItem[] = [];
+    const blockedItems: ActionListItem[] = [];
+
+    for (const line of needPack) {
+      const item = await this.toActionItem(line, ctx);
+      const maxFromParts = Number(line.details?.maxBuildNow ?? item.maxFromParts ?? 0);
+      const packNeed = Number(line.details?.packNeed ?? line.details?.unmetPackNeed ?? line.qty);
+      const enriched: ActionListItem = {
+        ...item,
+        packNeed,
+        maxFromParts,
+        bottleneckSku: (line.details?.bottleneckSku as string | null) ?? item.bottleneckSku,
+        qty: packNeed,
+      };
+      needItems.push(enriched);
+
+      if (
+        line.kind === "KIT" &&
+        packNeed > 0 &&
+        maxFromParts <= 0 &&
+        !canByProduct.has(line.productId)
+      ) {
+        blockedItems.push({
+          ...enriched,
+          qty: 0,
+          blockers: ["no_components"],
+          reason: enriched.bottleneckSku
+            ? `Blocked: no stock for ${enriched.bottleneckSku}`
+            : "Blocked: missing inventoried BOM parts",
+        });
+      }
+    }
+
+    const canItems = await Promise.all(
+      canPack.map(async (line) => {
+        const item = await this.toActionItem(line, ctx);
+        const maxFromParts = Number(line.details?.maxBuildNow ?? 0);
+        const packNeed = Number(line.details?.unmetPackNeed ?? line.details?.packNeed ?? line.qty);
+        return {
+          ...item,
+          packNeed,
+          maxFromParts,
+          bottleneckSku: (line.details?.bottleneckSku as string | null) ?? null,
+          qty: Math.min(packNeed, maxFromParts),
+        };
+      }),
     );
-    return this.sortItems(items);
+
+    const items = this.sortItems([...needItems, ...canItems, ...blockedItems]);
+    return { needItems: this.sortItems(needItems), canItems: this.sortItems(canItems), blockedItems: this.sortItems(blockedItems), items };
   }
 
   sortItems(items: ActionListItem[]): ActionListItem[] {
@@ -91,7 +159,8 @@ export class MrpActionListService {
     const hasHardDeficit = hardDeficitQty > 0;
     const productionLeadDays = Number(details.productionLeadDays ?? 14);
     const packLeadDays = Number(details.packLeadDays ?? ctx.defaultPackLeadDays);
-    const maxBuildNow = Number(details.maxBuildNow ?? details.packReady ?? 0);
+    const maxFromParts = Number(details.maxBuildNow ?? details.packReady ?? 0);
+    const packNeed = Number(details.packNeed ?? details.unmetPackNeed ?? 0);
 
     const priority = this.resolvePriority(line, hasHardDeficit);
     const monthOffset = line.monthBucket ?? 0;
@@ -106,7 +175,7 @@ export class MrpActionListService {
     });
 
     const blockers: string[] = [];
-    if (line.lineType === PlanningRunLineType.CAN_PACK && maxBuildNow <= 0) {
+    if (line.lineType === PlanningRunLineType.CAN_PACK && maxFromParts <= 0) {
       blockers.push("no_components");
     }
 
@@ -129,10 +198,14 @@ export class MrpActionListService {
 
     const qty =
       line.lineType === PlanningRunLineType.CAN_PACK
-        ? Math.min(line.qty, maxBuildNow > 0 ? maxBuildNow : line.qty)
-        : line.suggestedLaunchQty > 0
-          ? line.suggestedLaunchQty
-          : line.qty;
+        ? Math.min(line.qty, maxFromParts > 0 ? maxFromParts : 0)
+        : line.lineType === PlanningRunLineType.PACK
+          ? packNeed > 0
+            ? packNeed
+            : line.qty
+          : line.suggestedLaunchQty > 0
+            ? line.suggestedLaunchQty
+            : line.qty;
 
     return {
       lineId: line.id,
@@ -147,6 +220,9 @@ export class MrpActionListService {
       monthOffset,
       canCreateBatch: canCreateBatch && blockers.length === 0,
       blockers: blockers.length > 0 ? blockers : undefined,
+      packNeed: packNeed > 0 ? packNeed : undefined,
+      maxFromParts: maxFromParts > 0 ? maxFromParts : undefined,
+      bottleneckSku: (details.bottleneckSku as string | null) ?? undefined,
     };
   }
 

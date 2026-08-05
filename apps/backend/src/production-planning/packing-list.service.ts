@@ -11,7 +11,7 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
-import { isNonInventoriedPackagingSku } from "./bom-part.util";
+import { constrainsKitCapacity } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -62,7 +62,43 @@ export class PackingListService {
       },
     });
     if (!list) throw new NotFoundException("Packing list not found");
-    return list;
+    return {
+      ...list,
+      lines: await this.enrichLines(list.lines),
+    };
+  }
+
+  /** Attach live bottleneck / target pack hint for UI (no DB migration). */
+  private async enrichLines<
+    T extends {
+      kitProductId: string;
+      maxFromParts: number;
+      hardNeed: number;
+      forecastNeed: number;
+      stockKits: number;
+    },
+  >(lines: T[]) {
+    const capCache = new Map<
+      string,
+      Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>>
+    >();
+    return Promise.all(
+      lines.map(async (line) => {
+        let cap = capCache.get(line.kitProductId);
+        if (!cap) {
+          cap = await this.calculations.getKitCapacity(line.kitProductId);
+          capCache.set(line.kitProductId, cap);
+        }
+        const bottleneckSku =
+          cap.bottleneckComponentId != null
+            ? (cap.components.find((c) => c.componentProductId === cap!.bottleneckComponentId)
+                ?.product?.sku ?? null)
+            : null;
+        const targetPack = Math.max(0, line.hardNeed + line.forecastNeed - line.stockKits);
+        const partsBlocked = targetPack > 0 && line.maxFromParts < targetPack;
+        return { ...line, bottleneckSku, targetPack, partsBlocked };
+      }),
+    );
   }
 
   async propose(cycleStartIso?: string) {
@@ -163,14 +199,14 @@ export class PackingListService {
       const row = await this.prisma.kitBom.findFirst({
         where: { kitProductId, isActive: true },
         include: {
-          lines: { include: { component: { select: { sku: true } } } },
+          lines: { include: { component: { select: { sku: true, name: true } } } },
         },
         orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
       });
       // PKG:* packaging is not in 1C snapshots — ignore for parts capacity.
       bom =
         row?.lines
-          .filter((l) => !isNonInventoriedPackagingSku(l.component?.sku))
+          .filter((l) => constrainsKitCapacity({ sku: l.component?.sku, name: l.component?.name }))
           .map((l) => ({
             componentProductId: l.componentProductId,
             qtyPerKit: l.qtyPerKit.toNumber(),
@@ -270,7 +306,13 @@ export class PackingListService {
         },
       },
     });
-    return { list: created, freshness };
+    return {
+      list: {
+        ...created,
+        lines: await this.enrichLines(created.lines),
+      },
+      freshness,
+    };
   }
 
   async updateLines(
@@ -311,7 +353,7 @@ export class PackingListService {
       ),
     );
 
-    return this.prisma.packingList.update({
+    const updated = await this.prisma.packingList.update({
       where: { id },
       data: { capacityUsed },
       include: {
@@ -321,6 +363,7 @@ export class PackingListService {
         },
       },
     });
+    return { ...updated, lines: await this.enrichLines(updated.lines) };
   }
 
   async approve(id: string, approvedById: string) {
@@ -338,7 +381,7 @@ export class PackingListService {
     });
     assertFreshSnapshot(evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays));
 
-    return this.prisma.packingList.update({
+    const approved = await this.prisma.packingList.update({
       where: { id },
       data: {
         status: PackingListStatus.APPROVED,
@@ -351,6 +394,7 @@ export class PackingListService {
         },
       },
     });
+    return { ...approved, lines: await this.enrichLines(approved.lines) };
   }
 
   async markDone(id: string) {
@@ -377,6 +421,8 @@ export class PackingListService {
       qtySuggested: l.qtySuggested,
       qtyApproved: l.qtyApproved,
       maxFromParts: l.maxFromParts,
+      targetPack: l.targetPack,
+      bottleneckSku: l.bottleneckSku,
       hardNeed: l.hardNeed,
       forecastNeed: l.forecastNeed,
       stockKits: l.stockKits,

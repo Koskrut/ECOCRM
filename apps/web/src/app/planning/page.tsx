@@ -648,7 +648,11 @@ export default function PlanningPage() {
                 {capacity && (
                   <div className="mt-4 space-y-3">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <StatCard title={t.labels.maxBuildNow} value={String(capacity.maxBuildNow)} />
+                      <StatCard
+                        title={t.labels.maxBuildNow}
+                        value={String(capacity.maxBuildNow)}
+                        hint={t.labels.maxBuildNowHint}
+                      />
                       <StatCard
                         title={t.labels.bottleneck}
                         value={
@@ -1222,10 +1226,17 @@ function Panel({
   );
 }
 
-function StatCard({ title, value }: { title: string; value: string }) {
+function StatCard({ title, value, hint }: { title: string; value: string; hint?: string }) {
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-zinc-500">{title}</p>
+      <p className="text-sm text-zinc-500">
+        {title}
+        {hint ? (
+          <span className="ml-1 cursor-help text-xs" title={hint}>
+            ⓘ
+          </span>
+        ) : null}
+      </p>
       <p className="mt-2 text-sm font-medium text-zinc-900">{value}</p>
     </div>
   );

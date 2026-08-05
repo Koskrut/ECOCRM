@@ -15,6 +15,11 @@ export type ActionListItem = {
   monthOffset?: number;
   canCreateBatch?: boolean;
   blockers?: string[];
+  /** Pack need (forecast + pipeline), for packaging tab. */
+  packNeed?: number;
+  /** Max kits buildable from inventoried BOM parts now. */
+  maxFromParts?: number;
+  bottleneckSku?: string | null;
 };
 
 export const ACTION_PRIORITY_ORDER: Record<ActionListPriority, number> = {

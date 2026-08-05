@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.139**.)_
+### Summary
+
+Planning: false PKG metal BOM fix; GPS contour master fix (see below).
+
+### Fixed
+
+- **Planning / MRP**: metal BOM components (platforms, screws) mis-imported as `PKG:*` no longer ignored in capacity, MRP explode, packing propose, or factory recommendations — `looksLikeComponentSku` + `constrainsKitCapacity({ sku, name })`; CAN_PACK qty = `min(need, maxFromParts)`; packaging UI split (need / can / blocked); repair script `repair-false-pkg-bom-parts.ts`.
+- **Fuel compensation**: payable km = OSRM match/route only (no raw haversine fallback); loop home→…→home collapse → `gps_snap_loop_collapse` review (no auto visit overpay, e.g. Mykhailiv 29.07).
+- **Hybrid geometry**: `fact_visits_gps` — visit-order legs with GPS-window OSRM match where samples exist.
+- **Web route map**: open-shift footnote, `osrm_match` / `osrm_route` / `none` source labels; raw GPS layer off by default when not road-snapped.
+- **Fuel day UI**: loop-collapse / review badges; track vs visit vs paid kind from snapshot.
+
+### Upgrade notes
+
+- **Planning:** after deploy run `repair-false-pkg-bom-parts.ts --apply`, then FULL MRP + propose packing; verify `04.042` / `10.045` maxBuildNow = 0 until platform stock exists.
+- **Deploy order:** backend → web → bulk `POST /field/fuel/day/recalculate` for July DRAFT days (spot-check Mykhailiv 08/29, Hrybovska, Bondarenko open-day UX).
+- **Mobile v0.2.138** already ships FGS/battery fixes — new EAS only if field checklist fails.
 
 ## [0.2.139] — 2026-08-05
 
