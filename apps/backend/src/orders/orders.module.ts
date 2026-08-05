@@ -5,6 +5,7 @@ import { IntegrationPortsModule } from "../integration-ports/integration-ports.m
 import { NotificationsModule } from "../notifications/notifications.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { DemandRulesService } from "../production-planning/demand-rules.service";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
 import { SettingsModule } from "../settings/settings.module";
 import { WarehousesModule } from "../warehouses/warehouses.module";
@@ -42,6 +43,7 @@ import { OrderStatusService } from "./order-status.service";
     OrdersDocumentsService,
     OrdersPipelineConfigService,
     OrdersPickupAutoShipCron,
+    DemandRulesService,
   ],
   exports: [OrdersService],
 })

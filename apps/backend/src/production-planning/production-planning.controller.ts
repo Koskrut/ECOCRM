@@ -69,7 +69,7 @@ export class ProductionPlanningController {
 
   @Patch("config/demand-rules")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  setDemandRules(
+  async setDemandRules(
     @Body()
     body: {
       hardStages: string[];
@@ -86,11 +86,19 @@ export class ProductionPlanningController {
     if (hardStages.length === 0 && softStages.length === 0) {
       throw new BadRequestException("At least one stage must be configured");
     }
-    return this.demandRules.setRules({
+    const rules = await this.demandRules.setRules({
       hardStages,
       softStages,
       includeOrderItemsWithoutProductIdAsSoft: body.includeOrderItemsWithoutProductIdAsSoft ?? true,
     });
+    const resync = await this.demandRules.resyncReservationHardness();
+    return { ...rules, resync };
+  }
+
+  @Post("config/demand-rules/resync-reservations")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  resyncDemandRuleReservations() {
+    return this.demandRules.resyncReservationHardness();
   }
 
   @Get("config/settings")
@@ -521,6 +529,11 @@ export class ProductionPlanningController {
 
   @Get("mrp/packaging")
   getMrpPackaging() {
+    return this.planningRuns.getPackaging();
+  }
+
+  @Get("mrp/packing")
+  getMrpPackingAlias() {
     return this.planningRuns.getPackaging();
   }
 

@@ -106,11 +106,15 @@ export type SalesFreshness = {
   maxAgeDays: number;
   isFresh: boolean;
   warning: string | null;
+  coverageMonths?: number | null;
+  requiredCoverageMonths?: number | null;
 };
 
 export type PlanningFreshness = {
   snapshot: SnapshotFreshness;
   sales: SalesFreshness;
+  mrpStale?: boolean;
+  mrpStaleWarning?: string | null;
 };
 
 export type SalesHistoryUpload = {
@@ -120,6 +124,36 @@ export type SalesHistoryUpload = {
   importedAt: string;
   postedAt: string | null;
   _count?: { lines: number };
+};
+
+export type ActionListPriority = "CRITICAL" | "HARD" | "FORECAST" | "NORMAL";
+
+export type ActionListItem = {
+  lineId: string;
+  productId: string;
+  sku: string;
+  name: string;
+  qty: number;
+  desiredDate: string;
+  reason: string;
+  priority: ActionListPriority;
+  lineType: MrpLineType;
+  monthOffset?: number;
+  canCreateBatch?: boolean;
+  blockers?: string[];
+};
+
+export type ForecastBreakdown = {
+  hardNeed: number;
+  softNeed: number;
+  forecastDemand: number;
+  safetyStock: number;
+  available?: number;
+  expectedWip?: number;
+  grossNeed?: number;
+  netNeed?: number;
+  avgMonthlySold: number;
+  velocitySource: "sales_history" | "crm_orders" | "override";
 };
 
 export type MrpForecastRow = {
@@ -133,6 +167,8 @@ export type MrpForecastRow = {
   hardNeed: number;
   softNeed: number;
   safetyStock: number;
+  velocitySource: "sales_history" | "crm_orders" | "override";
+  breakdown: ForecastBreakdown;
 };
 
 export type MrpForecastView = {
@@ -764,6 +800,7 @@ export const planningApi = {
     monthlyPartsQuota: number | null;
     quotaUsedMonth0?: number;
     lines: MrpRunLine[];
+    items: ActionListItem[];
   }> => {
     const res = await apiHttp.get("/planning/mrp/production-orders", {
       params: month != null ? { month } : undefined,
@@ -775,6 +812,7 @@ export const planningApi = {
     computedAt: string | null;
     needPack: MrpRunLine[];
     canPack: MrpRunLine[];
+    items: ActionListItem[];
   }> => {
     const res = await apiHttp.get("/planning/mrp/packaging");
     return res.data;

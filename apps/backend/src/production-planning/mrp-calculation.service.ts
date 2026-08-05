@@ -6,7 +6,6 @@ import {
   ProductKind,
   ProductionBatchStatus,
   ProductionStageCode,
-  SalesHistoryUploadStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { isNonInventoriedPackagingSku } from "./bom-part.util";
@@ -23,7 +22,6 @@ import {
 } from "./mrp-sku-calc.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
-import { evaluateSalesFreshness } from "./sales-freshness.util";
 import { effectiveSafetyStock } from "./planning-safety.util";
 import { PlanningSettingsService } from "./planning-settings.service";
 
@@ -49,7 +47,7 @@ export type MrpCalculationResult = {
   velocityLookbackMonths: number;
   snapshotId: string | null;
   freshness: ReturnType<typeof evaluateSnapshotFreshness>;
-  salesFreshness: ReturnType<typeof evaluateSalesFreshness>;
+  salesFreshness: Awaited<ReturnType<DemandForecastService["evaluateSalesFreshnessWithCoverage"]>>;
   salesUploadId: string | null;
   lines: MrpDraftLine[];
   summary: {
@@ -90,6 +88,7 @@ type SkuCalc = {
   packLeadDays: number;
   hasBom: boolean;
   missingBom: boolean;
+  velocitySource: string;
 };
 
 @Injectable()
@@ -116,12 +115,7 @@ export class MrpCalculationService {
     });
     const freshness = evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
 
-    const latestSales = await this.prisma.salesHistoryUpload.findFirst({
-      where: { status: SalesHistoryUploadStatus.POSTED },
-      orderBy: { postedAt: "desc" },
-      select: { id: true, postedAt: true },
-    });
-    const salesFreshness = evaluateSalesFreshness(latestSales, settings.snapshotMaxAgeDays);
+    const salesFreshness = await this.demandForecast.evaluateSalesFreshnessWithCoverage();
 
     const allParams = await this.prisma.planningProductParams.findMany({
       select: {
@@ -226,6 +220,7 @@ export class MrpCalculationService {
       const forecastDemand = forecast?.forecastDemand ?? 0;
       const avgMonthlySold = forecast?.avgMonthlySold ?? 0;
       const avgDailySold = forecast?.avgDailySold ?? 0;
+      const velocitySource = forecast?.velocitySource ?? "sales_history";
       const safetyStock = effectiveSafetyStock(
         params?.safetyStock,
         avgMonthlySold,
@@ -278,6 +273,7 @@ export class MrpCalculationService {
         packLeadDays,
         hasBom,
         missingBom,
+        velocitySource,
       });
     }
 
@@ -377,6 +373,7 @@ export class MrpCalculationService {
         packLeadDays: horizon.defaultPackLeadDays,
         hasBom: false,
         missingBom: false,
+        velocitySource: forecast?.velocitySource ?? "sales_history",
       };
       calcs.push(row);
       calcById.set(partId, row);
@@ -577,7 +574,7 @@ export class MrpCalculationService {
       snapshotId: posted?.id ?? null,
       freshness,
       salesFreshness,
-      salesUploadId: latestSales?.id ?? null,
+      salesUploadId: salesFreshness.uploadId ?? null,
       lines: filtered,
       summary: {
         criticalCount: filtered.filter((l) => l.lineType === PlanningRunLineType.CRITICAL).length,
@@ -608,6 +605,7 @@ function baseDetails(
     productionLeadDays: number;
     packLeadDays: number;
     missingBom: boolean;
+    velocitySource?: string;
   },
   extra: Record<string, unknown> = {},
 ) {
@@ -626,6 +624,19 @@ function baseDetails(
     productionLeadDays: row.productionLeadDays,
     packLeadDays: row.packLeadDays,
     missingBom: row.missingBom,
+    velocitySource: row.velocitySource ?? "sales_history",
+    breakdown: {
+      hardNeed: row.hardNeed,
+      softNeed: row.softNeed,
+      forecastDemand: Math.round(row.forecastDemand * 100) / 100,
+      safetyStock: row.safetyStock,
+      available: row.available,
+      expectedWip: row.expectedWip,
+      grossNeed: Math.round(row.grossNeed * 100) / 100,
+      netNeed: row.netNeed,
+      avgDailySold: Math.round(row.avgDailySold * 1000) / 1000,
+      velocitySource: row.velocitySource ?? "sales_history",
+    },
     ...extra,
   };
 }

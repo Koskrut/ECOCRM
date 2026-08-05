@@ -8,6 +8,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { MrpCalculationService } from "./mrp-calculation.service";
 import { MrpConfigService } from "./mrp-config.service";
+import { MrpActionListService } from "./mrp-action-list.service";
 import { ProductionService } from "./production.service";
 
 export type DecoratedPlanningRun = {
@@ -50,6 +51,7 @@ export class PlanningRunService {
     private readonly mrp: MrpCalculationService,
     private readonly mrpConfig: MrpConfigService,
     private readonly production: ProductionService,
+    private readonly actionList: MrpActionListService,
   ) {}
 
   async runAndPersist(mode: PlanningRunMode = PlanningRunMode.FULL) {
@@ -139,19 +141,27 @@ export class PlanningRunService {
   async getProductionOrders(monthBucket?: number) {
     const latest = await this.getLatest(PlanningRunMode.FULL);
     if (!latest) {
-      return { runId: null, computedAt: null, monthlyPartsQuota: null, lines: [], stale: false };
+      return {
+        runId: null,
+        computedAt: null,
+        monthlyPartsQuota: null,
+        lines: [],
+        items: [],
+        stale: false,
+      };
     }
-    // Launch lines: PRODUCTION + SEMI_REORDER (PART risk path). One per product from calculate().
     let lines = latest.lines.filter(
       (l) =>
         l.lineType === PlanningRunLineType.PRODUCTION ||
-        l.lineType === PlanningRunLineType.SEMI_REORDER,
+        l.lineType === PlanningRunLineType.SEMI_REORDER ||
+        l.lineType === PlanningRunLineType.CRITICAL,
     );
     if (monthBucket != null && Number.isFinite(monthBucket)) {
       lines = lines.filter((l) => l.monthBucket === monthBucket);
     }
 
     const quotaUsedMonth0 = PlanningRunService.sumQuotaUsedMonth0(latest.lines);
+    const items = await this.actionList.mapProductionLines(lines);
 
     return {
       runId: latest.id,
@@ -162,20 +172,32 @@ export class PlanningRunService {
       liveCapacity: latest.liveCapacity,
       runCapacity: latest.runCapacity,
       lines,
+      items,
     };
   }
 
   async getPackaging() {
     const latest = await this.getLatest(PlanningRunMode.FULL);
     if (!latest) {
-      return { runId: null, computedAt: null, needPack: [], canPack: [], stale: false };
+      return {
+        runId: null,
+        computedAt: null,
+        needPack: [],
+        canPack: [],
+        items: [],
+        stale: false,
+      };
     }
+    const needPack = latest.lines.filter((l) => l.lineType === PlanningRunLineType.PACK);
+    const canPack = latest.lines.filter((l) => l.lineType === PlanningRunLineType.CAN_PACK);
+    const items = await this.actionList.mapPackagingLines(needPack, canPack);
     return {
       runId: latest.id,
       computedAt: latest.computedAt,
       stale: latest.stale,
-      needPack: latest.lines.filter((l) => l.lineType === PlanningRunLineType.PACK),
-      canPack: latest.lines.filter((l) => l.lineType === PlanningRunLineType.CAN_PACK),
+      needPack,
+      canPack,
+      items,
     };
   }
 

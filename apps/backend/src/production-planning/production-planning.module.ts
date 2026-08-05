@@ -17,6 +17,7 @@ import { PlanningSettingsService } from "./planning-settings.service";
 import { ProductionPlanningController } from "./production-planning.controller";
 import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
+import { MrpActionListService } from "./mrp-action-list.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 
 @Module({
@@ -35,6 +36,7 @@ import { WeeklyPlanningJob } from "./weekly-planning.job";
     MrpCalculationService,
     PlanningRunService,
     SalesHistoryService,
+    MrpActionListService,
     PackingListService,
     FactoryOrderService,
     ProductionService,

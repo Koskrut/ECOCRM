@@ -1,12 +1,22 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
-import { ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
+import { OrderStage, ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { computeProductVelocity, type VelocitySource } from "./demand-velocity.util";
 import { MrpConfigService } from "./mrp-config.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { evaluateSalesFreshness } from "./sales-freshness.util";
 import { SalesHistoryService } from "./sales-history.service";
 import { effectiveSafetyStock, forecastQtyForDays, monthsAgoUtc } from "./planning-safety.util";
+
+export type ForecastBreakdown = {
+  hardNeed: number;
+  softNeed: number;
+  forecastDemand: number;
+  safetyStock: number;
+  avgMonthlySold: number;
+  velocitySource: VelocitySource;
+};
 
 export type ProductDemandForecast = {
   productId: string;
@@ -16,6 +26,7 @@ export type ProductDemandForecast = {
   softNeed: number;
   forecastDemand: number;
   monthlyOverride: number | null;
+  velocitySource: VelocitySource;
 };
 
 export type MrpForecastRow = {
@@ -29,7 +40,11 @@ export type MrpForecastRow = {
   hardNeed: number;
   softNeed: number;
   safetyStock: number;
+  velocitySource: VelocitySource;
+  breakdown: ForecastBreakdown;
 };
+
+const EXCLUDED_ORDER_STAGES: OrderStage[] = [OrderStage.CANCELED, OrderStage.REFUSED];
 
 @Injectable()
 export class DemandForecastService {
@@ -42,8 +57,46 @@ export class DemandForecastService {
     private readonly salesHistory: SalesHistoryService,
   ) {}
 
+  async countDistinctSalesMonths(lookbackMonths: number): Promise<number> {
+    const since = monthsAgoUtc(lookbackMonths);
+    const rows = await this.prisma.salesHistoryLine.findMany({
+      where: {
+        upload: { status: SalesHistoryUploadStatus.POSTED },
+        soldAt: { gte: since },
+        productId: { not: null },
+      },
+      select: { yearMonth: true, soldAt: true },
+    });
+    const months = new Set<string>();
+    for (const row of rows) {
+      const ym =
+        row.yearMonth ??
+        `${row.soldAt.getUTCFullYear()}-${String(row.soldAt.getUTCMonth() + 1).padStart(2, "0")}`;
+      months.add(ym);
+    }
+    return months.size;
+  }
+
+  async evaluateSalesFreshnessWithCoverage() {
+    const [settings, horizon, latestPosted] = await Promise.all([
+      this.planningSettings.getSettings(),
+      this.mrpConfig.getHorizon(),
+      this.salesHistory.latestPosted(),
+    ]);
+    const requiredMonths = Math.min(
+      settings.salesMinCoverageMonths,
+      horizon.velocityLookbackMonths,
+      18,
+    );
+    const distinctMonths = await this.countDistinctSalesMonths(horizon.velocityLookbackMonths);
+    return evaluateSalesFreshness(latestPosted, settings.snapshotMaxAgeDays, new Date(), {
+      distinctMonths,
+      requiredMonths,
+    });
+  }
+
   /**
-   * Velocity from POSTED sales XLS (lookback months), plus hard/soft backlog from demand rules.
+   * Velocity from POSTED sales XLS (primary), OrderItem fallback, override wins.
    */
   async getDemandForecastMap(productIds?: string[]): Promise<Map<string, ProductDemandForecast>> {
     const horizon = await this.mrpConfig.getHorizon();
@@ -77,10 +130,32 @@ export class DemandForecastService {
       soldByProduct.set(row.productId, (soldByProduct.get(row.productId) ?? 0) + row.qty);
     }
 
+    const orderItems = await this.prisma.orderItem.findMany({
+      where: {
+        productId: productIds?.length ? { in: productIds } : { not: null },
+        qtyShipped: { gt: 0 },
+        order: {
+          createdAt: { gte: since },
+          orderStage: { notIn: EXCLUDED_ORDER_STAGES },
+        },
+      },
+      select: { productId: true, qtyShipped: true },
+    });
+
+    const orderQtyByProduct = new Map<string, number>();
+    for (const row of orderItems) {
+      if (!row.productId) continue;
+      orderQtyByProduct.set(
+        row.productId,
+        (orderQtyByProduct.get(row.productId) ?? 0) + (row.qtyShipped ?? 0),
+      );
+    }
+
     const backlog = await this.calculations.getDemandByProduct();
 
     const ids = new Set<string>([
       ...soldByProduct.keys(),
+      ...orderQtyByProduct.keys(),
       ...backlog.keys(),
       ...overrideByProduct.keys(),
       ...(productIds ?? []),
@@ -89,25 +164,26 @@ export class DemandForecastService {
     const out = new Map<string, ProductDemandForecast>();
     for (const productId of ids) {
       if (productIds?.length && !productIds.includes(productId)) continue;
-      const totalSold = soldByProduct.get(productId) ?? 0;
       const override = overrideByProduct.get(productId) ?? null;
-      const avgMonthlySold =
-        override != null && Number.isFinite(override)
-          ? Math.max(0, override)
-          : totalSold / Math.max(1, lookbackMonths);
-      const avgDailySold = avgMonthlySold / 30;
+      const velocity = computeProductVelocity({
+        totalSoldInLookback: soldByProduct.get(productId) ?? 0,
+        totalOrderQtyInLookback: orderQtyByProduct.get(productId) ?? 0,
+        lookbackMonths,
+        coverMonths,
+        override,
+      });
       const hardNeed = backlog.get(productId)?.hard ?? 0;
       const softNeed = backlog.get(productId)?.soft ?? 0;
-      const forecastDemand = Math.ceil(avgMonthlySold * coverMonths);
 
       out.set(productId, {
         productId,
-        avgMonthlySold,
-        avgDailySold,
+        avgMonthlySold: velocity.avgMonthlySold,
+        avgDailySold: velocity.avgMonthlySold / 30,
         hardNeed,
         softNeed,
-        forecastDemand,
+        forecastDemand: velocity.forecastDemand,
         monthlyOverride: override,
+        velocitySource: velocity.velocitySource,
       });
     }
 
@@ -125,12 +201,12 @@ export class DemandForecastService {
   }
 
   async getMrpForecastView() {
-    const [horizon, settings, latestPosted] = await Promise.all([
+    const [horizon, settings, latestPosted, salesFreshness] = await Promise.all([
       this.mrpConfig.getHorizon(),
       this.planningSettings.getSettings(),
       this.salesHistory.latestPosted(),
+      this.evaluateSalesFreshnessWithCoverage(),
     ]);
-    const salesFreshness = evaluateSalesFreshness(latestPosted, settings.snapshotMaxAgeDays);
 
     const since = monthsAgoUtc(Math.max(horizon.velocityLookbackMonths, horizon.coverMonths, 18));
 
@@ -176,6 +252,11 @@ export class DemandForecastService {
     const rows: MrpForecastRow[] = products.map((product) => {
       const forecast = forecastMap.get(product.id);
       const avgMonthlySold = forecast?.avgMonthlySold ?? 0;
+      const velocitySource = forecast?.velocitySource ?? "sales_history";
+      const hardNeed = forecast?.hardNeed ?? 0;
+      const softNeed = forecast?.softNeed ?? 0;
+      const forecastDemand =
+        forecast?.forecastDemand ?? Math.ceil(avgMonthlySold * horizon.coverMonths);
       const safetyStock = effectiveSafetyStock(
         safetyByProduct.get(product.id),
         avgMonthlySold,
@@ -191,10 +272,19 @@ export class DemandForecastService {
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([yearMonth, qty]) => ({ yearMonth, qty })),
         avgMonthlySold,
-        forecastDemand: forecast?.forecastDemand ?? Math.ceil(avgMonthlySold * horizon.coverMonths),
-        hardNeed: forecast?.hardNeed ?? 0,
-        softNeed: forecast?.softNeed ?? 0,
+        forecastDemand,
+        hardNeed,
+        softNeed,
         safetyStock,
+        velocitySource,
+        breakdown: {
+          hardNeed,
+          softNeed,
+          forecastDemand,
+          safetyStock,
+          avgMonthlySold,
+          velocitySource,
+        },
       };
     });
 

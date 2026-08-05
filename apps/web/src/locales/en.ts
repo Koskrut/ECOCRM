@@ -614,6 +614,10 @@ export const en = {
       savePackingLines: "Save quantities",
       open: "Open",
       selectBatch: "Select batch",
+      recalculateMrp: "Recalculate MRP",
+      exportCsv: "Export CSV",
+      showBreakdown: "Details",
+      hideBreakdown: "Hide",
     },
     labels: {
       hardRules: "Hard demand",
@@ -728,6 +732,19 @@ export const en = {
       softPipelineFactor: "Soft pipeline factor",
       needPack: "Need to pack (WIP QC/PACK)",
       canPack: "Can pack now (parts on hand)",
+      desiredDate: "Desired date",
+      priority: "Priority",
+      velocitySource: "Velocity source",
+      velocitySourceValue: (source: string) =>
+        source === "sales_history"
+          ? "Sales XLS"
+          : source === "crm_orders"
+            ? "CRM orders"
+            : source === "override"
+              ? "Override"
+              : source,
+      canPackCount: "Can pack (CAN_PACK)",
+      actionListPacking: "Packing action list",
     },
     placeholders: {
       productSearch: "Search product by SKU or name…",
@@ -797,6 +814,11 @@ export const en = {
         `Live capacity is ${liveQuota} but this MRP run used ${runQuota}. Save capacity/horizon again or re-run MRP.`,
       mrpReranAfterConfig: (runId: string) =>
         `Settings saved and FULL MRP re-run (${runId.slice(0, 8)}…).`,
+      mrpStaleWarn:
+        "MRP is older than the latest snapshot or sales upload. Click Recalculate MRP.",
+      mrpRecalculated: "MRP recalculated.",
+      packListHint:
+        "PACK = parts at QC/PACK; CAN_PACK = kits buildable from stock. packCount=0 with canPack>0 is expected.",
     },
     howTo: {
       title: "How to use planning",

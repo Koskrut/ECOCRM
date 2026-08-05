@@ -10,6 +10,7 @@ export type PlanningSettings = {
   factoryLeadTimeDays: number;
   safetyStockWeeks: number;
   snapshotMaxAgeDays: number;
+  salesMinCoverageMonths: number;
   demandMix: PlanningDemandMix;
 };
 
@@ -19,6 +20,7 @@ export const DEFAULT_PLANNING_SETTINGS: PlanningSettings = {
   factoryLeadTimeDays: 90,
   safetyStockWeeks: 3,
   snapshotMaxAgeDays: 7,
+  salesMinCoverageMonths: 6,
   demandMix: PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED,
 };
 
@@ -66,6 +68,12 @@ export class PlanningSettingsService {
         1,
         90,
       ),
+      salesMinCoverageMonths: clampInt(
+        value.salesMinCoverageMonths,
+        DEFAULT_PLANNING_SETTINGS.salesMinCoverageMonths,
+        1,
+        18,
+      ),
       demandMix,
     };
   }
@@ -102,6 +110,12 @@ export class PlanningSettingsService {
         current.snapshotMaxAgeDays,
         1,
         90,
+      ),
+      salesMinCoverageMonths: clampInt(
+        next.salesMinCoverageMonths ?? current.salesMinCoverageMonths,
+        current.salesMinCoverageMonths,
+        1,
+        18,
       ),
       demandMix:
         next.demandMix === PlanningDemandMix.MAX_FORECAST_HARD

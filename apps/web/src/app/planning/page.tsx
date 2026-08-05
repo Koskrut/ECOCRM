@@ -125,6 +125,8 @@ export default function PlanningPage() {
   const [projection, setProjection] = useState<StockProjection | null>(null);
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
   const [salesFreshness, setSalesFreshness] = useState<SalesFreshness | null>(null);
+  const [mrpStale, setMrpStale] = useState(false);
+  const [mrpStaleWarning, setMrpStaleWarning] = useState<string | null>(null);
   const [planningSettings, setPlanningSettings] = useState<PlanningSettings | null>(null);
   const [savingRules, setSavingRules] = useState(false);
   const [runningWeekly, setRunningWeekly] = useState(false);
@@ -291,6 +293,8 @@ export default function PlanningPage() {
       setProjection(projRes);
       setFreshness(freshnessRes.snapshot);
       setSalesFreshness(freshnessRes.sales);
+      setMrpStale(Boolean(freshnessRes.mrpStale));
+      setMrpStaleWarning(freshnessRes.mrpStaleWarning ?? null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.loadDashboard);
     } finally {
@@ -373,6 +377,7 @@ export default function PlanningPage() {
   const handlePublishSnapshot = async (snapshotId: string) => {
     try {
       await planningApi.postSnapshot(snapshotId);
+      await planningApi.runMrp("FULL");
       await handleRefresh();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.publishSnapshot);
@@ -534,7 +539,12 @@ export default function PlanningPage() {
 
       <PlanningHowToPanel open={howToOpen} />
 
-      <PlanningFreshnessBanners snapshot={freshness} sales={salesFreshness} />
+      <PlanningFreshnessBanners
+        snapshot={freshness}
+        sales={salesFreshness}
+        mrpStale={mrpStale}
+        mrpStaleWarning={mrpStaleWarning}
+      />
 
       <div className="flex flex-wrap gap-2">
         {(

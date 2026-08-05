@@ -10,6 +10,7 @@ import {
   type MrpForecastView,
   type MrpRun,
   type MrpRunLine,
+  type ActionListItem,
   type PackingList,
   type PlanningCapacityConfig,
   type PlanningDashboard,
@@ -189,14 +190,24 @@ export function SalesFreshnessBanner({ freshness }: { freshness: SalesFreshness 
 export function PlanningFreshnessBanners({
   snapshot,
   sales,
+  mrpStale,
+  mrpStaleWarning,
 }: {
   snapshot: SnapshotFreshness | null;
   sales: SalesFreshness | null;
+  mrpStale?: boolean;
+  mrpStaleWarning?: string | null;
 }) {
+  const t = strings.planning;
   return (
     <div className="space-y-2">
       <FreshnessBanner freshness={snapshot} />
       <SalesFreshnessBanner freshness={sales} />
+      {mrpStale ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {mrpStaleWarning ?? t.messages.mrpStaleWarn}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -336,6 +347,8 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
                     setUploadInfo(t.messages.salesPostedOk);
                     setStagedUploadId(null);
                     await load();
+                    await planningApi.runMrp("FULL");
+                    setUploadInfo(t.messages.salesPostedOk + " " + t.messages.mrpRecalculated);
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.forecast);
                   } finally {
@@ -347,6 +360,27 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
               {t.actions.postSalesHistory}
             </button>
           ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
+            onClick={() => {
+              void (async () => {
+                setBusy(true);
+                try {
+                  await planningApi.runMrp("FULL");
+                  setUploadInfo(t.messages.mrpRecalculated);
+                  await load();
+                } catch (e) {
+                  reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+          >
+            {t.actions.recalculateMrp}
+          </button>
           <button
             type="button"
             disabled={busy}
@@ -372,6 +406,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
             t.labels.avgMonthly,
             t.labels.forecastHorizon,
             t.labels.safetyStock,
+            t.labels.velocitySource,
           ]}
           rows={rows.map((r) => [
             r.sku,
@@ -379,6 +414,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
             String(Math.round(r.avgMonthlySold)),
             String(r.forecastDemand),
             String(r.safetyStock),
+            t.labels.velocitySourceValue(r.velocitySource),
           ])}
           noDataLabel={t.states.noPostedSales}
         />
@@ -743,6 +779,110 @@ function QuotaBar({ used, quota }: { used: number; quota: number }) {
   );
 }
 
+function exportActionListCsv(items: ActionListItem[], filename: string) {
+  const header = "sku,qty,desiredDate,reason,priority\n";
+  const body = items
+    .map(
+      (i) =>
+        `${i.sku},${i.qty},${i.desiredDate},"${(i.reason ?? "").replace(/"/g, '""')}",${i.priority}`,
+    )
+    .join("\n");
+  const blob = new Blob([header + body], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function ActionListTable({
+  items,
+  lineById,
+  creatingId,
+  onCreateBatch,
+  onProposePacking,
+  proposingId,
+}: {
+  items: ActionListItem[];
+  lineById?: Map<string, MrpRunLine>;
+  creatingId?: string | null;
+  onCreateBatch?: (line: MrpRunLine) => void;
+  onProposePacking?: () => void;
+  proposingId?: string | null;
+}) {
+  const t = strings.planning;
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const headers = [
+    t.labels.sku,
+    t.labels.qty,
+    t.labels.desiredDate,
+    t.labels.priority,
+    t.labels.reason,
+    t.labels.actions,
+  ];
+  return (
+    <SimpleTable
+      headers={headers}
+      rows={items.map((item) => {
+        const line = lineById?.get(item.lineId);
+        const breakdown = line?.details?.breakdown as Record<string, unknown> | undefined;
+        return [
+          item.sku,
+          String(item.qty),
+          item.desiredDate,
+          item.priority,
+          <>
+            {item.reason || "—"}
+            {breakdown ? (
+              <button
+                type="button"
+                className="ml-2 text-xs text-cyan-700 underline"
+                onClick={() =>
+                  setExpandedId(expandedId === item.lineId ? null : item.lineId)
+                }
+              >
+                {expandedId === item.lineId ? t.actions.hideBreakdown : t.actions.showBreakdown}
+              </button>
+            ) : null}
+            {expandedId === item.lineId && breakdown ? (
+              <pre className="mt-1 max-w-md whitespace-pre-wrap text-xs text-zinc-600">
+                {JSON.stringify(breakdown, null, 2)}
+              </pre>
+            ) : null}
+          </>,
+          <>
+            {item.canCreateBatch && line && onCreateBatch ? (
+              <button
+                type="button"
+                disabled={creatingId === item.lineId}
+                className="rounded-md bg-cyan-600 px-2 py-1 text-xs font-medium text-white disabled:opacity-40"
+                onClick={() => onCreateBatch(line)}
+              >
+                {creatingId === item.lineId ? strings.common.loading : t.actions.createBatch}
+              </button>
+            ) : null}
+            {item.lineType === "CAN_PACK" && onProposePacking ? (
+              <button
+                type="button"
+                disabled={proposingId === item.lineId}
+                className="ml-1 rounded-md border border-cyan-600 px-2 py-1 text-xs font-medium text-cyan-700 disabled:opacity-40"
+                onClick={() => onProposePacking()}
+              >
+                {t.actions.proposePacking}
+              </button>
+            ) : null}
+            {item.blockers?.length ? (
+              <span className="ml-1 text-xs text-amber-700">{item.blockers.join(", ")}</span>
+            ) : null}
+          </>,
+        ];
+      })}
+      noDataLabel={t.states.noData}
+    />
+  );
+}
+
 function MrpLinesTable({
   lines,
   onCreateBatch,
@@ -870,6 +1010,7 @@ export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void 
         <StatCard title={t.labels.criticalSku} value={String(run?.summary?.criticalCount ?? 0)} />
         <StatCard title={t.labels.productionOrders} value={String(run?.summary?.productionCount ?? 0)} />
         <StatCard title={t.labels.packQueueMrp} value={String(run?.summary?.packCount ?? 0)} />
+        <StatCard title={t.labels.canPackCount} value={String(run?.summary?.canPackCount ?? 0)} />
         <StatCard title={t.labels.semiReorder} value={String(run?.summary?.semiCount ?? 0)} />
       </div>
       <Panel title={t.labels.monthlyQuota}>
@@ -905,6 +1046,9 @@ export function MrpProductionPanel({ onError }: { onError: (msg: string) => void
     void load();
   }, [load]);
 
+  const lineById = new Map((data?.lines ?? []).map((l) => [l.id, l]));
+  const items = data?.items ?? [];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -927,11 +1071,18 @@ export function MrpProductionPanel({ onError }: { onError: (msg: string) => void
             <QuotaBar used={data.quotaUsedMonth0 ?? 0} quota={data.monthlyPartsQuota} />
           </div>
         ) : null}
+        <button
+          type="button"
+          className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700"
+          onClick={() => exportActionListCsv(items, `production-m${month}.csv`)}
+        >
+          {t.actions.exportCsv}
+        </button>
       </div>
       <Panel title={t.tabs.mrpProduction}>
-        <MrpLinesTable
-          lines={data?.lines ?? []}
-          showMonth
+        <ActionListTable
+          items={items}
+          lineById={lineById}
           creatingId={creatingId}
           onCreateBatch={(line) => {
             void (async () => {
@@ -957,26 +1108,71 @@ export function MrpPackagingPanel({ onError }: { onError: (msg: string) => void 
   const reportError = useStableErrorHandler(onError);
   const [needPack, setNeedPack] = useState<MrpRunLine[]>([]);
   const [canPack, setCanPack] = useState<MrpRunLine[]>([]);
+  const [items, setItems] = useState<ActionListItem[]>([]);
+  const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [proposing, setProposing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await planningApi.getMrpPackaging();
+      setNeedPack(res.needPack);
+      setCanPack(res.canPack);
+      setItems(res.items);
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : t.errors.loadMrp);
+    }
+  }, [reportError, t.errors.loadMrp]);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await planningApi.getMrpPackaging();
-        setNeedPack(res.needPack);
-        setCanPack(res.canPack);
-      } catch (e) {
-        reportError(e instanceof Error ? e.message : t.errors.loadMrp);
-      }
-    })();
-  }, [reportError, t.errors.loadMrp]);
+    void load();
+  }, [load]);
+
+  const lineById = new Map([...needPack, ...canPack].map((l) => [l.id, l]));
 
   return (
     <div className="space-y-4">
-      <Panel title={t.labels.needPack}>
-        <MrpLinesTable lines={needPack} />
-      </Panel>
-      <Panel title={t.labels.canPack}>
-        <MrpLinesTable lines={canPack} />
+      <p className="text-sm text-zinc-600">{t.messages.packListHint}</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700"
+          onClick={() => exportActionListCsv(items, "packing.csv")}
+        >
+          {t.actions.exportCsv}
+        </button>
+      </div>
+      <Panel title={t.labels.actionListPacking}>
+        <ActionListTable
+          items={items}
+          lineById={lineById}
+          creatingId={creatingId}
+          proposingId={proposing ? "all" : null}
+          onCreateBatch={(line) => {
+            void (async () => {
+              setCreatingId(line.id);
+              try {
+                await planningApi.createBatchFromMrpLine(line.id);
+                await load();
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.createBatch);
+              } finally {
+                setCreatingId(null);
+              }
+            })();
+          }}
+          onProposePacking={() => {
+            void (async () => {
+              setProposing(true);
+              try {
+                await planningApi.proposePackingList();
+              } catch (e) {
+                reportError(e instanceof Error ? e.message : t.errors.packing);
+              } finally {
+                setProposing(false);
+              }
+            })();
+          }}
+        />
       </Panel>
     </div>
   );

@@ -21,8 +21,9 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { reservationHardnessForStage } from "./reservation-hardness.util";
+import { DemandRulesService } from "../production-planning/demand-rules.service";
 import { computePaymentStatus, isPaymentClosed } from "./order-payment-guards";
+import { reservationHardnessForStage } from "./reservation-hardness.util";
 import { computeOrderDebtAndCredit } from "../payments/order-finance.utils";
 import {
   assertWarehouseOrderItemQtyUpdate,
@@ -146,6 +147,7 @@ export class OrdersService {
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     private readonly warehouseNotifier: OrderWarehouseNotifierService,
+    private readonly demandRules: DemandRulesService,
     @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
     @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
   ) {}
@@ -414,12 +416,15 @@ export class OrdersService {
     }
     if (qtyByProduct.size === 0) return;
 
+    const rules = await this.demandRules.getRules();
+    const hardness = reservationHardnessForStage(stage as OrderStage, rules);
+
     await db.materialReservation.createMany({
       data: Array.from(qtyByProduct.entries()).map(([productId, qty]) => ({
         productId,
         warehouseId: order.warehouseId ?? null,
         qty,
-        hardness: reservationHardnessForStage(stage),
+        hardness,
         status: ReservationStatus.ACTIVE,
         orderId,
       })),

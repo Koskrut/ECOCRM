@@ -615,6 +615,10 @@ export const uk = {
       savePackingLines: "Зберегти кількості",
       open: "Відкрити",
       selectBatch: "Обрати партію",
+      recalculateMrp: "Перерахувати MRP",
+      exportCsv: "Експорт CSV",
+      showBreakdown: "Деталі",
+      hideBreakdown: "Сховати",
     },
     labels: {
       hardRules: "Жорсткий попит",
@@ -729,6 +733,19 @@ export const uk = {
       softPipelineFactor: "Коефіцієнт soft pipeline",
       needPack: "Потрібно запакувати (WIP QC/PACK)",
       canPack: "Можна запакувати зараз (є деталі)",
+      desiredDate: "Бажана дата",
+      priority: "Пріоритет",
+      velocitySource: "Джерело швидкості",
+      velocitySourceValue: (source: string) =>
+        source === "sales_history"
+          ? "XLS продажі"
+          : source === "crm_orders"
+            ? "CRM замовлення"
+            : source === "override"
+              ? "Override"
+              : source,
+      canPackCount: "Можна запакувати (CAN_PACK)",
+      actionListPacking: "Список на упаковку",
     },
     placeholders: {
       productSearch: "Пошук позиції за артикулом або назвою…",
@@ -800,6 +817,11 @@ export const uk = {
         `Жива квота ${liveQuota}, а цей MRP-прогін рахувався з ${runQuota}. Збережіть квоту/горизонт знову або перезапустіть MRP.`,
       mrpReranAfterConfig: (runId: string) =>
         `Налаштування збережено, FULL MRP перераховано (${runId.slice(0, 8)}…).`,
+      mrpStaleWarn:
+        "MRP старіший за останній снапшот або продажі. Натисніть «Перерахувати MRP».",
+      mrpRecalculated: "MRP перераховано.",
+      packListHint:
+        "PACK — деталі на QC/PACK; CAN_PACK — можна зібрати з наявних деталей. packCount=0 при canPack>0 — нормально.",
     },
     howTo: {
       title: "Як користуватися плануванням",

@@ -7,6 +7,9 @@
 ### Added
 
 - **MRP + sales XLS**: `SalesHistoryUpload` (STAGED→POSTED→VOID), upload/post API, velocity from posted sales (not CRM orders), `safetyMonths` in horizon config, `GET planning/mrp/forecast` / `mrp/factory`, Forecast tab stage/post UI, sales freshness banners.
+- **MRP action lists**: production/packaging endpoints return `ActionListItem[]` (`sku × qty × desiredDate`); UI tables with CSV export and breakdown drawer.
+- **Velocity fallback**: CRM `OrderItem` when SKU missing from sales XLS; `velocitySource` on forecast/MRP details.
+- **Demand rules sync**: reservation hardness follows configurable softStages; re-sync on PATCH demand-rules.
 
 ### Fixed
 

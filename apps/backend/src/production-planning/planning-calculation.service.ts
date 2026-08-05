@@ -15,7 +15,6 @@ import { DemandForecastService } from "./demand-forecast.service";
 import { DemandRulesService } from "./demand-rules.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
-import { evaluateSalesFreshness } from "./sales-freshness.util";
 
 @Injectable()
 export class PlanningCalculationService {
@@ -287,21 +286,33 @@ export class PlanningCalculationService {
   }
 
   async getSalesFreshness() {
-    const settings = await this.settings.getSettings();
-    const posted = await this.prisma.salesHistoryUpload.findFirst({
-      where: { status: SalesHistoryUploadStatus.POSTED },
-      orderBy: { postedAt: "desc" },
-      select: { id: true, postedAt: true },
-    });
-    return evaluateSalesFreshness(posted, settings.snapshotMaxAgeDays);
+    return this.demandForecast.evaluateSalesFreshnessWithCoverage();
   }
 
   async getPlanningFreshness() {
-    const [snapshot, sales] = await Promise.all([
+    const [snapshot, sales, latestRun] = await Promise.all([
       this.getSnapshotFreshness(),
       this.getSalesFreshness(),
+      this.prisma.planningRun.findFirst({
+        where: { mode: "FULL" },
+        orderBy: { computedAt: "desc" },
+        select: { computedAt: true },
+      }),
     ]);
-    return { snapshot, sales };
+    let mrpStale = false;
+    let mrpStaleWarning: string | null = null;
+    const inputTimes = [snapshot.postedAt, sales.postedAt]
+      .filter((d): d is Date => d instanceof Date)
+      .map((d) => d.getTime());
+    if (latestRun && inputTimes.length > 0) {
+      const newestInput = Math.max(...inputTimes);
+      if (latestRun.computedAt.getTime() < newestInput) {
+        mrpStale = true;
+        mrpStaleWarning =
+          "MRP run is older than the latest snapshot or sales upload. Recalculate MRP.";
+      }
+    }
+    return { snapshot, sales, mrpStale, mrpStaleWarning };
   }
 
   async getDashboardSummary() {
