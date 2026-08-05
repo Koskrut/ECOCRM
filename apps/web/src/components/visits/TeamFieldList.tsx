@@ -94,6 +94,27 @@ export function teamMarkerTitle(item: FieldShiftTeamItem): string {
     .replace("{gps}", gpsStatusLabel(item.gpsStatus));
 }
 
+function gpsStatusSortRank(status: FieldTeamGpsStatus): number {
+  switch (status) {
+    case "none":
+      return 0;
+    case "stale":
+      return 1;
+    case "ok":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function sortedTeamItems(items: FieldShiftTeamItem[]): FieldShiftTeamItem[] {
+  return [...items].sort((a, b) => {
+    const rank = gpsStatusSortRank(a.gpsStatus) - gpsStatusSortRank(b.gpsStatus);
+    if (rank !== 0) return rank;
+    return a.owner.fullName.localeCompare(b.owner.fullName, "uk");
+  });
+}
+
 type TeamFieldListProps = {
   items: FieldShiftTeamItem[];
   selectedOwnerId: string | null;
@@ -109,9 +130,11 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
     );
   }
 
+  const ordered = sortedTeamItems(items);
+
   return (
     <ul className="space-y-2">
-      {items.map((item) => {
+      {ordered.map((item) => {
         const selected = item.owner.id === selectedOwnerId;
         const samplesSuffix =
           item.sampleCountToday > 0
@@ -179,6 +202,10 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                     .replace("{samples}", samplesSuffix)}
                 </p>
                 {restartDetail ? <p className="text-amber-700">{restartDetail}</p> : null}
+                {(item.gpsStatus === "stale" || item.gpsStatus === "none") &&
+                item.trackingRestart?.lastRestartReason === "os_kill" ? (
+                  <p className="text-sky-800">{t.gpsOpenAppRecoverHint}</p>
+                ) : null}
                 {item.gpsWarning === "region_mismatch" ? (
                   <p className="text-amber-800">{t.gpsWarningRegion}</p>
                 ) : null}

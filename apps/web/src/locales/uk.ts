@@ -2224,6 +2224,8 @@ export const uk = {
     restartReasonAppstate: "стан додатку",
     restartReasonWatchdog: "сторожовий таймер",
     restartReasonUnknown: "невідомо",
+    gpsOpenAppRecoverHint:
+      "ОС зупинила GPS — попросіть менеджера відкрити CRM на телефоні і натиснути «Перезапустити трекінг».",
     markerTitle: "{name} · {app} · {gps}",
     routeGpsFallback: "Маршрут по GPS, не по дорогах",
     shiftOnlyTrack: "Лише поточна зміна (діагностика)",

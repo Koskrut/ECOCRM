@@ -22,7 +22,8 @@ export type TrackingUnhealthyReason =
   | "foreground_watch_dead"
   | "accept_stale"
   | "accept_stale_wrong_day"
-  | "accept_stale_auth_401";
+  | "accept_stale_auth_401"
+  | "fgs_start_blocked_background";
 
 export type ResolveUnhealthyReasonInput = {
   healthy: boolean;
@@ -32,6 +33,8 @@ export type ResolveUnhealthyReasonInput = {
   acceptStale: boolean;
   backgroundPermission?: string | null;
   flushBlockReason?: string | null;
+  /** User tried Restart while app was not in foreground. */
+  fgsRestartBlocked?: boolean;
 };
 
 /**
@@ -43,6 +46,10 @@ export function resolveTrackingUnhealthyReason(
   input: ResolveUnhealthyReasonInput,
 ): TrackingUnhealthyReason {
   if (input.healthy && !input.acceptStale) return "none";
+
+  if (input.fgsRestartBlocked) {
+    return "fgs_start_blocked_background";
+  }
 
   const modeActive = input.claimedMode !== "none";
   if (
@@ -93,6 +100,8 @@ export function unhealthyReasonMessageKeys(reason: TrackingUnhealthyReason): {
       return { titleKey: "gps.sessionExpiredTitle", bodyKey: "gps.sessionExpiredHint" };
     case "accept_stale":
       return { titleKey: "gps.gpsNotWriting", bodyKey: "gps.gpsNotWritingHint" };
+    case "fgs_start_blocked_background":
+      return { titleKey: "gps.openAppFirstTitle", bodyKey: "gps.openAppFirstHint" };
     default:
       return null;
   }

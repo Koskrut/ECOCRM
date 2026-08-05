@@ -17,24 +17,27 @@ type Props = {
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
   trackingMode: "background" | "foreground" | "none";
+  /** Only true after a failed foreground restart attempt. */
+  showBatteryHint?: boolean;
 };
 
 export function TrackingHealthBanner({
   backgroundPermission,
   batteryOptimizationStatus,
   trackingMode,
+  showBatteryHint = false,
 }: Props) {
   const theme = useTheme();
 
   const needsBackground =
     backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
-  // Never prompt battery when already Unrestricted — that was the misleading UX.
   const needsBattery =
+    showBatteryHint &&
     isAndroid() &&
     trackingMode !== "none" &&
     !needsBackground &&
-    (batteryOptimizationStatus === "restricted" ||
-      batteryOptimizationStatus === "unknown");
+    batteryOptimizationStatus !== "unrestricted" &&
+    (batteryOptimizationStatus === "restricted" || batteryOptimizationStatus === "unknown");
 
   if (!needsBackground && !needsBattery) {
     return null;

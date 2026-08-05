@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { AppState } from "react-native";
 
 import { STORAGE_KEYS } from "./location-tracking-buffer";
 import { FIELD_LOCATION_TASK } from "./location-tracking-config";
@@ -9,7 +10,9 @@ import {
   type SamplingTier,
   type WatchOptions,
 } from "./location-tracking-config";
+import { FIELD_TRACKING_CHANNEL_ID } from "./tracking-notification-channel";
 import {
+  canStartLocationForegroundService,
   clearPendingAdaptiveTier,
   setPendingAdaptiveTier,
 } from "./location-tracking-restart";
@@ -50,7 +53,8 @@ export function backgroundOptionsForTier(tier: SamplingTier): Location.LocationT
       notificationTitle: "CRM — зміна активна",
       notificationBody: "Збір геолокації для маршруту",
       notificationColor: "#2563eb",
-    },
+      notificationChannelId: FIELD_TRACKING_CHANNEL_ID,
+    } as Location.LocationTaskServiceOptions,
     pausesUpdatesAutomatically: false,
     activityType: Location.ActivityType.AutomotiveNavigation,
   };
@@ -58,6 +62,10 @@ export function backgroundOptionsForTier(tier: SamplingTier): Location.LocationT
 
 /** Foreground-controlled stop/start for tier changes only. */
 export async function restartBackgroundWatch(tier: SamplingTier): Promise<void> {
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    await setPendingAdaptiveTier(tier);
+    return;
+  }
   const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
   );
@@ -81,6 +89,10 @@ export async function applyAdaptiveTier(
         () => false,
       );
       if (started) {
+        if (!canStartLocationForegroundService(AppState.currentState)) {
+          await setPendingAdaptiveTier(tier);
+          return;
+        }
         await restartBackgroundWatch(tier);
         setCurrentForegroundTier(tier);
         await clearPendingAdaptiveTier();

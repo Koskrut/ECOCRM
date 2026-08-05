@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Alert, AppState, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { Text } from "@/components/Themed";
@@ -19,12 +19,13 @@ import { getApiBaseUrl } from "@/lib/config";
 import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { getErrorLog, type ErrorLogEntry } from "@/lib/error-log";
+import { t } from "@/lib/i18n";
 import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location-tracking";
 import {
   unhealthyReasonMessageKeys,
 } from "@/lib/location-tracking-health";
 import { openLocationPermissionSettings } from "@/lib/location-permissions";
-import { t } from "@/lib/i18n";
+import { canStartLocationForegroundService } from "@/lib/location-tracking-restart";
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -50,6 +51,7 @@ export default function MoreScreen() {
     restartTracking,
     isTracking,
     unhealthyReason,
+    showBatteryHint,
     backgroundPermission,
     batteryOptimizationStatus,
   } = useShiftTracking();
@@ -134,6 +136,7 @@ export default function MoreScreen() {
                 backgroundPermission={backgroundPermission}
                 batteryOptimizationStatus={batteryOptimizationStatus}
                 trackingMode={trackingMode}
+                showBatteryHint={showBatteryHint}
               />
             ) : null}
             {isTracking ? (
@@ -331,6 +334,14 @@ export default function MoreScreen() {
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("gps.lastRejectReason", {
                     value: trackingDebug.lastRejectReason ?? "—",
+                  })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugAppState", { state: AppState.currentState })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugCanStartFgs", {
+                    value: canStartLocationForegroundService(AppState.currentState) ? "yes" : "no",
                   })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>

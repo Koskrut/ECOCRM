@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.137**.)_
+_(планируемые изменения после **0.2.138**.)_
+
+## [0.2.138] — 2026-08-05
+
+### Summary
+
+Патч **0.2.138**: mobile GPS contour ideal pass; team GPS tiers; fuel payout copy.
+
+### Fixed
+
+- **Mobile GPS contour**: foreground recovery bypasses restart cooldown; adaptive tier FGS gated; sticky notification channel; `crm-battery` autolinked for release APKs; battery banner only after failed foreground restart; `fgs_start_blocked_background` unhealthy reason; More diagnostics (AppState, canStartFGS).
+- **Team GPS status**: `ok` ≤10 min, `stale` 10–30 min, `none` >30 min or no samples; Team list sorts dead first + os_kill recover hint.
+- **Fuel day**: clearer hard vs soft `gps_low_coverage` payout copy for managers.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.138`**.
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен (`crm-battery` native module + AppState restart policy).
 
 ## [0.2.137] — 2026-08-05
 

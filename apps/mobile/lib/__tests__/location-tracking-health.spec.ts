@@ -171,6 +171,21 @@ describe("resolveTrackingUnhealthyReason", () => {
     );
   });
 
+  it("maps fgs_start_blocked_background when flagged", () => {
+    assert.equal(
+      resolveTrackingUnhealthyReason({
+        healthy: false,
+        claimedMode: "background",
+        backgroundTaskStarted: false,
+        foregroundWatchActive: false,
+        acceptStale: false,
+        backgroundPermission: "granted",
+        fgsRestartBlocked: true,
+      }),
+      "fgs_start_blocked_background",
+    );
+  });
+
   it("message keys for task-dead never mention battery path", () => {
     const keys = unhealthyReasonMessageKeys("background_task_dead");
     assert.ok(keys);

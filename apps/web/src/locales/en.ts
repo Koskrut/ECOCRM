@@ -2214,6 +2214,8 @@ export const en = {
     restartReasonAppstate: "app state",
     restartReasonWatchdog: "watchdog",
     restartReasonUnknown: "unknown",
+    gpsOpenAppRecoverHint:
+      "OS killed GPS — ask the manager to open CRM on the phone and tap Restart tracking.",
     markerTitle: "{name} · {app} · {gps}",
     routeGpsFallback: "Route from GPS points, not matched to roads",
     shiftOnlyTrack: "Current shift only (debug)",

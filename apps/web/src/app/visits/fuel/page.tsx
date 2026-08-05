@@ -55,10 +55,10 @@ function warningText(code: string): string | null {
     return "GPS-трек покриває лише частину зміни — перевірте якість треку.";
   }
   if (code === "gps_low_coverage") {
-    return "Покриття GPS нижче 70% — для виплати використано маршрут по візитах.";
+    return "Покриття GPS нижче 70% — виплата по візитах (GPS недостатній для компенсації).";
   }
   if (code === "gps_low_coverage_partial_payout" || code === "gps_partial_coverage") {
-    return "Покриття GPS часткове — компенсацію пораховано по GPS-треку (перевірте день).";
+    return "Часткове покриття GPS — виплата по GPS-треку (менше за повний день; перевірте трек).";
   }
   if (code === "gps_raw_payout_after_short_snap") {
     return "OSRM-маршрут обірвався — компенсацію пораховано по сирому GPS-треку.";

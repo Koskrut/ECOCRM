@@ -110,7 +110,7 @@ export function mapRestartContextToReason(context: string): TrackingRestartReaso
   const normalized = context.toLowerCase();
   if (normalized.includes("watchdog")) return "watchdog";
   if (normalized.includes("tier")) return "tier_change";
-  if (normalized.includes("manual")) return "os_kill";
+  if (normalized.includes("manual") || normalized.includes("foregroundrecover")) return "os_kill";
   if (normalized.includes("maintainbackgroundtracking") || normalized.includes("appstate")) {
     return "appstate";
   }

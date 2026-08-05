@@ -42,6 +42,13 @@ export function setFlushBlockReason(reason: FlushBlockReason): void {
   notify();
 }
 
+export function clearStaleGpsFlushBlockIfNeeded(): void {
+  if (lastFlushBlockReason === "stale_gps") {
+    lastFlushBlockReason = null;
+    notify();
+  }
+}
+
 export function clearFlushBlockReason(): void {
   lastFlushBlockReason = null;
   notify();

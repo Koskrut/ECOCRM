@@ -58,16 +58,19 @@ export function ShiftStatusCard({
         : "none",
   );
 
+  const showPermissionCta = unhealthyReason === "background_permission";
+  const showLoginHint = unhealthyReason === "accept_stale_auth_401";
+  const showOpenAppHint = unhealthyReason === "fgs_start_blocked_background";
+
   const showRestartTracking =
-    unhealthyReason === "background_task_dead" ||
-    unhealthyReason === "foreground_watch_dead" ||
-    unhealthyReason === "accept_stale";
+    !showOpenAppHint &&
+    (unhealthyReason === "background_task_dead" ||
+      unhealthyReason === "foreground_watch_dead" ||
+      unhealthyReason === "accept_stale");
   const showRestartShift =
     unhealthyReason === "background_task_dead" ||
     unhealthyReason === "accept_stale" ||
     unhealthyReason === "accept_stale_wrong_day";
-  const showPermissionCta = unhealthyReason === "background_permission";
-  const showLoginHint = unhealthyReason === "accept_stale_auth_401";
 
   return (
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>

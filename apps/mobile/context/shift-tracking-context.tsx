@@ -21,6 +21,7 @@ import {
   maintainBackgroundTracking,
   pauseLocationTrackingKeepBuffer,
   purgePendingSamples,
+  recoverDeadBackgroundTaskOnForeground,
   restartTrackingPipeline,
   resumeTrackingIfNeeded,
   startLocationTracking,
@@ -33,17 +34,20 @@ import {
   isAuthRequired,
 } from "@/lib/session-auth";
 import {
+  canStartLocationForegroundService,
+  shouldPromptBatteryForRestarts,
+  type BatteryOptimizationStatus,
+} from "@/lib/location-tracking-restart";
+import {
   registerBackgroundTrackingWatchdog,
   unregisterBackgroundTrackingWatchdog,
 } from "@/lib/location-tracking-watchdog";
-import type { BatteryOptimizationStatus } from "@/lib/location-tracking-restart";
 import {
   getTrackingPermissionStatus,
   isAndroid,
   openBatteryOptimizationSettings,
   openLocationPermissionSettings,
 } from "@/lib/location-permissions";
-import { shouldPromptBatteryForRestarts } from "@/lib/location-tracking-restart";
 import {
   resolveTrackingUnhealthyReason,
   type TrackingUnhealthyReason,
@@ -71,6 +75,8 @@ type ShiftTrackingCtx = {
   foregroundWatchActive: boolean;
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
+  /** Show battery hint only after a failed foreground restart attempt. */
+  showBatteryHint: boolean;
   refresh: () => Promise<void>;
   startShift: () => Promise<void>;
   endShift: () => Promise<void>;
@@ -97,6 +103,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [backgroundPermission, setBackgroundPermission] = useState<string | null>(null);
   const [batteryOptimizationStatus, setBatteryOptimizationStatus] =
     useState<BatteryOptimizationStatus>("unknown");
+  const [showBatteryHint, setShowBatteryHint] = useState(false);
+  const [fgsRestartBlocked, setFgsRestartBlocked] = useState(false);
   const foregroundWarnedRef = useRef(false);
   const flushAlertShownRef = useRef(false);
   const staleAlertShownRef = useRef(false);
@@ -129,6 +137,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         acceptStale,
         backgroundPermission,
         flushBlockReason,
+        fgsRestartBlocked,
       }),
     [
       trackingHealthy,
@@ -138,6 +147,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       acceptStale,
       backgroundPermission,
       flushBlockReason,
+      fgsRestartBlocked,
     ],
   );
 
@@ -153,22 +163,34 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     ]);
   }, []);
 
-  const maybePromptBatteryOptimization = useCallback(async () => {
+  const maybePromptBatteryAfterFailedRestart = useCallback(async () => {
     if (!isAndroid()) return;
 
     const health = await getTrackingRuntimeHealth();
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
+    if (health.backgroundTaskStarted) return;
 
-    // Unrestricted → never open battery settings / never blame battery.
     if (health.batteryOptimizationStatus === "unrestricted") return;
+    if (
+      health.batteryOptimizationStatus !== "restricted" &&
+      health.batteryOptimizationStatus !== "unknown"
+    ) {
+      return;
+    }
+    if (
+      !shouldPromptBatteryForRestarts(
+        health.restartCountToday,
+        health.lastRestartReason,
+      )
+    ) {
+      return;
+    }
 
-    const batteryRisky =
-      health.batteryOptimizationStatus === "unknown" ||
-      health.batteryOptimizationStatus === "restricted";
-    if (!batteryRisky || batteryUnknownAlertShownRef.current) return;
-
+    setShowBatteryHint(true);
+    if (batteryUnknownAlertShownRef.current) return;
     batteryUnknownAlertShownRef.current = true;
+
     Alert.alert(
       t("gps.batteryTitle"),
       health.batteryOptimizationStatus === "unknown"
@@ -197,38 +219,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
 
-    const mode = await ensureTrackingContinuity();
+    const mode = await recoverDeadBackgroundTaskOnForeground();
     setTrackingMode(mode);
-    await captureImmediateFixAndFlush().catch(() => undefined);
     health = await syncTrackingHealth();
-    if (health.backgroundTaskStarted) return;
-
-    // Do not block GPS recovery on battery module; only mention after foreground restart failed.
-    if (!isAndroid()) return;
-    if (health.batteryOptimizationStatus === "unrestricted") return;
-    if (
-      health.batteryOptimizationStatus !== "restricted" &&
-      health.batteryOptimizationStatus !== "unknown"
-    ) {
-      return;
-    }
-    if (
-      !shouldPromptBatteryForRestarts(
-        health.restartCountToday,
-        health.lastRestartReason,
-      )
-    ) {
+    if (health.backgroundTaskStarted) {
+      setShowBatteryHint(false);
       return;
     }
 
-    Alert.alert(t("gps.batteryTitle"), t("gps.batteryHint"), [
-      {
-        text: t("gps.batteryOpen"),
-        onPress: () => void openBatteryOptimizationSettings(),
-      },
-      { text: t("common.later"), style: "cancel" },
-    ]);
-  }, [syncTrackingHealth]);
+    await maybePromptBatteryAfterFailedRestart();
+  }, [syncTrackingHealth, maybePromptBatteryAfterFailedRestart]);
 
   const alertBackgroundTaskStatus = useCallback((started: boolean) => {
     if (started) return;
@@ -422,7 +422,6 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           await syncTrackingHealth();
           if (mode === "background") {
             void registerBackgroundTrackingWatchdog();
-            await maybePromptBatteryOptimization();
           }
         }
         return;
@@ -465,7 +464,6 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           ]);
         } else if (mode === "background") {
           alertBackgroundTaskStatus(health.backgroundTaskStarted);
-          await maybePromptBatteryOptimization();
           void registerBackgroundTrackingWatchdog();
         }
       } else {
@@ -483,36 +481,39 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     trackingEnabled,
     syncTrackingHealth,
     promptOpenSettings,
-    maybePromptBatteryOptimization,
     alertBackgroundTaskStatus,
   ]);
 
   const restartTracking = useCallback(async () => {
     if (AppState.currentState !== "active") {
+      setFgsRestartBlocked(true);
       Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
       return;
     }
+    setFgsRestartBlocked(false);
     setLoading(true);
     try {
-      clearFlushBlockReason();
       staleAlertShownRef.current = false;
       const result = await restartTrackingPipeline();
       setTrackingMode(result.mode);
       const health = await syncTrackingHealth();
       if (result.ok && (health.backgroundTaskStarted || result.mode === "foreground")) {
+        setShowBatteryHint(false);
         return;
       }
       if (result.errorCode === "app_not_active") {
+        setFgsRestartBlocked(true);
         Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
         return;
       }
+      await maybePromptBatteryAfterFailedRestart();
       Alert.alert(t("gps.restartFailedTitle"), t("gps.restartFailedHint"));
     } catch (e) {
       Alert.alert(t("common.error"), String(e));
     } finally {
       setLoading(false);
     }
-  }, [syncTrackingHealth]);
+  }, [syncTrackingHealth, maybePromptBatteryAfterFailedRestart]);
 
   const restartShiftAfterGpsBlock = useCallback(async () => {
     try {
@@ -705,6 +706,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       foregroundWatchActive,
       backgroundPermission,
       batteryOptimizationStatus,
+      showBatteryHint,
       refresh,
       startShift,
       endShift,
@@ -727,6 +729,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       foregroundWatchActive,
       backgroundPermission,
       batteryOptimizationStatus,
+      showBatteryHint,
       refresh,
       startShift,
       endShift,

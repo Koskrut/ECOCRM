@@ -1,4 +1,5 @@
 import {
+  GPS_NONE_THRESHOLD_MS,
   GPS_STALE_THRESHOLD_MS,
   PRESENCE_ONLINE_THRESHOLD_MS,
 } from "../presence/presence.constants";
@@ -33,7 +34,9 @@ export function deriveGpsStatus(
       ? new Date(lastSampleAt).getTime()
       : lastSampleAt.getTime();
   if (!Number.isFinite(at)) return "none";
-  if (nowMs - at > GPS_STALE_THRESHOLD_MS) return "stale";
+  const ageMs = nowMs - at;
+  if (ageMs > GPS_NONE_THRESHOLD_MS) return "none";
+  if (ageMs > GPS_STALE_THRESHOLD_MS) return "stale";
   return "ok";
 }
 

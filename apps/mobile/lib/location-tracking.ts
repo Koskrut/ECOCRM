@@ -39,7 +39,7 @@ import {
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
 import { reconcileTrackingHealth } from "./location-tracking-health";
-import { clearFlushBlockReason, getLastFlushBlockReason } from "./session-auth";
+import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
 import {
   canStartLocationForegroundService,
   clearPendingAdaptiveTier,
@@ -316,6 +316,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
       await stopForegroundWatch();
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
       startFlushTimer();
+      clearStaleGpsFlushBlockIfNeeded();
       // Cold start: one foreground fix + flush so first point hits server quickly.
       void captureImmediateFixAndFlush().catch(() => undefined);
       return "background";
@@ -396,7 +397,7 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
     };
   }
 
-  clearFlushBlockReason();
+  clearStaleGpsFlushBlockIfNeeded();
   const claimed =
     ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
 
@@ -425,7 +426,12 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
         errorDetail: "fgs_or_os_rejected",
       };
     }
+    clearStaleGpsFlushBlockIfNeeded();
     return { ok: true, mode: "background", backgroundTaskStarted: true };
+  }
+
+  if (mode !== "none") {
+    clearStaleGpsFlushBlockIfNeeded();
   }
 
   return {
@@ -705,6 +711,7 @@ async function ensureBackgroundTaskRunning(
     if (taskStarted) {
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
       startFlushTimer();
+      clearStaleGpsFlushBlockIfNeeded();
       void sendTrackingRestartEvent(shiftId, reason);
       return "background";
     }
@@ -722,7 +729,9 @@ async function ensureBackgroundTaskRunning(
 }
 
 /** Keep foreground watch or background task alive after resume / screen unlock. */
-export async function ensureTrackingContinuity(): Promise<TrackingMode> {
+export async function ensureTrackingContinuity(opts?: {
+  bypassCooldown?: boolean;
+}): Promise<TrackingMode> {
   await applyPendingAdaptiveTierIfNeeded();
 
   const upgraded = await maybeUpgradeToBackgroundTracking();
@@ -741,9 +750,10 @@ export async function ensureTrackingContinuity(): Promise<TrackingMode> {
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode === "background") {
-    const restarted = await ensureBackgroundTaskRunning(shiftId, "ensureTrackingContinuity");
+    const restarted = await ensureBackgroundTaskRunning(shiftId, "ensureTrackingContinuity", opts);
     if (restarted === "background") {
       startFlushTimer();
+      clearStaleGpsFlushBlockIfNeeded();
       void captureImmediateFixAndFlush().catch(() => undefined);
     }
     return restarted;
@@ -811,6 +821,35 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
   if (!started) {
     void appendErrorLog("backgroundWatchdog: skip_fgs_start_while_background", "info");
   }
+}
+
+/** Foreground recovery: dead background task → forceRestart (bypass cooldown) + immediate fix. */
+export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingMode> {
+  if (!canStartLocationForegroundService(AppState.currentState)) {
+    return "none";
+  }
+  const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (!shiftId) return "none";
+
+  const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+  if (mode !== "background") {
+    return ensureTrackingContinuity({ bypassCooldown: true });
+  }
+
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (started) return "background";
+
+  const restarted = await ensureBackgroundTaskRunning(shiftId, "foregroundRecover", {
+    bypassCooldown: true,
+  });
+  if (restarted === "background") {
+    startFlushTimer();
+    clearStaleGpsFlushBlockIfNeeded();
+    await captureImmediateFixAndFlush().catch(() => false);
+  }
+  return restarted;
 }
 
 /** @deprecated Use maintainBackgroundTracking on background and maybeUpgradeToBackgroundTracking on active. */

@@ -449,6 +449,8 @@ export const uk = {
     debugTaskStarted: "Background task: {status}",
     debugHealthy: "Tracking healthy: {status}",
     debugBatteryOpt: "Battery optimization: {status}",
+    debugAppState: "AppState: {state}",
+    debugCanStartFgs: "Can start FGS: {value}",
     debugLastRestart: "Останній restart: {at}",
     debugRestartCount: "Restart сьогодні: {count}",
     debugRestartReason: "Причина restart: {reason}",

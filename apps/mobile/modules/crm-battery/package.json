@@ -1,0 +1,10 @@
+{
+  "name": "crm-battery",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {},
+  "peerDependencies": {
+    "expo": "*",
+    "expo-modules-core": "*"
+  }
+}

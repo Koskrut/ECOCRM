@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  GPS_NONE_THRESHOLD_MS,
   GPS_STALE_THRESHOLD_MS,
   PRESENCE_ONLINE_THRESHOLD_MS,
 } from "../../presence/presence.constants";
@@ -26,6 +27,11 @@ describe("deriveGpsStatus", () => {
   it("returns stale for old sample", () => {
     const old = new Date(now - GPS_STALE_THRESHOLD_MS - 1).toISOString();
     assert.equal(deriveGpsStatus(true, old, now), "stale");
+  });
+
+  it("returns none when sample is older than 30 min", () => {
+    const dead = new Date(now - GPS_NONE_THRESHOLD_MS - 1).toISOString();
+    assert.equal(deriveGpsStatus(true, dead, now), "none");
   });
 });
 
