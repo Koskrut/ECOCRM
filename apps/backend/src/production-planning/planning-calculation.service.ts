@@ -458,7 +458,7 @@ export class PlanningCalculationService {
         const bom = await this.prisma.kitBom.findFirst({
           where: { kitProductId: line.kitProductId, isActive: true },
           include: {
-            lines: { include: { component: { select: { sku: true } } } },
+            lines: { include: { component: { select: { sku: true, name: true } } } },
           },
         });
         if (!bom) continue;

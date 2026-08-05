@@ -187,7 +187,7 @@ export class MrpCalculationService {
     const activeBoms = await this.prisma.kitBom.findMany({
       where: { isActive: true, kitProductId: { in: plannedIds } },
       include: {
-        lines: { include: { component: { select: { sku: true } } } },
+        lines: { include: { component: { select: { sku: true, name: true } } } },
       },
       orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
     });
