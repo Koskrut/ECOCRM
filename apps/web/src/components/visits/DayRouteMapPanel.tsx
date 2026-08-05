@@ -242,8 +242,6 @@ export function DayRouteMapPanel({
           layers={layers}
           onToggle={(key) => setLayers((p) => ({ ...p, [key]: !p[key] }))}
           disabled={loading}
-          planIncludesScheduled={bundle?.planIncludesScheduled}
-          hybridAvailable={hybridAvailable}
         />
       </div>
 
@@ -300,7 +298,7 @@ export function DayRouteMapPanel({
 
       {gpsQuality ? (
         <p className="mt-2 text-xs text-zinc-500">
-          {t.gpsPoints(gpsQuality.sampleCount)}
+          {t.gpsPoints(gpsQuality.sampleCount ?? 0)}
           {gpsQuality.coverageRatio != null
             ? t.coverage(Math.round(gpsQuality.coverageRatio * 100))
             : ""}

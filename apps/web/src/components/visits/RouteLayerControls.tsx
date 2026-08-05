@@ -102,12 +102,12 @@ export function routePolylineOptions(
   if (!geom) return base;
 
   const withArrows =
-    layer === "planned" || layer === "fact_visits"
+    layer === "planned" || layer === "fact_visits" || layer === "fact_visits_gps"
       ? { ...base, icons: directionArrowIcons(base.strokeColor ?? "#2563eb") }
       : base;
 
   const gpsStitchGaps =
-    layer === "fact_gps" &&
+    (layer === "fact_gps" || layer === "fact_visits_gps") &&
     geom.source === "osrm" &&
     (geom.quality?.hasUnfilledGaps === true ||
       geom.quality?.degradedReason === "gps_stitch_gaps" ||

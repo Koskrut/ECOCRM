@@ -154,6 +154,7 @@ export type RouteGeometryBundle = {
   compensationWarnings?: string[];
   shiftActive?: boolean;
   incompleteTour?: boolean;
+  planIncludesScheduled?: boolean;
   planned: RouteGeometryLayer;
   factVisits: RouteGeometryLayer;
   factGps: RouteGeometryLayer;
