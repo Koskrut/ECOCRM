@@ -2,7 +2,7 @@
 
 import type { RouteGeometryLayer, RouteGeometryResult } from "@/lib/api/resources/visits";
 
-export type RouteLayerKey = "planned" | "fact_visits" | "fact_gps";
+export type RouteLayerKey = "planned" | "fact_visits" | "fact_gps" | "fact_visits_gps";
 
 const LAYER_META: Record<
   RouteLayerKey,
@@ -11,6 +11,7 @@ const LAYER_META: Record<
   planned: { label: "План", color: "#2563eb" },
   fact_visits: { label: "Факт (візити)", color: "#059669", dash: "8 6" },
   fact_gps: { label: "Факт (GPS)", color: "#d97706" },
+  fact_visits_gps: { label: "Факт (гібрид)", color: "#7c3aed", dash: "6 4" },
 };
 
 export function RouteLayerControls({
@@ -64,6 +65,7 @@ export const ROUTE_LAYER_STYLES: Record<RouteLayerKey, google.maps.PolylineOptio
   planned: { strokeColor: "#2563eb", strokeOpacity: 0.9, strokeWeight: 4 },
   fact_visits: { strokeColor: "#059669", strokeOpacity: 0.85, strokeWeight: 4 },
   fact_gps: { strokeColor: "#d97706", strokeOpacity: 0.9, strokeWeight: 3 },
+  fact_visits_gps: { strokeColor: "#7c3aed", strokeOpacity: 0.88, strokeWeight: 3 },
 };
 
 const DASHED_LINE_ICONS: google.maps.IconSequence[] = [
