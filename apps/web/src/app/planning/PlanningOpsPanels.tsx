@@ -54,7 +54,7 @@ function SimpleTable({
   rows,
   noDataLabel,
 }: {
-  headers: string[];
+  headers: React.ReactNode[];
   rows: Array<Array<React.ReactNode>>;
   noDataLabel: string;
 }) {
@@ -63,8 +63,8 @@ function SimpleTable({
       <table className="min-w-full divide-y divide-zinc-200 text-sm">
         <thead>
           <tr className="bg-zinc-50">
-            {headers.map((header) => (
-              <th key={header} className="px-3 py-2 text-left font-medium text-zinc-600">
+            {headers.map((header, headerIdx) => (
+              <th key={headerIdx} className="px-3 py-2 text-left font-medium text-zinc-600">
                 {header}
               </th>
             ))}
