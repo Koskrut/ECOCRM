@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.136**.)_
+### Added
+
+- **MRP + sales XLS**: `SalesHistoryUpload` (STAGED→POSTED→VOID), upload/post API, velocity from posted sales (not CRM orders), `safetyMonths` in horizon config, `GET planning/mrp/forecast` / `mrp/factory`, Forecast tab stage/post UI, sales freshness banners.
+
+### Fixed
+
+- **Reservations**: NEW / AWAITING_PAYMENT → SOFT (soft not subtracted from available); migration backfills existing ACTIVE rows.
+- **Kit capacity**: BOM `scrapPct` in max-build ratio.
+- **Horizon default**: `criticalCoverDays` 14 (was 30).
+- **Safety stock**: `safetyStock=0` in params no longer blocks `avgMonthly × safetyMonths` formula.
+- **Forecast source**: factory, packing, dashboard, and projection use posted-sales velocity (not legacy `KitDemandForecast` / CRM).
+- **Lookback window**: stable UTC month boundaries for sales aggregation.
+
+### Upgrade notes
+
+- **Migration**: `20260804120000_sales_history_upload` — backfills legacy `SalesHistoryLine` into synthetic POSTED upload.
+- **Migration**: `20260804180000_soft_reservation_hardness` — fixes ACTIVE reservation hardness for NEW/AWAITING_PAYMENT orders.
+- Re-post sales XLS after deploy if legacy backfill is empty (no admin user during migration).
 
 ## [0.2.136] — 2026-08-04
 

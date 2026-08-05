@@ -16,6 +16,7 @@ import {
   type PlanningDashboard,
   type PlanningSettings,
   type ProductionBatch,
+  type SalesFreshness,
   type SnapshotFreshness,
   type StockProjection,
 } from "@/lib/api/resources/planning";
@@ -24,7 +25,7 @@ import { formatDateTime } from "@/lib/crmDatetime";
 import {
   FactoryPanel,
   ForecastPanel,
-  FreshnessBanner,
+  PlanningFreshnessBanners,
   MrpConfigPanel,
   MrpCriticalPanel,
   MrpDashboardPanel,
@@ -123,6 +124,7 @@ export default function PlanningPage() {
   const [planningDashboard, setPlanningDashboard] = useState<PlanningDashboard | null>(null);
   const [projection, setProjection] = useState<StockProjection | null>(null);
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
+  const [salesFreshness, setSalesFreshness] = useState<SalesFreshness | null>(null);
   const [planningSettings, setPlanningSettings] = useState<PlanningSettings | null>(null);
   const [savingRules, setSavingRules] = useState(false);
   const [runningWeekly, setRunningWeekly] = useState(false);
@@ -287,7 +289,8 @@ export default function PlanningPage() {
       setBatches(batchesRes);
       setPlanningDashboard(dashRes);
       setProjection(projRes);
-      setFreshness(freshnessRes);
+      setFreshness(freshnessRes.snapshot);
+      setSalesFreshness(freshnessRes.sales);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.loadDashboard);
     } finally {
@@ -531,7 +534,7 @@ export default function PlanningPage() {
 
       <PlanningHowToPanel open={howToOpen} />
 
-      <FreshnessBanner freshness={freshness} />
+      <PlanningFreshnessBanners snapshot={freshness} sales={salesFreshness} />
 
       <div className="flex flex-wrap gap-2">
         {(

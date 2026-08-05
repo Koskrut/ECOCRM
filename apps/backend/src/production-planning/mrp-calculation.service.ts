@@ -6,6 +6,7 @@ import {
   ProductKind,
   ProductionBatchStatus,
   ProductionStageCode,
+  SalesHistoryUploadStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { isNonInventoriedPackagingSku } from "./bom-part.util";
@@ -22,6 +23,8 @@ import {
 } from "./mrp-sku-calc.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
+import { evaluateSalesFreshness } from "./sales-freshness.util";
+import { effectiveSafetyStock } from "./planning-safety.util";
 import { PlanningSettingsService } from "./planning-settings.service";
 
 export type MrpDraftLine = {
@@ -46,6 +49,8 @@ export type MrpCalculationResult = {
   velocityLookbackMonths: number;
   snapshotId: string | null;
   freshness: ReturnType<typeof evaluateSnapshotFreshness>;
+  salesFreshness: ReturnType<typeof evaluateSalesFreshness>;
+  salesUploadId: string | null;
   lines: MrpDraftLine[];
   summary: {
     criticalCount: number;
@@ -110,6 +115,13 @@ export class MrpCalculationService {
       select: { id: true, postedAt: true },
     });
     const freshness = evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
+
+    const latestSales = await this.prisma.salesHistoryUpload.findFirst({
+      where: { status: SalesHistoryUploadStatus.POSTED },
+      orderBy: { postedAt: "desc" },
+      select: { id: true, postedAt: true },
+    });
+    const salesFreshness = evaluateSalesFreshness(latestSales, settings.snapshotMaxAgeDays);
 
     const allParams = await this.prisma.planningProductParams.findMany({
       select: {
@@ -212,10 +224,13 @@ export class MrpCalculationService {
       const hardNeed = forecast?.hardNeed ?? 0;
       const softNeed = forecast?.softNeed ?? 0;
       const forecastDemand = forecast?.forecastDemand ?? 0;
+      const avgMonthlySold = forecast?.avgMonthlySold ?? 0;
       const avgDailySold = forecast?.avgDailySold ?? 0;
-      const safetyStock =
-        params?.safetyStock ??
-        Math.ceil(settings.safetyStockWeeks * 7 * avgDailySold);
+      const safetyStock = effectiveSafetyStock(
+        params?.safetyStock,
+        avgMonthlySold,
+        horizon.safetyMonths,
+      );
       const ownGrossNeed = computeOwnGrossNeed(
         settings.demandMix,
         hardNeed,
@@ -561,6 +576,8 @@ export class MrpCalculationService {
       velocityLookbackMonths: horizon.velocityLookbackMonths,
       snapshotId: posted?.id ?? null,
       freshness,
+      salesFreshness,
+      salesUploadId: latestSales?.id ?? null,
       lines: filtered,
       summary: {
         criticalCount: filtered.filter((l) => l.lineType === PlanningRunLineType.CRITICAL).length,

@@ -34,6 +34,7 @@ export type PlanningCapacityConfig = {
 export type PlanningHorizonConfig = {
   coverMonths: number;
   velocityLookbackMonths: number;
+  safetyMonths: number;
   warnCoverDays: number;
   criticalCoverDays: number;
   softPipelineFactor: number;
@@ -77,6 +78,7 @@ export type MrpRun = {
     quotaOverflowCount?: number;
   };
   freshness: SnapshotFreshness | null;
+  salesFreshness?: SalesFreshness | null;
   stale?: boolean;
   liveCapacity?: { monthlyPartsQuota: number };
   liveHorizon?: { coverMonths: number; velocityLookbackMonths: number };
@@ -95,6 +97,49 @@ export type SnapshotFreshness = {
   maxAgeDays: number;
   isFresh: boolean;
   warning: string | null;
+};
+
+export type SalesFreshness = {
+  uploadId: string | null;
+  postedAt: string | null;
+  ageDays: number | null;
+  maxAgeDays: number;
+  isFresh: boolean;
+  warning: string | null;
+};
+
+export type PlanningFreshness = {
+  snapshot: SnapshotFreshness;
+  sales: SalesFreshness;
+};
+
+export type SalesHistoryUpload = {
+  id: string;
+  status: "STAGED" | "POSTED" | "VOID";
+  note: string | null;
+  importedAt: string;
+  postedAt: string | null;
+  _count?: { lines: number };
+};
+
+export type MrpForecastRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  kind: string;
+  monthlyHistory: Array<{ yearMonth: string; qty: number }>;
+  avgMonthlySold: number;
+  forecastDemand: number;
+  hardNeed: number;
+  softNeed: number;
+  safetyStock: number;
+};
+
+export type MrpForecastView = {
+  horizon: PlanningHorizonConfig;
+  salesFreshness: SalesFreshness;
+  salesUploadId: string | null;
+  rows: MrpForecastRow[];
 };
 
 export type PlanningAvailability = {
@@ -389,8 +434,8 @@ export const planningApi = {
     const res = await apiHttp.patch<PlanningSettings>("/planning/config/settings", payload);
     return res.data;
   },
-  getFreshness: async (): Promise<SnapshotFreshness> => {
-    const res = await apiHttp.get<SnapshotFreshness>("/planning/freshness");
+  getFreshness: async (): Promise<PlanningFreshness> => {
+    const res = await apiHttp.get<PlanningFreshness>("/planning/freshness");
     return res.data;
   },
   getDashboard: async (): Promise<PlanningDashboard> => {
@@ -542,11 +587,12 @@ export const planningApi = {
   importSalesHistory: async (
     file: File,
   ): Promise<{
-    format?: "flat" | "onec_monthly_pivot";
-    importBatchId: string;
+    format?: "flat" | "onec_monthly_pivot" | "flat_month_columns";
+    uploadId: string;
     importedRows: number;
     resolvedRows: number;
     unresolvedSku: string[];
+    status: string;
   }> => {
     const formData = new FormData();
     formData.append("file", file);
@@ -560,6 +606,51 @@ export const planningApi = {
       throw new Error(uploadErrorMessage(res.status, text, "Sales history import failed"));
     }
     return res.json();
+  },
+  uploadSalesHistory: async (
+    file: File,
+    note?: string,
+  ): Promise<{
+    upload: SalesHistoryUpload;
+    format: string;
+    importedRows: number;
+    resolvedRows: number;
+    unresolvedSku: string[];
+  }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (note) formData.append("note", note);
+    const res = await fetch("/api/planning/sales-history/upload", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(uploadErrorMessage(res.status, text, "Sales history upload failed"));
+    }
+    return res.json();
+  },
+  postSalesHistory: async (uploadId: string): Promise<SalesHistoryUpload> => {
+    const res = await apiHttp.post<SalesHistoryUpload>(`/planning/sales-history/${uploadId}/post`);
+    return res.data;
+  },
+  getLatestPostedSalesHistory: async (): Promise<SalesHistoryUpload | null> => {
+    const res = await apiHttp.get<SalesHistoryUpload | null>("/planning/sales-history/latest-posted");
+    return res.data;
+  },
+  getMrpForecast: async (): Promise<MrpForecastView> => {
+    const res = await apiHttp.get<MrpForecastView>("/planning/mrp/forecast");
+    return res.data;
+  },
+  getMrpFactory: async (): Promise<{
+    freshness: SnapshotFreshness;
+    dueAt: string;
+    leadTimeDays: number;
+    recommendations: FactoryRecommendation[];
+  }> => {
+    const res = await apiHttp.get("/planning/mrp/factory");
+    return res.data;
   },
   listPackingLists: async (limit = 20): Promise<PackingList[]> => {
     const res = await apiHttp.get<PackingList[]>("/planning/packing-lists", { params: { limit } });

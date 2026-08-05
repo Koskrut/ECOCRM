@@ -26,6 +26,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { BomImportService } from "./bom-import.service";
 import { BomService } from "./bom.service";
 import { DemandRulesService } from "./demand-rules.service";
+import { DemandForecastService } from "./demand-forecast.service";
 import { FactoryOrderService } from "./factory-order.service";
 import { ForecastService } from "./forecast.service";
 import { InventorySnapshotService } from "./inventory-snapshot.service";
@@ -35,6 +36,7 @@ import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { ProductionService } from "./production.service";
+import { SalesHistoryService } from "./sales-history.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
@@ -44,6 +46,7 @@ import { ModuleIds } from "../modules/module-ids";
 export class ProductionPlanningController {
   constructor(
     private readonly demandRules: DemandRulesService,
+    private readonly demandForecast: DemandForecastService,
     private readonly planningSettings: PlanningSettingsService,
     private readonly mrpConfig: MrpConfigService,
     private readonly bomImport: BomImportService,
@@ -51,6 +54,7 @@ export class ProductionPlanningController {
     private readonly snapshots: InventorySnapshotService,
     private readonly calculations: PlanningCalculationService,
     private readonly forecast: ForecastService,
+    private readonly salesHistory: SalesHistoryService,
     private readonly packingLists: PackingListService,
     private readonly factoryOrders: FactoryOrderService,
     private readonly production: ProductionService,
@@ -122,7 +126,7 @@ export class ProductionPlanningController {
 
   @Get("freshness")
   getFreshness() {
-    return this.calculations.getSnapshotFreshness();
+    return this.calculations.getPlanningFreshness();
   }
 
   @Get("dashboard")
@@ -224,9 +228,67 @@ export class ProductionPlanningController {
   @Post("forecast/sales-history/import")
   @UseInterceptors(FileInterceptor("file"))
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  importSalesHistory(@UploadedFile() file: { buffer?: Buffer } | undefined) {
+  async importSalesHistory(
+    @UploadedFile() file: { buffer?: Buffer } | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
     if (!file?.buffer) throw new BadRequestException("File is required");
-    return this.forecast.importSalesHistory(file.buffer);
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException("User not found in request");
+    const uploaded = await this.salesHistory.upload({
+      buffer: file.buffer,
+      importedById: userId,
+    });
+    const posted = await this.salesHistory.post(uploaded.upload.id, userId);
+    return {
+      format: uploaded.format,
+      uploadId: posted?.id ?? uploaded.upload.id,
+      importedRows: uploaded.importedRows,
+      resolvedRows: uploaded.resolvedRows,
+      unresolvedSku: uploaded.unresolvedSku,
+      status: posted?.status ?? uploaded.upload.status,
+    };
+  }
+
+  @Post("sales-history/upload")
+  @UseInterceptors(FileInterceptor("file"))
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  uploadSalesHistory(
+    @UploadedFile() file: { buffer?: Buffer } | undefined,
+    @Req() req: Request & { user?: AuthUser },
+    @Body() body?: { note?: string },
+  ) {
+    if (!file?.buffer) throw new BadRequestException("File is required");
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException("User not found in request");
+    return this.salesHistory.upload({
+      buffer: file.buffer,
+      importedById: userId,
+      note: body?.note,
+    });
+  }
+
+  @Get("sales-history")
+  listSalesHistory(@Query("limit") limit?: string) {
+    return this.salesHistory.list(limit ? Number(limit) : 20);
+  }
+
+  @Get("sales-history/latest-posted")
+  latestPostedSalesHistory() {
+    return this.salesHistory.latestPosted();
+  }
+
+  @Get("sales-history/:id")
+  getSalesHistory(@Param("id") id: string) {
+    return this.salesHistory.get(id);
+  }
+
+  @Post("sales-history/:id/post")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  postSalesHistory(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException("User not found in request");
+    return this.salesHistory.post(id, userId);
   }
 
   @Get("packing-lists")
@@ -408,6 +470,7 @@ export class ProductionPlanningController {
     body: {
       coverMonths?: number;
       velocityLookbackMonths?: number;
+      safetyMonths?: number;
       warnCoverDays?: number;
       criticalCoverDays?: number;
       softPipelineFactor?: number;
@@ -464,6 +527,16 @@ export class ProductionPlanningController {
   @Get("mrp/semi-finished")
   getMrpSemiFinished() {
     return this.planningRuns.getSemiFinished();
+  }
+
+  @Get("mrp/forecast")
+  getMrpForecast() {
+    return this.demandForecast.getMrpForecastView();
+  }
+
+  @Get("mrp/factory")
+  getMrpFactory() {
+    return this.factoryOrders.getRecommendations();
   }
 
   @Post("mrp/lines/:id/create-batch")

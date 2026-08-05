@@ -11,6 +11,7 @@ export type PlanningCapacityConfig = {
 export type PlanningHorizonConfig = {
   coverMonths: number;
   velocityLookbackMonths: number;
+  safetyMonths: number;
   warnCoverDays: number;
   criticalCoverDays: number;
   softPipelineFactor: number;
@@ -24,8 +25,9 @@ export const DEFAULT_CAPACITY: PlanningCapacityConfig = {
 export const DEFAULT_HORIZON: PlanningHorizonConfig = {
   coverMonths: 3,
   velocityLookbackMonths: 6,
+  safetyMonths: 0.5,
   warnCoverDays: 60,
-  criticalCoverDays: 30,
+  criticalCoverDays: 14,
   softPipelineFactor: 0.5,
   defaultPackLeadDays: 14,
 };
@@ -90,6 +92,7 @@ export class MrpConfigService {
         1,
         36,
       ),
+      safetyMonths: clampFloat(value.safetyMonths, DEFAULT_HORIZON.safetyMonths, 0, 12),
       warnCoverDays: clampInt(value.warnCoverDays, DEFAULT_HORIZON.warnCoverDays, 1, 365),
       criticalCoverDays: clampInt(
         value.criticalCoverDays,
@@ -121,6 +124,12 @@ export class MrpConfigService {
         current.velocityLookbackMonths,
         1,
         36,
+      ),
+      safetyMonths: clampFloat(
+        next.safetyMonths ?? current.safetyMonths,
+        current.safetyMonths,
+        0,
+        12,
       ),
       warnCoverDays: clampInt(
         next.warnCoverDays ?? current.warnCoverDays,

@@ -533,6 +533,12 @@ enum InventorySnapshotStatus {
   VOID
 }
 
+enum SalesHistoryUploadStatus {
+  STAGED
+  POSTED
+  VOID
+}
+
 enum ReceivablesReconcileStatus {
   ALIGNED
   DELTA_1C_MORE
@@ -661,6 +667,8 @@ model User {
   companies                  Company[]
   importedInventorySnapshots InventorySnapshot[] @relation("InventorySnapshotImportedBy")
   postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
+  importedSalesHistoryUploads SalesHistoryUpload[] @relation("SalesHistoryUploadImportedBy")
+  postedSalesHistoryUploads   SalesHistoryUpload[] @relation("SalesHistoryUploadPostedBy")
   importedReceivablesSnapshots ReceivablesSnapshot[] @relation("ReceivablesSnapshotImportedBy")
   callQueueItems             CallQueueItem[]
   manualCallSessions         ManualCallSession[]
@@ -2971,21 +2979,45 @@ model KitDemandForecast {
   @@index([computedAt])
 }
 
+model SalesHistoryUpload {
+  id           String                   @id @default(cuid())
+  status       SalesHistoryUploadStatus @default(STAGED)
+  note         String?
+  importedAt   DateTime                 @default(now())
+  importedById String
+  postedAt     DateTime?
+  postedById   String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+
+  importedBy User               @relation("SalesHistoryUploadImportedBy", fields: [importedById], references: [id], onDelete: Restrict)
+  postedBy   User?              @relation("SalesHistoryUploadPostedBy", fields: [postedById], references: [id], onDelete: SetNull)
+  lines      SalesHistoryLine[]
+
+  @@index([status, importedAt])
+  @@index([importedById])
+}
+
 model SalesHistoryLine {
-  id         String   @id @default(cuid())
-  productId  String?
-  skuRaw     String
-  soldAt     DateTime
-  qty        Int
-  source     String   @default("EXCEL_IMPORT")
+  id            String   @id @default(cuid())
+  uploadId      String
+  productId     String?
+  skuRaw        String
+  yearMonth     String?
+  soldAt        DateTime
+  qty           Int
+  source        String   @default("EXCEL_IMPORT")
   importBatchId String?
-  createdAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
 
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  upload  SalesHistoryUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  product Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
 
+  @@index([uploadId])
   @@index([productId, soldAt])
   @@index([skuRaw])
   @@index([soldAt])
+  @@index([yearMonth])
   @@index([importBatchId])
 }
 

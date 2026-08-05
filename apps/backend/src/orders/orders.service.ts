@@ -21,6 +21,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { reservationHardnessForStage } from "./reservation-hardness.util";
 import { computePaymentStatus, isPaymentClosed } from "./order-payment-guards";
 import { computeOrderDebtAndCredit } from "../payments/order-finance.utils";
 import {
@@ -418,7 +419,7 @@ export class OrdersService {
         productId,
         warehouseId: order.warehouseId ?? null,
         qty,
-        hardness: ReservationHardness.HARD,
+        hardness: reservationHardnessForStage(stage),
         status: ReservationStatus.ACTIVE,
         orderId,
       })),

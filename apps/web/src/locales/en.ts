@@ -602,6 +602,8 @@ export const en = {
       addLine: "+ Add line",
       removeLine: "Remove",
       importSalesHistory: "Import sales history",
+      uploadSalesHistory: "Upload sales XLS",
+      postSalesHistory: "Post sales",
       recomputeForecast: "Recompute forecast",
       proposePacking: "Propose packing list",
       approvePacking: "Approve",
@@ -684,6 +686,9 @@ export const en = {
       forecast14: "14 days",
       forecast30: "30 days",
       forecast90: "90 days",
+      avgMonthly: "Avg/mo",
+      forecastHorizon: "Forecast (horizon)",
+      forecastFromSales: "Forecast from posted sales",
       openFactoryOrders: "Open factory POs",
       bottleneckRisks: "Bottleneck risks",
       projection: "Stock projection",
@@ -716,6 +721,7 @@ export const en = {
       mrpHorizon: "MRP horizon",
       coverMonths: "Cover months",
       velocityLookback: "Velocity lookback (months)",
+      safetyMonths: "Safety months",
       warnCoverDays: "Warn cover days",
       criticalCoverDays: "Critical cover days",
       defaultPackLeadDays: "Default pack lead (days)",
@@ -740,6 +746,7 @@ export const en = {
       noRecommendations: "No launch recommendations",
       noBom: "No active BOM for selected kit",
       noForecast: "No forecast yet — import history and recompute",
+      noPostedSales: "No posted sales — upload XLS and click Post",
       noPackingLists: "No packing lists yet",
       noFactoryRecs: "No factory recommendations",
       noFactoryOrders: "No factory orders yet",
@@ -769,15 +776,20 @@ export const en = {
         "Coverage of finished kits, packing load vs capacity, bottleneck risk, and projection after approved pack + open factory PO.",
       capacityHint: "Capacity is calculated from available component stock in the active BOM (posted 1C snapshot).",
       forecastHint:
-        "Simple forecast from CRM shipped orders + imported sales history (3/6/12m averages with YoY seasonality).",
+        "MRP forecast from posted sales XLS (SKU × month): average sales over lookback × cover horizon.",
       packingHint:
         "Biweekly packing list capped by capacity and parts bottleneck. Fact of packing stays in 1C — next snapshot confirms.",
       factoryHint:
         "Part orders for ~90-day coverage: forecast × BOM − on-hand − open PO + safety stock.",
       salesHistoryHint:
-        "Supports the 1C sales report (SKU × months) or flat Excel: sku, date/soldAt, qty. One-shot for ~1.5y history if CRM orders are incomplete.",
+        "1C sales report (SKU × months), flat SKU + YYYY-MM columns, or sku/date/qty. Upload (STAGED) then Post for MRP.",
       freshnessOk: "Stock snapshot is fresh.",
       freshnessWarn: "Refresh the 1C snapshot before packing or factory planning.",
+      salesFreshnessOk: "Sales history is fresh.",
+      salesFreshnessWarn: "Post a fresh sales XLS before running MRP.",
+      salesStagedResult: (imported: number, resolved: number, unresolved: number) =>
+        `Uploaded ${imported} rows (${resolved} resolved, ${unresolved} unresolved SKU). Click Post.`,
+      salesPostedOk: "Sales posted — MRP uses this file.",
       salesImportResult: (imported: number, resolved: number) =>
         `Imported ${imported} rows, ${resolved} resolved to products.`,
       quotaOverflow: (n: number) => `${n} production lines did not fully fit the monthly quota.`,
@@ -793,6 +805,7 @@ export const en = {
       stepsTitle: "Quick start (weekly)",
       steps: [
         "1C snapshots → upload stock file → Publish. Without a fresh snapshot the plan is wrong.",
+        "Forecast → upload sales XLS (SKU × month) → Post. Without POSTED sales MRP forecast is zero.",
         "BOM — kits need an active bill of materials (PKG:… packaging does not block capacity).",
         "MRP tab → Run MRP — the main 3-month calculation.",
         "Critical → triage the red list; Production / Semi-finished → Create batch.",
@@ -800,10 +813,10 @@ export const en = {
       ],
       tabsTitle: "What the tabs mean",
       tabsHint:
-        "MRP — summary and quota; Production — launches by month (0 = this month); Critical — real shortages only; Settings — ~7000 quota and horizon.",
+        "MRP — summary and quota; Forecast — posted sales XLS; Production — launches by month (0 = this month); Critical — real shortages only; Settings — ~7000 quota, horizon, safety months.",
       tipTitle: "Tip",
       tipBody:
-        "After changing the quota or snapshot, always re-run MRP. The full guide with examples is in the Instructions center.",
+        "After changing the 1C snapshot, sales XLS, or quota, always re-run MRP. The full guide is in the Instructions center.",
     },
     errors: {
       loadDashboard: "Failed to load planning dashboard",

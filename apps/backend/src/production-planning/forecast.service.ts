@@ -1,13 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { ProductKind } from "@prisma/client";
-import { randomUUID } from "crypto";
-import * as XLSX from "xlsx";
+import { ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { DemandForecastService } from "./demand-forecast.service";
 import { mergeMonthlySalesHistory } from "./forecast-history-merge.util";
-import {
-  isOneCSalesPivotSheet,
-  parseOneCSalesPivotSheet,
-} from "./sales-history-1c.util";
 
 const FORECAST_HORIZONS = [14, 30, 90] as const;
 const METHOD = "avg_3_6_12m_seasonal_yoy";
@@ -24,7 +19,10 @@ export type ForecastRow = {
 
 @Injectable()
 export class ForecastService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly demandForecast: DemandForecastService,
+  ) {}
 
   async listForecasts(horizonDays?: number): Promise<ForecastRow[]> {
     const rows = await this.prisma.kitDemandForecast.findMany({
@@ -44,97 +42,13 @@ export class ForecastService {
   }
 
   async getForecastMap(horizonDays: number): Promise<Map<string, number>> {
-    const rows = await this.prisma.kitDemandForecast.findMany({
-      where: { horizonDays },
-      select: { productId: true, qty: true },
-    });
-    return new Map(rows.map((r) => [r.productId, r.qty]));
+    return this.demandForecast.getForecastQtyMap(horizonDays);
   }
 
-  async importSalesHistory(fileBuffer: Buffer) {
-    const workbook = XLSX.read(fileBuffer, { type: "buffer", cellDates: true });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) throw new BadRequestException("Workbook has no sheets");
-
-    const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-      header: 1,
-      defval: "",
-      raw: true,
-    }) as unknown[][];
-
-    const importBatchId = randomUUID();
-    const skuSet = new Set<string>();
-    const parsed: Array<{ skuRaw: string; soldAt: Date; qty: number }> = [];
-    let format: "flat" | "onec_monthly_pivot" = "flat";
-
-    if (isOneCSalesPivotSheet(matrix)) {
-      format = "onec_monthly_pivot";
-      for (const row of parseOneCSalesPivotSheet(matrix)) {
-        skuSet.add(row.skuRaw);
-        parsed.push({ skuRaw: row.skuRaw, soldAt: row.soldAt, qty: row.qty });
-      }
-    } else {
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-      if (rows.length === 0) throw new BadRequestException("Sales history file is empty");
-
-      for (const row of rows) {
-        const skuRaw = String(row.sku ?? row.SKU ?? row.Sku ?? row.productSku ?? row["Номенклатура.Артикул"] ?? "")
-          .trim()
-          .replace(/^`/, "")
-          .replace(/^'/, "");
-        const qty = Math.round(Number(row.qty ?? row.Qty ?? row.quantity ?? row.Quantity ?? 0));
-        const soldRaw = row.soldAt ?? row.date ?? row.Date ?? row.sold_at ?? row.period;
-        const soldAt = parseDate(soldRaw);
-        if (!skuRaw || !soldAt || qty === 0) continue;
-        skuSet.add(skuRaw);
-        parsed.push({ skuRaw, soldAt, qty });
-      }
-    }
-
-    if (parsed.length === 0) {
-      throw new BadRequestException(
-        "No valid sales rows found. Expected 1C monthly pivot (SKU × months) or flat columns sku, date, qty",
-      );
-    }
-
-    const products = await this.prisma.product.findMany({
-      where: { sku: { in: [...skuSet] } },
-      select: { id: true, sku: true },
-    });
-    const productBySku = new Map(products.map((p) => [p.sku, p.id]));
-    const unresolvedSku: string[] = [];
-
-    const data = parsed.map((p) => {
-      const productId = productBySku.get(p.skuRaw) ?? null;
-      if (!productId) unresolvedSku.push(p.skuRaw);
-      return {
-        productId,
-        skuRaw: p.skuRaw,
-        soldAt: p.soldAt,
-        qty: p.qty,
-        source: "EXCEL_IMPORT",
-        importBatchId,
-      };
-    });
-
-    // Re-import must replace prior Excel history, otherwise forecasts double-count.
-    const replacedRows = await this.prisma.salesHistoryLine.deleteMany({
-      where: { source: "EXCEL_IMPORT" },
-    });
-
-    const CHUNK = 500;
-    for (let i = 0; i < data.length; i += CHUNK) {
-      await this.prisma.salesHistoryLine.createMany({ data: data.slice(i, i + CHUNK) });
-    }
-
-    return {
-      format,
-      importBatchId,
-      importedRows: data.length,
-      resolvedRows: data.filter((d) => d.productId).length,
-      replacedRows: replacedRows.count,
-      unresolvedSku: [...new Set(unresolvedSku)],
-    };
+  async importSalesHistory(_fileBuffer: Buffer) {
+    throw new BadRequestException(
+      "Use POST /planning/sales-history/upload then POST /planning/sales-history/:id/post",
+    );
   }
 
   async recomputeForecasts() {
@@ -157,6 +71,7 @@ export class ForecastService {
         where: {
           productId: { in: kits.map((k) => k.id) },
           soldAt: { gte: historyFrom },
+          upload: { status: SalesHistoryUploadStatus.POSTED },
         },
         _sum: { qty: true },
       }),
@@ -229,19 +144,6 @@ export class ForecastService {
       computedAt,
     };
   }
-}
-
-function parseDate(raw: unknown): Date | null {
-  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    // Excel serial date (days since 1899-12-30)
-    const asDate = new Date(Math.round((raw - 25569) * 86400 * 1000));
-    return Number.isNaN(asDate.getTime()) ? null : asDate;
-  }
-  const s = String(raw ?? "").trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 function monthKey(date: Date): string {

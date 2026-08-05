@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import {
   FactoryOrderStatus,
   InventorySnapshotStatus,
@@ -7,12 +7,15 @@ import {
   ProductionBatchStatus,
   ReservationHardness,
   ReservationStatus,
+  SalesHistoryUploadStatus,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { isNonInventoriedPackagingSku } from "./bom-part.util";
+import { DemandForecastService } from "./demand-forecast.service";
 import { DemandRulesService } from "./demand-rules.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { evaluateSnapshotFreshness } from "./snapshot-freshness.util";
+import { evaluateSalesFreshness } from "./sales-freshness.util";
 
 @Injectable()
 export class PlanningCalculationService {
@@ -20,6 +23,8 @@ export class PlanningCalculationService {
     private readonly prisma: PrismaService,
     private readonly demandRules: DemandRulesService,
     private readonly settings: PlanningSettingsService,
+    @Inject(forwardRef(() => DemandForecastService))
+    private readonly demandForecast: DemandForecastService,
   ) {}
 
   async getAvailability(productId: string, warehouseId?: string) {
@@ -127,9 +132,11 @@ export class PlanningCalculationService {
       const availability = constrainsCapacity
         ? await this.getAvailability(line.componentProductId)
         : { available: 0 };
+      const scrap = line.scrapPct?.toNumber() ?? 0;
+      const effectiveQtyPerKit = line.qtyPerKit.toNumber() * (1 + scrap / 100);
       const ratio =
-        constrainsCapacity && line.qtyPerKit.toNumber() > 0
-          ? availability.available / line.qtyPerKit.toNumber()
+        constrainsCapacity && effectiveQtyPerKit > 0
+          ? availability.available / effectiveQtyPerKit
           : Number.POSITIVE_INFINITY;
       components.push({
         componentProductId: line.componentProductId,
@@ -279,13 +286,31 @@ export class PlanningCalculationService {
     return evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
   }
 
+  async getSalesFreshness() {
+    const settings = await this.settings.getSettings();
+    const posted = await this.prisma.salesHistoryUpload.findFirst({
+      where: { status: SalesHistoryUploadStatus.POSTED },
+      orderBy: { postedAt: "desc" },
+      select: { id: true, postedAt: true },
+    });
+    return evaluateSalesFreshness(posted, settings.snapshotMaxAgeDays);
+  }
+
+  async getPlanningFreshness() {
+    const [snapshot, sales] = await Promise.all([
+      this.getSnapshotFreshness(),
+      this.getSalesFreshness(),
+    ]);
+    return { snapshot, sales };
+  }
+
   async getDashboardSummary() {
     const settings = await this.settings.getSettings();
     const freshness = await this.getSnapshotFreshness();
-    const [forecast14, forecast30, hardDemand, kits, draftPack, approvedPack, openFactory] =
+    const [forecast14Map, forecast30Map, hardDemand, kits, draftPack, approvedPack, openFactory] =
       await Promise.all([
-        this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 14 } }),
-        this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 30 } }),
+        this.demandForecast.getForecastQtyMap(14),
+        this.demandForecast.getForecastQtyMap(30),
         this.getHardDemandByProduct(),
         this.prisma.product.findMany({
           where: { kind: ProductKind.KIT, isActive: true },
@@ -305,9 +330,6 @@ export class PlanningCalculationService {
           where: { status: { in: [FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] } },
         }),
       ]);
-
-    const forecast14Map = new Map(forecast14.map((f) => [f.productId, f.qty]));
-    const forecast30Map = new Map(forecast30.map((f) => [f.productId, f.qty]));
 
     let totalKitStock = 0;
     let totalWeeklyDemand = 0;
@@ -371,8 +393,10 @@ export class PlanningCalculationService {
   async getStockProjection(weeks: number[] = [2, 4, 8, 12]) {
     const settings = await this.settings.getSettings();
     const freshness = await this.getSnapshotFreshness();
-    const forecast14 = await this.prisma.kitDemandForecast.findMany({ where: { horizonDays: 14 } });
-    const weeklyKitDemand = new Map(forecast14.map((f) => [f.productId, f.qty / 2]));
+    const forecast14Map = await this.demandForecast.getForecastQtyMap(14);
+    const weeklyKitDemand = new Map(
+      [...forecast14Map.entries()].map(([id, qty]) => [id, qty / 2]),
+    );
 
     const kits = await this.prisma.product.findMany({
       where: { kind: ProductKind.KIT, isActive: true },

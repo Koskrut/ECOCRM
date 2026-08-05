@@ -20,6 +20,7 @@ export type DecoratedPlanningRun = {
   snapshotId: string | null;
   summary: Record<string, number>;
   freshness: unknown;
+  salesFreshness?: unknown;
   stale: boolean;
   liveCapacity: { monthlyPartsQuota: number };
   liveHorizon: { coverMonths: number; velocityLookbackMonths: number };
@@ -63,6 +64,8 @@ export class PlanningRunService {
         details: {
           summary: result.summary,
           freshness: result.freshness,
+          salesFreshness: result.salesFreshness,
+          salesUploadId: result.salesUploadId,
         } as Prisma.InputJsonValue,
         lines: {
           create: result.lines.map((line) => ({
@@ -329,6 +332,7 @@ export class PlanningRunService {
       snapshotId: run.snapshotId,
       summary: (details.summary as Record<string, number>) ?? {},
       freshness: details.freshness ?? null,
+      salesFreshness: details.salesFreshness ?? null,
       stale,
       liveCapacity: { monthlyPartsQuota: liveCapacity.monthlyPartsQuota },
       liveHorizon: {

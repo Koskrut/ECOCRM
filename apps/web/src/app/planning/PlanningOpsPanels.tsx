@@ -7,7 +7,7 @@ import {
   planningApi,
   type FactoryOrder,
   type FactoryRecommendation,
-  type ForecastRow,
+  type MrpForecastView,
   type MrpRun,
   type MrpRunLine,
   type PackingList,
@@ -15,6 +15,7 @@ import {
   type PlanningDashboard,
   type PlanningHorizonConfig,
   type PlanningSettings,
+  type SalesFreshness,
   type SnapshotFreshness,
   type StockProjection,
 } from "@/lib/api/resources/planning";
@@ -162,6 +163,44 @@ export function FreshnessBanner({ freshness }: { freshness: SnapshotFreshness | 
   );
 }
 
+export function SalesFreshnessBanner({ freshness }: { freshness: SalesFreshness | null }) {
+  const t = strings.planning;
+  if (!freshness) return null;
+  const ok = freshness.isFresh;
+  return (
+    <div
+      className={
+        ok
+          ? "rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
+          : "rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+      }
+    >
+      {ok ? t.messages.salesFreshnessOk : freshness.warning ?? t.messages.salesFreshnessWarn}
+      {freshness.postedAt ? (
+        <span className="ml-2 text-zinc-600">
+          ({formatDateTime(freshness.postedAt)}
+          {freshness.ageDays != null ? `, ${t.labels.ageDays(freshness.ageDays)}` : ""})
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+export function PlanningFreshnessBanners({
+  snapshot,
+  sales,
+}: {
+  snapshot: SnapshotFreshness | null;
+  sales: SalesFreshness | null;
+}) {
+  return (
+    <div className="space-y-2">
+      <FreshnessBanner freshness={snapshot} />
+      <SalesFreshnessBanner freshness={sales} />
+    </div>
+  );
+}
+
 export function PlanningDashboardPanel({
   dashboard,
   projection,
@@ -219,15 +258,18 @@ export function PlanningDashboardPanel({
 export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
-  const [rows, setRows] = useState<ForecastRow[]>([]);
+  const [view, setView] = useState<MrpForecastView | null>(null);
+  const [stagedUploadId, setStagedUploadId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
-  const [importResult, setImportResult] = useState<string | null>(null);
+  const [uploadInfo, setUploadInfo] = useState<string | null>(null);
+  const [unresolvedSku, setUnresolvedSku] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      setRows(await planningApi.listForecast());
+      setView(await planningApi.getMrpForecast());
+      setStagedUploadId(null);
     } catch (e) {
       reportError(e instanceof Error ? e.message : t.errors.forecast);
     } finally {
@@ -239,24 +281,12 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
     void load();
   }, [load]);
 
-  const byProduct = new Map<string, { sku: string; name: string; h14: number; h30: number; h90: number }>();
-  for (const row of rows) {
-    const cur = byProduct.get(row.productId) ?? {
-      sku: row.sku,
-      name: row.name,
-      h14: 0,
-      h30: 0,
-      h90: 0,
-    };
-    if (row.horizonDays === 14) cur.h14 = row.qty;
-    if (row.horizonDays === 30) cur.h30 = row.qty;
-    if (row.horizonDays === 90) cur.h90 = row.qty;
-    byProduct.set(row.productId, cur);
-  }
+  const rows = (view?.rows ?? []).filter((r) => r.avgMonthlySold > 0 || r.forecastDemand > 0);
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-zinc-600">{t.messages.forecastHint}</p>
+      <SalesFreshnessBanner freshness={view?.salesFreshness ?? null} />
       <Panel title={t.messages.salesHistoryHint}>
         <div className="flex flex-wrap items-end gap-3">
           <input
@@ -273,10 +303,16 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
               void (async () => {
                 setBusy(true);
                 try {
-                  const res = await planningApi.importSalesHistory(file);
-                  setImportResult(t.messages.salesImportResult(res.importedRows, res.resolvedRows));
-                  await planningApi.recomputeForecast();
-                  await load();
+                  const res = await planningApi.uploadSalesHistory(file);
+                  setStagedUploadId(res.upload.id);
+                  setUnresolvedSku(res.unresolvedSku);
+                  setUploadInfo(
+                    t.messages.salesStagedResult(
+                      res.importedRows,
+                      res.resolvedRows,
+                      res.unresolvedSku.length,
+                    ),
+                  );
                 } catch (e) {
                   reportError(e instanceof Error ? e.message : t.errors.forecast);
                 } finally {
@@ -285,42 +321,66 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
               })();
             }}
           >
-            {t.actions.importSalesHistory}
+            {t.actions.uploadSalesHistory}
           </button>
+          {stagedUploadId ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-cyan-600 bg-white px-4 py-2 text-sm font-medium text-cyan-700 disabled:opacity-50"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await planningApi.postSalesHistory(stagedUploadId);
+                    setUploadInfo(t.messages.salesPostedOk);
+                    setStagedUploadId(null);
+                    await load();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.forecast);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.postSalesHistory}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}
             className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
-            onClick={() => {
-              void (async () => {
-                setBusy(true);
-                try {
-                  await planningApi.recomputeForecast();
-                  await load();
-                } catch (e) {
-                  reportError(e instanceof Error ? e.message : t.errors.forecast);
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
+            onClick={() => void load()}
           >
-            {t.actions.recomputeForecast}
+            {t.actions.refresh}
           </button>
         </div>
-        {importResult ? <p className="mt-2 text-sm text-zinc-600">{importResult}</p> : null}
+        {uploadInfo ? <p className="mt-2 text-sm text-zinc-600">{uploadInfo}</p> : null}
+        {unresolvedSku.length > 0 ? (
+          <p className="mt-1 text-sm text-amber-800">
+            {t.labels.unresolvedSku}: {unresolvedSku.slice(0, 20).join(", ")}
+            {unresolvedSku.length > 20 ? ` (+${unresolvedSku.length - 20})` : ""}
+          </p>
+        ) : null}
       </Panel>
-      <Panel>
+      <Panel title={t.labels.forecastFromSales}>
         <SimpleTable
-          headers={[t.labels.sku, t.labels.name, t.labels.forecast14, t.labels.forecast30, t.labels.forecast90]}
-          rows={[...byProduct.values()].map((r) => [
+          headers={[
+            t.labels.sku,
+            t.labels.name,
+            t.labels.avgMonthly,
+            t.labels.forecastHorizon,
+            t.labels.safetyStock,
+          ]}
+          rows={rows.map((r) => [
             r.sku,
             r.name,
-            String(r.h14),
-            String(r.h30),
-            String(r.h90),
+            String(Math.round(r.avgMonthlySold)),
+            String(r.forecastDemand),
+            String(r.safetyStock),
           ])}
-          noDataLabel={t.states.noForecast}
+          noDataLabel={t.states.noPostedSales}
         />
       </Panel>
     </div>
@@ -547,7 +607,7 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   useEffect(() => {
     void planningApi
       .getFreshness()
-      .then(setFreshness)
+      .then((f) => setFreshness(f.snapshot))
       .catch(() => undefined);
     void reloadOrders().catch((e) => reportError(e instanceof Error ? e.message : t.errors.factory));
   }, [reportError, reloadOrders, t.errors.factory]);
@@ -766,6 +826,7 @@ export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void 
 
   return (
     <div className="space-y-4">
+      {run?.salesFreshness ? <SalesFreshnessBanner freshness={run.salesFreshness} /> : null}
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -1054,6 +1115,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
             [
               ["coverMonths", t.labels.coverMonths],
               ["velocityLookbackMonths", t.labels.velocityLookback],
+              ["safetyMonths", t.labels.safetyMonths],
               ["warnCoverDays", t.labels.warnCoverDays],
               ["criticalCoverDays", t.labels.criticalCoverDays],
               ["defaultPackLeadDays", t.labels.defaultPackLeadDays],
@@ -1063,6 +1125,7 @@ export function MrpConfigPanel({ onError }: { onError: (msg: string) => void }) 
               {label}
               <input
                 type="number"
+                step={key === "safetyMonths" ? "0.1" : "1"}
                 className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
                 value={horizon[key]}
                 onChange={(e) => setHorizon({ ...horizon, [key]: Number(e.target.value) })}
