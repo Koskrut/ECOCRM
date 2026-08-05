@@ -132,6 +132,7 @@ export default function CompanyDetailScreen() {
         />
 
         <Field label={t("clients.phone")} value={company.phone} theme={theme} />
+        <Field label={t("clients.region")} value={company.region} theme={theme} />
         <Field label={t("companies.edrpou")} value={company.edrpou} theme={theme} />
         <Field label={t("companies.taxId")} value={company.taxId} theme={theme} />
         <Field label={t("clients.address")} value={company.address} theme={theme} />

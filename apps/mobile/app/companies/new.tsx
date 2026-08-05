@@ -5,9 +5,11 @@ import { Alert, StyleSheet } from "react-native";
 import { AppButton } from "@/components/ui/AppButton";
 import { KeyboardAwareScrollView } from "@/components/ui/KeyboardAwareScrollView";
 import { Screen } from "@/components/ui/Screen";
+import { SelectField } from "@/components/ui/SelectField";
 import { TextField } from "@/components/ui/TextField";
 import { useAuth } from "@/context/auth-context";
 import { companiesApi } from "@/lib/api/companies";
+import { CONTACT_REGION_OPTIONS } from "@/lib/contact-options";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 
@@ -18,21 +20,27 @@ export default function NewCompanyScreen() {
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [region, setRegion] = useState("");
   const [address, setAddress] = useState("");
   const [edrpou, setEdrpou] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function onCreate() {
     if (!token) return;
-    if (!name.trim()) {
-      Alert.alert(t("common.error"), t("companies.nameRequired"));
+    if (!name.trim() || !phone.trim()) {
+      Alert.alert(t("common.error"), t("companies.validationRequired"));
+      return;
+    }
+    if (!region.trim()) {
+      Alert.alert(t("common.error"), t("companies.regionRequired"));
       return;
     }
     setBusy(true);
     try {
       const company = await companiesApi.create(token, {
         name: name.trim(),
-        phone: phone.trim() || undefined,
+        phone: phone.trim(),
+        region: region.trim(),
         address: address.trim() || undefined,
         edrpou: edrpou.trim() || undefined,
       });
@@ -64,8 +72,15 @@ export default function NewCompanyScreen() {
         <TextField
           value={phone}
           onChangeText={setPhone}
-          placeholder={t("companies.fields.phone")}
+          placeholder={t("companies.fields.phoneRequired")}
           keyboardType="phone-pad"
+        />
+        <SelectField
+          label={t("clients.region")}
+          value={region}
+          options={CONTACT_REGION_OPTIONS.filter((o) => o.value !== "")}
+          onChange={setRegion}
+          placeholder={t("companies.regionRequired")}
         />
         <TextField value={address} onChangeText={setAddress} placeholder={t("companies.fields.address")} />
         <TextField value={edrpou} onChangeText={setEdrpou} placeholder={t("companies.fields.edrpou")} />

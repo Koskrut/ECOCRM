@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
+import { CONTACT_REGION_OPTIONS } from "../contacts/contact-region-options";
 import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
@@ -86,6 +87,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   const [edrpou, setEdrpou] = useState("");
   const [taxId, setTaxId] = useState("");
   const [phone, setPhone] = useState("");
+  const [region, setRegion] = useState("");
   const [address, setAddress] = useState("");
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
@@ -364,12 +366,15 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
     try {
       const payload = {
         name: name.trim(),
+        phone: phone.trim(),
+        region: region.trim(),
         ...(edrpou.trim() ? { edrpou: edrpou.trim() } : {}),
         ...(taxId.trim() ? { taxId: taxId.trim() } : {}),
-        ...(phone.trim() ? { phone: phone.trim() } : {}),
         ownerId: createOwnerId,
       };
       if (!payload.name) throw new Error("Назва обов'язкова");
+      if (!payload.phone) throw new Error("Телефон обов'язковий");
+      if (!payload.region) throw new Error("Область обов'язкова");
 
       await apiHttp.post<Company>("/companies", payload);
       onUpdate();
@@ -795,6 +800,22 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
                   placeholder="Введіть телефон..."
                   disabled={saving}
                 />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className={labelClass}>Область</label>
+                <select
+                  className={inputClass}
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                  disabled={saving}
+                >
+                  <option value="">—</option>
+                  {CONTACT_REGION_OPTIONS.filter((o) => o.value).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-1">
                 <label className={labelClass}>Відповідальний</label>

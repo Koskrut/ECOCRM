@@ -17,7 +17,8 @@ export type ListCompaniesQuery = {
 
 export type CreateCompanyBody = {
   name: string;
-  phone?: string;
+  phone: string;
+  region: string;
   address?: string;
   edrpou?: string;
   taxId?: string;

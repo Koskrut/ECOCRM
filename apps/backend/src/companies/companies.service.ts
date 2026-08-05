@@ -7,7 +7,7 @@ import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitt
 import type { AuthUser } from "../auth/auth.types";
 import type { Pagination } from "../common/pagination";
 import { normalizePhoneToE164 } from "../common/phone.utils";
-import type { CreateCompanyDto } from "./dto/create-company.dto";
+import type { CreateCompanyInput } from "./dto/create-company.dto";
 import type { UpdateCompanyDto } from "./dto/update-company.dto";
 import type { Company } from "./entities/company.entity";
 import {
@@ -44,7 +44,7 @@ export class CompaniesService {
   ) {}
 
   public async create(
-    dto: CreateCompanyDto,
+    dto: CreateCompanyInput,
     actor?: AuthUser,
     tx?: Prisma.TransactionClient,
   ): Promise<Company> {
@@ -62,6 +62,7 @@ export class CompaniesService {
           taxId: dto.taxId ?? null,
           phone: companyPhone,
           address: dto.address ?? null,
+          region: dto.region?.trim() || null,
           lat: dto.lat ?? null,
           lng: dto.lng ?? null,
           googlePlaceId: dto.googlePlaceId ?? null,
@@ -242,6 +243,7 @@ export class CompaniesService {
         ? (normalizePhoneToE164(dto.phone) ?? (dto.phone?.trim() || null))
         : existing.phone;
     const newAddress = dto.address !== undefined ? dto.address : existing.address;
+    const newRegion = dto.region !== undefined ? dto.region : existing.region;
     const newLat = dto.lat !== undefined ? dto.lat : existing.lat;
     const newLng = dto.lng !== undefined ? dto.lng : existing.lng;
     const newGooglePlaceId = dto.googlePlaceId !== undefined ? dto.googlePlaceId : existing.googlePlaceId;
@@ -261,6 +263,9 @@ export class CompaniesService {
     }
     if (dto.address !== undefined && (dto.address ?? null) !== (existing.address ?? null)) {
       payload.push({ field: "address", oldValue: existing.address ?? null, newValue: newAddress ?? null });
+    }
+    if (dto.region !== undefined && (dto.region ?? null) !== (existing.region ?? null)) {
+      payload.push({ field: "region", oldValue: existing.region ?? null, newValue: newRegion ?? null });
     }
     if (dto.lat !== undefined && (dto.lat ?? null) !== (existing.lat ?? null)) {
       payload.push({
@@ -300,6 +305,7 @@ export class CompaniesService {
           taxId: newTaxId ?? null,
           phone: newPhone ?? null,
           address: newAddress ?? null,
+          region: newRegion ?? null,
           lat: newLat ?? null,
           lng: newLng ?? null,
           googlePlaceId: newGooglePlaceId ?? null,

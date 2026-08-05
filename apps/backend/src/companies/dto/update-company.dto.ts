@@ -7,6 +7,7 @@ export type UpdateCompanyDto = {
   taxId?: string;
   phone?: string;
   address?: string;
+  region?: string | null;
   lat?: number;
   lng?: number;
   googlePlaceId?: string;
@@ -36,12 +37,17 @@ export const validateUpdateCompanyDto = (payload: UpdateCompanyDto): ValidationE
     validateString(payload.address, "address", errors, { allowEmpty: true });
   }
 
+  if (payload.region !== undefined && payload.region !== null) {
+    validateString(payload.region, "region", errors, { allowEmpty: false });
+  }
+
   if (
     payload.name === undefined &&
     payload.edrpou === undefined &&
     payload.taxId === undefined &&
     payload.phone === undefined &&
     payload.address === undefined &&
+    payload.region === undefined &&
     payload.lat === undefined &&
     payload.lng === undefined &&
     payload.googlePlaceId === undefined &&

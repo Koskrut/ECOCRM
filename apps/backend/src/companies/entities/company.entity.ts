@@ -20,6 +20,7 @@ export type Company = {
   taxId?: string;
   phone?: string;
   address?: string;
+  region?: string | null;
   lat?: number;
   lng?: number;
   googlePlaceId?: string;

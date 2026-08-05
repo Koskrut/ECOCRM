@@ -791,6 +791,8 @@ model Company {
   taxId         String?
   phone         String?
   address       String?
+  /** Область (як у контактів). */
+  region        String?
   lat           Float?
   lng           Float?
   googlePlaceId String?

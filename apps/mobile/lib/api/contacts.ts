@@ -133,9 +133,11 @@ export const contactsApi = {
       firstName: string;
       lastName: string;
       phone: string;
+      region: string;
       email?: string | null;
       companyId?: string | null;
       address?: string | null;
+      city?: string | null;
       lat?: number | null;
       lng?: number | null;
     },

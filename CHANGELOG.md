@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.138**.)_
+_(планируемые изменения после **0.2.139**.)_
+
+## [0.2.139] — 2026-08-05
+
+### Summary
+
+Патч **0.2.139**: company `region`; обязательные phone/region при создании; mobile contact/company forms.
+
+### Added
+
+- **Company region**: поле `region` в БД и API; миграция `20260805130000_company_region`.
+- **Company create**: `phone` и `region` обязательны через API (web + mobile).
+- **Mobile**: region/city в создании контакта; region в создании компании; валидация обязательных полей.
+
+### Changed
+
+- **Web CompanyModal**: select области при создании компании.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.139`**.
+- **Миграция:** `20260805130000_company_region` — **`prisma migrate deploy`** до **`up`**.
+- **Mobile**: новый EAS build рекомендуется.
 
 ## [0.2.138] — 2026-08-05
 
