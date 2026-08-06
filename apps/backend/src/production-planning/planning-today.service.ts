@@ -136,7 +136,11 @@ export class PlanningTodayService {
 
     return {
       freshness,
-      mrpComputedAt: latest?.computedAt?.toISOString() ?? production.computedAt ?? null,
+      mrpComputedAt:
+        latest?.computedAt?.toISOString() ??
+        (production.computedAt instanceof Date
+          ? production.computedAt.toISOString()
+          : production.computedAt ?? null),
       quota,
       packSummary,
       makeSummary,
