@@ -2,7 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  dedupeRepeatedPathLegs,
+  isPathDistanceInconsistent,
   maxStraightSegmentKm,
+  mergeSnapPathsForDisplay,
+  reconcileSnapPathDisplay,
   splitSamplesByTimeGap,
   stitchPathGaps,
   STITCH_GAP_THRESHOLD_KM,
@@ -68,6 +72,74 @@ describe("stitchPathGaps", () => {
     const stitched = await stitchPathGaps(rawPath, async () => null, STITCH_GAP_THRESHOLD_KM);
     assert.equal(stitched.hasUnfilledGaps, true);
     assert.ok(stitched.maxStitchGapKm > 1);
+  });
+});
+
+describe("isPathDistanceInconsistent", () => {
+  it("flags Bondarenko-like polyline >> snapped km", () => {
+    const path = [
+      { lat: 50.45, lng: 30.52 },
+      { lat: 50.55, lng: 30.62 },
+      { lat: 50.45, lng: 30.52 },
+      { lat: 50.55, lng: 30.62 },
+      { lat: 50.45, lng: 30.52 },
+    ];
+    assert.equal(isPathDistanceInconsistent(path, 15.6), true);
+    assert.equal(isPathDistanceInconsistent(path, 50), false);
+  });
+});
+
+describe("dedupeRepeatedPathLegs", () => {
+  it("collapses Bondarenko-like duplicate long hops", () => {
+    const a = { lat: 50.45, lng: 30.52 };
+    const b = { lat: 50.55, lng: 30.62 };
+    const duplicated = [a, b, a, b, a, b, a, b];
+    const deduped = dedupeRepeatedPathLegs(duplicated);
+    assert.equal(deduped.length, 2);
+    assert.deepEqual(deduped[0], a);
+    assert.deepEqual(deduped[1], b);
+    assert.equal(isPathDistanceInconsistent(deduped, 15.6), false);
+  });
+});
+
+describe("reconcileSnapPathDisplay", () => {
+  it("Bondarenko fixture: duplicate hops fail raw, pass after reconcile", () => {
+    const a = { lat: 50.45, lng: 30.52 };
+    const b = { lat: 50.55, lng: 30.62 };
+    const duplicated = [a, b, a, b, a, b, a, b];
+    assert.equal(isPathDistanceInconsistent(duplicated, 15.6), true);
+
+    const reconciled = reconcileSnapPathDisplay(duplicated, 15.6);
+    assert.equal(reconciled.pathDistanceMismatch, false);
+    assert.ok(reconciled.path.length >= 2);
+    assert.equal(isPathDistanceInconsistent(reconciled.path, 15.6), false);
+  });
+
+  it("omits path when still inconsistent after dedupe", () => {
+    const path = [
+      { lat: 50.45, lng: 30.52 },
+      { lat: 50.75, lng: 30.92 },
+      { lat: 50.45, lng: 30.52 },
+      { lat: 50.75, lng: 30.92 },
+    ];
+    const reconciled = reconcileSnapPathDisplay(path, 5);
+    assert.equal(reconciled.pathDistanceMismatch, true);
+    assert.deepEqual(reconciled.path, []);
+  });
+});
+
+describe("mergeSnapPathsForDisplay", () => {
+  it("concatenates chunk and bridge paths without stitch duplication", () => {
+    const a = [{ lat: 50.4, lng: 30.5 }, { lat: 50.41, lng: 30.51 }];
+    const b = [{ lat: 50.5, lng: 30.6 }, { lat: 50.51, lng: 30.61 }];
+    const bridge = [
+      { lat: 50.41, lng: 30.51 },
+      { lat: 50.45, lng: 30.55 },
+      { lat: 50.5, lng: 30.6 },
+    ];
+    const out = mergeSnapPathsForDisplay([a, b], [bridge]);
+    assert.ok(out.length >= 4);
+    assert.ok(out.length <= 6);
   });
 });
 

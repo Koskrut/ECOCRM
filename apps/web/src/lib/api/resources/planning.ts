@@ -842,4 +842,31 @@ export const planningApi = {
     const res = await apiHttp.post(`/planning/mrp/lines/${lineId}/create-batch`, payload ?? {});
     return res.data;
   },
+  getToday: async (): Promise<PlanningTodayView> => {
+    const res = await apiHttp.get<PlanningTodayView>("/planning/today");
+    return res.data;
+  },
+};
+
+export type TodaySuggestedAction = "pack" | "production" | "factory";
+
+export type TodayBurningItem = {
+  lineId: string;
+  productId: string;
+  sku: string;
+  name: string;
+  needQty: number;
+  desiredDate: string;
+  coverDays: number | null;
+  reason: string;
+  suggestedActions: TodaySuggestedAction[];
+};
+
+export type PlanningTodayView = {
+  freshness: PlanningFreshness;
+  mrpComputedAt: string | null;
+  quota: { used: number; total: number };
+  packSummary: { positionCount: number; totalQty: number };
+  makeSummary: { positionCount: number; totalQty: number };
+  burning: TodayBurningItem[];
 };

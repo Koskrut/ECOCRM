@@ -41,6 +41,30 @@ function defaultLayers(mode: "default" | "history"): Record<RouteLayerKey, boole
   return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
 }
 
+/** Hide corrupted GPS polylines (path haversine >> payable OSRM km). */
+function mapGeometryForDisplay(
+  geom: RouteGeometryLayer | null | undefined,
+): RouteGeometryLayer | null | undefined {
+  if (!geom) return geom;
+  if (geom.quality?.pathDistanceMismatch) {
+    return { ...geom, path: [] };
+  }
+  const polyKm = geom.quality?.displayPathPolylineKm;
+  const km = geom.distanceKm;
+  if (polyKm != null && km != null && km > 0 && polyKm > km * 1.35) {
+    return { ...geom, path: [] };
+  }
+  return geom;
+}
+
+function layerPathHidden(geom: RouteGeometryLayer | null | undefined): boolean {
+  if (!geom) return false;
+  if (geom.quality?.pathDistanceMismatch) return true;
+  const polyKm = geom.quality?.displayPathPolylineKm;
+  const km = geom.distanceKm;
+  return polyKm != null && km != null && km > 0 && polyKm > km * 1.35;
+}
+
 export function DayRouteMapPanel({
   dateKey,
   ownerId,
@@ -104,10 +128,35 @@ export function DayRouteMapPanel({
             ? null
             : factVisits;
     const deviationPct =
-      plan != null && compensationKm != null && plan > 0
+      plan != null &&
+      compensationKm != null &&
+      plan > 0 &&
+      !bundle.incompleteTour &&
+      !bundle.planIncludesScheduled &&
+      !bundle.factGps.quality?.pathDistanceMismatch
         ? Math.round(((compensationKm - plan) / plan) * 100)
         : null;
-    return { plan, factGps, factVisits, compensationKm, deviationPct };
+    const showIncompleteDeviationNote =
+      bundle.incompleteTour &&
+      plan != null &&
+      compensationKm != null &&
+      plan > 0 &&
+      compensationKm < plan * 0.85;
+    const showPlanScheduledDeviationNote =
+      bundle.planIncludesScheduled &&
+      !bundle.incompleteTour &&
+      plan != null &&
+      compensationKm != null &&
+      plan > 0;
+    return {
+      plan,
+      factGps,
+      factVisits,
+      compensationKm,
+      deviationPct,
+      showIncompleteDeviationNote,
+      showPlanScheduledDeviationNote,
+    };
   }, [bundle]);
 
   const layerStats = useMemo(() => {
@@ -200,6 +249,23 @@ export function DayRouteMapPanel({
 
   const gpsQuality = bundle?.factGps?.quality;
 
+  const mapGeometries = useMemo(() => {
+    if (!bundle) {
+      return {
+        planned: null,
+        fact_visits: null,
+        fact_gps: null,
+        fact_visits_gps: null,
+      };
+    }
+    return {
+      planned: mapGeometryForDisplay(bundle.planned) ?? null,
+      fact_visits: mapGeometryForDisplay(bundle.factVisits) ?? null,
+      fact_gps: mapGeometryForDisplay(bundle.factGps) ?? null,
+      fact_visits_gps: mapGeometryForDisplay(bundle.factVisitsGps) ?? null,
+    };
+  }, [bundle]);
+
   const compensationLabel = useMemo(() => {
     if (!bundle?.compensationFactKind) return "";
     if (bundle.compensationFactKind === "fact_gps") return t.compensationGps;
@@ -229,6 +295,10 @@ export function DayRouteMapPanel({
                   · {t.deviation} {compareKpi.deviationPct > 0 ? "+" : ""}
                   {compareKpi.deviationPct}%
                 </span>
+              ) : compareKpi.showIncompleteDeviationNote ? (
+                <span className="ml-1 text-amber-700">· {t.deviationHiddenIncomplete}</span>
+              ) : compareKpi.showPlanScheduledDeviationNote && compareKpi.deviationPct == null ? (
+                <span className="ml-1 text-amber-700">· {t.deviationHiddenScheduledPlan}</span>
               ) : null}
             </p>
           ) : !loading ? (
@@ -236,6 +306,15 @@ export function DayRouteMapPanel({
           ) : null}
           {bundle?.incompleteTour ? (
             <p className="mt-1 text-xs text-amber-800">{t.incompleteTourFootnote}</p>
+          ) : null}
+          {bundle?.planIncludesScheduled ? (
+            <p className="mt-1 text-xs text-amber-800">{t.planIncludesScheduledFootnote}</p>
+          ) : null}
+          {bundle?.plannedOrderInefficient ? (
+            <p className="mt-1 text-xs text-amber-800">{t.plannedOrderInefficient}</p>
+          ) : null}
+          {bundle?.factGps.quality?.pathDistanceMismatch ? (
+            <p className="mt-1 text-xs text-amber-800">{t.pathDistanceMismatch}</p>
           ) : null}
         </div>
         <RouteLayerControls
@@ -259,12 +338,7 @@ export function DayRouteMapPanel({
             mapsApiKey={mapsApiKey}
             center={mapCenter}
             layers={layers}
-            geometries={{
-              planned: bundle?.planned ?? null,
-              fact_visits: bundle?.factVisits ?? null,
-              fact_gps: bundle?.factGps ?? null,
-              fact_visits_gps: bundle?.factVisitsGps ?? null,
-            }}
+            geometries={mapGeometries}
             markers={markers}
             loadingLabel={t.loading}
           />
@@ -284,15 +358,31 @@ export function DayRouteMapPanel({
 
       {bundle && layerStats.length > 0 ? (
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {layerStats.map((row) => (
+          {layerStats.map((row) => {
+            const geom =
+              row.key === "fact_gps"
+                ? bundle.factGps
+                : row.key === "fact_visits_gps"
+                  ? bundle.factVisitsGps
+                  : null;
+            const pathHidden = layerPathHidden(geom);
+            return (
             <div key={row.key} className="rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs">
-              <div className="font-medium text-zinc-700">{row.label}</div>
+              <div className="font-medium text-zinc-700">
+                {row.label}
+                {pathHidden ? (
+                  <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">
+                    {t.pathHiddenBadge}
+                  </span>
+                ) : null}
+              </div>
               <div className="mt-0.5 text-zinc-600">
                 {row.km ?? "—"} км · {row.min != null ? Math.round(row.min) : "—"} хв
                 {row.source ? <span className="text-zinc-400"> · {row.source}</span> : null}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
 

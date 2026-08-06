@@ -770,7 +770,7 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   );
 }
 
-function QuotaBar({ used, quota }: { used: number; quota: number }) {
+export function QuotaBar({ used, quota }: { used: number; quota: number }) {
   const pct = quota > 0 ? Math.min(100, Math.round((used / quota) * 100)) : 0;
   return (
     <div>

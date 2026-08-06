@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.140**.)_
+_(планируемые изменения после **0.2.141**.)_
+
+## [0.2.141] — 2026-08-06
+
+### Summary
+
+Патч **0.2.141**: GPS path integrity + loop collapse hybrid payout; Planning Today dashboard.
+
+### Added
+
+- **Planning Today**: `GET /planning/today` — burning items, pack/make summary, quota; web `PlanningScreens` refactor.
+
+### Fixed
+
+- **Path integrity**: dedupe stitch hops; omit corrupted map polyline when haversine path >> OSRM payable km (`pathDistanceMismatch`).
+- **Loop collapse payout**: `gps_snap_loop_collapse` + sane `fact_visits_gps` → pay hybrid, not inflated `fact_visits`.
+- **Web route map**: hide GPS/hybrid polyline on path mismatch; deviation footnotes for open shift, scheduled plan, inefficient plan order.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.141`**.
+- **Миграций нет.**
+- **Backend → web**, then bulk `POST /field/fuel/day/recalculate` for **July + August DRAFT** days.
+- **Mobile**: новый EAS build не нужен (если field checklist OK).
 
 ## [0.2.140] — 2026-08-05
 

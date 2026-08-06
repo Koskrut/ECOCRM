@@ -8,6 +8,7 @@ import {
   TRACK_END_GRACE_MIN,
   isTrackEligibleForCompensation,
   selectCompensationFactKind,
+  isHybridUsableForLoopCollapse,
 } from "../../visits/route-routing.util";
 
 describe("isTrackEligibleForCompensation", () => {
@@ -257,7 +258,7 @@ describe("selectCompensationFactKind", () => {
     assert.equal(sel.ineligibleReason, "gps_implausibly_short_vs_visits");
   });
 
-  it("loop collapse: long raw + tiny snap + inflated visits → none (review)", () => {
+  it("loop collapse without hybrid → none (review), never fact_visits 261", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 200,
@@ -270,6 +271,41 @@ describe("selectCompensationFactKind", () => {
     assert.equal(sel.kind, "none");
     assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
     assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
+  });
+
+  it("Mykhailiv 29.07: loop collapse + hybrid 170.5 → fact_visits_gps", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 180,
+      coverageRatio: 0.92,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: 261,
+      factVisitsGpsDistanceKm: 170.5,
+      snapFailureReason: "gps_snap_loop_collapse",
+    });
+    assert.equal(sel.kind, "fact_visits_gps");
+    assert.equal(sel.ineligibleReason, null);
+    assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
+  });
+
+  it("isHybridUsableForLoopCollapse rejects tiny hybrid on long trip", () => {
+    assert.equal(
+      isHybridUsableForLoopCollapse({
+        factVisitsGpsDistanceKm: 1.4,
+        rawPolylineDistanceKm: 180,
+        visitRouteDistanceKm: 261,
+      }),
+      false,
+    );
+    assert.equal(
+      isHybridUsableForLoopCollapse({
+        factVisitsGpsDistanceKm: 170.5,
+        rawPolylineDistanceKm: 180,
+        visitRouteDistanceKm: 261,
+      }),
+      true,
+    );
   });
 
   it("loop symptom without explicit flag → none when raw≥30 and snap≪raw", () => {

@@ -37,6 +37,7 @@ import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
+import { PlanningTodayService } from "./planning-today.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
@@ -59,8 +60,14 @@ export class ProductionPlanningController {
     private readonly factoryOrders: FactoryOrderService,
     private readonly production: ProductionService,
     private readonly planningRuns: PlanningRunService,
+    private readonly today: PlanningTodayService,
     private readonly weeklyJob: WeeklyPlanningJob,
   ) {}
+
+  @Get("today")
+  getToday() {
+    return this.today.getToday();
+  }
 
   @Get("config/demand-rules")
   getDemandRules() {

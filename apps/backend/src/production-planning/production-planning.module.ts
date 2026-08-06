@@ -18,7 +18,7 @@ import { ProductionPlanningController } from "./production-planning.controller";
 import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
 import { MrpActionListService } from "./mrp-action-list.service";
-import { WeeklyPlanningJob } from "./weekly-planning.job";
+import { PlanningTodayService } from "./planning-today.service";
 
 @Module({
   imports: [PrismaModule, SystemModule],
@@ -40,6 +40,7 @@ import { WeeklyPlanningJob } from "./weekly-planning.job";
     PackingListService,
     FactoryOrderService,
     ProductionService,
+    PlanningTodayService,
     WeeklyPlanningJob,
   ],
 })

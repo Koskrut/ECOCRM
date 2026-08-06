@@ -11,8 +11,12 @@ import {
   isLoopTripSuspicious,
   LOOP_ENDPOINT_NEAR_KM,
   LOOP_MIN_TRIP_KM,
+  maxStraightSegmentKm,
+  mergeSnapPathsForDisplay,
+  reconcileSnapPathDisplay,
   splitSamplesByTimeGap,
   stitchPathGaps,
+  STITCH_GAP_DEGRADED_KM,
   STITCH_GAP_THRESHOLD_KM,
   TRACK_SEGMENT_GAP_MIN,
   type TrackedGpsSample,
@@ -22,6 +26,7 @@ import { pathFromWaypoints } from "./polyline.util";
 import {
   assessGpsTrackQuality,
   assessPlannedKm,
+  assessPlannedOrderEfficiency,
   concatPaths,
   downsamplePathUniform,
   MIN_TRACK_COMPENSATION_KM,
@@ -872,6 +877,7 @@ export class RoutePlansService {
     hasUnfilledGaps: boolean;
     snapFailureReason: string | null;
     simplifiedPathDistanceKm: number | null;
+    pathDistanceMismatch: boolean;
   }> {
     const tracked = asTrackedSamples(points);
     const noneResult = {
@@ -882,6 +888,7 @@ export class RoutePlansService {
       hasUnfilledGaps: false,
       snapFailureReason: null as string | null,
       simplifiedPathDistanceKm: null as number | null,
+      pathDistanceMismatch: false,
     };
 
     if (tracked.length < 2) {
@@ -926,6 +933,8 @@ export class RoutePlansService {
       }
     }
 
+    const interChunkBridgePaths: LatLng[][] = [];
+
     for (let i = 0; i < chunks.length - 1; i++) {
       const prevChunk = chunks[i]!;
       const nextChunk = chunks[i + 1]!;
@@ -946,6 +955,9 @@ export class RoutePlansService {
         if (routed?.source === "osrm" && routed.distanceKm != null && Number.isFinite(routed.distanceKm)) {
           totalKm += routed.distanceKm;
           usedOsrm = true;
+          if (routed.path.length >= 2) {
+            interChunkBridgePaths.push(routed.path);
+          }
         } else if (routed?.source === "fallback") {
           usedFallback = true;
         }
@@ -954,34 +966,66 @@ export class RoutePlansService {
       }
     }
 
-    let merged = concatPaths(chunkResults.map((r) => r.path));
-    if (merged.length < 2) {
-      merged = trackPoints;
+    const chunkPaths = chunkResults.map((r) => r.path).filter((p) => p.length >= 2);
+    let displayPath = mergeSnapPathsForDisplay(chunkPaths, interChunkBridgePaths);
+    if (displayPath.length < 2) {
+      displayPath = concatPaths(chunkPaths);
+    }
+    if (displayPath.length < 2) {
+      displayPath = trackPoints;
     }
 
-    const routeLeg = async (origin: LatLng, destination: LatLng) => {
-      try {
-        const routed = await this.computeRouteMultiLeg({
-          origin,
-          destination,
-          intermediates: [],
-        });
-        if (routed?.source === "osrm" && routed.path.length >= 2) {
-          usedOsrm = true;
-          return { path: routed.path };
-        }
-        if (routed?.path && routed.path.length >= 2) {
-          usedFallback = true;
-          return { path: routed.path };
-        }
-      } catch {
-        /* map stitch only */
-      }
-      return null;
-    };
+    let maxStitchGapKm = maxStraightSegmentKm(displayPath);
+    let hasUnfilledGaps = maxStitchGapKm > STITCH_GAP_DEGRADED_KM;
 
-    const stitched = await stitchPathGaps(merged, routeLeg, STITCH_GAP_THRESHOLD_KM);
+    // Only stitch sparse fallback polylines — never on dense OSRM match vertices (duplicates legs).
+    if (!usedOsrm || usedFallback) {
+      const routeLeg = async (origin: LatLng, destination: LatLng) => {
+        try {
+          const routed = await this.computeRouteMultiLeg({
+            origin,
+            destination,
+            intermediates: [],
+          });
+          if (routed?.source === "osrm" && routed.path.length >= 2) {
+            usedOsrm = true;
+            return { path: routed.path };
+          }
+          if (routed?.path && routed.path.length >= 2) {
+            usedFallback = true;
+            return { path: routed.path };
+          }
+        } catch {
+          /* map stitch only */
+        }
+        return null;
+      };
+      const sparse = downsamplePathUniform(displayPath, 120);
+      const stitched = await stitchPathGaps(sparse, routeLeg, STITCH_GAP_THRESHOLD_KM);
+      if (stitched.path.length >= 2) {
+        displayPath = stitched.path;
+      }
+      maxStitchGapKm = stitched.maxStitchGapKm;
+      hasUnfilledGaps = stitched.hasUnfilledGaps;
+    }
+
     let distanceKm = totalKm > 0 ? Math.round(totalKm * 10) / 10 : null;
+
+    let reconciled = reconcileSnapPathDisplay(displayPath, distanceKm);
+    if (reconciled.pathDistanceMismatch) {
+      this.logger.warn(
+        `snapGpsPathToRoads: path_distance_mismatch poly=${reconciled.displayPathPolylineKm} snapped=${distanceKm}`,
+      );
+      const compact = mergeSnapPathsForDisplay(chunkPaths, interChunkBridgePaths, 40);
+      const compactReconciled = reconcileSnapPathDisplay(compact, distanceKm);
+      if (!compactReconciled.pathDistanceMismatch) {
+        reconciled = compactReconciled;
+      } else {
+        reconciled = compactReconciled;
+      }
+    }
+    displayPath = reconciled.path;
+    let pathDistanceMismatch = reconciled.pathDistanceMismatch;
 
     let snapFailureReason: string | null = null;
     if (
@@ -1002,28 +1046,30 @@ export class RoutePlansService {
       );
     }
 
-    if (stitched.path.length < 2) {
+    if (displayPath.length < 2) {
       return {
         path: trackPoints,
         source: "fallback",
         distanceKm,
-        maxStitchGapKm: stitched.maxStitchGapKm,
-        hasUnfilledGaps: stitched.hasUnfilledGaps,
+        maxStitchGapKm,
+        hasUnfilledGaps,
         snapFailureReason,
         simplifiedPathDistanceKm,
+        pathDistanceMismatch,
       };
     }
 
     const source: "osrm" | "fallback" = usedOsrm ? "osrm" : "fallback";
 
     return {
-      path: stitched.path,
+      path: displayPath,
       source,
       distanceKm,
-      maxStitchGapKm: stitched.maxStitchGapKm,
-      hasUnfilledGaps: stitched.hasUnfilledGaps,
+      maxStitchGapKm,
+      hasUnfilledGaps,
       snapFailureReason,
       simplifiedPathDistanceKm,
+      pathDistanceMismatch,
     };
   }
 
@@ -1404,20 +1450,28 @@ export class RoutePlansService {
       }
     }
 
-    const path = concatPaths(paths);
+    const rawPath = concatPaths(paths);
+    const distanceKm = totalKm > 0 ? Math.round(totalKm * 10) / 10 : null;
+    const reconciled = reconcileSnapPathDisplay(rawPath, distanceKm);
     return {
       kind,
       source: usedOsrm ? "osrm" : "none",
-      distanceKm: totalKm > 0 ? Math.round(totalKm * 10) / 10 : null,
+      distanceKm,
       durationMin: null,
-      path,
+      path: reconciled.path,
       encodedPolyline: null,
       waypoints: visits.map((v) => v.wp),
       quality: {
         sampleCount: visits.length,
         coverageRatio: gps.coverageRatio,
-        degraded: !usedOsrm,
-        degradedReason: usedOsrm ? null : "hybrid_route_unavailable",
+        degraded: !usedOsrm || reconciled.pathDistanceMismatch,
+        degradedReason: reconciled.pathDistanceMismatch
+          ? "gps_path_distance_mismatch"
+          : usedOsrm
+            ? null
+            : "hybrid_route_unavailable",
+        pathDistanceMismatch: reconciled.pathDistanceMismatch,
+        displayPathPolylineKm: reconciled.displayPathPolylineKm,
       },
     };
   }
@@ -1634,6 +1688,8 @@ export class RoutePlansService {
     let hasUnfilledGaps = false;
     let snapFailureReason: string | null = null;
     let snappedDistanceKm: number | null = null;
+    let pathDistanceMismatch = false;
+    let displayPathPolylineKm: number | null = null;
 
     if (!fallbackOnly) {
       const snapped = await this.snapGpsPathToRoads(
@@ -1647,6 +1703,7 @@ export class RoutePlansService {
       snappedDistanceKm = snapped.distanceKm;
       maxStitchGapKm = snapped.maxStitchGapKm;
       hasUnfilledGaps = snapped.hasUnfilledGaps;
+      pathDistanceMismatch = snapped.pathDistanceMismatch;
 
       if (snapFailureReason === "gps_snap_loop_collapse") {
         degraded = true;
@@ -1664,6 +1721,14 @@ export class RoutePlansService {
         path = snapped.path;
         source = "raw_gps";
         distanceKm = null;
+      }
+
+      displayPathPolylineKm = this.pathDistanceKm(path);
+
+      if (pathDistanceMismatch) {
+        degraded = true;
+        degradedReason = "gps_path_distance_mismatch";
+        path = [];
       }
 
       if (hasUnfilledGaps || (maxStitchGapKm != null && maxStitchGapKm > 1)) {
@@ -1692,6 +1757,8 @@ export class RoutePlansService {
         rawDistanceKm: gps.distanceKm,
         snappedDistanceKm,
         snapFailureReason,
+        pathDistanceMismatch,
+        displayPathPolylineKm,
         hasTrackingEnabledShift: gps.hasTrackingEnabledShift,
         lastSampleAt: gps.lastSampleAt?.toISOString() ?? null,
         lastDoneVisitCompletedAt: lastDoneVisitCompletedAt?.toISOString() ?? null,
@@ -1772,9 +1839,22 @@ export class RoutePlansService {
       factVisitsGpsDistanceKm: factVisitsGps.distanceKm,
     });
 
+    const plannedOrderAssessment = assessPlannedOrderEfficiency({
+      plannedKm: planned.distanceKm,
+      factVisitsKm: factVisits.distanceKm,
+      plannedVisitIds: planned.waypoints.map((w) => w.visitId),
+      factVisitIds: factVisits.waypoints.map((w) => w.visitId),
+    });
+
     const compensationWarnings = [...(selection.warnings ?? [])];
     if (plannedAssessment.warning && !compensationWarnings.includes(plannedAssessment.warning)) {
       compensationWarnings.push(plannedAssessment.warning);
+    }
+    if (
+      plannedOrderAssessment.warning &&
+      !compensationWarnings.includes(plannedOrderAssessment.warning)
+    ) {
+      compensationWarnings.push(plannedOrderAssessment.warning);
     }
 
     const visitKm = factVisits.distanceKm ?? 0;
@@ -1800,6 +1880,7 @@ export class RoutePlansService {
       planIncludesScheduled,
       lastSampleNearHome,
       plannedKmWarning: plannedAssessment.warning,
+      plannedOrderInefficient: plannedOrderAssessment.inefficient,
     };
   }
 

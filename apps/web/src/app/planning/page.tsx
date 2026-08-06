@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
 import {
@@ -23,37 +24,43 @@ import {
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
 import { formatDateTime } from "@/lib/crmDatetime";
 import {
-  FactoryPanel,
   ForecastPanel,
   PlanningFreshnessBanners,
   MrpConfigPanel,
-  MrpCriticalPanel,
-  MrpDashboardPanel,
-  MrpPackagingPanel,
-  MrpProductionPanel,
-  MrpSemiFinishedPanel,
-  PackingPanel,
-  PlanningDashboardPanel,
   PlanningHowToPanel,
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
+import { MakeOrderScreen, PackScreen, TodayScreen } from "./PlanningScreens";
 
-type PlanningTab =
-  | "dashboard"
-  | "mrp"
-  | "mrpProduction"
-  | "mrpPack"
-  | "mrpSemi"
-  | "mrpCritical"
-  | "inventory"
-  | "snapshots"
-  | "bom"
-  | "forecast"
-  | "packing"
-  | "factory"
-  | "batches"
-  | "queues"
-  | "settings";
+type PlanningScreen = "today" | "pack" | "make" | "data";
+
+/** Legacy ?tab= keys → new IA (soft redirect). */
+const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
+  dashboard: "today",
+  mrp: "today",
+  mrpCritical: "today",
+  mrpPack: "pack",
+  packing: "pack",
+  mrpProduction: "make",
+  mrpSemi: "make",
+  factory: "make",
+  inventory: "data",
+  snapshots: "data",
+  bom: "data",
+  forecast: "data",
+  settings: "data",
+  batches: "data",
+  queues: "data",
+};
+
+const PLANNING_SCREENS: PlanningScreen[] = ["today", "pack", "make", "data"];
+
+function resolveScreen(tab: string | null): PlanningScreen {
+  if (!tab) return "today";
+  if (tab in LEGACY_TAB_MAP) return LEGACY_TAB_MAP[tab]!;
+  if (PLANNING_SCREENS.includes(tab as PlanningScreen)) return tab as PlanningScreen;
+  return "today";
+}
 
 const ORDER_STAGE_VALUES = [
   "NEW",
@@ -74,9 +81,51 @@ const ORDER_STAGE_VALUES = [
 const PRODUCTION_STAGE_VALUES = ["MECH", "DEGREASE", "QC", "PACK", "TRANSFER"] as const;
 
 export default function PlanningPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-zinc-600">{strings.common.loading}</div>
+      }
+    >
+      <PlanningPageInner />
+    </Suspense>
+  );
+}
+
+function PlanningPageInner() {
   const t = strings.planning;
-  const [activeTab, setActiveTab] = useState<PlanningTab>("dashboard");
-  const [howToOpen, setHowToOpen] = useState(true);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const skuFilter = searchParams.get("sku");
+  const activeScreen = resolveScreen(tabParam);
+  const [dataSection, setDataSection] = useState<string>("snapshots");
+  const setScreen = useCallback(
+    (screen: PlanningScreen) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", screen);
+      if (screen !== "pack" && screen !== "make") params.delete("sku");
+      router.replace(`/planning?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  useEffect(() => {
+    if (tabParam && tabParam in LEGACY_TAB_MAP && LEGACY_TAB_MAP[tabParam] !== tabParam) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", LEGACY_TAB_MAP[tabParam]!);
+      router.replace(`/planning?${params.toString()}`, { scroll: false });
+    }
+  }, [tabParam, router, searchParams]);
+
+  useEffect(() => {
+    if (tabParam === "snapshots") setDataSection("snapshots");
+    else if (tabParam === "bom") setDataSection("bom");
+    else if (tabParam === "forecast") setDataSection("sales");
+    else if (tabParam === "settings") setDataSection("settings");
+    else if (tabParam === "inventory") setDataSection("inventory");
+  }, [tabParam]);
+  const [howToOpen, setHowToOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -539,39 +588,23 @@ export default function PlanningPage() {
 
       <PlanningHowToPanel open={howToOpen} />
 
-      <PlanningFreshnessBanners
-        snapshot={freshness}
-        sales={salesFreshness}
-        mrpStale={mrpStale}
-        mrpStaleWarning={mrpStaleWarning}
-      />
+      {activeScreen !== "today" ? (
+        <PlanningFreshnessBanners
+          snapshot={freshness}
+          sales={salesFreshness}
+          mrpStale={mrpStale}
+          mrpStaleWarning={mrpStaleWarning}
+        />
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
-        {(
-          [
-            "dashboard",
-            "mrp",
-            "mrpProduction",
-            "mrpPack",
-            "mrpSemi",
-            "mrpCritical",
-            "inventory",
-            "snapshots",
-            "bom",
-            "forecast",
-            "packing",
-            "factory",
-            "batches",
-            "queues",
-            "settings",
-          ] as PlanningTab[]
-        ).map((tab) => (
+        {PLANNING_SCREENS.map((tab) => (
           <button
             key={tab}
             type="button"
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setScreen(tab)}
             className={
-              activeTab === tab
+              activeScreen === tab
                 ? "rounded-full bg-cyan-600 px-4 py-2 text-sm font-medium text-white"
                 : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             }
@@ -589,29 +622,41 @@ export default function PlanningPage() {
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
       <>
-          {activeTab === "dashboard" && (
-            <PlanningDashboardPanel dashboard={planningDashboard} projection={projection} />
-          )}
+        {activeScreen === "today" && (
+          <TodayScreen onError={handleOpsError} onNavigate={setScreen} />
+        )}
 
-          {activeTab === "mrp" && <MrpDashboardPanel onError={handleOpsError} />}
-          {activeTab === "mrpProduction" && <MrpProductionPanel onError={handleOpsError} />}
-          {activeTab === "mrpPack" && <MrpPackagingPanel onError={handleOpsError} />}
-          {activeTab === "mrpSemi" && <MrpSemiFinishedPanel onError={handleOpsError} />}
-          {activeTab === "mrpCritical" && <MrpCriticalPanel onError={handleOpsError} />}
+        {activeScreen === "pack" && (
+          <PackScreen onError={handleOpsError} skuFilter={skuFilter} />
+        )}
 
-          {activeTab === "forecast" && (
-            <ForecastPanel onError={handleOpsError} />
-          )}
+        {activeScreen === "make" && (
+          <MakeOrderScreen onError={handleOpsError} skuFilter={skuFilter} />
+        )}
 
-          {activeTab === "packing" && (
-            <PackingPanel onError={handleOpsError} />
-          )}
-
-          {activeTab === "factory" && (
-            <FactoryPanel onError={handleOpsError} />
-          )}
-
-          {activeTab === "inventory" && (
+        {activeScreen === "data" && (
+          <div className="space-y-3">
+            {(
+              [
+                ["snapshots", t.dataSections.snapshots],
+                ["sales", t.dataSections.sales],
+                ["bom", t.dataSections.bom],
+                ["settings", t.dataSections.settings],
+                ["inventory", t.dataSections.inventory],
+              ] as const
+            ).map(([key, title]) => (
+              <div key={key} className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-zinc-900"
+                  onClick={() => setDataSection(dataSection === key ? "" : key)}
+                >
+                  {title}
+                  <span className="text-zinc-400">{dataSection === key ? "▾" : "▸"}</span>
+                </button>
+                {dataSection === key ? (
+                  <div className="border-t border-zinc-100 px-4 pb-4 pt-2">
+                    {key === "inventory" ? (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.capacityHint}</p>
               <Panel title={t.labels.selectedProduct}>
@@ -686,9 +731,7 @@ export default function PlanningPage() {
                 )}
               </Panel>
             </div>
-          )}
-
-          {activeTab === "snapshots" && (
+                    ) : key === "snapshots" ? (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.snapshotsHint}</p>
               <Panel title={t.actions.uploadSnapshot}>
@@ -776,9 +819,9 @@ export default function PlanningPage() {
                 />
               </Panel>
             </div>
-          )}
-
-          {activeTab === "bom" && (
+                    ) : key === "sales" ? (
+                      <ForecastPanel onError={handleOpsError} />
+                    ) : key === "bom" ? (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.bomHint}</p>
               <Panel title={t.actions.uploadBom}>
@@ -969,178 +1012,7 @@ export default function PlanningPage() {
                 </div>
               </Panel>
             </div>
-          )}
-
-          {activeTab === "batches" && (
-            <div className="space-y-4">
-              <p className="text-sm text-zinc-600">{t.messages.batchesHint}</p>
-              <Panel title={t.actions.createBatch}>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <input
-                    value={batchForm.code}
-                    onChange={(e) => setBatchForm((prev) => ({ ...prev, code: e.target.value }))}
-                    placeholder={t.placeholders.batchCode}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <select
-                    value={batchForm.productId}
-                    onChange={(e) => setBatchForm((prev) => ({ ...prev, productId: e.target.value }))}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  >
-                    <option value="">{t.actions.selectProduct}</option>
-                    {kitProducts.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.sku} - {product.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={batchForm.qtyPlanned}
-                    onChange={(e) => setBatchForm((prev) => ({ ...prev, qtyPlanned: e.target.value }))}
-                    placeholder={t.placeholders.qty}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={batchForm.dueAt}
-                    onChange={(e) => setBatchForm((prev) => ({ ...prev, dueAt: e.target.value }))}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleCreateBatch()}
-                    disabled={creatingBatch}
-                    className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
-                  >
-                    {creatingBatch ? strings.common.loading : t.actions.createBatch}
-                  </button>
-                </div>
-              </Panel>
-
-              <Panel title={t.tabs.batches}>
-                <SimpleTable
-                  headers={[
-                    t.labels.batchCode,
-                    t.labels.product,
-                    t.labels.qtyPlanned,
-                    t.labels.qtyGood,
-                    t.labels.qtyScrap,
-                    t.labels.currentStage,
-                    t.labels.dueAt,
-                  ]}
-                  rows={batches.map((batch) => [
-                    batch.code,
-                    `${batch.product?.sku ?? batch.productId} - ${batch.product?.name ?? ""}`,
-                    String(batch.qtyPlanned),
-                    String(batch.qtyGood),
-                    String(batch.qtyScrap),
-                    stageLabel(batch.currentStage?.code),
-                    batch.dueAt ? formatDateTime(batch.dueAt) : t.states.none,
-                  ])}
-                  noDataLabel={t.states.noBatches}
-                />
-              </Panel>
-
-              <Panel title={t.actions.moveStage}>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-                  <select
-                    value={moveStageForm.batchId}
-                    onChange={(e) => setMoveStageForm((prev) => ({ ...prev, batchId: e.target.value }))}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  >
-                    <option value="">{t.actions.selectBatch}</option>
-                    {batches.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.code} - {batch.product?.name ?? batch.productId}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={moveStageForm.toStageCode}
-                    onChange={(e) => setMoveStageForm((prev) => ({ ...prev, toStageCode: e.target.value }))}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  >
-                    {PRODUCTION_STAGE_VALUES.map((stageCode) => (
-                      <option key={stageCode} value={stageCode}>
-                        {stageLabel(stageCode)}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={moveStageForm.qtyInStage}
-                    onChange={(e) => setMoveStageForm((prev) => ({ ...prev, qtyInStage: e.target.value }))}
-                    placeholder={t.labels.qty}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={moveStageForm.qtyGoodIncrement}
-                    onChange={(e) => setMoveStageForm((prev) => ({ ...prev, qtyGoodIncrement: e.target.value }))}
-                    placeholder={t.labels.qtyGood}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={moveStageForm.qtyScrapIncrement}
-                    onChange={(e) => setMoveStageForm((prev) => ({ ...prev, qtyScrapIncrement: e.target.value }))}
-                    placeholder={t.labels.qtyScrap}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                  />
-                </div>
-                <textarea
-                  value={moveStageForm.note}
-                  onChange={(e) => setMoveStageForm((prev) => ({ ...prev, note: e.target.value }))}
-                  placeholder={t.placeholders.note}
-                  className="mt-3 min-h-24 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                />
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => void handleMoveStage()}
-                    disabled={!moveStageForm.batchId || movingBatchId === moveStageForm.batchId}
-                    className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
-                  >
-                    {movingBatchId === moveStageForm.batchId ? strings.common.loading : t.actions.moveStage}
-                  </button>
-                </div>
-              </Panel>
-            </div>
-          )}
-
-          {activeTab === "queues" && (
-            <div className="space-y-4">
-              <p className="text-sm text-zinc-600">{t.messages.queuesHint}</p>
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium text-zinc-700">{t.labels.horizon}</span>
-                <select
-                  value={horizonWeeks}
-                  onChange={(e) => setHorizonWeeks(Number(e.target.value))}
-                  className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value={1}>{t.labels.oneWeek}</option>
-                  <option value={2}>{t.labels.twoWeeks}</option>
-                  <option value={4}>{t.labels.fourWeeks}</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-                <Panel title={t.labels.qcQueue}>
-                  <BatchMiniList batches={qcQueue} stageLabel={stageLabel} emptyLabel={t.states.noQueueItems} />
-                </Panel>
-                <Panel title={t.labels.packingQueue}>
-                  <BatchMiniList batches={packingQueue} stageLabel={stageLabel} emptyLabel={t.states.noQueueItems} />
-                </Panel>
-                <Panel title={t.labels.launchRecommendations}>
-                  <RecommendationsTable
-                    recommendations={launch?.recommendations ?? []}
-                    productsById={productNameById}
-                    noDataLabel={t.states.noRecommendations}
-                  />
-                </Panel>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "settings" && (
+                    ) : key === "settings" ? (
             <div className="space-y-4">
               <MrpConfigPanel onError={handleOpsError} />
               <PlanningSettingsPanel
@@ -1205,7 +1077,13 @@ export default function PlanningPage() {
                 </div>
               </Panel>
             </div>
-          )}
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </>
     </div>
   );

@@ -96,6 +96,12 @@ export function sumLegMetrics(
 /** Minimum polyline length (km) to use GPS track for fuel compensation. */
 export const MIN_TRACK_COMPENSATION_KM = 0.5;
 
+/** Hybrid km above this × raw simplified track → implausible on loop-collapse days. */
+export const HYBRID_VS_RAW_MAX_RATIO = 1.35;
+
+/** When visits route is inflated vs hybrid, visits must exceed hybrid by this factor. */
+export const VISITS_INFLATED_VS_HYBRID_RATIO = 1.35;
+
 /** Minimum filtered samples to use GPS track for fuel compensation. */
 export const MIN_TRACK_COMPENSATION_SAMPLES = 2;
 
@@ -258,17 +264,58 @@ export type CompensationFactSelection = {
  * fact_gps when visits cannot (no/too-short visit route) — Hrybovska 31.07.
  * When visits can pay, keep falling back to fact_visits (Gumenyuk).
  */
+/** Hybrid payout on loop-collapse days (Mykhailiv 29.07) — never auto fact_visits. */
+export function isHybridUsableForLoopCollapse(opts: {
+  factVisitsGpsDistanceKm?: number | null;
+  rawPolylineDistanceKm?: number | null;
+  visitRouteDistanceKm?: number | null;
+}): boolean {
+  const hybridKm = opts.factVisitsGpsDistanceKm;
+  if (hybridKm == null || !Number.isFinite(hybridKm) || hybridKm < MIN_TRACK_COMPENSATION_KM) {
+    return false;
+  }
+
+  const raw = opts.rawPolylineDistanceKm;
+  if (raw != null && Number.isFinite(raw) && raw >= LOOP_MIN_TRIP_KM) {
+    if (hybridKm < raw * LOOP_SNAP_VS_SIMPLIFIED_RATIO) return false;
+    if (hybridKm > raw * HYBRID_VS_RAW_MAX_RATIO) return false;
+  }
+
+  const visits = opts.visitRouteDistanceKm;
+  if (visits != null && Number.isFinite(visits) && visits >= MIN_TRACK_COMPENSATION_KM) {
+    if (visits > hybridKm * VISITS_INFLATED_VS_HYBRID_RATIO) {
+      return true;
+    }
+    if (hybridKm > visits * HYBRID_VS_RAW_MAX_RATIO) return false;
+  }
+
+  return hybridKm >= LOOP_MIN_TRIP_KM;
+}
+
+function loopCollapseCompensationSelection(
+  opts: TrackCompensationInput & { factVisitsGpsDistanceKm?: number | null },
+): CompensationFactSelection {
+  if (isHybridUsableForLoopCollapse(opts)) {
+    return {
+      kind: "fact_visits_gps",
+      ineligibleReason: null,
+      warnings: ["gps_snap_loop_collapse"],
+    };
+  }
+  return {
+    kind: "none",
+    ineligibleReason: "gps_snap_loop_collapse",
+    warnings: ["gps_snap_loop_collapse"],
+  };
+}
+
 export function selectCompensationFactKind(
   opts: TrackCompensationInput & {
     factVisitsGpsDistanceKm?: number | null;
   },
 ): CompensationFactSelection {
   if (opts.snapFailureReason === "gps_snap_loop_collapse") {
-    return {
-      kind: "none",
-      ineligibleReason: "gps_snap_loop_collapse",
-      warnings: ["gps_snap_loop_collapse"],
-    };
+    return loopCollapseCompensationSelection(opts);
   }
 
   const eligibility = isTrackEligibleForCompensation(opts);
@@ -285,11 +332,7 @@ export function selectCompensationFactKind(
     opts.snappedTrackDistanceKm != null &&
     opts.snappedTrackDistanceKm < opts.rawPolylineDistanceKm * LOOP_SNAP_VS_SIMPLIFIED_RATIO
   ) {
-    return {
-      kind: "none",
-      ineligibleReason: "gps_snap_loop_collapse",
-      warnings: ["gps_snap_loop_collapse"],
-    };
+    return loopCollapseCompensationSelection(opts);
   }
 
   const trackOk = trackKmUsable(opts);
@@ -358,6 +401,44 @@ export function assessPlannedKm(opts: {
     return { plannedKm: planned, degraded: true, warning: "planned_km_vs_fact_outlier" };
   }
   return { plannedKm: planned, degraded: false, warning: null };
+}
+
+/** Same stops routed in plan order vs fact order — detect zig-zag plan (Bondarenko). */
+export const PLANNED_ORDER_VS_FACT_MAX_RATIO = 1.2;
+export const PLANNED_ORDER_MIN_EXTRA_KM = 2;
+
+export function assessPlannedOrderEfficiency(opts: {
+  plannedKm: number | null | undefined;
+  factVisitsKm: number | null | undefined;
+  plannedVisitIds: Array<string | null | undefined>;
+  factVisitIds: Array<string | null | undefined>;
+}): { inefficient: boolean; warning: string | null } {
+  const plannedKm = opts.plannedKm;
+  const factKm = opts.factVisitsKm;
+  if (
+    plannedKm == null ||
+    factKm == null ||
+    !Number.isFinite(plannedKm) ||
+    !Number.isFinite(factKm) ||
+    factKm < MIN_TRACK_COMPENSATION_KM
+  ) {
+    return { inefficient: false, warning: null };
+  }
+
+  const plannedSet = new Set(opts.plannedVisitIds.filter(Boolean));
+  const factSet = new Set(opts.factVisitIds.filter(Boolean));
+  if (plannedSet.size < 2 || plannedSet.size !== factSet.size) {
+    return { inefficient: false, warning: null };
+  }
+  for (const id of plannedSet) {
+    if (!factSet.has(id!)) return { inefficient: false, warning: null };
+  }
+
+  const extra = plannedKm - factKm;
+  if (plannedKm > factKm * PLANNED_ORDER_VS_FACT_MAX_RATIO && extra >= PLANNED_ORDER_MIN_EXTRA_KM) {
+    return { inefficient: true, warning: "planned_order_inefficient" };
+  }
+  return { inefficient: false, warning: null };
 }
 
 /**

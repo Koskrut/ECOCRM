@@ -249,7 +249,7 @@ describe("amountEstimated persist when price+liters (metricsSource=none path)", 
 });
 
 describe("fuel snapshot fields (GPS contour)", () => {
-  it("selectCompensationFactKind exposes loop collapse for fuel review", () => {
+  it("loop collapse without hybrid → review (none)", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 100,
@@ -261,6 +261,22 @@ describe("fuel snapshot fields (GPS contour)", () => {
     });
     assert.equal(sel.kind, "none");
     assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
+  });
+
+  it("loop collapse with hybrid → fact_visits_gps payout", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 100,
+      rawPolylineDistanceKm: 165,
+      coverageRatio: 0.88,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: 261,
+      factVisitsGpsDistanceKm: 170.5,
+      snapFailureReason: "gps_snap_loop_collapse",
+    });
+    assert.equal(sel.kind, "fact_visits_gps");
+    assert.equal(sel.ineligibleReason, null);
+    assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
   });
 });
 

@@ -31,6 +31,10 @@ export type RouteGeometryQuality = {
   snappedDistanceKm?: number | null;
   /** When snap failed (loop collapse, etc.). */
   snapFailureReason?: string | null;
+  /** Map polyline haversine sum far exceeds snapped km (display path backtrack bug). */
+  pathDistanceMismatch?: boolean;
+  /** Haversine sum of returned map path (km), for diagnostics. */
+  displayPathPolylineKm?: number | null;
 };
 
 export type RouteGeometryWaypoint = LatLng & {
@@ -75,4 +79,6 @@ export type RouteGeometryBundle = {
   lastSampleNearHome?: boolean | null;
   /** Soft planned-km outlier warning (does not block GPS payout). */
   plannedKmWarning?: string | null;
+  /** Plan visit order much longer than same stops in fact order. */
+  plannedOrderInefficient?: boolean;
 };

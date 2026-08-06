@@ -128,6 +128,8 @@ export type RouteGeometryLayer = {
     lastDoneVisitCompletedAt?: string | null;
     maxStitchGapKm?: number | null;
     hasUnfilledGaps?: boolean;
+    pathDistanceMismatch?: boolean;
+    displayPathPolylineKm?: number | null;
   };
 };
 
@@ -143,6 +145,8 @@ export type RouteGeometryResult = RouteGeometryLayer & {
     lastDoneVisitCompletedAt?: string | null;
     maxStitchGapKm?: number | null;
     hasUnfilledGaps?: boolean;
+    pathDistanceMismatch?: boolean;
+    displayPathPolylineKm?: number | null;
   };
 };
 
@@ -155,6 +159,7 @@ export type RouteGeometryBundle = {
   shiftActive?: boolean;
   incompleteTour?: boolean;
   planIncludesScheduled?: boolean;
+  plannedOrderInefficient?: boolean;
   planned: RouteGeometryLayer;
   factVisits: RouteGeometryLayer;
   factGps: RouteGeometryLayer;
