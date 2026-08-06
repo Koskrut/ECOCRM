@@ -26,6 +26,10 @@ describe("classifySampleRejectBatch", () => {
     assert.equal(classifySampleRejectBatch({ out_of_region: 5 }), "hard");
   });
 
+  it("treats invalid_coords as hard", () => {
+    assert.equal(classifySampleRejectBatch({ invalid_coords: 2 }), "hard");
+  });
+
   it("treats teleport as hard", () => {
     assert.equal(classifySampleRejectBatch({ teleport: 1 }), "hard");
   });

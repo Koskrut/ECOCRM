@@ -41,7 +41,8 @@ export type FilterGpsSampleReason =
   | "bad_accuracy"
   | "duplicate"
   | "teleport"
-  | "out_of_region";
+  | "out_of_region"
+  | "invalid_coords";
 
 export type FilterGpsSampleResult = {
   accept: boolean;
@@ -62,15 +63,54 @@ function toTimeMs(value: Date | string): number {
   return Number.isFinite(t) ? t : NaN;
 }
 
+export type UaRegionClassifyResult =
+  | { ok: true; lat: number; lng: number }
+  | {
+      ok: false;
+      reason: "invalid_coords" | "out_of_region";
+      lat: number | null;
+      lng: number | null;
+    };
+
+/** Coerce string/number GPS values before bbox (avoids false out_of_region on NaN). */
+export function coerceLatLng(
+  lat: unknown,
+  lng: unknown,
+): { lat: number; lng: number } | null {
+  const la = typeof lat === "number" ? lat : Number(lat);
+  const ln = typeof lng === "number" ? lng : Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  return { lat: la, lng: ln };
+}
+
+/**
+ * Coerce then UA bbox. Non-finite → invalid_coords; finite outside box → out_of_region.
+ */
+export function classifyUaFieldCoords(lat: unknown, lng: unknown): UaRegionClassifyResult {
+  const coerced = coerceLatLng(lat, lng);
+  if (!coerced) {
+    const la = typeof lat === "number" ? lat : Number(lat);
+    const ln = typeof lng === "number" ? lng : Number(lng);
+    return {
+      ok: false,
+      reason: "invalid_coords",
+      lat: Number.isFinite(la) ? la : null,
+      lng: Number.isFinite(ln) ? ln : null,
+    };
+  }
+  if (
+    coerced.lat < UA_FIELD_LAT_MIN ||
+    coerced.lat > UA_FIELD_LAT_MAX ||
+    coerced.lng < UA_FIELD_LNG_MIN ||
+    coerced.lng > UA_FIELD_LNG_MAX
+  ) {
+    return { ok: false, reason: "out_of_region", lat: coerced.lat, lng: coerced.lng };
+  }
+  return { ok: true, lat: coerced.lat, lng: coerced.lng };
+}
+
 export function isInUaFieldRegion(lat: number, lng: number): boolean {
-  return (
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    lat >= UA_FIELD_LAT_MIN &&
-    lat <= UA_FIELD_LAT_MAX &&
-    lng >= UA_FIELD_LNG_MIN &&
-    lng <= UA_FIELD_LNG_MAX
-  );
+  return classifyUaFieldCoords(lat, lng).ok;
 }
 
 function bumpReason(reasons: Record<string, number>, reason: string): void {
@@ -149,10 +189,12 @@ export function filterGpsSample(
   prev: GpsSamplePoint | null | undefined,
   next: GpsSamplePoint,
 ): FilterGpsSampleResult {
-  if (!isInUaFieldRegion(next.lat, next.lng)) {
-    return { accept: false, reason: "out_of_region" };
+  const region = classifyUaFieldCoords(next.lat, next.lng);
+  if (!region.ok) {
+    return { accept: false, reason: region.reason };
   }
-  return filterGpsSampleRelative(prev, next);
+  const coerced: GpsSamplePoint = { ...next, lat: region.lat, lng: region.lng };
+  return filterGpsSampleRelative(prev, coerced);
 }
 
 /**
@@ -197,10 +239,12 @@ export class GpsTrackFilterSession {
   }
 
   consider(next: GpsSamplePoint): FilterGpsSampleResult {
-    if (!isInUaFieldRegion(next.lat, next.lng)) {
-      bumpReason(this.droppedReasons, "out_of_region");
-      return { accept: false, reason: "out_of_region" };
+    const region = classifyUaFieldCoords(next.lat, next.lng);
+    if (!region.ok) {
+      bumpReason(this.droppedReasons, region.reason);
+      return { accept: false, reason: region.reason };
     }
+    next = { ...next, lat: region.lat, lng: region.lng };
 
     const verdict = filterGpsSampleRelative(this.prev, next);
     if (verdict.accept) {

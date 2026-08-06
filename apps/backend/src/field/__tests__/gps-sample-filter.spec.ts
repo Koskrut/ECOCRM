@@ -7,6 +7,8 @@ import {
   MIN_DISTANCE_DEDUP_M,
   REANCHOR_MIN_CLUSTER,
   TRACK_MAX_ACCURACY_M,
+  classifyUaFieldCoords,
+  coerceLatLng,
   filterGpsSample,
   filterGpsTrack,
   isInUaFieldRegion,
@@ -56,6 +58,19 @@ describe("filterGpsSample", () => {
     assert.equal(result.accept, false);
     assert.equal(result.reason, "out_of_region");
     assert.equal(isInUaFieldRegion(-12.04, -77.05), false);
+  });
+
+  it("rejects NaN as invalid_coords not out_of_region", () => {
+    const next = sample(Number.NaN, 35.01, 0, 20);
+    const result = filterGpsSample(null, next);
+    assert.equal(result.accept, false);
+    assert.equal(result.reason, "invalid_coords");
+  });
+
+  it("accepts string-coerced Dnipro coords via classify", () => {
+    const c = coerceLatLng("48.39", "35.01");
+    assert.ok(c);
+    assert.equal(classifyUaFieldCoords("48.39", "35.01").ok, true);
   });
 
   it("accepts keepalive duplicate after KEEPALIVE_INTERVAL_MS", () => {

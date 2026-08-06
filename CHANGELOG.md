@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.144**.)_
+_(планируемые изменения после **0.2.145**.)_
+
+## [0.2.145] — 2026-08-06
+
+### Summary
+
+Патч **0.2.145**: GPS `invalid_coords` vs `out_of_region` — coerce lat/lng on backend + mobile.
+
+### Fixed
+
+- **GPS sample filter**: NaN / non-numeric coords → `invalid_coords` (not false `out_of_region`); string coords coerced before UA bbox.
+- **Field shifts append**: soft-reject bad coords with triage logging instead of 400 on whole batch.
+
+### Changed
+
+- **Mobile tracking**: shared `location-region-check`; `invalid_coords` as hard reject in diagnostics.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.145`**.
+- **Миграций нет.**
+- **Backend + mobile**: deploy / новый **EAS build** для field GPS triage.
 
 ## [0.2.144] — 2026-08-06
 

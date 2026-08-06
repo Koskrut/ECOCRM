@@ -40,6 +40,10 @@ import {
   type TrackingPermissionStatus,
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
+import {
+  classifyUaFieldCoords,
+  formatUaRegionRejectLog,
+} from "./location-region-check";
 import { isAcceptStale, reconcileTrackingHealth } from "./location-tracking-health";
 import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
 import {
@@ -161,18 +165,16 @@ async function handleRawLocation(input: {
     void appendErrorLog("location sample skipped: reason=mock", "warn");
     return;
   }
-  // Client-side UA bbox — don't buffer Lima/emulator points (server would out_of_region).
-  if (
-    !Number.isFinite(input.lat) ||
-    !Number.isFinite(input.lng) ||
-    input.lat < 44 ||
-    input.lat > 53 ||
-    input.lng < 22 ||
-    input.lng > 41
-  ) {
-    void appendErrorLog("location sample skipped: out_of_region", "warn");
+  // Client-side UA bbox — don't buffer Lima/emulator / NaN (server would reject).
+  const region = classifyUaFieldCoords(input.lat, input.lng);
+  if (!region.ok) {
+    void appendErrorLog(
+      formatUaRegionRejectLog(region.reason, input.lat, input.lng, input.accuracyM),
+      "warn",
+    );
     return;
   }
+  input = { ...input, lat: region.lat, lng: region.lng };
   // Stop feeding a blocked shift (wrong_day / 401 / dead-shift 400).
   const block = getLastFlushBlockReason();
   if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {

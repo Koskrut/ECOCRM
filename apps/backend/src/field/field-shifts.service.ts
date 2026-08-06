@@ -17,6 +17,7 @@ import {
   getAllowedOwnerIds,
 } from "../visits/visits-owner-scope";
 import {
+  classifyUaFieldCoords,
   GpsTrackFilterSession,
   isInUaFieldRegion,
   lastInRegionSample,
@@ -278,9 +279,6 @@ export class FieldShiftsService {
     const sortedItems = sortGpsSamplesByTime(items);
 
     for (const it of sortedItems) {
-      if (!Number.isFinite(it.lat) || !Number.isFinite(it.lng)) {
-        throw new BadRequestException("Invalid lat/lng");
-      }
       const clientRecordedAt = new Date(it.clientRecordedAt);
       if (Number.isNaN(clientRecordedAt.getTime())) {
         throw new BadRequestException("Invalid clientRecordedAt");
@@ -292,9 +290,25 @@ export class FieldShiftsService {
         continue;
       }
 
+      const region = classifyUaFieldCoords(it.lat, it.lng);
+      if (!region.ok) {
+        rejected += 1;
+        rejectReasons[region.reason] = (rejectReasons[region.reason] ?? 0) + 1;
+        // First of each geo-reject reason in the batch — need lat/lng to triage bad GPS vs real travel.
+        if ((rejectReasons[region.reason] ?? 0) === 1) {
+          this.logger.warn(
+            `appendSamples ${region.reason} shiftId=${shiftId} ownerId=${actor.id}` +
+              ` lat=${String(it.lat)} lng=${String(it.lng)}` +
+              ` accuracyM=${it.accuracyM ?? "null"}` +
+              ` typeofLat=${typeof it.lat} typeofLng=${typeof it.lng}`,
+          );
+        }
+        continue;
+      }
+
       const candidate = {
-        lat: it.lat,
-        lng: it.lng,
+        lat: region.lat,
+        lng: region.lng,
         accuracyM:
           it.accuracyM != null && Number.isFinite(Number(it.accuracyM)) ? Number(it.accuracyM) : undefined,
         clientRecordedAt,
@@ -305,6 +319,17 @@ export class FieldShiftsService {
         rejected += 1;
         const reason = verdict.reason ?? "unknown";
         rejectReasons[reason] = (rejectReasons[reason] ?? 0) + 1;
+        if (
+          (reason === "out_of_region" || reason === "invalid_coords") &&
+          rejectReasons[reason] === 1
+        ) {
+          this.logger.warn(
+            `appendSamples ${reason} shiftId=${shiftId} ownerId=${actor.id}` +
+              ` lat=${candidate.lat} lng=${candidate.lng}` +
+              ` accuracyM=${candidate.accuracyM ?? "null"}` +
+              ` typeofLat=${typeof it.lat} typeofLng=${typeof it.lng}`,
+          );
+        }
         continue;
       }
 

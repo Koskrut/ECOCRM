@@ -7,6 +7,7 @@ const HARD_REJECT_REASONS = new Set([
   "wrong_day",
   "teleport",
   "out_of_region",
+  "invalid_coords",
 ]);
 
 /** Soft / expected filter noise — never surface as ERROR in diagnostics. */
@@ -79,6 +80,9 @@ export function describeRejectBatch(
         break;
       case "out_of_region":
         parts.push(`${count} out_of_region`);
+        break;
+      case "invalid_coords":
+        parts.push(`${count} invalid_coords (NaN/non-numeric)`);
         break;
       case "bad_accuracy":
         parts.push(`${count} bad_accuracy`);
