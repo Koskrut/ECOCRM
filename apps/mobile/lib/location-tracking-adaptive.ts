@@ -12,10 +12,10 @@ import {
 } from "./location-tracking-config";
 import { FIELD_TRACKING_CHANNEL_ID } from "./tracking-notification-channel";
 import {
-  canStartLocationForegroundService,
   clearPendingAdaptiveTier,
   setPendingAdaptiveTier,
 } from "./location-tracking-restart";
+import { shouldDeferAdaptiveTierApply } from "./shift-ops-gate";
 
 let currentForegroundTier: SamplingTier = DEFAULT_TIER;
 let foregroundSubscription: Location.LocationSubscription | null = null;
@@ -62,7 +62,7 @@ export function backgroundOptionsForTier(tier: SamplingTier): Location.LocationT
 
 /** Foreground-controlled stop/start for tier changes only. */
 export async function restartBackgroundWatch(tier: SamplingTier): Promise<void> {
-  if (!canStartLocationForegroundService(AppState.currentState)) {
+  if (shouldDeferAdaptiveTierApply(AppState.currentState)) {
     await setPendingAdaptiveTier(tier);
     return;
   }
@@ -89,7 +89,7 @@ export async function applyAdaptiveTier(
         () => false,
       );
       if (started) {
-        if (!canStartLocationForegroundService(AppState.currentState)) {
+        if (shouldDeferAdaptiveTierApply(AppState.currentState)) {
           await setPendingAdaptiveTier(tier);
           return;
         }

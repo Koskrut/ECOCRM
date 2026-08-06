@@ -27,6 +27,7 @@ import {
 } from "@/lib/location-tracking-health";
 import { openLocationPermissionSettings } from "@/lib/location-permissions";
 import { canStartLocationForegroundService } from "@/lib/location-tracking-restart";
+import { shouldOfferRestartShiftCta } from "@/lib/shift-ops-gate";
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -215,9 +216,7 @@ export default function MoreScreen() {
                         {t("today.queuePending", { count: pendingSamples })}
                       </Text>
                     ) : null}
-                    {unhealthyReason === "background_task_dead" ||
-                    unhealthyReason === "accept_stale" ||
-                    unhealthyReason === "accept_stale_wrong_day" ? (
+                    {shouldOfferRestartShiftCta(unhealthyReason) ? (
                       <AppButton
                         label={t("gps.closeAndReopenShift")}
                         onPress={() => void restartShift()}

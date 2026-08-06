@@ -11,6 +11,7 @@ import {
   type TrackingUnhealthyReason,
 } from "@/lib/location-tracking-health";
 import { openLocationPermissionSettings } from "@/lib/location-permissions";
+import { shouldOfferRestartShiftCta } from "@/lib/shift-ops-gate";
 
 type Props = {
   activeShift: boolean;
@@ -69,10 +70,8 @@ export function ShiftStatusCard({
       unhealthyReason === "foreground_watch_dead" ||
       unhealthyReason === "accept_stale" ||
       (unhealthyReason === "fgs_start_blocked_background" && appInForeground));
-  const showRestartShift =
-    unhealthyReason === "background_task_dead" ||
-    unhealthyReason === "accept_stale" ||
-    unhealthyReason === "accept_stale_wrong_day";
+  // End+start only for wrong_day — never primary fix for dead FGS (empty-shift thrash).
+  const showRestartShift = shouldOfferRestartShiftCta(unhealthyReason);
 
   return (
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>

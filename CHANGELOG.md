@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.143**.)_
+_(планируемые изменения после **0.2.144**.)_
+
+## [0.2.144] — 2026-08-06
+
+### Summary
+
+Патч **0.2.144**: mobile shift ops gate (anti-thrash); web incomplete-tour copy fix.
+
+### Added
+
+- **Mobile shift-ops-gate**: pure gates for overlapping start/end/restart, reuse ACTIVE shift, restart-shift CTA only on `accept_stale_wrong_day`, Expo #47595 zombie FGS recreate.
+
+### Changed
+
+- **Mobile tracking**: force-recover background task on foreground; op-in-flight lock; clearer restart-failed hint.
+- **Web route map**: `incompleteTourCopyKind` — footnote/deviation copy for open shift vs truncated track.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.144`**.
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен.
+- **Web**: deploy для route map footnotes.
 
 ## [0.2.143] — 2026-08-06
 

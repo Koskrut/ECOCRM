@@ -1,7 +1,8 @@
 import { requireNativeModule } from "expo-modules-core";
 
 type CrmBatteryModule = {
-  isIgnoringBatteryOptimizations(): Promise<boolean>;
+  /** null when React context is not ready — never treat as restricted. */
+  isIgnoringBatteryOptimizations(): Promise<boolean | null>;
 };
 
 let nativeModule: CrmBatteryModule | null = null;

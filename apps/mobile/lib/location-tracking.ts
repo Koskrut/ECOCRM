@@ -40,7 +40,7 @@ import {
   type TrackingPermissionStatus,
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
-import { reconcileTrackingHealth } from "./location-tracking-health";
+import { isAcceptStale, reconcileTrackingHealth } from "./location-tracking-health";
 import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
 import {
   canStartLocationForegroundService,
@@ -405,28 +405,40 @@ export type RestartTrackingResult = {
  */
 export async function restartTrackingPipeline(): Promise<RestartTrackingResult> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  const claimed =
+    ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
+  const taskStartedNow = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+
   if (!shiftId) {
-    return { ok: false, mode: "none", backgroundTaskStarted: false, errorCode: "no_shift" };
+    return { ok: false, mode: claimed, backgroundTaskStarted: taskStartedNow, errorCode: "no_shift" };
   }
 
+  // No side effects on shift / TRACKING_MODE while minimized (Android 12+).
   if (!canStartLocationForegroundService(AppState.currentState)) {
     return {
       ok: false,
-      mode: "none",
-      backgroundTaskStarted: false,
+      mode: claimed,
+      backgroundTaskStarted: taskStartedNow,
       errorCode: "app_not_active",
     };
   }
 
   clearStaleGpsFlushBlockIfNeeded();
-  const claimed =
-    ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
+  const lastAcceptedAt = await getLastAcceptedAt();
+  const acceptStale = isAcceptStale(lastAcceptedAt);
 
   let mode: TrackingMode;
   if (claimed === "background") {
+    // Dead FGS or Expo #47595 zombie (started but accept stale) → force recreate.
     mode = await ensureBackgroundTaskRunning(shiftId, "manualRestart", {
       bypassCooldown: true,
+      forceRecreate: acceptStale || !taskStartedNow,
     });
+    if (mode !== "background") {
+      mode = await startLocationTracking(shiftId);
+    }
   } else if (claimed === "none") {
     mode = await startLocationTracking(shiftId);
   } else {
@@ -439,12 +451,16 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
     FIELD_LOCATION_TASK,
   ).catch(() => false);
 
-  if (claimed === "background" || mode === "background") {
-    if (!backgroundTaskStarted) {
+  // Field default: success means background FGS is actually running.
+  if (mode === "background" || claimed === "background" || claimed === "none") {
+    if (!backgroundTaskStarted || mode !== "background") {
       return {
         ok: false,
-        mode: reportedModeAfterBackgroundRestartAttempt("background", false),
-        backgroundTaskStarted: false,
+        mode: reportedModeAfterBackgroundRestartAttempt(
+          claimed === "foreground" ? "foreground" : "background",
+          backgroundTaskStarted,
+        ),
+        backgroundTaskStarted,
         errorCode: "start_failed",
         errorDetail: "fgs_or_os_rejected",
       };
@@ -690,11 +706,11 @@ export async function maybeUpgradeToBackgroundTracking(): Promise<TrackingMode> 
   return startLocationTracking(shiftId);
 }
 
-/** Restart background task when storage says background but OS task is dead. */
+/** Restart background task when storage says background but OS task is dead / poisoned. */
 async function ensureBackgroundTaskRunning(
   shiftId: string,
   context: string,
-  opts?: { bypassCooldown?: boolean },
+  opts?: { bypassCooldown?: boolean; forceRecreate?: boolean },
 ): Promise<TrackingMode> {
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode !== "background") {
@@ -704,14 +720,14 @@ async function ensureBackgroundTaskRunning(
   const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
   );
-  if (started) {
+  if (started && !opts?.forceRecreate) {
     return "background";
   }
 
   // Never attempt FGS start while minimized — Android 12+ rejects it.
   if (!canStartLocationForegroundService(AppState.currentState)) {
     void appendErrorLog(`${context}: skip_fgs_start_while_background`, "info");
-    return reportedModeAfterBackgroundRestartAttempt("background", false);
+    return reportedModeAfterBackgroundRestartAttempt("background", started);
   }
 
   const reason = mapRestartContextToReason(context);
@@ -720,10 +736,15 @@ async function ensureBackgroundTaskRunning(
   });
   if (!attempt.allowed) {
     void appendErrorLog(`${context}: restart skipped (cooldown)`, "info");
-    return reportedModeAfterBackgroundRestartAttempt("background", false);
+    return reportedModeAfterBackgroundRestartAttempt("background", started);
   }
 
-  void appendErrorLog(`${context}: background task dead, restarting`, "warn");
+  void appendErrorLog(
+    started && opts?.forceRecreate
+      ? `${context}: poison FGS recreate (Expo #47595)`
+      : `${context}: background task dead, restarting`,
+    "warn",
+  );
   // Light restart — do NOT reset LAST_ACCEPTED_AT / processor (would mask stale GPS).
   try {
     await registerFieldLocationTask();
@@ -880,6 +901,7 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
   if (!started || acceptStale) {
     const restarted = await ensureBackgroundTaskRunning(shiftId, "foregroundRecover", {
       bypassCooldown: true,
+      forceRecreate: true,
     });
     if (restarted === "background") {
       startFlushTimer();
@@ -892,6 +914,7 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     return restarted;
   }
 
+  // Always flush + immediate fix on foreground resume (even when task looks alive).
   void clearGpsStoppedNotificationDedupe().catch(() => undefined);
   await flushPendingSamples(shiftId).catch(() => undefined);
   await captureImmediateFixAndFlush().catch(() => false);

@@ -10,6 +10,7 @@ import {
 import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
 import { todayYmdInKyiv } from "@/lib/crmDatetime";
+import { incompleteTourCopyKind } from "@/lib/visits/incomplete-tour-copy";
 import { strings } from "@/locales";
 
 type Props = {
@@ -143,7 +144,7 @@ export function DayRouteMapPanel({
       plan > 0 &&
       compensationKm < plan * 0.85;
     const incompleteDeviationNote = showIncompleteDeviationNote
-      ? bundle.shiftActive
+      ? incompleteTourCopyKind(bundle.shiftActive) === "open_shift"
         ? t.deviationHiddenIncompleteOpenShift
         : t.deviationHiddenIncompleteTruncatedTrack
       : null;
@@ -312,7 +313,7 @@ export function DayRouteMapPanel({
           ) : null}
           {bundle?.incompleteTour ? (
             <p className="mt-1 text-xs text-amber-800">
-              {bundle.shiftActive
+              {incompleteTourCopyKind(bundle.shiftActive) === "open_shift"
                 ? t.incompleteTourFootnoteOpenShift
                 : t.incompleteTourFootnoteTruncatedTrack}
             </p>
