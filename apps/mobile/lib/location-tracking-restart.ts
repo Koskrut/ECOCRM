@@ -6,7 +6,7 @@ export const RESTART_COOLDOWN_MS = 30_000;
 
 export type TrackingRestartReason = "os_kill" | "tier_change" | "appstate" | "watchdog";
 
-export type BatteryOptimizationStatus = "restricted" | "unrestricted" | "unknown";
+export type BatteryOptimizationStatus = "restricted" | "unrestricted" | "unknown" | "module_unavailable";
 
 export type TrackingRestartDiagnostics = {
   lastRestartAt: string | null;

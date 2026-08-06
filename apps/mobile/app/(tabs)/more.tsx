@@ -137,6 +137,9 @@ export default function MoreScreen() {
                 backgroundPermission={backgroundPermission}
                 batteryOptimizationStatus={batteryOptimizationStatus}
                 trackingMode={trackingMode}
+                healthy={!trackingBroken && trackingMode === "background"}
+                backgroundTaskStarted={trackingDebug?.backgroundTaskStarted ?? false}
+                lastAcceptedAt={trackingDebug?.lastAcceptedAt ?? null}
                 showBatteryHint={showBatteryHint}
               />
             ) : null}
@@ -308,8 +311,10 @@ export default function MoreScreen() {
             </Text>
             {trackingDebug ? (
               <>
-                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
-                  {t("more.debugTrackingMode", { mode: trackingDebug.mode })}
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("more.debugTrackingMode", {
+                    mode: `${trackingDebug.claimedMode ?? trackingDebug.mode} (actual: ${trackingDebug.actualMode ?? "—"})`,
+                  })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugShiftId", { id: trackingDebug.activeShiftId ?? "—" })}
@@ -367,8 +372,20 @@ export default function MoreScreen() {
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugBatteryOpt", {
-                    status: batteryOptimizationLabel(trackingDebug.batteryOptimizationStatus),
+                    status: batteryOptimizationLabel(
+                      trackingDebug.batteryOptimizationStatus,
+                      trackingDebug.batteryRawIgnoring,
+                      trackingDebug.batteryModuleLoaded,
+                    ),
                   })}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  Battery module: {trackingDebug.batteryModuleLoaded ? "loaded" : "missing"} · raw API:{" "}
+                  {trackingDebug.batteryRawIgnoring == null
+                    ? "null"
+                    : trackingDebug.batteryRawIgnoring
+                      ? "ignoring"
+                      : "optimized"}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugLastRestart", {

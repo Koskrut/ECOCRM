@@ -20,6 +20,9 @@ export const enGps = {
     "Tracking only while the app is open — allow Always in settings",
   backgroundHint:
     "Background location is not granted — tracking stops when the screen locks or the app is backgrounded. Open settings and choose Allow all the time.",
+  backgroundRequiredTitle: "Allow all the time required",
+  backgroundRequiredHint:
+    "GPS only works while the app is open without Always permission. Open settings and choose Allow all the time.",
   gpsNotWriting: "GPS is not writing",
   gpsNotWritingHint:
     "No accepted GPS points for over 10 minutes. Restart tracking or close and reopen the shift.",

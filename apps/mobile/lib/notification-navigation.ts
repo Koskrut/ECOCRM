@@ -27,6 +27,11 @@ export function navigateFromNotificationData(
   router: Router,
   data: Record<string, unknown>,
 ): void {
+  if (data.type === "gps_stopped" || data.screen === "today") {
+    router.push("/(tabs)");
+    return;
+  }
+
   if (typeof data.visitId === "string" && data.visitId.length > 0) {
     router.push(`/visit/${data.visitId}`);
     return;

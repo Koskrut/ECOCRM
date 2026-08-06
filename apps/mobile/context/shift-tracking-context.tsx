@@ -69,6 +69,7 @@ type ShiftTrackingCtx = {
   setTrackingEnabled: (v: boolean) => void;
   pendingSamples: number;
   lastFlushAt: string | null;
+  lastAcceptedAt: string | null;
   trackingHealthy: boolean;
   /** No successful GPS accept (created>0 / keepalive) for >10 min. */
   acceptStale: boolean;
@@ -99,6 +100,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [trackingEnabled, setTrackingEnabled] = useState(true);
   const [pendingSamples, setPendingSamples] = useState(0);
   const [lastFlushAt, setLastFlushAt] = useState<string | null>(null);
+  const [lastAcceptedAt, setLastAcceptedAt] = useState<string | null>(null);
   const [trackingHealthy, setTrackingHealthy] = useState(true);
   const [acceptStale, setAcceptStale] = useState(false);
   const [flushBlockReason, setFlushBlockReason] = useState<string | null>(null);
@@ -120,6 +122,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setTrackingMode(health.mode);
       setPendingSamples(health.pendingSamples);
       setLastFlushAt(health.lastFlushAt);
+      setLastAcceptedAt(health.lastAcceptedAt ?? null);
       setTrackingHealthy(health.healthy);
       setAcceptStale(health.acceptStale === true);
       setFlushBlockReason(health.flushBlockReason ?? null);
@@ -374,7 +377,11 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         void (async () => {
           try {
             const before = await getTrackingRuntimeHealth();
-            if (before.claimedMode === "background" && !before.backgroundTaskStarted) {
+            if (before.mode === "background") {
+              const mode = await recoverDeadBackgroundTaskOnForeground();
+              setTrackingMode(mode);
+              await syncTrackingHealth();
+            } else if (before.claimedMode === "background" && !before.backgroundTaskStarted) {
               await recoverDeadBackgroundTask();
             } else {
               const mode = await ensureTrackingContinuity();
@@ -422,6 +429,24 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     staleAlertShownRef.current = false;
     clearFlushBlockReason();
     try {
+      if (trackingEnabled) {
+        const perms = await getTrackingPermissionStatus();
+        if (perms.foreground !== "granted") {
+          Alert.alert(t("gps.title"), t("gps.noneHint"), [
+            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
+            { text: t("common.later"), style: "cancel" },
+          ]);
+          return;
+        }
+        if (perms.background !== "granted") {
+          Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
+            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
+            { text: t("common.later"), style: "cancel" },
+          ]);
+          return;
+        }
+      }
+
       // Reuse today's ACTIVE instead of stacking empty shifts (backend also idempotent).
       if (activeShift?.status === "ACTIVE") {
         if (trackingEnabled) {
@@ -485,11 +510,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         await captureImmediateFixAndFlush();
         const health = await syncTrackingHealth();
 
-        if (mode === "foreground") {
-          foregroundWarnedRef.current = true;
-          promptOpenSettings(t("gps.foregroundOnlyHint"));
-        } else if (mode === "none") {
-          Alert.alert(t("gps.title"), t("gps.noneHint"), [
+        if (mode === "none") {
+          Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
             { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
             { text: t("common.later"), style: "cancel" },
           ]);
@@ -528,7 +550,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       const result = await restartTrackingPipeline();
       setTrackingMode(result.mode);
       const health = await syncTrackingHealth();
-      if (result.ok && (health.backgroundTaskStarted || result.mode === "foreground")) {
+      if (result.ok && health.backgroundTaskStarted && result.mode === "background") {
         setShowBatteryHint(false);
         return;
       }
@@ -751,6 +773,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setTrackingEnabled,
       pendingSamples,
       lastFlushAt,
+      lastAcceptedAt,
       trackingHealthy,
       acceptStale,
       unhealthyReason,
@@ -774,6 +797,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       trackingEnabled,
       pendingSamples,
       lastFlushAt,
+      lastAcceptedAt,
       trackingHealthy,
       acceptStale,
       unhealthyReason,

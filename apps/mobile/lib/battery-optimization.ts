@@ -1,12 +1,37 @@
 import { Platform } from "react-native";
 
-import { isIgnoringBatteryOptimizations } from "../modules/crm-battery";
+import {
+  isBatteryModuleLoaded,
+  isIgnoringBatteryOptimizations,
+} from "../modules/crm-battery";
 import type { BatteryOptimizationStatus } from "./location-tracking-restart";
 
-export async function readBatteryOptimizationStatus(): Promise<BatteryOptimizationStatus> {
-  if (Platform.OS !== "android") return "unknown";
+export { shouldShowBatteryOptimizationWarning } from "./battery-optimization-logic";
 
-  const ignored = await isIgnoringBatteryOptimizations();
-  if (ignored == null) return "unknown";
-  return ignored ? "unrestricted" : "restricted";
+export type BatteryOptimizationReadResult = {
+  status: BatteryOptimizationStatus;
+  moduleLoaded: boolean;
+  rawIgnoring: boolean | null;
+};
+
+export async function readBatteryOptimizationDetailed(): Promise<BatteryOptimizationReadResult> {
+  if (Platform.OS !== "android") {
+    return { status: "unknown", moduleLoaded: false, rawIgnoring: null };
+  }
+
+  const moduleLoaded = isBatteryModuleLoaded();
+  const raw = await isIgnoringBatteryOptimizations();
+  if (raw == null) {
+    return { status: "unknown", moduleLoaded, rawIgnoring: null };
+  }
+  return {
+    status: raw ? "unrestricted" : "restricted",
+    moduleLoaded,
+    rawIgnoring: raw,
+  };
+}
+
+export async function readBatteryOptimizationStatus(): Promise<BatteryOptimizationStatus> {
+  const detailed = await readBatteryOptimizationDetailed();
+  return detailed.status;
 }

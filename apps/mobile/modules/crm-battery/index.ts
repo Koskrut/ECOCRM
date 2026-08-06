@@ -12,6 +12,10 @@ try {
   nativeModule = null;
 }
 
+export function isBatteryModuleLoaded(): boolean {
+  return nativeModule != null;
+}
+
 export async function isIgnoringBatteryOptimizations(): Promise<boolean | null> {
   if (!nativeModule) return null;
   try {

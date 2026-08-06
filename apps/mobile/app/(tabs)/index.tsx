@@ -65,6 +65,8 @@ export default function TodayScreen() {
     backgroundPermission,
     batteryOptimizationStatus,
     showBatteryHint,
+    backgroundTaskStarted,
+    lastAcceptedAt,
   } = useShiftTracking();
 
   const [items, setItems] = useState<VisitSummary[]>([]);
@@ -359,6 +361,9 @@ export default function TodayScreen() {
             backgroundPermission={backgroundPermission}
             batteryOptimizationStatus={batteryOptimizationStatus}
             trackingMode={trackingMode}
+            healthy={trackingHealthy}
+            backgroundTaskStarted={backgroundTaskStarted}
+            lastAcceptedAt={lastAcceptedAt}
             showBatteryHint={showBatteryHint}
           />
         ) : null}

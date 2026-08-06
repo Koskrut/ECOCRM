@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
 import { Card } from "@/components/ui/Card";
+import { shouldShowBatteryOptimizationWarning } from "@/lib/battery-optimization";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import {
@@ -17,6 +18,9 @@ type Props = {
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
   trackingMode: "background" | "foreground" | "none";
+  healthy?: boolean;
+  backgroundTaskStarted?: boolean;
+  lastAcceptedAt?: string | null;
   /** Extra nudge after a failed foreground restart (in addition to ACTIVE-shift battery warn). */
   showBatteryHint?: boolean;
 };
@@ -25,6 +29,9 @@ export function TrackingHealthBanner({
   backgroundPermission,
   batteryOptimizationStatus,
   trackingMode,
+  healthy = false,
+  backgroundTaskStarted = false,
+  lastAcceptedAt = null,
   showBatteryHint = false,
 }: Props) {
   const theme = useTheme();
@@ -33,20 +40,24 @@ export function TrackingHealthBanner({
     backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
   const needsBattery =
     isAndroid() &&
-    trackingMode !== "none" &&
-    !needsBackground &&
-    batteryOptimizationStatus !== "unrestricted" &&
-    (batteryOptimizationStatus === "restricted" ||
-      batteryOptimizationStatus === "unknown" ||
-      showBatteryHint);
+    shouldShowBatteryOptimizationWarning({
+      batteryStatus: batteryOptimizationStatus,
+      trackingMode,
+      healthy,
+      backgroundTaskStarted,
+      lastAcceptedAt,
+      showBatteryHint,
+    });
 
   if (!needsBackground && !needsBattery) {
     return null;
   }
 
   const batteryTitle =
-    batteryOptimizationStatus === "unknown" ? t("gps.batteryUnknownHint") : t("gps.batteryHint");
-  const title = needsBackground ? t("gps.backgroundHint") : batteryTitle;
+    batteryOptimizationStatus === "unknown"
+      ? t("gps.batteryUnknownHint")
+      : t("gps.batteryHint");
+  const title = needsBackground ? t("gps.backgroundRequiredHint") : batteryTitle;
   const actionLabel = needsBackground ? t("gps.openSettings") : t("gps.batteryOpen");
   const onPress = needsBackground
     ? () => void openLocationPermissionSettings()
@@ -56,7 +67,7 @@ export function TrackingHealthBanner({
     <Card variant="elevated" style={{ marginBottom: theme.spacing.md }}>
       <View style={{ gap: theme.spacing.sm }}>
         <Text style={[theme.typography.caption, { color: theme.colors.warningText, fontWeight: "600" }]}>
-          {needsBackground ? t("gps.trackingForegroundOnly") : t("gps.batteryTitle")}
+          {needsBackground ? t("gps.backgroundRequiredTitle") : t("gps.batteryTitle")}
         </Text>
         <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>{title}</Text>
         <AppButton label={actionLabel} onPress={onPress} variant="secondary" fullWidth />

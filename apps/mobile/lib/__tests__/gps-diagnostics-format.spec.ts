@@ -19,7 +19,18 @@ describe("formatMinutesAgo", () => {
 });
 
 describe("batteryOptimizationLabel", () => {
-  it("explains unknown as check Unrestricted", () => {
-    assert.match(batteryOptimizationLabel("unknown"), /Unrestricted/i);
+  it("shows API unrestricted when rawIgnoring is true", () => {
+    assert.match(batteryOptimizationLabel("unknown", true, true), /Unrestricted \(API\)/i);
+  });
+
+  it("explains unknown when module read is null", () => {
+    assert.match(
+      batteryOptimizationLabel("unknown", null, true),
+      /module not ready or API null/i,
+    );
+  });
+
+  it("marks module unavailable when native module missing", () => {
+    assert.match(batteryOptimizationLabel("unknown", null, false), /module unavailable/i);
   });
 });

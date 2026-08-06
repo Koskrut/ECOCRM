@@ -13,14 +13,21 @@ export function formatMinutesAgo(iso: string | null | undefined, nowMs = Date.no
 }
 
 export function batteryOptimizationLabel(
-  status: "restricted" | "unrestricted" | "unknown",
+  status: "restricted" | "unrestricted" | "unknown" | "module_unavailable",
+  rawIgnoring?: boolean | null,
+  moduleLoaded?: boolean,
 ): string {
+  if (rawIgnoring === true) return "Unrestricted (API)";
+  if (rawIgnoring === false) return "Restricted (API)";
+  if (moduleLoaded === false) return "module unavailable";
   switch (status) {
     case "unrestricted":
       return "Unrestricted";
     case "restricted":
       return "Restricted";
+    case "module_unavailable":
+      return "native module unavailable";
     default:
-      return "unknown — перевірте Unrestricted";
+      return "unknown — module not ready or API null";
   }
 }

@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { AppState, Platform } from "react-native";
 
-import { readBatteryOptimizationStatus } from "./battery-optimization";
+import { readBatteryOptimizationDetailed } from "./battery-optimization";
 import { bootstrapShiftTrackingContext } from "./location-shift-bootstrap";
 import { formatKyivDateKey } from "./date";
 import {
@@ -59,6 +59,11 @@ import {
   ensureFieldTrackingNotificationChannel,
   ensureTrackingNotificationPermission,
 } from "./tracking-notification-channel";
+import {
+  clearGpsStoppedNotificationDedupe,
+  notifyGpsStoppedIfBackgroundTaskDead,
+} from "./location-tracking-alerts";
+import { resolveTrackingModeAfterPermissions } from "./location-tracking-start";
 import { sendTrackingRestartEvent } from "./tracking-telemetry";
 
 export { registerFieldLocationTask };
@@ -102,7 +107,11 @@ export type TrackingDiagnostics = {
   lastRestartAt: string | null;
   restartCountToday: number;
   lastRestartReason: TrackingRestartReason | null;
-  batteryOptimizationStatus: "restricted" | "unrestricted" | "unknown";
+  batteryOptimizationStatus: "restricted" | "unrestricted" | "unknown" | "module_unavailable";
+  batteryModuleLoaded?: boolean;
+  batteryRawIgnoring?: boolean | null;
+  claimedMode?: TrackingMode;
+  actualMode?: TrackingMode;
 };
 
 export type TrackingRuntimeHealth = TrackingDiagnostics & {
@@ -318,28 +327,28 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     const hasBackground = background === "granted";
     const initialTier = DEFAULT_TIER;
 
-    if (hasBackground) {
-      const taskStarted = await startBackgroundUpdates(initialTier);
-      if (!taskStarted) {
-        void appendErrorLog("startLocationTracking: background task failed to start");
-        await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
-        return "none";
-      }
-      await stopForegroundWatch();
-      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
-      startFlushTimer();
-      clearStaleGpsFlushBlockIfNeeded();
-      // Cold start: one foreground fix + flush so first point hits server quickly.
-      void captureImmediateFixAndFlush().catch(() => undefined);
-      return "background";
+    if (!hasBackground) {
+      void appendErrorLog("startLocationTracking: background permission required (Always)", "warn");
+      await stopForegroundWatch().catch(() => undefined);
+      await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => undefined);
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+      return "none";
     }
 
-    await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => undefined);
-    await startForegroundWatch(initialTier);
-    await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "foreground");
+    const taskStarted = await startBackgroundUpdates(initialTier);
+    const mode = resolveTrackingModeAfterPermissions(foreground, background, taskStarted);
+    if (mode === "none") {
+      void appendErrorLog("startLocationTracking: background task failed to start");
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+      return "none";
+    }
+    await stopForegroundWatch();
+    await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
     startFlushTimer();
+    clearStaleGpsFlushBlockIfNeeded();
+    void clearGpsStoppedNotificationDedupe().catch(() => undefined);
     void captureImmediateFixAndFlush().catch(() => undefined);
-    return "foreground";
+    return "background";
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     void appendErrorLog(`startLocationTracking: ${message}`);
@@ -548,18 +557,10 @@ export async function resumeTrackingIfNeeded(
         return restarted;
       }
       if (mode === "foreground") {
-        const { getForegroundSubscription } = await import("./location-tracking-adaptive");
-        if (!getForegroundSubscription()) {
-          await startForegroundWatch(getCurrentForegroundTier());
-        }
         return maybeUpgradeToBackgroundTracking();
       }
     }
-    const started = await startLocationTracking(shift.id);
-    if (started === "foreground") {
-      return maybeUpgradeToBackgroundTracking();
-    }
-    return started;
+    return startLocationTracking(shift.id);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     void appendErrorLog(`resumeTrackingIfNeeded: ${message}`);
@@ -590,7 +591,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     activeShiftId,
     backgroundTaskStarted,
     restartDiagnostics,
-    batteryStatus,
+    batteryDetailed,
     lastAcceptedAt,
     lastRejectReason,
     lastFlushError,
@@ -600,17 +601,19 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
     Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false),
     getTrackingRestartDiagnostics(),
-    readBatteryOptimizationStatus(),
+    readBatteryOptimizationDetailed(),
     getLastAcceptedAt(),
     getLastRejectReason(),
     getLastFlushError(),
   ]);
+  const batteryStatus = batteryDetailed.status;
   void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
   const foregroundWatchActive = !!getForegroundSubscription();
-  const health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive, {
+  let health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive, {
     lastAcceptedAt,
     requireRecentAccept: !!activeShiftId && state.mode !== "none",
+    backgroundPermission: perms.background,
   });
 
   return {
@@ -631,6 +634,8 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     restartCountToday: restartDiagnostics.restartCountToday,
     lastRestartReason: restartDiagnostics.lastRestartReason,
     batteryOptimizationStatus: batteryStatus,
+    batteryModuleLoaded: batteryDetailed.moduleLoaded,
+    batteryRawIgnoring: batteryDetailed.rawIgnoring,
     lastAcceptedAt,
     lastRejectReason,
     lastFlushError,
@@ -641,6 +646,8 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
   const health = await getTrackingRuntimeHealth();
   return {
     mode: health.mode,
+    claimedMode: health.claimedMode,
+    actualMode: health.actualMode,
     pendingSamples: health.pendingSamples,
     lastFlushAt: health.lastFlushAt,
     lastAcceptedAt: health.lastAcceptedAt ?? null,
@@ -657,6 +664,8 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
     restartCountToday: health.restartCountToday,
     lastRestartReason: health.lastRestartReason,
     batteryOptimizationStatus: health.batteryOptimizationStatus,
+    batteryModuleLoaded: health.batteryModuleLoaded,
+    batteryRawIgnoring: health.batteryRawIgnoring,
   };
 }
 
@@ -806,11 +815,14 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
     );
     if (!started) {
       void appendErrorLog("maintainBackgroundTracking: skip_fgs_start_while_background", "info");
+      void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
     }
     return reportedModeAfterBackgroundRestartAttempt("background", started);
   }
 
   if (mode === "foreground") {
+    // Legacy foreground-only — GPS dies when minimized; treat as inactive.
+    void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
     return "foreground";
   }
 
@@ -834,10 +846,11 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
   );
   if (!started) {
     void appendErrorLog("backgroundWatchdog: skip_fgs_start_while_background", "info");
+    void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
   }
 }
 
-/** Foreground recovery: dead background task → forceRestart (bypass cooldown) + immediate fix. */
+/** Foreground recovery: dead or zombie background task → forceRestart + immediate fix. */
 export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingMode> {
   if (!canStartLocationForegroundService(AppState.currentState)) {
     return "none";
@@ -846,6 +859,10 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
   if (!shiftId) return "none";
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+  if (mode === "foreground") {
+    // Upgrade legacy foreground-only to background if Always was granted in Settings.
+    return maybeUpgradeToBackgroundTracking();
+  }
   if (mode !== "background") {
     return ensureTrackingContinuity({ bypassCooldown: true });
   }
@@ -853,17 +870,32 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
   const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
   );
-  if (started) return "background";
+  const lastAcceptedAt = await getLastAcceptedAt();
+  const acceptStale = reconcileTrackingHealth("background", started, false, {
+    lastAcceptedAt,
+    requireRecentAccept: true,
+  }).acceptStale;
 
-  const restarted = await ensureBackgroundTaskRunning(shiftId, "foregroundRecover", {
-    bypassCooldown: true,
-  });
-  if (restarted === "background") {
-    startFlushTimer();
-    clearStaleGpsFlushBlockIfNeeded();
-    await captureImmediateFixAndFlush().catch(() => false);
+  // Dead FGS, or Expo #47595 zombie (notification alive, no location callbacks).
+  if (!started || acceptStale) {
+    const restarted = await ensureBackgroundTaskRunning(shiftId, "foregroundRecover", {
+      bypassCooldown: true,
+    });
+    if (restarted === "background") {
+      startFlushTimer();
+      clearStaleGpsFlushBlockIfNeeded();
+      void clearGpsStoppedNotificationDedupe().catch(() => undefined);
+      await flushPendingSamples(shiftId).catch(() => undefined);
+      await captureImmediateFixAndFlush().catch(() => false);
+      return "background";
+    }
+    return restarted;
   }
-  return restarted;
+
+  void clearGpsStoppedNotificationDedupe().catch(() => undefined);
+  await flushPendingSamples(shiftId).catch(() => undefined);
+  await captureImmediateFixAndFlush().catch(() => false);
+  return "background";
 }
 
 /** @deprecated Use maintainBackgroundTracking on background and maybeUpgradeToBackgroundTracking on active. */

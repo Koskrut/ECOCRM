@@ -68,14 +68,23 @@ describe("reconcileTrackingHealth", () => {
     assert.equal(health.actualMode, "none");
   });
 
-  it("is healthy when foreground subscription is active", () => {
+  it("foreground-only mode is always unhealthy (no silent foreground tracking)", () => {
     const now = Date.parse("2026-07-31T12:00:00.000Z");
     const health = reconcileTrackingHealth("foreground", false, true, {
       lastAcceptedAt: new Date(now - 30_000).toISOString(),
       nowMs: now,
+      backgroundPermission: "granted",
     });
-    assert.equal(health.healthy, true);
+    assert.equal(health.healthy, false);
     assert.equal(health.actualMode, "foreground");
+  });
+
+  it("background without Always permission is unhealthy", () => {
+    const health = reconcileTrackingHealth("background", true, false, {
+      requireRecentAccept: false,
+      backgroundPermission: "denied",
+    });
+    assert.equal(health.healthy, false);
   });
 
   it("treats running background task as actual mode over stale foreground claim", () => {
@@ -83,9 +92,10 @@ describe("reconcileTrackingHealth", () => {
     const health = reconcileTrackingHealth("foreground", true, true, {
       lastAcceptedAt: new Date(now).toISOString(),
       nowMs: now,
+      backgroundPermission: "granted",
     });
     assert.equal(health.actualMode, "background");
-    assert.equal(health.healthy, true);
+    assert.equal(health.healthy, false);
   });
 });
 

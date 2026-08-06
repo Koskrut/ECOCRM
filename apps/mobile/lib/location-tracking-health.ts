@@ -139,6 +139,7 @@ export function reconcileTrackingHealth(
     nowMs?: number;
     /** When false, skip accept-staleness (e.g. tracking disabled / no shift). */
     requireRecentAccept?: boolean;
+    backgroundPermission?: string | null;
   },
 ): TrackingHealthSnapshot {
   let actualMode: TrackingMode = "none";
@@ -158,7 +159,14 @@ export function reconcileTrackingHealth(
     : false;
 
   const nativeHealthy = !shouldRestartBackground && !missingForegroundWatch && !claimedButDead;
-  const healthy = nativeHealthy && !acceptStale;
+  let healthy = nativeHealthy && !acceptStale;
+
+  if (
+    claimedMode === "foreground" ||
+    (claimedMode !== "none" && opts?.backgroundPermission != null && opts.backgroundPermission !== "granted")
+  ) {
+    healthy = false;
+  }
 
   return {
     claimedMode,

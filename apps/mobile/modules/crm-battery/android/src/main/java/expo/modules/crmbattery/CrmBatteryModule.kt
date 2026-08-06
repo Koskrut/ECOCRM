@@ -11,7 +11,7 @@ class CrmBatteryModule : Module() {
     Name("CrmBattery")
 
     AsyncFunction("isIgnoringBatteryOptimizations") {
-      val context = appContext.reactContext ?: return@AsyncFunction false
+      val context = appContext.reactContext ?: return@AsyncFunction null
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
         return@AsyncFunction true
       }

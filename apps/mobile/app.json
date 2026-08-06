@@ -64,6 +64,7 @@
           "locationAlwaysAndWhenInUsePermission": "CRM збирає координати у фоні під час активної зміни.",
           "locationWhenInUsePermission": "CRM використовує геолокацію для перевірки візитів і треку маршруту.",
           "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
       ],

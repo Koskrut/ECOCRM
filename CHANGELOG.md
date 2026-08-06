@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.142**.)_
+_(планируемые изменения после **0.2.143**.)_
+
+## [0.2.143] — 2026-08-06
+
+### Summary
+
+Патч **0.2.143**: mobile GPS tracking health v3 — FGS recovery, GPS-stopped alerts, smarter battery nag.
+
+### Added
+
+- **Mobile GPS stopped alert**: local notification when Android background FGS dies while app minimized (`location-tracking-alerts`).
+- **Battery optimization logic**: suppress battery nag when tracking is healthy with fresh accepts (`battery-optimization-logic`).
+
+### Changed
+
+- **Mobile tracking recovery**: `recoverDeadBackgroundTaskOnForeground` on app resume; `lastAcceptedAt` in shift context + health banner.
+- **Android FGS**: `isAndroidForegroundServiceEnabled` in expo-location plugin config.
+- **Debug panel**: claimed vs actual tracking mode; battery module loaded/raw API status.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.143`** (образы без функциональных изменений backend/web).
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен.
 
 ## [0.2.142] — 2026-08-06
 
